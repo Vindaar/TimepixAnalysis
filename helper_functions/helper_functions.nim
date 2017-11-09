@@ -36,6 +36,8 @@ proc mean*[T](array: seq[T]): float =
 proc getListOfFiles*(folder: string, regex = ""): seq[string] = 
   # returns a list of files from folder
   result = @[]
+  if existsDir(folder) == false:
+    return result
   for file in walkDirRec(folder):
     #if file.match re(regex):
     if match(file, re(regex)):

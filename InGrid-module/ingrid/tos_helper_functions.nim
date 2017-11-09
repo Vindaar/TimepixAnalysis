@@ -1,6 +1,15 @@
 import os, ospaths
 import strutils
 import times
+import algorithm
+import re
+
+type 
+  # an object, which stores information about a run's start, end and length
+  RunTimeInfo* = object
+    t_start*: Time
+    t_end*: Time
+    t_length*: TimeInterval
 
 
 proc parseTOSDateString*(date_str: string): Time = 
@@ -21,6 +30,19 @@ proc readDateFromEvent*(filepath: string): string =
       continue
 
   return date_str
+
+proc formatAsOrgDate*(t: Time, org_format = "yyyy-MM-dd ddd H:mm"): string =
+  # this procedure formats the given Time object as an org-mode date
+  # by first converting it to a TimeInfo object
+  let ti = getLocalTime(t)
+  result = format(ti, org_format)
+
+proc getTimeFromEvent*(file: string): Time = 
+  # this procedure returns the time info from an event,
+  # given the filename by parsing the TOS date syntax
+  let date_str = readDateFromEvent(file)
+  result = parseTOSDateString(date_str)
+
 
 proc readListOfFilesAndGetTimes*(path: string, list_of_files: seq[string]): seq[Time] = 
   # function analogues to walkRunFolderAndGetTimes except we read all files
@@ -69,3 +91,24 @@ proc writeDateSeqToFile*(date_seq: seq[Time]): void =
       f.write(str)
   f.close()
 
+
+proc getRunTimeInfo*(run_files: seq[string]): RunTimeInfo =
+  # this procdure creates a RunTimeInfo object from a given list of files
+  # in a run folder (not sorted). The list is sorted and then the first and
+  # last event are read, converted to Time objects and the length of the run 
+  # is calculated from the difference between both events
+  result = RunTimeInfo()
+
+  # sort list of files
+  let sorted_files = sorted(run_files, system.cmp[string])
+  let first_file = sorted_files[0]
+  let last_file  = sorted_files[^1]
+
+  let time_first = getTimeFromEvent(first_file)
+  let time_last  = getTimeFromEvent(last_file)
+
+  let run_length = initInterval(seconds=int(time_last - time_first))
+  
+  result.t_start = time_first
+  result.t_end = time_last 
+  result.t_length = run_length

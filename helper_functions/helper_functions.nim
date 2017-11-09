@@ -4,6 +4,7 @@ import tables
 import algorithm
 import future
 import os
+import re
 
 # a simple collection of useful function for nim, mostly regarding arrays
 # and sequences

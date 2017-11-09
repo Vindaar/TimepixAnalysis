@@ -1,7 +1,6 @@
 import ospaths
 import os
 import re
-import tables
 import sequtils, future
 import strutils
 import helper_functions

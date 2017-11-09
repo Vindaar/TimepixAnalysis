@@ -1,5 +1,9 @@
 import strutils
 import sequtils
+import tables
+import algorithm
+import future
+import os
 
 # a simple collection of useful function for nim, mostly regarding arrays
 # and sequences
@@ -28,16 +32,16 @@ proc mean*[T](array: seq[T]): float =
   result = result / n_elements
 
 
-proc sortInodeTable*(inode_table: OrderedTable[int, string]): OrderedTable[int, string] =
+proc sortInodeTable*(inode_table: var OrderedTable[int, string]) =
   # this procedure sorts the given inode table by inode, to provide faster read
-  # speeds
+  # speeds. It uses in place sorting!
   # inputs:
   #   inode_table: OrderedTable[int, string] which contains a filename together with the
   #     corresponding inode
 
   # this one liner uses the sorted() to create a sorted copy of inode_table. It uses 
   # system.cmp[int] (the int comparison procedure) to compare the inodes
-  result = sorted(inode_table, proc(x, y: (int, string)): int = system.cmp[int](x[0], y[0]))
+  sort(inode_table, proc(x, y: (int, string)): int = system.cmp[int](x[0], y[0]))
 
 
 proc createInodeTable*(list_of_files: seq[string]): OrderedTable[int, string] =

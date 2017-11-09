@@ -21,14 +21,6 @@ type
     posttrig*: int
     trigrec*: int
 
-proc getListOfFiles*(folder: string, regex = ""): seq[string] = 
-  # returns a list of files from folder
-  result = @[]
-  for file in walkDirRec(folder):
-    #if file.match re(regex):
-    if match(file, re(regex)):
-      result.add(file)
-
 proc walkRunFolderAndGetFadcFiles*(folder: string): seq[string] = 
   # walks a run folder and returns a seq of FADC filename strings
   

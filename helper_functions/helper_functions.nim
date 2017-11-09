@@ -32,6 +32,14 @@ proc mean*[T](array: seq[T]): float =
   result = result / n_elements
 
 
+proc getListOfFiles*(folder: string, regex = ""): seq[string] = 
+  # returns a list of files from folder
+  result = @[]
+  for file in walkDirRec(folder):
+    #if file.match re(regex):
+    if match(file, re(regex)):
+      result.add(file)
+
 proc sortInodeTable*(inode_table: var OrderedTable[int, string]) =
   # this procedure sorts the given inode table by inode, to provide faster read
   # speeds. It uses in place sorting!

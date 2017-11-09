@@ -4,6 +4,7 @@ import re
 import sequtils, future
 import strutils
 import helper_functions
+import algorithm
 
 type
   # object to save FADC data from file into

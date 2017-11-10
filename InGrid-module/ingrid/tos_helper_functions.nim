@@ -119,14 +119,14 @@ proc getRunTimeInfo*(run_files: seq[string]): RunTimeInfo =
     
 
 
-proc readEventHeader*(filepath: string): Table[string, string] =
-  # this procedure reads a whole event header and returns 
-  # a table containing the data, where the key is the key from the data file
+# proc readEventHeader*(filepath: string): Table[string, string] =
+#   # this procedure reads a whole event header and returns 
+#   # a table containing the data, where the key is the key from the data file
 
-  # we define a regex for the header of the file
-  let regex = r"^##.(.*:)\S(.*)$"
-  for line in lines filepath:
-    echo line, "\t", line.match(re(regex))
+#   # we define a regex for the header of the file
+#   let regex = r"^##.(.*:)\S(.*)$"
+#   for line in lines filepath:
+#     echo line, "\t", line.match(re(regex))
     #if line.match(re):
     #   # if dateTime is found, split, assign to string and break from while
     #   let line_seq = split(line, " ")

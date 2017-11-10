@@ -35,11 +35,15 @@ proc mean*[T](array: seq[T]): float =
 
 proc getListOfFiles*(folder: string, regex = ""): seq[string] = 
   # returns a list of files from folder
+  # NOTE: see a unit test for getListOfFiles for a suitable regex to 
+  # get a list of data*.txt files in a run folder
   result = @[]
   if existsDir(folder) == false:
     return result
+  var count = 0
   for file in walkDirRec(folder):
     #if file.match re(regex):
+    count = count + 1
     if match(file, re(regex)):
       result.add(file)
 
@@ -73,3 +77,15 @@ proc createInodeTable*(list_of_files: seq[string]): OrderedTable[int, string] =
   #   let ino = int(getFileInfo(file).id.file)
   #   result[file] = ino
 
+
+
+when isMainModule:
+  # unit test for a regex to check for 
+  import re
+  let test_names = @["/home/schmidt/CastData/data/2017/DataRuns/Run_84_171108-17-49/data013062.txt",
+                     "/home/schmidt/CastData/data/2017/DataRuns/Run_84_171108-17-49/data015665.txt-fadc"]
+
+  let regex = r"^/([\w-_]+/)*data\d{6}\.txt$"
+  assert match(test_names[0], re(regex)) == true
+  assert match(test_names[1], re(regex)) == false
+  echo "All unit tests for regex passed for data*.txt files passed."

@@ -46,7 +46,8 @@ proc main() =
     run_folder = paramStr(1)
     
   # now we have a run folder, which we can work on
-  let files = getListOfFiles(run_folder, r"^.*data\d\d\d\d\d\d\.txt$")
+  let regex = r"^/([\w-_]+/)*data\d{6}\.txt$"
+  let files = getListOfFiles(run_folder, regex)
   if len(files) == 0:
     echo "Either folder ", run_folder, " does not exist, or it is empty."
     quit()
@@ -76,3 +77,5 @@ proc main() =
 
 when isMainModule:
   main()
+
+

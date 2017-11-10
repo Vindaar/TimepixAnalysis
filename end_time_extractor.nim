@@ -17,7 +17,7 @@ proc main() =
     quit()
 
   let input_file = paramStr(1)
-
+  
   # first check whether the input really is a .tar.gz file
   let is_tar = ".tar.gz" in input_file
 

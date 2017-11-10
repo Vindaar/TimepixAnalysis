@@ -3,6 +3,7 @@ import strutils
 import times
 import algorithm
 import re
+import tables
 
 type 
   # an object, which stores information about a run's start, end and length
@@ -19,17 +20,16 @@ proc parseTOSDateString*(date_str: string): Time =
   return date
 
 proc readDateFromEvent*(filepath: string): string = 
-  var date_str = ""
+  # procedure opens the given file and returns the dateTime value
+  # (TOS syntaxed date string)
   for line in lines filepath:
     if "dateTime" in line:
       # if dateTime is found, split, assign to string and break from while
       let line_seq = split(line, " ")
-      date_str = line_seq[high(line_seq)]
+      result = line_seq[high(line_seq)]
       break
     else:
       continue
-
-  return date_str
 
 proc formatAsOrgDate*(t: Time, org_format = "yyyy-MM-dd ddd H:mm"): string =
   # this procedure formats the given Time object as an org-mode date
@@ -112,3 +112,27 @@ proc getRunTimeInfo*(run_files: seq[string]): RunTimeInfo =
   result.t_start = time_first
   result.t_end = time_last 
   result.t_length = run_length
+
+
+# type
+#   EventHeader* = object
+    
+
+
+proc readEventHeader*(filepath: string): Table[string, string] =
+  # this procedure reads a whole event header and returns 
+  # a table containing the data, where the key is the key from the data file
+
+  # we define a regex for the header of the file
+  let regex = r"^##.(.*:)\S(.*)$"
+  for line in lines filepath:
+    echo line, "\t", line.match(re(regex))
+    #if line.match(re):
+    #   # if dateTime is found, split, assign to string and break from while
+    #   let line_seq = split(line, " ")
+    #   result = line_seq[high(line_seq)]
+    #   break
+    # else:
+    #   continue
+
+  

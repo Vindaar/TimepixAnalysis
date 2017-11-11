@@ -114,25 +114,18 @@ proc getRunTimeInfo*(run_files: seq[string]): RunTimeInfo =
   result.t_length = run_length
 
 
-# type
-#   EventHeader* = object
-    
-
-
-# proc readEventHeader*(filepath: string): Table[string, string] =
-#   # this procedure reads a whole event header and returns 
-#   # a table containing the data, where the key is the key from the data file
-
-#   # we define a regex for the header of the file
-#   let regex = r"^##.(.*:)\S(.*)$"
-#   for line in lines filepath:
-#     echo line, "\t", line.match(re(regex))
-    #if line.match(re):
-    #   # if dateTime is found, split, assign to string and break from while
-    #   let line_seq = split(line, " ")
-    #   result = line_seq[high(line_seq)]
-    #   break
-    # else:
-    #   continue
-
+proc readEventHeader*(filepath: string): Table[string, string] =
+  # this procedure reads a whole event header and returns 
+  # a table containing the data, where the key is the key from the data file
+  result = initTable[string, string]()
+  
+  # we define a regex for the header of the file
+  let regex = r"^\#{2}\s(\w+):\s+\b(\S*)\b"
+  var matches: array[2, string]
+  for line in lines filepath:
+    if line.match(re(regex), matches):
+      # get rid of whitespace and add to result
+      let key = matches[0]
+      let val = matches[1]
+      result[key] = val
   

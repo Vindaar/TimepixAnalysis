@@ -15,6 +15,20 @@ proc arange*(start, stop, step: int): seq[int] =
     if (i - start) mod step == 0:
       result.add(i)
 
+proc linspace*(start, stop: float, num: int): seq[float] =
+  # linspace similar to numpy's linspace
+  result = @[]
+  var step = start
+  let diff = (stop - start) / float(num)
+  if diff < 0:
+    # in case start is bigger than stop, return an empty sequence
+    return @[]
+  else:
+    for i in 0..<num:
+      result.add(step)
+      # for every element calculate new value for next iteration
+      step += diff
+
 proc boolFromArrayOfIndices*(array: seq[int]): seq[bool] = 
   result = @[]
   for i in 0..<array[array.high]:

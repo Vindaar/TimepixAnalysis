@@ -4,6 +4,7 @@ import tables
 import algorithm
 import future
 import os
+import osproc
 import re
 
 # a simple collection of useful function for nim, mostly regarding arrays
@@ -90,6 +91,60 @@ proc createInodeTable*(list_of_files: seq[string]): OrderedTable[int, string] =
   # for file in list_of_files:
   #   let ino = int(getFileInfo(file).id.file)
   #   result[file] = ino
+
+
+proc untarFile*(filepath: string): string =
+  # this procedure extracts the given *.tar.gz file of a run to the folder, in
+  # which it is located, by making a system call to tar -xzf
+  # inputs:
+  #   filepath: string = the absolute path to the run file to be extracted
+  # outputs:
+  #   on success: the path to the extracted run folder
+  #   on failure: nil
+
+  # if successful, it will return the path to the extracted run folder
+  let (dir, name_tar, ext) = splitFile(filepath)
+  # the name given by splitFile only removes the leading dot. Leaves us with
+  # .tar, which we need to remove
+  let name = split(name_tar, ".tar")[0]
+  # # given the directory, make system call to tar and extract the folder
+  let cmd_tar = "tar -xzf " & filepath & " --directory " & dir
+
+  echo "System call to tar:\n\t", cmd_tar
+  var (x, y) = execCmdEx(cmd_tar)
+  if y != 0:
+    echo "Warning: the extraction failed with exit status: x = ", x, " y = ", y
+    return nil
+  else:
+    # in this case tar returned 0 (== success)
+    # now that we have extracted the folder, get list of files in run folder
+    result = joinPath(dir, name)
+
+
+proc removeFolder*(folderpath: string): bool =
+  # this procedure removes the folder with the given path, by making a system call to
+  # rm -rf
+  # WARNING: IF YOU HAND A FOLDER TO THIS FUNCTION, IT WILL BE DELETED
+  # inputs:
+  #   folderpath: string = full path to the folder to be deleted
+  # outputs:
+  #   bool = true: successfully deleted folder
+  #   bool = false: either problem during deletion or action stopped by user
+  let cmd_rm = "rm -rf " & folderpath
+  echo "System call to rm:\n\t", cmd_rm
+  echo "Are you sure you want to perform this system call? The folder WILL be deleted! (y/N)"
+  let cont = stdin.readLine()
+  if cont in @["y", "Y"]:
+    let (x, y) = execCmdEx(cmd_rm)
+    if y == 0:
+      echo "... removed folder"
+      result = true
+    else:
+      echo "Warning: something went wrong during deletion of folder. x = ", x, " y =", y
+      result = false
+  else:
+    result = false
+  
 
 
 

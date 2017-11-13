@@ -29,15 +29,26 @@ proc main() =
     echo "Please hand a run folder"
     quit()
 
-  let input_folder = paramStr(1)
-
   var scint1_hits = initTable[string, int]()
   var scint2_hits = initTable[string, int]()
+
+  var input_folder = paramStr(1)
+
+  # first check whether the input really is a .tar.gz file
+  let is_tar = ".tar.gz" in input_folder
+
+  if is_tar:
+    # in this case we need to extract the file to a temp directory
+    input_folder = untarFile(input_folder)
+    if input_folder == nil:
+      echo "Warning: Could not untar the run folder successfully. Exiting now."
+      quit()
 
   # first check whether the input really is a valid folder
   if existsDir(input_folder) == true:
     # get the list of files in the folder
-    let files = getListOfFiles(input_folder, r"^.*data\d\d\d\d\d\d\.txt$")
+    #"/data/schmidt/data/2017/DataRuns/Run_84_171108-17-49/data001101.txt"
+    let files = getListOfFiles(input_folder, r"^/?([\w-_]+/)*data\d{4,6}\.txt$")
     var inode_tab = createInodeTable(files)
     sortInodeTable(inode_tab)
     
@@ -84,6 +95,14 @@ proc main() =
 
   echo "\t Scint1_min = ", min_tup1[0], " in file ", min_tup1[1]
   echo "\t Scint2_min = ", min_tup2[0], " in file ", min_tup2[1]
+
+  # clean up after us, if desired
+  if is_tar:
+    # in this case we need to remove the temp files again
+    # now that we have all information we needed from the run, we can delete the folder again
+    let removed = removeFolder(input_folder)
+    if removed == true:
+      echo "Successfully removed all temporary files."
     
 
 when isMainModule:

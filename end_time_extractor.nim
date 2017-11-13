@@ -27,24 +27,13 @@ proc main() =
   
   if is_tar:
     # in this case we need to extract the file to a temp directory
-    let (dir, name_tar, ext) = splitFile(input_file)
-    # the name given by splitFile only removes the leading dot. Leaves us with
-    # .tar, which we need to remove
-    let name = split(name_tar, ".tar")[0]
-    # given the directory, make system call to tar and extract the folder
-    let cmd_tar = "tar -xzf " & input_file & " --directory " & dir
-    echo "System call to tar:\n\t", cmd_tar
-    var (x, y) = execCmdEx(cmd_tar)
-    if y != 0:
-      echo "Warning: the extraction failed with exit status: x = ", x, " y = ", y
+    run_folder = untarFile(input_file)
+    if run_folder == nil:
+      echo "Warning: Could not untar the run folder successfully. Exiting now."
       quit()
-    else:
-      # in this case tar returned 0 (== success)
-      # now that we have extracted the folder, get list of files in run folder
-      run_folder = joinPath(dir, name)
   else:
     run_folder = paramStr(1)
-    
+
   # now we have a run folder, which we can work on
   let regex = r"^/([\w-_]+/)*data\d{6}\.txt$"
   let files = getListOfFiles(run_folder, regex)
@@ -54,7 +43,7 @@ proc main() =
   echo len(files)
 
   let rt_info = getRunTimeInfo(files)
-
+  
   let parsed_first = formatAsOrgDate(rt_info.t_start)
   let parsed_last  = formatAsOrgDate(rt_info.t_end)      
   
@@ -65,14 +54,9 @@ proc main() =
   if is_tar:
     # in this case we need to remove the temp files again
     # now that we have all information we needed from the run, we can delete the folder again
-    let cmd_rm = "rm -rf " & run_folder
-    echo "System call to rm:\n\t", cmd_rm
-    let (x, y) = execCmdEx(cmd_rm)
-    if y == 0:
-      echo "... removed temp files"
-    else:
-      echo "Warning: something went wrong during deletion of temp files. x = ", x, " y =", y
-
+    let removed = removeFolder(run_folder)
+    if removed == true:
+      echo "Successfully removed all temporary files."
   
 
 when isMainModule:

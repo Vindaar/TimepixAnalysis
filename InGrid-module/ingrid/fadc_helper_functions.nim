@@ -168,3 +168,100 @@ proc buildListOfXrayFiles*(file: string): seq[string] =
         event_list.add(event_name)
         
   return event_list
+
+
+proc plotFadcFile*(file: string) =
+  # a very much work in progress function to plot an FADC file using gnuplot
+  # and perform a simple FFT of the signal
+  import gnuplot
+  import kissfft/kissfft
+  import kissfft/binding
+
+  var fadc_file = readFadcFile(file)
+  echo fadc_file.vals.len
+
+  let pedestal_run = getPedestalRun()
+
+  let fadc_data = fadcFileToFadcData(fadc_file, pedestal_run)
+  echo fadc_data.data.len
+
+  var
+    kiss_fft = kissfft.newKissFFT(2560, false)
+    # f_in: array[2560, binding.kiss_fft_cpx]
+    # f_out: array[2560, binding.kiss_fft_cpx]
+    f_in: array[2560, Complex]
+    f_out: array[2560, Complex]
+
+  for i in 0..<fadc_data.data.len:
+    f_in[i] = toComplex(fadc_data.data[i])
+
+  var r_in: seq[float] = @[]
+  var r_out: seq[float] = @[]  
+  
+  let numbers = arange(0, 2560, 1)
+
+
+  echo f_out[0]
+  transform(kiss_fft, f_in, f_out)
+  echo f_out[0]
+
+  
+  for i in 0..<f_in.len:
+    r_in.add(f_in[i].r)
+    r_out.add(f_out[i].r)
+
+  plot(numbers, r_in)
+  sleep(1000)
+  plot(numbers, r_out)
+
+  #[ Old code to plot also the peak locations of 
+     peaks in the FADC data
+    # var peak_loc: seq[int] = @[]
+
+    # for i in 0..<steps:
+    #   let ind = i * lookahead
+      
+    #   let view = t[ind..(ind + lookahead - 1)]
+      
+    #   let min_ind = findArgOfLocalMin(view, ind)
+      
+    #   var min_range = min_ind - int(lookahead / 2)
+    #   min_range = if min_range > 0: min_range else: 0
+    #   var max_range = min_ind + int(lookahead / 2)
+    #   max_range = if max_range < (t.size - 1): max_range else: t.size - 1
+      
+    #   let min_from_min = findArgOfLocalMin(t[min_range..max_range], min_range)
+    #   if min_ind == min_from_min:
+    #     peak_loc.add(min_ind)
+        
+    # #plotFadcFile(name)
+    # echo "found peaks at"
+    # echo peak_loc
+    # echo "Variance of this file is ", variance(t)
+    # echo "Mean of this file is ", mean(t)
+    # echo "Now dropping all peaks, which are larger than the mean"
+    # var peak_vals: seq[float] = @[]
+    # var i = 0
+    # let cut_value = mean(t) - std(t)
+    # echo "Cut value is ", cut_value
+    # while i < peak_loc.len:
+    #   if t[peak_loc[i]] < cut_value:
+    #     peak_vals.add(t[peak_loc[i]])
+    #   else:
+    #     echo "deleting ", peak_loc[i], " ", i
+    #     peak_loc.delete(i)
+    #     i -= 1
+    #   i += 1
+
+    # var peak_vals: seq[float] = @[]
+    # for p in peak_loc:
+    #   peak_vals.add(t[p])
+
+    # let numbers = arange(0, 2560, 1)
+    # plot(numbers, toRawSeq(t))
+    # plot(peak_loc, peak_vals)
+    #sleep(3000)
+
+  #]
+  
+  

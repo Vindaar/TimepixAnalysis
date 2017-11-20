@@ -92,6 +92,12 @@ proc createInodeTable*(list_of_files: seq[string]): OrderedTable[int, string] =
   #   let ino = int(getFileInfo(file).id.file)
   #   result[file] = ino
 
+proc createSortedInodeTable*(list_of_files: seq[string]): OrderedTable[int, string] =
+  # convenience wrapper around creation and sorting of the Inode table from a list of
+  # files
+  result = createInodeTable(list_of_files)
+  sortInodeTable(result)
+
 
 proc untarFile*(filepath: string): string =
   # this procedure extracts the given *.tar.gz file of a run to the folder, in

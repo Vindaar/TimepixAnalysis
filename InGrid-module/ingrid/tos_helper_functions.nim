@@ -4,6 +4,11 @@ import times
 import algorithm
 import re
 import tables
+import memfiles
+import sequtils, future
+
+# other modules
+import arraymancer
 
 type 
   # an object, which stores information about a run's start, end and length
@@ -12,6 +17,35 @@ type
     t_end*: Time
     t_length*: TimeInterval
 
+  EventHeader* = Table[string, string]
+  ChipHeader*  = Table[string, string]
+  Pixels*      = seq[tuple[x, y, ch: int]]
+
+  Chip* = tuple[name: string, number: int]
+
+  ChipEvent* = object
+    chip*: Chip
+    pixels*: Pixels
+    
+  Event* = object
+    evHeader*: Table[string, string]
+    chips*: seq[ChipEvent]
+
+  # process events stores all data for septemboard
+  # of a given run
+  ProcessedRun* = tuple[
+    # event which stores raw data
+    events: seq[Event],
+    # tots = ToT per pixel of whole run
+    tots: seq[seq[int]],
+    # hits = num hits per event of whole run
+    hits: seq[seq[int]],
+    # occupancies = occupancies of each chip for run
+    #occupancies: Tensor[int]
+    occupancies: seq[Tensor[int]]
+  ]
+    
+    
 
 proc parseTOSDateString*(date_str: string): Time = 
   # function receives a string from a date time from TOS and creates
@@ -42,7 +76,6 @@ proc getTimeFromEvent*(file: string): Time =
   # given the filename by parsing the TOS date syntax
   let date_str = readDateFromEvent(file)
   result = parseTOSDateString(date_str)
-
 
 proc readListOfFilesAndGetTimes*(path: string, list_of_files: seq[string]): seq[Time] = 
   # function analogues to walkRunFolderAndGetTimes except we read all files
@@ -114,6 +147,18 @@ proc getRunTimeInfo*(run_files: seq[string]): RunTimeInfo =
   result.t_length = run_length
 
 
+proc getRegexForEvents*(): tuple[header, chips, pixels: string] = 
+  # this procedure returns a tuple of the regexes used to
+  # read different parts of the events
+  # outputs:
+  #     tuple[header, chips, pixels: string] =
+  #       header: the regex to read the event header
+  #       chips: the regex to read the chip headers
+  #       pixels: the regex to read the pixel data
+  result.header = r"^\#{2}\s(\w+):\s+\b(\S*)\b"
+  result.chips  = r"^\#\s(\w+):\s+\b(\w\ \d{1,2} W\d{2}|\S*)\b"
+  result.pixels = r"^(\d+)\s+(\d+)\s+(\d+)$"
+
 proc readEventHeader*(filepath: string): Table[string, string] =
   # this procedure reads a whole event header and returns 
   # a table containing the data, where the key is the key from the data file
@@ -128,4 +173,116 @@ proc readEventHeader*(filepath: string): Table[string, string] =
       let key = matches[0]
       let val = matches[1]
       result[key] = val
+
+# template createTuple(ln: int) =
   
+##   for i in 0..<ln:
+
+
+
+#template readEventWithRegex(filepath, regex: string): typed =
+proc readEventWithRegex*(filepath: string, regex: tuple[header, chips, pixels: string]): ref Event =#=#: Event =
+  #tuple[h: Table[string, string], c: Table[string, string], p: Table[string, string]]
+  # this template is used to create the needed functions to
+  # - read the event header
+  # - read the chip information for an event
+  # - read the pixel data in an event
+  # either as single functions or as a combination of
+  # all
+  # when type(regex) == string:
+  #   # in this case we deal with a single regex string
+  #   result = newTable[string, string]()
+  #   for line in lines filepath:
+  #     if line.match(re(regex), matches):
+  #       # get rid of whitespace and add to result
+  #       let key = matches[0]
+  #       let val = matches[1]
+  #       result[key] = val
+  # regex[0] == header
+  # regex[1] == chips
+  # regex[2] == pixels
+  # in this case we have a sequence of strings
+  var
+    # variable to count already read pixels
+    pix_counter = 0
+    # variables for regex
+    h_matches: array[2, string]
+    p_matches: array[3, string]
+    # variables to read data into
+    e_header = initTable[string, string]()
+    c_header = initTable[string, string]()
+    pixels: Pixels = @[]
+    # variable to store resulting chip events
+    chips: seq[ChipEvent] = @[]
+  result = new Event
+
+  #for line in lines(memfiles.open(filepath)):      
+  for line in lines filepath:
+    if match(line, re(regex[0]), h_matches) == true:
+      e_header[h_matches[0]] = h_matches[1]
+    elif match(line, re(regex[1]), h_matches) == true:
+      # in case we match a chip header, pix_counter to 0,
+      # need to make sure it is 0, once we reach the first
+      # hit pixel
+      pix_counter = 0      
+      c_header[h_matches[0]] = h_matches[1]
+    elif match(line, re(regex[2]), p_matches) == true:
+      # in this case we have matched a pixel hit line
+      # get number of hits to process
+      let
+        x: int  = parseInt(p_matches[0])
+        y: int  = parseInt(p_matches[1])
+        ch: int = parseInt(p_matches[2])
+      pixels.add((x, y, ch))
+      # after adding pixel, increase pixel counter so that we know when we're
+      # reading the last hit of a given chip
+      inc pix_counter
+      if pix_counter == parseInt(c_header["numHits"]):
+        # now we are reading the last hit, process chip header and pixels
+        var ch_event = ChipEvent()
+        ch_event.chip = (c_header["chipName"], parseInt(c_header["chipNumber"]))
+        ch_event.pixels = pixels
+        # add  the chip event object to the sequence
+        chips.add(ch_event)
+        # reset the pixels sequence
+        pixels = @[]
+
+  result.evHeader = e_header
+  result.chips = chips
+
+
+proc pixelsToTOT*(pixels: Pixels): seq[int] {.inline.} =
+  # extracts all charge values (ToT values) of a given pixels object (all hits
+  # of a single chip in a given event, filters the full values of 11810
+  # inputs:
+  #    pixels: Pixels: input pixel sequence of tuples containing hits of one event
+  # output:
+  #    seq[int]: all ToT values smaller ToT
+  result = filter(map(pixels, (p: tuple[x, y, ch: int]) -> int => p.ch),
+                  (ch: int) -> bool => ch < 11810)
+  
+template addPixelsToOccupancy*(ar: Tensor[int], pixels: Pixels) =
+  # template to add pixels to occupancy by using map
+  #map(pixels, (p: tuple[x, y, c: int]) => ar[p.x, p.y] = p.c)
+  for p in pixels:
+    ar[p.x, p.y] += p.ch
+
+template addPixelsToOccupancySeptem*(ar: var Tensor[int], pixels: Pixels, ch_num: int) =
+  # template to add pixels to occupancy by using map
+  #map(pixels, (p: tuple[x, y, c: int]) => ar[p.x, p.y] = p.c)
+  #proc(ar: var Tensor[int], pixels: Pixels, ch_num: int) =
+  for p in pixels:
+    ar[ch_num, p.x, p.y] += p.ch
+
+
+template echoFilesCounted*(count: int) =
+  inc count
+  if count mod 500 == 0:
+    echo count, " files read."
+
+
+proc rawEventManipulation(filepath: string, regex: tuple[header, chips, pixels: string]): ref Event =
+  # this procedure performs all processing of a single event, from a raw data event to
+  # a processedEvent
+  discard
+#template 

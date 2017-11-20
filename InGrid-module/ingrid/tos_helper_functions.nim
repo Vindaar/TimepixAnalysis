@@ -41,8 +41,8 @@ type
     # hits = num hits per event of whole run
     hits: seq[seq[int]],
     # occupancies = occupancies of each chip for run
-    #occupancies: Tensor[int]
-    occupancies: seq[Tensor[int]]
+    occupancies: Tensor[int]
+    #occupancies: seq[Tensor[int]]
   ]
     
     
@@ -265,24 +265,35 @@ template addPixelsToOccupancy*(ar: Tensor[int], pixels: Pixels) =
   # template to add pixels to occupancy by using map
   #map(pixels, (p: tuple[x, y, c: int]) => ar[p.x, p.y] = p.c)
   for p in pixels:
-    ar[p.x, p.y] += p.ch
+    ar[p.x, p.y] += 1#p.ch
 
 template addPixelsToOccupancySeptem*(ar: var Tensor[int], pixels: Pixels, ch_num: int) =
   # template to add pixels to occupancy by using map
   #map(pixels, (p: tuple[x, y, c: int]) => ar[p.x, p.y] = p.c)
   #proc(ar: var Tensor[int], pixels: Pixels, ch_num: int) =
   for p in pixels:
-    ar[ch_num, p.x, p.y] += p.ch
-
-
-template echoFilesCounted*(count: int) =
-  inc count
-  if count mod 500 == 0:
-    echo count, " files read."
-
+    ar[ch_num, p.x, p.y] += 1#p.ch
 
 proc rawEventManipulation(filepath: string, regex: tuple[header, chips, pixels: string]): ref Event =
   # this procedure performs all processing of a single event, from a raw data event to
   # a processedEvent
   discard
 #template 
+
+
+proc dumpFrameToFile*(filepath: string, ar: Tensor[int]) =
+  # this procedure dumps a given frame (tensor ar needs to be of shape (256, 256)
+  # to a file 'filepath'
+  # inputs:
+  #   filepath: string = the file to write to
+  #   ar: Tensor[int] = a tensor of shape (256, 256) containing the data to be written
+  doAssert(ar.shape == [256, 256])
+  var f: File
+  if open(f, filepath, fmWrite):
+    for x in 0..<256:
+      for y in 0..<256:
+        f.write($ar[x, y] & "\t")
+      f.write("\n")
+  f.close()
+  
+  

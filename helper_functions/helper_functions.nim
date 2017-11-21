@@ -10,6 +10,19 @@ import re
 # a simple collection of useful function for nim, mostly regarding arrays
 # and sequences
 
+template delByElement[T](a: var seq[T], p: T) =
+  # template to delete the given element p from a in place
+  let ind = find(a, p)
+  if ind != -1:
+    del(a, ind)
+
+proc deleteIntersection*[T](a: var seq[T], b: seq[T]) =
+  # procedure to delete intersection of a and b in a
+  # finds all elements of b in a and deletes them, effectively
+  # reducing a to the difference: a - b
+  for p in b:
+    delByElement(a, p)
+
 proc arange*(start, stop, step: int): seq[int] = 
   result = @[]
   for i in start..<stop:
@@ -155,6 +168,7 @@ template echoFilesCounted*(count: int) =
   inc count
   if count mod 500 == 0:
     echo count, " files read."
+
 
 
 

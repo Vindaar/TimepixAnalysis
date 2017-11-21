@@ -274,6 +274,14 @@ template addPixelsToOccupancySeptem*(ar: var Tensor[int], pixels: Pixels, ch_num
   for p in pixels:
     ar[ch_num, p.x, p.y] += 1#p.ch
 
+proc createTensorFromZeroSuppressed*(pixels: Pixels): Tensor[int] =
+  # procedure to create a (256, 256) int array from a Pixels (seq[tuple[x, y, ch]])
+  # object
+  result = zeros[int](256, 256)
+  for p in pixels:
+    result[p.x, p.y] = p.ch
+  
+
 proc rawEventManipulation(filepath: string, regex: tuple[header, chips, pixels: string]): ref Event =
   # this procedure performs all processing of a single event, from a raw data event to
   # a processedEvent

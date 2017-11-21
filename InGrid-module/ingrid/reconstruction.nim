@@ -65,8 +65,8 @@ proc findSimpleCluster*(pixels: Pixels): seq[Cluster] =
   result = @[]
   
   let
-    search_r = 200
-    cutoff_size = 5
+    search_r = 50
+    cutoff_size = 3
 
   # add the first pixel of the given sequence to have a starting pixel, from which we
   # look for other pixels in the cluster
@@ -80,10 +80,8 @@ proc findSimpleCluster*(pixels: Pixels): seq[Cluster] =
     c = concat(c, t)
     # remove elements from t in raw_event
     deleteIntersection(raw_event, t)
-    for p in t:
-      del(raw_event, find(raw_event, p))
-
-    if i == c.len - 1 and raw_event.len > 0:
+    
+    if i == c.len - 1 and raw_event.len > 0: 
       # if we are at the last hit pixel in the event, but raw_events is not empty,
       # this means there is more than 1 cluster in the frame. Thus, add the current
       # cluster 'c' to the seq of clusters and call this function recursively with

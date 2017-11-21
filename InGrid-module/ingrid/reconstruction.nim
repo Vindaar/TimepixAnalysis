@@ -62,7 +62,7 @@ proc findSimpleCluster*(pixels: Pixels): seq[Cluster] =
     raw_event = pixels
     # counter
     i = 0 
-  result = @[]
+  result = @[] #new seq[Cluster]
   
   let
     search_r = 50

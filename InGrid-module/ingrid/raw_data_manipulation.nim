@@ -125,13 +125,12 @@ proc processRawEventData(ch: seq[FlowVar[ref Event]]): ProcessedRun =
   result.hits = hits
   result.occupancies = occ
 
-proc processSingleRun(run_folder: string, h5file_id: hid_t): ProcessedRun =
+proc processSingleRun(run_folder: string): ProcessedRun =
   # this procedure performs the necessary manipulations of a single
   # run. This is the main part of the raw data manipulation
   # inputs:
   #     run_folder: string = the run folder (has to be one!, check with isTosRunFolder())
   #         to be processed
-  #     h5file_id: hid_t   = the file id of the HDF5 file, to which we write the data
 
   # need to:
   # - create list of all data<number>.txt files in the folder
@@ -184,6 +183,15 @@ proc isTosRunFolder(folder: string): tuple[is_rf: bool, contains_rf: bool] =
       # contains a run folder
       if is_rf == true:
         result.contains_rf = true
+
+proc writeProcessedRunToH5(h5file_id: hid_t, run: ProcessedRun) =
+  # this procedure writes the data from the processed run to a HDF5
+  # (opened already) given by h5file_id
+  # inputs:
+  #   h5file_id: hid_t = the file id (integer) pointing to the writable HDF5 file
+  #   run: ProcessedRun = a tuple of the processed run data
+  
+  
   
 proc main() = 
 
@@ -200,7 +208,6 @@ proc main() =
   echo "Is run folder       : ", is_run_folder
   echo "Contains run folder : ", contains_run_folder
 
-  var h5file_id: hid_t = 0
   
   # if we're dealing with a run folder, go straight to processSingleRun()
   if is_run_folder == true and contains_run_folder == false:
@@ -208,24 +215,23 @@ proc main() =
     let a = squeeze(r.occupancies[2,_,_])
     dumpFrameToFile("tmp/frame.txt", a)
 
+    var h5file_id: hid_t = 0
+    h5file_id = H5Fcreate("run_file.h5", H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT)
+    writeProcessedRunToH5(h5file_id, r)
+    H5Fclose( h5file_id )
     let events = r.events
     var count = 0
     for ev in events:
       for c in ev.chips:
-        let t = findSimpleCluster(c.pixels)
-        if len(t) > 1:
-          let tmp = createTensorFromZeroSuppressed(c.pixels)
-          echo "chip ", c.chip, " found ", len(t), " clusters"          
-          dumpFrameToFile("tmp/frame.txt", tmp)
-          sleep(100)
+        let t = spawn findSimpleCluster(c.pixels)
+        # if len(t) > 1:
+        #   let tmp = createTensorFromZeroSuppressed(c.pixels)
+        #   echo "chip ", c.chip, " found ", len(t), " clusters"          
+        #   dumpFrameToFile("tmp/frame.txt", tmp)
+        #   sleep(100)
       echoFilesCounted(count)
+    #sync()
     echo len(events)
-
-    #dumpFrameToFile("tmp/frame.txt", r.occupancies)
-    # for l in r.tots:
-    #   echo l.len
-    # for l in r.hits:
-    #   echo l
     
   elif is_run_folder == false and contains_run_folder == true:
     # in this case loop over all folder again and call processSingleRun() for each

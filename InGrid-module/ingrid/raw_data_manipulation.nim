@@ -20,6 +20,7 @@ import threadpool
 # InGrid-module
 import helper_functions
 import tos_helper_functions
+import reconstruction
 
 # other modules  
 import nimhdf5/H5nimtypes
@@ -53,8 +54,8 @@ proc readRawEventData(run_folder: string): seq[FlowVar[ref Event]] =
   parallel:
     #for tup in pairs(inodes):#pairs(inodes):
     for i, el in (inode_files):
-      # if i > 10000:
-      #   break
+      #if i > 10000:
+      #  break
       if i < len(result):
         result[i] = spawn readEventWithRegex(el, regex_tup)
       echoFilesCounted(count)
@@ -100,7 +101,7 @@ proc processRawEventData(ch: seq[FlowVar[ref Event]]): ProcessedRun =
     
   count = 0
   for i in 0..<ch.high:
-  #for i in 0..<10000:    
+  #for i in 0..<10000:
     let a: Event = (^ch[i])[]
     events.add(a)
     let chips = a.chips
@@ -206,6 +207,20 @@ proc main() =
     let r = processSingleRun(folder, h5file_id)
     let a = squeeze(r.occupancies[2,_,_])
     dumpFrameToFile("tmp/frame.txt", a)
+
+    let events = r.events
+    var count = 0
+    for ev in events:
+      for c in ev.chips:
+        let t = findSimpleCluster(c.pixels)
+        if len(t) > 1:
+          let tmp = createTensorFromZeroSuppressed(c.pixels)
+          echo "chip ", c.chip, " found ", len(t), " clusters"          
+          dumpFrameToFile("tmp/frame.txt", tmp)
+          sleep(100)
+      echoFilesCounted(count)
+    echo len(events)
+
     #dumpFrameToFile("tmp/frame.txt", r.occupancies)
     # for l in r.tots:
     #   echo l.len

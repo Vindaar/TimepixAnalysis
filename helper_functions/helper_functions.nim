@@ -10,6 +10,18 @@ import re
 # a simple collection of useful function for nim, mostly regarding arrays
 # and sequences
 
+# proc sum*[T](s: seq[T]): T {.inline.} =
+#   # this procedure sums the given array along the given axis
+#   # if T is itself e.g. a tuple, we will return a tuple, one
+#   # element for each field in the tuple
+#   assert s.len > 0, "Can't sum empty sequences"
+#   let n_fields = len(s[0])
+#   var sum_t = T
+#   for p in s:
+#     for i in 0..<n_fields:
+#       sum_t[i] += p[i]
+  
+
 template delByElement[T](a: var seq[T], p: T) =
   # template to delete the given element p from a in place
   let ind = find(a, p)

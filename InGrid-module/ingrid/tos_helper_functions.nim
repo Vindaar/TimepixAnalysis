@@ -19,7 +19,13 @@ type
 
   EventHeader* = Table[string, string]
   ChipHeader*  = Table[string, string]
-  Pixels*      = seq[tuple[x, y, ch: int]]
+  Pix*          = tuple[x, y, ch: int]
+  Pixels*      = seq[Pix]
+
+  Pixels_prot = object#Table[string, seq[int]]
+    x:  seq[int]
+    y:  seq[int]
+    ch: seq[int]
 
   Chip* = tuple[name: string, number: int]
 
@@ -334,5 +340,99 @@ proc dumpFrameToFile*(filepath: string, ar: Tensor[int]) =
         f.write($ar[x, y] & "\t")
       f.write("\n")
   f.close()
+
+template writeSeqsToFile[T](filename, header, element_header: string, collection: seq[seq[T]]) =
+  # a template to construct different write file procedures with different headers
+  var f: File
+  let n_el = len(collection)
+  for index in 0..<n_el:
+    # use index to determine filename
+    let fname = replacef(filename, re"(.*)\.txt", by = "$1_" & $index & ".txt")
+    let n_in_el = len(collection[index])
+    if open(f, fname, fmWrite):
+      f.write("# " & header & "for element " & element_header & $index & "\n")
+      for i in 0..<n_in_el:
+        f.write($collection[index][i] & "\n")
+    else:
+      echo "Warning: Could not open file " & filename & " to write."
+
+proc writeHitsFile[T](filename: string, collection: seq[seq[T]]) =
+  # procedure to write the number of hits in a given run to file by
+  # calling writeSeqsToFile template
+  let header = "Hits per Event"
+  let element_header = "Chip "
+  writeSeqsToFile(filename, header, element_header, collection)
+
+proc writeToTFile[T](filename: string, collection: seq[seq[T]]) =
+  # procedure to write the ToT values per pixel in a given run to file by
+  # calling writeSeqsToFile template
+  let header = "ToT per pixel"
+  let element_header = "Chip "
+  writeSeqsToFile(filename, header, element_header, collection)
+  
+
+proc dumpToTandHits*(tots, hits: seq[seq[int]]) =
+  # this procedure dumps the ToT and Hits sequences to .txt files
+  # in the out/ folder
+  for i in 0..<7:
+    echo "Chip " & $i & ":"
+    echo "\tToT : " & $len(tots[i]) & "\t" & $len(tots)
+    echo "\tHits: " & $len(hits[i])
+  writeHitsFile("out/hits.txt", hits)
+  writeToTFile("out/tot.txt", tots)
+
+
+# proc sum*[T: tuple](s: seq[T]): T {.inline.} =
+#   # this procedure sums the given array along the given axis
+#   # if T is itself e.g. a tuple, we will return a tuple, one
+#   # element for each field in the tuple
+#   assert s.len > 0, "Can't sum empty sequences"
+#   var sum_t: T
+#   for p in s:
+#     for n, f in fieldPairs(p):
+#       sum_t[f] += p[n]
+  
+proc calcCentroidOfEvent*(pix: Pixels): tuple[x, y: float] =
+  # proc to calc centroid of the given pixels
+  # inputs:
+  #    pixels object (seq[tuple[x, y, ch: int]]) containing raw event
+  # outputs:
+  #    tuple[x, y: int]: tuple containing centroid x and y position
+  # let x = map(pix, (p: tuple[x, y, ch: int]) -> int => p.x)
+  # let y = map(pix, (p: tuple[x, y, ch: int]) -> int => p.y)
+  # let sum_x = foldl(x, a + b)
+  # let sum_y = foldl(y, a + b)
+  var
+    sum_x: int = 0
+    sum_y: int = 0
+  for p in pix:
+    sum_x += p.x
+    sum_y += p.y
+  #let (sum_x, sum_y, sum_ch) = sum(pix)
+  result.x = float(sum_x) / float(len(pix))
+  result.y = float(sum_y) / float(len(pix))
   
   
+proc isNearCenterOfChip*(pix: Pixels): bool =
+  # proc to check whether event is located around center of chip
+  # inputs:
+  #    pixels object (seq[tuple[x, y, ch: int]]) containing raw event
+  # outputs:
+  #    true if within 4.5mm center square, false otherwise
+  let (center_x, center_y) = calcCentroidOfEvent(pix)
+  # pitch in um 
+  let pitch = 0.05
+  let n_pix_to_bound = 2.25 / pitch
+  # center pixel is (127, 127)
+  let center_pix = 127'f
+  var
+    in_x = false
+    in_y = false
+  if center_x > (center_pix - n_pix_to_bound) and center_x < (center_pix + n_pix_to_bound):
+    in_x = true
+  if center_y > (center_pix - n_pix_to_bound) and center_y < (center_pix + n_pix_to_bound):  
+    in_y = true
+  if in_x == true and in_y == true:
+    result = true
+  else:
+    result = false

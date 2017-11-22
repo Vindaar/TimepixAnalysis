@@ -145,7 +145,13 @@ proc processRawEventData(ch: seq[FlowVar[ref Event]]): ProcessedRun =
       tot_run[num].add(tot_event)
       let n_pix = len(tot_event)
       if n_pix > 0:
-        hits[num].add(n_pix)
+        # if the compiler flag (-d:CUT_ON_CENTER) is set, we cut all events, which are
+        # in the center 4.5mm^2 square of the chip
+        when defined(CUT_ON_CENTER):
+          if isNearCenterOfChip(pixels) == true:
+            hits[num].add(n_pix)
+        else:
+          hits[num].add(n_pix)            
     echoFilesCounted(count)
 
   # using concatenation, flatten the seq[seq[int]] into a seq[int] for each chip
@@ -242,36 +248,52 @@ proc main() =
   
   # if we're dealing with a run folder, go straight to processSingleRun()
   if is_run_folder == true and contains_run_folder == false:
-    let r = processSingleRun(folder, h5file_id)
+    let r = processSingleRun(folder)
+
     let a = squeeze(r.occupancies[2,_,_])
     dumpFrameToFile("tmp/frame.txt", a)
 
     var h5file_id: hid_t = 0
-    h5file_id = H5Fcreate("run_file.h5", H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT)
-    writeProcessedRunToH5(h5file_id, r)
-    H5Fclose( h5file_id )
+    # h5file_id = H5Fcreate("run_file.h5", H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT)
+    # writeProcessedRunToH5(h5file_id, r)
+    # H5Fclose( h5file_id )
     let events = r.events
     var count = 0
-    for ev in events:
-      for c in ev.chips:
-        let t = spawn findSimpleCluster(c.pixels)
-        # if len(t) > 1:
-        #   let tmp = createTensorFromZeroSuppressed(c.pixels)
-        #   echo "chip ", c.chip, " found ", len(t), " clusters"          
-        #   dumpFrameToFile("tmp/frame.txt", tmp)
-        #   sleep(100)
-      echoFilesCounted(count)
+    # for ev in events:
+    #   for c in ev.chips:
+    #     let t = spawn findSimpleCluster(c.pixels)
+    #     # if len(t) > 1:
+    #     #   let tmp = createTensorFromZeroSuppressed(c.pixels)
+    #     #   echo "chip ", c.chip, " found ", len(t), " clusters"          
+    #     #   dumpFrameToFile("tmp/frame.txt", tmp)
+    #     #   sleep(100)
+    #   echoFilesCounted(count)
     #sync()
-    echo len(events)
-    
+    echo "Size of total ProcessedRun object = ", sizeof(r)
+    echo "Length of tots and hits for each chip"
+    # dump sequences to file
+    dumpToTandHits(r.tots, r.hits)
+        
   elif is_run_folder == false and contains_run_folder == true:
     # in this case loop over all folder again and call processSingleRun() for each
     # run folder
+
+    var
+      # create variables to store a combined sequence for all runs
+      hits_all: seq[seq[int]] = newSeq[seq[int]](7)
+      tots_all: seq[seq[int]] = newSeq[seq[int]](7)
     for kind, path in walkDir(folder):
       if kind == pcDir:
         # only support run folders, not nested run folders
         let is_rf = if isTosRunFolder(path) == (true, false): true else: false
-        let r = processSingleRun(path, h5file_id)
+        let r = processSingleRun(path)
+        for i in 0..<len(r.hits):
+          hits_all[i] = concat(hits_all[i], r.hits[i])
+          tots_all[i] = concat(tots_all[i], r.tots[i])
+    # dump sequences to file
+    dumpToTandHits(tots_all, hits_all)
+        
+        
   elif is_run_folder == true and contains_run_folder == true:
     echo "Currently not implemented to run over nested run folders."
     quit()

@@ -179,10 +179,24 @@ proc readEventHeader*(filepath: string): Table[string, string] =
 ##   for i in 0..<ln:
 
 
+proc readMemFilesIntoBuffer*(list_of_files: seq[string]): seq[seq[string]] =
+  # procedure which reads a list of files via memory mapping and returns
+  # the thus read data as a sequence of MemFiles
+  # inputs:
+  #    list_of_files: seq[string] = seq of strings containing the filenames to be read
+  # outputs:
+  #    seq[var MemFile] = seq of memmapped files with data to work on
+  result = @[]
+  
+  for f in list_of_files:
+    var ff: MemFile = memfiles.open(f, mode = fmRead, mappedSize = -1)
+    var dat: seq[string] = @[]
+    for l in lines(f):
+      dat.add(l)
+    ff.close()
+    result.add(dat)
 
-#template readEventWithRegex(filepath, regex: string): typed =
-proc readEventWithRegex*(filepath: string, regex: tuple[header, chips, pixels: string]): ref Event =#=#: Event =
-  #tuple[h: Table[string, string], c: Table[string, string], p: Table[string, string]]
+proc processEventWithRegex*(data: seq[string], regex: tuple[header, chips, pixels: string]): ref Event =
   # this template is used to create the needed functions to
   # - read the event header
   # - read the chip information for an event
@@ -216,8 +230,7 @@ proc readEventWithRegex*(filepath: string, regex: tuple[header, chips, pixels: s
     chips: seq[ChipEvent] = @[]
   result = new Event
 
-  #for line in lines(memfiles.open(filepath)):      
-  for line in lines filepath:
+  for line in data:
     if match(line, re(regex[0]), h_matches) == true:
       e_header[h_matches[0]] = h_matches[1]
     elif match(line, re(regex[1]), h_matches) == true:
@@ -249,6 +262,24 @@ proc readEventWithRegex*(filepath: string, regex: tuple[header, chips, pixels: s
 
   result.evHeader = e_header
   result.chips = chips
+
+  
+
+#template readEventWithRegex(filepath, regex: string): typed =
+proc readEventWithRegex*(filepath: string, regex: tuple[header, chips, pixels: string]): ref Event =
+  # this procedure reads the lines from a given event and then calls processEventWithRegex
+  # to process the file. Returns a ref to an Event object
+  # inputs:
+  #    filepath: string = the path to the file to be read
+  #    regex: tuple[...] = tuple of 3 regex's, one for each part of an event file
+  # outputs:
+  #    ref Event: reference to an event object
+  var f = memfiles.open(filepath, mode = fmRead, mappedSize = -1)
+  var data: seq[string] = @[]
+  for line in lines(f):
+    data.add(line)
+  result = processEventWithRegex(data, regex)
+  
 
 
 proc pixelsToTOT*(pixels: Pixels): seq[int] {.inline.} =

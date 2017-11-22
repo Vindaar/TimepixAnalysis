@@ -16,6 +16,7 @@ import algorithm
 import tables
 import times
 import threadpool
+import memfiles
 
 # InGrid-module
 import helper_functions
@@ -28,6 +29,8 @@ import arraymancer
 
 # global experimental pragma to use parallel: statement in readRawEventData()
 {.experimental.}
+
+const FILE_BUFSIZE = 30000
 
 proc readRawEventData(run_folder: string): seq[FlowVar[ref Event]] =
   # given a run_folder it reads all event files (data<number>.txt) and returns
@@ -44,24 +47,52 @@ proc readRawEventData(run_folder: string): seq[FlowVar[ref Event]] =
     inodes = createSortedInodeTable(f)
     #inode_files = map(inodes, (tup: tuple[i: int, f: string]) -> string => tup.f)
     regex_tup = getRegexForEvents()
-    t0 = cpuTime()     
-  var count = 0
-  result = newSeq[FlowVar[ref Event]](len(inodes))
-  var inode_files: seq[string] = @[]
+    n_files = len(inodes)
+    t0 = cpuTime()
+  var
+    count = 0
+    inode_files: seq[string] = @[]
+    # seq of lines from memmapped files
+    mmfiles: seq[seq[string]]
+    
+  result = @[] #newSeq[FlowVar[ref Event]](n_files)
   for i, el in pairs(inodes):
     inode_files.add(el)
 
-  parallel:
-    #for tup in pairs(inodes):#pairs(inodes):
-    for i, el in (inode_files):
-      #if i > 10000:
-      #  break
-      if i < len(result):
-        result[i] = spawn readEventWithRegex(el, regex_tup)
-      echoFilesCounted(count)
-  let t1 = cpuTime()
-  echo "reading of files took: ", t1 - t0
-  sync()
+  
+  while len(inode_files) > 0:
+    var ind_high = FILE_BUFSIZE
+    if len(inode_files) < FILE_BUFSIZE:
+      ind_high = len(inode_files) - 1
+      
+    # fill buffer with data
+    echo "Reading files into buffer from " & $0, " to " & $ind_high
+    mmfiles = readMemFilesIntoBuffer(inode_files[0..ind_high])
+    echo "...done reading"
+
+    # create a buffer sequence, into which we store the results processed
+    # in parallel (cannot add to the result seq with arbitrary indexes)
+    # need ind_high + 1, since newSeq creates a seq with as many elements, while
+    # the slicing syntax a[0..10] includes (!) the last element, thus this slice
+    # has 11 elements
+    var buf_seq = newSeq[FlowVar[ref Event]](ind_high + 1)
+    
+    parallel:
+      var f_count = 0
+      for i, s in mmfiles:
+        # loop over each file and call work on data function
+        if i < len(buf_seq):
+          buf_seq[i] = spawn processEventWithRegex(s, regex_tup)
+        echoFilesCounted(f_count)
+    sync()
+    echo "... removing read elements from list"
+    # sequtils.delete removes the element with ind_high as well!
+    inode_files.delete(0, ind_high)
+    echo "... and concating buffered sequence to result"
+    result = concat(result, buf_seq)
+    count += FILE_BUFSIZE
+  echo "All files read. Number = " & $len(result)
+  echo "Compared with starting files " & $n_files
 
 proc processRawEventData(ch: seq[FlowVar[ref Event]]): ProcessedRun =
   # procedure to process the raw data read from the event files by readRawEventData
@@ -98,7 +129,8 @@ proc processRawEventData(ch: seq[FlowVar[ref Event]]): ProcessedRun =
   # as we change each inner sequence in place with newSeq
   apply(tot_run, (x: var seq[seq[int]]) => newSeq[seq[int]](x, 0))
   apply(hits, (x: var seq[int]) => newSeq[int](x, 0))
-    
+
+  echo "starting to process events..."
   count = 0
   for i in 0..<ch.high:
   #for i in 0..<10000:
@@ -190,9 +222,8 @@ proc writeProcessedRunToH5(h5file_id: hid_t, run: ProcessedRun) =
   # inputs:
   #   h5file_id: hid_t = the file id (integer) pointing to the writable HDF5 file
   #   run: ProcessedRun = a tuple of the processed run data
-  
-  
-  
+  discard
+      
 proc main() = 
 
   let args_count = paramCount()

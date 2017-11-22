@@ -95,7 +95,7 @@ proc findSimpleCluster*(pixels: Pixels): seq[Cluster] =
     inc i
 
 proc main() =
-
+  
   
   discard
   

@@ -63,8 +63,37 @@ proc boolFromArrayOfIndices*(array: seq[int]): seq[bool] =
     else:
       result.add(false)
 
-proc getSubarrayByIndices*[T](array: seq[T], inds: seq[int]): seq[T] = 
+proc getSubarrayByIndices*[T](array: seq[T], inds: seq[int]): seq[T] =
+  # this is the verbose function for the `[]` below. Below does not call
+  # this function to avoid function calling overhead
   result = map(inds, proc(ind: int): T = array[ind])
+
+proc `[]`*[T](a: seq[T], inds: openArray[int]): seq[T] {.inline.} =
+  ## given two openArrays, return a sequence of all elements whose indices
+  ## are given in 'inds'
+  ## inputs:
+  ##    a: seq[T] = the sequence from which we take values
+  ##    inds: openArray[int] = the array which contains the indices for the
+  ##         arrays, which we take from 'array'
+  ## outputs:
+  ##    seq[T] = a sequence of all elements s.t. array[ind] in numpy indexing
+  result = map(inds, (ind: int) -> T => a[ind])
+
+# NOTE: not as easy to implement as I first thought. Leave it for now.
+# proc `[]`*[T](a: var seq[T], inds: openArray[int]) {.inline.} =
+#   ## same as `[]` above, but changes a in place
+#   ## given two openArrays, return a sequence of all elements whose indices
+#   ## are given in 'inds'
+#   ## inputs:
+#   ##    a: seq[T] = the sequence from which we take values
+#   ##    inds: openArray[int] = the array which contains the indices for the
+#   ##         arrays, which we take from 'array'
+#   ## outputs:
+#   ##    seq[T] = a sequence of all elements s.t. array[ind] in numpy indexing
+#   if isSorted(inds) == false:
+#     let i_sorted = sort(inds)
+#   result = keepIf(a, (ind: int) -> T => a[ind])
+  
 
 proc mean*[T](array: seq[T]): float =
   # returns the mean of the array

@@ -33,9 +33,9 @@ params = {'backend': 'ps',
           'font.family':         'serif',
           'font.serif':          'cm',
           'figure.figsize':      fig_size}
-#pylab.rcParams.update(params)
+pylab.rcParams.update(params)
 
-def plotHitFile(filename):
+def plotHitFile(filename, title):
 
     lines = open(filename, "r").readlines()
     hits = []
@@ -56,6 +56,8 @@ def plotHitFile(filename):
     
     fig, ax = plt.subplots(1, 1)
     ax.bar(binning, hist, 1.)
+    if title is not None:
+        ax.set_title(title)
     #ax.hist(hits, bins = 100)
     ax.set_xlabel("Pixels hit per event")
     ax.set_ylabel("\# events")
@@ -95,13 +97,18 @@ def main(args):
         chip_select = args[1]
     else:
         chip_select = "."
+    if len(args) > 2:
+        title = args[2]
+    else:
+        title = None
+
 
     for f in files:
         if ".txt" in f:
             # for each file we need to read the second column containing the dates
             print("Starting to read file %s" % f)
             if "hits" in f and chip_select in f:
-                plotHitFile(os.path.join(folder, f))
+                plotHitFile(os.path.join(folder, f), title)
             elif "tot" in f and chip_select in f:
                 plotToTFile(os.path.join(folder, f))
 

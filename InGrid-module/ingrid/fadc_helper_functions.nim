@@ -100,7 +100,6 @@ proc calcMinOfPulse*[T](array: seq[T], percentile: float): T =
 
   result = mean(filtered_array)
 
-  
 proc applyFadcPedestalRun*[T](fadc_vals, pedestal_run: seq[T]): seq[T] = 
   # applys the pedestal run given in the second argument to the first one
   # by zipping the two arrays and using map to subtract each element
@@ -108,8 +107,6 @@ proc applyFadcPedestalRun*[T](fadc_vals, pedestal_run: seq[T]): seq[T] =
     zip(fadc_vals, pedestal_run), 
     proc(val: (T, T)): T = val[0] - val[1]
   )
-
-  
 
 proc fadcFileToFadcData*[T](fadc_file: FadcFile, pedestal_run: seq[T]): FadcData =
   # this function converts an FadcFile object (read from a file) to
@@ -122,7 +119,7 @@ proc fadcFileToFadcData*[T](fadc_file: FadcFile, pedestal_run: seq[T]): FadcData
   
   # and cut out channel 3 (the one we take data with)
   let ch0_indices = arange(3, 4*2560, 4)
-  let ch0_vals = getSubarrayByIndices(fadc_vals, ch0_indices)
+  let ch0_vals = fadc_vals[ch0_indices]
   result.data = ch0_vals
   # set the two 'faulty' registers to 0
   result.data[0] = 0
@@ -130,7 +127,21 @@ proc fadcFileToFadcData*[T](fadc_file: FadcFile, pedestal_run: seq[T]): FadcData
 
   # convert to volt
   result.data = convertFadcTicksToVoltage(result.data, fadc_file.bit_mode14)
+
+proc getFadcData*(filename: string): FadcData =
+  # a convenience function, which performs all steps from reading an FADC
+  # file and returns a calibrated FadcData object, only containing the
+  # channel we're interested in
+  # create the indices with a global pragma, which declares it as equivalent
+  # to a static variable in C. It is only initialized once. Saves computation
+  # on many subsequent calls.
+  let ch0_indices {.global.} = arange(3, 4*2560, 4)
+  # same for the pedestal run data
+  const pedestal_run = "/home/schmidt/CastData/data/pedestalRuns/pedestalRun000042_1_182143774.txt-fadc"
+  let pedestal_d {.global.} = readFadcFile(pedestal_run)
   
+  let data = readFadcFile(filename)
+  result = fadcFileToFadcData(data, pedestal_d.vals)
 
 proc getPedestalRun*(): seq[float] =
   # this convenience function returns the data array from
@@ -169,99 +180,97 @@ proc buildListOfXrayFiles*(file: string): seq[string] =
         
   return event_list
 
-
+#import gnuplot
+#import kissfft/kissfft
+#import kissfft/binding
 proc plotFadcFile*(file: string) =
   # a very much work in progress function to plot an FADC file using gnuplot
   # and perform a simple FFT of the signal
-  import gnuplot
-  import kissfft/kissfft
-  import kissfft/binding
+  discard
 
-  var fadc_file = readFadcFile(file)
-  echo fadc_file.vals.len
+  # var fadc_file = readFadcFile(file)
+  # echo fadc_file.vals.len
 
-  let pedestal_run = getPedestalRun()
+  # let pedestal_run = getPedestalRun()
 
-  let fadc_data = fadcFileToFadcData(fadc_file, pedestal_run)
-  echo fadc_data.data.len
+  # let fadc_data = fadcFileToFadcData(fadc_file, pedestal_run)
+  # echo fadc_data.data.len
 
-  var
-    kiss_fft = kissfft.newKissFFT(2560, false)
-    # f_in: array[2560, binding.kiss_fft_cpx]
-    # f_out: array[2560, binding.kiss_fft_cpx]
-    f_in: array[2560, Complex]
-    f_out: array[2560, Complex]
+  # var
+  #   kiss_fft = kissfft.newKissFFT(2560, false)
+  #   # f_in: array[2560, binding.kiss_fft_cpx]
+  #   # f_out: array[2560, binding.kiss_fft_cpx]
+  #   f_in: array[2560, Complex]
+  #   f_out: array[2560, Complex]
 
-  for i in 0..<fadc_data.data.len:
-    f_in[i] = toComplex(fadc_data.data[i])
+  # for i in 0..<fadc_data.data.len:
+  #   f_in[i] = toComplex(fadc_data.data[i])
 
-  var r_in: seq[float] = @[]
-  var r_out: seq[float] = @[]  
+  # var r_in: seq[float] = @[]
+  # var r_out: seq[float] = @[]  
   
-  let numbers = arange(0, 2560, 1)
+  # let numbers = arange(0, 2560, 1)
 
 
-  echo f_out[0]
-  transform(kiss_fft, f_in, f_out)
-  echo f_out[0]
+  # echo f_out[0]
+  # transform(kiss_fft, f_in, f_out)
+  # echo f_out[0]
 
   
-  for i in 0..<f_in.len:
-    r_in.add(f_in[i].r)
-    r_out.add(f_out[i].r)
+  # for i in 0..<f_in.len:
+  #   r_in.add(f_in[i].r)
+  #   r_out.add(f_out[i].r)
 
-  plot(numbers, r_in)
-  sleep(1000)
-  plot(numbers, r_out)
+  # plot(numbers, r_in)
+  # sleep(1000)
+  # plot(numbers, r_out)
 
-  #[ Old code to plot also the peak locations of 
-     peaks in the FADC data
-    # var peak_loc: seq[int] = @[]
+#Old code to plot also the peak locations of 
+#   peaks in the FADC data
+  # var peak_loc: seq[int] = @[]
 
-    # for i in 0..<steps:
-    #   let ind = i * lookahead
+  # for i in 0..<steps:
+  #   let ind = i * lookahead
+    
+  #   let view = t[ind..(ind + lookahead - 1)]
+    
+  #   let min_ind = findArgOfLocalMin(view, ind)
+    
+  #   var min_range = min_ind - int(lookahead / 2)
+  #   min_range = if min_range > 0: min_range else: 0
+  #   var max_range = min_ind + int(lookahead / 2)
+  #   max_range = if max_range < (t.size - 1): max_range else: t.size - 1
+    
+  #   let min_from_min = findArgOfLocalMin(t[min_range..max_range], min_range)
+  #   if min_ind == min_from_min:
+  #     peak_loc.add(min_ind)
       
-    #   let view = t[ind..(ind + lookahead - 1)]
-      
-    #   let min_ind = findArgOfLocalMin(view, ind)
-      
-    #   var min_range = min_ind - int(lookahead / 2)
-    #   min_range = if min_range > 0: min_range else: 0
-    #   var max_range = min_ind + int(lookahead / 2)
-    #   max_range = if max_range < (t.size - 1): max_range else: t.size - 1
-      
-    #   let min_from_min = findArgOfLocalMin(t[min_range..max_range], min_range)
-    #   if min_ind == min_from_min:
-    #     peak_loc.add(min_ind)
-        
-    # #plotFadcFile(name)
-    # echo "found peaks at"
-    # echo peak_loc
-    # echo "Variance of this file is ", variance(t)
-    # echo "Mean of this file is ", mean(t)
-    # echo "Now dropping all peaks, which are larger than the mean"
-    # var peak_vals: seq[float] = @[]
-    # var i = 0
-    # let cut_value = mean(t) - std(t)
-    # echo "Cut value is ", cut_value
-    # while i < peak_loc.len:
-    #   if t[peak_loc[i]] < cut_value:
-    #     peak_vals.add(t[peak_loc[i]])
-    #   else:
-    #     echo "deleting ", peak_loc[i], " ", i
-    #     peak_loc.delete(i)
-    #     i -= 1
-    #   i += 1
+  # #plotFadcFile(name)
+  # echo "found peaks at"
+  # echo peak_loc
+  # echo "Variance of this file is ", variance(t)
+  # echo "Mean of this file is ", mean(t)
+  # echo "Now dropping all peaks, which are larger than the mean"
+  # var peak_vals: seq[float] = @[]
+  # var i = 0
+  # let cut_value = mean(t) - std(t)
+  # echo "Cut value is ", cut_value
+  # while i < peak_loc.len:
+  #   if t[peak_loc[i]] < cut_value:
+  #     peak_vals.add(t[peak_loc[i]])
+  #   else:
+  #     echo "deleting ", peak_loc[i], " ", i
+  #     peak_loc.delete(i)
+  #     i -= 1
+  #   i += 1
 
-    # var peak_vals: seq[float] = @[]
-    # for p in peak_loc:
-    #   peak_vals.add(t[p])
+  # var peak_vals: seq[float] = @[]
+  # for p in peak_loc:
+  #   peak_vals.add(t[p])
 
-    # let numbers = arange(0, 2560, 1)
-    # plot(numbers, toRawSeq(t))
-    # plot(peak_loc, peak_vals)
-    #sleep(3000)
+  # let numbers = arange(0, 2560, 1)
+  # plot(numbers, toRawSeq(t))
+  # plot(peak_loc, peak_vals)
+  #sleep(3000)
 
-  #]
-  
-  
+

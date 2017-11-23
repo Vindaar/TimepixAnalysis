@@ -8,14 +8,14 @@ import helper_functions
 import sequtils, future
 
 type
-  # Pix type which 
-  Pix* = tuple[x, y: int]
+  # Coord type which contains (x, y) coordinates of a pixel
+  Coord* = tuple[x, y: int]
 
   Cluster = seq[tuple[x, y, ch: int]]
   
   
 
-proc isPixInSearchRadius(p1, p2: Pix, search_r: int): bool =
+proc isPixInSearchRadius(p1, p2: Coord, search_r: int): bool =
   # given two pixels, p1 and p2, we check whether p2 is within one square search
   # of p1
   # inputs:
@@ -73,7 +73,7 @@ proc findSimpleCluster*(pixels: Pixels): seq[Cluster] =
   c.add(pixels[0])
   
   while raw_event.len > 0 and i < c.len:
-    let p1: Pix = (x: c[i].x, y: c[i].y)
+    let p1: Coord = (x: c[i].x, y: c[i].y)
     let t = filter(raw_event, (p: tuple[x, y, ch: int]) -> bool => isPixInSearchRadius(p1, (p.x, p.y), search_r))
 
     # add all found pixels to current cluster

@@ -32,6 +32,39 @@ import arraymancer
 
 const FILE_BUFSIZE = 30000
 
+proc readListOfFiles(list_of_files: seq[string],
+                     regex_tup: tuple[header, chips, pixels: string]): seq[FlowVar[ref Event]] =
+  # this procedure receives a list of files, reads them into memory (as a buffer)
+  # and processes the content into a seq of ref Events
+  # inputs:
+  #    list_of_files: seq[string] = a seq of filenames, which are to be read in one go
+  #    regex_tup: tuple[...] = a tuple of the different regexes needed to read the different
+  #                            parts of a file
+  # outputs:
+  #    seq[FlowVar[ref Event]] = a seq of flow vars pointing to events, since we read
+  #                              in parallel
+  let nfiles = len(list_of_files)
+  echo "Reading files into buffer from " & $0, " to " & $nfiles
+  # seq of lines from memmapped files
+  let mmfiles = readMemFilesIntoBuffer(list_of_files)
+  echo "...done reading"
+
+  # create a buffer sequence, into which we store the results processed
+  # in parallel (cannot add to the result seq with arbitrary indexes)
+  # need ind_high + 1, since newSeq creates a seq with as many elements, while
+  # the slicing syntax a[0..10] includes (!) the last element, thus this slice
+  # has 11 elements
+  result = newSeq[FlowVar[ref Event]](nfiles)
+  
+  parallel:
+    var f_count = 0
+    for i, s in mmfiles:
+      # loop over each file and call work on data function
+      if i < len(result):
+        result[i] = spawn processEventWithRegex(s, regex_tup)
+      echoFilesCounted(f_count)
+  sync()
+  
 proc readRawEventData(run_folder: string): seq[FlowVar[ref Event]] =
   # given a run_folder it reads all event files (data<number>.txt) and returns
   # a sequence of FlowVars of references to Events, which store the raw
@@ -52,8 +85,6 @@ proc readRawEventData(run_folder: string): seq[FlowVar[ref Event]] =
   var
     count = 0
     inode_files: seq[string] = @[]
-    # seq of lines from memmapped files
-    mmfiles: seq[seq[string]]
     
   result = @[] #newSeq[FlowVar[ref Event]](n_files)
   for i, el in pairs(inodes):
@@ -64,27 +95,9 @@ proc readRawEventData(run_folder: string): seq[FlowVar[ref Event]] =
     var ind_high = FILE_BUFSIZE
     if len(inode_files) < FILE_BUFSIZE:
       ind_high = len(inode_files) - 1
-      
-    # fill buffer with data
-    echo "Reading files into buffer from " & $0, " to " & $ind_high
-    mmfiles = readMemFilesIntoBuffer(inode_files[0..ind_high])
-    echo "...done reading"
 
-    # create a buffer sequence, into which we store the results processed
-    # in parallel (cannot add to the result seq with arbitrary indexes)
-    # need ind_high + 1, since newSeq creates a seq with as many elements, while
-    # the slicing syntax a[0..10] includes (!) the last element, thus this slice
-    # has 11 elements
-    var buf_seq = newSeq[FlowVar[ref Event]](ind_high + 1)
-    
-    parallel:
-      var f_count = 0
-      for i, s in mmfiles:
-        # loop over each file and call work on data function
-        if i < len(buf_seq):
-          buf_seq[i] = spawn processEventWithRegex(s, regex_tup)
-        echoFilesCounted(f_count)
-    sync()
+    let buf_seq = readListOfFiles(inode_files[0..ind_high], regex_tup)
+      
     echo "... removing read elements from list"
     # sequtils.delete removes the element with ind_high as well!
     inode_files.delete(0, ind_high)
@@ -138,8 +151,9 @@ proc processRawEventData(ch: seq[FlowVar[ref Event]]): ProcessedRun =
     events.add(a)
     let chips = a.chips
     for c in chips:
-      let num = c.chip.number
-      let pixels = c.pixels
+      let
+        num = c.chip.number
+        pixels = c.pixels
       addPixelsToOccupancySeptem(occ, pixels, num)
       let tot_event = pixelsToTOT(pixels)
       tot_run[num].add(tot_event)
@@ -181,47 +195,6 @@ proc processSingleRun(run_folder: string): ProcessedRun =
   # process the data read into seq of FlowVars, save as result
   result = processRawEventData(ch)
 
-proc isTosRunFolder(folder: string): tuple[is_rf: bool, contains_rf: bool] =
-  # this procedure checks whether the given folder is a valid run folder of
-  # TOS
-  # done by
-  # - checking whether the name of the folder is a valid name for a
-  #   run folder (contains Run_<number>) in the name and 
-  # - checking whether folder contains data<number>.txt files
-  # inputs:
-  #    folder: string = the given name of the folder to check
-  # outputs:
-  # returns a tuple which not only says whether it is a run folder, but also
-  # whether the folder itself contains a run folder
-  #    tuple[bool, bool]:
-  #        is_rf:       is a run folder
-  #        contains_rf: contains run folders
-  let run_regex = r".*Run_(\d+)_.*"
-  let event_regex = r".*data\d{4,6}\.txt$"
-  var matches_rf_name: bool = false
-  if match(folder, re(run_regex)) == true:
-    # set matches run folder flag to true, is checked when we find
-    # a data<number>.txt file in the folder, so that we do not think a
-    # folder with a single data<number>.txt file is a run folder
-    matches_rf_name = true
-    
-  for kind, path in walkDir(folder):
-    if kind == pcFile:
-      if match(path, re(event_regex)) == true and matches_rf_name == true:
-        result.is_rf = true
-        # in case we found an event in the folder, we might want to stop the
-        # search, in order not to waste time. Nested run folders are
-        # undesireable anyways
-        # for now we leave this comment here, since it may come in handy
-        # break
-    else:
-      # else we deal with a folder. call this function recuresively
-      let (is_rf, contains_rf) = isTosRunFolder(path)
-      # if the underlying folder contains an event file, this folder thus
-      # contains a run folder
-      if is_rf == true:
-        result.contains_rf = true
-
 proc writeProcessedRunToH5(h5file_id: hid_t, run: ProcessedRun) =
   # this procedure writes the data from the processed run to a HDF5
   # (opened already) given by h5file_id
@@ -244,7 +217,6 @@ proc main() =
   let (is_run_folder, contains_run_folder) = isTosRunFolder(folder)
   echo "Is run folder       : ", is_run_folder
   echo "Contains run folder : ", contains_run_folder
-
   
   # if we're dealing with a run folder, go straight to processSingleRun()
   if is_run_folder == true and contains_run_folder == false:
@@ -259,16 +231,16 @@ proc main() =
     # H5Fclose( h5file_id )
     let events = r.events
     var count = 0
-    # for ev in events:
-    #   for c in ev.chips:
-    #     let t = spawn findSimpleCluster(c.pixels)
-    #     # if len(t) > 1:
-    #     #   let tmp = createTensorFromZeroSuppressed(c.pixels)
-    #     #   echo "chip ", c.chip, " found ", len(t), " clusters"          
-    #     #   dumpFrameToFile("tmp/frame.txt", tmp)
-    #     #   sleep(100)
-    #   echoFilesCounted(count)
-    #sync()
+    for ev in events:
+      for c in ev.chips:
+        let t = spawn findSimpleCluster(c.pixels)
+        # if len(t) > 1:
+        #   let tmp = createTensorFromZeroSuppressed(c.pixels)
+        #   echo "chip ", c.chip, " found ", len(t), " clusters"          
+        #   dumpFrameToFile("tmp/frame.txt", tmp)
+        #   sleep(100)
+      echoFilesCounted(count)
+    sync()
     echo "Size of total ProcessedRun object = ", sizeof(r)
     echo "Length of tots and hits for each chip"
     # dump sequences to file
@@ -292,7 +264,6 @@ proc main() =
           tots_all[i] = concat(tots_all[i], r.tots[i])
     # dump sequences to file
     dumpToTandHits(tots_all, hits_all)
-        
         
   elif is_run_folder == true and contains_run_folder == true:
     echo "Currently not implemented to run over nested run folders."

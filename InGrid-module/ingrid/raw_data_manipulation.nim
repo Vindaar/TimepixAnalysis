@@ -32,39 +32,6 @@ import arraymancer
 
 const FILE_BUFSIZE = 30000
 
-proc readListOfFiles(list_of_files: seq[string],
-                     regex_tup: tuple[header, chips, pixels: string]): seq[FlowVar[ref Event]] =
-  # this procedure receives a list of files, reads them into memory (as a buffer)
-  # and processes the content into a seq of ref Events
-  # inputs:
-  #    list_of_files: seq[string] = a seq of filenames, which are to be read in one go
-  #    regex_tup: tuple[...] = a tuple of the different regexes needed to read the different
-  #                            parts of a file
-  # outputs:
-  #    seq[FlowVar[ref Event]] = a seq of flow vars pointing to events, since we read
-  #                              in parallel
-  let nfiles = len(list_of_files)
-  echo "Reading files into buffer from " & $0, " to " & $nfiles
-  # seq of lines from memmapped files
-  let mmfiles = readMemFilesIntoBuffer(list_of_files)
-  echo "...done reading"
-
-  # create a buffer sequence, into which we store the results processed
-  # in parallel (cannot add to the result seq with arbitrary indexes)
-  # need ind_high + 1, since newSeq creates a seq with as many elements, while
-  # the slicing syntax a[0..10] includes (!) the last element, thus this slice
-  # has 11 elements
-  result = newSeq[FlowVar[ref Event]](nfiles)
-  
-  parallel:
-    var f_count = 0
-    for i, s in mmfiles:
-      # loop over each file and call work on data function
-      if i < len(result):
-        result[i] = spawn processEventWithRegex(s, regex_tup)
-      echoFilesCounted(f_count)
-  sync()
-  
 proc readRawEventData(run_folder: string): seq[FlowVar[ref Event]] =
   # given a run_folder it reads all event files (data<number>.txt) and returns
   # a sequence of FlowVars of references to Events, which store the raw

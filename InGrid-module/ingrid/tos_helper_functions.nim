@@ -382,6 +382,47 @@ proc dumpToTandHits*(tots, hits: seq[seq[int]]) =
   writeToTFile("out/tot.txt", tots)
 
 
+proc isTosRunFolder*(folder: string): tuple[is_rf: bool, contains_rf: bool] =
+  # this procedure checks whether the given folder is a valid run folder of
+  # TOS
+  # done by
+  # - checking whether the name of the folder is a valid name for a
+  #   run folder (contains Run_<number>) in the name and 
+  # - checking whether folder contains data<number>.txt files
+  # inputs:
+  #    folder: string = the given name of the folder to check
+  # outputs:
+  # returns a tuple which not only says whether it is a run folder, but also
+  # whether the folder itself contains a run folder
+  #    tuple[bool, bool]:
+  #        is_rf:       is a run folder
+  #        contains_rf: contains run folders
+  let run_regex = r".*Run_(\d+)_.*"
+  let event_regex = r".*data\d{4,6}\.txt$"
+  var matches_rf_name: bool = false
+  if match(folder, re(run_regex)) == true:
+    # set matches run folder flag to true, is checked when we find
+    # a data<number>.txt file in the folder, so that we do not think a
+    # folder with a single data<number>.txt file is a run folder
+    matches_rf_name = true
+    
+  for kind, path in walkDir(folder):
+    if kind == pcFile:
+      if match(path, re(event_regex)) == true and matches_rf_name == true:
+        result.is_rf = true
+        # in case we found an event in the folder, we might want to stop the
+        # search, in order not to waste time. Nested run folders are
+        # undesireable anyways
+        # for now we leave this comment here, since it may come in handy
+        # break
+    else:
+      # else we deal with a folder. call this function recuresively
+      let (is_rf, contains_rf) = isTosRunFolder(path)
+      # if the underlying folder contains an event file, this folder thus
+      # contains a run folder
+      if is_rf == true:
+        result.contains_rf = true
+
 # proc sum*[T: tuple](s: seq[T]): T {.inline.} =
 #   # this procedure sums the given array along the given axis
 #   # if T is itself e.g. a tuple, we will return a tuple, one

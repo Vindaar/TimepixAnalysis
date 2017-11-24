@@ -20,7 +20,40 @@ import re
 #   for p in s:
 #     for i in 0..<n_fields:
 #       sum_t[i] += p[i]
+
+
+# template orderedTableMap[S, T](result, t: typed) =
   
+#   newSeq(result, t.len)
+#   var i = 0
+#   for k, v in pairs(t):
+#     result[i] = op(k, v)
+#     inc i
+  
+
+proc map*[S, T](t: OrderedTable[S, T], op: proc(k: S, v: T): S {.closure.}):
+                                                                 seq[S] {.inline.} =
+  ## Returns a new sequence with the results of `op` applied to every item in
+  ## the OrderedTable t
+  ## This proc expects a return value of the anonymous proc of the `key` type of
+  ## the OrderedTable
+  newSeq(result, t.len)
+  var i = 0
+  for k, v in pairs(t):
+    result[i] = op(k, v)
+    inc i
+
+proc map*[S, T](t: OrderedTable[S, T], op: proc(k: S, v: T): T {.closure.}):
+                                                                 seq[T] {.inline.} =
+  ## Returns a new sequence with the results of `op` applied to every item in
+  ## the OrderedTable t
+  ## This proc expects a return value of the anonymous proc of the `value` type of
+  ## the OrderedTable  
+  newSeq(result, t.len)
+  var i = 0
+  for k, v in pairs(t):
+    result[i] = op(k, v)
+    inc i    
 
 template delByElement[T](a: var seq[T], p: T) =
   # template to delete the given element p from a in place

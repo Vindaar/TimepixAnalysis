@@ -196,10 +196,10 @@ proc readEventHeader*(filepath: string): Table[string, string] =
   result = initTable[string, string]()
   
   # we define a regex for the header of the file
-  let regex = r"^\#{2}\s(\w+):\s+\b(\S*)\b"
+  let regex = re(r"^\#{2}\s(\w+):\s+\b(\S*)\b")
   var matches: array[2, string]
   for line in lines filepath:
-    if line.match(re(regex), matches):
+    if line.match(regex, matches):
       # get rid of whitespace and add to result
       let key = matches[0]
       let val = matches[1]
@@ -260,17 +260,21 @@ proc processEventWithRegex*(data: seq[string], regex: tuple[header, chips, pixel
     # variable to store resulting chip events
     chips: seq[ChipEvent] = @[]
   result = new Event
+  let
+    regex_h = re(regex[0])
+    regex_c = re(regex[1])
+    regex_p = re(regex[2])
 
   for line in data:
-    if match(line, re(regex[0]), h_matches) == true:
+    if match(line, regex_h, h_matches) == true:
       e_header[h_matches[0]] = h_matches[1]
-    elif match(line, re(regex[1]), h_matches) == true:
+    elif match(line, regex_c, h_matches) == true:
       # in case we match a chip header, pix_counter to 0,
       # need to make sure it is 0, once we reach the first
       # hit pixel
       pix_counter = 0      
       c_header[h_matches[0]] = h_matches[1]
-    elif match(line, re(regex[2]), p_matches) == true:
+    elif match(line, regex_p, p_matches) == true:
       # in this case we have matched a pixel hit line
       # get number of hits to process
       let
@@ -492,10 +496,10 @@ proc isTosRunFolder*(folder: string): tuple[is_rf: bool, contains_rf: bool] =
   #    tuple[bool, bool]:
   #        is_rf:       is a run folder
   #        contains_rf: contains run folders
-  let run_regex = r".*Run_(\d+)_.*"
-  let event_regex = r".*data\d{4,6}\.txt$"
+  let run_regex = re(r".*Run_(\d+)_.*")
+  let event_regex = re(r".*data\d{4,6}\.txt$")
   var matches_rf_name: bool = false
-  if match(folder, re(run_regex)) == true:
+  if match(folder, run_regex) == true:
     # set matches run folder flag to true, is checked when we find
     # a data<number>.txt file in the folder, so that we do not think a
     # folder with a single data<number>.txt file is a run folder
@@ -503,7 +507,7 @@ proc isTosRunFolder*(folder: string): tuple[is_rf: bool, contains_rf: bool] =
     
   for kind, path in walkDir(folder):
     if kind == pcFile:
-      if match(path, re(event_regex)) == true and matches_rf_name == true:
+      if match(path, event_regex) == true and matches_rf_name == true:
         result.is_rf = true
         # in case we found an event in the folder, we might want to stop the
         # search, in order not to waste time. Nested run folders are

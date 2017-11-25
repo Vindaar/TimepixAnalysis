@@ -3,16 +3,79 @@
 #   - finding clusters in data
 #   - calculating properties of Events
 
+# nim stdlib
+import os
+import sequtils, future
+import threadpool
+import nimnlopt
+import math
+
+# custom modules
 import tos_helper_functions
 import helper_functions
-import sequtils, future
+
 
 type
   # Coord type which contains (x, y) coordinates of a pixel
   Coord* = tuple[x, y: int]
 
-  Cluster = seq[tuple[x, y, ch: int]]
+  Cluster = seq[Pix]
+
+const NPIX* = 256
+const PITCH* = 0.055
+
+type
+  FitObject = object
+    cluster: Cluster
+    xy: tuple[x, y: float64]
+
+proc excentricity(n: cuint, p: array[1, cdouble], grad: var array[1, cdouble], func_data: var pointer): cdouble {.cdecl.} =
+  # this function calculates the excentricity of a found pixel cluster using nimnlopt.
+  # Since no proper high level library is yet available, we need to pass a var pointer
+  # of func_data, which contains the x and y arrays in which the data is stored, in
+  # order to calculate the RMS variables
+
+  # first recover the data from the pointer to func_data, by casting the
+  # raw pointer to a Cluster object
+  let fit = cast[FitObject](func_data)
+  let c = fit.cluster
+  let (x, y) = fit.xy
+
+  var
+    sum_x: cdouble = 0
+    sum_y: cdouble = 0
+    sum_x2: cdouble = 0
+    sum_y2: cdouble = 0
+
+  # echo "Starting new calc with param ", p[0]
+  for i in 0..<len(c):
+    let
+      new_x = cos(p[0]) * (cdouble(c[i].x) - cdouble(x)) * PITCH - sin(p[0]) * (cdouble(c[i].y) - cdouble(y)) * PITCH
+      new_y = sin(p[0]) * (cdouble(c[i].x) - cdouble(x)) * PITCH + cos(p[0]) * (cdouble(c[i].y) - cdouble(y)) * PITCH
+    # echo "new_x is ", new_x, " and new_y ", new_y
+    sum_x += new_x
+    sum_y += new_y
+    sum_x2 += (new_x * new_x)
+    sum_y2 += (new_y * new_y)
   
+  let
+    n_elements: cdouble = cdouble(len(c))
+    rms_x: cdouble = sqrt( (sum_x2 / n_elements) - (sum_x * sum_x / n_elements / n_elements))
+    rms_y: cdouble = sqrt( (sum_y2 / n_elements) - (sum_y * sum_y / n_elements / n_elements))    
+
+  #echo "sum_x2 / elements ", sum_x2 / n_elements, "sum_x * sum_x / elements / elements ", sum_x * sum_x / n_elements / n_elements
+  let exc = rms_x / rms_y
+
+  # need to check whether grad is nil. Only used for some algorithms, otherwise a
+  # NULL pointer is handed in C
+  if addr(grad) != nil:
+    # normally we'd calculate the gradient for the current parameters, but we're
+    # not going to use it. Can also remove this whole if statement
+    echo "This one uses grad!"
+    discard
+
+  #echo "parameters ", sum_x, " ", sum_y, " ", sum_x2, " ", sum_y2, " ", rms_x, " ", rms_y, " ", n_elements, " exc ", exc
+  result = -(rms_x / rms_y)
   
 
 proc isPixInSearchRadius(p1, p2: Coord, search_r: int): bool =
@@ -94,12 +157,126 @@ proc findSimpleCluster*(pixels: Pixels): seq[Cluster] =
       result.add(c)
     inc i
 
+proc recoEvent(c: Cluster): float64 =
+  let
+    clustersize: int = len(c)
+    (sum_x, sum_y, sumTotInCluster) = sum(c)
+    # using map and sum[Pix] we can calculate sum of x^2, y^2 and x*y in one line
+    (sum_x2, sum_y2, sum_xy) = sum(map(c, (p: Pix) -> Pix => (p.x * p.x,
+                                                              p.y * p.y,
+                                                              p.x * p.y)))
+    pos_x: float64 = float64(sum_x) / float64(clustersize)
+    pos_y: float64 = float64(sum_y) / float64(clustersize)
+  var
+    rms_x = sqrt(float64(sum_x2) / float64(clustersize) - pos_x * pos_x)
+    rms_y = sqrt(float64(sum_y2) / float64(clustersize) - pos_y * pos_y)
+    rotAngleEstimate = arctan( (float64(sum_xy) / float64(clustersize)) -
+                               pos_x * pos_y / (rms_x * rms_x))
+
+  if rotAngleEstimate < 0:
+    echo "correcting 1"
+    rotAngleEstimate += 8 * arctan(1.0)
+  if rotAngleEstimate > 4 * arctan(1.0):
+    echo "correcting 2"
+    rotAngleEstimate -= 4 * arctan(1.0)
+  
+  rms_x *= PITCH
+  rms_y *= PITCH
+
+  echo "rot angle starting point is ", rotAngleEstimate
+
+  var
+    # define the optimizer
+    opt: nlopt_opt
+    # set the boundary values
+    lb: array[2, cdouble] = [cdouble(-4 * arctan(1.0)), cdouble(4 * arctan(1.0))]
+    # set the fit object with which we hand the necessary data to the
+    # excentricity function
+    fit_object: FitObject
+    # the resulting fit parameter
+    minf: cdouble
+    p: array[1, cdouble] = [rotAngleEstimate]
+
+  # set  the values of the fit objectn
+  fit_object.cluster = c
+  fit_object.xy = (x: pos_x, y: pos_y)
+    
+  opt = nlopt_create(NLOPT_LN_COBYLA, 1)
+  #opt = nlopt_create(NLOPT_LN_SBPLX, 1)
+  var status: nlopt_result
+  status = nlopt_set_lower_bounds(opt, addr(lb[0]))
+  status = nlopt_set_upper_bounds(opt, addr(lb[1]))
+  if status != NLOPT_SUCCESS:
+    echo "WARNING: could not set bounds!"
+  # set the function to be minimized
+  status = nlopt_set_min_objective(opt, cast[nlopt_func](excentricity), cast[pointer](addr fit_object))
+  # set the minimization tolerance
+  status = nlopt_set_stopval(opt, cdouble(-Inf))
+  status = nlopt_set_xtol_rel(opt, 1e-8)
+  status = nlopt_set_ftol_rel(opt, 1e-8)
+
+  var dx: cdouble = 2.0
+  status = nlopt_set_initial_step(opt, addr(dx))
+  
+  # start minimization
+  let t = nlopt_optimize(opt, addr(p[0]), addr(minf))
+  if cast[int](t) < 0:
+    echo t
+    echo "nlopt failed!\n"
+  else:
+    echo t
+    echo "found minimum at f(", p[0], "), = ", minf,"\n"
+
+  nlopt_destroy(opt)
+
+  result = float64(p[0])
+    
+proc reconstructSingleRun(folder: string) =
+  # procedure which receives path to a run folder and reconstructs the objects
+  # in that folder
+  # inputs:
+  #    folder: string = the run folder from which to reconstruct events
+  let
+    files = getSortedListOfFiles(folder, EventSortType.inode)
+    regex_tup = getRegexForEvents()
+    data = readListOfFiles(files[0..30000], regex_tup)
+
+  var
+    min_val = 10.0
+    min_seq = newSeq[seq[float64]](7)
+  apply(min_seq, (x: seq[float64]) -> seq[float64] => @[])
+  for e in data:
+    let a: Event = (^e)[]
+    let chips = a.chips
+    for c in chips:
+      let num: int = c.chip.number
+      let cluster = findSimpleCluster(c.pixels)
+      for cl in cluster:
+        let ob = recoEvent(cl)
+        if ob < min_val:
+          min_val = ob
+        min_seq[num].add(ob)
+  
+        #sleep(100)
+        #quit()
+        #echo "Stuff... ", ob
+  dumpRotAngle(min_seq)
+  
+  
 proc main() =
-  
-  
-  discard
-  
-  
+  let args_count = paramCount()
+  var folder: string
+  if args_count < 1:
+    echo "Please either hand a single run folder or a folder containing run folder, which to process."
+    quit()
+  else:
+    folder = paramStr(1)
+    
+  # first check whether given folder is valid run folder
+  let (is_run_folder, contains_run_folder) = isTosRunFolder(folder)
+  echo "Is run folder       : ", is_run_folder
+  echo "Contains run folder : ", contains_run_folder
+  reconstructSingleRun(folder)
 
 when isMainModule:
   main()

@@ -38,31 +38,22 @@ proc readRawEventData(run_folder: string): seq[FlowVar[ref Event]] =
   # event data
   # NOTE: this procedure does the reading of the data in parallel, thanks to
   # using spawn
-  
   let
-    event_regex = r".*data\d{4,6}\.txt$"
-  # get the list of files from this run folder and sort it
-    f = sorted(getListOfFiles(run_folder, event_regex),
-                 (x: string, y: string) -> int => system.cmp[string](x, y))
-    inodes = createSortedInodeTable(f)
-    #inode_files = map(inodes, (tup: tuple[i: int, f: string]) -> string => tup.f)
     regex_tup = getRegexForEvents()
-    n_files = len(inodes)
     t0 = cpuTime()
   var
     count = 0
-    inode_files: seq[string] = @[]
-    
-  result = @[] #newSeq[FlowVar[ref Event]](n_files)
-  for i, el in pairs(inodes):
-    inode_files.add(el)
-
+    # get a sorted list of files, sorted by inode
+    inode_files: seq[string] = getSortedListOfFiles(run_folder, EventSortType.inode)
+  result = @[]     
+  let n_files = len(inode_files)
   
   while len(inode_files) > 0:
+    # variable to set last index to read to
     var ind_high = FILE_BUFSIZE
     if len(inode_files) < FILE_BUFSIZE:
       ind_high = len(inode_files) - 1
-
+    # read files into buffer sequence
     let buf_seq = readListOfFiles(inode_files[0..ind_high], regex_tup)
       
     echo "... removing read elements from list"
@@ -83,11 +74,11 @@ proc processRawEventData(ch: seq[FlowVar[ref Event]]): ProcessedRun =
   #        to obtain ToT per pixel, number of hits and occupancies of that data
   # outputs:
   #   ProcessedRun containing:
-  #    events: seq[Event] = the raw data from the seq of FlowVars saved in seq of Events
+  #    events:    seq[Event] = the raw data from the seq of FlowVars saved in seq of Events
   #    tuple of:
-  #      tot: seq[seq[int]] = ToT values for each chip of Septemboard for run
+  #      tot:  seq[seq[int]] = ToT values for each chip of Septemboard for run
   #      hits: seq[seq[int]] = number of hits for each chip of Septemboard fo run
-  #      occ: Tensor[int] = (7, 256, 256) tensor containing occupancies of all chips for
+  #      occ:    Tensor[int] = (7, 256, 256) tensor containing occupancies of all chips for
   #        this data.
 
   # variable to count number of processed files

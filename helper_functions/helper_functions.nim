@@ -118,10 +118,11 @@ proc getListOfFiles*(folder: string, regex = ""): seq[string] =
   if existsDir(folder) == false:
     return result
   var count = 0
+  let reg = re(regex)
   for file in walkDirRec(folder):
     #if file.match re(regex):
     count = count + 1
-    if match(file, re(regex)):
+    if match(file, reg):
       result.add(file)
 
 proc sortInodeTable*(inode_table: var OrderedTable[int, string]) =

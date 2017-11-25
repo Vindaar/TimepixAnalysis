@@ -6,6 +6,10 @@ import re
 import tables
 import memfiles
 import sequtils, future
+import threadpool
+
+# custom modules
+import helper_functions
 
 # other modules
 import arraymancer
@@ -19,7 +23,7 @@ type
 
   EventHeader* = Table[string, string]
   ChipHeader*  = Table[string, string]
-  Pix*          = tuple[x, y, ch: int]
+  Pix*         = tuple[x, y, ch: int]
   Pixels*      = seq[Pix]
 
   Pixels_prot = object#Table[string, seq[int]]
@@ -51,8 +55,29 @@ type
     #occupancies: seq[Tensor[int]]
   ]
     
-    
+  EventSortType* = enum
+    fname, inode
 
+proc sum*(c: seq[Pix]): Pix {.inline.} =
+  # this procedure sums the sequence of pixels such that it returns
+  # a tuple of (sum_x, sum_y, sum_charge)
+  # if T is itself e.g. a tuple, we will return a tuple, one
+  # element for each field in the tuple
+  assert c.len > 0, "Can't sum empty sequences"
+  for p in c:
+    result.x  += p.x
+    result.y  += p.y
+    result.ch += p.ch
+
+proc sum2*(c: seq[Pix]): Pix {.inline.} =
+  # this procedure sums the squares of the pixels in the sequence
+  assert c.len > 0, "Can't sum empty sequences"
+  for p in c:
+    result.x += p.x * p.x
+    result.y += p.y * p.y
+    result.ch += p.ch * p.ch
+    
+    
 proc parseTOSDateString*(date_str: string): Time = 
   # function receives a string from a date time from TOS and creates
   # a Time object from it

@@ -10,18 +10,6 @@ import re
 # a simple collection of useful function for nim, mostly regarding arrays
 # and sequences
 
-# proc sum*[T](s: seq[T]): T {.inline.} =
-#   # this procedure sums the given array along the given axis
-#   # if T is itself e.g. a tuple, we will return a tuple, one
-#   # element for each field in the tuple
-#   assert s.len > 0, "Can't sum empty sequences"
-#   let n_fields = len(s[0])
-#   var sum_t = T
-#   for p in s:
-#     for i in 0..<n_fields:
-#       sum_t[i] += p[i]
-
-
 # template orderedTableMap[S, T](result, t: typed) =
   
 #   newSeq(result, t.len)
@@ -31,29 +19,16 @@ import re
 #     inc i
   
 
-proc map*[S, T](t: OrderedTable[S, T], op: proc(k: S, v: T): S {.closure.}):
-                                                                 seq[S] {.inline.} =
+proc map*[S, T, U](t: OrderedTable[S, T], op: proc(k: S, v: T): U {.closure.}):
+                                                                 seq[U] {.inline.} =
   ## Returns a new sequence with the results of `op` applied to every item in
   ## the OrderedTable t
-  ## This proc expects a return value of the anonymous proc of the `key` type of
-  ## the OrderedTable
   newSeq(result, t.len)
   var i = 0
   for k, v in pairs(t):
     result[i] = op(k, v)
     inc i
 
-proc map*[S, T](t: OrderedTable[S, T], op: proc(k: S, v: T): T {.closure.}):
-                                                                 seq[T] {.inline.} =
-  ## Returns a new sequence with the results of `op` applied to every item in
-  ## the OrderedTable t
-  ## This proc expects a return value of the anonymous proc of the `value` type of
-  ## the OrderedTable  
-  newSeq(result, t.len)
-  var i = 0
-  for k, v in pairs(t):
-    result[i] = op(k, v)
-    inc i    
 
 template delByElement[T](a: var seq[T], p: T) =
   # template to delete the given element p from a in place

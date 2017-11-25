@@ -66,7 +66,7 @@ def plotHitFile(filename, title):
     plt.savefig(outname)
     plt.show()
 
-def plotToTFile(filename):
+def plotToTFile(filename, title):
 
     lines = open(filename, "r").readlines()
     tots = []
@@ -87,6 +87,39 @@ def plotToTFile(filename):
     outname = filename.replace(".txt", ".pdf")
     plt.savefig(outname)
     plt.show()
+
+def plotRotAngleFile(filename, title):
+
+    lines = open(filename, "r").readlines()
+    angles = []
+    for line in lines:
+        if "#" not in line:
+            angles.append(float(line))
+
+    angles = np.asarray(angles)
+    #angles = angles[angles < np.percentile(angles, 99)]
+
+    binning = np.linspace(-0.5, np.max(angles) + 0.5, np.max(angles) + 2)
+    #binning = np.linspace(-0.5, np.max(angles) + 0.5, (np.max(angles) + 2)/2)
+    hist, bin_edges = np.histogram(angles, binning)
+    bins = np.arange(np.max(angles) + 1)
+
+    #print len(binning), len(hist)
+    binning = binning[:-1]
+    
+    fig, ax = plt.subplots(1, 1)
+    #ax.bar(binning, hist, 1.)
+    if title is not None:
+        ax.set_title(title)
+    ax.hist(angles, bins = 100)
+            
+    ax.set_xlabel("Rot anngle")
+    ax.set_ylabel("\# pixel")
+    #ax.set_xlim(0, np.percentile(tots, 98))
+    outname = filename.replace(".txt", ".pdf")
+    plt.savefig(outname)
+    plt.show()
+    
 
 def main(args):
 
@@ -110,7 +143,9 @@ def main(args):
             if "hits" in f and chip_select in f:
                 plotHitFile(os.path.join(folder, f), title)
             elif "tot" in f and chip_select in f:
-                plotToTFile(os.path.join(folder, f))
+                plotToTFile(os.path.join(folder, f), title)
+            elif "rot" in f and chip_select in f:
+                plotRotAngleFile(os.path.join(folder, f), title)
 
 
 if __name__=="__main__":

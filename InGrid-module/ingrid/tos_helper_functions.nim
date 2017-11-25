@@ -394,6 +394,14 @@ proc writeToTFile[T](filename: string, collection: seq[seq[T]]) =
   let header = "ToT per pixel"
   let element_header = "Chip "
   writeSeqsToFile(filename, header, element_header, collection)
+
+
+proc writeRotAngleFile[T](filename: string, collection: seq[seq[T]]) =
+  # procedure to write the ToT values per pixel in a given run to file by
+  # calling writeSeqsToFile template
+  let header = "Rotation angle"
+  let element_header = "Chip "
+  writeSeqsToFile(filename, header, element_header, collection)
   
 
 proc dumpToTandHits*(tots, hits: seq[seq[int]]) =
@@ -406,6 +414,36 @@ proc dumpToTandHits*(tots, hits: seq[seq[int]]) =
   writeHitsFile("out/hits.txt", hits)
   writeToTFile("out/tot.txt", tots)
 
+proc dumpRotAngle*(angles: seq[seq[float64]]) =
+  # this procedure dumps the ToT and Hits sequences to .txt files
+  # in the out/ folder
+  for i in 0..<7:
+    echo "Chip " & $i & ":"
+    echo "\tRotAngle : " & $len(angles[i]) & "\t" & $len(angles)
+  writeRotAngleFile("out/rotAngle.txt", angles)
+  
+
+proc getSortedListOfFiles*(run_folder: string, sort_type: EventSortType): seq[string] =
+  # this procedure returns a sorted list of event files from a
+  # run folder. The returned files are sorted by the event number
+  # inputs:
+  #    run_folder: string = folder from which to read filenames
+  # outputs:
+  #    seq[string] = sequence containing event filnames, index 0 corresponds
+  #                  to event data000000.txt
+  const event_regex = r".*data\d{4,6}\.txt$"
+  # get the list of files from this run folder and sort it
+  case sort_type
+  of fname:
+    result = sorted(getListOfFiles(run_folder, event_regex),
+                    (x: string, y: string) -> int => system.cmp[string](x, y))
+  of inode:
+    result = map(createSortedInodeTable(getListOfFiles(run_folder, event_regex)),
+                 (i: int, name: string) -> string => name)
+
+
+# set experimental pragma to enable parallel: block
+{.experimental.}
 proc readListOfFiles*(list_of_files: seq[string],
                      regex_tup: tuple[header, chips, pixels: string]): seq[FlowVar[ref Event]] =
   # this procedure receives a list of files, reads them into memory (as a buffer)
@@ -418,7 +456,7 @@ proc readListOfFiles*(list_of_files: seq[string],
   #    seq[FlowVar[ref Event]] = a seq of flow vars pointing to events, since we read
   #                              in parallel
   let nfiles = len(list_of_files)
-  echo "Reading files into buffer from " & $0, " to " & $nfiles
+  echo "Reading files into buffer from " & $0, " to " & $(nfiles - 1)
   # seq of lines from memmapped files
   let mmfiles = readMemFilesIntoBuffer(list_of_files)
   echo "...done reading"

@@ -9,6 +9,7 @@ import sequtils, future
 import threadpool
 import nimnlopt
 import math
+import tables
 
 # custom modules
 import tos_helper_functions
@@ -71,11 +72,10 @@ proc excentricity(n: cuint, p: array[1, cdouble], grad: var array[1, cdouble], f
   if addr(grad) != nil:
     # normally we'd calculate the gradient for the current parameters, but we're
     # not going to use it. Can also remove this whole if statement
-    echo "This one uses grad!"
     discard
 
   #echo "parameters ", sum_x, " ", sum_y, " ", sum_x2, " ", sum_y2, " ", rms_x, " ", rms_y, " ", n_elements, " exc ", exc
-  result = -(rms_x / rms_y)
+  result = -exc
   
 
 proc isPixInSearchRadius(p1, p2: Coord, search_r: int): bool =
@@ -129,7 +129,7 @@ proc findSimpleCluster*(pixels: Pixels): seq[Cluster] =
   
   let
     search_r = 50
-    cutoff_size = 3
+    cutoff_size = 5
 
   # add the first pixel of the given sequence to have a starting pixel, from which we
   # look for other pixels in the cluster
@@ -179,11 +179,14 @@ proc recoEvent(c: Cluster): float64 =
   if rotAngleEstimate > 4 * arctan(1.0):
     echo "correcting 2"
     rotAngleEstimate -= 4 * arctan(1.0)
+  elif classify(rotAngleEstimate) != fcNormal:
+    echo "Rot angle estimate is NaN, vals are ", rms_x, " ", rms_y
+    return NaN
   
   rms_x *= PITCH
   rms_y *= PITCH
 
-  echo "rot angle starting point is ", rotAngleEstimate
+  #echo "rot angle starting point is ", rotAngleEstimate
 
   var
     # define the optimizer
@@ -201,7 +204,17 @@ proc recoEvent(c: Cluster): float64 =
   fit_object.cluster = c
   fit_object.xy = (x: pos_x, y: pos_y)
     
-  opt = nlopt_create(NLOPT_LN_COBYLA, 1)
+  #opt = nlopt_create(NLOPT_LN_COBYLA, 1)
+  #opt = nlopt_create(NLOPT_LN_BOBYQA, 1)
+  #opt = nlopt_create(NLOPT_LN_NELDERMEAD, 1)
+  #opt = nlopt_create(NLOPT_LN_SBPLX, 1)
+  # opt = nlopt_create(NLOPT_GN_DIRECT_L, 1)
+  #opt = nlopt_create(NLOPT_GN_CRS2_LM, 1)
+  #opt = nlopt_create(NLOPT_GN_ISRES, 1)
+  opt = nlopt_create(NLOPT_GN_ESCH, 1)  
+
+  # next one is useless, as dimensions needs n >= 2
+  #opt = nlopt_create(NLOPT_LN_NEWUOA_BOUND, 1)
   #opt = nlopt_create(NLOPT_LN_SBPLX, 1)
   var status: nlopt_result
   status = nlopt_set_lower_bounds(opt, addr(lb[0]))
@@ -211,9 +224,10 @@ proc recoEvent(c: Cluster): float64 =
   # set the function to be minimized
   status = nlopt_set_min_objective(opt, cast[nlopt_func](excentricity), cast[pointer](addr fit_object))
   # set the minimization tolerance
-  status = nlopt_set_stopval(opt, cdouble(-Inf))
+  #status = nlopt_set_stopval(opt, cdouble(-Inf))
   status = nlopt_set_xtol_rel(opt, 1e-8)
   status = nlopt_set_ftol_rel(opt, 1e-8)
+  status = nlopt_set_maxtime(opt, cdouble(1))
 
   var dx: cdouble = 2.0
   status = nlopt_set_initial_step(opt, addr(dx))
@@ -224,8 +238,7 @@ proc recoEvent(c: Cluster): float64 =
     echo t
     echo "nlopt failed!\n"
   else:
-    echo t
-    echo "found minimum at f(", p[0], "), = ", minf,"\n"
+    echo t, " ;found minimum at f(", p[0], "), = ", minf #,"\n"
 
   nlopt_destroy(opt)
 
@@ -236,11 +249,13 @@ proc reconstructSingleRun(folder: string) =
   # in that folder
   # inputs:
   #    folder: string = the run folder from which to reconstruct events
-  let
+
+  echo "Starting to read list of files"
+  let    
     files = getSortedListOfFiles(folder, EventSortType.inode)
     regex_tup = getRegexForEvents()
-    data = readListOfFiles(files[0..30000], regex_tup)
-
+    f_to_read = if files.high < 30000: files.high else: 15000
+    data = readListOfFiles(files[0..f_to_read], regex_tup)
   var
     min_val = 10.0
     min_seq = newSeq[seq[float64]](7)
@@ -252,6 +267,7 @@ proc reconstructSingleRun(folder: string) =
       let num: int = c.chip.number
       let cluster = findSimpleCluster(c.pixels)
       for cl in cluster:
+        echo "Starting reco of ", a.evHeader["eventNumber"]
         let ob = recoEvent(cl)
         if ob < min_val:
           min_val = ob

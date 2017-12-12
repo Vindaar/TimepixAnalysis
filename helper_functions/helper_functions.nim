@@ -120,7 +120,6 @@ proc getListOfFiles*(folder: string, regex = ""): seq[string] =
   var count = 0
   let reg = re(regex)
   for file in walkDirRec(folder):
-    #if file.match re(regex):
     count = count + 1
     if match(file, reg):
       result.add(file)

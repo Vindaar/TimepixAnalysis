@@ -141,7 +141,12 @@ proc processRawEventData(ch: seq[FlowVar[ref Event]]): ProcessedRun =
           if isNearCenterOfChip(pixels) == true:
             hits[num].add(n_pix)
         else:
-          hits[num].add(n_pix)            
+          hits[num].add(n_pix)
+        if n_pix > 4000:
+          echo a.evHeader
+          echo c.chip, " hits ", n_pix, len(pixels)
+          #echo hits
+
     echoFilesCounted(count)
 
   # using concatenation, flatten the seq[seq[int]] into a seq[int] for each chip
@@ -203,8 +208,8 @@ proc main() =
     dumpFrameToFile("tmp/frame.txt", a)
 
     echo "occupied memory so far $# \n\n" % [$getOccupiedMem()]
-    GC_fullCollect()
-    echo "occupied memory after gc $#" % [$getOccupiedMem()]        
+    # GC_fullCollect()
+    # echo "occupied memory after gc $#" % [$getOccupiedMem()]        
 
     #dumpNumberOfInstances()
     # dump sequences to file
@@ -268,106 +273,3 @@ proc main() =
 
 when isMainModule:
   main()
-
-
-
-# proc processRawEventDataParallel(ch: seq[FlowVar[ref Event]]): ProcessedRun =
-#   # procedure to process the raw data read from the event files by readRawEventData
-#   # NOTE: this is the parallel version of the function with the same name
-#   # inputs:
-#   #    ch: seq[FlowVar[ref Event]] = seq of FlowVars of references to Event objects, which
-#   #        each store raw data of a single event.
-#   #        We read data of FlowVars and store it in normal events, perform calculations
-#   #        to obtain ToT per pixel, number of hits and occupancies of that data
-#   # outputs:
-#   #   ProcessedRun containing:
-#   #    events: seq[Event] = the raw data from the seq of FlowVars saved in seq of Events
-#   #    tuple of:
-#   #      tot: seq[seq[int]] = ToT values for each chip of Septemboard for run
-#   #      hits: seq[seq[int]] = number of hits for each chip of Septemboard fo run
-#   #      occ: Tensor[int] = (7, 256, 256) tensor containing occupancies of all chips for
-#   #        this data.
-
-#   # variable to count number of processed files
-#   var
-#     count = 0
-#     # store ToT data of all events for each chip
-#     # Note: still contains a single seq for each event! Need to concat
-#     # these seqs at the end
-#     tot_run: seq[seq[seq[int]]] = newSeq[seq[seq[int]]](7)
-#     # store occupancy frames for each chip
-#     occ = zeros[int](7, 256, 256)
-#     #occ: seq[Tensor[int]] = newSeq[Tensor[int]](7)
-#     # store number of hits for each chip
-#     hits = newSeq[seq[int]](7)
-#     # initialize the events sequence of result, since we add to this sequence
-#     # instead of copying ch to it!
-#     events = newSeq[Event](len(ch))
-
-#   # initialize empty sequences. Input to anonymous function is var
-#   # as we change each inner sequence in place with newSeq
-#   apply(tot_run, (x: var seq[seq[int]]) => newSeq[seq[int]](x, 0))
-#   apply(hits, (x: var seq[int]) => newSeq[int](x, 0))
-#   #map(occ, (x: var Tensor[int]) => zeros[int](256, 256))
-#   # for i in 0..<occ.high:
-#   #   occ[i] = zeros[int](256, 256)
-
-#   # proc processChip(c: ChipEvent, o: var Tensor[int], tot: var seq[seq[int]], hit: var seq[int]) =
-#   #   echo "1"
-#   #   let pixels = c.pixels
-#   #   echo "2"
-#   #   addPixelsToOccupancy(o, pixels)
-#   #   echo "3"
-#   #   let tot_event = pixelsToTOT(pixels)
-#   #   echo "4"
-#   #   tot.add(tot_event)
-#   #   echo "5"
-#   #   let n_pix = len(tot_event)
-#   #   echo "6"
-#   #   if n_pix > 0:
-#   #     hit.add(n_pix)
-#   #   echo "7"
-    
-#   count = 0
-#   for i in 0..<10000:
-#     let a: Event = (^ch[i])[]
-#     events.add(a)
-#     let chips = a.chips
-#     #let chip3 = filter(chips) do (ch: ChipEvent) -> bool : ch.chip.number == 3
-#     for c in chips:
-#       #parallel:
-#       let num = c.chip.number
-#       #processChip(c, occ[num], tot_run[num], hits[num])
-#       let pixels = c.pixels
-#       #spawn addPixelsToOccupancySeptem(occ, pixels, num)
-#       addPixelsToOccupancySeptem(occ, pixels, num)
-#       let tot_event = pixelsToTOT(pixels)
-#       tot_run[num].add(tot_event)
-#       let n_pix = len(tot_event)
-#       if n_pix > 0:
-#         hits[num].add(n_pix)
-#       #sync()
-#     #sync()
-#     echoFilesCounted(count)
-#     #echo n_pix
-
-#   # using concatenation, flatten the seq[seq[int]] into a seq[int] for each chip
-#   # in the run (currently tot_run is a seq[seq[seq[int]]]. Convert to seq[seq[int]]
-#   let tot = map(tot_run, (t: seq[seq[int]]) -> seq[int] => concat(t))
-
-#   # the data we have now represents our needed processed data for each run
-#   # (excluding FADC)
-#   # events: the raw event data (header plus hits)
-#   # tot_run: for each chip seq of ToT values (excl 11810) to create
-#   #   ToT per pixel histogram for each chip
-#   # occupancies: for each chip tensor of ints containing number of hits of
-#   #   each pixel for whole run
-#   # hits: for each chip seq of number of hits (excl 11810 hits) to create
-#   #   Hits per event for whole run (e.g. energy calibration)
-#   result.events = events
-#   result.tots = tot
-#   result.hits = hits
-#   result.occupancies = occ
-  
-
-  

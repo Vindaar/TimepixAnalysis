@@ -259,6 +259,10 @@ proc processEventWithRegex*(data: seq[string], regex: tuple[header, chips, pixel
     pixels: Pixels = @[]
     # variable to store resulting chip events
     chips: seq[ChipEvent] = @[]
+    # variable to determine, when we are reading the last pixel of one chip
+    # important, because we cannot trust numHits in chip header, due to zero
+    # suppression!
+    pix_to_read: int = 0
   result = new Event
   let
     regex_h = re(regex[0])
@@ -274,6 +278,9 @@ proc processEventWithRegex*(data: seq[string], regex: tuple[header, chips, pixel
       # hit pixel
       pix_counter = 0      
       c_header[h_matches[0]] = h_matches[1]
+      if h_matches[0] == "numHits":
+        let nhits = parseInt(h_matches[1])
+        pix_to_read = if nhits < 4096: nhits else: 4095
     elif match(line, regex_p, p_matches) == true:
       # in this case we have matched a pixel hit line
       # get number of hits to process
@@ -285,7 +292,7 @@ proc processEventWithRegex*(data: seq[string], regex: tuple[header, chips, pixel
       # after adding pixel, increase pixel counter so that we know when we're
       # reading the last hit of a given chip
       inc pix_counter
-      if pix_counter == parseInt(c_header["numHits"]):
+      if pix_counter == pix_to_read:
         # now we are reading the last hit, process chip header and pixels
         var ch_event = ChipEvent()
         ch_event.chip = (c_header["chipName"], parseInt(c_header["chipNumber"]))
@@ -294,6 +301,7 @@ proc processEventWithRegex*(data: seq[string], regex: tuple[header, chips, pixel
         chips.add(ch_event)
         # reset the pixels sequence
         pixels = @[]
+        pix_to_read = 0
 
   result.evHeader = e_header
   result.chips = chips

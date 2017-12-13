@@ -204,14 +204,18 @@ proc recoEvent(c: Cluster): float64 =
   fit_object.cluster = c
   fit_object.xy = (x: pos_x, y: pos_y)
     
-  #opt = nlopt_create(NLOPT_LN_COBYLA, 1)
+  opt = nlopt_create(NLOPT_LN_COBYLA, 1)
+
+  # works as well:
   #opt = nlopt_create(NLOPT_LN_BOBYQA, 1)
   #opt = nlopt_create(NLOPT_LN_NELDERMEAD, 1)
+
+  # pretty good:
   #opt = nlopt_create(NLOPT_LN_SBPLX, 1)
-  # opt = nlopt_create(NLOPT_GN_DIRECT_L, 1)
+  #opt = nlopt_create(NLOPT_GN_DIRECT_L, 1)
   #opt = nlopt_create(NLOPT_GN_CRS2_LM, 1)
   #opt = nlopt_create(NLOPT_GN_ISRES, 1)
-  opt = nlopt_create(NLOPT_GN_ESCH, 1)  
+  # opt = nlopt_create(NLOPT_GN_ESCH, 1)  
 
   # next one is useless, as dimensions needs n >= 2
   #opt = nlopt_create(NLOPT_LN_NEWUOA_BOUND, 1)
@@ -225,11 +229,14 @@ proc recoEvent(c: Cluster): float64 =
   status = nlopt_set_min_objective(opt, cast[nlopt_func](excentricity), cast[pointer](addr fit_object))
   # set the minimization tolerance
   #status = nlopt_set_stopval(opt, cdouble(-Inf))
+  
   status = nlopt_set_xtol_rel(opt, 1e-8)
   status = nlopt_set_ftol_rel(opt, 1e-8)
   status = nlopt_set_maxtime(opt, cdouble(1))
 
-  var dx: cdouble = 2.0
+  # THIS WAS THE ROOT OF ALL EVIL BEFORE! was set to 2, which was way too large
+  # to  get a good fit!
+  var dx: cdouble = 0.02
   status = nlopt_set_initial_step(opt, addr(dx))
   
   # start minimization
@@ -254,7 +261,7 @@ proc reconstructSingleRun(folder: string) =
   let    
     files = getSortedListOfFiles(folder, EventSortType.inode)
     regex_tup = getRegexForEvents()
-    f_to_read = if files.high < 30000: files.high else: 15000
+    f_to_read = if files.high < 30000: files.high else: 30000
     data = readListOfFiles(files[0..f_to_read], regex_tup)
   var
     min_val = 10.0

@@ -408,15 +408,19 @@ proc writeRotAngleFile[T](filename: string, collection: seq[seq[T]]) =
   writeSeqsToFile(filename, header, element_header, collection)
   
 
-proc dumpToTandHits*(tots, hits: seq[seq[int]]) =
+proc dumpToTandHits*(name, run_type: string, tots, hits: seq[seq[int]]) =
   # this procedure dumps the ToT and Hits sequences to .txt files
   # in the out/ folder
   for i in 0..<7:
     echo "Chip " & $i & ":"
     echo "\tToT : " & $len(tots[i]) & "\t" & $len(tots)
     echo "\tHits: " & $len(hits[i])
-  writeHitsFile("out/hits.txt", hits)
-  writeToTFile("out/tot.txt", tots)
+  let
+    outfile = "out/$#_$#_$#.txt"
+    hitfile = outfile % ["hits", run_type, extractFilename(name)]
+    totfile = outfile % ["tots", run_type, extractFilename(name)]
+  writeHitsFile(hitfile, hits)
+  writeToTFile(totfile, tots)
 
 proc dumpRotAngle*(angles: seq[seq[float64]]) =
   # this procedure dumps the ToT and Hits sequences to .txt files

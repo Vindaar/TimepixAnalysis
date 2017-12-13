@@ -17,6 +17,8 @@ import tables
 import times
 import threadpool
 import memfiles
+import strutils
+import docopt
 
 # InGrid-module
 import helper_functions
@@ -31,6 +33,22 @@ import arraymancer
 {.experimental.}
 
 const FILE_BUFSIZE = 30000
+
+
+let doc = """
+InGrid raw data manipulation.
+
+Usage:
+  raw_data_manipulation <folder> [options]
+  raw_data_manipulation -h | --help
+  raw_data_manipulation --version
+
+Options:
+  -h --help           Show this help
+  --version           Show version.
+  --run_type <type>   Select run type (Calib | Data)
+"""
+
 
 proc readRawEventData(run_folder: string): seq[FlowVar[ref Event]] =
   # given a run_folder it reads all event files (data<number>.txt) and returns
@@ -161,15 +179,16 @@ proc writeProcessedRunToH5(h5file_id: hid_t, run: ProcessedRun) =
   #   run: ProcessedRun = a tuple of the processed run data
   discard
       
-proc main() = 
+proc main() =
 
-  let args_count = paramCount()
-  var folder: string
-  if args_count < 1:
-    echo "Please either hand a single run folder or a folder containing run folder, which to process."
-    quit()
-  else:
-    folder = paramStr(1)
+  # use the usage docstring to generate an CL argument table
+  let args = docopt(doc)
+  echo args
+  
+  let folder = $args["<folder>"]
+  var run_type = $args["--run_type"]
+  if isNil(run_type) == true:
+    run_type = ""
     
   # first check whether given folder is valid run folder
   let (is_run_folder, contains_run_folder) = isTosRunFolder(folder)
@@ -183,26 +202,35 @@ proc main() =
     let a = squeeze(r.occupancies[2,_,_])
     dumpFrameToFile("tmp/frame.txt", a)
 
-    var h5file_id: hid_t = 0
+    echo "occupied memory so far $# \n\n" % [$getOccupiedMem()]
+    GC_fullCollect()
+    echo "occupied memory after gc $#" % [$getOccupiedMem()]        
+
+    #dumpNumberOfInstances()
+    # dump sequences to file
+
+
+
+    # var h5file_id: hid_t = 0
     # h5file_id = H5Fcreate("run_file.h5", H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT)
     # writeProcessedRunToH5(h5file_id, r)
     # H5Fclose( h5file_id )
-    let events = r.events
-    var count = 0
-    for ev in events:
-      for c in ev.chips:
-        let t = spawn findSimpleCluster(c.pixels)
-        # if len(t) > 1:
-        #   let tmp = createTensorFromZeroSuppressed(c.pixels)
-        #   echo "chip ", c.chip, " found ", len(t), " clusters"          
-        #   dumpFrameToFile("tmp/frame.txt", tmp)
-        #   sleep(100)
-      echoFilesCounted(count)
-    sync()
+    # let events = r.events
+    # var count = 0
+    # for ev in events:
+    #   for c in ev.chips:
+    #     let t = spawn findSimpleCluster(c.pixels)
+    #     # if len(t) > 1:
+    #     #   let tmp = createTensorFromZeroSuppressed(c.pixels)
+    #     #   echo "chip ", c.chip, " found ", len(t), " clusters"          
+    #     #   dumpFrameToFile("tmp/frame.txt", tmp)
+    #     #   sleep(100)
+    #   echoFilesCounted(count)
+    # sync()
     echo "Size of total ProcessedRun object = ", sizeof(r)
     echo "Length of tots and hits for each chip"
     # dump sequences to file
-    dumpToTandHits(r.tots, r.hits)
+    dumpToTandHits(folder, run_type, r.tots, r.hits)
         
   elif is_run_folder == false and contains_run_folder == true:
     # in this case loop over all folder again and call processSingleRun() for each
@@ -215,13 +243,21 @@ proc main() =
     for kind, path in walkDir(folder):
       if kind == pcDir:
         # only support run folders, not nested run folders
-        let is_rf = if isTosRunFolder(path) == (true, false): true else: false
-        let r = processSingleRun(path)
+        echo "occupied memory before run $# \n\n" % [$getOccupiedMem()]
+        let
+          is_rf = if isTosRunFolder(path) == (true, false): true else: false
+          r = processSingleRun(path)
         for i in 0..<len(r.hits):
           hits_all[i] = concat(hits_all[i], r.hits[i])
           tots_all[i] = concat(tots_all[i], r.tots[i])
+        #echo "Size of sequences : $# / $#" % [$(sizeof(hits_all) * len(hits_all[3]) * 7), $(sizeof(tots_all))]
+        echo "occupied memory so far $# \n\n" % [$getOccupiedMem()]
+        GC_fullCollect()
+        echo "occupied memory after gc $#" % [$getOccupiedMem()]        
+
+        #dumpNumberOfInstances()
     # dump sequences to file
-    dumpToTandHits(tots_all, hits_all)
+    dumpToTandHits(folder, run_type, tots_all, hits_all)
         
   elif is_run_folder == true and contains_run_folder == true:
     echo "Currently not implemented to run over nested run folders."

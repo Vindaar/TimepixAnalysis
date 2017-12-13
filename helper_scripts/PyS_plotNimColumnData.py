@@ -43,6 +43,8 @@ def plotHitFile(hits, filename, title):
 
     #hits = hits[hits < np.percentile(hits, 99)]
 
+    fname = os.path.basename(filename)
+
     binning = np.linspace(-0.5, np.max(hits) + 0.5, np.max(hits) + 2)
     #binning = np.linspace(-0.5, np.max(hits) + 0.5, (np.max(hits) + 2)/2)
     hist, bin_edges = np.histogram(hits, binning)
@@ -54,7 +56,9 @@ def plotHitFile(hits, filename, title):
     fig, ax = plt.subplots(1, 1)
     ax.bar(binning, hist, 1.)
     if title is not None:
-        ax.set_title(title)
+        ax.set_title(fname + title)
+    else:
+        ax.set_title(fname)
     #ax.hist(hits, bins = 100)
     ax.set_xlabel("Pixels hit per event")
     ax.set_ylabel("\# events")
@@ -65,6 +69,8 @@ def plotHitFile(hits, filename, title):
 
 def plotToTFile(tots, filename, title):
 
+    fname = os.path.basename(filename)
+    
     tots = tots[np.where(tots <= 200)[0]]
 
     binning = np.linspace(-0.5, np.max(tots) + 0.5, np.max(tots) + 2)
@@ -77,6 +83,10 @@ def plotToTFile(tots, filename, title):
     print(binning)
     print bin_edges
     ax.bar(bin_edges[:-1], hist, 1., align='edge')
+    if title is not None:
+        ax.set_title(fname + title)
+    else:
+        ax.set_title(fname)
     ax.set_xlabel("ToT values per pixel")
     ax.set_ylabel("\# pixel")
     #ax.set_xlim(0, np.percentile(tots, 98))
@@ -86,20 +96,28 @@ def plotToTFile(tots, filename, title):
 
 def plotRotAngleFile(angles, filename, title):
 
+    fname = os.path.basename(filename)
+
+    angles = angles[np.where(angles != np.nan)[0]]
+
+    print max(angles)
     #angles = angles[angles < np.percentile(angles, 99)]
 
-    binning = np.linspace(-0.5, np.max(angles) + 0.5, np.max(angles) + 2)
+    binning = np.linspace(-0.5, max(angles) + 0.5, max(angles) + 2)
     #binning = np.linspace(-0.5, np.max(angles) + 0.5, (np.max(angles) + 2)/2)
-    hist, bin_edges = np.histogram(angles, binning)
-    bins = np.arange(np.max(angles) + 1)
+    print angles, binning
+    print max(angles), min(angles)
+    # hist, bin_edges = np.histogram(angles, binning)
 
-    #print len(binning), len(hist)
-    binning = binning[:-1]
+    # #print len(binning), len(hist)
+    # binning = binning[:-1]
     
     fig, ax = plt.subplots(1, 1)
     #ax.bar(binning, hist, 1.)
     if title is not None:
-        ax.set_title(title)
+        ax.set_title(fname + title)
+    else:
+        ax.set_title(fname)
     ax.hist(angles, bins = 100)
             
     ax.set_xlabel("Rot angle")
@@ -110,6 +128,9 @@ def plotRotAngleFile(angles, filename, title):
     plt.show()
 
 def plotFadcSpectrumFile(hits, filename, title):
+
+    fname = os.path.basename(filename)
+
     #hits = hits[hits < np.percentile(hits, 99)]
 
     # nbins = 100
@@ -129,7 +150,9 @@ def plotFadcSpectrumFile(hits, filename, title):
     ax.hist(hits, bins = 50)
     ax.set_xlabel("Voltage of dip / $\\si{\\milli\\volt}$")
     if title is not None:
-        ax.set_title(title)
+        ax.set_title(fname + title)
+    else:
+        ax.set_title(fname)
     ax.set_ylabel("\# events")
     ax.set_xlim(-0.5, 0)
     outname = filename.replace(".txt", ".pdf")
@@ -183,7 +206,7 @@ def main(args):
             # for each file we need to read the second column containing the dates
             print("Starting to read file %s" % f)
             filename = os.path.join(folder, f)
-            if filter_s in f and ("hits" in f or "tots" in f or "angles" in f or "fadc" in f):
+            if filter_s in f and ("hits" in f or "tots" in f or "rot" in f or "fadc" in f):
                 data = readFileColumn(filename)
             if "hits" in f and filter_s in f:
                 if combine == False:

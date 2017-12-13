@@ -7,7 +7,7 @@ def readFileColumn(filename):
     lines = open(filename, "r").readlines()
     data = []
     for line in lines:
-        if "#" not in line:
+        if "#" not in line and "nan" not in line:
             data.append(float(line))
     return np.asarray(data)
     

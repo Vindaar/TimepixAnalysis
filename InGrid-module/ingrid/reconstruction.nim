@@ -157,6 +157,9 @@ proc findSimpleCluster*(pixels: Pixels): seq[Cluster] =
       result.add(c)
     inc i
 
+proc fitRotationAngle(c: Cluster:): (float64, float64) =
+  discard
+
 proc recoEvent(c: Cluster): float64 =
   let
     clustersize: int = len(c)

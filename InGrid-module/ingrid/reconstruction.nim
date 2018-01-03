@@ -269,23 +269,22 @@ proc reconstructSingleRun(folder: string) =
   var
     min_val = 10.0
     min_seq = newSeq[seq[float64]](7)
-  apply(min_seq, (x: seq[float64]) -> seq[float64] => @[])
+  apply(min_seq, (x: seq[float64]) -> seq[float64] => newSeqOfCap[float64](files.high))
   for e in data:
-    let a: Event = (^e)[]
-    let chips = a.chips
+    let
+      a: Event = (^e)[]
+      chips = a.chips
     for c in chips:
-      let num: int = c.chip.number
-      let cluster = findSimpleCluster(c.pixels)
+      let
+        num: int = c.chip.number
+        cluster = findSimpleCluster(c.pixels)
       for cl in cluster:
         echo "Starting reco of ", a.evHeader["eventNumber"]
         let ob = recoEvent(cl)
         if ob < min_val:
           min_val = ob
-        min_seq[num].add(ob)
+        min_seq[num].add ob
   
-        #sleep(100)
-        #quit()
-        #echo "Stuff... ", ob
   dumpRotAngle(min_seq)
   
   

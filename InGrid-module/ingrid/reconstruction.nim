@@ -7,7 +7,8 @@
 import os
 import sequtils, future
 import threadpool
-import nimnlopt
+import nlopt
+import nlopt_wrapper
 import math
 import tables
 
@@ -157,8 +158,8 @@ proc findSimpleCluster*(pixels: Pixels): seq[Cluster] =
       result.add(c)
     inc i
 
-proc fitRotationAngle(c: Cluster:): (float64, float64) =
-  discard
+#proc fitRotationAngle(c: Cluster:): (x: float64, y: float64) =
+#  discard
 
 proc recoEvent(c: Cluster): float64 =
   let
@@ -168,8 +169,8 @@ proc recoEvent(c: Cluster): float64 =
     (sum_x2, sum_y2, sum_xy) = sum(map(c, (p: Pix) -> Pix => (p.x * p.x,
                                                               p.y * p.y,
                                                               p.x * p.y)))
-    pos_x: float64 = float64(sum_x) / float64(clustersize)
-    pos_y: float64 = float64(sum_y) / float64(clustersize)
+    pos_x = float64(sum_x) / float64(clustersize)
+    pos_y = float64(sum_y) / float64(clustersize)
   var
     rms_x = sqrt(float64(sum_x2) / float64(clustersize) - pos_x * pos_x)
     rms_y = sqrt(float64(sum_y2) / float64(clustersize) - pos_y * pos_y)
@@ -189,70 +190,41 @@ proc recoEvent(c: Cluster): float64 =
   rms_x *= PITCH
   rms_y *= PITCH
 
-  #echo "rot angle starting point is ", rotAngleEstimate
-
   var
-    # define the optimizer
-    opt: nlopt_opt
     # set the boundary values
-    lb: array[2, cdouble] = [cdouble(-4 * arctan(1.0)), cdouble(4 * arctan(1.0))]
+    lb = (-4.0 * arctan(1.0), 4.0 * arctan(1.0))
     # set the fit object with which we hand the necessary data to the
     # excentricity function
     fit_object: FitObject
     # the resulting fit parameter
-    minf: cdouble
-    p: array[1, cdouble] = [rotAngleEstimate]
+    p = @[rotAngleEstimate]
 
   # set  the values of the fit objectn
   fit_object.cluster = c
   fit_object.xy = (x: pos_x, y: pos_y)
     
-  opt = nlopt_create(NLOPT_LN_COBYLA, 1)
-
-  # works as well:
-  #opt = nlopt_create(NLOPT_LN_BOBYQA, 1)
-  #opt = nlopt_create(NLOPT_LN_NELDERMEAD, 1)
-
-  # pretty good:
-  #opt = nlopt_create(NLOPT_LN_SBPLX, 1)
-  #opt = nlopt_create(NLOPT_GN_DIRECT_L, 1)
-  #opt = nlopt_create(NLOPT_GN_CRS2_LM, 1)
-  #opt = nlopt_create(NLOPT_GN_ISRES, 1)
-  # opt = nlopt_create(NLOPT_GN_ESCH, 1)  
-
-  # next one is useless, as dimensions needs n >= 2
-  #opt = nlopt_create(NLOPT_LN_NEWUOA_BOUND, 1)
-  #opt = nlopt_create(NLOPT_LN_SBPLX, 1)
-  var status: nlopt_result
-  status = nlopt_set_lower_bounds(opt, addr(lb[0]))
-  status = nlopt_set_upper_bounds(opt, addr(lb[1]))
-  if status != NLOPT_SUCCESS:
-    echo "WARNING: could not set bounds!"
-  # set the function to be minimized
-  status = nlopt_set_min_objective(opt, cast[nlopt_func](excentricity), cast[pointer](addr fit_object))
-  # set the minimization tolerance
-  #status = nlopt_set_stopval(opt, cdouble(-Inf))
   
-  status = nlopt_set_xtol_rel(opt, 1e-8)
-  status = nlopt_set_ftol_rel(opt, 1e-8)
-  status = nlopt_set_maxtime(opt, cdouble(1))
+  var opt = newNloptOpt("LN_COBYLA", lb)
+  opt.setFunction(excentricity, fit_object)
 
-  # THIS WAS THE ROOT OF ALL EVIL BEFORE! was set to 2, which was way too large
-  # to  get a good fit!
-  var dx: cdouble = 0.02
-  status = nlopt_set_initial_step(opt, addr(dx))
-  
+  # set relative precisions of x and y, as well as limit max time the algorithm
+  # should take to 1 second
+  opt.xtol_rel = 1e-8
+  opt.ftol_rel = 1e-8
+  opt.maxtime  = 1.0
+  opt.initial_step = 0.02
+
   # start minimization
-  let t = nlopt_optimize(opt, addr(p[0]), addr(minf))
-  if cast[int](t) < 0:
-    echo t
+  let (params, min_val) = opt.optimize(p)
+  if opt.status < NLOPT_SUCCESS:
+    echo opt.status
     echo "nlopt failed!\n"
   else:
-    echo t, " ;found minimum at f(", p[0], "), = ", minf #,"\n"
+    echo opt.status, " ;found minimum at f(", params[0], "), = ", min_val
 
-  nlopt_destroy(opt)
+  nlopt_destroy(opt.optimizer)
 
-  result = float64(p[0])
+  result = float64(params[0])
     
 proc reconstructSingleRun(folder: string) =
   # procedure which receives path to a run folder and reconstructs the objects

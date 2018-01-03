@@ -116,15 +116,15 @@ proc processRawEventData(ch: seq[FlowVar[ref Event]]): ProcessedRun =
 
   # initialize empty sequences. Input to anonymous function is var
   # as we change each inner sequence in place with newSeq
-  apply(tot_run, (x: var seq[seq[int]]) => newSeq[seq[int]](x, 0))
-  apply(hits, (x: var seq[int]) => newSeq[int](x, 0))
+  apply(tot_run, (x: var seq[seq[int]]) => newSeq[seq[int]](x, len(ch)))
+  apply(hits, (x: var seq[int]) => newSeq[int](x, len(ch)))
 
   echo "starting to process events..."
   count = 0
   for i in 0..<ch.high:
   #for i in 0..<10000:
     let a: Event = (^ch[i])[]
-    events.add(a)
+    events[i] = a
     let chips = a.chips
     for c in chips:
       let
@@ -132,20 +132,19 @@ proc processRawEventData(ch: seq[FlowVar[ref Event]]): ProcessedRun =
         pixels = c.pixels
       addPixelsToOccupancySeptem(occ, pixels, num)
       let tot_event = pixelsToTOT(pixels)
-      tot_run[num].add(tot_event)
+      tot_run[num][i] = tot_event
       let n_pix = len(tot_event)
       if n_pix > 0:
         # if the compiler flag (-d:CUT_ON_CENTER) is set, we cut all events, which are
         # in the center 4.5mm^2 square of the chip
         when defined(CUT_ON_CENTER):
           if isNearCenterOfChip(pixels) == true:
-            hits[num].add(n_pix)
+            hits[num][i] = n_pix
         else:
-          hits[num].add(n_pix)
+          hits[num][i] = n_pix
         if n_pix > 4000:
           echo a.evHeader
-          echo c.chip, " hits ", n_pix, len(pixels)
-          #echo hits
+          echo c.chip, " hits ", n_pix, " ", len(pixels)
 
     echoFilesCounted(count)
 

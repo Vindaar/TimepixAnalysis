@@ -27,6 +27,7 @@ import reconstruction
 
 # other modules  
 import nimhdf5/H5nimtypes
+import nimhdf5
 import arraymancer
 
 # global experimental pragma to use parallel: statement in readRawEventData()
@@ -145,13 +146,13 @@ proc processRawEventData(ch: seq[FlowVar[ref Event]]): ProcessedRun =
         if n_pix > 4000:
           echo a.evHeader
           echo c.chip, " hits ", n_pix, " ", len(pixels)
-
     echoFilesCounted(count)
+
 
   # using concatenation, flatten the seq[seq[int]] into a seq[int] for each chip
   # in the run (currently tot_run is a seq[seq[seq[int]]]. Convert to seq[seq[int]]
   let tot = map(tot_run, (t: seq[seq[int]]) -> seq[int] => concat(t))
-
+  result.run_number = parseInt(events[0].evHeader["runNumber"])
   result.events = events
   result.tots = tot
   result.hits = hits
@@ -175,13 +176,136 @@ proc processSingleRun(run_folder: string): ProcessedRun =
   # process the data read into seq of FlowVars, save as result
   result = processRawEventData(ch)
 
-proc writeProcessedRunToH5(h5file_id: hid_t, run: ProcessedRun) =
+proc getGroupNameForRun(run_number: int): string =
+  # generates the group name for a given run number
+  result = "/runs/run_$#" % $run_number
+
+proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
   # this procedure writes the data from the processed run to a HDF5
   # (opened already) given by h5file_id
   # inputs:
-  #   h5file_id: hid_t = the file id (integer) pointing to the writable HDF5 file
+  #   h5f: H5file = the H5 file object of the writeable HDF5 file
   #   run: ProcessedRun = a tuple of the processed run data
-  discard
+  const nchips = 7
+
+  # easy to write:
+  # occupancies
+  # tots
+  # hits
+  # hard to write:
+  # events
+  #   for events we need to be able to write attributes (write data first, attributes later, not needed right now)
+  #   but even so thanks to being zero suppressed, need vlen data
+  
+  # start by creating groups
+  let group_name = getGroupNameForRun(run.run_number)
+  var run_group = h5f.create_group(group_name)
+
+  # TODO: write the run information into the meta data of the group
+
+  let t0 = epochTime()
+  # first write the raw data
+  let
+    ev_type = special_type(int)
+    chip_group_name = group_name & "/chip_$#" #% $chp
+    # create group for each chip 
+    event_groups = mapIt(toSeq(0..<nchips), h5f.create_group(chip_group_name % $it))
+  var
+    x_dsets  = mapIt(event_groups, h5f.create_dataset(it.name & "/raw_x", run.events.len, dtype = ev_type)) 
+    y_dsets  = mapIt(event_groups, h5f.create_dataset(it.name & "/raw_y", run.events.len, dtype = ev_type)) 
+    ch_dsets = mapIt(event_groups, h5f.create_dataset(it.name & "/raw_ch", run.events.len, dtype = ev_type))    
+    x  = newSeq[seq[seq[int]]](7)
+    y  = newSeq[seq[seq[int]]](7)
+    ch = newSeq[seq[seq[int]]](7)
+  for i in 0..6:
+    x[i]  = newSeq[seq[int]](run.events.len)
+    y[i]  = newSeq[seq[int]](run.events.len)
+    ch[i] = newSeq[seq[int]](run.events.len)  
+  for event in run.events:
+    for chp in event.chips:
+      let
+        num = chp.chip.number
+      # given chip number, we can write the data of this event to the correct dataset
+      let evNumber = parseInt(event.evHeader["eventNumber"])
+      let hits = chp.pixels.len
+      var
+        xl: seq[int] = newSeq[int](hits)
+        yl: seq[int] = newSeq[int](hits)
+        chl: seq[int] = newSeq[int](hits)
+      for i, p in chp.pixels:
+        xl[i] = p[0]
+        yl[i] = p[1]
+        chl[i] = p[2]
+      x[num][evNumber] = xl
+      y[num][evNumber] = yl
+      ch[num][evNumber] = chl      
+  let all = x_dsets[0].all
+  for i in 0..x_dsets.high:
+    x_dsets[i][all]  = x[i]
+    y_dsets[i][all]  = y[i]
+    ch_dsets[i][all] = ch[i]
+
+  # alternative approach writing each event one after another.
+  # however, this is about 9 times slower...
+  # let
+  #   ev_type = special_type(int)
+  #   chip_group_name = group_name & "/chip_$#" #% $chp
+  #   # create group for each chip 
+  #   event_groups = mapIt(toSeq(0..<nchips), h5f.create_group(chip_group_name % $it))
+  # var
+  #   x_dsets  = mapIt(event_groups, h5f.create_dataset(it.name & "/raw_x", run.events.len, dtype = ev_type)) 
+  #   y_dsets  = mapIt(event_groups, h5f.create_dataset(it.name & "/raw_y", run.events.len, dtype = ev_type)) 
+  #   ch_dsets = mapIt(event_groups, h5f.create_dataset(it.name & "/raw_ch", run.events.len, dtype = ev_type))    
+  # for event in run.events:
+  #   for chp in event.chips:
+  #     let
+  #       num = chp.chip.number
+  #     # given chip number, we can write the data of this event to the correct dataset
+  #     let evNumber = parseInt(event.evHeader["eventNumber"])
+  #     let hits = chp.pixels.len
+  #     var
+  #       xl: seq[int] = newSeq[int](hits)
+  #       yl: seq[int] = newSeq[int](hits)
+  #       chl: seq[int] = newSeq[int](hits)
+  #     for i, p in chp.pixels:
+  #       xl[i] = p[0]
+  #       yl[i] = p[1]
+  #       chl[i] = p[2]
+  #     x_dsets[num].write(@[@[evNumber, 0]], xl)
+  #     y_dsets[num].write(@[@[evNumber, 0]], yl)
+  #     ch_dsets[num].write(@[@[evNumber, 0]], chl)
+  echo "took a total of $# seconds" % $(epochTime() - t0)
+      
+  # create the datasets needed
+  # let event_dset_name = group_name & "/event_$#"
+  let reco_group_name = "/reconstruction/run_$#" % $run.run_number
+  var reco_group = h5f.create_group(reco_group_name)
+  echo "ToTs shape is ", run.tots.shape
+  echo "hits shape is ", run.hits.shape
+  # into the reco group name we now write the ToT and Hits information
+  # var tot_dset = h5f.create_dataset(reco_group & "/ToT")
+  for chip in 0..run.tots.high:
+    # since not every chip has hits on each event, we need to create one group
+    # for each chip and store each chip's data in these
+    let chip_group_name = reco_group_name & "/chip_$#" % $chip
+    var chip_group = h5f.create_group(chip_group_name)
+    # in this chip group store:
+    # - occupancy
+    # - ToTs
+    # - Hits
+    # ... more later
+    let
+      tot = run.tots[chip]
+      hit = run.hits[chip]
+      occ = run.occupancies[chip, _, _].clone
+    var
+      tot_dset = h5f.create_dataset(chip_group_name & "/ToT", tot.len, int)
+      hit_dset = h5f.create_dataset(chip_group_name & "/Hits", hit.len, int)
+      occ_dset = h5f.create_dataset(chip_group_name & "/Occupancy", (256, 256), int)
+    tot_dset[tot_dset.all] = tot
+    hit_dset[hit_dset.all] = hit
+    occ_dset[occ_dset.all] = occ
+  
       
 proc main() =
 
@@ -202,10 +326,9 @@ proc main() =
   # if we're dealing with a run folder, go straight to processSingleRun()
   if is_run_folder == true and contains_run_folder == false:
     let r = processSingleRun(folder)
-
     let a = squeeze(r.occupancies[2,_,_])
     dumpFrameToFile("tmp/frame.txt", a)
-
+    
     echo "occupied memory so far $# \n\n" % [$getOccupiedMem()]
     # GC_fullCollect()
     # echo "occupied memory after gc $#" % [$getOccupiedMem()]        
@@ -213,11 +336,12 @@ proc main() =
     #dumpNumberOfInstances()
     # dump sequences to file
 
+    # in order to write the processed run to file, open the HDF5 file
+    var h5f = H5file("run_file.h5", "rw")
 
-
-    # var h5file_id: hid_t = 0
-    # h5file_id = H5Fcreate("run_file.h5", H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT)
-    # writeProcessedRunToH5(h5file_id, r)
+    # now write run to this file
+    writeProcessedRunToH5(h5f, r)
+    echo "Closing h5file with code ", h5f.close()
     # H5Fclose( h5file_id )
     # let events = r.events
     # var count = 0

@@ -44,6 +44,8 @@ type
   # process events stores all data for septemboard
   # of a given run
   ProcessedRun* = tuple[
+    # run number
+    run_number: int,
     # event which stores raw data
     events: seq[Event],
     # tots = ToT per pixel of whole run
@@ -376,7 +378,9 @@ proc dumpFrameToFile*(filepath: string, ar: Tensor[int]) =
       for y in 0..<256:
         f.write($ar[x, y] & "\t")
       f.write("\n")
-  f.close()
+    f.close()
+  else:
+    echo "Warning: File to dump frame data could not be opened! Does the output folder exist? Path was ", filepath
 
 template writeSeqsToFile[T](filename, header, element_header: string, collection: seq[seq[T]]) =
   # a template to construct different write file procedures with different headers

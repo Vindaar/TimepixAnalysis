@@ -46,7 +46,9 @@ type
   ProcessedRun* = tuple[
     # run number
     run_number: int,
-    # event which stores raw data
+    # table containing run header ([General] in data file)
+    runHeader: Table[string, string],
+    # event which stores raw data    
     events: seq[Event],
     # tots = ToT per pixel of whole run
     tots: seq[seq[int]],
@@ -592,3 +594,30 @@ proc isNearCenterOfChip*(pix: Pixels): bool =
     result = true
   else:
     result = false
+
+
+proc fillRunHeader*(event: ref Event): Table[string, string] =
+  result = initTable[string, string]()
+  # run number
+  result["runNumber"] = event.evHeader["runNumber"]
+  # run time (TOS command, n_shutters or time)
+  result["runTimeFrames"] = event.evHeader["runTimeFrames"]
+  # run time, setting in `run_time_frames`
+  result["runTime"] = event.evHeader["runTime"]
+  # path of run folder
+  result["pathName"] = event.evHeader["pathName"]
+  # date of run start
+  result["dateTime"] = event.evHeader["dateTime"]
+  # number of chips in run
+  result["numChips"] = event.evHeader["numChips"]
+  # shutter mode (standard, long, very long)
+  result["shutterMode"] = event.evHeader["shutterMode"]
+  # time in shutter mode (0-255)
+  result["shutterTime"] = event.evHeader["shutterTime"]
+  # run mode (ToT or ToA)
+  result["runMode"] = event.evHeader["runMode"]
+  # clock rate, true: 80MHz, false: 40MHz
+  result["fastClock"] = event.evHeader["fastClock"]
+  # trigger type (internal = 0, external = 1)
+  result["externalTrigger"] = event.evHeader["externalTrigger"]
+    

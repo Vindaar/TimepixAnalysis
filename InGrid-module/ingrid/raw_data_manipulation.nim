@@ -152,7 +152,12 @@ proc processRawEventData(ch: seq[FlowVar[ref Event]]): ProcessedRun =
   # using concatenation, flatten the seq[seq[int]] into a seq[int] for each chip
   # in the run (currently tot_run is a seq[seq[seq[int]]]. Convert to seq[seq[int]]
   let tot = map(tot_run, (t: seq[seq[int]]) -> seq[int] => concat(t))
+
+  # now fill the table in ProcessedRun tuple
   result.run_number = parseInt(events[0].evHeader["runNumber"])
+  # use first event of run to fill event header. Fine, because event
+  # header is contained in every file
+  result.runHeader = fillRunHeader(^ch[0])
   result.events = events
   result.tots = tot
   result.hits = hits
@@ -208,19 +213,19 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
   let
     ev_type = special_type(int)
     chip_group_name = group_name & "/chip_$#" #% $chp
-    # create group for each chip 
-    event_groups = mapIt(toSeq(0..<nchips), h5f.create_group(chip_group_name % $it))
   var
-    x_dsets  = mapIt(event_groups, h5f.create_dataset(it.name & "/raw_x", run.events.len, dtype = ev_type)) 
-    y_dsets  = mapIt(event_groups, h5f.create_dataset(it.name & "/raw_y", run.events.len, dtype = ev_type)) 
-    ch_dsets = mapIt(event_groups, h5f.create_dataset(it.name & "/raw_ch", run.events.len, dtype = ev_type))    
+    # create group for each chip
+    chip_groups = mapIt(toSeq(0..<nchips), h5f.create_group(chip_group_name % $it))
+    x_dsets  = mapIt(chip_groups, h5f.create_dataset(it.name & "/raw_x", run.events.len, dtype = ev_type)) 
+    y_dsets  = mapIt(chip_groups, h5f.create_dataset(it.name & "/raw_y", run.events.len, dtype = ev_type)) 
+    ch_dsets = mapIt(chip_groups, h5f.create_dataset(it.name & "/raw_ch", run.events.len, dtype = ev_type))    
     x  = newSeq[seq[seq[int]]](7)
     y  = newSeq[seq[seq[int]]](7)
     ch = newSeq[seq[seq[int]]](7)
   for i in 0..6:
     x[i]  = newSeq[seq[int]](run.events.len)
     y[i]  = newSeq[seq[int]](run.events.len)
-    ch[i] = newSeq[seq[int]](run.events.len)  
+    ch[i] = newSeq[seq[int]](run.events.len)
   for event in run.events:
     for chp in event.chips:
       let
@@ -238,24 +243,23 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
         chl[i] = p[2]
       x[num][evNumber] = xl
       y[num][evNumber] = yl
-      ch[num][evNumber] = chl      
+      ch[num][evNumber] = chl
   let all = x_dsets[0].all
   for i in 0..x_dsets.high:
     x_dsets[i][all]  = x[i]
     y_dsets[i][all]  = y[i]
     ch_dsets[i][all] = ch[i]
-
   # alternative approach writing each event one after another.
   # however, this is about 9 times slower...
   # let
   #   ev_type = special_type(int)
   #   chip_group_name = group_name & "/chip_$#" #% $chp
   #   # create group for each chip 
-  #   event_groups = mapIt(toSeq(0..<nchips), h5f.create_group(chip_group_name % $it))
+  #   chip_groups = mapIt(toSeq(0..<nchips), h5f.create_group(chip_group_name % $it))
   # var
-  #   x_dsets  = mapIt(event_groups, h5f.create_dataset(it.name & "/raw_x", run.events.len, dtype = ev_type)) 
-  #   y_dsets  = mapIt(event_groups, h5f.create_dataset(it.name & "/raw_y", run.events.len, dtype = ev_type)) 
-  #   ch_dsets = mapIt(event_groups, h5f.create_dataset(it.name & "/raw_ch", run.events.len, dtype = ev_type))    
+  #   x_dsets  = mapIt(chip_groups, h5f.create_dataset(it.name & "/raw_x", run.events.len, dtype = ev_type)) 
+  #   y_dsets  = mapIt(chip_groups, h5f.create_dataset(it.name & "/raw_y", run.events.len, dtype = ev_type)) 
+  #   ch_dsets = mapIt(chip_groups, h5f.create_dataset(it.name & "/raw_ch", run.events.len, dtype = ev_type))    
   # for event in run.events:
   #   for chp in event.chips:
   #     let
@@ -275,6 +279,27 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
   #     y_dsets[num].write(@[@[evNumber, 0]], yl)
   #     ch_dsets[num].write(@[@[evNumber, 0]], chl)
   echo "took a total of $# seconds" % $(epochTime() - t0)
+
+
+  # now write attribute data (containing the event run header, for a start
+  # NOTE: unfortunately we cannot write all of it simply using applyIt,
+  # because we need to parse some numbers as ints, leave some as strings
+  let asInt = ["runNumber", "runTime", "runTimeFrames", "numChips", "shutterTime",
+               "runMode", "fastClock", "externalTrigger"]
+  let asString = ["pathName", "dateTime", "shutterMode"]
+  for it in asInt:
+    echo "writing ", it
+    run_group.attrs[it] = parseInt(run.runHeader[it])
+  for it in asString:
+    echo "writing ", it    
+    run_group.attrs[it] = run.runHeader[it]
+
+  # write attributes for each chip
+  var i = 0
+  for grp in mitems(chip_groups):
+    grp.attrs["chipNumber"] = run.events[0].chips[i].chip.number
+    grp.attrs["chipName"] = run.events[0].chips[i].chip.name
+    inc i
       
   # create the datasets needed
   # let event_dset_name = group_name & "/event_$#"

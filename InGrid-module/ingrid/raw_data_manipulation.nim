@@ -122,7 +122,7 @@ proc processRawEventData(ch: seq[FlowVar[ref Event]]): ProcessedRun =
 
   echo "starting to process events..."
   count = 0
-  for i in 0..<ch.high:
+  for i in 0..ch.high:
   #for i in 0..<10000:
     let a: Event = (^ch[i])[]
     events[i] = a

@@ -280,11 +280,17 @@ proc processEventWithRegex*(data: seq[string], regex: tuple[header, chips, pixel
       # in case we match a chip header, pix_counter to 0,
       # need to make sure it is 0, once we reach the first
       # hit pixel
-      pix_counter = 0      
+      pix_counter = 0
       c_header[h_matches[0]] = h_matches[1]
       if h_matches[0] == "numHits":
         let nhits = parseInt(h_matches[1])
         pix_to_read = if nhits < 4096: nhits else: 4095
+        if pix_to_read == 0:
+          var ch_event = ChipEvent()
+          ch_event.chip = (c_header["chipName"], parseInt(c_header["chipNumber"]))
+          ch_event.pixels = pixels
+          # add  the chip event object to the sequence
+          chips.add(ch_event)
     elif match(line, regex_p, p_matches) == true:
       # in this case we have matched a pixel hit line
       # get number of hits to process
@@ -292,7 +298,13 @@ proc processEventWithRegex*(data: seq[string], regex: tuple[header, chips, pixel
         x: int  = parseInt(p_matches[0])
         y: int  = parseInt(p_matches[1])
         ch: int = parseInt(p_matches[2])
-      pixels.add((x, y, ch))
+      # if the compiler flag (-d:REMOVE_FULL_PIX) is set, we cut all pixels, which have
+      # ToT values == 11810, the max ToT value
+      when defined(REMOVE_FULL_PIX):
+        if ch != 11810:
+          pixels.add((x, y, ch))
+      else:
+        pixels.add((x, y, ch))        
       # after adding pixel, increase pixel counter so that we know when we're
       # reading the last hit of a given chip
       inc pix_counter
@@ -309,7 +321,6 @@ proc processEventWithRegex*(data: seq[string], regex: tuple[header, chips, pixel
 
   result.evHeader = e_header
   result.chips = chips
-
   
 
 #template readEventWithRegex(filepath, regex: string): typed =
@@ -478,7 +489,7 @@ proc readListOfFiles*(list_of_files: seq[string],
   #    seq[FlowVar[ref Event]] = a seq of flow vars pointing to events, since we read
   #                              in parallel
   let nfiles = len(list_of_files)
-  echo "Reading files into buffer from " & $0, " to " & $(nfiles - 1)
+  echo "Reading files into buffer from " & $0 & " to " & $(nfiles - 1)
   # seq of lines from memmapped files
   let mmfiles = readMemFilesIntoBuffer(list_of_files)
   echo "...done reading"

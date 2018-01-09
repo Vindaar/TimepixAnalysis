@@ -4,22 +4,11 @@ import re
 import sequtils, future
 import strutils
 import helper_functions
+import threadpool
+# import read list of files, to read FADC files in parallel
+from tos_helper_functions import readListOfFiles, readMemFilesIntoBuffer
+import ingrid_types
 import algorithm
-
-type
-  # object to save FADC data from file into
-  FadcFile* = object
-    vals*: seq[float]
-    posttrig*: int 
-    trigrec*: int
-    bit_mode14*: bool
-
-  # object to store actual FADC data, which is
-  # used (ch0 already extracted)
-  FadcData* = object
-    data*: seq[float]
-    posttrig*: int
-    trigrec*: int
 
 proc walkRunFolderAndGetFadcFiles*(folder: string): seq[string] = 
   # walks a run folder and returns a seq of FADC filename strings
@@ -47,13 +36,16 @@ proc convertFadcTicksToVoltage*[T](array: seq[T], bit_mode14: bool): seq[T] =
   # calculate conversion using map and lambda proc macro
   result = map(array, (x: float) -> float => x * conversion_factor)
 
-proc readFadcFile*(file: string): FadcFile = #seq[float] =
-  result = FadcFile()
-  var 
-    vals: seq[float] = @[]
+proc readFadcFile*(file: seq[string]): ref FadcFile = #seq[float] =
+  result = new FadcFile
+  var
+    # create a sequence with a cap size large enough to hold the whole file
+    # speeds up the add, as the sequence does not have to be resized all the
+    # time
+    vals = newSeqOfCap[float](10300)
     posttrig, trigrec: int
     bit_mode14: bool
-  for line in lines file:
+  for line in file:
     if "postrig" in line or "posttrig" in line:
       let line_spl = line.splitWhitespace
       posttrig = parseInt(line_spl[line_spl.high])
@@ -73,8 +65,11 @@ proc readFadcFile*(file: string): FadcFile = #seq[float] =
   result.bit_mode14 = bit_mode14
   result.vals = vals
 
-  return result
-
+proc readFadcFile*(filename: string): ref FadcFile =
+  # wrapper around readFadcFile(file: seq[string]), which first
+  # reads all lines in the file before 
+  let file = readFile(filename).strip.splitLines
+  result = readFadcFile(file)
 
 proc calcMinOfPulse*[T](array: seq[T], percentile: float): T = 
   # calculates the minimum of the input array (an FADC pulse) based on
@@ -137,10 +132,11 @@ proc getFadcData*(filename: string): FadcData =
   # on many subsequent calls.
   let ch0_indices {.global.} = arange(3, 4*2560, 4)
   # same for the pedestal run data
-  const pedestal_run = "/home/schmidt/CastData/data/pedestalRuns/pedestalRun000042_1_182143774.txt-fadc"
+  const home = getHomeDir()  
+  const pedestal_run = joinPath(home, "CastData/data/pedestalRuns/pedestalRun000042_1_182143774.txt-fadc")
   let pedestal_d {.global.} = readFadcFile(pedestal_run)
   
-  let data = readFadcFile(filename)
+  let data = readFadcFile(filename)[]
   result = fadcFileToFadcData(data, pedestal_d.vals)
 
 proc getPedestalRun*(): seq[float] =
@@ -180,13 +176,29 @@ proc buildListOfXrayFiles*(file: string): seq[string] =
         
   return event_list
 
+# use experimental pragma to use parallel statement, which is contained in
+# dirty template
+{.experimental.}  
+proc readListOfFadcFiles*(list_of_files: seq[string]): seq[FlowVar[ref FadcFile]] =
+  # this procedure receives a list of files, reads them into memory (as a buffer)
+  # and processes the content into a seq of ref FadcFile
+  # inputs:
+  #    list_of_files: seq[string] = a seq of fadc filenames, which are to be read in one go
+  # outputs:
+  #    seq[FlowVar[ref FadcFile]] = a seq of flow vars pointing to fadc events, since we read
+  #                                 in parallel
+  # the meat of the proc is in the readListOfFiles function. Here we simply tell it
+  # what kind of datatype we are reading.
+  result = readListOfFiles[FadcFile](list_of_files)
+
+  
 #import gnuplot
 #import kissfft/kissfft
 #import kissfft/binding
-proc plotFadcFile*(file: string) =
+#proc plotFadcFile*(file: string) =
   # a very much work in progress function to plot an FADC file using gnuplot
   # and perform a simple FFT of the signal
-  discard
+#  discard
 
   # var fadc_file = readFadcFile(file)
   # echo fadc_file.vals.len

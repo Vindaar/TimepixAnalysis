@@ -8,59 +8,15 @@ import memfiles
 import sequtils, future
 import threadpool
 
+
+
 # custom modules
 import helper_functions
+import ingrid_types
 
 # other modules
 import arraymancer
 
-type 
-  # an object, which stores information about a run's start, end and length
-  RunTimeInfo* = object
-    t_start*: Time
-    t_end*: Time
-    t_length*: TimeInterval
-
-  EventHeader* = Table[string, string]
-  ChipHeader*  = Table[string, string]
-  Pix*         = tuple[x, y, ch: int]
-  Pixels*      = seq[Pix]
-
-  Pixels_prot = object#Table[string, seq[int]]
-    x:  seq[int]
-    y:  seq[int]
-    ch: seq[int]
-
-  Chip* = tuple[name: string, number: int]
-
-  ChipEvent* = object
-    chip*: Chip
-    pixels*: Pixels
-    
-  Event* = object
-    evHeader*: Table[string, string]
-    chips*: seq[ChipEvent]
-
-  # process events stores all data for septemboard
-  # of a given run
-  ProcessedRun* = tuple[
-    # run number
-    run_number: int,
-    # table containing run header ([General] in data file)
-    runHeader: Table[string, string],
-    # event which stores raw data    
-    events: seq[Event],
-    # tots = ToT per pixel of whole run
-    tots: seq[seq[int]],
-    # hits = num hits per event of whole run
-    hits: seq[seq[int]],
-    # occupancies = occupancies of each chip for run
-    occupancies: Tensor[int]
-    #occupancies: seq[Tensor[int]]
-  ]
-    
-  EventSortType* = enum
-    fname, inode
 
 proc sum*(c: seq[Pix]): Pix {.inline.} =
   # this procedure sums the sequence of pixels such that it returns
@@ -80,7 +36,6 @@ proc sum2*(c: seq[Pix]): Pix {.inline.} =
     result.x += p.x * p.x
     result.y += p.y * p.y
     result.ch += p.ch * p.ch
-    
     
 proc parseTOSDateString*(date_str: string): Time = 
   # function receives a string from a date time from TOS and creates
@@ -221,16 +176,27 @@ proc readMemFilesIntoBuffer*(list_of_files: seq[string]): seq[seq[string]] =
   #    list_of_files: seq[string] = seq of strings containing the filenames to be read
   # outputs:
   #    seq[var MemFile] = seq of memmapped files with data to work on
-  result = @[]
-  
+  result = newSeqOfCap[seq[string]](len(list_of_files))
+
+  var
+    ff: MemFile
+    # reserver enough space for most events, only for large events do we have to reserve
+    # more space
+    dat: seq[string] = @[] #newSeqOfCap[string](100)
+
+  echo "free memory ", getFreeMem()
+  echo "occ memory ", getOccupiedMem()    
   for f in list_of_files:
-    var ff: MemFile = memfiles.open(f, mode = fmRead, mappedSize = -1)
-    var dat: seq[string] = @[]
-    for l in lines(f):
+    echo "opening file ", f
+    ff = memfiles.open(f, mode = fmRead, mappedSize = -1)
+    for l in lines(ff):
       dat.add(l)
     ff.close()
     result.add(dat)
-
+    dat.setLen(0)
+  echo "free memory ", getFreeMem()
+  echo "occ memory ", getOccupiedMem()
+  
 proc processEventWithRegex*(data: seq[string], regex: tuple[header, chips, pixels: string]): ref Event =
   # this template is used to create the needed functions to
   # - read the event header
@@ -260,9 +226,11 @@ proc processEventWithRegex*(data: seq[string], regex: tuple[header, chips, pixel
     # variables to read data into
     e_header = initTable[string, string]()
     c_header = initTable[string, string]()
-    pixels: Pixels = @[]
+    # create a sequence large enough to hold most events, so that only for very large
+    # events we need to resize the sequence
+    pixels: Pixels = newSeqOfCap[Pix](400)
     # variable to store resulting chip events
-    chips: seq[ChipEvent] = @[]
+    chips: seq[ChipEvent] = newSeqOfCap[ChipEvent](7)
     # variable to determine, when we are reading the last pixel of one chip
     # important, because we cannot trust numHits in chip header, due to zero
     # suppression!
@@ -316,7 +284,7 @@ proc processEventWithRegex*(data: seq[string], regex: tuple[header, chips, pixel
         # add  the chip event object to the sequence
         chips.add(ch_event)
         # reset the pixels sequence
-        pixels = @[]
+        pixels = newSeqOfCap[Pix](400)
         pix_to_read = 0
 
   result.evHeader = e_header
@@ -456,15 +424,23 @@ proc dumpRotAngle*(angles: seq[seq[float64]]) =
   writeRotAngleFile("out/rotAngle.txt", angles)
   
 
-proc getSortedListOfFiles*(run_folder: string, sort_type: EventSortType): seq[string] =
+proc getSortedListOfFiles*(run_folder: string, sort_type: EventSortType, event_type: EventType): seq[string] =
   # this procedure returns a sorted list of event files from a
   # run folder. The returned files are sorted by the event number
   # inputs:
   #    run_folder: string = folder from which to read filenames
+  #    sort_type: EventSortType = enum which decides whether we sort by
+  #               inode or filename
+  #    event_type: EventType = enum which decides which files we read
   # outputs:
   #    seq[string] = sequence containing event filnames, index 0 corresponds
   #                  to event data000000.txt
-  const event_regex = r".*data\d{4,6}\.txt$"
+  var event_regex = ""
+  case event_type:
+  of EventType.InGridType:
+    event_regex = r".*data\d{4,6}\.txt$"
+  of EventType.FadcType:
+    event_regex = r".*data\d{4,6}\.txt-fadc$"    
   # get the list of files from this run folder and sort it
   case sort_type
   of fname:
@@ -474,20 +450,10 @@ proc getSortedListOfFiles*(run_folder: string, sort_type: EventSortType): seq[st
     result = map(createSortedInodeTable(getListOfFiles(run_folder, event_regex)),
                  (i: int, name: string) -> string => name)
 
-
-# set experimental pragma to enable parallel: block
-{.experimental.}
-proc readListOfFiles*(list_of_files: seq[string],
-                     regex_tup: tuple[header, chips, pixels: string]): seq[FlowVar[ref Event]] =
-  # this procedure receives a list of files, reads them into memory (as a buffer)
-  # and processes the content into a seq of ref Events
-  # inputs:
-  #    list_of_files: seq[string] = a seq of filenames, which are to be read in one go
-  #    regex_tup: tuple[...] = a tuple of the different regexes needed to read the different
-  #                            parts of a file
-  # outputs:
-  #    seq[FlowVar[ref Event]] = a seq of flow vars pointing to events, since we read
-  #                              in parallel
+proc readListOfFiles*[T](list_of_files: seq[string],
+                         regex: tuple[header, chips, pixels: string] = ("", "", "")): seq[FlowVar[ref T]] = #{.inline.} =
+  ## As this is to be called from a function specifying the datatype, see the calling functions
+  ## for descriptions of input and output
   let nfiles = len(list_of_files)
   echo "Reading files into buffer from " & $0 & " to " & $(nfiles - 1)
   # seq of lines from memmapped files
@@ -499,16 +465,36 @@ proc readListOfFiles*(list_of_files: seq[string],
   # need ind_high + 1, since newSeq creates a seq with as many elements, while
   # the slicing syntax a[0..10] includes (!) the last element, thus this slice
   # has 11 elements
-  result = newSeq[FlowVar[ref Event]](nfiles)
-  
+  result = newSeq[FlowVar[ref T]](nfiles)
+
   parallel:
     var f_count = 0
     for i, s in mmfiles:
       # loop over each file and call work on data function
       if i < len(result):
-        result[i] = spawn processEventWithRegex(s, regex_tup)
+        when T is Event:
+          result[i] = spawn processEventWithRegex(s, regex)
+        elif T is FadcFile:
+          result[i] = spawn readFadcFile(s)
       echoFilesCounted(f_count)
   sync()
+  
+
+# set experimental pragma to enable parallel: block
+{.experimental.}
+proc readListOfInGridFiles*(list_of_files: seq[string],
+                           regex_tup: tuple[header, chips, pixels: string]): seq[FlowVar[ref Event]] =
+  # this procedure receives a list of files, reads them into memory (as a buffer)
+  # and processes the content into a seq of ref Events
+  # inputs:
+  #    list_of_files: seq[string] = a seq of filenames, which are to be read in one go
+  #    regex_tup: tuple[...] = a tuple of the different regexes needed to read the different
+  #                            parts of a file
+  # outputs:
+  #    seq[FlowVar[ref Event]] = a seq of flow vars pointing to events, since we read
+  #                              in parallel
+  result = readListOfFiles[Event](list_of_files, regex_tup)
+  
 
 proc isTosRunFolder*(folder: string): tuple[is_rf: bool, contains_rf: bool] =
   # this procedure checks whether the given folder is a valid run folder of

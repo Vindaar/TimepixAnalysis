@@ -219,8 +219,6 @@ template echoFilesCounted*(count: int) =
     echo count, " files read."
 
 
-
-
 when isMainModule:
   # unit test for a regex to check for 
   import re

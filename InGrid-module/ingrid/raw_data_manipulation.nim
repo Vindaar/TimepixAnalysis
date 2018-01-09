@@ -20,11 +20,14 @@ import memfiles
 import strutils
 import docopt
 import typetraits
+#import nimprof
 
 # InGrid-module
 import helper_functions
 import tos_helper_functions
-import reconstruction
+import fadc_helper_functions
+import ingrid_types
+#import reconstruction
 
 # other modules  
 import nimhdf5/H5nimtypes
@@ -32,11 +35,10 @@ import nimhdf5
 import nimhdf5/hdf5_wrapper
 import arraymancer
 
-# global experimental pragma to use parallel: statement in readRawEventData()
+# global experimental pragma to use parallel: statement in readRawInGridData()
 {.experimental.}
 
 const FILE_BUFSIZE = 30000
-
 
 let doc = """
 InGrid raw data manipulation.
@@ -52,42 +54,61 @@ Options:
   --run_type <type>   Select run type (Calib | Data)
 """
 
+proc batchFileReading[T](files: var seq[string],
+                         regex_tup: tuple[header, chips, pixels: string] = ("", "", "")):
+                           seq[FlowVar[ref T]] {.inline.} =
+  # and removes all elements in the file list until all events have been read and the seq
+  # is empty
+  let
+    t0 = epochTime()
+    n_files = len(files)
+  var count = 0
+  # initialize sequence
+  result = @[]
 
-proc readRawEventData(run_folder: string): seq[FlowVar[ref Event]] =
+  while len(files) > 0:
+    # variable to set last index to read to
+    var ind_high = FILE_BUFSIZE
+    if len(files) < FILE_BUFSIZE:
+      ind_high = len(files) - 1
+    # read files into buffer sequence
+    when T is Event:
+      let buf_seq = readListOfInGridFiles(files[0..ind_high], regex_tup)
+    elif T is FadcFile:
+      let buf_seq = readListOfFadcFiles(files[0..ind_high])
+      
+    echo "... removing read elements from list"
+    # sequtils.delete removes the element with ind_high as well!
+    files.delete(0, ind_high)
+    echo "... and concating buffered sequence to result"
+    result = concat(result, buf_seq)
+    count += FILE_BUFSIZE
+  echo "All files read. Number = " & $len(result)
+  echo "Reading took $# seconds" % $(epochTime() - t0)
+  echo "Compared with starting files " & $n_files
+
+
+proc readRawInGridData(run_folder: string): seq[FlowVar[ref Event]] =
   # given a run_folder it reads all event files (data<number>.txt) and returns
   # a sequence of FlowVars of references to Events, which store the raw
   # event data
   # NOTE: this procedure does the reading of the data in parallel, thanks to
   # using spawn
-  let
-    regex_tup = getRegexForEvents()
-    t0 = cpuTime()
-  var
-    count = 0
-    # get a sorted list of files, sorted by inode
-    inode_files: seq[string] = getSortedListOfFiles(run_folder, EventSortType.fname)
-  result = @[]     
-  let n_files = len(inode_files)
-  
-  while len(inode_files) > 0:
-    # variable to set last index to read to
-    var ind_high = FILE_BUFSIZE
-    if len(inode_files) < FILE_BUFSIZE:
-      ind_high = len(inode_files) - 1
-    # read files into buffer sequence
-    let buf_seq = readListOfFiles(inode_files[0..ind_high], regex_tup)
-      
-    echo "... removing read elements from list"
-    # sequtils.delete removes the element with ind_high as well!
-    inode_files.delete(0, ind_high)
-    echo "... and concating buffered sequence to result"
-    result = concat(result, buf_seq)
-    count += FILE_BUFSIZE
-  echo "All files read. Number = " & $len(result)
-  echo "Compared with starting files " & $n_files
+  let regex_tup = getRegexForEvents()
+  # get a sorted list of files, sorted by inode
+  var files: seq[string] = getSortedListOfFiles(run_folder, EventSortType.fname, EventType.InGridType)
+  result = batchFileReading[Event](files, regex_tup)
 
-proc processRawEventData(ch: seq[FlowVar[ref Event]]): ProcessedRun =
-  # procedure to process the raw data read from the event files by readRawEventData
+proc readRawFadcData(run_folder: string): seq[FlowVar[ref FadcFile]] =
+  # given a run_folder it reads all fadc files (data<number>.txt-fadc) and returns
+  # a sequence of FlowVars of references to FadcFile, which store the raw
+  # fadc data
+  # get a sorted list of files, sorted by inode
+  var files: seq[string] = getSortedListOfFiles(run_folder, EventSortType.fname, EventType.FadcType)
+  result = batchFileReading[FadcFile](files)
+
+proc processRawInGridData(ch: seq[FlowVar[ref Event]]): ProcessedRun =
+  # procedure to process the raw data read from the event files by readRawInGridData
   # inputs:
   #    ch: seq[FlowVar[ref Event]] = seq of FlowVars of references to Event objects, which
   #        each store raw data of a single event.
@@ -178,10 +199,17 @@ proc processSingleRun(run_folder: string): ProcessedRun =
   # - read event header for each file
   # -
   # read the raw event data into a seq of FlowVars
-  let ch = readRawEventData(run_folder)
+  let ingrid = readRawInGridData(run_folder)
+  let mem1 = getOccupiedMem()
+  echo "occupied memory before fadc $# \n\n" % [$mem1]  
+  let fadc = readRawFadcData(run_folder)
+  echo "FADC took $# data" % $(getOccupiedMem() - mem1)
+  
 
   # process the data read into seq of FlowVars, save as result
-  result = processRawEventData(ch)
+  result = processRawInGridData(ingrid)
+
+
 
 proc getGroupNameForRun(run_number: int): string =
   # generates the group name for a given run number
@@ -386,7 +414,8 @@ proc main() =
     let r = processSingleRun(folder)
     let a = squeeze(r.occupancies[2,_,_])
     dumpFrameToFile("tmp/frame.txt", a)
-    
+
+    echo "free memory ", getFreeMem()
     echo "occupied memory so far $# \n\n" % [$getOccupiedMem()]
     # GC_fullCollect()
     # echo "occupied memory after gc $#" % [$getOccupiedMem()]        

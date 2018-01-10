@@ -10,6 +10,8 @@ from tos_helper_functions import readListOfFiles, readMemFilesIntoBuffer
 import ingrid_types
 import algorithm
 
+import arraymancer
+
 proc walkRunFolderAndGetFadcFiles*(folder: string): seq[string] = 
   # walks a run folder and returns a seq of FADC filename strings
   
@@ -36,34 +38,72 @@ proc convertFadcTicksToVoltage*[T](array: seq[T], bit_mode14: bool): seq[T] =
   # calculate conversion using map and lambda proc macro
   result = map(array, (x: float) -> float => x * conversion_factor)
 
+proc convertFadcTicksToVoltage*(data: Tensor[float], bit_mode14: bool): Tensor[float] =
+  ## equivalent proc to above with Tensor[T] instead of seq[T]
+  ## this function converts the channel arrays from FADC ticks to V, by 
+  ## making use of the mode_register written to file.
+  ## Mode register contains (3 bit register, see CAEN manual p.31):
+  ##    bit 0: EN_VME_IRQ interruption tagging of VME bus?!
+  ##    bit 1: 14BIT_MODE if set to 1, output uses 14 bit register, instead of 
+  ##           backward compatible 12 bit
+  ##    bit 2: AUTO_RESTART_ACQ if 1, automatic restart of acqusition at end of 
+  ##           RAM readout
+  var conversion_factor: float = 1'f64
+  if bit_mode14 == true:
+    conversion_factor = 1 / 8192'f
+  else:
+    # should be 2048. instead of 4096 (cf. septemClasses.py)
+    conversion_factor = 1 / 2048'f
+
+  # calculate conversion using tensor map, first create mutable copy by assigning
+  # to result
+  result = data.map(x => x * conversion_factor)
+  
 proc readFadcFile*(file: seq[string]): ref FadcFile = #seq[float] =
   result = new FadcFile
   var
     # create a sequence with a cap size large enough to hold the whole file
     # speeds up the add, as the sequence does not have to be resized all the
     # time
-    vals = newSeqOfCap[float](10300)
-    posttrig, trigrec: int
-    bit_mode14: bool
+    data = newSeqOfCap[float](10300)
+    posttrig, trigrec, pretrig, n_channels, frequency, sampling_mode: int
+    bit_mode14, pedestal_run: bool
+    line_spl: seq[string]
   for line in file:
-    if "postrig" in line or "posttrig" in line:
-      let line_spl = line.splitWhitespace
-      posttrig = parseInt(line_spl[line_spl.high])
+    if likely('#' notin line.string):
+      # we add a likely statement, because almost all lines are data lines, hence without '#' 
+      data.add(parseFloat(line))
+    elif "nb of channels" in line:
+      line_spl = line.splitWhitespace
+      result.n_channels = parseInt(line_spl[line_spl.high])
+    elif "channel mask" in line:
+      line_spl = line.splitWhitespace
+      result.channel_mask = parseInt(line_spl[line_spl.high])
+    elif "postrig" in line or "posttrig" in line:
+      line_spl = line.splitWhitespace
+      result.posttrig = parseInt(line_spl[line_spl.high])
+    elif "pretrig" in line:
+      line_spl = line.splitWhitespace
+      result.pretrig = parseInt(line_spl[line_spl.high])      
     elif "triggerrecord" in line:
-      let line_spl = line.splitWhitespace
-      trigrec  = parseInt(line_spl[line_spl.high])
+      line_spl = line.splitWhitespace
+      result.trigrec  = parseInt(line_spl[line_spl.high])
+    elif "frequency" in line:
+      line_spl = line.splitWhitespace
+      result.frequency = parseInt(line_spl[line_spl.high])
     elif "sampling mode" in line:
-      let line_spl = line.splitWhitespace
-      let mode_register: int = parseInt(line_spl[line_spl.high])
+      line_spl = line.splitWhitespace
+      let mode_register = parseInt(line_spl[line_spl.high])
       # now get bit 1 from mode_register by comparing with 0b010
-      bit_mode14 = (mode_register and 0b010) == 0b010
-    elif '#' notin line.string:
-      vals.add(parseFloat(line))
-  
-  result.posttrig = posttrig
-  result.trigrec = trigrec
-  result.bit_mode14 = bit_mode14
-  result.vals = vals
+      result.bit_mode14 = (mode_register and 0b010) == 0b010
+      result.sampling_mode = mode_register
+    elif "pedestal run" in line:
+      line_spl = line.splitWhitespace
+      let p_run_flag = parseInt(line_spl[line_spl.high])
+      result.pedestal_run = if p_run_flag == 0: false else: true
+
+  # finally assign data sequence                 
+  result.data = data
 
 proc readFadcFile*(filename: string): ref FadcFile =
   # wrapper around readFadcFile(file: seq[string]), which first
@@ -95,11 +135,11 @@ proc calcMinOfPulse*[T](array: seq[T], percentile: float): T =
 
   result = mean(filtered_array)
 
-proc applyFadcPedestalRun*[T](fadc_vals, pedestal_run: seq[T]): seq[T] = 
+proc applyFadcPedestalRun*[T](fadc_data, pedestal_run: seq[T]): seq[T] = 
   # applys the pedestal run given in the second argument to the first one
   # by zipping the two arrays and using map to subtract each element
   result = map(
-    zip(fadc_vals, pedestal_run), 
+    zip(fadc_data, pedestal_run), 
     proc(val: (T, T)): T = val[0] - val[1]
   )
 
@@ -110,12 +150,13 @@ proc fadcFileToFadcData*[T](fadc_file: FadcFile, pedestal_run: seq[T]): FadcData
   result = FadcData()
 
   # first apply the pedestal run
-  var fadc_vals = applyFadcPedestalRun(fadc_file.vals, pedestal_run)
+  # TODO: extend this to apply the closest pedestal run instead?
+  var fadc_data = applyFadcPedestalRun(fadc_file.data, pedestal_run)
   
   # and cut out channel 3 (the one we take data with)
   let ch0_indices = arange(3, 4*2560, 4)
-  let ch0_vals = fadc_vals[ch0_indices]
-  result.data = ch0_vals
+  let ch0_vals = fadc_data[ch0_indices]
+  result.data = ch0_vals.toTensor
   # set the two 'faulty' registers to 0
   result.data[0] = 0
   result.data[1] = 0
@@ -137,7 +178,7 @@ proc getFadcData*(filename: string): FadcData =
   let pedestal_d {.global.} = readFadcFile(pedestal_run)
   
   let data = readFadcFile(filename)[]
-  result = fadcFileToFadcData(data, pedestal_d.vals)
+  result = fadcFileToFadcData(data, pedestal_d.data)
 
 proc getPedestalRun*(): seq[float] =
   # this convenience function returns the data array from
@@ -146,7 +187,7 @@ proc getPedestalRun*(): seq[float] =
   const home = getHomeDir()
   const pedestal_file = joinPath(home, "CastData/Code/scripts/data/pedestalRuns/pedestalRun000042_1_182143774.txt-fadc")
   let pedestal = readFadcFile(pedestal_file)
-  result = pedestal.vals
+  result = pedestal.data
 
 proc build_filename_from_event_number(number: string): string =
   # function receives event number as string and builds filename from it
@@ -201,7 +242,7 @@ proc readListOfFadcFiles*(list_of_files: seq[string]): seq[FlowVar[ref FadcFile]
 #  discard
 
   # var fadc_file = readFadcFile(file)
-  # echo fadc_file.vals.len
+  # echo fadc_file.data.len
 
   # let pedestal_run = getPedestalRun()
 

@@ -57,17 +57,30 @@ type
   ##############
   # FADC types #
   ##############
-    
-  # object to save FADC data from file into
-  FadcFile* = object
-    vals*: seq[float]
-    posttrig*: int 
+
+  FadcObject* = object of RootObj
+    posttrig*: int
+    pretrig*: int
     trigrec*: int
     bit_mode14*: bool
+    n_channels*: int
+    channel_mask*: int
+    frequency*: int
+    sampling_mode*: int
+    pedestal_run*: bool
+    
+    
+  # object to save FADC data from file into
+  # inherits from FadcObject, only adds a sequence
+  # to store the data
+  FadcFile* = object of FadcObject
+    data*: seq[float]
 
   # object to store actual FADC data, which is
   # used (ch0 already extracted)
-  FadcData* = object
-    data*: seq[float]
-    posttrig*: int
-    trigrec*: int
+  # instead of a sequence for the data, we store the
+  # converted data in an arraymancer tensor
+  FadcData* = object of FadcObject
+    # will be a 2560 element tensor
+    data*: Tensor[float]
+    

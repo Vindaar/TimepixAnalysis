@@ -20,6 +20,7 @@ import memfiles
 import strutils
 import docopt
 import typetraits
+import sets
 #import nimprof
 
 # InGrid-module
@@ -54,9 +55,41 @@ Options:
   --run_type <type>   Select run type (Calib | Data)
 """
 
+template batchFiles(files: var seq[string], bufsize, actions: untyped): untyped =
+  ## this is a template, which can be used to batch a set of files into chunks
+  ## of size `bufsize`. This is done by deleting elements from `files` until it
+  ## is empty. A block of code `actions` is given to the template, which will be
+  ## performed.
+  ## The variable ind_high is injected into the calling space, to allow the
+  ## `actions` block to slice the current files
+  ##
+  ## Example:
+  ##
+  ## .. code-block:
+  ##   let 
+  ##     fname_base = "data$#.txt"
+  ##     files = mapIt(toSeq(0..<1000), fname_base & $it)
+  ##   batch_files(files, 100):
+  ##     # make use of batching for calc with high memory consumption, making use of
+  ##     # injected `ind_high` variable
+  ##     echo memoryConsumptuousCalc(files[0..ind_high])
+  while len(files) > 0:
+    # variable to set last index to read to
+    var ind_high {.inject.} = bufsize
+    if len(files) < bufsize:
+      ind_high = len(files) - 1
+
+    # perform actions as desired
+    actions
+    
+    echo "... removing read elements from list"
+    # sequtils.delete removes the element with ind_high as well!
+    files.delete(0, ind_high)
+
 proc batchFileReading[T](files: var seq[string],
-                         regex_tup: tuple[header, chips, pixels: string] = ("", "", "")):
-                           seq[FlowVar[ref T]] {.inline.} =
+                         regex_tup: tuple[header, chips, pixels: string] = ("", "", ""),
+                         bufsize: int = FILE_BUFSIZE):
+                          seq[FlowVar[ref T]] {.inline.} =
   # and removes all elements in the file list until all events have been read and the seq
   # is empty
   let
@@ -66,23 +99,16 @@ proc batchFileReading[T](files: var seq[string],
   # initialize sequence
   result = @[]
 
-  while len(files) > 0:
-    # variable to set last index to read to
-    var ind_high = FILE_BUFSIZE
-    if len(files) < FILE_BUFSIZE:
-      ind_high = len(files) - 1
+  batchFiles(files, bufsize):
     # read files into buffer sequence
     when T is Event:
       let buf_seq = readListOfInGridFiles(files[0..ind_high], regex_tup)
     elif T is FadcFile:
       let buf_seq = readListOfFadcFiles(files[0..ind_high])
-      
-    echo "... removing read elements from list"
-    # sequtils.delete removes the element with ind_high as well!
-    files.delete(0, ind_high)
+  
     echo "... and concating buffered sequence to result"
     result = concat(result, buf_seq)
-    count += FILE_BUFSIZE
+    count += bufsize
   echo "All files read. Number = " & $len(result)
   echo "Reading took $# seconds" % $(epochTime() - t0)
   echo "Compared with starting files " & $n_files
@@ -96,16 +122,38 @@ proc readRawInGridData(run_folder: string): seq[FlowVar[ref Event]] =
   # using spawn
   let regex_tup = getRegexForEvents()
   # get a sorted list of files, sorted by inode
-  var files: seq[string] = getSortedListOfFiles(run_folder, EventSortType.fname, EventType.InGridType)
+  var files: seq[string] = getSortedListOfFiles(run_folder, EventSortType.inode, EventType.InGridType)
   result = batchFileReading[Event](files, regex_tup)
 
-proc readRawFadcData(run_folder: string): seq[FlowVar[ref FadcFile]] =
-  # given a run_folder it reads all fadc files (data<number>.txt-fadc) and returns
-  # a sequence of FlowVars of references to FadcFile, which store the raw
-  # fadc data
+proc readProcessWriteFadcData(run_folder: string) =
+  ## given a run_folder it reads all fadc files (data<number>.txt-fadc),
+  ## processes it (FadcFile -> FadcData) and writes it to the HDF5 file
+
   # get a sorted list of files, sorted by inode
-  var files: seq[string] = getSortedListOfFiles(run_folder, EventSortType.fname, EventType.FadcType)
-  result = batchFileReading[FadcFile](files)
+  var files: seq[string] = getSortedListOfFiles(run_folder, EventSortType.inode, EventType.FadcType)
+
+  var fadc_data: seq[FlowVar[ref FadcFile]] = @[]
+
+  # in case of FADC data we cannot afford to read all files into memory before
+  # writing some to HDF5, because the memory overhead from storing all files
+  # in seq[string] is too large (17000 FADC files -> 10GB needed!)
+  # thus already perform batching here
+  var files_read: seq[string] = @[]
+  batchFiles(files, 1000):
+    # batch in 1000 file pieces
+    var mfiles = files[0..ind_high]
+    echo "Starting with file $# and ending with file $#" % [$mfiles[0], $mfiles[^1]]
+    files_read = files_read.concat(mfiles)
+
+    fadc_data = batchFileReading[FadcFile](mfiles)
+    echo "Number of files read ", fadc_data.len
+    
+    # given read files, we now need to append this data to the HDF5 file, before
+    # we can process more data, otherwise we might run out of RAM
+    
+
+  echo files_read.toSet.len
+  #result = batchFileReading[FadcFile](files)
 
 proc processRawInGridData(ch: seq[FlowVar[ref Event]]): ProcessedRun =
   # procedure to process the raw data read from the event files by readRawInGridData
@@ -200,16 +248,16 @@ proc processSingleRun(run_folder: string): ProcessedRun =
   # -
   # read the raw event data into a seq of FlowVars
   let ingrid = readRawInGridData(run_folder)
-  let mem1 = getOccupiedMem()
-  echo "occupied memory before fadc $# \n\n" % [$mem1]  
-  let fadc = readRawFadcData(run_folder)
-  echo "FADC took $# data" % $(getOccupiedMem() - mem1)
-  
-
   # process the data read into seq of FlowVars, save as result
   result = processRawInGridData(ingrid)
 
-
+  let mem1 = getOccupiedMem()
+  echo "occupied memory before fadc $# \n\n" % [$mem1]
+  # for the FADC we call a single function here, which works on
+  # the FADC files in a buffered way, always reading 1000 FADC
+  # filsa at a time.
+  readProcessWriteFadcData(run_folder)
+  echo "FADC took $# data" % $(getOccupiedMem() - mem1)
 
 proc getGroupNameForRun(run_number: int): string =
   # generates the group name for a given run number

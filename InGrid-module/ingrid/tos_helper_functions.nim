@@ -8,8 +8,6 @@ import memfiles
 import sequtils, future
 import threadpool
 
-
-
 # custom modules
 import helper_functions
 import ingrid_types
@@ -187,7 +185,6 @@ proc readMemFilesIntoBuffer*(list_of_files: seq[string]): seq[seq[string]] =
   echo "free memory ", getFreeMem()
   echo "occ memory ", getOccupiedMem()    
   for f in list_of_files:
-    echo "opening file ", f
     ff = memfiles.open(f, mode = fmRead, mappedSize = -1)
     for l in lines(ff):
       dat.add(l)

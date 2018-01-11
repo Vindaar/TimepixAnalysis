@@ -143,7 +143,7 @@ proc getRegexForEvents*(): tuple[header, chips, pixels: string] =
   #       header: the regex to read the event header
   #       chips: the regex to read the chip headers
   #       pixels: the regex to read the pixel data
-  result.header = r"^\#{2}\s(\w+):\s+\b(\S*)\b"
+  result.header = r"^\#{2}\s(\w+):\s+(-?\b\S*)\b"
   result.chips  = r"^\#\s(\w+):\s+\b(\w\ \d{1,2} W\d{2}|\S*)\b"
   result.pixels = r"^(\d+)\s+(\d+)\s+(\d+)$"
 

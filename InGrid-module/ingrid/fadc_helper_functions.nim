@@ -65,14 +65,14 @@ proc readFadcFile*(file: seq[string]): ref FadcFile = #seq[float] =
     # create a sequence with a cap size large enough to hold the whole file
     # speeds up the add, as the sequence does not have to be resized all the
     # time
-    data = newSeqOfCap[float](10300)
+    data = newSeqOfCap[int](10240)
     posttrig, trigrec, pretrig, n_channels, frequency, sampling_mode: int
     bit_mode14, pedestal_run: bool
     line_spl: seq[string]
   for line in file:
     if likely('#' notin line.string):
       # we add a likely statement, because almost all lines are data lines, hence without '#' 
-      data.add(parseFloat(line))
+      data.add(parseInt(line))
     elif "nb of channels" in line:
       line_spl = line.splitWhitespace
       result.n_channels = parseInt(line_spl[line_spl.high])
@@ -143,7 +143,14 @@ proc applyFadcPedestalRun*[T](fadc_data, pedestal_run: seq[T]): seq[T] =
     proc(val: (T, T)): T = val[0] - val[1]
   )
 
-proc fadcFileToFadcData*[T](fadc_file: FadcFile, pedestal_run: seq[T]): FadcData =
+proc getCh0Indices*(): seq[int] {.inline.} =
+  # proc which simply returns the channel 0 indices
+  # NOTE: this always creates a full sequence by using a loop
+  # over the 2560 elements. So save a copy of this, if you need
+  # it often!
+  result = arange(3, 4*2560, 4)
+
+proc fadcFileToFadcData*[T](fadc_file: FadcFile, pedestal_run: seq[T], ch0_indices: seq[int]): FadcData =
   # this function converts an FadcFile object (read from a file) to
   # an FadcData object (extracted Ch0, applied pedestal run, converted
   # to volt)
@@ -154,15 +161,20 @@ proc fadcFileToFadcData*[T](fadc_file: FadcFile, pedestal_run: seq[T]): FadcData
   var fadc_data = applyFadcPedestalRun(fadc_file.data, pedestal_run)
   
   # and cut out channel 3 (the one we take data with)
-  let ch0_indices = arange(3, 4*2560, 4)
   let ch0_vals = fadc_data[ch0_indices]
-  result.data = ch0_vals.toTensor
+  result.data = ch0_vals.toTensor.astype(float)
   # set the two 'faulty' registers to 0
   result.data[0] = 0
   result.data[1] = 0
 
   # convert to volt
   result.data = convertFadcTicksToVoltage(result.data, fadc_file.bit_mode14)
+
+proc fadcFileToFadcData*[T](fadc_file: FadcFile, pedestal_run: seq[T]): FadcData =
+  # proc which wraps above proc by first creating the indices needed for the
+  # calculation
+  let ch0_indices = getCh0Indices()
+  result = fadcFileToFadcData(fadc_file, pedestal_run, ch0_indices)
 
 proc getFadcData*(filename: string): FadcData =
   # a convenience function, which performs all steps from reading an FADC
@@ -180,7 +192,7 @@ proc getFadcData*(filename: string): FadcData =
   let data = readFadcFile(filename)[]
   result = fadcFileToFadcData(data, pedestal_d.data)
 
-proc getPedestalRun*(): seq[float] =
+proc getPedestalRun*(): seq[int] =
   # this convenience function returns the data array from
   # our local pedestal run
 

@@ -74,7 +74,7 @@ type
   # inherits from FadcObject, only adds a sequence
   # to store the data
   FadcFile* = object of FadcObject
-    data*: seq[float]
+    data*: seq[int]
 
   # object to store actual FADC data, which is
   # used (ch0 already extracted)

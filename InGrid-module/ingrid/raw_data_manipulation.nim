@@ -55,6 +55,17 @@ Options:
   --run_type <type>   Select run type (Calib | Data)
 """
 
+template ch_len(): int = 2560
+template all_ch_len(): int = ch_len() * 4
+
+proc getGroupNameForRun(run_number: int): string =
+  # generates the group name for a given run number
+  result = "/runs/run_$#" % $run_number
+
+proc getRecoNameForRun(run_number: int): string =
+  # generates the reconstrution group name for a given run number
+  result = "/reconstruction/run_$#" % $run_number
+
 template batchFiles(files: var seq[string], bufsize, actions: untyped): untyped =
   ## this is a template, which can be used to batch a set of files into chunks
   ## of size `bufsize`. This is done by deleting elements from `files` until it
@@ -124,36 +135,6 @@ proc readRawInGridData(run_folder: string): seq[FlowVar[ref Event]] =
   # get a sorted list of files, sorted by inode
   var files: seq[string] = getSortedListOfFiles(run_folder, EventSortType.inode, EventType.InGridType)
   result = batchFileReading[Event](files, regex_tup)
-
-proc readProcessWriteFadcData(run_folder: string) =
-  ## given a run_folder it reads all fadc files (data<number>.txt-fadc),
-  ## processes it (FadcFile -> FadcData) and writes it to the HDF5 file
-
-  # get a sorted list of files, sorted by inode
-  var files: seq[string] = getSortedListOfFiles(run_folder, EventSortType.inode, EventType.FadcType)
-
-  var fadc_data: seq[FlowVar[ref FadcFile]] = @[]
-
-  # in case of FADC data we cannot afford to read all files into memory before
-  # writing some to HDF5, because the memory overhead from storing all files
-  # in seq[string] is too large (17000 FADC files -> 10GB needed!)
-  # thus already perform batching here
-  var files_read: seq[string] = @[]
-  batchFiles(files, 1000):
-    # batch in 1000 file pieces
-    var mfiles = files[0..ind_high]
-    echo "Starting with file $# and ending with file $#" % [$mfiles[0], $mfiles[^1]]
-    files_read = files_read.concat(mfiles)
-
-    fadc_data = batchFileReading[FadcFile](mfiles)
-    echo "Number of files read ", fadc_data.len
-    
-    # given read files, we now need to append this data to the HDF5 file, before
-    # we can process more data, otherwise we might run out of RAM
-    
-
-  echo files_read.toSet.len
-  #result = batchFileReading[FadcFile](files)
 
 proc processRawInGridData(ch: seq[FlowVar[ref Event]]): ProcessedRun =
   # procedure to process the raw data read from the event files by readRawInGridData
@@ -234,34 +215,150 @@ proc processRawInGridData(ch: seq[FlowVar[ref Event]]): ProcessedRun =
   result.hits = hits
   result.occupancies = occ
 
-proc processSingleRun(run_folder: string): ProcessedRun =
-  # this procedure performs the necessary manipulations of a single
-  # run. This is the main part of the raw data manipulation
-  # inputs:
-  #     run_folder: string = the run folder (has to be one!, check with isTosRunFolder())
-  #         to be processed
+proc processFadcData(fadc_files: seq[FlowVar[ref FadcFile]]): seq[FadcData] {.inline.} =
+  ## proc to simply convert the FadcFile objects to FadcData objects
+  # sequence to store the indices needed to extract the 0 channel     
+  let fadc_ch0_indices = getCh0Indices()
+  let pedestal_run = getPedestalRun()
+  result = mapIt(fadc_files, fadcFileToFadcData((^it)[], pedestal_run, fadc_ch0_indices))
 
-  # need to:
-  # - create list of all data<number>.txt files in the folder
-  #   - and corresponding -fadc files
-  # - read event header for each file
-  # -
-  # read the raw event data into a seq of FlowVars
-  let ingrid = readRawInGridData(run_folder)
-  # process the data read into seq of FlowVars, save as result
-  result = processRawInGridData(ingrid)
 
-  let mem1 = getOccupiedMem()
-  echo "occupied memory before fadc $# \n\n" % [$mem1]
-  # for the FADC we call a single function here, which works on
-  # the FADC files in a buffered way, always reading 1000 FADC
-  # filsa at a time.
-  readProcessWriteFadcData(run_folder)
-  echo "FADC took $# data" % $(getOccupiedMem() - mem1)
+proc initFadcInH5(h5f: var H5FileObj, run_number, batchsize: int, filename: string) =
+  # proc to initialize the datasets etc in the HDF5 file for the FADC. Useful
+  # since we don't want to do this every time we call the write function
+  let
+    ch_len = ch_len()
+    all_ch_len = all_ch_len()
+  
+  let
+    group_name = getGroupNameForRun(run_number) & "/fadc"
+    reco_group_name = getRecoNameForRun(run_number) & "/fadc"
+  var
+    # create the groups for the run and reconstruction data
+    run_group = h5f.create_group(group_name)
+    reco_group = h5f.create_group(reco_group_name)
+    # create the datasets for raw data etc
+    # NOTE: we initialize all datasets with a size of 0. This means we need to extend
+    # it immediately. However, this allows us to always (!) simply extend and write
+    # the data to dset.len onwards!
+    raw_fadc_dset = h5f.create_dataset(group_name & "/" & "raw_fadc", (0, all_ch_len),
+                                                          int,
+                                                          chunksize = @[batchsize, all_ch_len],
+                                                          maxshape = @[int.high, all_ch_len])
+    fadc_dset = h5f.create_dataset(reco_group_name & "/" & "fadc_data", (0, ch_len),
+                                                          float,
+                                                          chunksize = @[batchsize, ch_len],
+                                                          maxshape = @[int.high, ch_len])
+    trigrec_dset = h5f.create_dataset(group_name & "/" & "trigger_record", (0, 1),
+                                                          int,
+                                                          chunksize = @[batchsize, 1],
+                                                          maxshape = @[int.high, 1])
+    
+  # write attributes to FADC groups
+  # read the given FADC file and extract that information from it
+  let fadc_for_attrs = readFadcFile(filename)
+  # helper sequence to loop over both groups to write attrs
+  var group_seq = @[run_group, reco_group]
+  for group in mitems(group_seq):
+    group.attrs["posttrig"] = fadc_for_attrs.posttrig
+    group.attrs["pretrig"] = fadc_for_attrs.pretrig
+    group.attrs["n_channels"] = fadc_for_attrs.n_channels
+    group.attrs["channel_mask"] = fadc_for_attrs.channel_mask
+    group.attrs["frequency"] = fadc_for_attrs.frequency
+    group.attrs["sampling_mode"] = fadc_for_attrs.sampling_mode
+    group.attrs["pedestal_run"] = if fadc_for_attrs.pedestal_run == true: 1 else: 0
+  
+proc writeFadcDataToH5(h5f: var H5FileObj, run_number: int, raw_fadc_data: seq[FlowVar[ref FadcFile]], fadc_data: seq[FadcData]) =
+  # proc to write the current FADC data to the H5 file
+  # now write the data
+  let
+    raw_name = getGroupNameForRun(run_number) & "/fadc/raw_fadc"
+    reco_name = getRecoNameForRun(run_number) & "/fadc/fadc_data"
+    trigrec_name = getGroupNameForRun(run_number) & "/fadc/trigger_record"
+    ch_len = ch_len()
+    all_ch_len = all_ch_len()
+  var
+    raw_fadc_dset = h5f[raw_name.dset_str]
+    fadc_dset = h5f[reco_name.dset_str]
+    trigrec_dset = h5f[trigrec_name.dset_str]
 
-proc getGroupNameForRun(run_number: int): string =
-  # generates the group name for a given run number
-  result = "/runs/run_$#" % $run_number
+  echo raw_fadc_dset.shape
+  echo raw_fadc_dset.maxshape
+  echo fadc_dset.shape
+  echo fadc_dset.maxshape
+  echo trigrec_dset.shape
+  echo trigrec_dset.maxshape  
+  # first need to extend the dataset, as we start with a size of 0.
+  let oldsize = raw_fadc_dset.shape[0]
+  let newsize = oldsize + raw_fadc_data.len
+  # TODO: currently this is somewhat problematic. We simply resize always. In a way this is
+  # fine, because we need to resize to append. But in case we start this program twice in
+  # a row, without deleting the file, we simply extend the dataset further, because we read
+  # the current (final!) shape from the file
+  # NOTE: one way to mitigate t his, would be to set oldsize as a {.global.} variable
+  # in which case we simply set it to 0 on the first call and afterwards extend it by 
+  # the size we add
+  raw_fadc_dset.resize((newsize, all_ch_len))
+  fadc_dset.resize((newsize, ch_len))
+  trigrec_dset.resize((newsize, 1))
+
+  # now write the data
+  let t0 = epochTime()
+  # TODO: speed this up
+  var
+    raw_fadc: seq[seq[int]] = newSeq[seq[int]](raw_fadc_data.len)
+    trigrecs: seq[int] = newSeq[int](raw_fadc_data.len)
+  for i, f in raw_fadc_data:
+    raw_fadc[i] = (^raw_fadc_data[i]).data
+    trigrecs[i] = (^raw_fadc_data[i]).trigrec
+  # fix, currently not getting whole data it seems
+  let fadc = mapIt(fadc_data, it.data.toRawSeq)
+  # write using hyperslab
+  echo "Trying to write using hyperslab! from $# to $#" % [$oldsize, $newsize]
+  raw_fadc_dset.write_hyperslab(raw_fadc, @[oldsize, 0], @[raw_fadc.len, all_ch_len])
+  fadc_dset.write_hyperslab(fadc, @[oldsize, 0], @[fadc.len, ch_len])
+  trigrec_dset.write_hyperslab(trigrecs, @[oldsize, 0], @[raw_fadc.len, 1])
+  echo "Writing of FADC data took $# seconds" % $(epochTime() - t0)
+  
+proc readProcessWriteFadcData(run_folder: string, run_number: int, h5f: var H5FileObj) =
+  ## given a run_folder it reads all fadc files (data<number>.txt-fadc),
+  ## processes it (FadcFile -> FadcData) and writes it to the HDF5 file
+
+  # get a sorted list of files, sorted by inode
+  var
+    files: seq[string] = getSortedListOfFiles(run_folder, EventSortType.inode, EventType.FadcType)
+    raw_fadc_data: seq[FlowVar[ref FadcFile]] = @[]
+    fadc_data: seq[FadcData] = @[]
+    # in case of FADC data we cannot afford to read all files into memory before
+    # writing some to HDF5, because the memory overhead from storing all files
+    # in seq[string] is too large (17000 FADC files -> 10GB needed!)
+    # thus already perform batching here
+    files_read: seq[string] = @[]
+  # use batchFiles template to work on 1000 files per batch
+
+  const batchsize = 1000
+
+  # before we start iterating over the files, initialize the H5 file
+  h5f.initFadcInH5(run_number, batchsize, files[0])
+    
+  batchFiles(files, batchsize - 1):
+    # batch in 1000 file pieces
+    var mfiles = files[0..ind_high]
+    echo "Starting with file $# and ending with file $#" % [$mfiles[0], $mfiles[^1]]
+    files_read = files_read.concat(mfiles)
+
+    raw_fadc_data = batchFileReading[FadcFile](mfiles)
+    echo "Number of files read ", raw_fadc_data.len
+    
+    # given read files, we now need to append this data to the HDF5 file, before
+    # we can process more data, otherwise we might run out of RAM
+    fadc_data = raw_fadc_data.processFadcData
+    echo "Number of FADC files in this batch ", fadc_data.len
+
+    h5f.writeFadcDataToH5(run_number, raw_fadc_data, fadc_data)
+
+  echo files_read.toSet.len
+  #result = batchFileReading[FadcFile](files)
 
 proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
   # this procedure writes the data from the processed run to a HDF5
@@ -311,6 +408,7 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
   for key in event_header_keys:
     evHeaders[key] = newSeq[int](nevents)
 
+
   for i in 0..6:
     x[i]  = newSeq[seq[int]](nevents)
     y[i]  = newSeq[seq[int]](nevents)
@@ -320,7 +418,11 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
     let evNumber = parseInt(event.evHeader["eventNumber"])
     # add event header information
     for key in keys(evHeaders):
-      evHeaders[key][evNumber] = parseInt(event.evHeader[key])
+      try:
+        evHeaders[key][evNumber] = parseInt(event.evHeader[key])
+      except KeyError:
+        echo "We're reading event $# with evHeaders" % [$event] #, $evHeaders]
+        raise
     # add raw chip pixel information
     for chp in event.chips:
       let
@@ -382,7 +484,7 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
 
 
   # create the datasets needed
-  let reco_group_name = "/reconstruction/run_$#" % $run.run_number
+  let reco_group_name = getRecoNameForRun(run.run_number)
   var reco_group = h5f.create_group(reco_group_name)
 
   # create hard links of header data to reco group
@@ -439,7 +541,35 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
     tot_dset[tot_dset.all] = tot
     hit_dset[hit_dset.all] = hit
     occ_dset[occ_dset.all] = occ
+
+
+
   
+
+proc processSingleRun(run_folder: string, h5f: var H5FileObj): ProcessedRun =
+  # this procedure performs the necessary manipulations of a single
+  # run. This is the main part of the raw data manipulation
+  # inputs:
+  #     run_folder: string = the run folder (has to be one!, check with isTosRunFolder())
+  #         to be processed
+
+  # need to:
+  # - create list of all data<number>.txt files in the folder
+  #   - and corresponding -fadc files
+  # - read event header for each file
+  # -
+  # read the raw event data into a seq of FlowVars
+  let ingrid = readRawInGridData(run_folder)
+  # process the data read into seq of FlowVars, save as result
+  result = processRawInGridData(ingrid)
+
+  let mem1 = getOccupiedMem()
+  echo "occupied memory before fadc $# \n\n" % [$mem1]
+  # for the FADC we call a single function here, which works on
+  # the FADC files in a buffered way, always reading 1000 FADC
+  # filsa at a time.
+  readProcessWriteFadcData(run_folder, result.run_number, h5f)
+  echo "FADC took $# data" % $(getOccupiedMem() - mem1)
       
 proc main() =
 
@@ -456,10 +586,16 @@ proc main() =
   let (is_run_folder, contains_run_folder) = isTosRunFolder(folder)
   echo "Is run folder       : ", is_run_folder
   echo "Contains run folder : ", contains_run_folder
+
+  # in order to write the processed run and FADC data to file, open the HDF5 file
+  var h5f = H5file("run_file.h5", "rw")
   
   # if we're dealing with a run folder, go straight to processSingleRun()
   if is_run_folder == true and contains_run_folder == false:
-    let r = processSingleRun(folder)
+
+    # hand H5FileObj to processSingleRun, because we need to write intermediate
+    # steps to the H5 file for the FADC, otherwise we use too much RAM
+    let r = processSingleRun(folder, h5f)
     let a = squeeze(r.occupancies[2,_,_])
     dumpFrameToFile("tmp/frame.txt", a)
 
@@ -470,10 +606,6 @@ proc main() =
 
     #dumpNumberOfInstances()
     # dump sequences to file
-
-    # in order to write the processed run to file, open the HDF5 file
-    var h5f = H5file("run_file.h5", "rw")
-
     # now write run to this file
     writeProcessedRunToH5(h5f, r)
     echo "Closing h5file with code ", h5f.close()
@@ -509,7 +641,7 @@ proc main() =
         echo "occupied memory before run $# \n\n" % [$getOccupiedMem()]
         let
           is_rf = if isTosRunFolder(path) == (true, false): true else: false
-          r = processSingleRun(path)
+          r = processSingleRun(path, h5f)
         for i in 0..<len(r.hits):
           hits_all[i] = concat(hits_all[i], r.hits[i])
           tots_all[i] = concat(tots_all[i], r.tots[i])
@@ -521,6 +653,7 @@ proc main() =
         #dumpNumberOfInstances()
     # dump sequences to file
     dumpToTandHits(folder, run_type, tots_all, hits_all)
+    echo "Closing h5file with code ", h5f.close()
         
   elif is_run_folder == true and contains_run_folder == true:
     echo "Currently not implemented to run over nested run folders."

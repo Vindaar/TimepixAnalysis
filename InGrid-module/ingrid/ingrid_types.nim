@@ -29,6 +29,8 @@ type
   Event* = object
     evHeader*: Table[string, string]
     chips*: seq[ChipEvent]
+    # time the shutter was open in seconds
+    length*: float  
 
   # process events stores all data for septemboard
   # of a given run
@@ -39,6 +41,9 @@ type
     runHeader: Table[string, string],
     # event which stores raw data    
     events: seq[Event],
+    # time the shutter was open in seconds, one value for each
+    # event
+    length: seq[float],
     # tots = ToT per pixel of whole run
     tots: seq[seq[int]],
     # hits = num hits per event of whole run
@@ -47,7 +52,7 @@ type
     occupancies: Tensor[int]
     #occupancies: seq[Tensor[int]]
   ]
-    
+
   EventSortType* = enum
     fname, inode
 
@@ -83,4 +88,18 @@ type
   FadcData* = object of FadcObject
     # will be a 2560 element tensor
     data*: Tensor[float]
+    
+  ProcessedFadcData* = tuple[
+    # raw fadc data
+    raw_fadc_data: seq[seq[int]],
+    # processed and converted FADC data
+    fadc_data: Tensor[float],
+    # trigger record times, stored 
+    trigrecs: seq[int],
+    # flag which says whether event was noisy
+    noisy: seq[int],
+    # minimum values of events (voltage of dips)
+    minvals: seq[float]
+    # more?
+  ]
     

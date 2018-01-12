@@ -7,6 +7,7 @@ import tables
 import memfiles
 import sequtils, future
 import threadpool
+import math
 
 # custom modules
 import helper_functions
@@ -134,6 +135,44 @@ proc getRunTimeInfo*(run_files: seq[string]): RunTimeInfo =
   result.t_end = time_last 
   result.t_length = run_length
 
+proc parseShutterMode*(mode: string): int =
+  # proc to parse the TOS shutter mode selection
+  if mode == "verylong" or mode == "vl":
+    result = 2
+  elif mode == "long" or mode == "l":
+    result = 1
+  else:
+    result = 0
+
+proc calcLength*(event: Event): float =
+  # calculates the event length in seconds, taking into account
+  # whether the FADC triggered or not and the shutter opening time
+  # TODO: is it really * 46 or not? Kind of important...
+  # 2, 13 comes out correctly with 46!
+  let
+    time = parseFloat(event.evHeader["shutterTime"])
+    mode = float(parseShutterMode(event.evHeader["shutterMode"]))
+    fadc_triggered = parseInt(event.evHeader["fadcReadout"])
+  if unlikely(fadc_triggered == 1):
+    let fadc_clock_triggered = parseFloat(event.evHeader["fadcTriggerClock"])
+    # in case FADC triggered it's simply the number of clockcycles the shutter was open
+    # multiplied by the clock speed numbers
+    result = fadc_clock_triggered * 46'f / 40'f / 1_000_000'f
+  else:
+    result = pow(256'f, mode) * 46'f * time / 40'f / 1_000_000'f
+
+proc calcLength*(event: Event, time, mode: float): float =
+  # overload of above, with time and mode already read
+  # calculates the event length in seconds, taking into account
+  # whether the FADC triggered or not and the shutter opening time
+  let fadc_triggered = parseInt(event.evHeader["fadcReadout"])
+  if unlikely(fadc_triggered == 1):
+    let fadc_clock_triggered = parseFloat(event.evHeader["fadcTriggerClock"])
+    # in case FADC triggered it's simply the number of clockcycles the shutter was open
+    # divided by the clock speed
+    result = fadc_clock_triggered / 40'f / 1_000_000'f
+  else:
+    result = pow(256'f, mode) * 46'f * time / 40'f / 1_000_000'f
 
 proc getRegexForEvents*(): tuple[header, chips, pixels: string] = 
   # this procedure returns a tuple of the regexes used to

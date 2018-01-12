@@ -700,6 +700,19 @@ proc processSingleRun(run_folder: string, h5f: var H5FileObj): ProcessedRun =
   readProcessWriteFadcData(run_folder, result.run_number, h5f)
   echo "FADC took $# data" % $(getOccupiedMem() - mem1)
 
+proc processAndWriteRun(h5f: var H5FileObj, run_folder: string) =
+
+    let r = processSingleRun(run_folder, h5f)
+    let a = squeeze(r.occupancies[2,_,_])
+    dumpFrameToFile("tmp/frame.txt", a)
+    writeProcessedRunToH5(h5f, r)
+
+    echo "Size of total ProcessedRun object = ", sizeof(r)
+    echo "Length of tots and hits for each chip"
+    # dump sequences to file
+    #dumpToTandHits(folder, run_type, r.tots, r.hits)
+
+
 proc main() =
 
   # use the usage docstring to generate an CL argument table
@@ -727,10 +740,7 @@ proc main() =
 
     # hand H5FileObj to processSingleRun, because we need to write intermediate
     # steps to the H5 file for the FADC, otherwise we use too much RAM
-    let r = processSingleRun(folder, h5f)
-    let a = squeeze(r.occupancies[2,_,_])
-    dumpFrameToFile("tmp/frame.txt", a)
-
+    processAndWriteRun(h5f, folder)
     echo "free memory ", getFreeMem()
     echo "occupied memory so far $# \n\n" % [$getOccupiedMem()]
     # GC_fullCollect()
@@ -739,7 +749,6 @@ proc main() =
     #dumpNumberOfInstances()
     # dump sequences to file
     # now write run to this file
-    writeProcessedRunToH5(h5f, r)
     echo "Closing h5file with code ", h5f.close()
     # H5Fclose( h5file_id )
     # let events = r.events
@@ -754,15 +763,10 @@ proc main() =
     #     #   sleep(100)
     #   echoFilesCounted(count)
     # sync()
-    echo "Size of total ProcessedRun object = ", sizeof(r)
-    echo "Length of tots and hits for each chip"
-    # dump sequences to file
-    dumpToTandHits(folder, run_type, r.tots, r.hits)
         
   elif is_run_folder == false and contains_run_folder == true:
     # in this case loop over all folder again and call processSingleRun() for each
     # run folder
-
     var
       # create variables to store a combined sequence for all runs
       hits_all: seq[seq[int]] = newSeq[seq[int]](7)

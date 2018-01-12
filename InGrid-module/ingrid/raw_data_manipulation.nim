@@ -51,9 +51,10 @@ Usage:
   raw_data_manipulation --version
 
 Options:
+  --run_type <type>   Select run type (Calib | Data)
+  --out <name>        Filename and path of output file
   -h --help           Show this help
   --version           Show version.
-  --run_type <type>   Select run type (Calib | Data)
 """
 
 template ch_len(): int = 2560
@@ -707,8 +708,11 @@ proc main() =
   
   let folder = $args["<folder>"]
   var run_type = $args["--run_type"]
+  var outfile = $args["--out"]
   if isNil(run_type) == true:
     run_type = ""
+  if isNil(outfile) == true:
+    outfile = "run_file.h5"
     
   # first check whether given folder is valid run folder
   let (is_run_folder, contains_run_folder) = isTosRunFolder(folder)
@@ -716,7 +720,7 @@ proc main() =
   echo "Contains run folder : ", contains_run_folder
 
   # in order to write the processed run and FADC data to file, open the HDF5 file
-  var h5f = H5file("run_file.h5", "rw")
+  var h5f = H5file(outfile, "rw")
   
   # if we're dealing with a run folder, go straight to processSingleRun()
   if is_run_folder == true and contains_run_folder == false:

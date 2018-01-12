@@ -45,7 +45,7 @@ proc main() =
   let rt_info = getRunTimeInfo(files)
   
   let parsed_first = formatAsOrgDate(rt_info.t_start)
-  let parsed_last  = formatAsOrgDate(rt_info.t_end)      
+  let parsed_last  = formatAsOrgDate(rt_info.t_end)
   
   echo "Start of run:  <", parsed_first, ">"
   echo "End of run:    <", parsed_last, ">"

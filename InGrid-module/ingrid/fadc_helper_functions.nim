@@ -111,28 +111,46 @@ proc readFadcFile*(filename: string): ref FadcFile =
   let file = readFile(filename).strip.splitLines
   result = readFadcFile(file)
 
-proc calcMinOfPulse*[T](array: seq[T], percentile: float): T = 
+proc calcMinOfPulse*(ar: Tensor[float], percentile: float): float = 
+  # calculates the minimum of the input ar (an FADC pulse) based on
+  # a minimum percentile of the array 
+  let
+    arg_min = argmin(ar)
+    n_elements = int(float(ar.size) * (1'f - percentile) / 2'f)
+    ind_min_r = arg_min - n_elements
+    ind_min = if ind_min_r > 0: ind_min_r else: 0
+    ind_max_r = arg_min + n_elements
+    ind_max = if ind_max_r < ar.size: ind_max_r else: ar.size
+    
+  result = mean(ar[ind_min..ind_max])
+
+proc calcMinOfPulseAlt*(array: Tensor[float], percentile: float): float = 
   # calculates the minimum of the input array (an FADC pulse) based on
   # a minimum percentile of the array 
-  var filtered_array: seq[T] = @[]
+  var filtered_array: seq[float] #Tensor[float]
 
   # first we're not interested in values close to zero (since we already applied 
   # the pedestal)
   # will filter out all elements, which are smaller (negative values in array)
   # then 5% of minimum of whole array
-  let min: T = min(array)
-  filtered_array = filter(array, (x: T) -> bool => x < 0.05 * min)
+  let `min` = min(array)
+  # filtered_array = filter(array,(x: loat) -> bool => x < 0.05 * min)
+  filtered_array = filterIt(array.toRawSeq, it < 0.05 * `min`)
   # given resulting array, calculate percentile
   let n_elements = filtered_array.len
-  sort(filtered_array, system.cmp[T])
+  sort(filtered_array, system.cmp[float])
+  echo "Filtered array 0 ", filtered_array[^10..^1]
+  
   #echo filtered_array[0], filtered_array[filtered_array.high]
   #echo filtered_array[0..30]
   let ind: int = toInt(float(n_elements) * percentile)
   # echo n_elements
   # echo ind
   let threshold = filtered_array[n_elements - ind]
-  filtered_array = filter(array, (x: T) -> bool => x < threshold)
-
+  #filtered_array = filter(array, (x: T) -> bool => x < threshold)
+  filtered_array = filterIt(array.toRawSeq, it < threshold)
+  #echo "Filtered array ", filtered_array
+  echo "Min of array is ", `min`
   result = mean(filtered_array)
 
 proc applyFadcPedestalRun*[T](fadc_data, pedestal_run: seq[T]): seq[T] = 
@@ -244,6 +262,36 @@ proc readListOfFadcFiles*(list_of_files: seq[string]): seq[FlowVar[ref FadcFile]
   # what kind of datatype we are reading.
   result = readListOfFiles[FadcFile](list_of_files)
 
+
+
+
+  ###################################################################################
+  # The following procs all deal with the calculation of whether a given FADC event #
+  # is noisy or not                                                                 #
+  # NOTE: the general procs have been moved to helper_functions module              #
+  ###################################################################################
+
+proc isFadcFileNoisy*(fadc: FadcData, n_dips: int): bool =
+  # this procedure checks whether a given file name
+  # is a noisy FADC file. Determined by the number of dips found in the
+  # FADC signal. 
+  let peak_loc = findPeaks(fadc.data, 150)
+  result = if len(peak_loc) >= n_dips: true else: false
+
+proc isFadcFileNoisy*(fadc_data: Tensor[float], n_dips: int): int =
+  # this procedure checks whether a given file name
+  # is a noisy FADC file. Determined by the number of dips found in the
+  # FADC signal. 
+  let peak_loc = findPeaks(fadc_data, 150)
+  result = if len(peak_loc) >= n_dips: 1 else: 0
+
+proc isFadcFileNoisy*(file: string, n_dips: int): bool =
+  # overload of proc above, which first reads a file from disk,
+  # performs conversion and then checks
+  var fadc_file = readFadcFile(file)
+  let pedestal_run = getPedestalRun()
+  let fadc_data = fadcFileToFadcData(fadc_file, pedestal_run)
+  result = isFadcFileNoisy(fadc_data, n_dips)
   
 #import gnuplot
 #import kissfft/kissfft

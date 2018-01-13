@@ -60,18 +60,6 @@ Options:
 template ch_len(): int = 2560
 template all_ch_len(): int = ch_len() * 4
 
-proc getGroupNameForRun(run_number: int): string =
-  # generates the group name for a given run number
-  result = "/runs/run_$#" % $run_number
-
-proc getRecoNameForRun(run_number: int): string =
-  # generates the reconstrution group name for a given run number
-  result = "/reconstruction/run_$#" % $run_number
-
-proc getCombineName(): string =
-  # generates the base path for the combine folder
-  result = "/reconstruction/combined/"
-
 # macro combineBasename(typename: static[string]): typed =
 #   # really ugly macro, mostly to toy around, to create basename templates
 #   # creates a string, which is parsed to create templates, based on static
@@ -91,38 +79,6 @@ proc getCombineName(): string =
 #   #"""
 #   result = parseStmt(nim_template_name)
 
-
-  
-template combineBasenameToT(chip_number, run_number: int): string =
-  "/reconstruction/combined/ToT_$#_$#" % [$chip_number, $run_number]
-
-template combineBasenameHits(chip_number, run_number: int): string =
-  "/reconstruction/combined/Hits_$#_$#" % [$chip_number, $run_number]
-
-template combineBasenameFadc(): string =
-  "/reconstruction/combined/fadc/"
-  
-template combineBasenameNoisy(run_number: int): string =
-  "/reconstruction/combined/fadc/noisy_$#" % [$run_number]
-
-template combineBasenameMinvals(run_number: int): string =
-  "/reconstruction/combined/fadc/minvals_$#" % [$run_number]
-
-template noiseBasename(run_number: int): string =
-  getRecoNameForRun(run_number) / "fadc/noisy"
-
-template minvalsBasename(run_number: int): string =
-  getRecoNameForRun(run_number) / "fadc/minvals"
-
-template rawFadcBasename(run_number: int): string =
-  getGroupNameForRun(run_number) / "fadc/raw_fadc"
-
-template trigrecBasename(run_number: int): string =
-  getGroupNameForRun(run_number) / "fadc/trigger_record"
-  
-template fadcDataBasename(run_number: int): string =
-  getRecoNameForRun(run_number) / "fadc/fadc_data"
-  
 # template combinedBasenameHits(chip_number, run_number: int) =
 #   "Hits_$#_$#" % [$chip_number, $run_number]    
 
@@ -712,7 +668,6 @@ proc processAndWriteRun(h5f: var H5FileObj, run_folder: string) =
     # dump sequences to file
     #dumpToTandHits(folder, run_type, r.tots, r.hits)
 
-
 proc main() =
 
   # use the usage docstring to generate an CL argument table
@@ -722,9 +677,9 @@ proc main() =
   let folder = $args["<folder>"]
   var run_type = $args["--run_type"]
   var outfile = $args["--out"]
-  if isNil(run_type) == true:
+  if run_type == "nil":
     run_type = ""
-  if isNil(outfile) == true:
+  if outfile == "nil":
     outfile = "run_file.h5"
     
   # first check whether given folder is valid run folder

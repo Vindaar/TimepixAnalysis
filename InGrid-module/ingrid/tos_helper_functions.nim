@@ -653,4 +653,61 @@ proc fillRunHeader*(event: ref Event): Table[string, string] =
   result["fastClock"] = event.evHeader["fastClock"]
   # trigger type (internal = 0, external = 1)
   result["externalTrigger"] = event.evHeader["externalTrigger"]
-    
+
+
+  
+#####################################################
+# Procs describing the data layout in the HDF5 file #
+#####################################################
+
+template rawDataBase*(): string =
+  "/runs/run_"
+
+template rawDataChipBase*(run_number: int): string =
+  "/runs/run_$#/chip_" % $run_number # & "$#"
+
+proc getGroupNameForRun*(run_number: int): string =
+  # generates the group name for a given run number
+  result = rawDataBase() & "$#" % $run_number
+
+template recoBase*(): string =
+  "/reconstruction/run_"
+
+proc getRecoNameForRun*(run_number: int): string =
+  # generates the reconstrution group name for a given run number
+  result = recoBase() & "$#" % $run_number
+
+proc getCombineName*(): string =
+  # generates the base path for the combine folder
+  result = "/reconstruction/combined/"
+
+template combineBasenameToT*(chip_number, run_number: int): string =
+  "/reconstruction/combined/ToT_$#_$#" % [$chip_number, $run_number]
+
+template combineBasenameHits*(chip_number, run_number: int): string =
+  "/reconstruction/combined/Hits_$#_$#" % [$chip_number, $run_number]
+
+template combineBasenameFadc*(): string =
+  "/reconstruction/combined/fadc/"
+  
+template combineBasenameNoisy*(run_number: int): string =
+  "/reconstruction/combined/fadc/noisy_$#" % [$run_number]
+
+template combineBasenameMinvals*(run_number: int): string =
+  "/reconstruction/combined/fadc/minvals_$#" % [$run_number]
+
+template noiseBasename*(run_number: int): string =
+  getRecoNameForRun(run_number) / "fadc/noisy"
+
+template minvalsBasename*(run_number: int): string =
+  getRecoNameForRun(run_number) / "fadc/minvals"
+
+template rawFadcBasename*(run_number: int): string =
+  getGroupNameForRun(run_number) / "fadc/raw_fadc"
+
+template trigrecBasename*(run_number: int): string =
+  getGroupNameForRun(run_number) / "fadc/trigger_record"
+  
+template fadcDataBasename*(run_number: int): string =
+  getRecoNameForRun(run_number) / "fadc/fadc_data"
+  

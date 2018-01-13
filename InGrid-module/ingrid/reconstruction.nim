@@ -7,14 +7,23 @@
 import os
 import sequtils, future
 import threadpool
-import nlopt
-import nlopt_wrapper
 import math
 import tables
+import docopt
+import strutils
+import typetraits
+import re
+
+# external modules
+import nlopt
+import nlopt_wrapper
+import nimhdf5
 
 # custom modules
 import tos_helper_functions
 import helper_functions
+import ingrid_types
+
 
 
 type
@@ -30,6 +39,23 @@ type
   FitObject = object
     cluster: Cluster
     xy: tuple[x, y: float64]
+
+
+let doc = """
+InGrid reconstruction and energy calibration.
+
+Usage:
+  reconstruction <HDF5file> [options]
+  reconstruction -h | --help
+  reconstruction --version
+
+Options:
+  --run_number <number>  Only work on this run
+  --out <name>           Filename and path of output file
+  -h --help              Show this help
+  --version              Show version.
+"""
+    
 
 proc excentricity(n: cuint, p: array[1, cdouble], grad: var array[1, cdouble], func_data: var pointer): cdouble {.cdecl.} =
   # this function calculates the excentricity of a found pixel cluster using nimnlopt.
@@ -158,9 +184,6 @@ proc findSimpleCluster*(pixels: Pixels): seq[Cluster] =
       result.add(c)
     inc i
 
-#proc fitRotationAngle(c: Cluster:): (x: float64, y: float64) =
-#  discard
-
 proc recoEvent(c: Cluster): float64 =
   let
     clustersize: int = len(c)
@@ -191,7 +214,7 @@ proc recoEvent(c: Cluster): float64 =
   rms_y *= PITCH
 
   var
-    # set the boundary values
+    # set the boundary values corresponding to range of 360 deg
     lb = (-4.0 * arctan(1.0), 4.0 * arctan(1.0))
     # set the fit object with which we hand the necessary data to the
     # excentricity function
@@ -225,7 +248,30 @@ proc recoEvent(c: Cluster): float64 =
   nlopt_destroy(opt.optimizer)
 
   result = float64(params[0])
-    
+
+proc readDataFromH5(h5f: var H5FileObj, group: string, run_number: int) =
+  # proc to read data from the HDF5 file from `group`
+  var chip_base = rawDataChipBase(run_number)
+  let raw_data_basename = rawDataBase()
+  for grp in keys(h5f.groups):
+    if chip_base in grp:
+      # now can start reading
+      var group = h5f[grp.grp_str]
+      # get the chip number from the dataset
+      let chip_number = group.attrs["chipNumber", int]
+      # given group and chip number, we can read vlen data
+      let vlen = special_type(int)
+      var raw_x_dset  = h5f[(grp / "raw_x").dset_str]
+      var raw_y_dset  = h5f[(grp / "raw_x").dset_str]
+      var raw_ch_dset = h5f[(grp / "raw_x").dset_str]      
+      let raw_x  = raw_x_dset[vlen, int]
+      let raw_y  = raw_y_dset[vlen, int]
+      let raw_ch = raw_ch_dset[vlen, int]      
+
+      echo raw_x.len, " ", raw_y.len, " ", raw_ch.len
+      
+  
+  
 proc reconstructSingleRun(folder: string) =
   # procedure which receives path to a run folder and reconstructs the objects
   # in that folder
@@ -234,10 +280,10 @@ proc reconstructSingleRun(folder: string) =
 
   echo "Starting to read list of files"
   let    
-    files = getSortedListOfFiles(folder, EventSortType.inode)
+    files = getSortedListOfFiles(folder, EventSortType.inode, EventType.InGridType)
     regex_tup = getRegexForEvents()
     f_to_read = if files.high < 30000: files.high else: 30000
-    data = readListOfFiles(files[0..f_to_read], regex_tup)
+    data = readListOfInGridFiles(files[0..f_to_read], regex_tup)
   var
     min_val = 10.0
     min_seq = newSeq[seq[float64]](7)
@@ -261,19 +307,41 @@ proc reconstructSingleRun(folder: string) =
   
   
 proc main() =
-  let args_count = paramCount()
-  var folder: string
-  if args_count < 1:
-    echo "Please either hand a single run folder or a folder containing run folder, which to process."
-    quit()
-  else:
-    folder = paramStr(1)
+
+  # use the usage docstring to generate an CL argument table
+  let args = docopt(doc)
+  echo args
+  
+  let h5f_name = $args["<HDF5file>"]
+  var run_number = $args["--run_number"]
+  var outfile = $args["--out"]
+  if run_number == "nil":
+    run_number = ""
+  if outfile == "nil":
+    echo "Currently not implemented. What even for?"
+    outfile = "None"
     
-  # first check whether given folder is valid run folder
-  let (is_run_folder, contains_run_folder) = isTosRunFolder(folder)
-  echo "Is run folder       : ", is_run_folder
-  echo "Contains run folder : ", contains_run_folder
-  reconstructSingleRun(folder)
+
+  var h5f = H5file(h5f_name, "r")
+  # visit the whole file to read which groups exist
+  h5f.visitFile
+  let raw_data_basename = rawDataBase()
+  let run_regex = re(raw_data_basename & r"(\d+)$")
+  if run_number == "":
+    var run: array[1, string]
+    for grp in keys(h5f.groups):
+      if grp.match(run_regex, run) == true:
+        # now read some data. Return value will be added later
+        h5f.readDataFromH5(grp, parseInt(run[0]))
+  else:
+    h5f.readDataFromH5(raw_data_basename / run_number, parseInt(run_number))
+  
+  # NOTE: there's no point for this anymore, at least not at the moment
+  # # first check whether given folder is valid run folder
+  # let (is_run_folder, contains_run_folder) = isTosRunFolder(folder)
+  # echo "Is run folder       : ", is_run_folder
+  # echo "Contains run folder : ", contains_run_folder
+  # reconstructSingleRun(folder)
 
 when isMainModule:
   main()

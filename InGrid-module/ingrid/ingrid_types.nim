@@ -15,6 +15,11 @@ type
   Pix*         = tuple[x, y, ch: int]
   Pixels*      = seq[Pix]
 
+  # Coord type which contains (x, y) coordinates of a pixel
+  Coord* = tuple[x, y: int]
+  # cluster object
+  Cluster* = seq[Pix]  
+
   Pixels_prot = object#Table[string, seq[int]]
     x:  seq[int]
     y:  seq[int]
@@ -30,7 +35,43 @@ type
     evHeader*: Table[string, string]
     chips*: seq[ChipEvent]
     # time the shutter was open in seconds
-    length*: float  
+    length*: float
+
+  # object which stores the geometry information of a single
+  # `ClusterObject`    
+  ClusterGeometry* = object
+    rms_long*: float
+    rms_trans*: float
+    eccentricity*: float
+    rot_angle*: float
+    skew_long*: float
+    skew_trans*: float
+    kurt_long*: float
+    kurt_trans*: float
+    length*: float
+    width*: float
+    fraction_transverse_rms*: float
+
+  # object which stores a single `Cluster` in combination with information
+  # about itself, e.g. energy, geometry etc.
+  ClusterObject* = object
+    data*: Cluster
+    hits*: int
+    pos_x*: float
+    pos_y*: float
+    # total tot in the whole cluster
+    sum_tot*: int
+    energy*: float
+    geometry*: ClusterGeometry
+
+  # object which stores information about a reconstructed event, i.e.
+  # split into different clusters and information about it, chip and
+  # event number (run number is left out, because it will be stored in
+  # the group of a run anyways)
+  RecoEvent* = object
+    cluster*: seq[ClusterObject]
+    event_number*: int
+    chip_number*: int
 
   # process events stores all data for septemboard
   # of a given run

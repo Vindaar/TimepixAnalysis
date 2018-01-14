@@ -311,9 +311,9 @@ proc removeFolder*(folderpath: string): bool =
   else:
     result = false
   
-template echoFilesCounted*(count: int) =
+template echoFilesCounted*(count: int, modby = 500) =
   inc count
-  if count mod 500 == 0:
+  if count mod modby == 0:
     echo count, " files read."
 
 

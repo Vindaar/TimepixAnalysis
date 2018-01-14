@@ -677,23 +677,33 @@ proc getRecoNameForRun*(run_number: int): string =
   # generates the reconstrution group name for a given run number
   result = recoBase() & "$#" % $run_number
 
-proc getCombineName*(): string =
+proc getRawCombineName*(): string =
+  # generates the base path for the combine folder
+  result = "/runs/combined/"
+
+proc getRecoCombineName*(): string =
   # generates the base path for the combine folder
   result = "/reconstruction/combined/"
 
-template combineBasenameToT*(chip_number, run_number: int): string =
+template combineRawBasenameToT*(chip_number, run_number: int): string =
+  "/runs/combined/ToT_$#_$#" % [$chip_number, $run_number]
+
+template combineRawBasenameHits*(chip_number, run_number: int): string =
+  "/runs/combined/Hits_$#_$#" % [$chip_number, $run_number]
+
+template combineRecoBasenameToT*(chip_number, run_number: int): string =
   "/reconstruction/combined/ToT_$#_$#" % [$chip_number, $run_number]
 
-template combineBasenameHits*(chip_number, run_number: int): string =
+template combineRecoBasenameHits*(chip_number, run_number: int): string =
   "/reconstruction/combined/Hits_$#_$#" % [$chip_number, $run_number]
 
-template combineBasenameFadc*(): string =
+template combineRecoBasenameFadc*(): string =
   "/reconstruction/combined/fadc/"
   
-template combineBasenameNoisy*(run_number: int): string =
+template combineRecoBasenameNoisy*(run_number: int): string =
   "/reconstruction/combined/fadc/noisy_$#" % [$run_number]
 
-template combineBasenameMinvals*(run_number: int): string =
+template combineRecoBasenameMinvals*(run_number: int): string =
   "/reconstruction/combined/fadc/minvals_$#" % [$run_number]
 
 template noiseBasename*(run_number: int): string =

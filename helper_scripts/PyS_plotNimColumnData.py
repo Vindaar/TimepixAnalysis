@@ -39,126 +39,29 @@ def fancy_plotting():
               'figure.figsize':      fig_size}
     pylab.rcParams.update(params)
 
-def plotHitFile(hits, filename, title):
 
-    #hits = hits[hits < np.percentile(hits, 99)]
+def plotToTFile(data, cuts, descr, title, xlabel, ylabel):
+    for cut in cuts:
+        data = data[np.where(cut)[0]]
 
-    fname = os.path.basename(filename)
-
-    binning = np.linspace(-0.5, np.max(hits) + 0.5, np.max(hits) + 2)
-    #binning = np.linspace(-0.5, np.max(hits) + 0.5, (np.max(hits) + 2)/2)
-    hist, bin_edges = np.histogram(hits, binning)
-    bins = np.arange(np.max(hits) + 1)
-
-    #print len(binning), len(hist)
-    binning = binning[:-1]
-    
-    fig, ax = plt.subplots(1, 1)
-    ax.bar(binning, hist, 1.)
-    if title is not None:
-        ax.set_title(fname + title)
-    else:
-        ax.set_title(fname)
-    #ax.hist(hits, bins = 100)
-    ax.set_xlabel("Pixels hit per event")
-    ax.set_ylabel("\# events")
-    ax.set_xlim(0, np.percentile(hits, 98))    
-    outname = filename.replace(".txt", ".pdf")
-    plt.savefig(outname)
-    plt.show()
-
-def plotToTFile(tots, filename, title):
-
-    fname = os.path.basename(filename)
-    
-    tots = tots[np.where(tots <= 200)[0]]
-
-    binning = np.linspace(-0.5, np.max(tots) + 0.5, np.max(tots) + 2)
-    hist, bin_edges = np.histogram(tots, binning)
-    bins = np.arange(np.max(tots) + 1)
+    binning = np.linspace(-0.5, np.max(data) + 0.5, np.max(data) + 2)
+    hist, bin_edges = np.histogram(data, binning)
+    bins = np.arange(np.max(data) + 1)
 
     fig, ax = plt.subplots(1, 1)
-    #ax.hist(tots, bins = 199)
+    #ax.hist(data, bins = 199)
     print(np.shape(hist), np.shape(binning))
     print(binning)
     print bin_edges
     ax.bar(bin_edges[:-1], hist, 1., align='edge')
     if title is not None:
-        ax.set_title(fname + title)
-    else:
-        ax.set_title(fname)
-    ax.set_xlabel("ToT values per pixel")
-    ax.set_ylabel("\# pixel")
-    #ax.set_xlim(0, np.percentile(tots, 98))
-    outname = filename.replace(".txt", ".pdf")
+        ax.set_title(title)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    #ax.set_xlim(0, np.percentile(data, 98))
+    outname = descr + ".pdf"
     plt.savefig(outname)
     plt.show()
-
-def plotRotAngleFile(angles, filename, title):
-
-    fname = os.path.basename(filename)
-
-    angles = angles[np.where(angles != np.nan)[0]]
-
-    print max(angles)
-    #angles = angles[angles < np.percentile(angles, 99)]
-
-    binning = np.linspace(-0.5, max(angles) + 0.5, max(angles) + 2)
-    #binning = np.linspace(-0.5, np.max(angles) + 0.5, (np.max(angles) + 2)/2)
-    print angles, binning
-    print max(angles), min(angles)
-    # hist, bin_edges = np.histogram(angles, binning)
-
-    # #print len(binning), len(hist)
-    # binning = binning[:-1]
-    
-    fig, ax = plt.subplots(1, 1)
-    #ax.bar(binning, hist, 1.)
-    if title is not None:
-        ax.set_title(fname + title)
-    else:
-        ax.set_title(fname)
-    ax.hist(angles, bins = 100)
-            
-    ax.set_xlabel("Rot angle")
-    ax.set_ylabel("\# pixel")
-    #ax.set_xlim(0, np.percentile(tots, 98))
-    outname = filename.replace(".txt", ".pdf")
-    plt.savefig(outname)
-    plt.show()
-
-def plotFadcSpectrumFile(hits, filename, title):
-
-    fname = os.path.basename(filename)
-
-    #hits = hits[hits < np.percentile(hits, 99)]
-
-    # nbins = 100
-    # start = -0.5
-    # end = 0
-    # width = end - start 
-    # binning = np.linspace(start, end, nbins)
-    # #binning = np.linspace(-0.5, np.max(hits) + 0.5, (np.max(hits) + 2)/2)
-    # hist, bin_edges = np.histogram(hits, binning)
-    # bins = np.arange(np.max(hits) + 1)
-
-    # print len(binning), len(hist)
-    # binning = binning[:-1]
-    
-    fig, ax = plt.subplots(1, 1)
-    #ax.bar(binning, hist, nbins / width)
-    ax.hist(hits, bins = 50)
-    ax.set_xlabel("Voltage of dip / $\\si{\\milli\\volt}$")
-    if title is not None:
-        ax.set_title(fname + title)
-    else:
-        ax.set_title(fname)
-    ax.set_ylabel("\# events")
-    ax.set_xlim(-0.5, 0)
-    outname = filename.replace(".txt", ".pdf")
-    plt.savefig(outname)
-    plt.show()
-
     
 def main(args):
 

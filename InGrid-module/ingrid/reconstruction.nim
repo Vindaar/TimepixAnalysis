@@ -15,6 +15,7 @@ import typetraits
 import re
 import times
 import stats
+import sets
 
 # external modules
 import nlopt
@@ -51,6 +52,10 @@ Options:
   -h --help              Show this help
   --version              Show version.
 """
+
+template benchmark(num: int, actions: untyped) {.dirty.} =
+  for i in 0 ..< num:
+    actions
 
 proc writeRecoRunToH5(h5f: var H5FileObj, reco_run: seq[FlowVar[ref RecoEvent]], run_number: int) =
   ## proc which writes the reconstructed event data from a single run into
@@ -324,7 +329,12 @@ proc excentricity(n: cuint, p: array[1, cdouble], grad: var array[1, cdouble], f
   #echo "parameters ", sum_x, " ", sum_y, " ", sum_x2, " ", sum_y2, " ", rms_x, " ", rms_y, " ", n_elements, " exc ", exc
   result = -exc
 
-template distance(x, y): float = sqrt(x * x + y * y)  
+template distance(x, y): float = sqrt(x * x + y * y)
+
+template applyPitchConversion[T: (float | int)](x, y: T): (float, float) =
+  # template which returns the converted positions on a Timepix
+  # pixel position --> position from center in mm
+  ((float(NPIX) - float(x) - 0.5) * PITCH, (float(y) + 0.5) * PITCH)
 
 proc calcGeomtry(cluster: Cluster, pos_x, pos_y, rot_angle: float): ClusterGeometry =
   # given a cluster and the rotation angle of it, calculate the different
@@ -341,9 +351,7 @@ proc calcGeomtry(cluster: Cluster, pos_x, pos_y, rot_angle: float): ClusterGeome
     y_max, y_min: float
     i = 0
   for p in cluster:
-    let
-      x = (float(NPIX) - float(p.x) - 0.5) * PITCH
-      y = (float(NPIX) - float(p.y) - 0.5) * PITCH
+    let (x, y) = applyPitchConversion(p.x, p.y)
     xRot[i] = cos(-rot_angle) * (x - pos_x) - sin(-rot_angle) * (y - pos_y)
     yRot[i] = sin(-rot_angle) * (x - pos_x) + cos(-rot_angle) * (y - pos_y)
 
@@ -373,9 +381,10 @@ proc calcGeomtry(cluster: Cluster, pos_x, pos_y, rot_angle: float): ClusterGeome
   result.eccentricity = result.rms_long / result.rms_trans
   # get fraction of all pixels within the transverse RMS, by filtering all elements
   # within the transverse RMS radius and dividing by total pix
-  echo "rms trans is ", result.rms_trans
-  echo "variance is ", stat_x.variance()
-  echo "thus filter is ", filterIt(zip(xRot, yRot), distance(it.a, it.b) <= result.rms_trans)
+  # DEBUG
+  # echo "rms trans is ", result.rms_trans
+  # echo "std is ", stat_y.variance()
+  # echo "thus filter is ", filterIt(zip(xRot, yRot), distance(it.a, it.b) <= result.rms_trans)
   result.fraction_transverse_rms = float(filterIt(zip(xRot, yRot), distance(it.a, it.b) <= result.rms_trans).len) / float(npix)
 
 proc isPixInSearchRadius(p1, p2: Coord, search_r: int): bool =
@@ -434,9 +443,11 @@ proc findSimpleCluster*(pixels: Pixels): seq[Cluster] =
   # add the first pixel of the given sequence to have a starting pixel, from which we
   # look for other pixels in the cluster
   c.add(pixels[0])
+  raw_event.deleteIntersection(@[pixels[0]])
   
   while raw_event.len > 0 and i < c.len:
     let p1: Coord = (x: c[i].x, y: c[i].y)
+    # alternatively:
     let t = filter(raw_event, (p: tuple[x, y, ch: int]) -> bool => isPixInSearchRadius(p1, (p.x, p.y), search_r))
 
     # add all found pixels to current cluster
@@ -526,8 +537,9 @@ proc recoCluster(c: Cluster): ClusterObject =
   # set number of hits in cluster
   result.hits = clustersize
   # set the position
-  result.pos_x = pos_x * PITCH
-  result.pos_y = pos_y * PITCH
+  (result.pos_x, result.pos_y) = applyPitchConversion(pos_x, pos_y)
+  #(float(NPIX) - float(pos_x) + 0.5) * PITCH
+  #result.pos_y = (float(pos_y) + 0.5) * PITCH
   # prepare rot angle fit
   if rotAngleEstimate < 0:
     #echo "correcting 1"
@@ -545,7 +557,7 @@ proc recoCluster(c: Cluster): ClusterObject =
 
   # now we still need to use the rotation angle to calculate the different geometric
   # properties, i.e. RMS, skewness and kurtosis along the long axis of the cluster
-  result.geometry = calcGeomtry(c, pos_x, pos_y, rot_angle)
+  result.geometry = calcGeomtry(c, result.pos_x, result.pos_y, rot_angle)
 
 proc recoEvent(data: Pixels, event, chip: int): ref RecoEvent =
   result = new RecoEvent

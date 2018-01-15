@@ -47,6 +47,8 @@ InGrid raw data manipulation.
 
 Usage:
   raw_data_manipulation <folder> [options]
+  raw_data_manipulation <folder> --run_type <type> [options]
+  raw_data_manipulation <folder> --out <name> [options]
   raw_data_manipulation -h | --help
   raw_data_manipulation --version
 
@@ -149,7 +151,7 @@ proc readRawInGridData(run_folder: string): seq[FlowVar[ref Event]] =
   # using spawn
   let regex_tup = getRegexForEvents()
   # get a sorted list of files, sorted by inode
-  var files: seq[string] = getSortedListOfFiles(run_folder, EventSortType.inode, EventType.InGridType)
+  var files: seq[string] = getSortedListOfFiles(run_folder, EventSortType.fname, EventType.InGridType)
   result = batchFileReading[Event](files, regex_tup)
 
 proc processRawInGridData(ch: seq[FlowVar[ref Event]]): ProcessedRun =
@@ -426,7 +428,7 @@ proc readProcessWriteFadcData(run_folder: string, run_number: int, h5f: var H5Fi
 
   # get a sorted list of files, sorted by inode
   var
-    files: seq[string] = getSortedListOfFiles(run_folder, EventSortType.inode, EventType.FadcType)
+    files: seq[string] = getSortedListOfFiles(run_folder, EventSortType.fname, EventType.FadcType)
     raw_fadc_data: seq[FlowVar[ref FadcFile]] = @[]
     # variable to store the processed FADC data
     f_proc: ProcessedFadcData
@@ -510,7 +512,7 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
 
     # datasets to store the header information for each event
     evHeadersDsetTab = (mapIt(event_header_keys) do:
-      (it, h5f.create_dataset(group_name & "/" & it, events, dtype = int))).toTable
+      (it, h5f.create_dataset(group_name & "/" & it, nevents, dtype = int))).toTable
 
     # other single column data
     durationDset = h5f.create_dataset(joinPath(group_name, "eventDuration"), nevents, float)
@@ -698,68 +700,36 @@ proc main() =
   # in order to write the processed run and FADC data to file, open the HDF5 file
   var h5f = H5file(outfile, "rw")
   
-  # if we're dealing with a run folder, go straight to processSingleRun()
+  let t0 = epochTime()
   if is_run_folder == true and contains_run_folder == false:
-
     # hand H5FileObj to processSingleRun, because we need to write intermediate
     # steps to the H5 file for the FADC, otherwise we use too much RAM
     processAndWriteRun(h5f, folder)
     echo "free memory ", getFreeMem()
     echo "occupied memory so far $# \n\n" % [$getOccupiedMem()]
-    # GC_fullCollect()
-    # echo "occupied memory after gc $#" % [$getOccupiedMem()]        
-
-    #dumpNumberOfInstances()
-    # dump sequences to file
-    # now write run to this file
     echo "Closing h5file with code ", h5f.close()
-    # H5Fclose( h5file_id )
-    # let events = r.events
-    # var count = 0
-    # for ev in events:
-    #   for c in ev.chips:
-    #     let t = spawn findSimpleCluster(c.pixels)
-    #     # if len(t) > 1:
-    #     #   let tmp = createTensorFromZeroSuppressed(c.pixels)
-    #     #   echo "chip ", c.chip, " found ", len(t), " clusters"          
-    #     #   dumpFrameToFile("tmp/frame.txt", tmp)
-    #     #   sleep(100)
-    #   echoFilesCounted(count)
-    # sync()
-        
   elif is_run_folder == false and contains_run_folder == true:
     # in this case loop over all folder again and call processSingleRun() for each
     # run folder
-    var
-      # create variables to store a combined sequence for all runs
-      hits_all: seq[seq[int]] = newSeq[seq[int]](7)
-      tots_all: seq[seq[int]] = newSeq[seq[int]](7)
     for kind, path in walkDir(folder):
       if kind == pcDir:
         # only support run folders, not nested run folders
         echo "occupied memory before run $# \n\n" % [$getOccupiedMem()]
         let
           is_rf = if isTosRunFolder(path) == (true, false): true else: false
-          r = processSingleRun(path, h5f)
-        for i in 0..<len(r.hits):
-          hits_all[i] = concat(hits_all[i], r.hits[i])
-          tots_all[i] = concat(tots_all[i], r.tots[i])
-        #echo "Size of sequences : $# / $#" % [$(sizeof(hits_all) * len(hits_all[3]) * 7), $(sizeof(tots_all))]
-        echo "occupied memory so far $# \n\n" % [$getOccupiedMem()]
-        GC_fullCollect()
+        if is_rf == true:
+          echo "Start processing run $#" % $path
+          processAndWriteRun(h5f, path)
         echo "occupied memory after gc $#" % [$getOccupiedMem()]        
-
-        #dumpNumberOfInstances()
-    # dump sequences to file
-    dumpToTandHits(folder, run_type, tots_all, hits_all)
     echo "Closing h5file with code ", h5f.close()
-        
   elif is_run_folder == true and contains_run_folder == true:
     echo "Currently not implemented to run over nested run folders."
     quit()
   else:
     echo "No run folder found in given path."
     quit()
+
+  echo "Processing all given runs took $# minutes" % $( (epochTime() - t0) / 60'f )
 
 when isMainModule:
   main()

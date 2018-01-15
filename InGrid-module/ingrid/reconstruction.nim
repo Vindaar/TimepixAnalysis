@@ -40,18 +40,25 @@ InGrid reconstruction and energy calibration.
 Usage:
   reconstruction <HDF5file> [options]
   reconstruction <HDF5file> --run_number <number> [options]
-  reconstruction <HDF5file> --create_fe_spec [options]
+  reconstruction <HDF5file> (--create_fe_spec | --calib_energy) [options]
+  reconstruction <HDF5file> --only_energy <factor> [options]
   reconstruction <HDF5file> --out <name> [options]
   reconstruction -h | --help
   reconstruction --version
 
 
 Options:
-  --run_number <number>  Only work on this run
-  --create_fe_spec       Toggle to create Fe calibration spectrum based on cuts
-  --out <name>           Filename and path of output file
-  -h --help              Show this help
-  --version              Show version.
+  --run_number <number>   Only work on this run
+  --create_fe_spec        Toggle to create Fe calibration spectrum based on cuts
+                          Takes precedence over --calib_energy if set!
+  --calib_energy          Toggle to perform energy calibration. Conversion factors needed!
+  --only_energy <factor>  Toggle to /only/ perform energy calibration using the given factor. 
+                          Takes precedence over --create_fe_spec and --calib_energy if set.
+                          If no run_number is given, performs energy calibration on all runs
+                          in the HDF5 file.
+  --out <name>            Filename and path of output file
+  -h --help               Show this help
+  --version               Show version.
 """
 
 template benchmark(num: int, actions: untyped) {.dirty.} =
@@ -152,6 +159,7 @@ proc writeRecoRunToH5(h5f: var H5FileObj, reco_run: seq[FlowVar[ref RecoEvent]],
 
   for event_f in reco_run:
     let
+      # get the RecoEvent from the FlowVar ref
       event = (^event_f)[]
       num = event.event_number
       chip = event.chip_number
@@ -208,6 +216,9 @@ proc writeRecoRunToH5(h5f: var H5FileObj, reco_run: seq[FlowVar[ref RecoEvent]],
     
   # now that we have the datasets, write everything...
   let all = x_dsets[0].all
+  # get locations of raw data groups, so that we can copy
+  # the attributes
+  let raw_groups = rawDataChipBase(run_number)    
   for chip in 0 ..< nchips:
     int_dsets["hits"][chip][all] = hits[chip]
     int_dsets["sumToT"][chip][all] = sum_tot[chip]
@@ -228,9 +239,19 @@ proc writeRecoRunToH5(h5f: var H5FileObj, reco_run: seq[FlowVar[ref RecoEvent]],
     float_dsets["fractionInTransveseRms"][chip][all] = fraction_transverse_rms[chip]
     x_dsets[chip][all] = x[chip]
     y_dsets[chip][all] = y[chip]
-    ch_dsets[chip][all] = ch[chip]  
-
+    ch_dsets[chip][all] = ch[chip]
+  
+    # anyways, write the chip dataset attributes
+    let raw_chip_group_name = raw_groups & $chip
+    var raw_group = h5f[raw_chip_group_name.grp_str]
+    let ch_numb = raw_group.attrs["chipNumber", int]
+    let ch_name = raw_group.attrs["chipName", string]
+    # and write these to the current group
+    chip_groups[ch_numb].attrs["chipNumber"] = ch_numb
+    chip_groups[ch_numb].attrs["chipName"] = ch_name
+  
   # what in the actual fuck
+
 
 iterator readDataFromH5(h5f: var H5FileObj, group: string, run_number: int): (int, seq[Pixels]) =
   # proc to read data from the HDF5 file from `group`
@@ -584,36 +605,57 @@ proc reconstructSingleChip(data: seq[Pixels], run, chip: int): seq[FlowVar[ref R
       echoFilesCounted(count, 2500)
   sync()
 
-proc reconstructAllRunsInFile(h5f: var H5FileObj, create_fe_flag: bool) =
+proc reconstructAllRunsInFile(h5f: var H5FileObj, flags_tab: Table[string, bool], calib_factor: float = 1.0) =
+  ## proc which performs reconstruction of all runs in a given file
+  ## if the --only_energy command line argument is set, we skip the reconstruction
+  ## and only perform an energy calibration of the existing (!) reconstructed
+  ## runs using the calibration factor given
+  
   let
     raw_data_basename = rawDataBase()  
     run_regex = re(raw_data_basename & r"(\d+)$")
-    t0 = epochtime()
+    t0 = epochTime()
   var run: array[1, string]
   var reco_run: seq[FlowVar[ref RecoEvent]] = @[]
   for grp in keys(h5f.groups):
     if grp.match(run_regex, run) == true:
       # now read some data. Return value will be added later
-      let t1 = epochTime()      
       let run_number = parseInt(run[0])
-      
-      for chip, pixdata in h5f.readDataFromH5(grp, run_number):
-        # given single runs pixel data, call reconstruct run proc
-        # NOTE: the data returned from the iterator contains all
-        # events in ascending order of event number, i.e.
-        # [0] -> eventNumber == 0 and so on
-        reco_run.add reconstructSingleChip(pixdata, run_number, chip)
-        
-      echo "Reconstruction of run $# took $# seconds" % [$run_number, $(epochTime() - t1)]
-      # finished run, so write run to H5 file
-      h5f.writeRecoRunToH5(reco_run, run_number)
-      # set reco run length back to 0
-      reco_run.setLen(0)
 
-      # now check whether create iron spectrum flag is set
-      if create_fe_flag == true:
-        createFeSpectrum(h5f, run_number)
-      
+      if flags_tab["only_energy"] == false:
+        # TODO: we can in principle perform energy calibration in one go
+        # together with creation of spectrum, if we work as follows:
+        # 1. calibration runs:
+        #    - need to interface with Python code, i.e. call fitting procedure,
+        #      which returns the value to the Nim program as its return value
+        
+        let t1 = epochTime()      
+        for chip, pixdata in h5f.readDataFromH5(grp, run_number):
+          # given single runs pixel data, call reconstruct run proc
+          # NOTE: the data returned from the iterator contains all
+          # events in ascending order of event number, i.e.
+          # [0] -> eventNumber == 0 and so on
+          reco_run.add reconstructSingleChip(pixdata, run_number, chip)
+          
+        echo "Reconstruction of run $# took $# seconds" % [$run_number, $(epochTime() - t1)]
+        # finished run, so write run to H5 file
+        h5f.writeRecoRunToH5(reco_run, run_number)
+        # set reco run length back to 0
+        reco_run.setLen(0)
+
+        # now check whether create iron spectrum flag is set
+        if flags_tab["create_fe"] == true:
+          createFeSpectrum(h5f, run_number)
+        elif flags_tab["calib_energy"] == true:
+          applyEnergyCalibration(h5f, run_number, 1.1)
+      else:
+        # only perform energy calibration of the reconstructed runs in file
+        # check if reconstructed run exists
+        if hasKey(h5f.groups, (recoBase & $run_number)) == true:
+          applyEnergyCalibration(h5f, run_number, calib_factor)
+        else:
+          echo "No reconstructed run found for $#" % $grp
+        
   echo "Reconstruction of all runs in $# took $# seconds" % [$h5f.name, $(epochTime() - t0)]
 
 proc reconstructSingleRun(folder: string) =
@@ -649,15 +691,23 @@ proc reconstructSingleRun(folder: string) =
 
 proc main() =
 
-  # use the usage docstring to generate an CL argument table
+  # create command line arguments using docopt
   let args = docopt(doc)
   echo args
   
-  let h5f_name = $args["<HDF5file>"]
-  var run_number = $args["--run_number"]
-  var outfile = $args["--out"]
-  let create_fe_arg = $args["--create_fe_spec"]
-  var create_fe_flag: bool
+  let
+    h5f_name = $args["<HDF5file>"]
+    create_fe_arg = $args["--create_fe_spec"]
+    calib_energy_arg = $args["--calib_energy"]
+    
+  var
+    run_number = $args["--run_number"]
+    outfile = $args["--out"]
+    create_fe_flag: bool
+    calib_energy_flag: bool
+    calib_factor_str = $args["--only_energy"]
+    calib_factor: float = Inf
+    only_energy_flag: bool
   if run_number == "nil":
     run_number = ""
   if outfile == "nil":
@@ -667,6 +717,19 @@ proc main() =
     create_fe_flag = false
   else:
     create_fe_flag = true
+  if calib_energy_arg == "nil":
+    calib_energy_flag = false
+  else:
+    calib_energy_flag = true
+  if calib_factor_str == "nil":
+    only_energy_flag = false
+  else:
+    only_energy_flag = true
+    calib_factor = parseFloat(calib_factor_str)
+
+  let flags_tab = { "create_fe": create_fe_flag,
+                    "calib_energy": calib_energy_flag,
+                    "only_energy": only_energy_flag}.toTable
     
 
   var h5f = H5file(h5f_name, "rw")
@@ -674,7 +737,7 @@ proc main() =
   h5f.visitFile
   let raw_data_basename = rawDataBase()
   if run_number == "":
-    reconstructAllRunsInFile(h5f, create_fe_flag)
+    reconstructAllRunsInFile(h5f, flags_tab, calib_factor)
   else:
     for pixeldata in h5f.readDataFromH5(raw_data_basename / run_number, parseInt(run_number)):
       echo "aa"

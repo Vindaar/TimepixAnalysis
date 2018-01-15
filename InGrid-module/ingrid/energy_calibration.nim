@@ -2,6 +2,7 @@ import sequtils, strutils
 import ospaths
 import future
 import nimhdf5
+import tables
 
 import tos_helper_functions
 
@@ -89,3 +90,34 @@ proc createFeSpectrum*(h5f: var H5FileObj, run_number: int) =
   # given hits, write spectrum to file
   var spectrum_dset = h5f.create_dataset(group.name & "/FeSpectrum", hits_spectrum.len, dtype = int)
   spectrum_dset[spectrum_dset.all] = hits_spectrum
+
+proc applyEnergyCalibration*(h5f: var H5FileObj, run_number: int, calib_factor: float) =
+  ## proc which applies an energy calibration based on the number of hit pixels in an event
+  ## using a conversion factor of unit eV / hit pixel to the run given by run_number contained
+  ## in file h5f
+  ## throws:
+  ##     HDF5LibraryError = in case a call to the H5 library fails, this might be raised
+
+  # what we need:
+  # the hits of the clusters is all we need
+  var chip_base = recoDataChipBase(run_number)
+  # get the group from file
+  for grp in keys(h5f.groups):
+    if chip_base in grp:
+      # now can start reading, get the group containing the data for this chip
+      var group = h5f[grp.grp_str]
+      # get the chip number from the attributes of the group
+      let chip_number = group.attrs["chipNumber", int]
+      # get dataset of hits
+      var hits_dset = h5f[(grp / "hits").dset_str]
+      let hits = hits_dset[int64]
+
+      # now calculate energy for all hits
+      let energy = mapIt(hits, float(it) * calib_factor)
+      echo "Energies are ", energy
+      # create dataset for energy
+      var energy_dset = h5f.create_dataset(grp / "energyFromPixel", energy.len, dtype = float)
+      energy_dset[energy_dset.all] = energy
+      # attach used conversion factor to dataset
+      energy_dset.attrs["conversionFactorUsed"] = calib_factor
+      

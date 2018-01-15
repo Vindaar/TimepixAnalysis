@@ -40,6 +40,14 @@ import arraymancer
 # global experimental pragma to use parallel: statement in readRawInGridData()
 {.experimental.}
 
+## TODO:
+## change the we write to H5 to appropriate types, e.g.
+## x / y pixel coordinates may as well be written as uint8
+## FADC raw as uint16
+## all flags as uint8
+## ToT values as uint16
+## hits as uint16
+
 const FILE_BUFSIZE = 30000
 
 let doc = """

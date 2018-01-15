@@ -144,3 +144,8 @@ type
     # more?
   ]
     
+
+# and some general InGrid related constants
+const NPIX* = 256
+const PITCH* = 0.055
+

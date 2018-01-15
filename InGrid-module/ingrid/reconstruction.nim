@@ -26,11 +26,7 @@ import nimhdf5
 import tos_helper_functions
 import helper_functions
 import ingrid_types
-
-
-
-const NPIX* = 256
-const PITCH* = 0.055
+import energy_calibration
 
 type
   FitObject = object
@@ -43,11 +39,16 @@ InGrid reconstruction and energy calibration.
 
 Usage:
   reconstruction <HDF5file> [options]
+  reconstruction <HDF5file> --run_number <number> [options]
+  reconstruction <HDF5file> --create_fe_spec [options]
+  reconstruction <HDF5file> --out <name> [options]
   reconstruction -h | --help
   reconstruction --version
 
+
 Options:
   --run_number <number>  Only work on this run
+  --create_fe_spec       Toggle to create Fe calibration spectrum based on cuts
   --out <name>           Filename and path of output file
   -h --help              Show this help
   --version              Show version.
@@ -329,13 +330,6 @@ proc excentricity(n: cuint, p: array[1, cdouble], grad: var array[1, cdouble], f
   #echo "parameters ", sum_x, " ", sum_y, " ", sum_x2, " ", sum_y2, " ", rms_x, " ", rms_y, " ", n_elements, " exc ", exc
   result = -exc
 
-template distance(x, y): float = sqrt(x * x + y * y)
-
-template applyPitchConversion[T: (float | int)](x, y: T): (float, float) =
-  # template which returns the converted positions on a Timepix
-  # pixel position --> position from center in mm
-  ((float(NPIX) - float(x) - 0.5) * PITCH, (float(y) + 0.5) * PITCH)
-
 proc calcGeomtry(cluster: Cluster, pos_x, pos_y, rot_angle: float): ClusterGeometry =
   # given a cluster and the rotation angle of it, calculate the different
   # statistical moments, i.e. RMS, skewness and kurtosis in longitudinal and
@@ -590,7 +584,7 @@ proc reconstructSingleChip(data: seq[Pixels], run, chip: int): seq[FlowVar[ref R
       echoFilesCounted(count, 2500)
   sync()
 
-proc reconstructAllRunsInFile(h5f: var H5FileObj) =
+proc reconstructAllRunsInFile(h5f: var H5FileObj, create_fe_flag: bool) =
   let
     raw_data_basename = rawDataBase()  
     run_regex = re(raw_data_basename & r"(\d+)$")
@@ -615,6 +609,10 @@ proc reconstructAllRunsInFile(h5f: var H5FileObj) =
       h5f.writeRecoRunToH5(reco_run, run_number)
       # set reco run length back to 0
       reco_run.setLen(0)
+
+      # now check whether create iron spectrum flag is set
+      if create_fe_flag == true:
+        createFeSpectrum(h5f, run_number)
       
   echo "Reconstruction of all runs in $# took $# seconds" % [$h5f.name, $(epochTime() - t0)]
 
@@ -648,7 +646,7 @@ proc reconstructSingleRun(folder: string) =
           min_val = ob.geometry.rot_angle
         min_seq[num].add ob.geometry.rot_angle
   dumpRotAngle(min_seq)
-  
+
 proc main() =
 
   # use the usage docstring to generate an CL argument table
@@ -658,11 +656,17 @@ proc main() =
   let h5f_name = $args["<HDF5file>"]
   var run_number = $args["--run_number"]
   var outfile = $args["--out"]
+  let create_fe_arg = $args["--create_fe_spec"]
+  var create_fe_flag: bool
   if run_number == "nil":
     run_number = ""
   if outfile == "nil":
     echo "Currently not implemented. What even for?"
     outfile = "None"
+  if create_fe_arg == "nil":
+    create_fe_flag = false
+  else:
+    create_fe_flag = true
     
 
   var h5f = H5file(h5f_name, "rw")
@@ -670,7 +674,7 @@ proc main() =
   h5f.visitFile
   let raw_data_basename = rawDataBase()
   if run_number == "":
-    reconstructAllRunsInFile(h5f)
+    reconstructAllRunsInFile(h5f, create_fe_flag)
   else:
     for pixeldata in h5f.readDataFromH5(raw_data_basename / run_number, parseInt(run_number)):
       echo "aa"

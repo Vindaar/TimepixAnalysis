@@ -628,6 +628,19 @@ proc isNearCenterOfChip*(pix: Pixels): bool =
   else:
     result = false
 
+# template which calculates euclidean distance between 2 points    
+template distance*(x, y): float = sqrt(x * x + y * y)
+
+# template which returns pitch converted positions on chip pixel values
+# to mm from center of chip
+# constants are:
+# const NPIX = 256
+# const PITCH = 0.0055 (see ingrid_types)
+template applyPitchConversion*[T: (float | int)](x, y: T): (float, float) =
+  # template which returns the converted positions on a Timepix
+  # pixel position --> position from center in mm
+  ((float(NPIX) - float(x) - 0.5) * PITCH, (float(y) + 0.5) * PITCH)
+
 
 proc fillRunHeader*(event: ref Event): Table[string, string] =
   result = initTable[string, string]()
@@ -665,6 +678,9 @@ template rawDataBase*(): string =
 
 template rawDataChipBase*(run_number: int): string =
   "/runs/run_$#/chip_" % $run_number # & "$#"
+
+template recoDataChipBase*(run_number: int): string =
+  "/reconstruction/run_$#/chip_" % $run_number # & "$#"  
 
 proc getGroupNameForRun*(run_number: int): string =
   # generates the group name for a given run number

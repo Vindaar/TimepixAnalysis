@@ -11,7 +11,6 @@ import argparse
 from ingrid.ingrid_helper_functions import *
 from scipy.optimize import curve_fit
 
-
 import numpy as np
 
 
@@ -260,7 +259,7 @@ def fitFeSpectrum(hist, binning, cuts):
 def linear_func(x, a):
     return a * x
 
-def fitAndPlotFeSpectrum(data, cuts, outfolder, run_number):
+def fitAndPlotFeSpectrum(data, cuts, outfolder, run_number, fitting_only = False):
 
     # bin the data
     hist, binning = binData(data, cuts)
@@ -279,7 +278,8 @@ def fitAndPlotFeSpectrum(data, cuts, outfolder, run_number):
     ax.set_xlim(0, 350)
     ax.plot(x_pl, y_pl, linewidth = 2, color = "red")
     plt.savefig(os.path.join(outfolder, "fe_spectrum_{}.pdf".format(run_number)))
-    plt.show()
+    if fitting_only == False:
+        plt.show()
 
     # now we can fit the energy calibration function
     energies = [2.925, 5.755]
@@ -310,7 +310,8 @@ def fitAndPlotFeSpectrum(data, cuts, outfolder, run_number):
     plt.title("Energy calibration function based on # pix in Fe55 spectrum")
     plt.grid()
     plt.savefig(os.path.join(outfolder, "fe_energy_calibration_{}.pdf".format(run_number)))
-    plt.show()
+    if fitting_only == False:
+        plt.show()
 
     # return fit results so that we can write them to the H5 file
     return (popt, pcov, popt_E, pcov_E)
@@ -324,6 +325,10 @@ def main(args):
                         default = None,
                         dest = "cuts",
                         help = "The cuts to be applied on the data before plotting (unstable and potentially dangerous!)")
+    parser.add_argument('--dset_name',
+                        default = "FeSpectrum",
+                        dest = "dset_name",
+                        help = "The data to be plotted.")
     parser.add_argument('--run_number',
                         default = None,
                         dest = "run_number",
@@ -336,6 +341,10 @@ def main(args):
                         default = ".",
                         dest = "outfolder",
                         help = "The folder in which to save the plots")
+    parser.add_argument('--fitting_only',
+                        action = 'store_true',
+                        help = """Set this if you don't want any plots showed (only saved). 
+                        Useful to call script externally, without getting blocking behavior.""")
     parser.add_argument('--fancy',
                         default = False,
                         action = 'store_true',
@@ -352,6 +361,7 @@ def main(args):
     run_number = args_dict["run_number"]
     outfolder = args_dict["outfolder"]
     chip = args_dict["chip"]
+    fitting_only = args_dict["fitting_only"]
     if chip is None or run_number is None:
         import sys
         sys.exit("Please provide a run and chip number!")
@@ -361,7 +371,7 @@ def main(args):
     to_plot = {}
 
     group_name = recoDataChipBase(run_number) + str(chip)
-    dset_name = "FeSpectrum"
+    dset_name = args_dict["dset_name"]
 
     data = readH5Data(h5file, group_name, [dset_name])
     print("Read the following data {}".format(len(data[0])))
@@ -380,10 +390,16 @@ def main(args):
         hist, binning = binData(data, cuts)
         plotData(hist, binning, "fe_spectrum_{}".format(run_number), "Fe spectrum after cuts run {}".format(run_number), "Hits", "#")
     else:
-        fit_results = fitAndPlotFeSpectrum(data, cuts, outfolder, run_number)
+        fit_results = fitAndPlotFeSpectrum(data, cuts, outfolder, run_number, fitting_only)
 
         # now finally write the fit results back to the H5 file
-        writeFitParametersH5(h5file, fit_results, group_name, dset_name)
+        calib_factor = writeFitParametersH5(h5file, fit_results, group_name, dset_name)
+
+        if fitting_only == True:
+            # now print the calibration factor again so that it can be read as the last line
+            # from a calling process
+            print("\n{}".format(calib_factor))
+
 
 if __name__=="__main__":
     import sys

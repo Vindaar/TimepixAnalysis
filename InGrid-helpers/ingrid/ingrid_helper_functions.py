@@ -22,7 +22,6 @@ def readHitsFile(filename):
 def readTotsFile(filename):
     return readFileColumn(filename)
 
-
 def recoDataChipBase(run_number):
     return "/reconstruction/run_{}/chip_".format(run_number)
 
@@ -53,14 +52,20 @@ def writeFitParametersH5(h5file, fit_results, group_name, dset_name):
     # currently only writing the energy calibration
     # as the results for the spectrum are not actully used in the
     # reconstruction or analysis
-    h5f = h5py.File(h5file, "w")
+    h5f = h5py.File(h5file, "r+")
     group = h5f[group_name]
     dset_h5 = group[dset_name]
 
     popt, pcov, popt_E, pcov_E = fit_results
 
-    dset_h5.attrs["eV_per_pix"] = popt_E[0]
-    dset_h5.attrs["d_eV_per_pix"] = np.sqrt(pcov_E[0][0])
+    a_inv = 1.0 / popt_E[0] * 1000
+    da_inv = a_inv * np.sqrt(pcov_E[0][0]) / popt_E[0]
+
+    dset_h5.attrs["eV_per_pix"] = a_inv
+    dset_h5.attrs["d_eV_per_pix"] = da_inv
 
     h5f.close()
-    
+
+    # return the conversion factor, so that this script can be called
+    # from external programs and the factor used
+    return a_inv

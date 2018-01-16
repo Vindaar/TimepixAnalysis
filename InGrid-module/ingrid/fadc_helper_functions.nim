@@ -65,14 +65,14 @@ proc readFadcFile*(file: seq[string]): ref FadcFile = #seq[float] =
     # create a sequence with a cap size large enough to hold the whole file
     # speeds up the add, as the sequence does not have to be resized all the
     # time
-    data = newSeqOfCap[int](10240)
+    data = newSeqOfCap[uint16](10240)
     posttrig, trigrec, pretrig, n_channels, frequency, sampling_mode: int
     bit_mode14, pedestal_run: bool
     line_spl: seq[string]
   for line in file:
     if likely('#' notin line.string):
       # we add a likely statement, because almost all lines are data lines, hence without '#' 
-      data.add(parseInt(line))
+      data.add(uint16(parseInt(line)))
     elif "nb of channels" in line:
       line_spl = line.splitWhitespace
       result.n_channels = parseInt(line_spl[line_spl.high])
@@ -153,12 +153,12 @@ proc calcMinOfPulseAlt*(array: Tensor[float], percentile: float): float =
   echo "Min of array is ", `min`
   result = mean(filtered_array)
 
-proc applyFadcPedestalRun*[T](fadc_data, pedestal_run: seq[T]): seq[T] = 
+proc applyFadcPedestalRun*[T](fadc_data, pedestal_run: seq[T]): seq[float] = 
   # applys the pedestal run given in the second argument to the first one
   # by zipping the two arrays and using map to subtract each element
   result = map(
     zip(fadc_data, pedestal_run), 
-    proc(val: (T, T)): T = val[0] - val[1]
+    proc(val: (T, T)): float = float(val[0]) - float(val[1])
   )
 
 proc getCh0Indices*(): seq[int] {.inline.} =
@@ -210,7 +210,7 @@ proc getFadcData*(filename: string): FadcData =
   let data = readFadcFile(filename)[]
   result = fadcFileToFadcData(data, pedestal_d.data)
 
-proc getPedestalRun*(): seq[int] =
+proc getPedestalRun*(): seq[uint16] =
   # this convenience function returns the data array from
   # our local pedestal run
 

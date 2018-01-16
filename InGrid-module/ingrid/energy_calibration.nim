@@ -114,7 +114,6 @@ proc applyEnergyCalibration*(h5f: var H5FileObj, run_number: int, calib_factor: 
 
       # now calculate energy for all hits
       let energy = mapIt(hits, float(it) * calib_factor)
-      echo "Energies are ", energy
       # create dataset for energy
       var energy_dset = h5f.create_dataset(grp / "energyFromPixel", energy.len, dtype = float)
       energy_dset[energy_dset.all] = energy

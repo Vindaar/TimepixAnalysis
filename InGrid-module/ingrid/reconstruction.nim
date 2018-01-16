@@ -264,18 +264,19 @@ iterator readDataFromH5(h5f: var H5FileObj, group: string, run_number: int): (in
       # get the chip number from the attributes of the group
       let chip_number = group.attrs["chipNumber", int]
       # given group and chip number, we can read vlen data
-      let vlen = special_type(int)
+      let vlen_xy = special_type(uint8)
+      let vlen_ch = special_type(uint16)      
       var
         raw_x_dset  = h5f[(grp / "raw_x").dset_str]
         raw_y_dset  = h5f[(grp / "raw_y").dset_str]
         raw_ch_dset = h5f[(grp / "raw_ch").dset_str]
       let
-        raw_x  = raw_x_dset[vlen, int]
-        raw_y  = raw_y_dset[vlen, int]
-        raw_ch = raw_ch_dset[vlen, int]
+        raw_x  = raw_x_dset[vlen_xy, uint8]
+        raw_y  = raw_y_dset[vlen_xy, uint8]
+        raw_ch = raw_ch_dset[vlen_ch, uint16]
       # combine the raw data into a sequence of pixels
       let run_pix = map(toSeq(0..raw_x.high), (i: int) -> seq[(int, int, int)] =>
-                        mapIt(toSeq(0..raw_x[i].high), (raw_x[i][it], raw_y[i][it], raw_ch[i][it])))
+                        mapIt(toSeq(0..raw_x[i].high), (int(raw_x[i][it]), int(raw_y[i][it]), int(raw_ch[i][it]))))
       # and yield them
       yield (chip_number, run_pix)
 
@@ -565,7 +566,8 @@ proc recoCluster(c: Cluster): ClusterObject =
   elif classify(rotAngleEstimate) != fcNormal:
     echo "Rot angle estimate is NaN, vals are ", rms_x, " ", rms_y
     # what do we do in this case with the geometry?!
-    raise newException(ValueError, "Rotation angle estimate returned bad value")
+    #raise newException(ValueError, "Rotation angle estimate returned bad value")
+    echo "Fit will probably fail!"
     
   # else we can minimize the rotation angle and calc the eccentricity
   let (rot_angle, eccentricity) = fitRotAngle(result, rotAngleEstimate)
@@ -612,7 +614,7 @@ proc reconstructAllRunsInFile(h5f: var H5FileObj, flags_tab: Table[string, bool]
   ## runs using the calibration factor given
   
   let
-    raw_data_basename = rawDataBase()  
+    raw_data_basename = rawDataBase()
     run_regex = re(raw_data_basename & r"(\d+)$")
     t0 = epochTime()
   var run: array[1, string]
@@ -655,7 +657,9 @@ proc reconstructAllRunsInFile(h5f: var H5FileObj, flags_tab: Table[string, bool]
           applyEnergyCalibration(h5f, run_number, calib_factor)
         else:
           echo "No reconstructed run found for $#" % $grp
-        
+    else:
+      # this is the case in which group was not matched to regex
+      discard
   echo "Reconstruction of all runs in $# took $# seconds" % [$h5f.name, $(epochTime() - t0)]
 
 proc reconstructSingleRun(folder: string) =

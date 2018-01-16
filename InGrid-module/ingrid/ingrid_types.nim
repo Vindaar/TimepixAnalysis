@@ -120,7 +120,7 @@ type
   # inherits from FadcObject, only adds a sequence
   # to store the data
   FadcFile* = object of FadcObject
-    data*: seq[int]
+    data*: seq[uint16]
 
   # object to store actual FADC data, which is
   # used (ch0 already extracted)
@@ -132,7 +132,7 @@ type
     
   ProcessedFadcData* = tuple[
     # raw fadc data
-    raw_fadc_data: seq[seq[int]],
+    raw_fadc_data: seq[seq[uint16]],
     # processed and converted FADC data
     fadc_data: Tensor[float],
     # trigger record times, stored 

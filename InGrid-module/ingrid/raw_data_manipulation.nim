@@ -263,7 +263,7 @@ proc processFadcData(fadc_files: seq[FlowVar[ref FadcFile]]): ProcessedFadcData 
     min_percentile = 0.95
   
   # convert FlowVars of FadcFiles to sequence of FadcFiles
-  result.raw_fadc_data = newSeq[seq[int]](nevents)
+  result.raw_fadc_data = newSeq[seq[uint16]](nevents)
   result.fadc_data = zeros[float]([nevents, ch_len])
   result.trigrecs = newSeq[int](nevents)
   result.noisy = newSeq[int](nevents)
@@ -318,7 +318,7 @@ proc initFadcInH5(h5f: var H5FileObj, run_number, batchsize: int, filename: stri
     # it immediately. However, this allows us to always (!) simply extend and write
     # the data to dset.len onwards!
     raw_fadc_dset = h5f.create_dataset(rawFadcBasename(run_number), (0, all_ch_len),
-                                       int,
+                                       uint16,
                                        chunksize = @[batchsize, all_ch_len],
                                        maxshape = @[int.high, all_ch_len])
     fadc_dset     = h5f.create_dataset(fadcDataBasename(run_number), (0, ch_len),
@@ -499,8 +499,9 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
     group_name = getGroupNameForRun(run_number)
     # group name for reconstructed data
     reco_group_name = getRecoNameForRun(run_number)
-    
-    ev_type = special_type(int)
+
+    ev_type_xy = special_type(uint8)
+    ev_type_ch = special_type(uint16)
     chip_group_name = group_name & "/chip_$#" #% $chp
     combine_group_name = getRawCombineName()
     event_header_keys = ["eventNumber", "useHvFadc", "fadcReadout", "szint1ClockInt", "szint2ClockInt", "fadcTriggerClock"]
@@ -514,31 +515,33 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
 
     # create group for each chip
     chip_groups = mapIt(toSeq(0..<nchips), h5f.create_group(chip_group_name % $it))
-    x_dsets  = mapIt(chip_groups, h5f.create_dataset(it.name & "/raw_x", nevents, dtype = ev_type))
-    y_dsets  = mapIt(chip_groups, h5f.create_dataset(it.name & "/raw_y", nevents, dtype = ev_type))
-    ch_dsets = mapIt(chip_groups, h5f.create_dataset(it.name & "/raw_ch", nevents, dtype = ev_type))
+    x_dsets  = mapIt(chip_groups, h5f.create_dataset(it.name & "/raw_x", nevents, dtype = ev_type_xy))
+    y_dsets  = mapIt(chip_groups, h5f.create_dataset(it.name & "/raw_y", nevents, dtype = ev_type_xy))
+    ch_dsets = mapIt(chip_groups, h5f.create_dataset(it.name & "/raw_ch", nevents, dtype = ev_type_ch))
 
     # datasets to store the header information for each event
     evHeadersDsetTab = (mapIt(event_header_keys) do:
       (it, h5f.create_dataset(group_name & "/" & it, nevents, dtype = int))).toTable
+    # TODO: add string of datetime as well
+    #dateTimeDset = h5f.create_dataset(joinPath(group_name, "dateTime"), nevents, string)
 
     # other single column data
     durationDset = h5f.create_dataset(joinPath(group_name, "eventDuration"), nevents, float)
     duration = newSeq[float](nevents)
     
     evHeaders = initTable[string, seq[int]]()
-    x  = newSeq[seq[seq[int]]](nchips)
-    y  = newSeq[seq[seq[int]]](nchips)
-    ch = newSeq[seq[seq[int]]](nchips)
+    x  = newSeq[seq[seq[uint8]]](nchips)
+    y  = newSeq[seq[seq[uint8]]](nchips)
+    ch = newSeq[seq[seq[uint16]]](nchips)
 
   # prepare event header keys and value (init seqs)
   for key in event_header_keys:
     evHeaders[key] = newSeq[int](nevents)
 
   for i in 0..6:
-    x[i]  = newSeq[seq[int]](nevents)
-    y[i]  = newSeq[seq[int]](nevents)
-    ch[i] = newSeq[seq[int]](nevents)
+    x[i]  = newSeq[seq[uint8]](nevents)
+    y[i]  = newSeq[seq[uint8]](nevents)
+    ch[i] = newSeq[seq[uint16]](nevents)
   for event in run.events:
     # given chip number, we can write the data of this event to the correct dataset
     let evNumber = parseInt(event.evHeader["eventNumber"])
@@ -556,13 +559,13 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
         num = chp.chip.number
       let hits = chp.pixels.len
       var
-        xl: seq[int] = newSeq[int](hits)
-        yl: seq[int] = newSeq[int](hits)
-        chl: seq[int] = newSeq[int](hits)
+        xl: seq[uint8] = newSeq[uint8](hits)
+        yl: seq[uint8] = newSeq[uint8](hits)
+        chl: seq[uint16] = newSeq[uint16](hits)
       for i, p in chp.pixels:
-        xl[i] = p[0]
-        yl[i] = p[1]
-        chl[i] = p[2]
+        xl[i] = uint8(p[0])
+        yl[i] = uint8(p[1])
+        chl[i] = uint16(p[2])
       x[num][evNumber] = xl
       y[num][evNumber] = yl
       ch[num][evNumber] = chl

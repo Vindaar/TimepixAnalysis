@@ -504,7 +504,8 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
     ev_type_ch = special_type(uint16)
     chip_group_name = group_name & "/chip_$#" #% $chp
     combine_group_name = getRawCombineName()
-    event_header_keys = ["eventNumber", "useHvFadc", "fadcReadout", "szint1ClockInt", "szint2ClockInt", "fadcTriggerClock"]
+    event_header_keys = ["eventNumber", "useHvFadc", "fadcReadout", "timestamp",
+                         "szint1ClockInt", "szint2ClockInt", "fadcTriggerClock"]
   var
     # group for raw data
     run_group = h5f.create_group(group_name)

@@ -323,6 +323,8 @@ proc processEventWithRegex*(data: seq[string], regex: tuple[header, chips, pixel
         pixels = newSeqOfCap[Pix](400)
         pix_to_read = 0
 
+  # finally add the timestamp from the dateTime to the table as well
+  e_header["timestamp"] = $(int(parseTOSDateString(e_header["dateTime"]).toSeconds))
   result.evHeader = e_header
   result.chips = chips
   

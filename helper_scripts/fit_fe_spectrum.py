@@ -196,7 +196,7 @@ def fitAndPlotFeSpectrum(data, cuts, outfolder, run_number, fitting_only = False
     x_pl = np.linspace(0, 350, 3500)
     y_pl = feSpectrumFunc(x_pl, *popt)
 
-    fig, ax = plotData(hist, binning, "", "Fe spectrum", "\\# pixels hit", "\\# events", False)
+    fig, ax = plotData(hist, binning, None, "", "Fe spectrum", "\\# pixels hit", "\\# events", False)
 
     # TODO: add fit parameter results to plots as legend!
 

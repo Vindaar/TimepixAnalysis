@@ -42,10 +42,52 @@ def fancy_plotting():
               'figure.figsize':      fig_size}
     pylab.rcParams.update(params)
 
-def plotsForAllDsets(h5file):
+def plotsForAllDsets(h5file, all_runs = False, h5file2 = None):
     # function which creates histograms for all datasets
     # in the /reconstruction/run_$#/chip_$# folders
-    pass
+
+    nchips = 7
+    dsets = getListOfDsets()
+    # open h5file
+    if all_runs == False:
+        h5f = h5py.File(h5file, "r")
+        # basically we will iterate over all groups, and all
+        # datasets, which are defined in ingrid_helper_functions
+        for grp in iterH5RunGroups(h5f):
+            run_number = grp.split("_")[-1]
+            for chip in xrange(nchips):
+                grp_name = recoBase() + grp + "/chip_{}".format(chip)
+                for dset in dsets:
+                    print("Reading dataset {}".format(dset))
+                    data = readH5DataSingle(h5file, grp_name, [dset])
+                    plotData(data, None,#binning,
+                             "plots/{0}_run_{1}_chip_{2}".format(dset, run_number, chip),
+                             "{0} of run {1} for chip {2}".format(dset, run_number, chip),
+                             dset,
+                             "# hits",
+                             fitting_only = True)
+    if all_runs == True:
+        # give recoBase as group name for the argument
+        if h5file2 is None:
+            for dset in dsets:
+                for chip, data in iterH5DatasetAndChps(h5file, dset):
+                    range = getBinRangeForDset(dset)
+                    plotData(data, None, range,#binning,
+                             "plots/{0}_all_runs_chip_{1}".format(dset, chip),
+                             "{0} for chip {1} for all runs".format(dset, chip),
+                             dset,
+                             "# hits",
+                             fitting_only = True)
+        else:
+            for dset in dsets:
+                for chip, data in iterTwoH5DatasetAndChps([h5file, h5file2], dset):
+                    range = getBinRangeForDset(dset)
+                    plotData(data, None, range,#binning,
+                             "plots/{0}_all_runs_chip_{1}".format(dset, chip),
+                             "{0} for chip {1} for all runs".format(dset, chip),
+                             dset,
+                             "# hits",
+                             fitting_only = True)
 
 def main(args):
 
@@ -56,14 +98,31 @@ def main(args):
                         default = None,
                         dest = "cuts",
                         help = "The cuts to be applied on the data before plotting (unstable and potentially dangerous!)")
+    parser.add_argument('--file2',
+                        default = None,
+                        dest = "file2",
+                        help = "A potential second file to plot agains")
     parser.add_argument('--dset_name',
                         default = "FeSpectrum",
                         dest = "dset_name",
-                        help = "The data to be plotted.")
+                        help = """The data to be plotted. Note: if you want to plot an FADC
+                        dataset (minvals etc.), prepend it with `fadc_` such as:
+                        --dset_name fadc_minvals""")
     parser.add_argument('--run_number',
+                        nargs = "+",
                         default = None,
+                        type = int,
                         dest = "run_number",
-                        help = "The run number to read from the file")
+                        help = """The run number(s) to read from the file. If multiple are provided
+                        and --all_runs is not set, we compare the two runs for the given dataset.
+                        Currently not supported in combination with --all_plots.""")
+    parser.add_argument('--all_plots',
+                        action = 'store_true',
+                        help = "Toggle this, if you want to create all plots for properties")
+    parser.add_argument('--no_fit',
+                        action = 'store_true',
+                        help = """Toggle this, if you do not want to call the fitting procedure, despite
+                        using the FeSpectrum dataset""")
     parser.add_argument('--all_runs',
                         action = 'store_true',
                         help = "Toggle this, if you want to run over all runs in the file")
@@ -97,7 +156,10 @@ def main(args):
     chip = args_dict["chip"]
     fitting_only = args_dict["fitting_only"]
     all_runs = args_dict["all_runs"]
-    if chip is None or (run_number is None and all_runs == False):
+    all_plots = args_dict["all_plots"]
+    dset_name = args_dict["dset_name"]
+
+    if (chip is None or (run_number is None and all_runs == False)) and all_plots == False and "fadc" not in dset_name:
         import sys
         sys.exit("Please provide a run and chip number!")
     
@@ -105,12 +167,22 @@ def main(args):
     # filter_s = args_dict["filter_s"]
     to_plot = {}
 
-    group_name = recoDataChipBase(run_number) + str(chip)
-    dset_name = args_dict["dset_name"]
+    group_name = []
+    if type(run_number) is not list:
+        print "broken"
+        if "fadc" not in dset_name:
+            group_name = recoDataChipBase(run_number) + str(chip)
+        else:
+            group_name = recoFadcBase(run_number) + "fadc/"
+    else:
+        for run in run_number:
+            if "fadc" not in dset_name:
+                group_name.append(recoDataChipBase(run) + str(chip))
+            else:
+                group_name.append(recoFadcBase(run) + "fadc/")
                         
     if all_runs == True:
         group_name = recoBase()
-    data = readH5Data(h5file, group_name, chip, [dset_name])
     #print("Read the following data {}".format(len(data[0])))
         
 
@@ -120,27 +192,39 @@ def main(args):
     # which is then on the fly quoted
     # this does work, but of course demands to use the correct names the variables
     # have when the stuff is evaluated etc... Well, plus its obvsiously unsafe, because
+
     # the code might do evil things!
+    h5file2 = args_dict["file2"]    
 
-
-    if dset_name != "FeSpectrum":
-        #hist, binning = binData(data, cuts)
-        plotData(data, None,#binning,
-                 "{0}_{1}".format(dset_name, run_number),
-                 "{0} of run {1}".format(dset_name, run_number),
-                 dset_name,
-                 "# hits")
+    if all_plots == True:
+        plotsForAllDsets(h5file, all_runs, h5file2)
     else:
-        fit_results = fitAndPlotFeSpectrum(data, cuts, outfolder, run_number, fitting_only)
+        data = []
+        if h5file2 != None:
+            data.append(readH5Data(h5file, group_name, chip, [dset_name]))
+            data.append(readH5Data(h5file2, group_name, chip, [dset_name]))
+        else:
+            data = readH5Data(h5file, group_name, chip, [dset_name])
+            print data
+        if args_dict["no_fit"] == True or dset_name != "FeSpectrum":
+            #hist, binning = binData(data, cuts)
+            range = getBinRangeForDset(dset_name)
+            plotData(data, None, range,#binning,
+                     "{0}_{1}".format(dset_name, run_number),
+                     "{0} of run {1}".format(dset_name, run_number),
+                     dset_name,
+                     "# hits")
+        else:
+            fit_results = fitAndPlotFeSpectrum(data, cuts, outfolder, run_number, fitting_only)
 
-        if all_runs == False:
-            # now finally write the fit results back to the H5 file
-            calib_factor = writeFitParametersH5(h5file, fit_results, group_name, dset_name)
+            if all_runs == False:
+                # now finally write the fit results back to the H5 file
+                calib_factor = writeFitParametersH5(h5file, fit_results, group_name, dset_name)
 
-            if fitting_only == True:
-                # now print the calibration factor again so that it can be read as the last line
-                # from a calling process
-                print("\n{}".format(calib_factor))
+                if fitting_only == True:
+                    # now print the calibration factor again so that it can be read as the last line
+                    # from a calling process
+                    print("\n{}".format(calib_factor))
 
 
 if __name__=="__main__":

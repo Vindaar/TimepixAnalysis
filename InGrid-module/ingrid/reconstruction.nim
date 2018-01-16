@@ -40,6 +40,7 @@ InGrid reconstruction and energy calibration.
 Usage:
   reconstruction <HDF5file> [options]
   reconstruction <HDF5file> --run_number <number> [options]
+  reconstruction <HDF5file> --run_number <number> --only_energy <factor> [options]
   reconstruction <HDF5file> (--create_fe_spec | --calib_energy) [options]
   reconstruction <HDF5file> --only_energy <factor> [options]
   reconstruction <HDF5file> --out <name> [options]
@@ -662,7 +663,67 @@ proc reconstructAllRunsInFile(h5f: var H5FileObj, flags_tab: Table[string, bool]
       discard
   echo "Reconstruction of all runs in $# took $# seconds" % [$h5f.name, $(epochTime() - t0)]
 
-proc reconstructSingleRun(folder: string) =
+proc reconstructSingleRunInFile(h5f: var H5FileObj,
+                                run_number: int,
+                                flags_tab: Table[string, bool],
+                                calib_factor: float = 1.0) =
+  ## proc which performs reconstruction of a single run in a given file
+  ## if the --only_energy command line argument is set, we skip the reconstruction
+  ## and only perform an energy calibration of the existing (!) reconstructed
+  ## runs using the calibration factor given
+
+  ## TODO: combine this with proc above
+  let
+    raw_data_basename = rawDataBase()
+    run_regex = re(raw_data_basename & $run_number & r"$")
+    t0 = epochTime()
+  echo "Reading group name $#" % $(raw_data_basename & $run_number & r"$")
+  var reco_run: seq[FlowVar[ref RecoEvent]] = @[]
+  for grp in keys(h5f.groups):
+    if grp.match(run_regex) == true:
+      # now read some data. Return value will be added later
+      if flags_tab["only_energy"] == false:
+        # TODO: we can in principle perform energy calibration in one go
+        # together with creation of spectrum, if we work as follows:
+        # 1. calibration runs:
+        #    - need to interface with Python code, i.e. call fitting procedure,
+        #      which returns the value to the Nim program as its return value
+        
+        let t1 = epochTime()      
+        for chip, pixdata in h5f.readDataFromH5(grp, run_number):
+          # given single runs pixel data, call reconstruct run proc
+          # NOTE: the data returned from the iterator contains all
+          # events in ascending order of event number, i.e.
+          # [0] -> eventNumber == 0 and so on
+          reco_run.add reconstructSingleChip(pixdata, run_number, chip)
+          
+        echo "Reconstruction of run $# took $# seconds" % [$run_number, $(epochTime() - t1)]
+        # finished run, so write run to H5 file
+        h5f.writeRecoRunToH5(reco_run, run_number)
+        # set reco run length back to 0
+        reco_run.setLen(0)
+
+        # now check whether create iron spectrum flag is set
+        if flags_tab["create_fe"] == true:
+          createFeSpectrum(h5f, run_number)
+        elif flags_tab["calib_energy"] == true:
+          applyEnergyCalibration(h5f, run_number, 1.1)
+      else:
+        # only perform energy calibration of the reconstructed runs in file
+        # check if reconstructed run exists
+        if hasKey(h5f.groups, (recoBase & $run_number)) == true:
+          applyEnergyCalibration(h5f, run_number, calib_factor)
+        else:
+          echo "No reconstructed run found for $#" % $grp
+
+      # since we found the run, we can break from the loop
+      break
+    else:
+      # this is the case in which group was not matched to regex
+      discard
+  echo "Reconstruction of run $# in $# took $# seconds" % [$run_number, $h5f.name, $(epochTime() - t0)]
+
+proc reconstructSingleRunFolder(folder: string) =
   # procedure which receives path to a run folder and reconstructs the objects
   # in that folder
   # inputs:
@@ -743,8 +804,7 @@ proc main() =
   if run_number == "":
     reconstructAllRunsInFile(h5f, flags_tab, calib_factor)
   else:
-    for pixeldata in h5f.readDataFromH5(raw_data_basename / run_number, parseInt(run_number)):
-      echo "aa"
+    reconstructSingleRunInFile(h5f, parseInt(run_number), flags_tab, calib_factor)
   
   # NOTE: there's no point for this anymore, at least not at the moment
   # # first check whether given folder is valid run folder

@@ -30,6 +30,10 @@ def getBinRangeForDset(dset):
         return (0, 7.5)
     elif "minvals" in dset:
         return (-0.6, 0.0)
+    elif "riseTime" in dset:
+        return (50, 120)
+    elif "fallTime" in dset:
+        return (100, 700)
     else:
         return None
     
@@ -98,7 +102,7 @@ def plotData(hist, binning, range, outfile, title, xlabel, ylabel, save_plot = T
                 for i in xrange(len(hist)):
                     hist_i = np.concatenate(hist[i]).flatten()
                     ax.hist(hist_i,
-                            bins = 500,
+                            bins = 30,
                             range = range,
                             normed = True,
                             linewidth = 0.0,
@@ -106,7 +110,7 @@ def plotData(hist, binning, range, outfile, title, xlabel, ylabel, save_plot = T
                             color = colors[i])
             else:
                 hist = np.concatenate(hist).flatten()
-                ax.hist(hist, bins = 500, range = range, linewidth = 0.0)
+                ax.hist(hist, bins = 30, range = range, linewidth = 0.0)
         except ValueError:
             print("something broken on outfile {}".format(outfile))
             #print hist
@@ -187,7 +191,7 @@ def readFadcInGridDset(h5f, group_name, dset_name):
     # fn which distinguishes datasets based on whether
     # it's for FADC or InGrid
     if "fadc" in dset_name:
-        dset = dset_name.lstrip("fadc_")
+        dset = dset_name.split("_")[1]
         result = readH5DataSingle(h5f, group_name, [dset])
         
     else:

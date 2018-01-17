@@ -738,4 +738,21 @@ template trigrecBasename*(run_number: int): string =
   
 template fadcDataBasename*(run_number: int): string =
   getRecoNameForRun(run_number) / "fadc/fadc_data"
-  
+
+template fadcBaselineBasename*(run_number: int): string =
+  getRecoNameForRun(run_number) / "fadc/baseline"
+
+template argMinvalBasename*(run_number: int): string =
+  getRecoNameForRun(run_number) / "fadc/argMinval"  
+
+template riseStartBasename*(run_number: int): string =
+  getRecoNameForRun(run_number) / "fadc/riseStart"
+
+template fallStopBasename*(run_number: int): string =
+  getRecoNameForRun(run_number) / "fadc/fallStop"
+
+template riseTimeBasename*(run_number: int): string =
+  getRecoNameForRun(run_number) / "fadc/riseTime"
+
+template fallTimeBasename*(run_number: int): string =
+  getRecoNameForRun(run_number) / "fadc/fallTime"      

@@ -27,6 +27,7 @@ import tos_helper_functions
 import helper_functions
 import ingrid_types
 import energy_calibration
+import fadc_analysis
 
 type
   FitObject = object
@@ -41,8 +42,10 @@ Usage:
   reconstruction <HDF5file> [options]
   reconstruction <HDF5file> --run_number <number> [options]
   reconstruction <HDF5file> --run_number <number> --only_energy <factor> [options]
+  reconstruction <HDF5file> --run_number <number> --only_fadc [options]
   reconstruction <HDF5file> (--create_fe_spec | --calib_energy) [options]
   reconstruction <HDF5file> --only_energy <factor> [options]
+  reconstruction <HDF5file> --only_fadc [options]
   reconstruction <HDF5file> --out <name> [options]
   reconstruction -h | --help
   reconstruction --version
@@ -57,6 +60,9 @@ Options:
                           Takes precedence over --create_fe_spec and --calib_energy if set.
                           If no run_number is given, performs energy calibration on all runs
                           in the HDF5 file.
+  --only_fadc             If this flag is set, the reconstructed FADC data is used to calculate
+                          FADC values such as rise and fall times among others, which are written
+                          to the H5 file.
   --out <name>            Filename and path of output file
   -h --help               Show this help
   --version               Show version.
@@ -608,6 +614,8 @@ proc reconstructSingleChip(data: seq[Pixels], run, chip: int): seq[FlowVar[ref R
       echoFilesCounted(count, 2500)
   sync()
 
+#iterator matchingGroup(h5f: var H5FileObj,   
+
 proc reconstructAllRunsInFile(h5f: var H5FileObj, flags_tab: Table[string, bool], calib_factor: float = 1.0) =
   ## proc which performs reconstruction of all runs in a given file
   ## if the --only_energy command line argument is set, we skip the reconstruction
@@ -625,7 +633,7 @@ proc reconstructAllRunsInFile(h5f: var H5FileObj, flags_tab: Table[string, bool]
       # now read some data. Return value will be added later
       let run_number = parseInt(run[0])
 
-      if flags_tab["only_energy"] == false:
+      if flags_tab["only_energy"] == false and flags_tab["only_fadc"] == false:
         # TODO: we can in principle perform energy calibration in one go
         # together with creation of spectrum, if we work as follows:
         # 1. calibration runs:
@@ -655,7 +663,10 @@ proc reconstructAllRunsInFile(h5f: var H5FileObj, flags_tab: Table[string, bool]
         # only perform energy calibration of the reconstructed runs in file
         # check if reconstructed run exists
         if hasKey(h5f.groups, (recoBase & $run_number)) == true:
-          applyEnergyCalibration(h5f, run_number, calib_factor)
+          if flags_tab["only_energy"] == true:
+            applyEnergyCalibration(h5f, run_number, calib_factor)
+          if flags_tab["only_fadc"] == true:
+            calcRiseAndFallTimes(h5f, run_number)
         else:
           echo "No reconstructed run found for $#" % $grp
     else:
@@ -682,7 +693,7 @@ proc reconstructSingleRunInFile(h5f: var H5FileObj,
   for grp in keys(h5f.groups):
     if grp.match(run_regex) == true:
       # now read some data. Return value will be added later
-      if flags_tab["only_energy"] == false:
+      if flags_tab["only_energy"] == false and flags_tab["only_fadc"] == false:
         # TODO: we can in principle perform energy calibration in one go
         # together with creation of spectrum, if we work as follows:
         # 1. calibration runs:
@@ -712,7 +723,10 @@ proc reconstructSingleRunInFile(h5f: var H5FileObj,
         # only perform energy calibration of the reconstructed runs in file
         # check if reconstructed run exists
         if hasKey(h5f.groups, (recoBase & $run_number)) == true:
-          applyEnergyCalibration(h5f, run_number, calib_factor)
+          if flags_tab["only_energy"] == true:
+            applyEnergyCalibration(h5f, run_number, calib_factor)
+          if flags_tab["only_fadc"] == true:
+            calcRiseAndFallTimes(h5f, run_number)
         else:
           echo "No reconstructed run found for $#" % $grp
 
@@ -764,7 +778,7 @@ proc main() =
     h5f_name = $args["<HDF5file>"]
     create_fe_arg = $args["--create_fe_spec"]
     calib_energy_arg = $args["--calib_energy"]
-    
+
   var
     run_number = $args["--run_number"]
     outfile = $args["--out"]
@@ -773,6 +787,7 @@ proc main() =
     calib_factor_str = $args["--only_energy"]
     calib_factor: float = Inf
     only_energy_flag: bool
+    only_fadc: bool
   if run_number == "nil":
     run_number = ""
   if outfile == "nil":
@@ -791,10 +806,16 @@ proc main() =
   else:
     only_energy_flag = true
     calib_factor = parseFloat(calib_factor_str)
+  if $args["--only_fadc"] != "nil":
+    only_fadc = true
+  else:
+    only_fadc = false
+      
 
   let flags_tab = { "create_fe": create_fe_flag,
                     "calib_energy": calib_energy_flag,
-                    "only_energy": only_energy_flag}.toTable
+                    "only_energy": only_energy_flag,
+                    "only_fadc": only_fadc}.toTable                  
     
 
   var h5f = H5file(h5f_name, "rw")

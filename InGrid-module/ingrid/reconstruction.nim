@@ -41,6 +41,7 @@ InGrid reconstruction and energy calibration.
 Usage:
   reconstruction <HDF5file> [options]
   reconstruction <HDF5file> --run_number <number> [options]
+  reconstruction <HDF5file> --run_number <number> --create_fe_spec [options]
   reconstruction <HDF5file> --run_number <number> --only_energy <factor> [options]
   reconstruction <HDF5file> --run_number <number> --only_fadc [options]
   reconstruction <HDF5file> (--create_fe_spec | --calib_energy) [options]
@@ -394,12 +395,12 @@ proc calcGeomtry(cluster: Cluster, pos_x, pos_y, rot_angle: float): ClusterGeome
   # now we have all data to calculate the geometric properties
   result.length       = max(xRot) - min(xRot)
   result.width        = max(yRot) - min(yRot)
-  result.rms_long     = stat_x.standardDeviation()
-  result.rms_trans    = stat_y.standardDeviation()
-  result.skew_long    = stat_x.skewness()
-  result.skew_trans   = stat_y.skewness()
-  result.kurt_long    = stat_x.kurtosis()
-  result.kurt_trans   = stat_y.kurtosis()
+  result.rms_trans    = stat_x.standardDeviation()
+  result.rms_long     = stat_y.standardDeviation()
+  result.skew_trans   = stat_x.skewness()
+  result.skew_long    = stat_y.skewness()
+  result.kurt_trans   = stat_x.kurtosis()
+  result.kurt_long    = stat_y.kurtosis()
   result.rot_angle    = rot_angle
   result.eccentricity = result.rms_long / result.rms_trans
   # get fraction of all pixels within the transverse RMS, by filtering all elements
@@ -614,14 +615,28 @@ proc reconstructSingleChip(data: seq[Pixels], run, chip: int): seq[FlowVar[ref R
       echoFilesCounted(count, 2500)
   sync()
 
-#iterator matchingGroup(h5f: var H5FileObj,   
+#iterator matchingGroup(h5f: var H5FileObj,
+
+iterator runs(h5f: var H5FileObj, reco = true): string =
+  # simple iterator, which yields the group name of runs
+  # in the file. If reco is true (default) we yield
+  # reconstruction groups, else raw grous
+  let
+    raw_data_basename = rawDataBase()
+    run_regex = re(raw_data_basename & r"(\d+)$")
+  var run: array[1, string]
+  var reco_run: seq[FlowVar[ref RecoEvent]] = @[]
+  for grp in keys(h5f.groups):
+    if grp.match(run_regex, run) == true:
+      # now read some data. Return value will be added later
+      let run_number = parseInt(run[0])
+  
 
 proc reconstructAllRunsInFile(h5f: var H5FileObj, flags_tab: Table[string, bool], calib_factor: float = 1.0) =
   ## proc which performs reconstruction of all runs in a given file
   ## if the --only_energy command line argument is set, we skip the reconstruction
   ## and only perform an energy calibration of the existing (!) reconstructed
   ## runs using the calibration factor given
-  
   let
     raw_data_basename = rawDataBase()
     run_regex = re(raw_data_basename & r"(\d+)$")
@@ -806,10 +821,10 @@ proc main() =
   else:
     only_energy_flag = true
     calib_factor = parseFloat(calib_factor_str)
-  if $args["--only_fadc"] != "nil":
-    only_fadc = true
-  else:
+  if $args["--only_fadc"] == "false":
     only_fadc = false
+  else:
+    only_fadc = true
       
 
   let flags_tab = { "create_fe": create_fe_flag,

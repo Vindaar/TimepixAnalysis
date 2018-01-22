@@ -713,7 +713,7 @@ macro createCombineTemplates(name, datatype: string): typed =
   var source = ""
   case datatype.strVal
   of "runs":
-    source &= "template combineBasename" & name.strVal & "*(chip_number, run_number: int): string =\n"
+    source &= "template combineRawBasename" & name.strVal & "*(chip_number, run_number: int): string =\n"
   of "reconstruction":
     source &= "template combineRecoBasename" & name.strVal & "*(chip_number, run_number: int): string =\n"
   else:
@@ -732,10 +732,10 @@ createCombineTemplates("Hits", "runs")
 createCombineTemplates("ToT", "reconstruction")
 createCombineTemplates("Hits", "reconstruction")
 # these don't work, since we use the name once in upper and once in lower case
-createCombineTemplates("Fadc", "reconstruction")
-createCombineTemplates("Noisy", "reconstruction")
-createCombineTemplates("Minvals", "reconstruction")
-createCombineTemplates("Noisy", "reconstruction")
+#createCombineTemplates("Fadc", "reconstruction")
+#createCombineTemplates("Noisy", "reconstruction")
+#createCombineTemplates("Minvals", "reconstruction")
+#createCombineTemplates("Noisy", "reconstruction")
 
 
 # template combineRawBasenameToT*(chip_number, run_number: int): string =
@@ -750,14 +750,14 @@ createCombineTemplates("Noisy", "reconstruction")
 # template combineRecoBasenameHits*(chip_number, run_number: int): string =
 #   "/reconstruction/combined/Hits_$#_$#" % [$chip_number, $run_number]
 
-# template combineRecoBasenameFadc*(): string =
-#   "/reconstruction/combined/fadc/"
+template combineRecoBasenameFadc*(): string =
+  "/reconstruction/combined/fadc/"
   
-# template combineRecoBasenameNoisy*(run_number: int): string =
-#   "/reconstruction/combined/fadc/noisy_$#" % [$run_number]
+template combineRecoBasenameNoisy*(run_number: int): string =
+  "/reconstruction/combined/fadc/noisy_$#" % [$run_number]
 
-# template combineRecoBasenameMinvals*(run_number: int): string =
-#   "/reconstruction/combined/fadc/minvals_$#" % [$run_number]
+template combineRecoBasenameMinvals*(run_number: int): string =
+  "/reconstruction/combined/fadc/minvals_$#" % [$run_number]
 
 template noiseBasename*(run_number: int): string =
   getRecoNameForRun(run_number) / "fadc/noisy"

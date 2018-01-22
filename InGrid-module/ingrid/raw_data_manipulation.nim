@@ -312,7 +312,7 @@ proc initFadcInH5(h5f: var H5FileObj, run_number, batchsize: int, filename: stri
     # create the groups for the run and reconstruction data
     run_group = h5f.create_group(group_name)
     reco_group = h5f.create_group(reco_group_name)
-    fadc_combine = h5f.create_group(combineRecoBasenameFadc())
+    fadc_combine = h5f.create_group(combineRecoBasenameFadc)
     # create the datasets for raw data etc
     # NOTE: we initialize all datasets with a size of 0. This means we need to extend
     # it immediately. However, this allows us to always (!) simply extend and write

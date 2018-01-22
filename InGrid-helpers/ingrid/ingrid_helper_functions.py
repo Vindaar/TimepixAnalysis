@@ -28,6 +28,8 @@ def getBinRangeForDset(dset):
         return (-2, 8)
     elif dset == "eccentricity":
         return (0, 7.5)
+    elif dset == "ToT":
+        return (0, 250)
     elif "minvals" in dset:
         return (-0.6, 0.0)
     elif "riseTime" in dset:
@@ -56,7 +58,7 @@ def readTotsFile(filename):
     return readFileColumn(filename)
 
 def rawBase():
-    return "/raw/"
+    return "/runs/"
 
 def recoBase():
     return "/reconstruction/"
@@ -64,12 +66,11 @@ def recoBase():
 def recoFadcBase(run_number):
     return "/reconstruction/run_{}/".format(run_number)
 
-
 def recoDataChipBase(run_number):
     return "/reconstruction/run_{}/chip_".format(run_number)
 
-def recoDataChipBase(run_number):
-    return "/reconstruction/run_{}/chip_".format(run_number)
+def rawDataChipBase(run_number):
+    return "/runs/run_{}/chip_".format(run_number)
 
 def binData(data, cuts):
     if cuts is not None:
@@ -102,7 +103,7 @@ def plotData(hist, binning, range, outfile, title, xlabel, ylabel, save_plot = T
                 for i in xrange(len(hist)):
                     hist_i = np.concatenate(hist[i]).flatten()
                     ax.hist(hist_i,
-                            bins = 30,
+                            bins = 249,
                             range = range,
                             normed = True,
                             linewidth = 0.0,
@@ -110,7 +111,7 @@ def plotData(hist, binning, range, outfile, title, xlabel, ylabel, save_plot = T
                             color = colors[i])
             else:
                 hist = np.concatenate(hist).flatten()
-                ax.hist(hist, bins = 30, range = range, linewidth = 0.0)
+                ax.hist(hist, bins = 500, range = range, linewidth = 0.0)
         except ValueError:
             print("something broken on outfile {}".format(outfile))
             #print hist
@@ -219,7 +220,9 @@ def readH5Data(h5file, group_name, chip, dset_names):
                 result.append(readH5DataSingle(h5f, grp_name, [dset_names[0].lstrip("fadc_")]))
             else:
                 grp_name = recoBase() + name + "/chip_{}".format(chip)
-                result.append(readH5DataSingle(h5f, grp_name, dset_names))
+                result.extend(readH5DataSingle(h5f, grp_name, dset_names))
+        #print result[0][0]
+        #print("Sum of all data is ", np.sum(np.asarray(result).flatten()))
         result = np.asarray(result).flatten()
     else:
         if type(group_name) is list:

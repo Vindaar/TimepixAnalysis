@@ -29,24 +29,13 @@ Options:
   --version               Show version.
 """
 
-proc noiseAnalysis(h5f: var H5FileObj) =
-  ## proc which performs the analysis of the noise, i.e. ratio of active and dead
-  ## detector. Read the timestamps in the files, get event durations and in bin
-  ## ranges, which can be determined (~ 20 s to account for 1s accuracy in timestamp?)
+# proc noiseAnalysis(h5f: var H5FileObj) =
+#   ## proc which performs the analysis of the noise, i.e. ratio of active and dead
+#   ## detector. Read the timestamps in the files, get event durations and in bin
+#   ## ranges, which can be determined (~ 20 s to account for 1s accuracy in timestamp?)
 
-  let
-    raw_data_basename = rawDataBase()
-    run_regex = re(raw_data_basename & r"(\d+)$")
-    t0 = epochTime()
-  var run: array[1, string]
-  var reco_run: seq[FlowVar[ref RecoEvent]] = @[]
-  for grp in keys(h5f.groups):
-    if grp.match(run_regex, run) == true:
-      # now read some data. Return value will be added later
-      let run_number = parseInt(run[0])
-
-  
-
+#   for num, group in runs(h5f):
+    
 proc findThresholdValue[T](data: seq[seq[T]], x_min: seq[int], threshold: seq[T], left = true, positive = false): seq[int] =
   # left determines whether we start search left or right
   # positive sets the range of the data. postiive == false means we consider

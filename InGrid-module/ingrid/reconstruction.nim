@@ -617,20 +617,24 @@ proc reconstructSingleChip(data: seq[Pixels], run, chip: int): seq[FlowVar[ref R
 
 #iterator matchingGroup(h5f: var H5FileObj,
 
-iterator runs(h5f: var H5FileObj, reco = true): string =
+iterator runs*(h5f: var H5FileObj, reco = true): (string, string) =
   # simple iterator, which yields the group name of runs
   # in the file. If reco is true (default) we yield
   # reconstruction groups, else raw grous
-  let
-    raw_data_basename = rawDataBase()
-    run_regex = re(raw_data_basename & r"(\d+)$")
+  var data_basename: string = ""
+  if reco == true:
+    data_basename = recoBase()
+  else:
+    data_basename = rawDataBase()
+    
+  let run_regex = re(data_basename & r"(\d+)$")
   var run: array[1, string]
   var reco_run: seq[FlowVar[ref RecoEvent]] = @[]
   for grp in keys(h5f.groups):
     if grp.match(run_regex, run) == true:
       # now read some data. Return value will be added later
-      let run_number = parseInt(run[0])
-  
+      #let run_number = parseInt(run[0])
+      yield (run[0], grp)
 
 proc reconstructAllRunsInFile(h5f: var H5FileObj, flags_tab: Table[string, bool], calib_factor: float = 1.0) =
   ## proc which performs reconstruction of all runs in a given file
@@ -701,12 +705,12 @@ proc reconstructSingleRunInFile(h5f: var H5FileObj,
   ## TODO: combine this with proc above
   let
     raw_data_basename = rawDataBase()
-    run_regex = re(raw_data_basename & $run_number & r"$")
+    run_name = raw_data_basename & $run_number
     t0 = epochTime()
-  echo "Reading group name $#" % $(raw_data_basename & $run_number & r"$")
+  echo "Reading group name $#" % $(raw_data_basename & $run_number)
   var reco_run: seq[FlowVar[ref RecoEvent]] = @[]
   for grp in keys(h5f.groups):
-    if grp.match(run_regex) == true:
+    if grp == run_name or grp == run_name & "/":
       # now read some data. Return value will be added later
       if flags_tab["only_energy"] == false and flags_tab["only_fadc"] == false:
         # TODO: we can in principle perform energy calibration in one go
@@ -714,7 +718,7 @@ proc reconstructSingleRunInFile(h5f: var H5FileObj,
         # 1. calibration runs:
         #    - need to interface with Python code, i.e. call fitting procedure,
         #      which returns the value to the Nim program as its return value
-        
+
         let t1 = epochTime()      
         for chip, pixdata in h5f.readDataFromH5(grp, run_number):
           # given single runs pixel data, call reconstruct run proc
@@ -825,7 +829,6 @@ proc main() =
     only_fadc = false
   else:
     only_fadc = true
-      
 
   let flags_tab = { "create_fe": create_fe_flag,
                     "calib_energy": calib_energy_flag,

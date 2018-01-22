@@ -17,6 +17,8 @@ import ingrid_types
 import arraymancer
 
 
+import macros
+
 proc sum*(c: seq[Pix]): Pix {.inline.} =
   # this procedure sums the sequence of pixels such that it returns
   # a tuple of (sum_x, sum_y, sum_charge)
@@ -703,26 +705,59 @@ proc getRecoCombineName*(): string =
   # generates the base path for the combine folder
   result = "/reconstruction/combined/"
 
-template combineRawBasenameToT*(chip_number, run_number: int): string =
-  "/runs/combined/ToT_$#_$#" % [$chip_number, $run_number]
 
-template combineRawBasenameHits*(chip_number, run_number: int): string =
-  "/runs/combined/Hits_$#_$#" % [$chip_number, $run_number]
+macro createCombineTemplates(name, datatype: string): typed =
+  # creates a template, which returns a basename of the type
+  # combineBasename`name`(chip_number, run_number): string =
+  #   "/runs/combined/`name`_$#_$#" % [$chip_number, $run_number]
+  var source = ""
+  case datatype.strVal
+  of "runs":
+    source &= "template combineBasename" & name.strVal & "*(chip_number, run_number: int): string =\n"
+  of "reconstruction":
+    source &= "template combineRecoBasename" & name.strVal & "*(chip_number, run_number: int): string =\n"
+  else:
+    discard
+  case name.strVal
+  of "Hits", "ToT":
+    source &= "  \"/" & datatype.strVal & "/combined/" & name.strVal
+  else:
+    source &= "  \"/" & datatype.strVal.toLowerAscii & "/combined/" & name.strVal.toLowerAscii
+  source &= "_$#_$#\" % [$chip_number, $run_number]"
+  result = parseStmt(source)
+  echo toStrLit(result)
 
-template combineRecoBasenameToT*(chip_number, run_number: int): string =
-  "/reconstruction/combined/ToT_$#_$#" % [$chip_number, $run_number]
+createCombineTemplates("ToT", "runs")
+createCombineTemplates("Hits", "runs")
+createCombineTemplates("ToT", "reconstruction")
+createCombineTemplates("Hits", "reconstruction")
+# these don't work, since we use the name once in upper and once in lower case
+createCombineTemplates("Fadc", "reconstruction")
+createCombineTemplates("Noisy", "reconstruction")
+createCombineTemplates("Minvals", "reconstruction")
+createCombineTemplates("Noisy", "reconstruction")
 
-template combineRecoBasenameHits*(chip_number, run_number: int): string =
-  "/reconstruction/combined/Hits_$#_$#" % [$chip_number, $run_number]
 
-template combineRecoBasenameFadc*(): string =
-  "/reconstruction/combined/fadc/"
+# template combineRawBasenameToT*(chip_number, run_number: int): string =
+#   "/runs/combined/ToT_$#_$#" % [$chip_number, $run_number]
+
+# template combineRawBasenameHits*(chip_number, run_number: int): string =
+#   "/runs/combined/Hits_$#_$#" % [$chip_number, $run_number]
+
+# template combineRecoBasenameToT*(chip_number, run_number: int): string =
+#   "/reconstruction/combined/ToT_$#_$#" % [$chip_number, $run_number]
+
+# template combineRecoBasenameHits*(chip_number, run_number: int): string =
+#   "/reconstruction/combined/Hits_$#_$#" % [$chip_number, $run_number]
+
+# template combineRecoBasenameFadc*(): string =
+#   "/reconstruction/combined/fadc/"
   
-template combineRecoBasenameNoisy*(run_number: int): string =
-  "/reconstruction/combined/fadc/noisy_$#" % [$run_number]
+# template combineRecoBasenameNoisy*(run_number: int): string =
+#   "/reconstruction/combined/fadc/noisy_$#" % [$run_number]
 
-template combineRecoBasenameMinvals*(run_number: int): string =
-  "/reconstruction/combined/fadc/minvals_$#" % [$run_number]
+# template combineRecoBasenameMinvals*(run_number: int): string =
+#   "/reconstruction/combined/fadc/minvals_$#" % [$run_number]
 
 template noiseBasename*(run_number: int): string =
   getRecoNameForRun(run_number) / "fadc/noisy"
@@ -756,3 +791,12 @@ template riseTimeBasename*(run_number: int): string =
 
 template fallTimeBasename*(run_number: int): string =
   getRecoNameForRun(run_number) / "fadc/fallTime"      
+
+
+when isMainModule:
+
+  assert combineBasenameToT(0, 1) == "/runs/combined/ToT_0_1"
+  assert combineRecoBasenameToT(0, 1) == "/reconstruction/combined/ToT_0_1"
+
+  echo "All tests passed!"
+

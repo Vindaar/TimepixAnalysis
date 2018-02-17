@@ -1,0 +1,226 @@
+DATE                   10/30/2017
+TIME                   00:00:41
+NA1                    12                        
+NA2                    7                         
+NA3                    10                        
+DA4                    27                        
+NDP-7                  21
+# korrekt bis hier
+P-VacL                 1.0535E-7                 
+P_ENV                  1.0000E-5                 
+P1_BA                  9.7836E-1                 
+P-TPC                  4.6313E-11                
+P-MRB                  2.0000E-4                 
+P-DT2                  1.1490E-10                
+P-MM                   2.0000E-4                 
+P3-Cal                 2.8646E-5                 
+P-MFB                  2.0000E-4                 
+P-3                    1.0161E-6                 
+P3_BA                  1.9764E-5                 
+# eine zeile fehlt, da load bei beiden etwa 5 t sein sollte
+# außerdem müssen P3 und P3Ba etwa gleich sein
+JURA LOAD              1.9197E-5                 
+AIRP LOAD              5.0625E+0                 
+TT 868                 4.6492E+0                 
+TT 869                 8.2610E+0                 
+Water                  1.7595E+0                 
+I_magnet               2.4282E+2                 
+P2_BA                  -1.4484E-4                
+P-Nuno                 7.6571E-5                 
+P-ING                  4.5603E-12                
+P-4                    4.2256E+3                 
+P4_BA                  1.0616E+1                 
+P6_BA                  1.1729E+1                 
+# mglw fehlt eine Zeile, beide Pirani sollten gleich sein?
+Pirani1                1.7327E-8                 
+Pirani2                2.0000E-4                 
+P-V12                  2.0000E-4                 
+P8_BA                  8.4870E-9                 
+P7_BA                  7.9054E-9                 
+Comp Air an            1.8860E-7                 
+Argon Out              6.1526E+0                 
+Argon In               1.1862E+1                 
+Nitro Flux             1.9854E+0                 
+Comp Air Panel         0.0000E+0                 
+Comp Air SR8           6.1196E+0                 
+CalSunset2             8.1393E+0                 
+CalSunset1             4.1621E+0                 
+I_MMSS2                6.8201E-1                 
+I_MMSR                 6.7834E+2                 
+I_MMSS1                1.0857E+3                 
+PdMM                   1.0829E+3                 
+FlowMM                 2.9749E-2 
+# eine zeile fehlt (temperatursollte 22.7 sein                
+Tenv_MRB               1.6048E-2                 
+Tenv_Iron              2.2708E+1                 
+Tenv_MFB               2.0448E+1                 
+Tenv_Amb               2.2511E+1                 
+TEnv_Ext               2.1346E+1                 
+TEnv_Vent              1.0048E+1                 
+WaterPressure          1.9609E+1                 
+Humidity               3.7781E+0                 
+TStorage1              4.0609E+1                 
+TStorage2              2.0445E+1                 
+PT208                  2.0696E+1                 
+ProxJ                  8.6681E+2                 
+ProxA                  3.1734E+3                 
+Hemassflow             -4.9131E+3                
+# eine zeile fehlt / zu viel
+VT1 OPEN               -7.8954E-3                
+VT1 CLOSED             0                         
+VT2 OPEN               0                         
+VT2 CLOSED             0                         
+VT3 OPEN               0                         
+VT3 CLOSED             0                         
+VT4 OPEN               1                         
+VT4 CLOSED             0                         
+P1 ALARM               1                         
+P2 ALARM               0                         
+P3 ALARM               0                         
+P4 ALARM               1                         
+P7 ALARM               0                         
+MM GAS                 0                         
+COMPR. AIR             1                         
+RUN MODE               0                         
+QUENCH                 0                         
+IN V REF POS           0                         
+IN H REF POS           0                         
+Helium into Coldbore   0                         
+He3 Interlock          0                         
+CM_CAL                 0                         
+TPC_CAL                0                         
+MM_CAL                 0                         
+VTD1 OPEN              0                         
+VTD1 CLOSED            0                         
+VAC14 OPEN             1                         
+VAC14 CLOSED           0                         
+SRMM_EV OPEN           0                         
+SRMM_EV CLOSED         1                         
+SIP ON                 0                         
+SIP FAULT              0                         
+SIP PROTECTION         1                         
+VaSSMM OPEN            0                         
+VaSSMM CLOSED          0                         
+WaterPressureLow       0                         
+WaterLeakMFB           0                         
+WaterLeakPotence       1                         
+# 2 zeilen fehlen / zu viel
+sec since 1/1/1904     1                         
+Horiz_Angle            0                         
+Verti_Angle            3.592162841058E+9         
+Record_Time            1.092805E+2               
+Horiz_ME               3.000000E-4               
+Verti_ME               3.592162802464E+9         
+                       24000                     
+                       26469                     
+
+
+12/15/2017  
+07:52:08
+12
+7
+10
+27
+21
+3.7782E-9
+1.0000E-5
+9.6164E-1
+4.5082E-11
+2.0000E-4
+6.7565E-7
+5.8884E-4
+1.8765E-6
+2.0000E-4 
+8.0553E-7 
+1.1209E-6 
+1.0620E-6 
+
+4.6268E+0 
+4.6868E+0 
+8.2582E+0 
+1.7694E+0 
+2.4183E+2 
+8.6664E+0 
+7.8854E-5 
+4.5683E-12 
+4.2202E+3 
+1.1642E+1 
+1.2545E+1 
+6.4582E-8 
+2.0000E-4 
+2.0000E-4 
+1.6677E-8 
+1.6680E-8 
+2.7393E-8 
+6.1073E+0 
+1.1862E+1 
+2.9161E+0 
+0.0000E+0 
+6.0781E+0 
+8.3520E+0 
+4.2645E+0 
+5.9015E-1 
+5.8457E+2 
+1.0687E+3 
+1.0577E+3 
+2.3945E-2 
+1.7220E-2 
+2.0568E+1 
+2.0605E+1 
+2.1074E+1 
+2.0278E+1 
+3.1825E+0 
+2.0970E+1 
+3.9999E+0 
+3.7475E+1 
+2.0774E+1 
+2.0822E+1 
+8.6299E+2 
+3.2715E+3 
+-4.6285E+3 
+-5.1774E-3 
+0 
+0 
+0 
+0 
+1 
+0 
+0 
+1 
+0 
+0 
+0 
+0 
+0 
+1 
+0 
+0 
+0 
+0 
+0 
+0 
+0 
+0 
+0 
+0 
+0 
+1 
+0 
+1 
+0 
+0 
+0 
+1 
+0 
+0 
+0 
+0 
+1 
+1 
+0 
+3.596165528049E+9 
+1.203670E+2 
+-3.683700E+0 
+3.596165527143E+9 
+28245 
+14255

@@ -5,6 +5,7 @@ import numpy as np
 import h5py
 import os
 import matplotlib.pyplot as plt
+from datetime import datetime
 
 def getListOfDsets():
     dsets = ["hits", "sumToT", "centerX", "centerY",
@@ -133,6 +134,53 @@ def plotData(hist, binning, range, outfile, title, xlabel, ylabel, save_plot = T
         return None
     else:
         return fig, ax
+
+def plotScatter(x_data, y_data, x_range, y_range, outfile, title, xlabel, ylabel, save_plot = True):
+    # function to plot a scatter plot of x and y data.
+    fig, ax = plt.subplots(1, 1)
+
+    ax.plot(x_data, y_data)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+
+    outname = outfile + ".pdf"
+
+    if save_plot == True:
+        plt.savefig(outname)
+
+    plt.show()
+
+def plotVsTime(times, y_data, x_range, y_range, outfile, title, xlabel, ylabel, save_plot = True):
+    # function to plot values against time. Times needs to be an array, which stores the time
+    # information as a unix timestamp
+    fig, ax = plt.subplots(1, 1)
+
+    print "Converting..."
+    print np.size(times)
+    print np.size(y_data)
+    # TODO: the following is a hack to get rid of broken
+    # timestamp in some events contained in calibratino_w_timestamps.h5 and
+    # background_w_timestamps.h5
+    # NOTE: Only works for data from 2017 obviously...
+    datetimes = []
+    yvals = []
+    for i, el in enumerate(times):
+        if el < 1514764800:
+            datetimes.append(el)
+            yvals.append(y_data[i])
+
+    print "Plotting..."
+    ax.plot(datetimes, yvals, linestyle = "", marker = ".")
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+
+    outname = outfile + ".pdf"
+
+    if save_plot == True:
+        plt.savefig(outname)
+
+    plt.show()    
+    
 
 def readH5DataSingle(h5f, group_name, dset_names):
     # proc which reads datasets from the a single group

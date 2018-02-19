@@ -57,12 +57,15 @@ Usage:
   raw_data_manipulation <folder> [options]
   raw_data_manipulation <folder> --run_type <type> [options]
   raw_data_manipulation <folder> --out <name> [options]
+  raw_data_manipulation <folder> --nofadc [options]
+  raw_data_manipulation <folder> --out <name> --nofadc [options]
   raw_data_manipulation -h | --help
   raw_data_manipulation --version
 
 Options:
   --run_type <type>   Select run type (Calib | Data)
   --out <name>        Filename and path of output file
+  --nofadc            Do not read FADC files
   -h --help           Show this help
   --version           Show version.
 """
@@ -677,9 +680,10 @@ proc processSingleRun(run_folder: string, h5f: var H5FileObj, nofadc = false): P
   # the FADC files in a buffered way, always reading 1000 FADC
   # filsa at a time.
   let mem1 = getOccupiedMem()
-  echo "occupied memory before fadc $# \n\n" % [$mem1]  
-  readProcessWriteFadcData(run_folder, result.run_number, h5f)
-  echo "FADC took $# data" % $(getOccupiedMem() - mem1)
+  echo "occupied memory before fadc $# \n\n" % [$mem1]
+  if nofadc == false:
+    readProcessWriteFadcData(run_folder, result.run_number, h5f)
+    echo "FADC took $# data" % $(getOccupiedMem() - mem1)
 
 proc processAndWriteRun(h5f: var H5FileObj, run_folder: string, nofadc = false) =
   ## proc to process and write a single run
@@ -692,10 +696,10 @@ proc processAndWriteRun(h5f: var H5FileObj, run_folder: string, nofadc = false) 
   dumpFrameToFile("tmp/frame.txt", a)
   writeProcessedRunToH5(h5f, r)
 
-    echo "Size of total ProcessedRun object = ", sizeof(r)
-    echo "Length of tots and hits for each chip"
-    # dump sequences to file
-    #dumpToTandHits(folder, run_type, r.tots, r.hits)
+  echo "Size of total ProcessedRun object = ", sizeof(r)
+  echo "Length of tots and hits for each chip"
+  # dump sequences to file
+  #dumpToTandHits(folder, run_type, r.tots, r.hits)
 
 proc main() =
 
@@ -710,6 +714,9 @@ proc main() =
     run_type = ""
   if outfile == "nil":
     outfile = "run_file.h5"
+  var nofadc: bool = false
+  if $args["--nofadc"] != "nil":
+    nofadc = true
     
   # first check whether given folder is valid run folder
   let (is_run_folder, contains_run_folder) = isTosRunFolder(folder)
@@ -723,7 +730,7 @@ proc main() =
   if is_run_folder == true and contains_run_folder == false:
     # hand H5FileObj to processSingleRun, because we need to write intermediate
     # steps to the H5 file for the FADC, otherwise we use too much RAM
-    processAndWriteRun(h5f, folder)
+    processAndWriteRun(h5f, folder, nofadc)
     echo "free memory ", getFreeMem()
     echo "occupied memory so far $# \n\n" % [$getOccupiedMem()]
     echo "Closing h5file with code ", h5f.close()
@@ -738,7 +745,7 @@ proc main() =
           is_rf = if isTosRunFolder(path) == (true, false): true else: false
         if is_rf == true:
           echo "Start processing run $#" % $path
-          processAndWriteRun(h5f, path)
+          processAndWriteRun(h5f, path, nofadc)
         echo "occupied memory after gc $#" % [$getOccupiedMem()]        
     echo "Closing h5file with code ", h5f.close()
   elif is_run_folder == true and contains_run_folder == true:

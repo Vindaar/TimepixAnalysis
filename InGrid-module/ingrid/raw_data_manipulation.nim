@@ -653,12 +653,15 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
     h5f.create_hardlink(tot_dset.name, combineRawBasenameToT(chip, run_number))
     h5f.create_hardlink(hit_dset.name, combineRawBasenameHits(chip, run_number))
 
-proc processSingleRun(run_folder: string, h5f: var H5FileObj): ProcessedRun =
-  # this procedure performs the necessary manipulations of a single
-  # run. This is the main part of the raw data manipulation
-  # inputs:
-  #     run_folder: string = the run folder (has to be one!, check with isTosRunFolder())
-  #         to be processed
+proc processSingleRun(run_folder: string, h5f: var H5FileObj, nofadc = false): ProcessedRun =
+  ## this procedure performs the necessary manipulations of a single
+  ## run. This is the main part of the raw data manipulation
+  ## inputs:
+  ##     run_folder: string = the run folder (has to be one!, check with isTosRunFolder())
+  ##         to be processed
+  ##     h5f: var H5FileObj = mutable copy of the H5 file object to which we will write
+  ##         the data
+  ##     nofadc: bool = if set, we do not read FADC data
 
   # need to:
   # - create list of all data<number>.txt files in the folder
@@ -678,12 +681,16 @@ proc processSingleRun(run_folder: string, h5f: var H5FileObj): ProcessedRun =
   readProcessWriteFadcData(run_folder, result.run_number, h5f)
   echo "FADC took $# data" % $(getOccupiedMem() - mem1)
 
-proc processAndWriteRun(h5f: var H5FileObj, run_folder: string) =
-
-    let r = processSingleRun(run_folder, h5f)
-    let a = squeeze(r.occupancies[2,_,_])
-    dumpFrameToFile("tmp/frame.txt", a)
-    writeProcessedRunToH5(h5f, r)
+proc processAndWriteRun(h5f: var H5FileObj, run_folder: string, nofadc = false) =
+  ## proc to process and write a single run
+  ## inputs:
+  ##     h5f: var H5FileObj = mutable copy of the H5 file object to which we will write
+  ##         the data
+  ##     nofadc: bool = if set, we do not read FADC data
+  let r = processSingleRun(run_folder, h5f, nofadc)
+  let a = squeeze(r.occupancies[2,_,_])
+  dumpFrameToFile("tmp/frame.txt", a)
+  writeProcessedRunToH5(h5f, r)
 
     echo "Size of total ProcessedRun object = ", sizeof(r)
     echo "Length of tots and hits for each chip"

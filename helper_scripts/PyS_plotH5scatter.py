@@ -83,7 +83,7 @@ def main(args):
 
 
     # TODO: change group name appropriately
-    group_name = rawBase() + "run_102"
+    group_name = rawBase() + "run_141"
 
     print group_name
     print x_dset

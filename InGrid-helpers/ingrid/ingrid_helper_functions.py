@@ -163,11 +163,11 @@ def plotVsTime(times, y_data, x_range, y_range, outfile, title, xlabel, ylabel, 
     # background_w_timestamps.h5
     # NOTE: Only works for data from 2017 obviously...
     datetimes = []
-    yvals = []
+    yvals = y_data
     for i, el in enumerate(times):
-        if el < 1514764800:
-            datetimes.append(el)
-            yvals.append(y_data[i])
+        #if el < 1514764800:
+        datetimes.append(el)
+        #yvals.append(y_data[i])
 
     print "Plotting..."
     ax.plot(datetimes, yvals, linestyle = "", marker = ".")

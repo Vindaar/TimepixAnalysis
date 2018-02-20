@@ -68,6 +68,7 @@ Options:
   --nofadc            Do not read FADC files
   -h --help           Show this help
   --version           Show version.
+
 """
 
 template ch_len(): int = 2560

@@ -16,8 +16,9 @@ import ingrid_types
 # other modules
 import arraymancer
 
-
 import macros
+
+{.deadCodeElim: on.}
 
 proc sum*(c: seq[Pix]): Pix {.inline.} =
   # this procedure sums the sequence of pixels such that it returns

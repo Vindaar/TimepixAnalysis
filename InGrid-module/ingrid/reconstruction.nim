@@ -617,25 +617,6 @@ proc reconstructSingleChip(data: seq[Pixels], run, chip: int): seq[FlowVar[ref R
 
 #iterator matchingGroup(h5f: var H5FileObj,
 
-iterator runs*(h5f: var H5FileObj, reco = true): (string, string) =
-  # simple iterator, which yields the group name of runs
-  # in the file. If reco is true (default) we yield
-  # reconstruction groups, else raw grous
-  var data_basename: string = ""
-  if reco == true:
-    data_basename = recoBase()
-  else:
-    data_basename = rawDataBase()
-    
-  let run_regex = re(data_basename & r"(\d+)$")
-  var run: array[1, string]
-  var reco_run: seq[FlowVar[ref RecoEvent]] = @[]
-  for grp in keys(h5f.groups):
-    if grp.match(run_regex, run) == true:
-      # now read some data. Return value will be added later
-      #let run_number = parseInt(run[0])
-      yield (run[0], grp)
-
 proc reconstructAllRunsInFile(h5f: var H5FileObj, flags_tab: Table[string, bool], calib_factor: float = 1.0) =
   ## proc which performs reconstruction of all runs in a given file
   ## if the --only_energy command line argument is set, we skip the reconstruction

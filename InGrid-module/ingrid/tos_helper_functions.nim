@@ -12,6 +12,7 @@ import math
 # custom modules
 import helper_functions
 import ingrid_types
+import nimhdf5
 
 # other modules
 import arraymancer
@@ -673,7 +674,6 @@ proc fillRunHeader*(event: ref Event): Table[string, string] =
   result["externalTrigger"] = event.evHeader["externalTrigger"]
 
 
-  
 #####################################################
 # Procs describing the data layout in the HDF5 file #
 #####################################################
@@ -791,7 +791,39 @@ template riseTimeBasename*(run_number: int): string =
   getRecoNameForRun(run_number) / "fadc/riseTime"
 
 template fallTimeBasename*(run_number: int): string =
-  getRecoNameForRun(run_number) / "fadc/fallTime"      
+  getRecoNameForRun(run_number) / "fadc/fallTime"
+
+
+
+
+################################################################################
+##################### HDF5 related helper functions ############################
+################################################################################  
+
+iterator runs*(h5f: var H5FileObj, reco = true): (string, string) =
+  # simple iterator, which yields the group name of runs
+  # in the file. If reco is true (default) we yield
+  # reconstruction groups, else raw grous
+  var data_basename: string = ""
+  if reco == true:
+    data_basename = recoBase()
+  else:
+    data_basename = rawDataBase()
+
+  if h5f.visited == false:
+    h5f.visit_file
+    
+  let run_regex = re(data_basename & r"(\d+)$")
+  var run: array[1, string]
+  var reco_run: seq[FlowVar[ref RecoEvent]] = @[]
+  for grp in keys(h5f.groups):
+    if grp.match(run_regex, run) == true:
+      # now read some data. Return value will be added later
+      #let run_number = parseInt(run[0])
+      yield (run[0], grp)
+
+  
+  
 
 
 when isMainModule:
@@ -801,3 +833,7 @@ when isMainModule:
 
   echo "All tests passed!"
 
+
+
+
+  

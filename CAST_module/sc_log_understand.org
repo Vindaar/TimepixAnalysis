@@ -52,7 +52,7 @@
 |    45 | I_MMSS1              |         1.0857E+3 |                                                            |
 |    46 | PdMM                 |         1.0829E+3 |                                                            |
 |    47 | FlowMM               |         2.9749E-2 |                                                            |
-|       |                      |                   | eine zeile fehlt (temperatursollte 22.7 sein)              |
+|       |                      |                   | eine zeile fehlt (temperatur sollte 22.7 sein)             |
 |    48 | Tenv_MRB             |         1.6048E-2 |                                                            |
 |    49 | Tenv_Iron            |         2.2708E+1 |                                                            |
 |    50 | Tenv_MFB             |         2.0448E+1 |                                                            |
@@ -118,115 +118,121 @@
 |   108 |                      |                   |                                                            |
 
 
-                       
-
-DATE    12/15/2017  
-TIME    07:52:08
-NA1    12
-NA2    7
-NA3    10
-NA4    27
-ND    21
-P-7    3.7782E-9
-P-VacL    1.0000E-5
-PdMM-Ss    9.6164E-1
-P1_BA    4.5082E-11
-P-TPC    2.0000E-4
-P-DT2    6.7565E-7
-P-MM    5.8884E-4
-P3-Cal    1.8765E-6
-P-MFB    2.0000E-4 
-P-3    8.0553E-7 
-P3_BA    1.1209E-6 
-JURA LOAD    1.0620E-6 
-AIRP LOAD    4.6268E+0 
-TT 868    4.6868E+0 
-TT 869    8.2582E+0 
-Water    1.7694E+0 
-I_magnet    2.4183E+2 
-P_ENV    8.6664E+0 
-P-MRB    7.8854E-5 
-P2_BA    4.5683E-12 
-P-Nuno    4.2202E+3 
-P-CCD    1.1642E+1 
-P-4    1.2545E+1 
-P4_BA    6.4582E-8 
-P6_BA    2.0000E-4 
-Pirani1    2.0000E-4 
-Pirani2    1.6677E-8 
-P-V12    1.6680E-8 
-P8_BA    2.7393E-8 
-P7_BA    6.1073E+0 
-Comp Air an    1.1862E+1 
-Argon Out    2.9161E+0 
-Argon In    0.0000E+0 
-Nitro Flux    6.0781E+0 
-Comp Air Panel    8.3520E+0 
-Comp Air SR8    4.2645E+0 
-CalSunset2    5.9015E-1 
-CalSunset1    5.8457E+2 
-I_MMSS2    1.0687E+3 
-I_MMSR    1.0577E+3 
-I_MMSS1    2.3945E-2 
-PdMM    1.7220E-2 
-FlowMM    2.0568E+1 
-Tenv_MRB    2.0605E+1 
-Tenv_Iron    2.1074E+1 
-Tenv_MFB    2.0278E+1 
-Tenv_Amb    3.1825E+0 
-TEnv_Ext    2.0970E+1 
-TEnv_Vent    3.9999E+0 
-WaterPressure    3.7475E+1 
-Humidity    2.0774E+1 
-TStorage1    2.0822E+1 
-TStorage2    8.6299E+2 
-PT208    3.2715E+3 
-ProxJ    -4.6285E+3 
-ProxA    -5.1774E-3 
-Hemassflow    0 
-VT1 OPEN    0 
-VT1 CLOSED    0 
-VT2 OPEN    0 
-VT2 CLOSED    1 
-VT3 OPEN    0 
-VT3 CLOSED    0 
-VT4 OPEN    1 
-VT4 CLOSED    0 
-P1 ALARM    0 
-P2 ALARM    0 
-P3 ALARM    0 
-P4 ALARM    0 
-P7 ALARM    1 
-MM GAS    0 
-COMPR. AIR    0 
-RUN MODE    0 
-QUENCH    0 
-IN V REF POS    0 
-IN H REF POS    0 
-Helium into Coldbore    0 
-He3 Interlock    0 
-CM_CAL    0 
-TPC_CAL    0 
-MM_CAL    0 
-CCD_CAL    1 
-VTD1 OPEN    0 
-VTD1 CLOSED    1 
-VAC14 OPEN    0 
-VAC14 CLOSED    0 
-SRMM_EV OPEN    0 
-SRMM_EV CLOSED    1 
-SIP ON    0 
-SIP FAULT    0 
-SIP PROTECTION    0 
-VaSSMM OPEN    0 
-VaSSMM CLOSED    1 
-WaterPressureLow    1 
-WaterLeakMFB    0 
-WaterLeakPotence    3.596165528049E+9 
-sec since 1/1/1904    1.203670E+2 
-Horiz_Angle    -3.683700E+0 
-Verti_Angle    3.596165527143E+9 
-Record_Time    28245 
-Horiz_ME    14255
-Verti_ME
-
+| Index |                      |                   | Column               |      Example data | Comments about misalignment                                |
+|-------+----------------------+-------------------+----------------------+-------------------+------------------------------------------------------------|
+|     0 | DATE                 |        12/15/2017 | DATE                 |        10/30/2017 |                                                            |
+|     1 | TIME                 |          07:52:08 | TIME                 |          00:00:41 |                                                            |
+|     2 | NA1                  |                12 | NA1                  |                12 |                                                            |
+|     3 | NA2                  |                 7 | NA2                  |                 7 |                                                            |
+|     4 | NA3                  |                10 | NA3                  |                10 |                                                            |
+|     5 | NA4                  |                27 | DA4                  |                27 |                                                            |
+|     6 | ND                   |                21 | NDP-7                |                21 |                                                            |
+|       |                      |                   |                      |                   | korrekt bis hier                                           |
+|     7 | P-7                  |         3.7782E-9 | P-VacL               |         1.0535E-7 |                                                            |
+|     8 | P-VacL               |         1.0000E-5 | P_ENV                |         1.0000E-5 |                                                            |
+|     9 | PdMM-Ss              |         9.6164E-1 | P1_BA                |         9.7836E-1 |                                                            |
+|    10 | P1_BA                |        4.5082E-11 | P-TPC                |        4.6313E-11 |                                                            |
+|    11 | P-TPC                |         2.0000E-4 | P-MRB                |         2.0000E-4 |                                                            |
+|    12 | P-DT2                |         6.7565E-7 | P-DT2                |        1.1490E-10 |                                                            |
+|    13 | P-MM                 |         5.8884E-4 | P-MM                 |         2.0000E-4 |                                                            |
+|    14 | P3-Cal               |         1.8765E-6 | P3-Cal               |         2.8646E-5 | This is P-MM                                               |
+|    15 | P-MFB                |         2.0000E-4 | P-MFB                |         2.0000E-4 |                                                            |
+|    16 | P-3                  |         8.0553E-7 | P-3                  |         1.0161E-6 |                                                            |
+|    17 | P3_BA                |         1.1209E-6 | P3_BA                |         1.9764E-5 |                                                            |
+|       |                      |                   |                      |                   | eine zeile fehlt, da  load bei beiden etwa 5 t sein sollte |
+|       |                      |                   |                      |                   | außerdem müssen P3 und P3Ba etwa gleich sein               |
+|    18 | JURA LOAD            |         1.0620E-6 | JURA LOAD            |         1.9197E-5 |                                                            |
+|    19 | AIRP LOAD            |         4.6268E+0 | AIRP LOAD            |         5.0625E+0 | This is JURA LOAD                                          |
+|    20 | TT 868               |         4.6868E+0 | TT 868               |         4.6492E+0 |                                                            |
+|    21 | TT 869               |         8.2582E+0 | TT 869               |         8.2610E+0 |                                                            |
+|    22 | Water                |         1.7694E+0 | Water                |         1.7595E+0 |                                                            |
+|    23 | I_magnet             |         2.4183E+2 | I_magnet             |         2.4282E+2 |                                                            |
+|    24 | P_ENV                |         8.6664E+0 | P2_BA                |        -1.4484E-4 |                                                            |
+|    25 | P-MRB                |         7.8854E-5 | P-Nuno               |         7.6571E-5 |                                                            |
+|    26 | P2_BA                |        4.5683E-12 | P-ING                |        4.5603E-12 |                                                            |
+|    27 | P-Nuno               |         4.2202E+3 | P-4                  |         4.2256E+3 |                                                            |
+|    28 | P-CCD                |         1.1642E+1 | P4_BA                |         1.0616E+1 |                                                            |
+|    29 | P-4                  |         1.2545E+1 | P6_BA                |         1.1729E+1 |                                                            |
+|       |                      |                   |                      |                   | mglw fehlt eine Zeile, beide Pirani sollten gleich sein?   |
+|    30 | P4_BA                |         6.4582E-8 | Pirani1              |         1.7327E-8 |                                                            |
+|    31 | P6_BA                |         2.0000E-4 | Pirani2              |         2.0000E-4 |                                                            |
+|    32 | Pirani1              |         2.0000E-4 | P-V12                |         2.0000E-4 |                                                            |
+|    33 | Pirani2              |         1.6677E-8 | P8_BA                |         8.4870E-9 |                                                            |
+|    34 | P-V12                |         1.6680E-8 | P7_BA                |         7.9054E-9 |                                                            |
+|    35 | P8_BA                |         2.7393E-8 | Comp Air an          |         1.8860E-7 |                                                            |
+|    36 | P7_BA                |         6.1073E+0 | Argon Out            |         6.1526E+0 |                                                            |
+|    37 | Comp Air an          |         1.1862E+1 | Argon In             |         1.1862E+1 |                                                            |
+|    38 | Argon Out            |         2.9161E+0 | Nitro Flux           |         1.9854E+0 |                                                            |
+|    39 | Argon In             |         0.0000E+0 | Comp Air Panel       |         0.0000E+0 |                                                            |
+|    40 | Nitro Flux           |         6.0781E+0 | Comp Air SR8         |         6.1196E+0 |                                                            |
+|    41 | Comp Air Panel       |         8.3520E+0 | CalSunset2           |         8.1393E+0 |                                                            |
+|    42 | Comp Air SR8         |         4.2645E+0 | CalSunset1           |         4.1621E+0 |                                                            |
+|    43 | CalSunset2           |         5.9015E-1 | I_MMSS2              |         6.8201E-1 |                                                            |
+|    44 | CalSunset1           |         5.8457E+2 | I_MMSR               |         6.7834E+2 |                                                            |
+|    45 | I_MMSS2              |         1.0687E+3 | I_MMSS1              |         1.0857E+3 |                                                            |
+|    46 | I_MMSR               |         1.0577E+3 | PdMM                 |         1.0829E+3 |                                                            |
+|    47 | I_MMSS1              |         2.3945E-2 | FlowMM               |         2.9749E-2 |                                                            |
+|       |                      |                   |                      |                   | eine zeile fehlt (temperatur sollte 22.7 sein)             |
+|    48 | PdMM                 |         1.7220E-2 | Tenv_MRB             |         1.6048E-2 |                                                            |
+|    49 | FlowMM               |         2.0568E+1 | Tenv_Iron            |         2.2708E+1 |                                                            |
+|    50 | Tenv_MRB             |         2.0605E+1 | Tenv_MFB             |         2.0448E+1 |                                                            |
+|    51 | Tenv_Iron            |         2.1074E+1 | Tenv_Amb             |         2.2511E+1 |                                                            |
+|    52 | Tenv_MFB             |         2.0278E+1 | TEnv_Ext             |         2.1346E+1 |                                                            |
+|    53 | Tenv_Amb             |         3.1825E+0 | TEnv_Vent            |         1.0048E+1 |                                                            |
+|    54 | TEnv_Ext             |         2.0970E+1 | WaterPressure        |         1.9609E+1 |                                                            |
+|    55 | TEnv_Vent            |         3.9999E+0 | Humidity             |         3.7781E+0 |                                                            |
+|    56 | WaterPressure        |         3.7475E+1 | TStorage1            |         4.0609E+1 |                                                            |
+|    57 | Humidity             |         2.0774E+1 | TStorage2            |         2.0445E+1 |                                                            |
+|    58 | TStorage1            |         2.0822E+1 | PT208                |         2.0696E+1 |                                                            |
+|    59 | TStorage2            |         8.6299E+2 | ProxJ                |         8.6681E+2 |                                                            |
+|    60 | PT208                |         3.2715E+3 | ProxA                |         3.1734E+3 |                                                            |
+|    61 | ProxJ                |        -4.6285E+3 | Hemassflow           |        -4.9131E+3 |                                                            |
+|       |                      |                   |                      |                   | eine zeile fehlt / zu viel                                 |
+|    62 | ProxA                |        -5.1774E-3 | VT1 OPEN             |        -7.8954E-3 |                                                            |
+|    63 | Hemassflow           |                 0 | VT1 CLOSED           |                 0 | This is VT1 OPEN                                           |
+|    64 | VT1 OPEN             |                 0 | VT2 OPEN             |                 0 |                                                            |
+|    65 | VT1 CLOSED           |                 0 | VT2 CLOSED           |                 0 |                                                            |
+|    66 | VT2 OPEN             |                 0 | VT3 OPEN             |                 0 |                                                            |
+|    67 | VT2 CLOSED           |                 1 | VT3 CLOSED           |                 0 |                                                            |
+|    68 | VT3 OPEN             |                 0 | VT4 OPEN             |                 1 |                                                            |
+|    69 | VT3 CLOSED           |                 0 | VT4 CLOSED           |                 0 |                                                            |
+|    70 | VT4 OPEN             |                 1 | P1 ALARM             |                 1 |                                                            |
+|    71 | VT4 CLOSED           |                 0 | P2 ALARM             |                 0 |                                                            |
+|    72 | P1 ALARM             |                 0 | P3 ALARM             |                 0 |                                                            |
+|    73 | P2 ALARM             |                 0 | P4 ALARM             |                 1 |                                                            |
+|    74 | P3 ALARM             |                 0 | P7 ALARM             |                 0 |                                                            |
+|    75 | P4 ALARM             |                 0 | MM GAS               |                 0 |                                                            |
+|    76 | P7 ALARM             |                 1 | COMPR. AIR           |                 1 |                                                            |
+|    77 | MM GAS               |                 0 | RUN MODE             |                 0 |                                                            |
+|    78 | COMPR. AIR           |                 0 | QUENCH               |                 0 |                                                            |
+|    79 | RUN MODE             |                 0 | IN V REF POS         |                 0 |                                                            |
+|    80 | QUENCH               |                 0 | IN H REF POS         |                 0 |                                                            |
+|    81 | IN V REF POS         |                 0 | Helium into Coldbore |                 0 |                                                            |
+|    82 | IN H REF POS         |                 0 | He3 Interlock        |                 0 |                                                            |
+|    83 | Helium into Coldbore |                 0 | CM_CAL               |                 0 |                                                            |
+|    84 | He3 Interlock        |                 0 | TPC_CAL              |                 0 |                                                            |
+|    85 | CM_CAL               |                 0 | MM_CAL               |                 0 |                                                            |
+|    86 | TPC_CAL              |                 0 | VTD1 OPEN            |                 0 |                                                            |
+|    87 | MM_CAL               |                 0 | VTD1 CLOSED          |                 0 |                                                            |
+|    88 | CCD_CAL              |                 1 | VAC14 OPEN           |                 1 |                                                            |
+|    89 | VTD1 OPEN            |                 0 | VAC14 CLOSED         |                 0 |                                                            |
+|    90 | VTD1 CLOSED          |                 1 | SRMM_EV OPEN         |                 0 |                                                            |
+|    91 | VAC14 OPEN           |                 0 | SRMM_EV CLOSED       |                 1 |                                                            |
+|    92 | VAC14 CLOSED         |                 0 | SIP ON               |                 0 |                                                            |
+|    93 | SRMM_EV OPEN         |                 0 | SIP FAULT            |                 0 |                                                            |
+|    94 | SRMM_EV CLOSED       |                 1 | SIP PROTECTION       |                 1 |                                                            |
+|    95 | SIP ON               |                 0 | VaSSMM OPEN          |                 0 |                                                            |
+|    96 | SIP FAULT            |                 0 | VaSSMM CLOSED        |                 0 |                                                            |
+|    97 | SIP PROTECTION       |                 0 | WaterPressureLow     |                 0 |                                                            |
+|    98 | VaSSMM OPEN          |                 0 | WaterLeakMFB         |                 0 |                                                            |
+|    99 | VaSSMM CLOSED        |                 1 | WaterLeakPotence     |                 1 |                                                            |
+|       |                      |                   |                      |                   | 2 zeilen fehlen / zu viel                                  |
+|   100 | WaterPressureLow     |                 1 | sec since 1/1/1904   |                 1 |                                                            |
+|   101 | WaterLeakMFB         |                 0 | Horiz_Angle          |                 0 |                                                            |
+|   102 | WaterLeakPotence     | 3.596165528049E+9 | Verti_Angle          | 3.592162841058E+9 | This is sec since 1/1/1904                                 |
+|   103 | sec since 1/1/1904   |       1.203670E+2 | Record_Time          |       1.092805E+2 |                                                            |
+|   104 | Horiz_Angle          |      -3.683700E+0 | Horiz_ME             |       3.000000E-4 |                                                            |
+|   105 | Verti_Angle          | 3.596165527143E+9 | Verti_ME             | 3.592162802464E+9 |                                                            |
+|   106 | Record_Time          |             28245 |                      |             24000 |                                                            |
+|   107 | Horiz_ME             |             14255 |                      |             26469 |                                                            |
+|   108 | Verti_ME             |                   |                      |                   |                                                            |

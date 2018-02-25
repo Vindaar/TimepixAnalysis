@@ -4,6 +4,7 @@
 import strutils, sequtils
 import seqmath except shape
 import docopt
+import ospaths
 import nimhdf5
 import tables
 import times
@@ -20,21 +21,61 @@ InGrid FADC analysis tool
 Usage:
   fadc_analysis <HDF5file> [options]
   fadc_analysis <HDF5file> --run_number <number> [options]
+  fadc_analysis <HDF5file> --noise_analysis [options]
   fadc_analysis -h | --help
   fadc_analysis --version
 
 Options:
   --run_number <number>   Only work on this run (currently only supported)
+  --noise_analysis        If set only perform analysis of FADC noise
   -h --help               Show this help
   --version               Show version.
 """
 
-# proc noiseAnalysis(h5f: var H5FileObj) =
-#   ## proc which performs the analysis of the noise, i.e. ratio of active and dead
-#   ## detector. Read the timestamps in the files, get event durations and in bin
-#   ## ranges, which can be determined (~ 20 s to account for 1s accuracy in timestamp?)
+proc noiseAnalysis(h5f: var H5FileObj) =
+  ## proc which performs the analysis of the noise, i.e. ratio of active and dead
+  ## detector. Read the timestamps in the files, get event durations and in bin
+  ## ranges, which can be determined (~ 20 s to account for 1s accuracy in timestamp?)
 
-#   for num, group in runs(h5f):
+  const avg_int = 10
+    
+
+  for num, group in runs(h5f):
+    echo num, " and ", group
+    # so what do we need to do? Get timestamps.
+    # get each event, check if noisy (use noisy flag)
+    # define bin by starting at t = t0, build up some
+    # seq of noisy, not noisy
+    # once t = t1, where delta t = t1 - t0
+    # we calculate ratio of noisy vs non noisy
+    # given shift start and end times, we can later extract
+    # noise development
+    let tstamp = h5f[(group / "timestamp").dset_str][int64]
+    let noisy  = h5f[(group / "fadc/noisy").dset_str][int64]
+    var
+      n_noise = 0
+      n_good  = 0
+      t_0     = tstamp[0]
+      noise_frac: seq[float] = @[]
+    # TODO: good start, but still wrong. Less FADC events than timestamps
+    # thus also need fadc_readout dataset to get the times of each FADC
+    # event. That is to know when each happened etc
+    # then also need not only fraction of noisy events, but also effective
+    # dead time. So we need also eventDuration
+      
+    for i, t in tstamp:
+      if tstamp[i] - t_0 > avg_int:
+        noise_frac.add (n_noise / n_good)
+        n_noise = 0
+        n_good = 0
+        t_0 = tstamp[i]
+      else:
+        if noisy[i] == 1:
+          inc n_noise
+        else:
+          inc n_good
+    echo "Noise fracs are ", noise_frac
+    quit()
     
 proc findThresholdValue[T](data: seq[seq[T]], x_min: seq[int], threshold: seq[T], left = true, positive = false): seq[int] =
   # left determines whether we start search left or right
@@ -168,7 +209,10 @@ proc main() =
 
 
   var h5f = H5File(h5file, "rw")
-  calcRiseAndFallTimes(h5f, parseInt(run_number))
+  if run_number != "nil":
+    calcRiseAndFallTimes(h5f, parseInt(run_number))
+  elif $args["--noise_analysis"] != "nil":
+    noiseAnalysis(h5f)
   echo "H5 library closed with ", h5f.close()
 
 when isMainModule:

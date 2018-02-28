@@ -109,7 +109,7 @@ proc writeRecoRunToH5(h5f: var H5FileObj, reco_run: seq[FlowVar[ref RecoEvent]],
     int_dset_names = ["hits", "sumToT", "eventNumber"]
     float_dset_names = ["centerX", "centerY", "energyFromPixel", "rmsLongitudinal", "rmsTransverse", 
                         "skewnessLongitudinal", "skewnessTransverse", "kurtosisLongitudinal", "kurtosisTransverse",
-                        "eccentricity", "rotationAngle", "length", "width", "fractionInTransveseRms"]
+                        "eccentricity", "rotationAngle", "length", "width", "fractionInTransverseRms"]
   # now parsing all the data is really fucking ugly, thanks to the tons of
   # different variables, which we want to write :( Unfortunately, we cannot
   # simply make that a compound datatype or something. Well

@@ -117,24 +117,62 @@ proc writeDateSeqToFile*(date_seq: seq[Time]): void =
       f.write(str)
   f.close()
 
+proc initIntervalOld*(milliseconds, seconds, minutes, hours, days, months,
+                   years: int = 0): TimeInterval =
+  ## creates a new ``TimeInterval``.
+  ##
+  ## You can also use the convenience procedures called ``milliseconds``,
+  ## ``seconds``, ``minutes``, ``hours``, ``days``, ``months``, and ``years``.
+  ##
+  ## Example:
+  ##
+  ## .. code-block:: nim
+  ##
+  ##     let day = initInterval(hours=24)
+  ##     let tomorrow = getTime() + day
+  ##     echo(tomorrow)
+  var carryO = 0
+  result.milliseconds = `mod`(milliseconds, 1000)
+  carryO = `div`(milliseconds, 1000)
+  result.seconds = `mod`(carryO + seconds, 60)
+  carryO = `div`(carryO + seconds, 60)
+  result.minutes = `mod`(carryO + minutes, 60)
+  carryO = `div`(carryO + minutes, 60)
+  result.hours = `mod`(carryO + hours, 24)
+  carryO = `div`(carryO + hours, 24)
+  result.days = carryO + days
+
+  result.months = `mod`(months, 12)
+  carryO = `div`(months, 12)
+  result.years = carryO + years
+
 
 proc getRunTimeInfo*(run_files: seq[string]): RunTimeInfo =
   # this procdure creates a RunTimeInfo object from a given list of files
   # in a run folder (not sorted). The list is sorted and then the first and
   # last event are read, converted to Time objects and the length of the run 
   # is calculated from the difference between both events
-  result = RunTimeInfo()
-
   # sort list of files
-  let sorted_files = sorted(run_files, system.cmp[string])
-  let first_file = sorted_files[0]
-  let last_file  = sorted_files[^1]
-
-  let time_first = getTimeFromEvent(first_file)
-  let time_last  = getTimeFromEvent(last_file)
-
-  let run_length = initInterval(seconds=int(time_last - time_first))
+  result = RunTimeInfo()
   
+  let
+    sorted_files = sorted(run_files, system.cmp[string])
+    first_file = sorted_files[0]
+    last_file  = sorted_files[^1]
+    # and times 
+    time_first = getTimeFromEvent(first_file)
+    time_last  = getTimeFromEvent(last_file)
+    # calc run length
+    run_length = initIntervalOld(seconds=int(time_last - time_first))
+  echo "Time first is $# and time last is $#" % [$time_first, $time_last]
+  echo "Time difference in seconds $#" % $(int(time_last - time_first))
+  echo run_length
+  echo "Time difference start end $#" % $(time_last - time_first)
+  
+
+  # result = RunTimeInfo(t_start = time_first,
+  #                      t_end = time_last,
+  #                      t_length = run_length)
   result.t_start = time_first
   result.t_end = time_last 
   result.t_length = run_length

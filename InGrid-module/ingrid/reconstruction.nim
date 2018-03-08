@@ -220,7 +220,7 @@ proc writeRecoRunToH5(h5f: var H5FileObj, reco_run: seq[FlowVar[ref RecoEvent]],
   for dset in float_dset_names:
     float_dsets[dset] = newSeq[H5DataSet](nchips)
     for chip in 0 ..< nchips:
-      float_dsets[dset][chip] = h5f.create_dataset(chip_groups[chip].name / dset, x[chip].len, dtype = float64)
+      float_dsets[dset][chip] = h5f.create_dataset(chip_groups[chip].name / dset, x[chip].len, dtype = float)
     
   # now that we have the datasets, write everything...
   let all = x_dsets[0].all
@@ -244,7 +244,7 @@ proc writeRecoRunToH5(h5f: var H5FileObj, reco_run: seq[FlowVar[ref RecoEvent]],
     float_dsets["kurtosisTransverse"][chip][all] = kurt_trans[chip]
     float_dsets["length"][chip][all] = length[chip]
     float_dsets["width"][chip][all] = width[chip]
-    float_dsets["fractionInTransveseRms"][chip][all] = fraction_transverse_rms[chip]
+    float_dsets["fractionInTransverseRms"][chip][all] = fraction_transverse_rms[chip]
     x_dsets[chip][all] = x[chip]
     y_dsets[chip][all] = y[chip]
     ch_dsets[chip][all] = ch[chip]

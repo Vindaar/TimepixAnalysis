@@ -268,7 +268,12 @@ def readH5Data(h5file, group_name, chip, dset_names):
                 result.append(readH5DataSingle(h5f, grp_name, [dset_names[0].lstrip("fadc_")]))
             else:
                 grp_name = recoBase() + name + "/chip_{}".format(chip)
-                result.extend(readH5DataSingle(h5f, grp_name, dset_names))
+                try:
+                    single_data = readH5DataSingle(h5f, grp_name, dset_names)
+                except KeyError as e:
+                    print("Could not find dataset or group, error was {}".format(str(e)))
+                    continue
+                result.extend(single_data)
         #print result[0][0]
         #print("Sum of all data is ", np.sum(np.asarray(result).flatten()))
         result = np.asarray(result).flatten()

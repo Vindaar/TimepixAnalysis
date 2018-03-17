@@ -89,6 +89,85 @@ def plotsForAllDsets(h5file, all_runs = False, h5file2 = None):
                              "# hits",
                              fitting_only = True)
 
+
+def createGroupName(run_number, all_plots, dset_name, chip, all_runs):
+    # this function parses the run_number (either number, list, or None)
+    # as well as the all_plots flag
+    group_name = []
+    if type(run_number) is not list:
+        print "broken"
+        if "fadc" not in dset_name:
+            group_name = recoDataChipBase(run_number) + str(chip)
+        else:
+            group_name = recoFadcBase(run_number) + "fadc/"
+    else:
+        for run in run_number:
+            if "fadc" not in dset_name:
+                group_name.append(recoDataChipBase(run) + str(chip))
+            else:
+                group_name.append(recoFadcBase(run) + "fadc/")
+                        
+    if all_runs == True:
+        group_name = recoBase()
+    return group_name
+
+def parseDsetName(dset_name):
+    # function to parse the dataset name for potential ratio of two
+    # datasets
+    ratio = False
+    if "/" in dset_name:
+        ratio = True
+        dset_name = dset_name.split("/")
+    return dset_name, ratio
+
+def filterFullFrames(data, h5file, group_name, chip):
+    # given some dataset and the file + group + chip it was read from
+    # reads the number of hits in the cluster and filters all events
+    # have > 4095 pixels
+    hits = np.asarray(readH5Data(h5file, group_name, chip, ["hits"]))
+    # flatten concat and flatten, in case we read several runs
+    non_full = np.where(hits < 4095)[0]
+    # concat and flatten potential list of datasets
+    if data.ndim > 1:
+        data = np.concatenate(data).flatten()
+    # return indices of non full arrays
+    return data[non_full]
+
+def readAndPlotRatioDsets(h5file, h5file2, group_name, chip, dset_name, run_number, ratio, ignore_full_frames):
+    dataf1 = []
+    dataf2 = []
+    for dset in dset_name:
+        d = readH5Data(h5file, group_name, chip, [dset])
+        dataf1.append(d)
+        if h5file2 != None:
+            d2 = readH5Data(h5file2, group_name, chip, [dset])
+            dataf2.append(d2)
+    dataf1 = np.asarray(dataf1)
+    dataf2 = np.asarray(dataf2)
+    if ignore_full_frames == True:
+        dataf1 = [filterFullFrames(d, h5file, group_name, chip) for d in dataf1]
+        if h5file2 != None:
+            dataf2 = [filterFullFrames(d, h5file2, group_name, chip) for d in dataf2]
+
+    # of the remaining datasets, calculate the ratio of the two
+    dataf1 = dataf1[0] / dataf1[1]
+    if h5file2 != None:
+        dataf2 = dataf2[0] / dataf2[1]    
+
+    if dataf2.size > 0:
+        data = [dataf1, dataf2]
+    else:
+        data = [dataf1]
+    dset_name = dset_name[0] + "_" + dset_name[1]
+    range = getBinRangeForDset(dset_name)
+    print range
+    plotData(data, None, range,#binning,
+             "{0}_{1}".format(dset_name, run_number),
+             "{0} of run {1}".format(dset_name, run_number),
+             dset_name,
+             "# hits")
+        
+
 def main(args):
 
     parser = argparse.ArgumentParser(description = 'H5 Data plotter')
@@ -105,9 +184,14 @@ def main(args):
     parser.add_argument('--dset_name',
                         default = "FeSpectrum",
                         dest = "dset_name",
-                        help = """The data to be plotted. Note: if you want to plot an FADC
+                        help = """The data to be plotted. 
+                        Note: if you want to plot an FADC
                         dataset (minvals etc.), prepend it with `fadc_` such as:
-                        --dset_name fadc_minvals""")
+                        --dset_name fadc_minvals
+                        Note2: if you wish to plot a ratio of two datasets, simply 
+                        provide the two datasets to divide separated by a '/' without
+                        spaces, e.g.:
+                        --dset_name length/rmsTransverse""")
     parser.add_argument('--run_number',
                         nargs = "+",
                         default = None,
@@ -119,6 +203,11 @@ def main(args):
     parser.add_argument('--all_plots',
                         action = 'store_true',
                         help = "Toggle this, if you want to create all plots for properties")
+    parser.add_argument('--ignore_full_frames',
+                        action = 'store_true',
+                        help = """Toggle this, if you want to ignore clusters with > 4096 hits.
+                        Note: name is taken from event display; reason for 'full_frames' instead
+                        of 'clusters'""")
     parser.add_argument('--no_fit',
                         action = 'store_true',
                         help = """Toggle this, if you do not want to call the fitting procedure, despite
@@ -149,42 +238,6 @@ def main(args):
 
     if args_dict["fancy"] == True:
         fancy_plotting()
-    
-    cuts = args_dict["cuts"]
-    run_number = args_dict["run_number"]
-    outfolder = args_dict["outfolder"]
-    chip = args_dict["chip"]
-    fitting_only = args_dict["fitting_only"]
-    all_runs = args_dict["all_runs"]
-    all_plots = args_dict["all_plots"]
-    dset_name = args_dict["dset_name"]
-
-    if (chip is None or (run_number is None and all_runs == False)) and all_plots == False and "fadc" not in dset_name:
-        import sys
-        sys.exit("Please provide a run and chip number!")
-    
-    # combine = args_dict["combine"]
-    # filter_s = args_dict["filter_s"]
-    to_plot = {}
-
-    group_name = []
-    if type(run_number) is not list:
-        print "broken"
-        if "fadc" not in dset_name:
-            group_name = recoDataChipBase(run_number) + str(chip)
-        else:
-            group_name = recoFadcBase(run_number) + "fadc/"
-    else:
-        for run in run_number:
-            if "fadc" not in dset_name:
-                group_name.append(recoDataChipBase(run) + str(chip))
-            else:
-                group_name.append(recoFadcBase(run) + "fadc/")
-                        
-    if all_runs == True:
-        group_name = recoBase()
-    #print("Read the following data {}".format(len(data[0])))
-        
 
     # in order to define cuts, we can do it the `ROOT` way and parse strings, which
     # are evaluated and then used. E.g.
@@ -192,41 +245,65 @@ def main(args):
     # which is then on the fly quoted
     # this does work, but of course demands to use the correct names the variables
     # have when the stuff is evaluated etc... Well, plus its obvsiously unsafe, because
-
     # the code might do evil things!
-    h5file2 = args_dict["file2"]    
+    cuts = args_dict["cuts"]
+    run_number = args_dict["run_number"]
+    outfolder = args_dict["outfolder"]
+    chip = args_dict["chip"]
+    fitting_only = args_dict["fitting_only"]
+    all_runs = args_dict["all_runs"]
+    all_plots = args_dict["all_plots"]
+    ignore_full_frames = args_dict["ignore_full_frames"]
+    h5file2 = args_dict["file2"]
+    dset_name = args_dict["dset_name"]
+
+
+    if (chip is None or (run_number is None and all_runs == False)) and all_plots == False and "fadc" not in dset_name:
+        import sys
+        sys.exit("Please provide a run and chip number!")
+    
+    group_name = createGroupName(run_number, all_runs, dset_name, chip, all_runs)
+
+    # given the dataset name, parse the user input and determine if we
+    # wish to calculate a ratio of two sets
+    dset_name, ratio = parseDsetName(dset_name)
 
     if all_plots == True:
+        # in this case almost all other flags and arguments will be ignored
         plotsForAllDsets(h5file, all_runs, h5file2)
     else:
         data = []
-        if h5file2 != None:
+        if ratio == False:
             data.append(readH5Data(h5file, group_name, chip, [dset_name]))
-            data.append(readH5Data(h5file2, group_name, chip, [dset_name]))
+            if ignore_full_frames == True:
+                data[0] = filterFullFrames(data[0], h5file, group_name, chip)
+            if h5file2 != None:            
+                data.append(readH5Data(h5file2, group_name, chip, [dset_name]))
+                if ignore_full_frames == True:
+                    data[1] = filterFullFrames(data[1], h5file2, group_name, chip)
+            if args_dict["no_fit"] == True or dset_name != "FeSpectrum":
+                #hist, binning = binData(data, cuts)
+                range = getBinRangeForDset(dset_name)
+                plotData(data, None, range,#binning,
+                         "{0}_{1}".format(dset_name, run_number),
+                         "{0} of run {1}".format(dset_name, run_number),
+                         dset_name,
+                         "# hits")
+            else:
+                fit_results = fitAndPlotFeSpectrum(data, cuts, outfolder, run_number, fitting_only)
+
+                if all_runs == False:
+                    # now finally write the fit results back to the H5 file
+                    calib_factor = writeFitParametersH5(h5file, fit_results, group_name, dset_name)
+
+                    if fitting_only == True:
+                        # now print the calibration factor again so that it can be read as the last line
+                        # from a calling process
+                        print("\n{}".format(calib_factor))
         else:
-            data = readH5Data(h5file, group_name, chip, [dset_name])
-            print data
-        if args_dict["no_fit"] == True or dset_name != "FeSpectrum":
-            #hist, binning = binData(data, cuts)
-            range = getBinRangeForDset(dset_name)
-            plotData(data, None, range,#binning,
-                     "{0}_{1}".format(dset_name, run_number),
-                     "{0} of run {1}".format(dset_name, run_number),
-                     dset_name,
-                     "# hits")
-        else:
-            fit_results = fitAndPlotFeSpectrum(data, cuts, outfolder, run_number, fitting_only)
-
-            if all_runs == False:
-                # now finally write the fit results back to the H5 file
-                calib_factor = writeFitParametersH5(h5file, fit_results, group_name, dset_name)
-
-                if fitting_only == True:
-                    # now print the calibration factor again so that it can be read as the last line
-                    # from a calling process
-                    print("\n{}".format(calib_factor))
-
-
+            # in this case we plot the ratio of two datasets
+            readAndPlotRatioDsets(h5file, h5file2, group_name, chip, dset_name, run_number, ratio, ignore_full_frames)
+                
 if __name__=="__main__":
     import sys
     main(sys.argv[1:])

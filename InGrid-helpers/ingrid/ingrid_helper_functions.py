@@ -31,6 +31,8 @@ def getBinRangeForDset(dset):
         return (0, 7.5)
     elif dset == "ToT":
         return (0, 250)
+    elif dset == "length_rmsTransverse":
+        return (2, 8)
     elif "minvals" in dset:
         return (-0.6, 0.0)
     elif "riseTime" in dset:
@@ -102,7 +104,7 @@ def plotData(hist, binning, range, outfile, title, xlabel, ylabel, save_plot = T
                 # in this case we plot 2 files instead of 1
                 colors = ["red", "blue", "green", "purple", "sienna"]
                 for i in xrange(len(hist)):
-                    hist_i = np.concatenate(hist[i]).flatten()
+                    hist_i = hist[i] #np.concatenate(hist[i]).flatten()
                     ax.hist(hist_i,
                             bins = 249,
                             range = range,
@@ -111,7 +113,7 @@ def plotData(hist, binning, range, outfile, title, xlabel, ylabel, save_plot = T
                             alpha = 0.5,
                             color = colors[i])
             else:
-                hist = np.concatenate(hist).flatten()
+                hist = hist #np.concatenate(hist).flatten()
                 ax.hist(hist, bins = 500, range = range, linewidth = 0.0)
         except ValueError:
             print("something broken on outfile {}".format(outfile))
@@ -276,14 +278,15 @@ def readH5Data(h5file, group_name, chip, dset_names):
                 result.extend(single_data)
         #print result[0][0]
         #print("Sum of all data is ", np.sum(np.asarray(result).flatten()))
-        result = np.asarray(result).flatten()
+        result = np.concatenate(result).flatten()
     else:
         if type(group_name) is list:
             for group in group_name:
                 result.append(readFadcInGridDset(h5f, group, dset_names[0]))
+            result = np.concatenate(result).flatten()
         else:
-            result = readFadcInGridDset(h5f, group_name, dset_names[0])        
-        
+            result = readFadcInGridDset(h5f, group_name, dset_names[0])
+            result = np.asarray(result)
         
     h5f.close()
     return result

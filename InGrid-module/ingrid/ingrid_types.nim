@@ -40,27 +40,28 @@ type
   # object which stores the geometry information of a single
   # `ClusterObject`    
   ClusterGeometry* = object
-    rms_long*: float
-    rms_trans*: float
+    rmsLongitudinal*: float
+    rmsTransverse*: float
     eccentricity*: float
-    rot_angle*: float
-    skew_long*: float
-    skew_trans*: float
-    kurt_long*: float
-    kurt_trans*: float
+    rotationAngle*: float
+    skewnessLongitudinal*: float
+    skewnessTransverse*: float
+    kurtosisLongitudinal*: float
+    kurtosisTransverse*: float
     length*: float
     width*: float
-    fraction_transverse_rms*: float
+    fractionInTransverseRms*: float
+    lengthDivRmsTrans*: float
 
   # object which stores a single `Cluster` in combination with information
   # about itself, e.g. energy, geometry etc.
   ClusterObject* = object
     data*: Cluster
     hits*: int
-    pos_x*: float
-    pos_y*: float
+    centerX*: float
+    centerY*: float
     # total tot in the whole cluster
-    sum_tot*: int
+    sumTot*: int
     energy*: float
     geometry*: ClusterGeometry
 

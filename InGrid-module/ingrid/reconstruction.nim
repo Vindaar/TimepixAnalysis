@@ -11,11 +11,13 @@ import math
 import tables
 import docopt
 import strutils
+import strformat
 import typetraits
 import re
 import times
 import stats
 import sets
+import macros
 
 # external modules
 import nlopt
@@ -73,6 +75,60 @@ template benchmark(num: int, actions: untyped) {.dirty.} =
   for i in 0 ..< num:
     actions
 
+macro setTabFields[T: (float | int), N: int](tab: Table[string, seq[seq[T]]],
+                                             names: array[N, string],
+                                             chip: int,
+                                             obj: untyped): untyped =
+  ## taking some table `tab` sets all fields of the table taken from an array `names` to the
+  ## fields of the object `obj` of the same names as the names in the table
+  result = newStmtList()
+  let namesImpl = names.symbol.getImpl
+  for name in namesImpl:
+    let field = parseExpr(name.strVal)
+    result.add quote do:
+      `tab`[`name`][`chip`].add `obj`.`field`
+
+macro `+`[N, M: int](a: array[N, string], b: array[M, string]): untyped =
+  let aImpl = a.symbol.getImpl
+  let bImpl = b.symbol.getImpl
+  var tree = nnkBracket.newTree()
+  for x in aImpl:
+    tree.add quote do:
+      `x`
+  for x in bImpl:
+    tree.add quote do:
+      `x`
+  result = nnkStmtList.newTree(
+    tree
+  )
+
+
+proc initDataTab[T: (float | int), N: int](tab: var Table[string, seq[seq[T]]],
+                                           nchips: int,
+                                           names: array[N, string]) =
+  ## convenienve proc to initialize the seqs inside a table `tab` storing the
+  ## data for all `nchips` of the `names`
+  for dset in names:
+    tab[dset] = newSeq[seq[T]](nchips)
+    # initialize the sequences
+    for s in mitems(tab[dset]):
+      s = @[]
+
+proc createDatasets[N: int](dset_tab: var Table[string, seq[H5DataSet]],
+                            h5f: var H5FileObj,
+                            names: array[N, string],
+                            nchips: int,
+                            lengths: seq[int],
+                            groups: seq[H5Group],
+                            dtype: typedesc) =
+  ## creates the actual H5 datasets from the names and datatypes and stores them
+  ## in the given `dset_tab`. One dataset for each element in `names` of type `dtype`
+  ## is created of length `lengths` for each chip.
+  for dset in names:
+    dset_tab[dset] = newSeq[H5DataSet](nchips)
+    for chip in 0 ..< nchips:
+      dset_tab[dset][chip] = h5f.create_dataset(groups[chip].name / dset, lengths[chip], dtype = dtype)
+
 proc writeRecoRunToH5(h5f: var H5FileObj, reco_run: seq[FlowVar[ref RecoEvent]], run_number: int) =
   ## proc which writes the reconstructed event data from a single run into
   ## the given H5 file. Called after every processed run
@@ -85,31 +141,30 @@ proc writeRecoRunToH5(h5f: var H5FileObj, reco_run: seq[FlowVar[ref RecoEvent]],
   ## throws:
   ##     potentially throws HDF5LibraryError, if a call to the H5 library fails
 
-  # TODO!!!!!!! holy fuck, this is the worst piece of code in a long time
-  # rewrite this!!!!!
-
+  # now we need to write into reco group for each chip
   
   # for now hardcode the number of chips. easy to change by getting the number
   # simply from a file or whatever
   const nchips = 7
   echo "Number of events in total ", reco_run.len
-  # now we need to write into reco group for each chip
-  # as well as combined
-  # that is it, right?
-  let t0 = epochTime()
-  # first write the raw data
+
   let
+    # start time for timing the write
+    t0 = epochTime()
     # group name for reconstructed data
     reco_group_name = getRecoNameForRun(run_number)
-    ev_type = special_type(int)
     chip_group_name = reco_group_name / "chip_$#"
     combine_group_name = getRecoCombineName()
 
     # define the names for the datasets which we want to write
-    int_dset_names = ["hits", "sumToT", "eventNumber"]
-    float_dset_names = ["centerX", "centerY", "energyFromPixel", "rmsLongitudinal", "rmsTransverse", 
-                        "skewnessLongitudinal", "skewnessTransverse", "kurtosisLongitudinal", "kurtosisTransverse",
-                        "eccentricity", "rotationAngle", "length", "width", "fractionInTransverseRms"]
+    int_cluster_names = ["hits", "sumTot"]
+    int_dset_names = ["hits", "sumTot", "eventNumber"]
+    # name of datasets which are part of 
+    float_geometry_names = ["rmsLongitudinal", "rmsTransverse", "skewnessLongitudinal", "skewnessTransverse", 
+                            "kurtosisLongitudinal", "kurtosisTransverse", "eccentricity", "rotationAngle", 
+                            "length", "width", "fractionInTransverseRms", "lengthDivRmsTrans"]
+    float_cluster_names = ["centerX", "centerY"]
+    float_dset_names = float_geometry_names + float_cluster_names
   # now parsing all the data is really fucking ugly, thanks to the tons of
   # different variables, which we want to write :( Unfortunately, we cannot
   # simply make that a compound datatype or something. Well
@@ -118,52 +173,22 @@ proc writeRecoRunToH5(h5f: var H5FileObj, reco_run: seq[FlowVar[ref RecoEvent]],
     chip_groups = mapIt(toSeq(0..<nchips), h5f.create_group(chip_group_name % $it))
     combine_group = h5f.create_group(combine_group_name)
 
-    # NOTE: can we not handle this with two tables instead?
+  # create a table containing the sequences for int datasets and corresponding names
+  var int_data_tab = initTable[string, seq[seq[int]]]()
+  var float_data_tab = initTable[string, seq[seq[float]]]()
+  int_data_tab.initDataTab(nchips, int_dset_names)
+  float_data_tab.initDataTab(nchips, float_dset_names)  
+
   var
     # before we create the datasets, first parse the data we will write
     x  = newSeq[seq[seq[int]]](nchips)
     y  = newSeq[seq[seq[int]]](nchips)
     ch = newSeq[seq[seq[int]]](nchips)
-    ev_numbers = newSeq[seq[int]](nchips)
-    hits = newSeq[seq[int]](nchips)
-    sum_tot = newSeq[seq[int]](nchips)
-    # float seqs
-    pos_x = newSeq[seq[float]](nchips)
-    pos_y = newSeq[seq[float]](nchips)
-    rms_long = newSeq[seq[float]](nchips)
-    rms_trans = newSeq[seq[float]](nchips)
-    eccentricity = newSeq[seq[float]](nchips)
-    rot_angle = newSeq[seq[float]](nchips)
-    skew_long = newSeq[seq[float]](nchips)
-    skew_trans = newSeq[seq[float]](nchips)
-    kurt_long = newSeq[seq[float]](nchips)
-    kurt_trans = newSeq[seq[float]](nchips)
-    length = newSeq[seq[float]](nchips)
-    width = newSeq[seq[float]](nchips)
-    fraction_transverse_rms = newSeq[seq[float]](nchips)
 
   for chip in 0 ..< nchips:
-    pos_x[chip] = @[]
-    pos_y[chip] = @[]
-    hits[chip] = @[]
-    sum_tot[chip] = @[]
-    ev_numbers[chip] = @[]
-    # float seqs
-    rms_long[chip] = @[]
-    rms_trans[chip] = @[]
-    eccentricity[chip] = @[]
-    rot_angle[chip] = @[]
-    skew_long[chip] = @[]
-    skew_trans[chip] = @[]
-    kurt_long[chip] = @[]
-    kurt_trans[chip] = @[]
-    length[chip] = @[]
-    width[chip] = @[]
-    fraction_transverse_rms[chip] = @[]
     x[chip]  = @[]
     y[chip]  = @[]
     ch[chip] = @[]
-  
 
   for event_f in reco_run:
     let
@@ -179,28 +204,21 @@ proc writeRecoRunToH5(h5f: var H5FileObj, reco_run: seq[FlowVar[ref RecoEvent]],
         x[chip][^1][j] = cl.data[j].x
         y[chip][^1][j] = cl.data[j].y
         ch[chip][^1][j] = cl.data[j].ch
-      # int seqs
-      pos_x[chip].add cl.pos_x
-      pos_y[chip].add cl.pos_y
-      hits[chip].add cl.hits
-      sum_tot[chip].add cl.sum_tot
-      ev_numbers[chip].add num
-      # float seqs
-      rms_long[chip].add cl.geometry.rms_long
-      rms_trans[chip].add cl.geometry.rms_trans 
-      eccentricity[chip].add cl.geometry.eccentricity
-      rot_angle[chip].add cl.geometry.rot_angle 
-      skew_long[chip].add cl.geometry.skew_long 
-      skew_trans[chip].add cl.geometry.skew_trans
-      kurt_long[chip].add cl.geometry.kurt_long 
-      kurt_trans[chip].add cl.geometry.kurt_trans
-      length[chip].add cl.geometry.length 
-      width[chip].add cl.geometry.width
-      fraction_transverse_rms[chip].add cl.geometry.fraction_transverse_rms
+
+      expandMacros:
+        int_data_tab.setTabFields(int_cluster_names, chip, cl)
+        float_data_tab.setTabFields(float_cluster_names, chip, cl)
+        float_data_tab.setTabFields(float_geometry_names, chip, cl.geometry)
+
+      # add event number individually, since it's not part of some object we can
+      # use our macro for
+      int_data_tab["eventNumber"][chip].add num
 
   # now that we have the data and now how many elements each type has
   # we can create the datasets
-  echo "Now creating dset stuff"      
+  echo "Now creating dset stuff"
+  # define type for variable length pixel data
+  let ev_type = special_type(int)
   var
     # datasets for x, y and charge
     int_dsets = initTable[string, seq[H5DataSet]]()
@@ -212,15 +230,13 @@ proc writeRecoRunToH5(h5f: var H5FileObj, reco_run: seq[FlowVar[ref RecoEvent]],
                      h5f.create_dataset(chip_groups[it].name & "/y", y[it].len, dtype = ev_type))
     ch_dsets  = mapIt(toSeq(0..<nchips),
                      h5f.create_dataset(chip_groups[it].name & "/ToT", ch[it].len, dtype = ev_type))
-  
-  for dset in int_dset_names:
-    int_dsets[dset] = newSeq[H5DataSet](nchips)
-    for chip in 0 ..< nchips:
-      int_dsets[dset][chip] = h5f.create_dataset(chip_groups[chip].name / dset, x[chip].len, dtype = int)
-  for dset in float_dset_names:
-    float_dsets[dset] = newSeq[H5DataSet](nchips)
-    for chip in 0 ..< nchips:
-      float_dsets[dset][chip] = h5f.create_dataset(chip_groups[chip].name / dset, x[chip].len, dtype = float)
+
+
+  # variable to store number of events for each chip
+  let eventsPerChip = mapIt(x, it.len)
+  # now create all datasets and store them in the dataset tables
+  int_dsets.createDatasets(h5f, int_dset_names, nchips, eventsPerChip, chip_groups, int)
+  float_dsets.createDatasets(h5f, float_dset_names, nchips, eventsPerChip, chip_groups, float)  
     
   # now that we have the datasets, write everything...
   let all = x_dsets[0].all
@@ -228,23 +244,13 @@ proc writeRecoRunToH5(h5f: var H5FileObj, reco_run: seq[FlowVar[ref RecoEvent]],
   # the attributes
   let raw_groups = rawDataChipBase(run_number)    
   for chip in 0 ..< nchips:
-    int_dsets["hits"][chip][all] = hits[chip]
-    int_dsets["sumToT"][chip][all] = sum_tot[chip]
-    int_dsets["eventNumber"][chip][all] = ev_numbers[chip]
-    # float seqs
-    float_dsets["centerX"][chip][all] = pos_x[chip]
-    float_dsets["centerY"][chip][all] = pos_y[chip]
-    float_dsets["rmsLongitudinal"][chip][all] = rms_long[chip]
-    float_dsets["rmsTransverse"][chip][all] = rms_trans[chip]
-    float_dsets["eccentricity"][chip][all] = eccentricity[chip]
-    float_dsets["rotationAngle"][chip][all] = rot_angle[chip]
-    float_dsets["skewnessLongitudinal"][chip][all] = skew_long[chip]
-    float_dsets["skewnessTransverse"][chip][all] = skew_trans[chip]
-    float_dsets["kurtosisLongitudinal"][chip][all] = kurt_long[chip]
-    float_dsets["kurtosisTransverse"][chip][all] = kurt_trans[chip]
-    float_dsets["length"][chip][all] = length[chip]
-    float_dsets["width"][chip][all] = width[chip]
-    float_dsets["fractionInTransverseRms"][chip][all] = fraction_transverse_rms[chip]
+    for dset in int_dset_names:
+      int_dsets[dset][chip][all] = int_data_tab[dset][chip]
+    for dset in float_cluster_names:
+      float_dsets[dset][chip][all] = float_data_tab[dset][chip]
+    for dset in float_geometry_names:
+      float_dsets[dset][chip][all] = float_data_tab[dset][chip]
+    # pixel specific seqs
     x_dsets[chip][all] = x[chip]
     y_dsets[chip][all] = y[chip]
     ch_dsets[chip][all] = ch[chip]
@@ -258,9 +264,6 @@ proc writeRecoRunToH5(h5f: var H5FileObj, reco_run: seq[FlowVar[ref RecoEvent]],
     chip_groups[ch_numb].attrs["chipNumber"] = ch_numb
     chip_groups[ch_numb].attrs["chipName"] = ch_name
   
-  # what in the actual fuck
-
-
 iterator readDataFromH5(h5f: var H5FileObj, group: string, run_number: int): (int, seq[Pixels]) =
   # proc to read data from the HDF5 file from `group`
   var chip_base = rawDataChipBase(run_number)
@@ -289,17 +292,17 @@ iterator readDataFromH5(h5f: var H5FileObj, group: string, run_number: int): (in
       yield (chip_number, run_pix)
 
 proc newClusterGeometry(): ClusterGeometry =
-  result = ClusterGeometry(rms_long: Inf,
-                           rms_trans: Inf,
+  result = ClusterGeometry(rmsLongitudinal: Inf,
+                           rmsTransverse: Inf,
                            eccentricity: Inf,
-                           rot_angle: Inf,
-                           skew_long: Inf,
-                           skew_trans: Inf,
-                           kurt_long: Inf,
-                           kurt_trans: Inf,
+                           rotationAngle: Inf,
+                           skewnessLongitudinal: Inf,
+                           skewnessTransverse: Inf,
+                           kurtosisLongitudinal:Inf,
+                           kurtosisTransverse: Inf,
                            length: Inf,
                            width: Inf,
-                           fraction_transverse_rms: Inf)
+                           fractionInTransverseRms: Inf)
 
 
 proc newClusterObject(c: Cluster): ClusterObject =
@@ -307,8 +310,8 @@ proc newClusterObject(c: Cluster): ClusterObject =
   # TODO: should we initialize geometry values by Inf as well?
   let geometry = ClusterGeometry()
   result = ClusterObject(data: c,
-                         pos_x: Inf,
-                         pos_y: Inf,
+                         centerX: Inf,
+                         centerY: Inf,
                          energy: Inf,
                          geometry: geometry)
 
@@ -393,23 +396,24 @@ proc calcGeomtry(cluster: Cluster, pos_x, pos_y, rot_angle: float): ClusterGeome
   stat_y.push(yRot)
 
   # now we have all data to calculate the geometric properties
-  result.length       = max(xRot) - min(xRot)
-  result.width        = max(yRot) - min(yRot)
-  result.rms_trans    = stat_x.standardDeviation()
-  result.rms_long     = stat_y.standardDeviation()
-  result.skew_trans   = stat_x.skewness()
-  result.skew_long    = stat_y.skewness()
-  result.kurt_trans   = stat_x.kurtosis()
-  result.kurt_long    = stat_y.kurtosis()
-  result.rot_angle    = rot_angle
-  result.eccentricity = result.rms_long / result.rms_trans
+  result.length               = max(xRot) - min(xRot)
+  result.width                = max(yRot) - min(yRot)
+  result.rmsTransverse        = stat_x.standardDeviation()
+  result.rmsLongitudinal      = stat_y.standardDeviation()
+  result.skewnessTransverse   = stat_x.skewness()
+  result.skewnessLongitudinal = stat_y.skewness()
+  result.kurtosisTransverse   = stat_x.kurtosis()
+  result.kurtosisLongitudinal = stat_y.kurtosis()
+  result.rotationAngle        = rot_angle
+  result.eccentricity         = result.rmsLongitudinal / result.rmsTransverse
   # get fraction of all pixels within the transverse RMS, by filtering all elements
   # within the transverse RMS radius and dividing by total pix
   # DEBUG
   # echo "rms trans is ", result.rms_trans
   # echo "std is ", stat_y.variance()
   # echo "thus filter is ", filterIt(zip(xRot, yRot), distance(it.a, it.b) <= result.rms_trans)
-  result.fraction_transverse_rms = float(filterIt(zip(xRot, yRot), distance(it.a, it.b) <= result.rms_trans).len) / float(npix)
+  result.lengthDivRmsTrans = result.length / result.rmsTransverse
+  result.fractionInTransverseRms = float(filterIt(zip(xRot, yRot), distance(it.a, it.b) <= result.rmsTransverse).len) / float(npix)
 
 proc isPixInSearchRadius(p1, p2: Coord, search_r: int): bool =
   # given two pixels, p1 and p2, we check whether p2 is within one square search
@@ -526,7 +530,7 @@ template fitRotAngle(cl_obj: ClusterObject, rotAngleEstimate: float): (float, fl
     p = @[rotAngleEstimate]
     
   fit_object.cluster = cl_obj.data
-  fit_object.xy = (x: cl_obj.pos_x, y: cl_obj.pos_y)
+  fit_object.xy = (x: cl_obj.centerX, y: cl_obj.centerY)
   var opt = eccentricityNloptOptimizer(fit_object)
   # start minimization
   let (params, min_val) = opt.optimize(p)
@@ -561,7 +565,7 @@ proc recoCluster(c: Cluster): ClusterObject =
   # set number of hits in cluster
   result.hits = clustersize
   # set the position
-  (result.pos_x, result.pos_y) = applyPitchConversion(pos_x, pos_y)
+  (result.centerX, result.centerY) = applyPitchConversion(pos_x, pos_y)
   #(float(NPIX) - float(pos_x) + 0.5) * PITCH
   #result.pos_y = (float(pos_y) + 0.5) * PITCH
   # prepare rot angle fit
@@ -582,7 +586,7 @@ proc recoCluster(c: Cluster): ClusterObject =
 
   # now we still need to use the rotation angle to calculate the different geometric
   # properties, i.e. RMS, skewness and kurtosis along the long axis of the cluster
-  result.geometry = calcGeomtry(c, result.pos_x, result.pos_y, rot_angle)
+  result.geometry = calcGeomtry(c, result.centerX, result.centerY, rot_angle)
 
 proc recoEvent(data: Pixels, event, chip: int): ref RecoEvent =
   result = new RecoEvent
@@ -603,8 +607,8 @@ proc reconstructSingleChip(data: seq[Pixels], run, chip: int): seq[FlowVar[ref R
   #    data: seq[Pixels] = data of pixels for this chip containing pixels for each event
   #    run: int = run number of run
   #    chip: int = chip number working on
-  echo "Working on chip $# in run $# " % [$chip, $run]
-  echo "We have $# events to reconstruct" % $data.len
+  echo &"Working on chip {chip} in run {run}"
+  echo &"We have {data.len} events to reconstruct"
   var count = 0
   result = newSeq[FlowVar[ref RecoEvent]](data.len)
   #result = newSeq[ref RecoEvent](data.len)  
@@ -647,6 +651,8 @@ proc reconstructAllRunsInFile(h5f: var H5FileObj, flags_tab: Table[string, bool]
           # events in ascending order of event number, i.e.
           # [0] -> eventNumber == 0 and so on
           reco_run.add reconstructSingleChip(pixdata, run_number, chip)
+          echo &"Reco run now contains {reco_run.len} elements"
+        
           
         echo "Reconstruction of run $# took $# seconds" % [$run_number, $(epochTime() - t1)]
         # finished run, so write run to H5 file
@@ -763,9 +769,9 @@ proc reconstructSingleRunFolder(folder: string) =
       for cl in cluster:
         #echo "Starting reco of ", a.evHeader["eventNumber"]
         let ob = recoCluster(cl)
-        if ob.geometry.rot_angle < min_val:
-          min_val = ob.geometry.rot_angle
-        min_seq[num].add ob.geometry.rot_angle
+        if ob.geometry.rotationAngle < min_val:
+          min_val = ob.geometry.rotationAngle
+        min_seq[num].add ob.geometry.rotationAngle
   dumpRotAngle(min_seq)
 
 proc main() =

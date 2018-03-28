@@ -89,6 +89,8 @@ macro setTabFields[T: (float | int), N: int](tab: Table[string, seq[seq[T]]],
       `tab`[`name`][`chip`].add `obj`.`field`
 
 macro `+`[N, M: int](a: array[N, string], b: array[M, string]): untyped =
+  ## proc to concat two const arrays `a`, `b` at compile time to return a new
+  ## array
   let aImpl = a.symbol.getImpl
   let bImpl = b.symbol.getImpl
   var tree = nnkBracket.newTree()

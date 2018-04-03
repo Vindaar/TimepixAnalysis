@@ -666,6 +666,10 @@ proc reconstructAllRunsInFile(h5f: var H5FileObj, flags_tab: Table[string, bool]
         if flags_tab["create_fe"] == true:
           createFeSpectrum(h5f, run_number)
         elif flags_tab["calib_energy"] == true:
+          # TODO: change the 1.1 to the correct value gained from the Fe spectrum
+          # However, this can only be done after the fit has been done in Python
+          # we may call another function before, which makes a system call to the
+          # Python fitting script and reads the value back from there. 
           applyEnergyCalibration(h5f, run_number, 1.1)
       else:
         # only perform energy calibration of the reconstructed runs in file
@@ -726,6 +730,10 @@ proc reconstructSingleRunInFile(h5f: var H5FileObj,
         if flags_tab["create_fe"] == true:
           createFeSpectrum(h5f, run_number)
         elif flags_tab["calib_energy"] == true:
+          # TODO: change the 1.1 to the correct value gained from the Fe spectrum
+          # However, this can only be done after the fit has been done in Python
+          # we may call another function before, which makes a system call to the
+          # Python fitting script and reads the value back from there. 
           applyEnergyCalibration(h5f, run_number, 1.1)
       else:
         # only perform energy calibration of the reconstructed runs in file

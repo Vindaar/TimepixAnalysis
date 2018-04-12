@@ -7,12 +7,13 @@ import os
 import osproc
 import re
 import arraymancer
+import seqmath
 
 # a simple collection of useful function for nim, mostly regarding arrays
 # and sequences
 
 # template orderedTableMap[S, T](result, t: typed) =
-  
+
 #   newSeq(result, t.len)
 #   var i = 0
 #   for k, v in pairs(t):
@@ -28,19 +29,18 @@ import arraymancer
 #       break
 #   result
 
-proc argmin*[T](a: AnyTensor[T], axis: int): int =
-  let `min` = min(a)
-  for i, x in a:
-    if x == `min`:
-      return i[axis]
+# proc argmin*[T](a: AnyTensor[T], axis: int): int =
+#   let `min` = min(a)
+#   for i, x in a:
+#     if x == `min`:
+#       return i[axis]
 
-proc argmin*[T](a: AnyTensor[T]): int =
-  # argmin for 1D tensors
-  let `min` = min(a)
-  for i, x in a:
-    if x == `min`:
-      return i[0]
-      
+# proc argmin*[T](a: AnyTensor[T]): int =
+#   # argmin for 1D tensors
+#   let `min` = min(a)
+#   for i, x in a:
+#     if x == `min`:
+#       return i[0]
 
 proc findArgOfLocalMin*[T](view: AnyTensor[T], current_ind: int): int {.inline.} =
   # procedure to find the argument in a given view of a tensor
@@ -71,12 +71,12 @@ proc getNewBound*(ind, width, size: int, up_flag: bool = true): int {.inline.} =
     result = ind + width_half
     result = if result < (size - 1): result else: size - 1
 
-proc findPeaks*(t: Tensor[float], width: int, skip_non_outliers: bool = true): seq[int] = 
-  # NOTE: trying to use a generic for this function (for any datatype in the tensor) 
+proc findPeaks*(t: Tensor[float], width: int, skip_non_outliers: bool = true): seq[int] =
+  # NOTE: trying to use a generic for this function (for any datatype in the tensor)
   # fails due to a bug in arraymancer, issue #62:
   # https://github.com/mratsim/Arraymancer/issues/62
-  # this procedure searches for peaks (or dips) in the given array, by scanning 
-  # the array for elements, which are larger than any of the surrounding 
+  # this procedure searches for peaks (or dips) in the given array, by scanning
+  # the array for elements, which are larger than any of the surrounding
   # 'width' elements. Thus, width defines the 'resolution' and locality of
   # the peaks for which to scan
   # TODO: rework this so that it's faster
@@ -111,11 +111,11 @@ proc findPeaks*(t: Tensor[float], width: int, skip_non_outliers: bool = true): s
 
     min_range = getNewBound(min_ind, width, size, false)
     max_range = getNewBound(min_ind, width, size, true)
-    
+
     min_from_min = findArgOfLocalMin(t[min_range..max_range], min_range)
     if min_ind == min_from_min:
       result.add(min_ind)
-  
+
 
 proc map*[S, T, U](t: OrderedTable[S, T], op: proc(k: S, v: T): U {.closure.}):
                                                                  seq[U] {.inline.} =
@@ -141,27 +141,27 @@ proc deleteIntersection*[T](a: var seq[T], b: seq[T]) =
   for p in b:
     delByElement(a, p)
 
-proc arange*(start, stop, step: int): seq[int] = 
-  result = @[]
-  for i in start..<stop:
-    if (i - start) mod step == 0:
-      result.add(i)
+# proc arange*(start, stop, step: int): seq[int] =
+#   result = @[]
+#   for i in start..<stop:
+#     if (i - start) mod step == 0:
+#       result.add(i)
 
-proc linspace*(start, stop: float, num: int): seq[float] =
-  # linspace similar to numpy's linspace
-  result = @[]
-  var step = start
-  let diff = (stop - start) / float(num)
-  if diff < 0:
-    # in case start is bigger than stop, return an empty sequence
-    return @[]
-  else:
-    for i in 0..<num:
-      result.add(step)
-      # for every element calculate new value for next iteration
-      step += diff
+# proc linspace*(start, stop: float, num: int): seq[float] =
+#   # linspace similar to numpy's linspace
+#   result = @[]
+#   var step = start
+#   let diff = (stop - start) / float(num)
+#   if diff < 0:
+#     # in case start is bigger than stop, return an empty sequence
+#     return @[]
+#   else:
+#     for i in 0..<num:
+#       result.add(step)
+#       # for every element calculate new value for next iteration
+#       step += diff
 
-proc boolFromArrayOfIndices*(array: seq[int]): seq[bool] = 
+proc boolFromArrayOfIndices*(array: seq[int]): seq[bool] =
   result = @[]
   for i in 0..<array[array.high]:
     if i in array:
@@ -199,7 +199,7 @@ proc `[]`*[T](a: seq[T], inds: openArray[int]): seq[T] {.inline.} =
 #   if isSorted(inds) == false:
 #     let i_sorted = sort(inds)
 #   result = keepIf(a, (ind: int) -> T => a[ind])
-  
+
 
 proc mean*[T](array: seq[T]): float =
   # returns the mean of the array
@@ -208,9 +208,9 @@ proc mean*[T](array: seq[T]): float =
   result = result / n_elements
 
 
-proc getListOfFiles*(folder: string, regex = ""): seq[string] = 
+proc getListOfFiles*(folder: string, regex = ""): seq[string] =
   # returns a list of files from folder
-  # NOTE: see a unit test for getListOfFiles for a suitable regex to 
+  # NOTE: see a unit test for getListOfFiles for a suitable regex to
   # get a list of data*.txt files in a run folder
   result = @[]
   if existsDir(folder) == false:
@@ -229,7 +229,7 @@ proc sortInodeTable*(inode_table: var OrderedTable[int, string]) =
   #   inode_table: OrderedTable[int, string] which contains a filename together with the
   #     corresponding inode
 
-  # this one liner uses the sorted() to create a sorted copy of inode_table. It uses 
+  # this one liner uses the sorted() to create a sorted copy of inode_table. It uses
   # system.cmp[int] (the int comparison procedure) to compare the inodes
   sort(inode_table, proc(x, y: (int, string)): int = system.cmp[int](x[0], y[0]))
 
@@ -240,7 +240,7 @@ proc createInodeTable*(list_of_files: seq[string]): OrderedTable[int, string] =
   # functional way to create table of inodes
   result = toOrderedTable(
     map(
-      list_of_files, 
+      list_of_files,
       # the following line is the normal way to write the line after it
       # proc(n: string): (string, int) = (n, int(getFileInfo(n).id.file))
       # read line as: take string 'n' and make a tuple (string, int) from it
@@ -310,7 +310,7 @@ proc removeFolder*(folderpath: string): bool =
       result = false
   else:
     result = false
-  
+
 template echoFilesCounted*(count: int, modby = 500) =
   inc count
   if count mod modby == 0:
@@ -318,7 +318,7 @@ template echoFilesCounted*(count: int, modby = 500) =
 
 
 when isMainModule:
-  # unit test for a regex to check for 
+  # unit test for a regex to check for
   import re
   let test_names = @["/home/schmidt/CastData/data/2017/DataRuns/Run_84_171108-17-49/data013062.txt",
                      "/home/schmidt/CastData/data/2017/DataRuns/Run_84_171108-17-49/data015665.txt-fadc"]

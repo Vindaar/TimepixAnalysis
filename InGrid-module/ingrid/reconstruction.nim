@@ -22,6 +22,7 @@ import macros
 # external modules
 import nlopt
 import nlopt_wrapper
+import seqmath
 import nimhdf5
 
 # custom modules
@@ -59,7 +60,7 @@ Options:
   --create_fe_spec        Toggle to create Fe calibration spectrum based on cuts
                           Takes precedence over --calib_energy if set!
   --calib_energy          Toggle to perform energy calibration. Conversion factors needed!
-  --only_energy <factor>  Toggle to /only/ perform energy calibration using the given factor. 
+  --only_energy <factor>  Toggle to /only/ perform energy calibration using the given factor.
                           Takes precedence over --create_fe_spec and --calib_energy if set.
                           If no run_number is given, performs energy calibration on all runs
                           in the HDF5 file.
@@ -144,7 +145,7 @@ proc writeRecoRunToH5(h5f: var H5FileObj, reco_run: seq[FlowVar[ref RecoEvent]],
   ##     potentially throws HDF5LibraryError, if a call to the H5 library fails
 
   # now we need to write into reco group for each chip
-  
+
   # for now hardcode the number of chips. easy to change by getting the number
   # simply from a file or whatever
   const nchips = 7
@@ -161,9 +162,9 @@ proc writeRecoRunToH5(h5f: var H5FileObj, reco_run: seq[FlowVar[ref RecoEvent]],
     # define the names for the datasets which we want to write
     int_cluster_names = ["hits", "sumTot"]
     int_dset_names = ["hits", "sumTot", "eventNumber"]
-    # name of datasets which are part of 
-    float_geometry_names = ["rmsLongitudinal", "rmsTransverse", "skewnessLongitudinal", "skewnessTransverse", 
-                            "kurtosisLongitudinal", "kurtosisTransverse", "eccentricity", "rotationAngle", 
+    # name of datasets which are part of
+    float_geometry_names = ["rmsLongitudinal", "rmsTransverse", "skewnessLongitudinal", "skewnessTransverse",
+                            "kurtosisLongitudinal", "kurtosisTransverse", "eccentricity", "rotationAngle",
                             "length", "width", "fractionInTransverseRms", "lengthDivRmsTrans"]
     float_cluster_names = ["centerX", "centerY"]
     float_dset_names = float_geometry_names + float_cluster_names
@@ -179,7 +180,7 @@ proc writeRecoRunToH5(h5f: var H5FileObj, reco_run: seq[FlowVar[ref RecoEvent]],
   var int_data_tab = initTable[string, seq[seq[int]]]()
   var float_data_tab = initTable[string, seq[seq[float]]]()
   int_data_tab.initDataTab(nchips, int_dset_names)
-  float_data_tab.initDataTab(nchips, float_dset_names)  
+  float_data_tab.initDataTab(nchips, float_dset_names)
 
   var
     # before we create the datasets, first parse the data we will write
@@ -224,7 +225,7 @@ proc writeRecoRunToH5(h5f: var H5FileObj, reco_run: seq[FlowVar[ref RecoEvent]],
   var
     # datasets for x, y and charge
     int_dsets = initTable[string, seq[H5DataSet]]()
-    float_dsets = initTable[string, seq[H5DataSet]]()    
+    float_dsets = initTable[string, seq[H5DataSet]]()
     # x, y and charge datasets
     x_dsets  = mapIt(toSeq(0..<nchips),
                      h5f.create_dataset(chip_groups[it].name & "/x", x[it].len, dtype = ev_type))
@@ -238,13 +239,13 @@ proc writeRecoRunToH5(h5f: var H5FileObj, reco_run: seq[FlowVar[ref RecoEvent]],
   let eventsPerChip = mapIt(x, it.len)
   # now create all datasets and store them in the dataset tables
   int_dsets.createDatasets(h5f, int_dset_names, nchips, eventsPerChip, chip_groups, int)
-  float_dsets.createDatasets(h5f, float_dset_names, nchips, eventsPerChip, chip_groups, float)  
-    
+  float_dsets.createDatasets(h5f, float_dset_names, nchips, eventsPerChip, chip_groups, float)
+
   # now that we have the datasets, write everything...
   let all = x_dsets[0].all
   # get locations of raw data groups, so that we can copy
   # the attributes
-  let raw_groups = rawDataChipBase(run_number)    
+  let raw_groups = rawDataChipBase(run_number)
   for chip in 0 ..< nchips:
     for dset in int_dset_names:
       int_dsets[dset][chip][all] = int_data_tab[dset][chip]
@@ -256,7 +257,7 @@ proc writeRecoRunToH5(h5f: var H5FileObj, reco_run: seq[FlowVar[ref RecoEvent]],
     x_dsets[chip][all] = x[chip]
     y_dsets[chip][all] = y[chip]
     ch_dsets[chip][all] = ch[chip]
-  
+
     # anyways, write the chip dataset attributes
     let raw_chip_group_name = raw_groups & $chip
     var raw_group = h5f[raw_chip_group_name.grp_str]
@@ -265,7 +266,7 @@ proc writeRecoRunToH5(h5f: var H5FileObj, reco_run: seq[FlowVar[ref RecoEvent]],
     # and write these to the current group
     chip_groups[ch_numb].attrs["chipNumber"] = ch_numb
     chip_groups[ch_numb].attrs["chipName"] = ch_name
-  
+
 iterator readDataFromH5(h5f: var H5FileObj, group: string, run_number: int): (int, seq[Pixels]) =
   # proc to read data from the HDF5 file from `group`
   var chip_base = rawDataChipBase(run_number)
@@ -278,7 +279,7 @@ iterator readDataFromH5(h5f: var H5FileObj, group: string, run_number: int): (in
       let chip_number = group.attrs["chipNumber", int]
       # given group and chip number, we can read vlen data
       let vlen_xy = special_type(uint8)
-      let vlen_ch = special_type(uint16)      
+      let vlen_ch = special_type(uint16)
       var
         raw_x_dset  = h5f[(grp / "raw_x").dset_str]
         raw_y_dset  = h5f[(grp / "raw_y").dset_str]
@@ -346,11 +347,11 @@ proc excentricity(n: cuint, p: array[1, cdouble], grad: var array[1, cdouble], f
     sum_y += new_y
     sum_x2 += (new_x * new_x)
     sum_y2 += (new_y * new_y)
-  
+
   let
     n_elements: cdouble = cdouble(len(c))
     rms_x: cdouble = sqrt( (sum_x2 / n_elements) - (sum_x * sum_x / n_elements / n_elements))
-    rms_y: cdouble = sqrt( (sum_y2 / n_elements) - (sum_y * sum_y / n_elements / n_elements))    
+    rms_y: cdouble = sqrt( (sum_y2 / n_elements) - (sum_y * sum_y / n_elements / n_elements))
 
   #echo "sum_x2 / elements ", sum_x2 / n_elements, "sum_x * sum_x / elements / elements ", sum_x * sum_x / n_elements / n_elements
   let exc = rms_x / rms_y
@@ -371,7 +372,7 @@ proc calcGeomtry(cluster: Cluster, pos_x, pos_y, rot_angle: float): ClusterGeome
   # transverse direction
   # done by rotating the cluster by the angle to define the two directions
   let npix = cluster.len
-  
+
   var
     xRot = newSeq[float](npix)
     yRot = newSeq[float](npix)
@@ -452,7 +453,7 @@ proc findSimpleCluster*(pixels: Pixels): seq[Cluster] =
   # inputs:
   #   -
   # ouputs:
-  #   - 
+  #   -
 
   # - iterate over all hit pixels in event
   # - check next pixel, is it within search bound? yes,
@@ -463,9 +464,9 @@ proc findSimpleCluster*(pixels: Pixels): seq[Cluster] =
     # create copy of pixels so that we can remove elements from it
     raw_event = pixels
     # counter
-    i = 0 
+    i = 0
   result = @[] #new seq[Cluster]
-  
+
   let
     search_r = 50
     cutoff_size = 5
@@ -474,7 +475,7 @@ proc findSimpleCluster*(pixels: Pixels): seq[Cluster] =
   # look for other pixels in the cluster
   c.add(pixels[0])
   raw_event.deleteIntersection(@[pixels[0]])
-  
+
   while raw_event.len > 0 and i < c.len:
     let p1: Coord = (x: c[i].x, y: c[i].y)
     # alternatively:
@@ -484,8 +485,8 @@ proc findSimpleCluster*(pixels: Pixels): seq[Cluster] =
     c = concat(c, t)
     # remove elements from t in raw_event
     deleteIntersection(raw_event, t)
-    
-    if i == c.len - 1 and raw_event.len > 0: 
+
+    if i == c.len - 1 and raw_event.len > 0:
       # if we are at the last hit pixel in the event, but raw_events is not empty,
       # this means there is more than 1 cluster in the frame. Thus, add the current
       # cluster 'c' to the seq of clusters and call this function recursively with
@@ -523,14 +524,14 @@ template fitRotAngle(cl_obj: ClusterObject, rotAngleEstimate: float): (float, fl
   # cluster object is handed as var to avoid any copying
 
   # TODO: think about what to do with 11810 pixels, throw them out
-    
+
   var
     # set the fit object with which we hand the necessary data to the
     # excentricity function
     fit_object: FitObject
-    # the resulting fit parameter  
+    # the resulting fit parameter
     p = @[rotAngleEstimate]
-    
+
   fit_object.cluster = cl_obj.data
   fit_object.xy = (x: cl_obj.centerX, y: cl_obj.centerY)
   var opt = eccentricityNloptOptimizer(fit_object)
@@ -543,7 +544,7 @@ template fitRotAngle(cl_obj: ClusterObject, rotAngleEstimate: float): (float, fl
   nlopt_destroy(opt.optimizer)
   # now return the rotation angle and eccentricity
   (params[0], min_val)
-  
+
 proc recoCluster(c: Cluster): ClusterObject =
   result = newClusterObject(c)
   let
@@ -582,7 +583,7 @@ proc recoCluster(c: Cluster): ClusterObject =
     # what do we do in this case with the geometry?!
     #raise newException(ValueError, "Rotation angle estimate returned bad value")
     echo "Fit will probably fail!"
-    
+
   # else we can minimize the rotation angle and calc the eccentricity
   let (rot_angle, eccentricity) = fitRotAngle(result, rotAngleEstimate)
 
@@ -613,7 +614,7 @@ proc reconstructSingleChip(data: seq[Pixels], run, chip: int): seq[FlowVar[ref R
   echo &"We have {data.len} events to reconstruct"
   var count = 0
   result = newSeq[FlowVar[ref RecoEvent]](data.len)
-  #result = newSeq[ref RecoEvent](data.len)  
+  #result = newSeq[ref RecoEvent](data.len)
   parallel:
     for event in 0..data.high:
       if event < result.len:
@@ -645,8 +646,8 @@ proc reconstructAllRunsInFile(h5f: var H5FileObj, flags_tab: Table[string, bool]
         # 1. calibration runs:
         #    - need to interface with Python code, i.e. call fitting procedure,
         #      which returns the value to the Nim program as its return value
-        
-        let t1 = epochTime()      
+
+        let t1 = epochTime()
         for chip, pixdata in h5f.readDataFromH5(grp, run_number):
           # given single runs pixel data, call reconstruct run proc
           # NOTE: the data returned from the iterator contains all
@@ -654,8 +655,8 @@ proc reconstructAllRunsInFile(h5f: var H5FileObj, flags_tab: Table[string, bool]
           # [0] -> eventNumber == 0 and so on
           reco_run.add reconstructSingleChip(pixdata, run_number, chip)
           echo &"Reco run now contains {reco_run.len} elements"
-        
-          
+
+
         echo "Reconstruction of run $# took $# seconds" % [$run_number, $(epochTime() - t1)]
         # finished run, so write run to H5 file
         h5f.writeRecoRunToH5(reco_run, run_number)
@@ -669,7 +670,7 @@ proc reconstructAllRunsInFile(h5f: var H5FileObj, flags_tab: Table[string, bool]
           # TODO: change the 1.1 to the correct value gained from the Fe spectrum
           # However, this can only be done after the fit has been done in Python
           # we may call another function before, which makes a system call to the
-          # Python fitting script and reads the value back from there. 
+          # Python fitting script and reads the value back from there.
           applyEnergyCalibration(h5f, run_number, 1.1)
       else:
         # only perform energy calibration of the reconstructed runs in file
@@ -712,14 +713,14 @@ proc reconstructSingleRunInFile(h5f: var H5FileObj,
         #    - need to interface with Python code, i.e. call fitting procedure,
         #      which returns the value to the Nim program as its return value
 
-        let t1 = epochTime()      
+        let t1 = epochTime()
         for chip, pixdata in h5f.readDataFromH5(grp, run_number):
           # given single runs pixel data, call reconstruct run proc
           # NOTE: the data returned from the iterator contains all
           # events in ascending order of event number, i.e.
           # [0] -> eventNumber == 0 and so on
           reco_run.add reconstructSingleChip(pixdata, run_number, chip)
-          
+
         echo "Reconstruction of run $# took $# seconds" % [$run_number, $(epochTime() - t1)]
         # finished run, so write run to H5 file
         h5f.writeRecoRunToH5(reco_run, run_number)
@@ -733,7 +734,7 @@ proc reconstructSingleRunInFile(h5f: var H5FileObj,
           # TODO: change the 1.1 to the correct value gained from the Fe spectrum
           # However, this can only be done after the fit has been done in Python
           # we may call another function before, which makes a system call to the
-          # Python fitting script and reads the value back from there. 
+          # Python fitting script and reads the value back from there.
           applyEnergyCalibration(h5f, run_number, 1.1)
       else:
         # only perform energy calibration of the reconstructed runs in file
@@ -759,7 +760,7 @@ proc reconstructSingleRunFolder(folder: string) =
   # inputs:
   #    folder: string = the run folder from which to reconstruct events
   echo "Starting to read list of files"
-  let    
+  let
     files = getSortedListOfFiles(folder, EventSortType.inode, EventType.InGridType)
     regex_tup = getRegexForEvents()
     f_to_read = if files.high < 30000: files.high else: 30000
@@ -789,7 +790,7 @@ proc main() =
   # create command line arguments using docopt
   let args = docopt(doc)
   echo args
-  
+
   let
     h5f_name = $args["<HDF5file>"]
     create_fe_arg = $args["--create_fe_spec"]
@@ -830,8 +831,8 @@ proc main() =
   let flags_tab = { "create_fe": create_fe_flag,
                     "calib_energy": calib_energy_flag,
                     "only_energy": only_energy_flag,
-                    "only_fadc": only_fadc}.toTable                  
-    
+                    "only_fadc": only_fadc}.toTable
+
 
   var h5f = H5file(h5f_name, "rw")
   # visit the whole file to read which groups exist
@@ -841,7 +842,7 @@ proc main() =
     reconstructAllRunsInFile(h5f, flags_tab, calib_factor)
   else:
     reconstructSingleRunInFile(h5f, parseInt(run_number), flags_tab, calib_factor)
-  
+
   # NOTE: there's no point for this anymore, at least not at the moment
   # # first check whether given folder is valid run folder
   # let (is_run_folder, contains_run_folder) = isTosRunFolder(folder)

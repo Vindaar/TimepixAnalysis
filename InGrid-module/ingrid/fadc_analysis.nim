@@ -2,7 +2,6 @@
 # FADC data stored in a H5 file
 
 import strutils, sequtils
-import seqmath except shape
 import docopt
 import ospaths
 import nimhdf5
@@ -11,6 +10,7 @@ import times
 import future
 
 import arraymancer
+import seqmath
 
 import tos_helper_functions
 import helper_functions
@@ -38,7 +38,7 @@ proc noiseAnalysis(h5f: var H5FileObj) =
   ## ranges, which can be determined (~ 20 s to account for 1s accuracy in timestamp?)
 
   const avg_int = 10
-    
+
 
   for num, group in runs(h5f):
     echo num, " and ", group
@@ -62,7 +62,7 @@ proc noiseAnalysis(h5f: var H5FileObj) =
     # event. That is to know when each happened etc
     # then also need not only fraction of noisy events, but also effective
     # dead time. So we need also eventDuration
-      
+
     for i, t in tstamp:
       if tstamp[i] - t_0 > avg_int:
         noise_frac.add (n_noise / n_good)
@@ -76,7 +76,7 @@ proc noiseAnalysis(h5f: var H5FileObj) =
           inc n_good
     echo "Noise fracs are ", noise_frac
     quit()
-    
+
 proc findThresholdValue[T](data: seq[seq[T]], x_min: seq[int], threshold: seq[T], left = true, positive = false): seq[int] =
   # left determines whether we start search left or right
   # positive sets the range of the data. postiive == false means we consider
@@ -107,9 +107,9 @@ proc findThresholdValue[T](data: seq[seq[T]], x_min: seq[int], threshold: seq[T]
     else:
       # in case of a good result..
       result[i] = x
-  
 
-proc reshape[T](s: seq[T], shape = int): seq[seq[T]] =
+
+proc reshapeFadc[T](s: seq[T], shape = int): seq[seq[T]] =
   # unfinished proc which reshapes the given sequence to a
   # higher order nested sequence. Currently hardcoded for FADC
   let dim2 = s.len
@@ -145,7 +145,7 @@ proc calcRiseAndFallTimes*(h5f: var H5FileObj, run_number: int) =
     fadc = h5f[fadc_group.dset_str]
 
   let t0 = epochTime()
-  var f_data = fadc[float64].reshape
+  var f_data = fadc[float64].reshapeFadc
   let nevents = f_data.len
 
   # given the reshaped array, we can now compute the

@@ -3,6 +3,7 @@ import ospaths
 import future
 import nimhdf5
 import tables
+import seqmath
 
 import tos_helper_functions
 
@@ -26,7 +27,7 @@ proc cutFeSpectrum(data: array[4, seq[float64]], event_num, hits: seq[int64]): s
     cut_r = 4.5
     cut_ecc_high = 1.3
     cut_rms_trans_high = 1.2
-  
+
   let
     pos_x = data[0]
     pos_y = data[1]
@@ -73,7 +74,7 @@ proc createFeSpectrum*(h5f: var H5FileObj, run_number: int) =
     ecc_dset   = h5f[(group.name / "eccentricity").dset_str]
     rms_trans_dset = h5f[(group.name / "rmsTransverse").dset_str]
     event_num_dset = h5f[(group.name / "eventNumber").dset_str]
-    hits_dset = h5f[(group.name / "hits").dset_str]    
+    hits_dset = h5f[(group.name / "hits").dset_str]
   let
     pos_x  = pos_x_dset[float64]
     pos_y  = pos_y_dset[float64]
@@ -86,7 +87,7 @@ proc createFeSpectrum*(h5f: var H5FileObj, run_number: int) =
   let hits_spectrum = cutFeSpectrum([pos_x, pos_y, ecc, rms_trans], event_num, hits)
   # with the events to use for the spectrum
   echo "Elements passing cut : ", hits_spectrum.len
-  
+
   # given hits, write spectrum to file
   var spectrum_dset = h5f.create_dataset(group.name & "/FeSpectrum", hits_spectrum.len, dtype = int)
   spectrum_dset[spectrum_dset.all] = hits_spectrum
@@ -119,7 +120,7 @@ proc applyEnergyCalibration*(h5f: var H5FileObj, run_number: int, calib_factor: 
       energy_dset[energy_dset.all] = energy
       # attach used conversion factor to dataset
       energy_dset.attrs["conversionFactorUsed"] = calib_factor
-      
+
 
 proc calcLogLikelihood*(h5f: var H5FileObj) =
   ##
@@ -138,5 +139,4 @@ proc calcLogLikelihood*(h5f: var H5FileObj) =
   ##     get number of elements in histogram at the bin for the element for which we get
   ##     the logL
   ##     # elements / # total in histogram = likelihood. Take log
-  
-  
+  discard

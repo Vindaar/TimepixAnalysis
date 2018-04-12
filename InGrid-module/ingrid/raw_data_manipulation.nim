@@ -31,10 +31,9 @@ import fadc_helper_functions
 import ingrid_types
 #import reconstruction
 
-# other modules  
-import nimhdf5/H5nimtypes
+# other modules
+import seqmath
 import nimhdf5
-import nimhdf5/hdf5_wrapper
 import arraymancer
 
 # global experimental pragma to use parallel: statement in readRawInGridData()
@@ -94,7 +93,7 @@ template all_ch_len(): int = ch_len() * 4
 #   result = parseStmt(nim_template_name)
 
 # template combinedBasenameHits(chip_number, run_number: int) =
-#   "Hits_$#_$#" % [$chip_number, $run_number]    
+#   "Hits_$#_$#" % [$chip_number, $run_number]
 
 template batchFiles(files: var seq[string], bufsize, actions: untyped): untyped =
   ## this is a template, which can be used to batch a set of files into chunks
@@ -107,7 +106,7 @@ template batchFiles(files: var seq[string], bufsize, actions: untyped): untyped 
   ## Example:
   ##
   ## .. code-block:
-  ##   let 
+  ##   let
   ##     fname_base = "data$#.txt"
   ##     files = mapIt(toSeq(0..<1000), fname_base & $it)
   ##   batch_files(files, 100):
@@ -122,7 +121,7 @@ template batchFiles(files: var seq[string], bufsize, actions: untyped): untyped 
 
     # perform actions as desired
     actions
-    
+
     echo "... removing read elements from list"
     # sequtils.delete removes the element with ind_high as well!
     files.delete(0, ind_high)
@@ -146,7 +145,7 @@ proc batchFileReading[T](files: var seq[string],
       let buf_seq = readListOfInGridFiles(files[0..ind_high], regex_tup)
     elif T is FadcFile:
       let buf_seq = readListOfFadcFiles(files[0..ind_high])
-  
+
     echo "... and concating buffered sequence to result"
     result = concat(result, buf_seq)
     count += bufsize
@@ -163,7 +162,7 @@ proc readRawInGridData(run_folder: string): seq[FlowVar[ref Event]] =
   # using spawn
   let regex_tup = getRegexForEvents()
   # get a sorted list of files, sorted by inode
-  var files: seq[string] = getSortedListOfFiles(run_folder, EventSortType.fname, EventType.InGridType)
+  var files: seq[string] = getSortedListOfFiles(run_folder, EventSortType.inode, EventType.InGridType)
   result = batchFileReading[Event](files, regex_tup)
 
 proc processRawInGridData(ch: seq[FlowVar[ref Event]]): ProcessedRun =
@@ -203,7 +202,7 @@ proc processRawInGridData(ch: seq[FlowVar[ref Event]]): ProcessedRun =
 
   # set the run number
   result.run_number = parseInt((^ch[0]).evHeader["runNumber"])
-      
+
   # initialize empty sequences. Input to anonymous function is var
   # as we change each inner sequence in place with newSeq
   apply(tot_run, (x: var seq[seq[int]]) => newSeq[seq[int]](x, len(ch)))
@@ -216,7 +215,7 @@ proc processRawInGridData(ch: seq[FlowVar[ref Event]]): ProcessedRun =
     # for the rest, get a copy of the event
     var a: Event = (^ch[i])[]
     # TODO: think about parallelizing here by having proc, which
-    # works processes the single event? 
+    # works processes the single event?
     a.length = calcLength(a, time, mode)
     events[i] = a
     let chips = a.chips
@@ -255,7 +254,7 @@ proc processFadcData(fadc_files: seq[FlowVar[ref FadcFile]]): ProcessedFadcData 
   ## proc which performs all processing needed to be done on the raw FADC
   ## data. Starting from conversion of FadcFiles -> FadcData, but includes
   ## calculation of minimum and check for noisy events
-  # sequence to store the indices needed to extract the 0 channel     
+  # sequence to store the indices needed to extract the 0 channel
   let
     fadc_ch0_indices = getCh0Indices()
     ch_len = ch_len()
@@ -265,7 +264,7 @@ proc processFadcData(fadc_files: seq[FlowVar[ref FadcFile]]): ProcessedFadcData 
     n_dips = 4
     # the percentile considered for the calculation of the minimum
     min_percentile = 0.95
-  
+
   # convert FlowVars of FadcFiles to sequence of FadcFiles
   result.raw_fadc_data = newSeq[seq[uint16]](nevents)
   result.fadc_data = zeros[float]([nevents, ch_len])
@@ -286,13 +285,13 @@ proc processFadcData(fadc_files: seq[FlowVar[ref FadcFile]]): ProcessedFadcData 
   # this parallel solution seems to be slower, instead of faster ?! well, probably
   # because we only have these two spawns and one of these functions is much slower
   # than the other
-  # parallel:  
+  # parallel:
   #   for i, event in fadc_files:
   #     let ev = (^event)[]
   #     if i < result.raw_fadc_data.len:
   #       result.raw_fadc_data[i] = ev.data
   #     let fadc_dat = ev.fadcFileToFadcData(pedestal_run, fadc_ch0_indices).data
-  #     if i < result.trigrecs.len:        
+  #     if i < result.trigrecs.len:
   #       result.trigrecs[i]      = ev.trigrec
   #       result.fadc_data[i, _]  = fadc_dat.reshape([1, ch_len])
   #     if i < result.noisy.len:
@@ -308,7 +307,7 @@ proc initFadcInH5(h5f: var H5FileObj, run_number, batchsize: int, filename: stri
   let
     ch_len = ch_len()
     all_ch_len = all_ch_len()
-  
+
   let
     group_name = getGroupNameForRun(run_number) & "/fadc"
     reco_group_name = getRecoNameForRun(run_number) & "/fadc"
@@ -343,9 +342,9 @@ proc initFadcInH5(h5f: var H5FileObj, run_number, batchsize: int, filename: stri
                                        float,
                                        chunksize = @[batchsize, 1],
                                        maxshape = @[int.high, 1])
-    
 
-    
+
+
   # write attributes to FADC groups
   # read the given FADC file and extract that information from it
   let fadc_for_attrs = readFadcFile(filename)
@@ -359,7 +358,7 @@ proc initFadcInH5(h5f: var H5FileObj, run_number, batchsize: int, filename: stri
     group.attrs["frequency"] = fadc_for_attrs.frequency
     group.attrs["sampling_mode"] = fadc_for_attrs.sampling_mode
     group.attrs["pedestal_run"] = if fadc_for_attrs.pedestal_run == true: 1 else: 0
-  
+
 proc writeFadcDataToH5(h5f: var H5FileObj, run_number: int, f_proc: ProcessedFadcData) =
   # proc to write the current FADC data to the H5 file
   # now write the data
@@ -376,7 +375,7 @@ proc writeFadcDataToH5(h5f: var H5FileObj, run_number: int, f_proc: ProcessedFad
     fadc_dset = h5f[reco_name.dset_str]
     trigrec_dset = h5f[trigrec_name.dset_str]
     noisy_dset = h5f[noiseBasename(run_number).dset_str]
-    minvals_dset = h5f[minvalsBasename(run_number).dset_str]    
+    minvals_dset = h5f[minvalsBasename(run_number).dset_str]
 
   echo raw_fadc_dset.shape
   echo raw_fadc_dset.maxshape
@@ -392,7 +391,7 @@ proc writeFadcDataToH5(h5f: var H5FileObj, run_number: int, f_proc: ProcessedFad
   # a row, without deleting the file, we simply extend the dataset further, because we read
   # the current (final!) shape from the file
   # NOTE: one way to mitigate t his, would be to set oldsize as a {.global.} variable
-  # in which case we simply set it to 0 on the first call and afterwards extend it by 
+  # in which case we simply set it to 0 on the first call and afterwards extend it by
   # the size we add
   raw_fadc_dset.resize((newsize, all_ch_len))
   fadc_dset.resize((newsize, ch_len))
@@ -419,7 +418,7 @@ proc writeFadcDataToH5(h5f: var H5FileObj, run_number: int, f_proc: ProcessedFad
                              count = @[nevents, 1])
   minvals_dset.write_hyperslab(f_proc.minvals,
                                offset = @[oldsize, 0],
-                               count = @[nevents, 1])  
+                               count = @[nevents, 1])
   echo "Writing of FADC data took $# seconds" % $(epochTime() - t0)
 
 proc finishFadcWriteToH5(h5f: var H5FileObj, run_number: int) =
@@ -432,7 +431,7 @@ proc finishFadcWriteToH5(h5f: var H5FileObj, run_number: int) =
     minvals_link = combineRecoBasenameMinvals(run_number)
 
   h5f.create_hardlink(noisy_target, noisy_link)
-  h5f.create_hardlink(minvals_target, minvals_link)  
+  h5f.create_hardlink(minvals_target, minvals_link)
 
 proc readProcessWriteFadcData(run_folder: string, run_number: int, h5f: var H5FileObj) =
   ## given a run_folder it reads all fadc files (data<number>.txt-fadc),
@@ -455,7 +454,7 @@ proc readProcessWriteFadcData(run_folder: string, run_number: int, h5f: var H5Fi
 
   # before we start iterating over the files, initialize the H5 file
   h5f.initFadcInH5(run_number, batchsize, files[0])
-    
+
   batchFiles(files, batchsize - 1):
     # batch in 1000 file pieces
     var mfiles = files[0..ind_high]
@@ -491,7 +490,7 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
   # events
   #   for events we need to be able to write attributes (write data first, attributes later, not needed right now)
   #   but even so thanks to being zero suppressed, need vlen data
-  
+
   # start by creating groups
 
   # TODO: write the run information into the meta data of the group
@@ -533,7 +532,7 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
     # other single column data
     durationDset = h5f.create_dataset(joinPath(group_name, "eventDuration"), nevents, float)
     duration = newSeq[float](nevents)
-    
+
     evHeaders = initTable[string, seq[int]]()
     x  = newSeq[seq[seq[uint8]]](nchips)
     y  = newSeq[seq[seq[uint8]]](nchips)
@@ -595,7 +594,7 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
   ####################
   #  Reconstruction  #
   ####################
-  
+
   # create hard links of header data to reco group
   for key, dset in mpairs(evHeadersDsetTab):
     echo "Writing $# in $#" % [$key, $dset]
@@ -621,7 +620,7 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
     grp.attrs["chipNumber"] = run.events[0].chips[i].chip.number
     grp.attrs["chipName"]   = run.events[0].chips[i].chip.name
     inc i
-  
+
   echo "ToTs shape is ", run.tots.shape
   echo "hits shape is ", run.hits.shape
   # into the reco group name we now write the ToT and Hits information
@@ -629,13 +628,13 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
   for chip in 0..run.tots.high:
     # since not every chip has hits on each event, we need to create one group
     # for each chip and store each chip's data in these
-    
+
     #let chip_group_name = reco_group_name & "/chip_$#" % $chip
     #var chip_group = h5f.create_group(chip_group_name)
-    
+
     # write chip name and number, taken from first event
     chip_groups[chip].attrs["chipNumber"] = run.events[0].chips[chip].chip.number
-    chip_groups[chip].attrs["chipName"]   = run.events[0].chips[chip].chip.name    
+    chip_groups[chip].attrs["chipName"]   = run.events[0].chips[chip].chip.name
     # in this chip group store:
     # - occupancy
     # - ToTs
@@ -707,7 +706,7 @@ proc main() =
   # use the usage docstring to generate an CL argument table
   let args = docopt(doc)
   echo args
-  
+
   let folder = $args["<folder>"]
   var run_type = $args["--run_type"]
   var outfile = $args["--out"]
@@ -718,7 +717,7 @@ proc main() =
   var nofadc: bool = false
   if $args["--nofadc"] != "nil":
     nofadc = true
-    
+
   # first check whether given folder is valid run folder
   let (is_run_folder, contains_run_folder) = isTosRunFolder(folder)
   echo "Is run folder       : ", is_run_folder
@@ -726,7 +725,7 @@ proc main() =
 
   # in order to write the processed run and FADC data to file, open the HDF5 file
   var h5f = H5file(outfile, "rw")
-  
+
   let t0 = epochTime()
   if is_run_folder == true and contains_run_folder == false:
     # hand H5FileObj to processSingleRun, because we need to write intermediate
@@ -747,7 +746,7 @@ proc main() =
         if is_rf == true:
           echo "Start processing run $#" % $path
           processAndWriteRun(h5f, path, nofadc)
-        echo "occupied memory after gc $#" % [$getOccupiedMem()]        
+        echo "occupied memory after gc $#" % [$getOccupiedMem()]
     echo "Closing h5file with code ", h5f.close()
   elif is_run_folder == true and contains_run_folder == true:
     echo "Currently not implemented to run over nested run folders."
@@ -770,12 +769,12 @@ when isMainModule:
 # let
 #   ev_type = special_type(int)
 #   chip_group_name = group_name & "/chip_$#" #% $chp
-#   # create group for each chip 
+#   # create group for each chip
 #   chip_groups = mapIt(toSeq(0..<nchips), h5f.create_group(chip_group_name % $it))
 # var
-#   x_dsets  = mapIt(chip_groups, h5f.create_dataset(it.name & "/raw_x", nevents, dtype = ev_type)) 
-#   y_dsets  = mapIt(chip_groups, h5f.create_dataset(it.name & "/raw_y", nevents, dtype = ev_type)) 
-#   ch_dsets = mapIt(chip_groups, h5f.create_dataset(it.name & "/raw_ch", nevents, dtype = ev_type))    
+#   x_dsets  = mapIt(chip_groups, h5f.create_dataset(it.name & "/raw_x", nevents, dtype = ev_type))
+#   y_dsets  = mapIt(chip_groups, h5f.create_dataset(it.name & "/raw_y", nevents, dtype = ev_type))
+#   ch_dsets = mapIt(chip_groups, h5f.create_dataset(it.name & "/raw_ch", nevents, dtype = ev_type))
 # for event in run.events:
 #   for chp in event.chips:
 #     let
@@ -794,4 +793,3 @@ when isMainModule:
 #     x_dsets[num].write(@[@[evNumber, 0]], xl)
 #     y_dsets[num].write(@[@[evNumber, 0]], yl)
 #     ch_dsets[num].write(@[@[evNumber, 0]], chl)
-  

@@ -1,4 +1,4 @@
-import strutils
+import strutils, strformat
 import sequtils
 import tables
 import algorithm
@@ -6,8 +6,10 @@ import future
 import os
 import osproc
 import re
-import arraymancer
+import times
 import seqmath
+import arraymancer
+
 
 # a simple collection of useful function for nim, mostly regarding arrays
 # and sequences
@@ -316,6 +318,15 @@ template echoFilesCounted*(count: int, modby = 500) =
   if count mod modby == 0:
     echo count, " files read."
 
+proc getDaysHoursMinutes*(dur: Duration): string =
+  ## returns a string of
+  ## n days HH:MM
+  ## based on a `Duration`
+  let
+    days = dur.days
+    hours = dur.hours - convert(Days, Hours, dur.days)
+    minutes = dur.minutes - convert(Days, Minutes, dur.days) - convert(Hours, Minutes, hours)
+  result = &"{days} days {hours:02}:{minutes:02}"
 
 when isMainModule:
   # unit test for a regex to check for

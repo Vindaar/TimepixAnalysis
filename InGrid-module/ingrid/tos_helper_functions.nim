@@ -163,16 +163,11 @@ proc getRunTimeInfo*(run_files: seq[string]): RunTimeInfo =
     time_first = getTimeFromEvent(first_file)
     time_last  = getTimeFromEvent(last_file)
     # calc run length
-    run_length = initIntervalOld(seconds=int(time_last - time_first))
+    run_length = time_last - time_first
   echo "Time first is $# and time last is $#" % [$time_first, $time_last]
-  echo "Time difference in seconds $#" % $(int(time_last - time_first))
-  echo run_length
-  echo "Time difference start end $#" % $(time_last - time_first)
+  echo "Time difference in seconds $#" % $((time_last - time_first).seconds)
+  echo "Time difference start end $#" % $(run_length)
   
-
-  # result = RunTimeInfo(t_start = time_first,
-  #                      t_end = time_last,
-  #                      t_length = run_length)
   result.t_start = time_first
   result.t_end = time_last 
   result.t_length = run_length

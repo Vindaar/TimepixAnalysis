@@ -8,7 +8,7 @@ type
   RunTimeInfo* = object
     t_start*: Time
     t_end*: Time
-    t_length*: TimeInterval
+    t_length*: Duration
 
   EventHeader* = Table[string, string]
   ChipHeader*  = Table[string, string]

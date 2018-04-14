@@ -1,9 +1,9 @@
 import sequtils, strutils
 import ospaths
 import future
+import seqmath
 import nimhdf5
 import tables
-import seqmath
 
 import tos_helper_functions
 

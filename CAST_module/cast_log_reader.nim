@@ -110,8 +110,8 @@ proc hash(x: TrackingLog): Hash =
   h = h !& hash(x.date.toSeconds)
   case x.kind
   of rkTracking:
-    h = h !& hash(x.tracking_start)    
-    h = h !& hash(x.tracking_stop)
+    h = h !& hash(x.tracking_start.toSeconds) 
+    h = h !& hash(x.tracking_stop.toSeconds)
   else: discard
   result = !$h
 
@@ -196,6 +196,7 @@ proc deleteTrackingAttributes(h5file: string) =
           # for now need mutable attributes object to access
           var attrs = grp.attrs
           var num_tr = 0
+          var mgrp = grp
           try:
             num_tr = attrs["num_trackings", int]
           except KeyError:
@@ -207,12 +208,12 @@ proc deleteTrackingAttributes(h5file: string) =
               attr_start = "tracking_start_$#" % $i
               attr_stop  = "tracking_stop_$#" % $i
               attr_num   = "num_trackings"
-            deleted = grp.deleteAttribute(attr_start)
-            deleted = grp.deleteAttribute(attr_stop)
-            deleted = grp.deleteAttribute(attr_num)
+            deleted = mgrp.deleteAttribute(attr_start)
+            deleted = mgrp.deleteAttribute(attr_stop)
+            deleted = mgrp.deleteAttribute(attr_num)
             if deleted == false:
               echo "Could not delete one of " &
-                "$#, $# or $# in group $#" % [$attr_start, $attr_stop, $attr_num, $grp.name]
+                "$#, $# or $# in group $#" % [$attr_start, $attr_stop, $attr_num, $mgrp.name]
 
 proc write_tracking_h5(trck_tab: Table[TrackingLog, int], h5file: string) =
   ## proc to write the mapping of tracking logs to run numbers to the appropriate

@@ -49,7 +49,7 @@ proc main() =
   
   echo "Start of run:  <", parsed_first, ">"
   echo "End of run:    <", parsed_last, ">"
-  echo "Length of run: ", rt_info.t_length.days, " days ", rt_info.t_length.hours, ":", rt_info.t_length.minutes
+  echo "Length of run: ", getDaysHoursMinutes(rt_info.t_length)
   
   if is_tar:
     # in this case we need to remove the temp files again

@@ -57,6 +57,11 @@ proc findArgOfLocalMinAlt*[T](view: AnyTensor[T], current_ind: int): int {.inlin
       r_min = x
       result = i[0] + current_ind
 
+template asType*[T](s: seq[T], dtype: typedesc): untyped =
+  ## convenience template to convert type of a `seq` to a different type,
+  ## if possible
+  mapIt(s, dtype(it))
+
 proc getNewBound*(ind, width, size: int, up_flag: bool = true): int {.inline.} =
   # procedure to select a new bound, either upper or lower for
   # a given index, window width and size of tensor

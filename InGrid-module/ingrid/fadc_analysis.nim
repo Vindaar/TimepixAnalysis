@@ -129,9 +129,6 @@ proc diffUnderModulo[T](a, b: T, modulo: int): T {.inline.} =
     d2 = abs(modulo - abs(a - b))
   result = min(d1, d2)
 
-template asType[T](s: seq[T], dtype: typedesc): untyped =
-  mapIt(s, dtype(it))
-
 proc calcRiseAndFallTimes*(h5f: var H5FileObj, run_number: int) =
   ## proc which reads the FADC data from the given file
   ## then performs the calculation of fall and rise tim

@@ -104,7 +104,6 @@ macro `+`[N, M: int](a: array[N, string], b: array[M, string]): untyped =
     tree
   )
 
-
 proc initDataTab[T: (float | int), N: int](tab: var Table[string, seq[seq[T]]],
                                            nchips: int,
                                            names: array[N, string]) =

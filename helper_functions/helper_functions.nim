@@ -333,6 +333,11 @@ proc getDaysHoursMinutes*(dur: Duration): string =
     minutes = dur.minutes - convert(Days, Minutes, dur.days) - convert(Hours, Minutes, hours)
   result = &"{days} days {hours:02}:{minutes:02}"
 
+template getDateSyntax*(): string =
+  ## returns the default syntax used when echoing a `DateTime` or `Time` object
+  ## to parse a thusly created string   
+  "yyyy-MM-dd'T'HH-mm-sszzz"
+
 when isMainModule:
   # unit test for a regex to check for
   import re

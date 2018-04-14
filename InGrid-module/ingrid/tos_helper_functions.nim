@@ -848,11 +848,9 @@ iterator runs*(h5f: var H5FileObj, reco = true): (string, string) =
     
   let run_regex = re(data_basename & r"(\d+)$")
   var run: array[1, string]
-  var reco_run: seq[FlowVar[ref RecoEvent]] = @[]
   for grp in keys(h5f.groups):
     if grp.match(run_regex, run) == true:
       # now read some data. Return value will be added later
-      #let run_number = parseInt(run[0])
       yield (run[0], grp)
 
   

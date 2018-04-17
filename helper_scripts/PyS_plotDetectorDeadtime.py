@@ -28,12 +28,12 @@ def fancy_plotting():
     fig_height = 1.3*fig_width*golden_mean      # height in inches
     fig_size =  [fig_width,fig_height]
     params = {'backend': 'ps',
-              'axes.labelsize':      20,#10,
-              'axes.titlesize':      20,
-              'font.size':           20,
-              'legend.fontsize':     16,#10,
-              'xtick.labelsize':     16,#8,
-              'ytick.labelsize':     16,#8,
+              'axes.labelsize':      30,#10,
+              'axes.titlesize':      30,
+              'font.size':           30,
+              'legend.fontsize':     24,#10,
+              'xtick.labelsize':     24,#8,
+              'ytick.labelsize':     24,#8,
               'text.usetex':         True,
               'text.latex.preamble': [r'\usepackage{siunitx} \usepackage{mhchem}'],
               'font.family':         'serif',

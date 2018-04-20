@@ -16,6 +16,7 @@ import nimhdf5
 
 # other modules
 import arraymancer
+import loopfusion
 
 import macros
 
@@ -739,7 +740,6 @@ proc getRecoCombineName*(): string =
   # generates the base path for the combine folder
   result = "/reconstruction/combined/"
 
-
 macro createCombineTemplates(name, datatype: string): typed =
   # creates a template, which returns a basename of the type
   # combineBasename`name`(chip_number, run_number): string =
@@ -827,6 +827,37 @@ template fallTimeBasename*(run_number: int): string =
   getRecoNameForRun(run_number) / "fadc/fallTime"
 
 
+################################################################################
+##################### procs related to X-ray reference datasets ################
+################################################################################  
+
+proc getXrayRefTable*(): Table[int, string] =
+  ## returns a table mapping the different energy bins to the correct
+  ## datasets in the X-ray reference file
+  # NOTE: we could also simply store this in a seq...
+  result = { 0: "C-EPIC-0.6kV",
+             1: "Cu-EPIC-0.9kV",
+             2: "Cu-EPIC-2kV",
+             3: "Al-Al-4kV",
+             4: "Ag-Ag-6kV",
+             5: "Ti-Ti-9kV",
+             6: "Mn-Cr-12kV",
+             7: "Cu-Ni-15kV" }.toTable()
+
+proc getEnergyBinning(): seq[float] =
+  ## returns the binning of the energy (upper range for each bin)
+  ## as a sequence of floats
+  result = @[0.4, 0.7, 1.2, 2.1, 3.2, 4.9, 6.9, Inf]
+
+proc toRefDset*(energy: float): string =
+  ## returns the correct X-ray reference table for a given
+  ## `energy`
+  # define xray table as global to only initialize it once
+  const
+    xray_table = getXrayRefTable()
+    binning = getEnergyBinning()
+  let ind = binning.lowerBound(energy)
+  result = xray_table[ind]
 
 
 ################################################################################
@@ -853,18 +884,21 @@ iterator runs*(h5f: var H5FileObj, reco = true): (string, string) =
       # now read some data. Return value will be added later
       yield (run[0], grp)
 
-  
-  
-
 
 when isMainModule:
 
-  assert combineBasenameToT(0, 1) == "/runs/combined/ToT_0_1"
+  assert combineRawBasenameToT(0, 1) == "/runs/combined/ToT_0_1"
   assert combineRecoBasenameToT(0, 1) == "/reconstruction/combined/ToT_0_1"
+
+  let energies = @[0.1, 0.0, 12.4, 4.4, 2.3, 2.0]
+  let inds = [0, 0, 7, 5, 4, 3]
+  let refs = ["C-EPIC-0.6kV", "C-EPIC-0.6kV", "Cu-Ni-15kV", "Ti-Ti-9kV", "Ag-Ag-6kV", "Al-Al-4kV"]
+  let xray_table = getXrayRefTable()
+  let binning = getEnergyBinning()
+  forEach e in energies, i in inds, r in refs:
+    assert(binning.lowerBound(e) == i)
+    assert(toRefDset(e) == r)
+                                
 
   echo "All tests passed!"
 
-
-
-
-  

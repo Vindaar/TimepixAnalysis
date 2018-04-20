@@ -122,21 +122,6 @@ proc applyEnergyCalibration*(h5f: var H5FileObj, run_number: int, calib_factor: 
       energy_dset.attrs["conversionFactorUsed"] = calib_factor
 
 
-proc calcLogLikelihood*(h5f: var H5FileObj) =
-  ##
-  ## - read all data of single run
-  ## - get energy dataset
-  ## - create energy bins
-  ## - use digitize to get the correct energy bins for each cluster
-  ## - create individual seq's for each energy bin (containing all
-  ##   clusters and the corresponding properties)
-  ## - create histogram for each of these energy binned properties
 
-  ## in XrayLikelihoodProcessor we have
-  ## - 1 histogram for each property and each energy bin
-  ## - fill them with the log likelihood of all events falling into that histogram
-  ##   - logLikelihood:
-  ##     get number of elements in histogram at the bin for the element for which we get
-  ##     the logL
-  ##     # elements / # total in histogram = likelihood. Take log
-  discard
+
+  

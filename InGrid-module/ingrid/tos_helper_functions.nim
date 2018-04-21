@@ -681,8 +681,7 @@ template applyPitchConversion*[T: (float | int)](x, y: T): (float, float) =
   # pixel position --> position from center in mm
   ((float(NPIX) - float(x) - 0.5) * PITCH, (float(y) + 0.5) * PITCH)
 
-
-proc fillRunHeader*(event: ref Event): Table[string, string] =
+proc fillRunHeader*(event: Event): Table[string, string] =  
   result = initTable[string, string]()
   # run number
   result["runNumber"] = event.evHeader["runNumber"]

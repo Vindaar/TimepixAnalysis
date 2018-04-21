@@ -154,32 +154,40 @@ proc batchFileReading[T](files: var seq[string],
   echo "Compared with starting files " & $n_files
 
 
-proc readRawInGridData(run_folder: string): seq[FlowVar[ref Event]] =
-  # given a run_folder it reads all event files (data<number>.txt) and returns
-  # a sequence of FlowVars of references to Events, which store the raw
-  # event data
-  # NOTE: this procedure does the reading of the data in parallel, thanks to
-  # using spawn
+proc readRawInGridData(run_folder: string): seq[Event] =
+  ## given a run_folder it reads all event files (data<number>.txt) and returns
+  ## a sequence of Events, which store the raw event data
+  ## Intermediately we receive FlowVars to ref Events after reading. We read via
+  ## inodes, which may be scramled, so we sort the data and get the FlowVar values.
+  ## NOTE: this procedure does the reading of the data in parallel, thanks to
+  ## using spawn
   let regex_tup = getRegexForEvents()
   # get a sorted list of files, sorted by inode
-  var files: seq[string] = getSortedListOfFiles(run_folder, EventSortType.fname, EventType.InGridType)
-  result = batchFileReading[Event](files, regex_tup)
-
-proc processRawInGridData(ch: seq[FlowVar[ref Event]]): ProcessedRun =
-  # procedure to process the raw data read from the event files by readRawInGridData
-  # inputs:
-  #    ch: seq[FlowVar[ref Event]] = seq of FlowVars of references to Event objects, which
-  #        each store raw data of a single event.
-  #        We read data of FlowVars and store it in normal events, perform calculations
-  #        to obtain ToT per pixel, number of hits and occupancies of that data
-  # outputs:
-  #   ProcessedRun containing:
-  #    events:    seq[Event] = the raw data from the seq of FlowVars saved in seq of Events
-  #    tuple of:
-  #      tot:  seq[seq[int]] = ToT values for each chip of Septemboard for run
-  #      hits: seq[seq[int]] = number of hits for each chip of Septemboard fo run
-  #      occ:    Tensor[int] = (7, 256, 256) tensor containing occupancies of all chips for
-  #        this data.
+  var files: seq[string] = getSortedListOfFiles(run_folder, EventSortType.inode, EventType.InGridType)
+  let raw_ingrid = batchFileReading[Event](files, regex_tup)
+  # now sort the seq of flowvars according to event numbers again, otherwise
+  # h5 file is all mangled
+  echo "Sorting data..."
+  var numList = mapIt(raw_ingrid, (^it)[].evHeader["eventNumber"].parseInt)
+  result = newSeq[Event](raw_ingrid.len)
+  for i, ind in numList:
+    result[ind] = (^raw_ingrid[i])[]
+  echo "...Sorting done"
+  
+proc processRawInGridData(ch: seq[Event]): ProcessedRun = #seq[FlowVar[ref Event]]): ProcessedRun =
+  ## procedure to process the raw data read from the event files by readRawInGridData
+  ## inputs:
+  ##    ch: seq[Event]] = seq of Event objects, which each store raw data of a single event.
+  ##        We read normal events, perform calculations
+  ##        to obtain ToT per pixel, number of hits and occupancies of that data
+  ## outputs:
+  ##   ProcessedRun containing:
+  ##    events:    seq[Event] = the raw data from the seq of FlowVars saved in seq of Events
+  ##    tuple of:
+  ##      tot:  seq[seq[int]] = ToT values for each chip of Septemboard for run
+  ##      hits: seq[seq[int]] = number of hits for each chip of Septemboard fo run
+  ##      occ:    Tensor[int] = (7, 256, 256) tensor containing occupancies of all chips for
+  ##        this data.
 
   # variable to count number of processed files
   var
@@ -197,11 +205,11 @@ proc processRawInGridData(ch: seq[FlowVar[ref Event]]): ProcessedRun =
     events = newSeq[Event](len(ch))
   let
     # get the run specific time and shutter mode
-    time = parseFloat((^ch[0]).evHeader["shutterTime"])
-    mode = float(parseShutterMode(((^ch[0]).evHeader["shutterMode"])))
+    time = parseFloat(ch[0].evHeader["shutterTime"])
+    mode = float(parseShutterMode(ch[0].evHeader["shutterMode"]))
 
   # set the run number
-  result.run_number = parseInt((^ch[0]).evHeader["runNumber"])
+  result.run_number = parseInt(ch[0].evHeader["runNumber"])
 
   # initialize empty sequences. Input to anonymous function is var
   # as we change each inner sequence in place with newSeq
@@ -213,7 +221,7 @@ proc processRawInGridData(ch: seq[FlowVar[ref Event]]): ProcessedRun =
   for i in 0..ch.high:
   # assign the length field of the ref object
     # for the rest, get a copy of the event
-    var a: Event = (^ch[i])[]
+    var a: Event = ch[i]
     # TODO: think about parallelizing here by having proc, which
     # works processes the single event?
     a.length = calcLength(a, time, mode)
@@ -243,7 +251,7 @@ proc processRawInGridData(ch: seq[FlowVar[ref Event]]): ProcessedRun =
 
   # use first event of run to fill event header. Fine, because event
   # header is contained in every file
-  result.runHeader = fillRunHeader(^ch[0])
+  result.runHeader = fillRunHeader(ch[0]) #^ch[0])
   result.events = events
   result.tots = tot
   result.hits = hits

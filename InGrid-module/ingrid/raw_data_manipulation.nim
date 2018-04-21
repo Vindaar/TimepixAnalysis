@@ -17,7 +17,7 @@ import tables
 import times
 import threadpool
 import memfiles
-import strutils
+import strutils, strformat
 import docopt
 import typetraits
 import sets
@@ -47,7 +47,7 @@ import arraymancer
 ## ToT values as uint16
 ## hits as uint16
 
-const FILE_BUFSIZE = 30000
+const FILE_BUFSIZE = 10000
 
 let doc = """
 InGrid raw data manipulation.
@@ -162,7 +162,7 @@ proc readRawInGridData(run_folder: string): seq[FlowVar[ref Event]] =
   # using spawn
   let regex_tup = getRegexForEvents()
   # get a sorted list of files, sorted by inode
-  var files: seq[string] = getSortedListOfFiles(run_folder, EventSortType.inode, EventType.InGridType)
+  var files: seq[string] = getSortedListOfFiles(run_folder, EventSortType.fname, EventType.InGridType)
   result = batchFileReading[Event](files, regex_tup)
 
 proc processRawInGridData(ch: seq[FlowVar[ref Event]]): ProcessedRun =
@@ -715,8 +715,11 @@ proc main() =
   if outfile == "nil":
     outfile = "run_file.h5"
   var nofadc: bool = false
-  if $args["--nofadc"] != "nil":
+  if $args["--nofadc"] != "false":
+    echo $args["--nofadc"]
     nofadc = true
+
+  echo &"No fadc is {nofadc}"
 
   # first check whether given folder is valid run folder
   let (is_run_folder, contains_run_folder) = isTosRunFolder(folder)

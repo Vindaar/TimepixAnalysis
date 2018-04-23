@@ -956,9 +956,8 @@ proc getRegionCut*(region: ChipRegion): CutsRegion =
 ################################################################################
 
 iterator runs*(h5f: var H5FileObj, reco = true): (string, string) =
-  # simple iterator, which yields the group name of runs
-  # in the file. If reco is true (default) we yield
-  # reconstruction groups, else raw grous
+  ## simple iterator, which yields the run number and group name of runs in the file. 
+  ## If reco is true (default) we yield reconstruction groups, else raw groups
   var data_basename: string = ""
   if reco == true:
     data_basename = recoBase()

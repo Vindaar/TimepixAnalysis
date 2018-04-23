@@ -470,6 +470,11 @@ proc readProcessWriteFadcData(run_folder: string, run_number: int, h5f: var H5Fi
     files_read = files_read.concat(mfiles)
 
     raw_fadc_data = batchFileReading[FadcFile](mfiles)
+
+    # TODO: read FADC files also by inode and then sort the fadc 
+    # we just read here. NOTE: for that have to change the writeFadcDataToH5
+    # proc to accomodate that!
+    
     # given read files, we now need to append this data to the HDF5 file, before
     # we can process more data, otherwise we might run out of RAM
     f_proc = raw_fadc_data.processFadcData

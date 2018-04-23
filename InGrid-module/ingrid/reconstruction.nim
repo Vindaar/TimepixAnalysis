@@ -42,14 +42,17 @@ InGrid reconstruction and energy calibration.
 
 Usage:
   reconstruction <HDF5file> [options]
-  reconstruction <HDF5file> --run_number <number> [options]
+  reconstruction <HDF5file> --out <name> [options]
+  reconstruction <HDF5file> --run_number <number> --out <name> [options]
   reconstruction <HDF5file> --run_number <number> --create_fe_spec [options]
+  reconstruction <HDF5file> --run_number <number> --create_fe_spec --out <name> [options]
   reconstruction <HDF5file> --run_number <number> --only_energy <factor> [options]
   reconstruction <HDF5file> --run_number <number> --only_fadc [options]
+  reconstruction <HDF5file> --run_number <number> [options]
   reconstruction <HDF5file> (--create_fe_spec | --calib_energy) [options]
   reconstruction <HDF5file> --only_energy <factor> [options]
   reconstruction <HDF5file> --only_fadc [options]
-  reconstruction <HDF5file> --out <name> [options]
+
   reconstruction -h | --help
   reconstruction --version
 
@@ -130,12 +133,17 @@ proc createDatasets[N: int](dset_tab: var Table[string, seq[H5DataSet]],
     for chip in 0 ..< nchips:
       dset_tab[dset][chip] = h5f.create_dataset(groups[chip].name / dset, lengths[chip], dtype = dtype)
 
-proc writeRecoRunToH5(h5f: var H5FileObj, reco_run: seq[FlowVar[ref RecoEvent]], run_number: int) =
+proc writeRecoRunToH5(h5f: var H5FileObj,
+                      h5fraw: var H5FileObj,
+                      reco_run: seq[FlowVar[ref RecoEvent]],
+                      run_number: int) =
   ## proc which writes the reconstructed event data from a single run into
   ## the given H5 file. Called after every processed run
   ## inputs:
-  ##     h5f: var H5FileObj = the H5 file object in which to store data
-  ##     reco_run: seq[FlowVar[ref RecoEvent]] = sequence of reconstructed events
+  ##     `h5f`: var H5FileObj = the H5 file object in which to store data
+  ##     `h5fraw`: var H5FileObj = the H5 file objcect containing the raw data,
+  ##       may be the same file as `h5f`.
+  ##     `reco_run`: seq[FlowVar[ref RecoEvent]] = sequence of reconstructed events
   ##       to write to file. FlowVar[ref Event], due to using threadpool / spawn
   ##       to reconstruct the runs in parallel
   ## outputs: -
@@ -258,7 +266,7 @@ proc writeRecoRunToH5(h5f: var H5FileObj, reco_run: seq[FlowVar[ref RecoEvent]],
 
     # anyways, write the chip dataset attributes
     let raw_chip_group_name = raw_groups & $chip
-    var raw_group = h5f[raw_chip_group_name.grp_str]
+    var raw_group = h5fraw[raw_chip_group_name.grp_str]
     let ch_numb = raw_group.attrs["chipNumber", int]
     let ch_name = raw_group.attrs["chipName", string]
     # and write these to the current group
@@ -335,12 +343,10 @@ proc excentricity(n: cuint, p: array[1, cdouble], grad: var array[1, cdouble], f
     sum_x2: cdouble = 0
     sum_y2: cdouble = 0
 
-  # echo "Starting new calc with param ", p[0]
   for i in 0..<len(c):
     let
       new_x = cos(p[0]) * (cdouble(c[i].x) - cdouble(x)) * PITCH - sin(p[0]) * (cdouble(c[i].y) - cdouble(y)) * PITCH
       new_y = sin(p[0]) * (cdouble(c[i].x) - cdouble(x)) * PITCH + cos(p[0]) * (cdouble(c[i].y) - cdouble(y)) * PITCH
-    # echo "new_x is ", new_x, " and new_y ", new_y
     sum_x += new_x
     sum_y += new_y
     sum_x2 += (new_x * new_x)
@@ -351,7 +357,6 @@ proc excentricity(n: cuint, p: array[1, cdouble], grad: var array[1, cdouble], f
     rms_x: cdouble = sqrt( (sum_x2 / n_elements) - (sum_x * sum_x / n_elements / n_elements))
     rms_y: cdouble = sqrt( (sum_y2 / n_elements) - (sum_y * sum_y / n_elements / n_elements))
 
-  #echo "sum_x2 / elements ", sum_x2 / n_elements, "sum_x * sum_x / elements / elements ", sum_x * sum_x / n_elements / n_elements
   let exc = rms_x / rms_y
 
   # need to check whether grad is nil. Only used for some algorithms, otherwise a
@@ -361,7 +366,6 @@ proc excentricity(n: cuint, p: array[1, cdouble], grad: var array[1, cdouble], f
     # not going to use it. Can also remove this whole if statement
     discard
 
-  #echo "parameters ", sum_x, " ", sum_y, " ", sum_x2, " ", sum_y2, " ", rms_x, " ", rms_y, " ", n_elements, " exc ", exc
   result = -exc
 
 proc calcGeomtry(cluster: Cluster, pos_x, pos_y, rot_angle: float): ClusterGeometry =
@@ -409,12 +413,14 @@ proc calcGeomtry(cluster: Cluster, pos_x, pos_y, rot_angle: float): ClusterGeome
   result.eccentricity         = result.rmsLongitudinal / result.rmsTransverse
   # get fraction of all pixels within the transverse RMS, by filtering all elements
   # within the transverse RMS radius and dividing by total pix
-  # DEBUG
-  # echo "rms trans is ", result.rms_trans
-  # echo "std is ", stat_y.variance()
-  # echo "thus filter is ", filterIt(zip(xRot, yRot), distance(it.a, it.b) <= result.rms_trans)
+  when not defined(release):
+    # DEBUG
+    echo "rms trans is ", result.rms_trans
+    echo "std is ", stat_y.variance()
+    echo "thus filter is ", filterIt(zip(xRot, yRot), distance(it.a, it.b) <= result.rms_trans)
   result.lengthDivRmsTrans = result.length / result.rmsTransverse
-  result.fractionInTransverseRms = float(filterIt(zip(xRot, yRot), distance(it.a, it.b) <= result.rmsTransverse).len) / float(npix)
+  result.fractionInTransverseRms = float(filterIt(zip(xRot, yRot),
+                                                  distance(it.a, it.b) <= result.rmsTransverse).len) / float(npix)
 
 proc isPixInSearchRadius(p1, p2: Coord, search_r: int): bool =
   # given two pixels, p1 and p2, we check whether p2 is within one square search
@@ -622,22 +628,34 @@ proc reconstructSingleChip(data: seq[Pixels], run, chip: int): seq[FlowVar[ref R
 
 #iterator matchingGroup(h5f: var H5FileObj,
 
-proc reconstructAllRunsInFile(h5f: var H5FileObj, flags_tab: Table[string, bool], calib_factor: float = 1.0) =
-  ## proc which performs reconstruction of all runs in a given file
+proc reconstructRunsInFile(h5f: var H5FileObj,
+                           h5fout: var H5FileObj,
+                           flags_tab: Table[string, bool],
+                           run_num_arg: int = -1,
+                           calib_factor: float = 1.0) =
+  ## proc which performs reconstruction of runs in a given file (all by default)
   ## if the --only_energy command line argument is set, we skip the reconstruction
   ## and only perform an energy calibration of the existing (!) reconstructed
   ## runs using the calibration factor given
+  ## inputs:
+  ##   `h5f`: the file from which we read the raw data
+  ##   `h5fout`: the file to which we write the reconstructed data. May be the same file
+  ##   `flags_tab`: stores the command line arguments
+  ##   `run_number`: optional run number, if given only this run is reconstructed
+  ##   `calib_factor`: factor to use to calculate energy of clusters
+  ##   `h5fout`: optional file to which the reconstructed data is written instead
+  
   let
     raw_data_basename = rawDataBase()
-    run_regex = re(raw_data_basename & r"(\d+)$")
     t0 = epochTime()
-  var run: array[1, string]
   var reco_run: seq[FlowVar[ref RecoEvent]] = @[]
-  for grp in keys(h5f.groups):
-    if grp.match(run_regex, run) == true:
-      # now read some data. Return value will be added later
-      let run_number = parseInt(run[0])
-
+  
+  # iterate over all raw data groups
+  for num, grp in runs(h5f, reco = false):
+    # now read some data. Return value will be added later
+    let run_number = parseInt(num)
+    # check whether all runs are read, if not if this run is correct run number
+    if run_num_arg < 0 or run_number == run_num_arg:
       if flags_tab["only_energy"] == false and flags_tab["only_fadc"] == false:
         # TODO: we can in principle perform energy calibration in one go
         # together with creation of spectrum, if we work as follows:
@@ -657,100 +675,44 @@ proc reconstructAllRunsInFile(h5f: var H5FileObj, flags_tab: Table[string, bool]
 
         echo "Reconstruction of run $# took $# seconds" % [$run_number, $(epochTime() - t1)]
         # finished run, so write run to H5 file
-        h5f.writeRecoRunToH5(reco_run, run_number)
+        h5fout.writeRecoRunToH5(h5f, reco_run, run_number)
         # set reco run length back to 0
         reco_run.setLen(0)
 
         # now check whether create iron spectrum flag is set
         if flags_tab["create_fe"] == true:
-          createFeSpectrum(h5f, run_number)
+          h5fout.createFeSpectrum(run_number)
         elif flags_tab["calib_energy"] == true:
           # TODO: change the 1.1 to the correct value gained from the Fe spectrum
           # However, this can only be done after the fit has been done in Python
           # we may call another function before, which makes a system call to the
           # Python fitting script and reads the value back from there.
-          applyEnergyCalibration(h5f, run_number, 1.1)
+          h5fout.applyEnergyCalibration(run_number, 1.1)
       else:
         # only perform energy calibration of the reconstructed runs in file
         # check if reconstructed run exists
-        if hasKey(h5f.groups, (recoBase & $run_number)) == true:
+        if hasKey(h5fout.groups, (recoBase & $run_number)) == true:
           if flags_tab["only_energy"] == true:
-            applyEnergyCalibration(h5f, run_number, calib_factor)
+            h5fout.applyEnergyCalibration(run_number, calib_factor)
           if flags_tab["only_fadc"] == true:
-            calcRiseAndFallTimes(h5f, run_number)
+            h5fout.calcRiseAndFallTimes(run_number)
         else:
           echo "No reconstructed run found for $#" % $grp
-    else:
-      # this is the case in which group was not matched to regex
-      discard
+        
   echo "Reconstruction of all runs in $# took $# seconds" % [$h5f.name, $(epochTime() - t0)]
 
-proc reconstructSingleRunInFile(h5f: var H5FileObj,
-                                run_number: int,
-                                flags_tab: Table[string, bool],
-                                calib_factor: float = 1.0) =
-  ## proc which performs reconstruction of a single run in a given file
-  ## if the --only_energy command line argument is set, we skip the reconstruction
-  ## and only perform an energy calibration of the existing (!) reconstructed
-  ## runs using the calibration factor given
-
-  ## TODO: combine this with proc above
-  let
-    raw_data_basename = rawDataBase()
-    run_name = raw_data_basename & $run_number
-    t0 = epochTime()
-  echo "Reading group name $#" % $(raw_data_basename & $run_number)
-  var reco_run: seq[FlowVar[ref RecoEvent]] = @[]
-  for grp in keys(h5f.groups):
-    if grp == run_name or grp == run_name & "/":
-      # now read some data. Return value will be added later
-      if flags_tab["only_energy"] == false and flags_tab["only_fadc"] == false:
-        # TODO: we can in principle perform energy calibration in one go
-        # together with creation of spectrum, if we work as follows:
-        # 1. calibration runs:
-        #    - need to interface with Python code, i.e. call fitting procedure,
-        #      which returns the value to the Nim program as its return value
-
-        let t1 = epochTime()
-        for chip, pixdata in h5f.readDataFromH5(grp, run_number):
-          # given single runs pixel data, call reconstruct run proc
-          # NOTE: the data returned from the iterator contains all
-          # events in ascending order of event number, i.e.
-          # [0] -> eventNumber == 0 and so on
-          reco_run.add reconstructSingleChip(pixdata, run_number, chip)
-
-        echo "Reconstruction of run $# took $# seconds" % [$run_number, $(epochTime() - t1)]
-        # finished run, so write run to H5 file
-        h5f.writeRecoRunToH5(reco_run, run_number)
-        # set reco run length back to 0
-        reco_run.setLen(0)
-
-        # now check whether create iron spectrum flag is set
-        if flags_tab["create_fe"] == true:
-          createFeSpectrum(h5f, run_number)
-        elif flags_tab["calib_energy"] == true:
-          # TODO: change the 1.1 to the correct value gained from the Fe spectrum
-          # However, this can only be done after the fit has been done in Python
-          # we may call another function before, which makes a system call to the
-          # Python fitting script and reads the value back from there.
-          applyEnergyCalibration(h5f, run_number, 1.1)
-      else:
-        # only perform energy calibration of the reconstructed runs in file
-        # check if reconstructed run exists
-        if hasKey(h5f.groups, (recoBase & $run_number)) == true:
-          if flags_tab["only_energy"] == true:
-            applyEnergyCalibration(h5f, run_number, calib_factor)
-          if flags_tab["only_fadc"] == true:
-            calcRiseAndFallTimes(h5f, run_number)
-        else:
-          echo "No reconstructed run found for $#" % $grp
-
-      # since we found the run, we can break from the loop
-      break
-    else:
-      # this is the case in which group was not matched to regex
-      discard
-  echo "Reconstruction of run $# in $# took $# seconds" % [$run_number, $h5f.name, $(epochTime() - t0)]
+proc reconstructRunsInFile(h5f: var H5FileObj,
+                           flags_tab: Table[string, bool],
+                           run_num_arg: int = -1,
+                           calib_factor: float = 1.0) =
+  ## this proc is a wrapper around the one above, which is called in case
+  ## no output H5 file is given. In that case we simply hand the input file
+  ## as the output file to the proc
+  # in case we want to write the reconstructed data to the same file,
+  # simply set h5fout to h5f. This creates a copy of h5f, but we don't care
+  # since it points to the same file and the important group / dset tables
+  # are stored as references anyways
+  reconstructRunsInFile(h5f, h5f, flags_tab, run_num_arg, calib_factor)  
 
 proc reconstructSingleRunFolder(folder: string) =
   # procedure which receives path to a run folder and reconstructs the objects
@@ -806,8 +768,14 @@ proc main() =
   if run_number == "nil":
     run_number = ""
   if outfile == "nil":
-    echo "Currently not implemented. What even for?"
+    echo &"Currently not implemented. What even for? outfile was {outfile}"
     outfile = "None"
+  else:
+    outfile = $args["--out"]
+    echo &"Set outfile to {outfile}"
+    echo "WARNING: writing to a different H5 file is not quite finished yet."
+    echo "\t The resulting file will miss the attributes of the reco run groups"
+    echo "\t as well as the common datasets like timestamps!"
   if create_fe_arg == "nil":
     create_fe_flag = false
   else:
@@ -835,12 +803,31 @@ proc main() =
   var h5f = H5file(h5f_name, "rw")
   # visit the whole file to read which groups exist
   h5f.visitFile
+  var h5fout: H5FileObj
+  if outfile != "None":
+    h5fout = H5file(outfile, "rw")
+    h5fout.visitFile
+  
   let raw_data_basename = rawDataBase()
-  if run_number == "":
-    reconstructAllRunsInFile(h5f, flags_tab, calib_factor)
-  else:
-    reconstructSingleRunInFile(h5f, parseInt(run_number), flags_tab, calib_factor)
+  if run_number == "" and outfile == "None":
+    reconstructRunsInFile(h5f, flags_tab, calib_factor = calib_factor)
+  elif run_number != "" and outfile == "None":
+    reconstructRunsInFile(h5f, flags_tab, parseInt(run_number), calib_factor)
+  elif run_number == "" and outfile != "None":
+    reconstructRunsInFile(h5f, h5fout, flags_tab, calib_factor = calib_factor)
+  elif run_number != "" and outfile != "None":
+    reconstructRunsInFile(h5f, h5fout, flags_tab, parseInt(run_number), calib_factor = calib_factor)
+    
 
+  var err: hid_t
+  err = h5f.close()
+  if err != 0:
+    echo &"Failed to close H5 file {h5f.name}"
+  if outfile != "None":
+    err = h5fout.close()
+    if err != 0:
+      echo &"Failed to close H5 file {h5fout.name}"
+    
   # NOTE: there's no point for this anymore, at least not at the moment
   # # first check whether given folder is valid run folder
   # let (is_run_folder, contains_run_folder) = isTosRunFolder(folder)

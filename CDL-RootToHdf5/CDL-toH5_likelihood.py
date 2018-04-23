@@ -80,17 +80,44 @@ def read_from_tree_and_write(h5file, tree, data_type):
     for br in tree.GetListOfBranches():
         branchSizeDict[br.GetName()] = br.GetEntryNumber()
     print branchSizeDict
-    logL = "LikelihoodMarlin"
+    # create special hdf5 type
+    dt8  = h5py.special_dtype(vlen=np.dtype(np.uint8))
+    dt16 = h5py.special_dtype(vlen=np.dtype(np.uint16))
+
     # now create datasets for these
-    br_name = os.path.join(tree.GetName(), logL)
-    shape = (branchSizeDict[logL], 1)
-    dset = h5file.create_dataset(br_name, shape)
+    dset_dict = {}
+    for br in tree.GetListOfBranches():
+        name = br.GetName()
+        br_name = os.path.join(tree.GetName(), name)
+        shape = (branchSizeDict[name], 1)
+        if name in ["XCoordinatesVector", "YCoordinatesVector"]:
+            dset_dict[name] = h5file.create_dataset(br_name, shape, dtype = dt8)
+        elif name in ["ChargeValuesVector"]:
+            dset_dict[name] = h5file.create_dataset(br_name, shape, dtype = dt16)
+        else:
+            dset_dict[name] = h5file.create_dataset(br_name, shape)
 
-    logLData = np.zeros(shape)
-    for i, event in enumerate(tree):
-        logLData[i] = event.LikelihoodMarlin
-
-    dset[:] = logLData
+    for ind, event in enumerate(tree):
+        if ind % 10000 == 0:
+            print ind, " events done"
+        for br in tree.GetListOfBranches():
+            branch = br.GetName()
+            if branch == "XCoordinatesVector":
+                x   = np.asarray(event.XCoordinatesVector, dtype=np.uint8)
+                dset_dict[branch][ind]  = x
+            elif branch == "YCoordinatesVector":
+                y   = np.asarray(event.YCoordinatesVector, dtype=np.uint8)
+                dset_dict[branch][ind]  = y
+            elif branch == "ChargeValuesVector":
+                ch  = np.asarray(event.ChargeValuesVector, dtype=np.uint16)
+                dset_dict[branch][ind] = ch
+            elif branch == "EnergyFromCharge":
+                E   = float(event.EnergyFromCharge)
+                dset_dict[branch][ind]  = E
+            else:
+                # in every other case simply access the correct attribute via its name as a
+                # string using a python function
+                dset_dict[branch][ind] = getattr(event, branch)
 
 
 def create_hdf5_file(outfile_str, fname, trees):
@@ -114,8 +141,8 @@ def create_hdf5_file(outfile_str, fname, trees):
 
     f = TFile.Open(fname)
     # finally run over all files and trees and add data to groups
-    for tree in trees:
-        print f
+    #for tree in trees:
+    #    print f
         # print f.Get("/MyXrayGeometryAnalysisProcessor/excentricity") #f.FindObject("/MyXrayGeometryAnalysisProcessor/excentricity")
         # dd = f.GetListOfKeys()
         # for x in dd:
@@ -125,12 +152,12 @@ def create_hdf5_file(outfile_str, fname, trees):
 
         # import sys
         # sys.exit()
-        for kclass, name, obj in getall(f):
-            # given a tree, write the contents of the tree to a h5 file
-            if kclass == "TTree":
-                read_from_tree_and_write(outfile, obj, "reference")
-            else:
-                read_from_dir_and_write(outfile, obj, "reference", kclass, fname)
+    for kclass, name, obj in getall(f):
+        # given a tree, write the contents of the tree to a h5 file
+        if kclass == "TTree":
+            read_from_tree_and_write(outfile, obj, "reference")
+        else:
+            read_from_dir_and_write(outfile, obj, "reference", kclass, fname)
 
 
     outfile.close()

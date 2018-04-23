@@ -8,11 +8,12 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 
 def getListOfDsets():
-    dsets = ["hits", "sumToT", "centerX", "centerY",
+    dsets = ["hits", "sumTot", "centerX", "centerY",
              "energyFromPixel", "rmsLongitudinal", "rmsTransverse", 
              "skewnessLongitudinal", "skewnessTransverse", "kurtosisLongitudinal",
              "kurtosisTransverse", "eccentricity", "rotationAngle",
-             "length", "width", "fractionInTransveseRms"]
+             "length", "width", "fractionInTransverseRms", "lengthDivRmsTrans",
+             "energyCut"]
     return dsets
 
 def getBinRangeForDset(dset):

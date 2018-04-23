@@ -59,20 +59,24 @@ def plotsForAllDsets(h5file, all_runs = False, h5file2 = None):
                 grp_name = recoBase() + grp + "/chip_{}".format(chip)
                 for dset in dsets:
                     print("Reading dataset {}".format(dset))
-                    data = readH5DataSingle(h5file, grp_name, [dset])
-                    plotData(data, None,#binning,
-                             "plots/{0}_run_{1}_chip_{2}".format(dset, run_number, chip),
-                             "{0} of run {1} for chip {2}".format(dset, run_number, chip),
-                             dset,
-                             "# hits",
-                             fitting_only = True)
+                    range = getBinRangeForDset(dset)
+                    try:
+                        data = readH5DataSingle(h5f, grp_name, [dset])
+                                 "plots/{0}_run_{1}_chip_{2}".format(dset, run_number, chip),
+                                 "{0} of run {1} for chip {2}".format(dset, run_number, chip),
+                                 dset,
+                                 "# hits",
+                                 fitting_only = True)
+                    except KeyError:
+                        print("Key {} could not be found in file {}".format(dset, h5file))
     if all_runs == True:
         # give recoBase as group name for the argument
         if h5file2 is None:
             for dset in dsets:
                 for chip, data in iterH5DatasetAndChps(h5file, dset):
                     range = getBinRangeForDset(dset)
-                    plotData(data, None, range,#binning,
+                    nbins = getNumBinsForDset(dset)
+                    plotData(data, nbins, range,#binning,
                              "plots/{0}_all_runs_chip_{1}".format(dset, chip),
                              "{0} for chip {1} for all runs".format(dset, chip),
                              dset,

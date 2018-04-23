@@ -399,12 +399,12 @@ proc calcGeomtry(cluster: Cluster, pos_x, pos_y, rot_angle: float): ClusterGeome
   # now we have all data to calculate the geometric properties
   result.length               = max(xRot) - min(xRot)
   result.width                = max(yRot) - min(yRot)
-  result.rmsTransverse        = stat_x.standardDeviation()
-  result.rmsLongitudinal      = stat_y.standardDeviation()
-  result.skewnessTransverse   = stat_x.skewness()
-  result.skewnessLongitudinal = stat_y.skewness()
-  result.kurtosisTransverse   = stat_x.kurtosis()
-  result.kurtosisLongitudinal = stat_y.kurtosis()
+  result.rmsTransverse        = stat_y.standardDeviation()
+  result.rmsLongitudinal      = stat_x.standardDeviation()
+  result.skewnessTransverse   = stat_y.skewness()
+  result.skewnessLongitudinal = stat_x.skewness()
+  result.kurtosisTransverse   = stat_y.kurtosis()
+  result.kurtosisLongitudinal = stat_x.kurtosis()
   result.rotationAngle        = rot_angle
   result.eccentricity         = result.rmsLongitudinal / result.rmsTransverse
   # get fraction of all pixels within the transverse RMS, by filtering all elements

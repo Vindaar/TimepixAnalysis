@@ -16,6 +16,10 @@ def getListOfDsets():
              "energyCut"]
     return dsets
 
+def savefigure(name):
+    plt.savefig(name + ".pdf")
+    plt.savefig(name + ".png")
+
 def getBinRangeForDset(dset):
     if dset == "hits":
         return (0, 500)
@@ -163,10 +167,8 @@ def plotData(hist, binning, range, outfile, title, xlabel, ylabel, save_plot = T
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     #ax.set_xlim(0, np.percentile(data, 98))
-    outname = outfile + ".pdf"
-
     if save_plot == True:
-        plt.savefig(outname)
+        savefigure(outfile)
         if fitting_only == False:
             plt.show()
         return None
@@ -181,11 +183,8 @@ def plotScatter(x_data, y_data, x_range, y_range, outfile, title, xlabel, ylabel
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
 
-    outname = outfile + ".pdf"
-
     if save_plot == True:
-        plt.savefig(outname)
-
+        savefigure(outfile)
     plt.show()
 
 def plotVsTime(times, y_data, x_range, y_range, outfile, title, xlabel, ylabel, save_plot = True):
@@ -212,10 +211,8 @@ def plotVsTime(times, y_data, x_range, y_range, outfile, title, xlabel, ylabel, 
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
 
-    outname = outfile + ".pdf"
-
     if save_plot == True:
-        plt.savefig(outname)
+        savefigure(outfile)
 
     plt.show()    
     

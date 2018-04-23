@@ -21,7 +21,7 @@ def getBinRangeForDset(dset):
         return (0, 500)
     elif dset == "energyFromPixel":
         return (0, 10000)
-    elif dset == "sumToT":
+    elif dset == "sumTot":
         # TODO: check
         return (0, 20000)
     elif dset == "kurtosisLongitudinal":
@@ -34,6 +34,8 @@ def getBinRangeForDset(dset):
         return (0, 250)
     elif dset == "length_rmsTransverse":
         return (2, 8)
+    elif dset == "energyCut":
+        return (0, 10000)
     elif "minvals" in dset:
         return (-0.6, 0.0)
     elif "riseTime" in dset:
@@ -42,6 +44,36 @@ def getBinRangeForDset(dset):
         return (100, 700)
     else:
         return None
+
+def getNumBinsForDset(dset):
+    print "Getting number of bins for ", dset
+    if dset == "hits":
+        return 500
+    elif dset == "energyFromPixel":
+        return 100
+    elif dset == "sumTot":
+        # TODO: check
+        return 100
+    elif dset == "kurtosisLongitudinal":
+        return 30
+    elif dset == "kurtosisTransverse":
+        return 30
+    elif dset == "eccentricity":
+        return 30
+    elif dset == "ToT":
+        return 30
+    elif dset == "length_rmsTransverse":
+        return 30
+    elif dset == "energyCut":
+        return 20
+    elif "minvals" in dset:
+        return 30
+    elif "riseTime" in dset:
+        return 30
+    elif "fallTime" in dset:
+        return 30
+    else:
+        return None    
     
 
 def readFileColumn(filename):
@@ -100,6 +132,9 @@ def plotData(hist, binning, range, outfile, title, xlabel, ylabel, save_plot = T
     fig, ax = plt.subplots(1, 1)
     #ax.hist(data, bins = 199)
     if binning is None:
+        print "Binning is ", binning
+        binning = 249
+    if type(binning) is int:
         try:
             if len(hist) > 1 and len(hist) < 10:
                 # in this case we plot 2 files instead of 1
@@ -107,7 +142,7 @@ def plotData(hist, binning, range, outfile, title, xlabel, ylabel, save_plot = T
                 for i in xrange(len(hist)):
                     hist_i = hist[i] #np.concatenate(hist[i]).flatten()
                     ax.hist(hist_i,
-                            bins = 249,
+                            bins = binning,
                             range = range,
                             normed = True,
                             linewidth = 0.0,
@@ -115,7 +150,7 @@ def plotData(hist, binning, range, outfile, title, xlabel, ylabel, save_plot = T
                             color = colors[i])
             else:
                 hist = hist #np.concatenate(hist).flatten()
-                ax.hist(hist, bins = 500, range = range, linewidth = 0.0)
+                ax.hist(hist, bins = binning, range = range, linewidth = 0.0)
         except ValueError:
             print("something broken on outfile {}".format(outfile))
             #print hist

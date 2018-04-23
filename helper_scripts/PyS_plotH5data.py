@@ -60,8 +60,10 @@ def plotsForAllDsets(h5file, all_runs = False, h5file2 = None):
                 for dset in dsets:
                     print("Reading dataset {}".format(dset))
                     range = getBinRangeForDset(dset)
+                    nbins = getNumBinsForDset(dset)
                     try:
                         data = readH5DataSingle(h5f, grp_name, [dset])
+                        plotData(data, nbins, range,
                                  "plots/{0}_run_{1}_chip_{2}".format(dset, run_number, chip),
                                  "{0} of run {1} for chip {2}".format(dset, run_number, chip),
                                  dset,
@@ -86,7 +88,8 @@ def plotsForAllDsets(h5file, all_runs = False, h5file2 = None):
             for dset in dsets:
                 for chip, data in iterTwoH5DatasetAndChps([h5file, h5file2], dset):
                     range = getBinRangeForDset(dset)
-                    plotData(data, None, range,#binning,
+                    nbins = getNumBinsForDset(dset)
+                    plotData(data, nbins, range,#binning,
                              "plots/{0}_all_runs_chip_{1}".format(dset, chip),
                              "{0} for chip {1} for all runs".format(dset, chip),
                              dset,
@@ -164,8 +167,9 @@ def readAndPlotRatioDsets(h5file, h5file2, group_name, chip, dset_name, run_numb
         data = [dataf1]
     dset_name = dset_name[0] + "_" + dset_name[1]
     range = getBinRangeForDset(dset_name)
+    nbins = getNumBinsForDset(dset)
     print range
-    plotData(data, None, range,#binning,
+    plotData(data, nbins, range,#binning,
              "{0}_{1}".format(dset_name, run_number),
              "{0} of run {1}".format(dset_name, run_number),
              dset_name,
@@ -288,7 +292,8 @@ def main(args):
             if args_dict["no_fit"] == True or dset_name != "FeSpectrum":
                 #hist, binning = binData(data, cuts)
                 range = getBinRangeForDset(dset_name)
-                plotData(data, None, range,#binning,
+                nbins = getNumBinsForDset(dset_name)
+                plotData(data, nbins, range,#binning,
                          "{0}_{1}".format(dset_name, run_number),
                          "{0} of run {1}".format(dset_name, run_number),
                          dset_name,

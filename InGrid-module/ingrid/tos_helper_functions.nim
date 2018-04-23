@@ -40,14 +40,14 @@ proc sum2*(c: seq[Pix]): Pix {.inline.} =
     result.x += p.x * p.x
     result.y += p.y * p.y
     result.ch += p.ch * p.ch
-    
-proc parseTOSDateString*(date_str: string): Time = 
+
+proc parseTOSDateString*(date_str: string): Time =
   # function receives a string from a date time from TOS and creates
   # a Time object from it
   let date = toTime(parse(date_str, "yyyy-MM-dd.hh:mm:ss"))
   return date
 
-proc readDateFromEvent*(filepath: string): string = 
+proc readDateFromEvent*(filepath: string): string =
   # procedure opens the given file and returns the dateTime value
   # (TOS syntaxed date string)
   for line in lines filepath:
@@ -65,13 +65,13 @@ proc formatAsOrgDate*(t: Time, org_format = "yyyy-MM-dd ddd H:mm"): string =
   let ti = getLocalTime(t)
   result = format(ti, org_format)
 
-proc getTimeFromEvent*(file: string): Time = 
+proc getTimeFromEvent*(file: string): Time =
   # this procedure returns the time info from an event,
   # given the filename by parsing the TOS date syntax
   let date_str = readDateFromEvent(file)
   result = parseTOSDateString(date_str)
 
-proc readListOfFilesAndGetTimes*(path: string, list_of_files: seq[string]): seq[Time] = 
+proc readListOfFilesAndGetTimes*(path: string, list_of_files: seq[string]): seq[Time] =
   # function analogues to walkRunFolderAndGetTimes except we read all files
   # given by list_of_files
   var i: int = 0
@@ -84,10 +84,10 @@ proc readListOfFilesAndGetTimes*(path: string, list_of_files: seq[string]): seq[
       result.add(parseTOSDateString(date_str))
     if i mod 500 == 0:
       echo i, " files read."
-    i += 1    
+    i += 1
   return result
 
-proc walkRunFolderAndGetTimes*(folder: string): seq[Time] = 
+proc walkRunFolderAndGetTimes*(folder: string): seq[Time] =
   var i: int = 0
   result = @[]
 
@@ -105,7 +105,7 @@ proc walkRunFolderAndGetTimes*(folder: string): seq[Time] =
       i += 1
   return result
 
-proc writeDateSeqToFile*(date_seq: seq[Time]): void = 
+proc writeDateSeqToFile*(date_seq: seq[Time]): void =
   let outfile = "times.txt"
   var f: File
   if open(f, outfile, fmWrite):
@@ -151,16 +151,16 @@ proc initIntervalOld*(milliseconds, seconds, minutes, hours, days, months,
 proc getRunTimeInfo*(run_files: seq[string]): RunTimeInfo =
   # this procdure creates a RunTimeInfo object from a given list of files
   # in a run folder (not sorted). The list is sorted and then the first and
-  # last event are read, converted to Time objects and the length of the run 
+  # last event are read, converted to Time objects and the length of the run
   # is calculated from the difference between both events
   # sort list of files
   result = RunTimeInfo()
-  
+
   let
     sorted_files = sorted(run_files, system.cmp[string])
     first_file = sorted_files[0]
     last_file  = sorted_files[^1]
-    # and times 
+    # and times
     time_first = getTimeFromEvent(first_file)
     time_last  = getTimeFromEvent(last_file)
     # calc run length
@@ -168,9 +168,9 @@ proc getRunTimeInfo*(run_files: seq[string]): RunTimeInfo =
   echo "Time first is $# and time last is $#" % [$time_first, $time_last]
   echo "Time difference in seconds $#" % $((time_last - time_first).seconds)
   echo "Time difference start end $#" % $(run_length)
-  
+
   result.t_start = time_first
-  result.t_end = time_last 
+  result.t_end = time_last
   result.t_length = run_length
 
 proc parseShutterMode*(mode: string): int =
@@ -212,7 +212,7 @@ proc calcLength*(event: Event, time, mode: float): float =
   else:
     result = pow(256'f, mode) * 46'f * time / 40'f / 1_000_000'f
 
-proc getRegexForEvents*(): tuple[header, chips, pixels: string] = 
+proc getRegexForEvents*(): tuple[header, chips, pixels: string] =
   # this procedure returns a tuple of the regexes used to
   # read different parts of the events
   # outputs:
@@ -225,10 +225,10 @@ proc getRegexForEvents*(): tuple[header, chips, pixels: string] =
   result.pixels = r"^(\d+)\s+(\d+)\s+(\d+)$"
 
 proc readEventHeader*(filepath: string): Table[string, string] =
-  # this procedure reads a whole event header and returns 
+  # this procedure reads a whole event header and returns
   # a table containing the data, where the key is the key from the data file
   result = initTable[string, string]()
-  
+
   # we define a regex for the header of the file
   let regex = re(r"^\#{2}\s(\w+):\s+\b(\S*)\b")
   var matches: array[2, string]
@@ -240,7 +240,7 @@ proc readEventHeader*(filepath: string): Table[string, string] =
       result[key] = val
 
 # template createTuple(ln: int) =
-  
+
 ##   for i in 0..<ln:
 
 
@@ -260,7 +260,7 @@ proc readMemFilesIntoBuffer*(list_of_files: seq[string]): seq[seq[string]] =
     dat: seq[string] = @[] #newSeqOfCap[string](100)
 
   echo "free memory ", getFreeMem()
-  echo "occ memory ", getOccupiedMem()    
+  echo "occ memory ", getOccupiedMem()
   for f in list_of_files:
     ff = memfiles.open(f, mode = fmRead, mappedSize = -1)
     for l in lines(ff):
@@ -270,7 +270,7 @@ proc readMemFilesIntoBuffer*(list_of_files: seq[string]): seq[seq[string]] =
     dat.setLen(0)
   echo "free memory ", getFreeMem()
   echo "occ memory ", getOccupiedMem()
-  
+
 proc processEventWithRegex*(data: seq[string], regex: tuple[header, chips, pixels: string]): ref Event =
   # this template is used to create the needed functions to
   # - read the event header
@@ -346,7 +346,7 @@ proc processEventWithRegex*(data: seq[string], regex: tuple[header, chips, pixel
         if ch != 11810:
           pixels.add((x, y, ch))
       else:
-        pixels.add((x, y, ch))        
+        pixels.add((x, y, ch))
       # after adding pixel, increase pixel counter so that we know when we're
       # reading the last hit of a given chip
       inc pix_counter
@@ -365,7 +365,7 @@ proc processEventWithRegex*(data: seq[string], regex: tuple[header, chips, pixel
   e_header["timestamp"] = $(int(parseTOSDateString(e_header["dateTime"]).toSeconds))
   result.evHeader = e_header
   result.chips = chips
-  
+
 
 #template readEventWithRegex(filepath, regex: string): typed =
 proc readEventWithRegex*(filepath: string, regex: tuple[header, chips, pixels: string]): ref Event =
@@ -381,7 +381,7 @@ proc readEventWithRegex*(filepath: string, regex: tuple[header, chips, pixels: s
   for line in lines(f):
     data.add(line)
   result = processEventWithRegex(data, regex)
-  
+
 
 
 proc pixelsToTOT*(pixels: Pixels): seq[int] {.inline.} =
@@ -393,7 +393,7 @@ proc pixelsToTOT*(pixels: Pixels): seq[int] {.inline.} =
   #    seq[int]: all ToT values smaller ToT
   result = filter(map(pixels, (p: tuple[x, y, ch: int]) -> int => p.ch),
                   (ch: int) -> bool => ch < 11810)
-  
+
 template addPixelsToOccupancy*(ar: Tensor[int], pixels: Pixels) =
   # template to add pixels to occupancy by using map
   #map(pixels, (p: tuple[x, y, c: int]) => ar[p.x, p.y] = p.c)
@@ -413,13 +413,13 @@ proc createTensorFromZeroSuppressed*(pixels: Pixels): Tensor[int] =
   result = zeros[int](256, 256)
   for p in pixels:
     result[p.x, p.y] = p.ch
-  
+
 
 proc rawEventManipulation(filepath: string, regex: tuple[header, chips, pixels: string]): ref Event =
   # this procedure performs all processing of a single event, from a raw data event to
   # a processedEvent
   discard
-#template 
+#template
 
 
 proc dumpFrameToFile*(filepath: string, ar: Tensor[int]) =
@@ -475,7 +475,7 @@ proc writeRotAngleFile[T](filename: string, collection: seq[seq[T]]) =
   let header = "Rotation angle"
   let element_header = "Chip "
   writeSeqsToFile(filename, header, element_header, collection)
-  
+
 
 proc dumpToTandHits*(name, run_type: string, tots, hits: seq[seq[int]]) =
   # this procedure dumps the ToT and Hits sequences to .txt files
@@ -498,7 +498,7 @@ proc dumpRotAngle*(angles: seq[seq[float64]]) =
     echo "Chip " & $i & ":"
     echo "\tRotAngle : " & $len(angles[i]) & "\t" & $len(angles)
   writeRotAngleFile("out/rotAngle.txt", angles)
-  
+
 
 proc getSortedListOfFiles*(run_folder: string, sort_type: EventSortType, event_type: EventType): seq[string] =
   # this procedure returns a sorted list of event files from a
@@ -516,7 +516,7 @@ proc getSortedListOfFiles*(run_folder: string, sort_type: EventSortType, event_t
   of EventType.InGridType:
     event_regex = r".*data\d{4,6}\.txt$"
   of EventType.FadcType:
-    event_regex = r".*data\d{4,6}\.txt-fadc$"    
+    event_regex = r".*data\d{4,6}\.txt-fadc$"
   # get the list of files from this run folder and sort it
   case sort_type
   of fname:
@@ -554,7 +554,7 @@ proc readListOfFiles*[T](list_of_files: seq[string],
           result[i] = spawn readFadcFile(s)
       echoFilesCounted(f_count)
   sync()
-  
+
 
 # set experimental pragma to enable parallel: block
 {.experimental.}
@@ -570,14 +570,14 @@ proc readListOfInGridFiles*(list_of_files: seq[string],
   #    seq[FlowVar[ref Event]] = a seq of flow vars pointing to events, since we read
   #                              in parallel
   result = readListOfFiles[Event](list_of_files, regex_tup)
-  
+
 
 proc isTosRunFolder*(folder: string): tuple[is_rf: bool, contains_rf: bool] =
   # this procedure checks whether the given folder is a valid run folder of
   # TOS
   # done by
   # - checking whether the name of the folder is a valid name for a
-  #   run folder (contains Run_<number>) in the name and 
+  #   run folder (contains Run_<number>) in the name and
   # - checking whether folder contains data<number>.txt files
   # inputs:
   #    folder: string = the given name of the folder to check
@@ -595,7 +595,7 @@ proc isTosRunFolder*(folder: string): tuple[is_rf: bool, contains_rf: bool] =
     # a data<number>.txt file in the folder, so that we do not think a
     # folder with a single data<number>.txt file is a run folder
     matches_rf_name = true
-    
+
   for kind, path in walkDir(folder):
     if kind == pcFile:
       if match(path, event_regex) == true and matches_rf_name == true:
@@ -622,7 +622,7 @@ proc isTosRunFolder*(folder: string): tuple[is_rf: bool, contains_rf: bool] =
 #   for p in s:
 #     for n, f in fieldPairs(p):
 #       sum_t[f] += p[n]
-  
+
 proc calcCentroidOfEvent*(pix: Pixels): tuple[x, y: float] =
   # proc to calc centroid of the given pixels
   # inputs:
@@ -642,8 +642,8 @@ proc calcCentroidOfEvent*(pix: Pixels): tuple[x, y: float] =
   #let (sum_x, sum_y, sum_ch) = sum(pix)
   result.x = float(sum_x) / float(len(pix))
   result.y = float(sum_y) / float(len(pix))
-  
-  
+
+
 proc isNearCenterOfChip*(pix: Pixels): bool =
   # proc to check whether event is located around center of chip
   # inputs:
@@ -651,7 +651,7 @@ proc isNearCenterOfChip*(pix: Pixels): bool =
   # outputs:
   #    true if within 4.5mm center square, false otherwise
   let (center_x, center_y) = calcCentroidOfEvent(pix)
-  # pitch in um 
+  # pitch in um
   let pitch = 0.05
   let n_pix_to_bound = 2.25 / pitch
   # center pixel is (127, 127)
@@ -661,14 +661,14 @@ proc isNearCenterOfChip*(pix: Pixels): bool =
     in_y = false
   if center_x > (center_pix - n_pix_to_bound) and center_x < (center_pix + n_pix_to_bound):
     in_x = true
-  if center_y > (center_pix - n_pix_to_bound) and center_y < (center_pix + n_pix_to_bound):  
+  if center_y > (center_pix - n_pix_to_bound) and center_y < (center_pix + n_pix_to_bound):
     in_y = true
   if in_x == true and in_y == true:
     result = true
   else:
     result = false
 
-# template which calculates euclidean distance between 2 points    
+# template which calculates euclidean distance between 2 points
 template distance*(x, y): float = sqrt(x * x + y * y)
 
 # template which returns pitch converted positions on chip pixel values
@@ -681,7 +681,7 @@ template applyPitchConversion*[T: (float | int)](x, y: T): (float, float) =
   # pixel position --> position from center in mm
   ((float(NPIX) - float(x) - 0.5) * PITCH, (float(y) + 0.5) * PITCH)
 
-proc fillRunHeader*(event: Event): Table[string, string] =  
+proc fillRunHeader*(event: Event): Table[string, string] =
   result = initTable[string, string]()
   # run number
   result["runNumber"] = event.evHeader["runNumber"]
@@ -718,7 +718,7 @@ template rawDataChipBase*(run_number: int): string =
   "/runs/run_$#/chip_" % $run_number # & "$#"
 
 template recoDataChipBase*(run_number: int): string =
-  "/reconstruction/run_$#/chip_" % $run_number # & "$#"  
+  "/reconstruction/run_$#/chip_" % $run_number # & "$#"
 
 proc getGroupNameForRun*(run_number: int): string =
   # generates the group name for a given run number
@@ -785,7 +785,7 @@ createCombineTemplates("Hits", "reconstruction")
 
 template combineRecoBasenameFadc*(): string =
   "/reconstruction/combined/fadc/"
-  
+
 template combineRecoBasenameNoisy*(run_number: int): string =
   "/reconstruction/combined/fadc/noisy_$#" % [$run_number]
 
@@ -803,7 +803,7 @@ template rawFadcBasename*(run_number: int): string =
 
 template trigrecBasename*(run_number: int): string =
   getGroupNameForRun(run_number) / "fadc/trigger_record"
-  
+
 template fadcDataBasename*(run_number: int): string =
   getRecoNameForRun(run_number) / "fadc/fadc_data"
 
@@ -811,7 +811,7 @@ template fadcBaselineBasename*(run_number: int): string =
   getRecoNameForRun(run_number) / "fadc/baseline"
 
 template argMinvalBasename*(run_number: int): string =
-  getRecoNameForRun(run_number) / "fadc/argMinval"  
+  getRecoNameForRun(run_number) / "fadc/argMinval"
 
 template riseStartBasename*(run_number: int): string =
   getRecoNameForRun(run_number) / "fadc/riseStart"
@@ -828,7 +828,12 @@ template fallTimeBasename*(run_number: int): string =
 
 ################################################################################
 ##################### procs related to X-ray reference datasets ################
-################################################################################  
+################################################################################
+
+template cdlPrefix*(): string =
+  ## return the prefix of the group names in the `calibration-cdl.h5` file
+  ## part of the names of the reference names below
+  "calibration-cdl-apr2014-"
 
 proc getXrayRefTable*(): Table[int, string] =
   ## returns a table mapping the different energy bins to the correct
@@ -858,10 +863,97 @@ proc toRefDset*(energy: float): string =
   let ind = binning.lowerBound(energy)
   result = xray_table[ind]
 
+proc getEnergyBinMinMaxVals*(): Table[string, Cuts] =
+  ## returns a table of Cuts objects, one for each energy bin
+  let
+    range0 = Cuts(minCharge: 0.0,
+                  maxCharge: 5e4,
+                  minRms: 0.1,
+                  maxRms: 20.0,
+                  maxLength: 6.0,
+                  minPix: 3)
+    range1 = Cuts(minCharge: 3.0e4,
+                  maxCharge: 8.0e4,
+                  minRms: 0.0,
+                  maxRms: 1.1,
+                  maxLength: 6.0,
+                  minPix: 3)
+    range2 = Cuts(minCharge: 7.0e4,
+                  maxCharge: 1.3e5,
+                  minRms: 0.0,
+                  maxRms: 1.1,
+                  maxLength: 7.0,
+                  minPix: 3)
+    range3 = Cuts(minCharge: 9.0e4,
+                  maxCharge: 2.1e5,
+                  minRms: 0.0,
+                  maxRms: 1.1,
+                  maxLength: 7.0,
+                  minPix: 3)
+    range4 = Cuts(minCharge: 2.0e5,
+                  maxCharge: 4.0e5,
+                  minRms: 0.0,
+                  maxRms: 1.1,
+                  maxLength: 7.0,
+                  minPix: 3)
+    range5 = Cuts(minCharge: 2.9e5,
+                  maxCharge: 5.5e5,
+                  minRms: 0.0,
+                  maxRms: 1.1,
+                  maxLength: 7.0,
+                  minPix: 3)
+    range6 = Cuts(minCharge: 3.5e5,
+                  maxCharge: 6.0e5,
+                  minRms: 0.0,
+                  maxRms: 1.1,
+                  maxLength: 7.0,
+                  minPix: 3)
+    range7 = Cuts(minCharge: 5.9e5,
+                  maxCharge: 1.0e6,
+                  minRms: 0.0,
+                  maxRms: 1.1,
+                  maxLength: 7.0,
+                  minPix: 3)
+    ranges = [range0, range1, range2, range3, range4, range5, range6, range7]
+    xray_ref = getXrayRefTable()
+
+  result = initTable[string, Cuts]()
+  for key, vals in pairs(xray_ref):
+    result[vals] = ranges[key]
+
+proc getRegionCut*(region: ChipRegion): CutsRegion =
+  const
+    xMinChip = 0.0
+    xMaxChip = 14.0
+    yMinChip = 0.0
+    yMaxChip = 14.0
+  
+  case region
+  of crGold:
+    result = CutsRegion(xMin: 4.5,
+                        xMax: 9.5,
+                        yMin: 4.5,
+                        yMax: 9.5,
+                        radius: 0.0)
+  of crSilver:
+    # based on radius of 4.5 from center
+    result = CutsRegion(xMin: 0.0,
+                        xMax: 0.0,
+                        yMin: 0.0,
+                        yMax: 0.0,
+                        radius: 4.5)
+  of crBronze:
+    result = CutsRegion(xMin: 0.0,
+                        xMax: 0.0,
+                        yMin: 0.0,
+                        yMax: 0.0,
+                        radius: 5.5)
+
+
 
 ################################################################################
 ##################### HDF5 related helper functions ############################
-################################################################################  
+################################################################################
 
 iterator runs*(h5f: var H5FileObj, reco = true): (string, string) =
   # simple iterator, which yields the group name of runs
@@ -875,7 +967,7 @@ iterator runs*(h5f: var H5FileObj, reco = true): (string, string) =
 
   if h5f.visited == false:
     h5f.visit_file
-    
+
   let run_regex = re(data_basename & r"(\d+)$")
   var run: array[1, string]
   for grp in keys(h5f.groups):
@@ -897,7 +989,6 @@ when isMainModule:
   forEach e in energies, i in inds, r in refs:
     assert(binning.lowerBound(e) == i)
     assert(toRefDset(e) == r)
-                                
+
 
   echo "All tests passed!"
-

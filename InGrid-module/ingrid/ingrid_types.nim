@@ -144,6 +144,24 @@ type
     minvals: seq[float]
     # more?
   ]
+
+  ChipRegion* = enum
+    crGold, crSilver, crBronze
+
+  Cuts* = object
+    minCharge*: float
+    maxCharge*: float
+    minRms*: float
+    maxRms*: float
+    maxLength*: float
+    minPix*: float
+  # object to store region based cuts (gold, silver, bronze region)
+  CutsRegion* = object
+    xMin*: float
+    xMax*: float
+    yMin*: float
+    yMax*: float
+    radius*: float
     
 
 # and some general InGrid related constants

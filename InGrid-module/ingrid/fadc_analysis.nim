@@ -131,14 +131,9 @@ proc noiseAnalysis(h5f: var H5FileObj): tuple[f50, f100: Table[string, float64]]
         tr_stop  = attrs[&"tracking_stop_{i}", string].parse(date_syntax)
         tr_mean  = tr_start + initDuration(seconds = ((tr_stop - tr_start).seconds.float / 2).int)
       let
-        tstamp = h5f[(group / "timestamp").dset_str][int64]
         durations = h5f[(group / "eventDuration").dset_str][float64]
-        # start and stop in seconds
-        tr_start_s = int(tr_start.toTime.toSeconds)
-        tr_stop_s  = int(tr_stop.toTime.toSeconds)
-        # filter out all indices of timestamps, which lie inside the tracking
-        tracking_inds = filterIt(toSeq(0 ..< tstamp.len)) do:
-          tstamp[it] > tr_start_s and tstamp[it] < tr_stop_s
+        # get tracking indices of this tracking number
+        tracking_inds = h5f.getTrackingEvents(grp, i, tracking = true)
         # get all durations for events within tracking from the tstamp indices
         durations_track = durations[tracking_inds]
         # sum all event durations within tracking

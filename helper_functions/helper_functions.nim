@@ -135,7 +135,7 @@ proc map*[S, T, U](t: OrderedTable[S, T], op: proc(k: S, v: T): U {.closure.}):
     inc i
 
 
-template delByElement[T](a: var seq[T], p: T) =
+template delByElement*[T](a: var seq[T], p: T) =
   # template to delete the given element p from a in place
   let ind = find(a, p)
   if ind != -1:

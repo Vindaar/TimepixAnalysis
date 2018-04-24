@@ -149,15 +149,14 @@ proc writeRecoRunToH5(h5f: var H5FileObj,
     chip_group_name = reco_group_name / "chip_$#"
     combine_group_name = getRecoCombineName()
 
+  const
     # define the names for the datasets which we want to write
-    int_cluster_names = ["hits", "sumTot"]
-    int_dset_names = ["hits", "sumTot", "eventNumber"]
-    # name of datasets which are part of
-    float_geometry_names = ["rmsLongitudinal", "rmsTransverse", "skewnessLongitudinal", "skewnessTransverse",
-                            "kurtosisLongitudinal", "kurtosisTransverse", "eccentricity", "rotationAngle",
-                            "length", "width", "fractionInTransverseRms", "lengthDivRmsTrans"]
-    float_cluster_names = ["centerX", "centerY"]
-    float_dset_names = float_geometry_names + float_cluster_names
+    int_cluster_names = getIntClusterNames()
+    int_dset_names = getIntDsetNames()
+    # name of float datasets, part of geometry, cluster object and combined
+    float_geometry_names = getFloatGeometryNames()
+    float_cluster_names = getFloatClusterNames()
+    float_dset_names = getFloatDsetNames()
   # now parsing all the data is really fucking ugly, thanks to the tons of
   # different variables, which we want to write :( Unfortunately, we cannot
   # simply make that a compound datatype or something. Well

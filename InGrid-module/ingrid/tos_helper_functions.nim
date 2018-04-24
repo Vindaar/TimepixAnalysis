@@ -1,5 +1,5 @@
 import os, ospaths
-import strutils
+import strutils, strformat
 import times
 import algorithm
 import re
@@ -13,6 +13,7 @@ import math
 import helper_functions
 import ingrid_types
 import nimhdf5
+import seqmath
 
 # other modules
 import arraymancer
@@ -989,6 +990,98 @@ proc getRegionCut*(region: ChipRegion): CutsRegion =
 ################################################################################
 ##################### HDF5 related helper functions ############################
 ################################################################################
+
+proc getTrackingEvents*(h5f: var H5FileObj, group: H5Group, num_tracking: int = -1, tracking = true): seq[int] =
+  ## given a `group` in a `h5f`, filter out all indices, which are part of
+  ## a tracking (`tracking == true`) or not part of a tracking (`tracking == false`)
+  ## NOTE: the indices of the whole timestamp array correspond to the event
+  ## numbers of a run, since this is a 1:1 mapping
+  result = @[]
+  # attributes of this group
+  var attrs = group.attrs
+  try:
+    # try except for check of num_trackings
+    let ntrackings = attrs["num_trackings", int]
+    const date_syntax = getDateSyntax()
+    
+    var
+      tr_starts = newSeq[DateTime](ntrackings)
+      tr_stops  = newSeq[DateTime](ntrackings)
+    for i in 0 ..< ntrackings:
+      # get start and stop time of each tracking 
+      tr_starts[i] = attrs[&"tracking_start_{i}", string].parse(date_syntax)
+      tr_stops[i]  = attrs[&"tracking_stop_{i}", string].parse(date_syntax)
+    # get the timestamp of all events
+    let
+      tstamp = h5f[(group.name / "timestamp").dset_str][int64]
+      # start and stop in seconds
+      tr_starts_s = mapIt(tr_starts, int(it.toTime.toSeconds))
+      tr_stops_s  = mapIt(tr_stops,  int(it.toTime.toSeconds))
+    # filter out all indices of timestamps, which lie inside the tracking
+
+    # first get all indices of all trackings in a seq[seq[int]]
+    var allTrackingInds: seq[seq[int]] = @[]
+    for k in 0 ..< ntrackings:
+      allTrackingInds.add filterIt(toSeq(0 ..< tstamp.len)) do:
+        tstamp[it] > tr_starts_s[k] and tstamp[it] < tr_stops_s[k]
+    if tracking == true:
+      if num_tracking >= 0:
+        # simply get the correct indices from allTrackingInds
+        result = allTrackingInds[num_tracking]
+      else:
+        # flatten the allTrackingInds nested seq and return
+        result = flatten(allTrackingInds)
+    else:
+      # all outside trackings are simply the indices, which are not part of a flattened
+      # allTrackingInds
+      let allTrackingsFlat = flatten(allTrackingInds)
+      # and now filter all indices not part of flattened index
+      result = filterIt(toSeq(0 ..< tstamp.len)) do:
+        it notin allTrackingsFlat    
+  except KeyError:
+    # in this case there is no tracking information. Keep all indices
+    echo &"No tracking information in {group.name} found, use all clusters"
+    result = @[]
+    
+
+proc filterTrackingEvents*[T: SomeInteger](cluster_events: seq[T], tracking_inds: seq[int]): seq[int] =
+  ## filters out all indices (= event numbers) of a reconstructed run for one chip
+  ## Need to remove all indices, which are within the tracking indices, but for which
+  ## no cluster is found in the datasets, so that we can only read the clusters, which
+  ## happened during (or outside) of a tracking
+  ## inputs:
+  ##   `cluster_events`: all events for one reconstructed chip
+  ##   `tracking_inds`: the indices which are part (or not) of a tracking
+  # set result to the indices of tracking (non tracking), i.e.
+  # all allowed events
+  if tracking_inds.len == 0:
+    # in case we are handed an empty seq, we simply use all cluster events
+    result = toSeq(0 .. cluster_events.high)
+  else:
+    # create capped sequence of max possible length `cluster_events`
+    result = newSeqOfCap[int](cluster_events.len)
+    # using allowed events get indices for other events by iterating
+    # over all allowed events and removing those, which are not 
+    # in the events of a chip
+    for ind in tracking_inds:
+      # remove all events of the allowed events, which are not
+      # part of the events for one chip
+      if ind in cluster_events:
+        # if index in cluster events, add it
+        result.add find(cluster_events, ind)
+    echo "Now we have ...", result.len
+
+proc filterTrackingEvents*(h5f: var H5FileObj, group: H5Group, tracking_inds: seq[int]): seq[int] =
+  ## wrapper around the above proc, which reads the data about which events are allowed
+  ## by itself
+  ## inputs:
+  ##   `h5f`: H5file from which to read the data
+  ##   `group`: H5Group object of the specific chip, which contains the clustes
+  ##   `tracking_inds`: the indices which are part (or not) of a tracking
+  let
+    # event numbers of clusters of this chip
+    evNumbers = h5f[(group.name / "eventNumber").dset_str][int64]
+  result = filterTrackingEvents(evNumbers, tracking_inds)
 
 iterator runs*(h5f: var H5FileObj, reco = true): (string, string) =
   ## simple iterator, which yields the run number and group name of runs in the file. 

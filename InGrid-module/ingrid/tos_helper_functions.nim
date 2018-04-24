@@ -711,6 +711,41 @@ proc fillRunHeader*(event: Event): Table[string, string] =
 # Procs describing the data layout in the HDF5 file #
 #####################################################
 
+proc getFloatGeometryNames*(): array[12, string] =
+  ## returns all dataset names in the H5 output file, which are members
+  ## of a `ClusterGeometry` object
+  result = ["rmsLongitudinal", "rmsTransverse", "skewnessLongitudinal", "skewnessTransverse",
+            "kurtosisLongitudinal", "kurtosisTransverse", "eccentricity", "rotationAngle",
+            "length", "width", "fractionInTransverseRms", "lengthDivRmsTrans"]
+
+proc getFloatClusterNames*(): array[2, string] =
+  ## returns all dataset names in the H5 output file, which are members of
+  ## a `ClusterObject` object
+  result = ["centerX", "centerY"]
+
+proc getFloatDsetNames*(): array[14, string] =
+  ## returns the names of all datasets in the H5 output file, which appear as
+  ## (N, 1) data columns. Combination of two above procs
+  # need to define consts of arrays to use `+` macro  
+  const
+    float_geo = getFloatGeometryNames()
+    float_obj = getFloatClusterNames()
+  result = float_geo + float_obj
+
+proc getIntClusterNames*(): array[2, string] =
+  ## returns names of datasets in H5 output file, which are integer datasets and
+  ## members of a `ClusterObject`
+  result = ["hits", "sumTot"]
+  
+proc getIntDsetNames*(): array[3, string] =
+  ## returns all names of integer dataset for the H5 output file, which appear
+  ## as (N, 1) data columns
+  # need to define consts of arrays to use `+` macro
+  const
+    int_cluster = getIntClusterNames()
+    int_dset = ["eventNumber"]
+  result = int_cluster + int_dset
+
 template rawDataBase*(): string =
   "/runs/run_"
 

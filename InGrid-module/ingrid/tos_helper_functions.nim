@@ -1069,7 +1069,6 @@ proc filterTrackingEvents*[T: SomeInteger](cluster_events: seq[T], tracking_inds
       if ind in cluster_events:
         # if index in cluster events, add it
         result.add find(cluster_events, ind)
-    echo "Now we have ...", result.len
 
 proc filterTrackingEvents*(h5f: var H5FileObj, group: H5Group, tracking_inds: seq[int]): seq[int] =
   ## wrapper around the above proc, which reads the data about which events are allowed

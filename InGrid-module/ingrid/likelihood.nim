@@ -109,8 +109,6 @@ proc determineCutValue[T](hist: seq[T], eff: float): int =
   while cur_eff < eff:
     inc result
     cur_eff = hist[0..result].sum.float / hist_sum
-  echo hist_sum, hist, hist[0..result].sum
-  echo hist[0..result]
 
 proc calcCutValueTab(region: ChipRegion = crGold): Table[string, float] =
   ## returns a table mapping the different CDL datasets to the correct cut values
@@ -250,6 +248,10 @@ proc writeLikelihoodData(h5f: var H5FileObj,
                          passedInds: HashSet[int]) =
   ## writes all relevant cluster data of events corresponding to `passedInds` in
   ## the group given by `group` for chip `chipNumber` to the output file `h5f`
+
+  # TODO: add copy of attributes from energyFromPixel dataset, which contains
+  # the calibration factor!
+  
   # read all float datasets, which we want to write to the output file
   var float_dset_names = @(getFloatDsetNames())
   # add the final two datasets, which we'd like to write

@@ -351,8 +351,6 @@ proc initFadcInH5(h5f: var H5FileObj, run_number, batchsize: int, filename: stri
                                        chunksize = @[batchsize, 1],
                                        maxshape = @[int.high, 1])
 
-
-
   # write attributes to FADC groups
   # read the given FADC file and extract that information from it
   let fadc_for_attrs = readFadcFile(filename)
@@ -495,15 +493,6 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
   const nchips = 7
   let nevents = run.events.len
   let run_number = run.run_number
-  # easy to write:
-  # occupancies
-  # tots
-  # hits
-  # hard to write:
-  # events
-  #   for events we need to be able to write attributes (write data first, attributes later, not needed right now)
-  #   but even so thanks to being zero suppressed, need vlen data
-
   # start by creating groups
 
   # TODO: write the run information into the meta data of the group

@@ -99,7 +99,7 @@ proc getFadcIntTime(date: DateTime): FadcIntTime =
     result = fk50
   elif date > t3:
     result = fk100
-    
+
 proc noiseAnalysis(h5f: var H5FileObj): tuple[f50, f100: Table[string, float64]] =
   ## proc which performs the analysis of the noise, i.e. ratio of active and dead
   ## detector. Read the timestamps in the files, gets start and end times of runs
@@ -130,13 +130,6 @@ proc noiseAnalysis(h5f: var H5FileObj): tuple[f50, f100: Table[string, float64]]
         tr_start = attrs[&"tracking_start_{i}", string].parse(date_syntax)
         tr_stop  = attrs[&"tracking_stop_{i}", string].parse(date_syntax)
         tr_mean  = tr_start + initDuration(seconds = ((tr_stop - tr_start).seconds.float / 2).int)
-      echo "Number of trackings ", ntrackings
-      echo "Start ", tr_start
-      echo "Stop  ", tr_stop
-      echo "Middle time ", tr_mean
-      echo "Tracking corresponds to ", getFadcIntTime(tr_mean)
-      echo "Length of run ", tr_stop - tr_start
-      # we don't even need the timestamps, do we?
       let
         tstamp = h5f[(group / "timestamp").dset_str][int64]
         durations = h5f[(group / "eventDuration").dset_str][float64]
@@ -150,7 +143,6 @@ proc noiseAnalysis(h5f: var H5FileObj): tuple[f50, f100: Table[string, float64]]
         durations_track = durations[tracking_inds]
         # sum all event durations within tracking
         duration_live = initDuration(seconds = durations_track.sum.int)
-      echo "Total live time ", duration_live
       let
         # calculate shutter open time
         ratio = duration_live.seconds.float / (tr_stop - tr_start).seconds.float
@@ -164,10 +156,22 @@ proc noiseAnalysis(h5f: var H5FileObj): tuple[f50, f100: Table[string, float64]]
         date_tab_50[key] = ratio
       of fk100:
         date_tab_100[key] = ratio
-      echo "Ratio is ", ratio
 
-  echo "Fk50 mean ratio ", toSeq(values(date_tab_50)).mean
-  echo "Fk100 mean ratio ", toSeq(values(date_tab_100)).mean
+      when not defined(release):
+        # debugging..
+        echo "Number of trackings ", ntrackings
+        echo "Start ", tr_start
+        echo "Stop  ", tr_stop
+        echo "Middle time ", tr_mean
+        echo "Tracking corresponds to ", getFadcIntTime(tr_mean)
+        echo "Length of run ", tr_stop - tr_start
+        echo "Total live time ", duration_live
+        echo "Ratio is ", ratio
+
+  if date_tab_50.len > 0:
+    echo "Fk50 mean ratio ", toSeq(values(date_tab_50)).mean
+  if date_tab_100.len > 0:
+    echo "Fk100 mean ratio ", toSeq(values(date_tab_100)).mean
   result.f50 = date_tab_50
   result.f100 = date_tab_100
 

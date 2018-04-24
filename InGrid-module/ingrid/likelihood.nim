@@ -1,8 +1,11 @@
 import docopt
 import tables
 import strutils, strformat, ospaths
+import algorithm
+import sets
 import nimhdf5
 import tos_helper_functions
+import helper_functions
 import sequtils
 import seqmath
 import loopfusion
@@ -14,8 +17,15 @@ It calculates the likelihood values for each reconstructed cluster of a run and
 writes them back to the H5 file
 
 Usage:
-  likelihood <HDF5file> --reference <ref_file>
+  likelihood <HDF5file> --reference <ref_file> [options]
+  likelihood <HDF5file> --reference <ref_file> --h5out <outfile> [options]
 
+Options:
+  --reference <ref_file> The H5 file containing the X-ray reference spectra
+  --h5out <outfile>      The H5 file in which we store the events passing logL cut
+  --tracking             If flag is set, we only consider solar trackings (signal like)
+  -h --help              Show this help
+  --version              Show version.
 """
 
 const h5cdl_file = "/mnt/Daten/Uni/CAST/data/CDL-reference/calibration-cdl.h5"
@@ -102,7 +112,7 @@ proc determineCutValue[T](hist: seq[T], eff: float): int =
   echo hist_sum, hist, hist[0..result].sum
   echo hist[0..result]
 
-proc getCutValueTab(region: ChipRegion = crGold): Table[string, float] =
+proc calcCutValueTab(region: ChipRegion = crGold): Table[string, float] =
   ## returns a table mapping the different CDL datasets to the correct cut values
   ## based on a chip `region`
   const
@@ -232,66 +242,154 @@ proc calcLogLikelihood*(h5f: var H5FileObj, ref_file: string) =
       var (dset, logL) = tup
       dset[dset.all] = logL
 
-proc filterClustersByLogL(h5f: var H5FileObj) =
-  ## filters all clusters with a likelihood value in the given `h5f` by 
-  ## the logL cut values returned by `getCutValueTab`
+proc writeLikelihoodData(h5f: var H5FileObj,
+                         h5fout: var H5FileObj,
+                         group: var H5Group,
+                         chipNumber: int,
+                         cutTab: Table[string, float],
+                         passedInds: HashSet[int]) =
+  ## writes all relevant cluster data of events corresponding to `passedInds` in
+  ## the group given by `group` for chip `chipNumber` to the output file `h5f`
+  # read all float datasets, which we want to write to the output file
+  var float_dset_names = @(getFloatDsetNames())
+  # add the final two datasets, which we'd like to write
+  float_dset_names.add "likelihood"
+  float_dset_names.add "energyFromPixel"
+  var float_data_tab = initTable[string, seq[float]]()
+  let chpGrpName = group.name / &"chip_{chipNumber}"
+  # get mutable group for this chip to copy attributes
+  var chpGrpIn = h5f[chpGrpName.grp_str]
+  # fill table of float data sets
+  for dset in float_dset_names:
+    float_data_tab[dset] = h5f[(chpGrpName / dset).dset_str][float64]
 
-  let cutTab = getCutValueTab(crGold)
+  # now get the event numbers to compare against the indices
+  let evNumbers = h5f[(chpGrpName / "eventNumber").dset_str][int64]
+  var float_data_passed = initTable[string, seq[float]]()
+  # create new seqs of correct size in float_data_passed
+  for dset in keys(float_data_tab):
+    float_data_passed[dset] = newSeqOfCap[float](passedInds.card)    
+    for i in 0 .. float_data_tab[dset].high:
+      if i in passedInds:
+        # add element of index `i` to "passed data"
+        float_data_passed[dset].add float_data_tab[dset][i]
+  # then write to the new likelihood group for this chip
+  # create the groups for the likelihood file, run group and chip group
+  let
+    runGrpName = group.name.replace("reconstruction", "likelihood")
+    # group name of this chip's group
+    logLgroup = runGrpName / &"chip_{chip_number}"
+  var
+    runGrp = h5fout.create_group(runGrpName)
+    chpGrpOut = h5fout.create_group(logLgroup)
+  
+  # got all datasets ready for write
+  for dset_name in keys(float_data_passed):
+    var dset = h5fout.create_dataset((logLgroup / dset_name), 
+                                     (float_data_passed[dset_name].len, 1),
+                                     float64)
+    # write the data to the file
+    dset[dset.all] = float_data_passed[dset_name]
+
+  # get all event numbers from hash set by using elements as indices for event numbers
+  let evNumsPassed = mapIt(passedInds, evNumbers[it]).sorted do (x, y: int64) -> int:
+    result = cmp(x, y)
+  # create dataset for allowed indices
+  var evDset = h5fout.create_dataset((logLgroup / "eventNumber"),
+                                     (evNumsPassed.len, 1),
+                                     int)
+  # write event numbers
+  evDset[evDset.all] = evNumsPassed
+
+  # finally write all interesting attributes
+  for key, val in pairs(cutTab):
+    chpGrpOut.attrs[&"logL cut value: {key}"] = val
+    chpGrpOut.attrs["SpectrumType"] = "background"
+  # write total number of clusters
+  chpGrpOut.attrs["Total number of cluster"] = evNumbers.len
+  # copy attributes over from the input file
+  runGrp.copy_attributes(group.attrs)
+  chpGrpOut.copy_attributes(chpGrpIn.attrs)
+
+
+proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, tracking = false) =
+  ## filters all clusters with a likelihood value in the given `h5f` by 
+  ## the logL cut values returned by `calcCutValueTab`
+  ## clusters passing the cuts are stored in `h5fout`
+  ## if `tracking == false` we cut on non tracking data
+
+  let cutTab = calcCutValueTab(crGold)
   # get the likelihood and energy datasets
   # get the group from file
   for num, group in runs(h5f):
     # get number of chips from attributes
-    var run_attrs = h5f[group.grp_str].attrs
+    var mgrp = h5f[group.grp_str]
+    var run_attrs = mgrp.attrs
     let nChips = run_attrs["numChips", int]
     # get timestamp for run
     let tstamp = h5f[(group / "timestamp").dset_str][int64]
-    for grp in items(h5f, group):
+    for chpGrp in items(h5f, group):
       # iterate over all chips and perform logL calcs
-      var attrs = grp.attrs
+      var attrs = chpGrp.attrs
       let
         # get chip specific dsets
-        chip_number = attrs["chipNumber", int]
+        chipNumber = attrs["chipNumber", int]
         # get the datasets needed for LogL
-        energy = h5f[(grp.name / "energyFromPixel").dset_str][float64]
-        logL = h5f[(grp.name / "likelihood").dset_str][float64]
-      # TODO: make cut on timestamp
-      var energy_passed: seq[float64] = @[]
-      for i in 0 .. energy.high:
-        let dset = energy[i].toRefDset
+        energy = h5f[(chpGrp.name / "energyFromPixel").dset_str][float64]
+        logL = h5f[(chpGrp.name / "likelihood").dset_str][float64]
+        evNumbers = h5f[(chpGrp.name / "eventNumber").dset_str][int64].asType(int)
+        # get indices (= event numbers) corresponding to no tracking
+        tracking_inds = h5f.getTrackingEvents(mgrp, tracking = tracking)
+        # get all events part of tracking
+        tracking_events = filterTrackingEvents(evNumbers, tracking_inds)
+
+      # hash set containing all indices of clusters, which pass the cuts
+      var passedInds = initSet[int]()
+      # iterate through all clusters not part of tracking and apply logL cut
+      for ind in tracking_events:
+        let dset = energy[ind].toRefDset
         # given datasest add element to dataset, iff it passes cut
-        if logL[i] <= cutTab[dset]:
-          energy_passed.add energy[i]
+        if logL[ind] <= cutTab[dset]:
+          # include this index to the set of indices
+          passedInds.incl ind
 
       # create dataset to store it
-      if energy_passed.len > 0:
-        var energyDset = h5f.create_dataset((group / &"chip_{chip_number}/energyCut"),
-                                            (energy_passed.len, 1),
-                                            float64)
-        echo "energy passed has size ", energy_passed.len
-        energyDset[energyDset.all] = energy_passed
-        for key, val in pairs(cutTab):
-          energyDset.attrs[&"logL cut value: {key}"] = val
-          energyDset.attrs["SpectrumType"] = "background"
+      if passedInds.card > 0:
+        # call function which handles writing the data
+        h5f.writeLikelihoodData(h5fout, mgrp, chipNumber, cutTab, passedInds)
       else:
-        var chpGrp = grp
-        chpGrp.attrs["LogLSpectrum"] = "No events passed cut"
+        var mchpGrp = chpGrp
+        mchpGrp.attrs["LogLSpectrum"] = "No events passed cut"
         echo "No clusters found passing logL cut"
-  
-  # TODO: write the cut values (actual logL values) and the chip region
-  # which was chosen to the H5 file!
 
 proc main() =
   # create command line arguments
   let args = docopt(doc)
   let
     h5f_file = $args["<HDF5file>"]
-    ref_file = $args["<ref_file>"]
+    ref_file = $args["--reference"]
+
+  let tracking_flag = if $args["--tracking"] == "true": true else: false
+
+  var h5foutfile: string = ""
+  if $args["--h5out"] != "nil":
+    h5foutfile = $args["--h5out"]
 
   var h5f = H5file(h5f_file, "rw")
   h5f.visitFile
+
+  var h5fout: H5FileObj
+  if h5foutfile != "":
+    h5fout = H5file(h5foutfile, "rw")
+  else:
+    # in case no outfile given, we write to the same file
+    h5fout = h5f
+  
   # perform likelihood calculation
   h5f.calcLogLikelihood(ref_file)
-  h5f.filterClustersByLogL()
+  # now perform the cut on the logL values stored in `h5f` and write
+  # the results to h5fout
+  h5f.filterClustersByLogL(h5fout, tracking = tracking_flag)
   # given the cut values and the likelihood values for all events
   # based on the X-ray reference distributions, we can now cut away
   # all events not passing the cuts :)

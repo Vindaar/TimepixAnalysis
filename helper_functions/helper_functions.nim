@@ -1,5 +1,6 @@
 import strutils, strformat
 import sequtils
+import macros
 import tables
 import algorithm
 import future
@@ -43,6 +44,22 @@ import arraymancer
 #   for i, x in a:
 #     if x == `min`:
 #       return i[0]
+
+macro `+`*[N, M: int](a: array[N, string], b: array[M, string]): untyped =
+  ## macro to concat two const arrays `a`, `b` at compile time to return a new
+  ## array
+  let aImpl = a.symbol.getImpl
+  let bImpl = b.symbol.getImpl
+  var tree = nnkBracket.newTree()
+  for x in aImpl:
+    tree.add quote do:
+      `x`
+  for x in bImpl:
+    tree.add quote do:
+      `x`
+  result = nnkStmtList.newTree(
+    tree
+  )
 
 proc findArgOfLocalMin*[T](view: AnyTensor[T], current_ind: int): int {.inline.} =
   # procedure to find the argument in a given view of a tensor

@@ -91,22 +91,6 @@ macro setTabFields[T: (float | int), N: int](tab: Table[string, seq[seq[T]]],
     result.add quote do:
       `tab`[`name`][`chip`].add `obj`.`field`
 
-macro `+`[N, M: int](a: array[N, string], b: array[M, string]): untyped =
-  ## proc to concat two const arrays `a`, `b` at compile time to return a new
-  ## array
-  let aImpl = a.symbol.getImpl
-  let bImpl = b.symbol.getImpl
-  var tree = nnkBracket.newTree()
-  for x in aImpl:
-    tree.add quote do:
-      `x`
-  for x in bImpl:
-    tree.add quote do:
-      `x`
-  result = nnkStmtList.newTree(
-    tree
-  )
-
 proc initDataTab[T: (float | int), N: int](tab: var Table[string, seq[seq[T]]],
                                            nchips: int,
                                            names: array[N, string]) =

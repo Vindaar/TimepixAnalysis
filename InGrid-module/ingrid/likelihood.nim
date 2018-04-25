@@ -46,6 +46,7 @@ proc cutPosition(centerX, centerY: float, region: ChipRegion): bool =
   ## `centerX` and `centerY` position of a cluster and returns true if
   ## the cluster is within the region
   const centerChip = 7.0
+  # make sure this is only initialized once somehow...
   let regCut = getRegionCut(region)
   case region
   of crGold:
@@ -348,6 +349,8 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, tracking = 
         # get the datasets needed for LogL
         energy = h5f[(chpGrp.name / "energyFromPixel").dset_str][float64]
         logL = h5f[(chpGrp.name / "likelihood").dset_str][float64]
+        centerX = h5f[(chpGrp.name / "centerX").dset_str][float64]
+        centerY = h5f[(chpGrp.name / "centerY").dset_str][float64]        
         evNumbers = h5f[(chpGrp.name / "eventNumber").dset_str][int64].asType(int)
         # get indices (= event numbers) corresponding to no tracking
         tracking_inds = h5f.getTrackingEvents(mgrp, tracking = tracking)
@@ -360,7 +363,8 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, tracking = 
       for ind in tracking_events:
         let dset = energy[ind].toRefDset
         # given datasest add element to dataset, iff it passes cut
-        if logL[ind] <= cutTab[dset]:
+        let regionCut = cutPosition(centerX[ind], centerY[ind], region)
+        if logL[ind] <= cutTab[dset] and regionCut == true:
           # include this index to the set of indices
           passedInds.incl ind
 

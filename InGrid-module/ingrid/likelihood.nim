@@ -196,6 +196,8 @@ proc calcLogLikelihood*(h5f: var H5FileObj, ref_file: string) =
 
     for grp in items(h5f, group):
       # iterate over all chips and perform logL calcs
+      if "fadc" in grp.name:
+        continue
       var attrs = grp.attrs
       let
         # get chip specific dsets
@@ -336,6 +338,8 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, tracking = 
     # get timestamp for run
     let tstamp = h5f[(group / "timestamp").dset_str][int64]
     for chpGrp in items(h5f, group):
+      if "fadc" in chpGrp.name:
+        continue
       # iterate over all chips and perform logL calcs
       var attrs = chpGrp.attrs
       let

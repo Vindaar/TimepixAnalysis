@@ -103,6 +103,9 @@ def rawBase():
 def recoBase():
     return "/reconstruction/"
 
+def likelihoodBase():
+    return "/likelihood/"
+
 def recoFadcBase(run_number):
     return "/reconstruction/run_{}/".format(run_number)
 
@@ -233,7 +236,7 @@ def readH5DataSingle(h5f, group_name, dset_names):
         print result
     return result
 
-def iterH5RunGroups(h5f, reco = True):
+def iterH5RunGroups(h5f, group_type = recoBase()):
     # given a H5 group, yields (a tuple; not right now) of group name
     # (and group object; no) for each run in the file
     # if reco is False, we iterate over raw data groups
@@ -241,8 +244,10 @@ def iterH5RunGroups(h5f, reco = True):
     # NOTE: needs an opened H5 file as input!
 
     group_name = ""
-    if reco == True:
+    if group_type == recoBase():
         group_name = recoBase()
+    elif group_type == likelihoodBase():
+        group_name = likelihoodBase()
     else:
         group_name = rawBase()
     basegroup = h5f[group_name]
@@ -294,15 +299,17 @@ def readH5Data(h5file, group_name, chip, dset_names):
     
     # first check whether we read one run or all
     result = []
-    if group_name == recoBase():
+    if group_name == recoBase() or group_name == likelihoodBase():
+        print("Reading group {}".format(group_name))        
         basegroup = h5f[group_name]
         # in this case have to iterate over all runs
-        for name in iterH5RunGroups(h5f):
+        for name in iterH5RunGroups(h5f, group_name):
             if "fadc" in dset_names[0]:
-                grp_name = recoBase() + name + "/fadc"
+                grp_name = group_name + name + "/fadc"
                 result.append(readH5DataSingle(h5f, grp_name, [dset_names[0].lstrip("fadc_")]))
             else:
-                grp_name = recoBase() + name + "/chip_{}".format(chip)
+                grp_name = group_name + name + "/chip_{}".format(chip)
+                print("Reading group {}".format(grp_name))
                 try:
                     single_data = readH5DataSingle(h5f, grp_name, dset_names)
                 except KeyError as e:

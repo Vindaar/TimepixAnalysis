@@ -56,6 +56,9 @@ proc cutPosition(centerX, centerY: float, region: ChipRegion): bool =
                true
              else:
                false
+  of crAll:
+    # simply always return good
+    result = true
   else:
     # silver and bronze region only different by radius
     let
@@ -319,11 +322,13 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, tracking = 
   ## the logL cut values returned by `calcCutValueTab`
   ## clusters passing the cuts are stored in `h5fout`
   ## if `tracking == false` we cut on non tracking data
+  const region = crGold
 
-  let cutTab = calcCutValueTab(crGold)
+  let cutTab = calcCutValueTab(region)
   # get the likelihood and energy datasets
   # get the group from file
   for num, group in runs(h5f):
+    echo &"Start logL cutting of run {group}"
     # get number of chips from attributes
     var mgrp = h5f[group.grp_str]
     var run_attrs = mgrp.attrs

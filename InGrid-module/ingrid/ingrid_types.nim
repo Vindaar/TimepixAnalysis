@@ -146,7 +146,7 @@ type
   ]
 
   ChipRegion* = enum
-    crGold, crSilver, crBronze
+    crGold, crSilver, crBronze, crAll
 
   Cuts* = object
     minCharge*: float

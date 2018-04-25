@@ -984,6 +984,12 @@ proc getRegionCut*(region: ChipRegion): CutsRegion =
                         yMin: 0.0,
                         yMax: 0.0,
                         radius: 5.5)
+  of crAll:
+    result = CutsRegion(xMin: 0.0,
+                        xMax: 14.0,
+                        yMin: 0.0,
+                        yMax: 0.0,
+                        radius: 0.0)
 
 
 

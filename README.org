@@ -1,0 +1,728 @@
+* Timepix analysis & calibration
+
+This repository contains code related to the data analysis of Timepix
+based gaseous detectors. 
+
+It contains code to calibrate a Timepix ASIC and perform event shape
+analysis of data to differentiate between background events (mainly
+cosmic muons) and signal events (X-rays).
+
+...
+
+** CAST
+
+Many parts of this repository are specifically related to an InGrid
+based X-ray detector in use at the CERN Axion Solar Telescope:
+[[http://cast.web.cern.ch/CAST/]]
+
+...
+
+* Analysis pipeline
+
+Some words...
+
+* Development
+
+In order to do the analysis in Nim, we need two things:
+1. a filetype to store our processed data in
+   -> HDF5
+2. a way to fit the excentricity of our blobs
+   -> Minuit?
+
+However, for both we need a wrapper for the given libraries. HDF5 is
+relatively straight forward, since it is written in C. Using c2nim it
+should be possible to create a wrapper.
+Minuit is another story, since it is written in Fortran or C++. No C
+implementation exists. Wrapping either of the two is not that easy,
+potentially. c2nim has C++ support, but not as well as C.
+
+For both: is it possible to compile the two to a shared library, which
+can be linked?
+- HDF5: https://support.hdfgroup.org/HDF5/Tutor/compile.html
+  See the bottom of the link. It lists the (static) libraries, which
+  are shipped with HDF5, in a precompiled download.
+- Minuit2: ?
+
+** Still to be done
+*** DONE move shape branching from create_dataset to parseShapeTuple
+*** TODO check in `[]=` whether data to write is smaller than dataset
+If this is the case, the library should:
+- either raise an error, because this function (w/ DsetReadWrite ==
+  all) should only write the data, if the shapes are identical:
+  Problem: currently if we haven't read the data yet, we simply create
+  a dataset, which still contains the wrong shape compared to the real
+  dataset?! Fix that. Upon checking for existence of dataset, instead
+  read the actual dimensions!
+- of simply get the correct hyperslab of the data and write it at the
+  beginning of the dataset, although this seems not all that
+  nice. Would cause unintended behaviour in many cases, if the user
+  does not realize he's writing a too small array into a larger dataset.
+ 
+*** DONE add ability to resize datasets
+In order to be able to resize datasets after they have been created we
+need to do the following:
+See:
+https://support.hdfgroup.org/ftp/HDF5/current/src/unpacked/examples/h5_extend.c
+**** DONE ? create datasets with shape == maxshape
+also affects reading an existing dataset, as we now need to take into
+account to read maxshape.
+During creation we now hand a dataset create property list to the
+create2 function as follows:
+#+BEGIN_SRC C
+/* Modify dataset creation properties, i.e. enable chunking  */
+ prop = H5Pcreate (H5P_DATASET_CREATE);
+ status = H5Pset_chunk (prop, RANK, chunk_dims);
+
+ /* Create a new dataset within the file using chunk 
+    creation properties.  */
+ dataset = H5Dcreate2 (file, DATASETNAME, H5T_NATIVE_INT, dataspace,
+                      H5P_DEFAULT, prop, H5P_DEFAULT);
+#+END_SRC
+
+In case we read datasets, we need to get the property list from the
+dataset we have openend and check whether that is chunked data:
+#+BEGIN_SRC C
+ prop = H5Dget_create_plist (dataset);
+
+ if (H5D_CHUNKED == H5Pget_layout (prop)) 
+       rank_chunk = H5Pget_chunk (prop, rank, chunk_dimsr);
+#+END_SRC
+As far as I can tell, to read the dataset the function does not have
+to be changed, as long as we know the size of the dataset we read.
+Need to add propl_id to H5DataSet and H5Group.
+**** DONE have a extend proc for datasets
+this one is difficult: 
+- need to create the dataset with chunked storage
+- then call set_extent
+- select the elements to write
+#+BEGIN_SRC C
+ /* Extend the dataset. Dataset becomes 10 x 3  */
+ size[0] = dims[0]+ dimsext[0];
+ size[1] = dims[1];
+ status = H5Dset_extent (dataset, size);
+
+ /* Select a hyperslab in extended portion of dataset  */
+ filespace = H5Dget_space (dataset);
+ offset[0] = 3;
+ offset[1] = 0;
+ status = H5Sselect_hyperslab (filespace, H5S_SELECT_SET, offset, NULL,
+                               dimsext, NULL);  
+
+ /* Define memory space */
+ memspace = H5Screate_simple (RANK, dimsext, NULL); 
+
+ /* Write the data to the extended portion of dataset  */
+ status = H5Dwrite (dataset, H5T_NATIVE_INT, memspace, filespace,
+                    H5P_DEFAULT, dataext);
+#+END_SRC
+
+*** DONE add hyperslab write
+*** DONE add hyperslab read
+
+*** Necessary steps done
+
+- read H5 data in reconstruction
+- perform cluster analysis
+- apply cuts from XrayCalib
+  - center chip, pos_x, pos_y = 7, radius = 4.5:
+  #+BEGIN_SRC C
+  	double distance = std::sqrt((xray->getCenterX() - _centerX) * (xray->getCenterX() - _centerX) + 
+                                (xray->getCenterY() - _centerY) * (xray->getCenterY() - _centerY));
+    
+	if( parameterSet("CutRadius") && distance > _cutRadius){
+		delete xray;
+		continue;
+	}
+  #+END_SRC
+    needs to be fulfilled
+  - eccentricity < 1.3
+  - number X-rays == 1 ? only one X-ray per calibration event maybe?
+  - transverse RMS < 1.2
+  every event passing these cuts from a calibration dataset, will be
+  used to perform the fit to the iron source
+  Note: In order to be able to calculate transverse RMS, we need to
+  calculate it first. So: introduce cluster geometry calculation,
+  which performs rotation and then calculation of statistical moments
+  using nim.stats
+- given Fe spectrum do the following:
+  - write to H5 file in dataset
+    "/reconstruction/calibration/run_<number>/fe_spectrum"
+    or something like this
+  - have Python script read this dataset, fit function as described in
+    [[file:~/src/MarlinTPC/vonMarkus/xray-reco-stuff/jane-doe/xmlbase/XrayCalibPixel.C]]
+    to spectrum, create plot, write resulting fit parameters to H5
+    file, as attributes to the dataset. 
+    Given peaks of fit, fit linear function to peaks, resulting in
+    energy calibration function. Also plot, write parameters to H5¤
+    file as well
+  - Python script receives run number as command line argument and
+    filename, s.t. we can call the Python script from within Nim, have
+    it perform its actions and continue with the calculation (if any)
+
+
+*** Necessary steps left
+
+What we have left to do... 
+Now we have the energy calibration function, we can continue with
+the analysis. This means:
+- for every run get the energy calibration parameters, which are
+  closest in time to the run being analyzed. Use this set of
+  parameters to calculate the energy of all clusters in this run. 
+- Given all properties and calculated energies, we can calculate the
+  likelihood values for each. Concludes basic analysis of InGrid data.
+
+FADC: we still want a couple more plots to understand the FADC better.
+Noise related:
+- loss of data due to FADC noise. Calculate dead time of detector
+  based on event duration and maybe time until the next event started
+  relative to start of this event? Should allow for ratio. 
+  Alternative: bin events in e.g. 5 minute intervals, add event
+  durations of all events in the interval and check dead time
+  vs. shutter open time
+actual FADC data:
+- FADC spectrum for calibration based on same events as we use for the
+  energy calibration! (alternatively could perform likelihood analysis
+  on everything to filter out X-rays to do the same, but that's too
+  much work for now and better to compare anyways?)
+- calculate rise and fall time of events. Done how? Fitting something
+  seems very difficult, since the shapes are so different. Basically
+  fits will mainly work for X-rays and the more ugly an event is, the
+  harder this becomes. Simplest way: we know the location of the
+  minimum, check number of steps we need to take until we're close
+  enough again to the baseline? Could do this for each peak we find in
+  the spectrum. At least gives us a rough measure for this.
+  
+  In order to do this: we need to determine the baseline of the event,
+  so that we can determine where the start and end of the dip is. As a
+  rough guess for the baseline the median should work well enough,
+  since most registers are still at the baseline, even with larger
+  peaks, which means the median should be on it.
+  #+BEGIN_SRC python 
+  for i in xrange(1230, 1300):
+      baseline = np.percentile(data[i], 50)
+      base.fill(baseline)
+      print i
+      plt.plot(ch, data[i])
+      plt.plot(ch, base)
+      plt.show()
+  #+END_SRC
+  where data is the `fadc_data` from the H5 file. By eye this seems to
+  work even in practice.
+
+  Given this baseline, we calculate the baseline + (10% of minimum)
+  value. From the minimum we can now search for rise and fall times
+  via:
+  - starting from minimum, search left (wrapping around end of event)
+    until we cross to baseline + 10% again
+  - do same for right
+  - take note of the indices of these. Given indices, we can calculate
+    the rise and fall time. For now we can keep them as register
+    values, since we only care about the behavior of it, not the
+    absolute values (as far as I'm concerned at least).
+
+- be able to compare different FADC settings. E.g. when we have plots
+  for rise times of each run (all data!), we can calculate the mean or
+  something, depending on how it looks. If it's sort of gaussian, take
+  the mean, else whatever. Then we can compare these values for
+  different FADC settings.
+
+*** Plots to create
+
+- calibration spectrum of all calibration runs
+- FADC spectrum of all calibration runs
+  - separated into 50 ns and 100 ns?
+  - only show plot after change to amplification?
+- FADC spectrum of rise and fall times, compared from 50 and 100 ns 
+- dead time of detector vs time
+- plots for all X-ray properties
+  
+     
+
+** HDF5
+
+*** DONE Wrap HDF5 library 
+Over the last few days (<2017-11-17 Fr 18:32> is today) I have wrapped
+the C implementation of the HDF5 library successfully, such that we
+can import the C functions succesfully.
+The CLOSED is to be taken with a huge grain of salt, because basically
+this is only the start of the HDF5 wrapper...
+CLOSED: <2017-11-17 Fr 18:45>
+
+To wrap HDF5 there are things I need to learn first.
+
+**** DONE learn how to wrap C library
+
+This should be relatively easy. At least in principle. How far do we
+need to go with wrapping? What does have to be wrapped?
+Can we simply import the static library and call that instead? Would
+make our lives a lot easier.
+
+**** DONE learn about what functions we need from HDF5
+
+We can learn this by doing the two following things:
+1. check the Python code where we convert the ROOT trees into HDF5
+   files to give us an idea on the necessary parts
+2. do the tutorial of HDF5. Seems to be pretty nice, maybe we can
+   learn how to call HDF5 from Nim via its library?
+
+*** How to turn HDF5 into high level library?
+
+Converting some of the C example programs to Nim and comparing the
+code with the Python examples, gives a lot of ideas on how to
+implement higher level functionality.
+
+For a start: Need to get rid of most of the necessary 'default'
+arguments, which are usually supplied in form of the HDF5 constants.
+Need to implement proper typecasts of the Nim types to C types.
+
+Closing of dataset, dataspace etc. needs to be automatic. No need for
+us to deal with id's. But include an id(file, dataset etc. object)
+function, which returns the raw id, in case one wants to use a low
+level function.
+
+For specific files:
+- h5_crtdat.nim 
+  Opening a HDF5 file and creating a dataset of fixed size and
+  specific datatype needs to be a one liner (compare with Python!)
+- h5_rdwt.nim 
+  Opening of a dataset in a H5 file to be done via [] operator.
+  Create H5file (basically the file id) object, which receives a
+  string (name of dataset) and have the dataset object (dataset_id)
+  returned. Same functionality needs to be possible with a dataset, 
+  include [] operator and return the data in that set. Give
+  possibility to read only partial data (include slices basically)
+
+As of <2017-12-22 Fr 17:42> the most basic functionality of the H5
+high-level library are finally in place. We can read and write data to
+the file into arbitrary groups.
+
+*NOTE:* make clear that while by default we hand nested sequences to
+be written to the HL library, we still require all dimensions to be
+full (hence why we need to give the shapes in advance!). For 'ragged
+arrays', we need to use the variable length datatypes!
+
+*** How to store data
+
+We should use HDF5 in the following way:
+- use 'packet table' for the raw frames, can structure it as follows
+  #+BEGIN_SRC sh
+  /runs/run_<number>/   
+  #+END_SRC
+  where metadata of run_<number> stores the
+  information, which is usually located in the header of each event
+#+BEGIN_SRC sh
+  /runs/run_<number>/event_<number> 
+#+END_SRC
+  stores the raw zero suppressed data as a packet using variable
+  length data. Event information is stored in metadata of this.
+  FADC files are stored as fixed length data. Use metadata, attribute
+  or whatever to refer this to the normal corresponding event.
+- after reconstruction, we should create structure
+  #+BEGIN_SRC sh
+  /reconstruction/run_<number>/
+  #+END_SRC
+  with:
+  - one fixed size image (?) of occupancy of the run
+  - histogram of FADC
+  - ToT per pixel histogram
+  and
+  #+BEGIN_SRC 
+  /reconstruction/run_<number>/events
+  #+END_SRC
+  where we store the calibrated data, based on a referred calibration
+  run. This will be subdivided into 
+  #+BEGIN_SRC sh
+  /reconstruction/run_<number>/events/<properties>
+  #+END_SRC
+  the different properties, as we do for the data we extracted from
+  the old ROOT trees.
+In the optimal case, the reconstruction branch is so close to the
+current existing HDF5 file that we can use the Python CNN analysis
+almost without changing the reading of the HDF5 file.
+
+NOTE: Does the distinction between reconstruction and analysis, as it
+was done in Christoph's case still make sense? Not in the way
+Christoph did it at least. We put the energy of each event into the
+reconstruction portion of the table. The analysis part will then only
+contain the calculated Likelihood (for reference with the old
+detector) and everything regarding CNN analysis.
+
+
+** +Minuit+
++It is possible to convert most header files of the+ C++ +implementation+
++to nim files.+
+
+** NLopt
+
+For optimization of the eccentricity funnction, we use NLopt, a C
+library, which provides many different non linear optimization
+algorithms. (Global / Local) (gradient based / derivative free)
+algorithms are available. 
+
+The C library was wrapped using c2nim, which proved to be pretty
+easy. Based on this, work is ongoing to build a high level interface
+for the library, which takes the library state from C to Nim. 
+
+The C library internally saves the state of the library, including
+things like stopping criteria, the user defined minimzation function
+etc. This was lifted into Nim instead, by defining an object
+'NloptObj', which stores the parameters. The settings are set on this
+object. This is done lazily. Only when the call to optimize() is done,
+are the settings written to the library.
+
+The bindings are located in [[file:~/CastData/ExternCode/nimnlopt]].
+
+*** Tested algorithms
+
+To minimize the eccentricity function the following algorithms were
+tested. Currently =LN_COBYLA= is in use. 
+
+# works as well:
+opt = nlopt_create(NLOPT_LN_BOBYQA, 1)
+opt = nlopt_create(NLOPT_LN_NELDERMEAD, 1)
+
+# pretty good:
+opt = nlopt_create(NLOPT_LN_SBPLX, 1)
+opt = nlopt_create(NLOPT_GN_DIRECT_L, 1)
+opt = nlopt_create(NLOPT_GN_CRS2_LM, 1)
+opt = nlopt_create(NLOPT_GN_ISRES, 1)
+opt = nlopt_create(NLOPT_GN_ESCH, 1)  
+
+# next one is useless, as dimensions needs n >= 2
+opt = nlopt_create(NLOPT_LN_NEWUOA_BOUND, 1)
+
+In this case derivative free algorithms are the only useful ones, as
+calculating the gradient of the eccentricity is somewhat ugly (would
+not even be that hard, but since the used algorithms converge quickly
+enough, there's no point at this moment in time. Might be a useful
+optimization though!)
+
+One thing to be wary of, is the initial step size. This was the major
+problem at the beginning. The library chose the step size too large,
+which caused the algorithm to enter local minima at specific
+values. Resulted in non continous distribution of the rotation
+angles. Some angles were never seen (which does not make sense physically).
+
+
+** Analysis framework
+
+*** Raw data manipulation
+
+Before any real work can begin, we need to do some work on the raw
+data. This includes
+- reading all data*.txt and data*.txt-fadc files and writing them to a
+  HDF5 file, one group for each run
+
+Important things to do after CCM:
+**** DONE currently sorting by filename
+Change to inode and after inode sort again by filename. Otherwise
+problem with FADC files, since they will be out of order
+AND/OR:
+include event numbers separately for FADC events, then they can
+basically also be completely shuffled, since we can untangle it easily.
+
+**** STARTED calculating the occupancy of each run
+We have the occupancy currently, but we might want to change it by
+default to ignore full frames in the occupancy, because otherwise it
+might get ugly. This is especially the case for occupancies of
+calibration runs, since in some cases the FADC does not trigger, which
+results in completely filled frames.
+**** DONE calculating the num_pix / event histogram
+**** DONE caluclating the FADC signal depth / event histogram
+Add min of FADC to peaks to file
+**** DONE calculate the ToT per pixel histogram
+**** TODO calculate real event length and real run length
+**** TODO calculate whether FADC event is noisy, add flag
+noisy = int
+depth = float 
+-> need separate datasets
+**** TODO link the ToT, Hits and all other datasets...
+... for which we wish to plot a histogram of ALL runs in one plot to
+something like
+#+BEGIN_SRC sh
+/reconstruction/combined/ToTs
+#+END_SRC
+with dataset names such as
+#+BEGIN_SRC sh
+./ToT_<chipnumber>_<run_number>
+#+END_SRC
+
+**** TODO add things like FADC settings to HDF5 file
+
+**** Comments about speed
+In the processFadcData proc, we can use multithreading to accelerate
+the calculation of whether an FADC file is noisy and the calculation
+of the minimum of it. The implementations compare as:
+- using spawn: 140s
+- single threaded: 420s
+- single: only calcing Min: 151s
+- single: only checking noise: 314s (-> 302s after slight mod)
+- final after opt w/ spawn: 45 s (iirc)
+
+*** Reconstruction
+
+In the reconstruction phase, the first part is to find the clusters in
+the events. In Christoph's case this is done by using a very rough
+cluster finder algorithm, which performs a square search around a
+pixel, within a given search radius (in practice 50 pixels), if
+another pixel found in that range, part of that cluster, start search
+again from that range.
+
+**** Explanation of Christophs cluster finder algorithm
+
+The data in MarlinTPC is stored in TrackerData objects (after having
+been converted from TrackerRawData) in the following way:
+- One whole event (== frame) consists of a =std::vector<TrackerData*>=,
+  where each =TrackerData*= is a set of hit pixels, which are next to
+  each other, within the same row. e.g. (x denotes hit pixel, o non
+  hit pixel):
+  #+BEGIN_SRC
+  (x  x  x  x) o (x  x) o (x  x) o (x)    < TrackerData denoted by ( ); all x next to each other one TrackerData* until next o
+   o (x  x) o (x) o (x  x  x  x  x) o      < TrackerData does not span more than 1 row
+  #+END_SRC
+- Algorithm iterates over said vector and determines
+#+BEGIN_SRC C
+  // begin1 is the starting pixel ID of the first pixel in this TrackerData object
+  int begin1 = ( dataQueue.front()->getCellID0() )%nColumns;
+  // end1 is the ending pixel ID of the last pixel in that TrackerData object
+  int end1 = (dataQueue.front()->getCellID0())%nColumns + dataQueue.front()->getChargeValues().size() - 1;
+  // determine the row of that TrackerData object
+  int row1 = static_cast<int>((dataQueue.front()->getCellID0() - begin1 )/nRows); 
+#+END_SRC
+- add first element to a DataQueue, delete element from
+  std::vector<TrackerData*>, start iterating over all remaining
+  TrackerData objects
+- for each of these calculate begin2, end2, row2 variables in same way
+- perforrm the following bool comparisons to check whether current
+  TrackerData within search radius (typically 50 pixels) of the last
+  one in the DataQueue
+#+BEGIN_SRC C
+  if (row2 > row1 + _searchRadius) break;
+  
+  //adjacent data same line
+  bool same1 =
+  ( begin2 < begin1 ) &&
+  ( (end2 + _searchRadius) >= begin1 ) &&
+  ( row1 == row2 );
+  
+  bool same2 =
+  ( begin2 > begin1 ) &&
+  ( (begin2 - _searchRadius) <= end1 ) &&
+  ( row1 == row2 );      
+  
+  //adjacent data below
+  bool low1 = 
+  ( (end2 - _searchRadius) <= end1 ) &&
+  ( (end2 + _searchRadius) >= begin1 ) &&
+  ( row2 < row1 ) &&
+  ( row1 <= (row2 + _searchRadius) );
+  
+  bool low2 = 
+  ( (begin2 + _searchRadius) >= begin1 ) &&
+  ( (begin2 - _searchRadius) <= end1 ) &&
+  ( row2 < row1 ) &&
+  ( row1 <= (row2 + _searchRadius) );
+  
+  bool low3 = 
+  ( (begin2 + _searchRadius) < begin1 ) &&
+  ( (end2 - _searchRadius) > end1 ) &&
+  ( row2 < row1 ) &&
+  ( row1 <= (row2 + _searchRadius) );
+  
+  
+  //adjacent data above
+  bool up1 = 
+  ( (end2 - _searchRadius) <= end1 ) &&
+  ( (end2 + _searchRadius) >= begin1 ) &&
+  ( row2 > row1 ) &&
+  ( row1 >= (row2 - _searchRadius) );
+  
+  
+  bool up2 = 
+  ( (begin2 + _searchRadius) >= begin1 ) &&
+  ( (begin2 - _searchRadius) <= end1 ) &&
+  ( row2 > row1 ) &&
+  ( row1 >= (row2 - _searchRadius) );
+n  
+  
+  bool up3 = 
+  ( (begin2 + _searchRadius) < begin1 ) &&
+  ( (end2 - _searchRadius) > end1 ) &&
+  ( row2 > row1 ) &&
+  ( row1 >= (row2 - _searchRadius) );
+#+END_SRC
+- search above and below, since in MarlinTPC vector of TrackerData
+  potentially not sorted
+- if any of these bool statements is true:
+  - add this TrackerData object to the current cluster
+  - add number of pixels to cluster count
+  - add this TrackerData as element in DataQueue
+  - remove this TrackerData from std::vector<TrackerData*>
+- if none of the bool statements is true, we found a full cluster, put
+  cluster away, start new cluster with the TrackerData, which was not
+  part of found cluster
+
+Regarding cluster finding algorithm:
+- cellID0 = from [[file:~/src/MarlinTPC/krieger/tools/processors/src/TimePixXYReaderProcessor.cc][TimePixXYReaderProcessor.cc]] 
+  #+BEGIN_SRC C
+  int cellID0 = _nPixels * (tempY % _nPixels) + (tempX % _nPixels);  
+  #+END_SRC
+  where _nPixels == 256, hence id of a specific pixel on the chip
+- cellID1 = globalChipID, which is the chip ID from TOS, plus the different FECs,
+  boards etc
+
+
+**** Data to read from H5 file
+In the main function, which does the reconstruction for a single
+event, we hand the following data: 
+c: Cluster
+which means we only need 4 different datasets for the InGrid data,
+i.e. 
+- event numbers
+- raw_x
+- raw_y
+- raw_ch
+from which we can perform single event reco. Need to read this from
+H5. 
+
+**** DONE write data to H5 after reco
+Need to write the following additional properties to H5 afterwards:
+- individual clusters instead of raw x, etc.
+  these are already filtered by:
+  - events smaller 3 (or 5?) pixels
+  - pixels of 11810?
+  - what happens to events with > 4096 pixel?
+- eccentricity
+- rot_angle
+- sum tot
+- rms_x
+- rms_y
+- skewness_x
+- skewness_y
+- kurtosis_x
+- kurtosis_y
+- length
+- width
+- pos_x
+- pos_y
+
+
+**** Comments about speed
+The default way to reconstruct the events was single
+threaded. Reconstructing the Run 21 (X-ray Finger) took:
+- single-threaded: 155 s
+- multi-threaded: 46 s
+when compiling without release flag. 
+With release flag:
+- single-threaded: 27 s
+- multi-threaded: 10.3 s
+
+
+*** Likelihood
+
+We have calc'd all logL values based on the X-ray reference datasets
+[[file:/mnt/Daten/Uni/CAST/data/CDL-reference/XrayReferenceDataSet.h5][XrayReferenceDataSet.h5]] using [[file:~/CastData/Code/Nim/InGrid-module/ingrid/likelihood.nim][likelihood.nim]]. 
+What is left to do:
+- define cut values on reference datasets correctly
+  Done by: hist.sum[0:cut_value] / hist.sum 
+  Check if > software eff.
+  -> cut value
+
+- include potential cuts on location of events
+- filter out by tracking / non-tracking (see [[file:~/CastData/Code/Nim/InGrid-module/ingrid/fadc_analysis.nim][fadc_analysis.nim]] for an
+  example on how to split by tracking / non-tracking).
+Once that is done, we can create spectra based on likelihood cuts.
+
+All cut values are implemented and we're able to create background
+spectra.
+
+**** TODO add event number to output 
+This allows us to filter out all events and write them to a different
+file
+
+**** TODO write small script, which adds an attribute "total run time"
+An attribute which keeps check of the total live time of the detector
+for each run.
+
+**** TODO make sure when getting data during or out off tracking...
+that we actually get the correct data. In case of reconstructed data,
+we will have more entries in each dataset (or less) depending on the
+number of clusters etc, while the timestamps still correspond to the
+actual *event numbers*. For durations this is fine, because they are
+unchagned, but once we start reading reconstructed properties that
+breaks down?
+
+What I need to do is the following: we have the event numbers of each
+cluster. That means we have to filter out the timestamps, which are
+still valid. From this, we can extract the event numbers, which are
+still valid. Then we need to reverse the mapping from event numbers to
+allowed events by saying:
+#+BEGIN_SRC nim
+let 
+  energy = h5f[(somechipgrp / "energyFromPixel").grp_str]
+  # event numbers of clusters of this chip
+  evNumber = h5f[(somechipgrp / "eventNumber").grp_str]
+  # all event numbers. This is not really needed, because by default
+  # the tracking indices already correspond to event numbers!
+  allEvNumbers = h5f[(somerungrp / "eventNumber").grp_str]
+  tracking_inds = getTrackingInds(h5f, somechipgrp, 0)
+var 
+  # get event numbers (not needed strictly speaking)
+  allowedEvents = allEvNumbers[tracking_inds] 
+# using allowed events get indices for other events by iterating
+# over all allowed events and removing those, which are not 
+# in the events of a chip
+for i, el in allowedEvents:
+  # remove all events of the allowed events, which are not
+  # part of the events for one chip
+  if el notin evNumber:
+    let ind = find(allowedEvents, el)
+    # delete event, if not in event numbers
+    del(allowedEvents, ind)
+    # or simply
+    allowedEvents.delByElement(el)
+
+#+END_SRC
+
+**** TODO writing all information about logL events to a new group in file
+This group "likelihood"? should contain again groups for each
+chip. In these however, we explicitly only have the data, which
+corresponds to the clusters, which passed the cut. We include the cut
+values as well, of course.
+
+To do that we need to:
+- read all properties of all events before we make the cuts
+#+BEGIN_SRC nim
+let float_dset_names = getFloatDsetNames()
+var float_data_tab = initTable[string, seq[float]]()
+for dset in float_dset_names:
+  float_data_tab[dset] = h5f[(group / dset).dset_str][float64]
+#+END_SRC
+- when performing the logL cut (after correctly selecting valid
+  events...)
+#+BEGIN_SRC nim
+var passed_inds = initSet[int]()
+if logL[ind] <= cutTab[dset]:
+  # replace this:
+  energy_passed.add energy[ind]
+  # by this:
+  passed_inds.incl ind
+# then we can do EITHER:
+for i in 0 ..< evNumbers.high:
+  if i notin passed_inds:
+    for dset in keys(float_data_tab):
+      # remove all indices, which are not in passed inds
+      del(float_data_tab[dset], i)
+# then write to the new likelihood group for this chip
+var logLgroup = &"/likelihood/chip_{chip_number}"
+# got all datasets ready for write
+for dset_name in keys(float_data_tab):
+  var dset = h5f.create_dataset((logLgroup / dset_name), 
+                                 (passed_inds.len, 1), float64)
+  # write the data to the file
+  dset[dset.all] = float_data_tab[dset_name]
+
+#+END_SRC
+
+
+

@@ -37,10 +37,10 @@ def fancy_plotting():
               'figure.figsize':      fig_size}
     pylab.rcParams.update(params)
 
-def readXrayData(h5file):
+def readXrayData(h5file, chip):
     # read data
     group_name = likelihoodBase()
-    chipNumber = 3
+    chipNumber = chip
     energy = readH5Data(h5file, group_name, chipNumber, ["energyFromPixel"])
     return energy
     
@@ -52,6 +52,14 @@ def main(args):
                         default = "gold",
                         dest = "region",
                         help = "The chip region considered")
+    parser.add_argument('--chip',
+                        default = 3,
+                        dest = "chip",
+                        help = "The chip to plot data for")
+    parser.add_argument('--log',
+                        default = False,
+                        action = 'store_true',
+                        help = "Flag to plot data in semi log y")
     parser.add_argument('--fancy',
                         default = False,
                         action = 'store_true',
@@ -63,17 +71,22 @@ def main(args):
 
     fancy = args_dict["fancy"]
     region = args_dict["region"]
+    chip = args_dict["chip"]
+    logY = args_dict["log"]
     if fancy == True:
         fancy_plotting()
 
-    energy = readXrayData(h5file) / 1000.0
+    energy = readXrayData(h5file, chip) / 1000.0
     print np.shape(energy)
     #print energy
     hist, bin_edges = np.histogram(energy, bins=25, range=(0.2, 10))
     hist_err = np.sqrt(hist)
 
     # scale hist
-    factor = 1e5
+    if logY == False:
+        factor = 1e5
+    else:
+        factor = 1.0
     time_back = 1123 * 3600 
     shutter_open = 0.88
     area = (0.95 - 0.45)**2
@@ -95,14 +108,18 @@ def main(args):
                  linewidth = 2)
     if fancy == True:
         plt.xlabel('Energy / $\\si{\\keV}$')
-        plt.ylabel('Rate / $\\SI{1e-5}{\\keV \\per \\cm^2 \\per \\s}$')
+        if logY == False:
+            plt.ylabel('Rate / $\\SI{1e-5}{\\keV \\per \\cm^2 \\per \\s}$')
+        else:
+            plt.ylabel('Rate / $\\si{\\keV \\per \\cm^2 \\per \\s}$')
     plt.xticks(np.arange(0, 11, 1))
     if region != "all":
-        plt.title("Background rate of 2017 in {} region".format(region))
+        plt.title("Background rate of 2017 in {} region for chip {}".format(region, chip))
     else:
-        plt.title("Background rate of 2017 over whole chip")
+        plt.title("Background rate of 2017 over whole chip {}".format(chip))
     plt.xlim(0, 10)
-    plt.semilogy()
+    if logY == True:
+        plt.semilogy()
     plt.grid()
     plt.show()
     

@@ -3,7 +3,7 @@
 ## and reconstruction programs
 
 import times
-import strutils
+import strutils, strformat
 import os
 import ospaths
 import docopt
@@ -19,13 +19,15 @@ import nimhdf5
 {.deadCodeElim: on.}
 
 let doc = """
-CAST log file reader
+CAST log file reader. Reads log files (Slow Control or Tracking Logs)
+and outputs information about the files.
 
 Usage:
+  cast_log_reader <folder> [options]
+  cast_log_reader <folder> --h5out <h5file> [options]
   cast_log_reader --sc <sc_log> [options]
   cast_log_reader --tracking <tracking_log> [options]
   cast_log_reader --sc <sc_log> --tracking <tracking_log> [options]
-  cast_log_reader <folder> --h5out <h5file> [options]
   cast_log_reader <h5file> --delete
 
 
@@ -43,6 +45,10 @@ Options:
 
 
 Description:
+  If only a folder is given, it is expected that it contains tracking log
+  files. In that case (without an output H5 file) we simply print information
+  about trackings.
+
   If this tool is run with a single slow control and / or tracking log
   file (i.e. not a folder containing several log files), the tool only
   prints information from that file. In case of a tracking log this is
@@ -444,13 +450,19 @@ proc print_tracking_logs(logs: seq[TrackingLog], print_type: TrackingKind, sorte
   var s_logs = logs
   if sorted == false:
     s_logs = sortTrackingLogs(s_logs)
-
+  
   for log in s_logs:
     case log.kind
     of rkTracking:
       echo "<$#>    <$#>" % [formatAsOrgDate(log.tracking_start), formatAsOrgDate(log.tracking_stop)]
     of rkNoTracking:
       echo "<$#>" % formatAsOrgDate(log.date)
+    
+  case print_type
+  of rkTracking:
+    echo &"There are {s_logs.len} solar trackings found in the log file directory"
+  of rkNoTracking:
+    echo &"There are {s_logs.len} runs without solar tracking found in the log file directory"
 
 proc read_log_folder(log_folder: string): seq[TrackingLog] =
   ## reads all log files from `log_folder` and returns a tuple of sorted `TrackingLog`
@@ -491,10 +503,10 @@ proc process_log_folder() =
     tracking_logs = read_log_folder(log_folder)
     (trk, notrk) = split_tracking_logs(tracking_logs)
 
-  echo "Tracking days :"
-  print_tracking_logs(trk, rkTracking)
   echo "No tracking days : "
   print_tracking_logs(notrk, rkNoTracking)
+  echo "Tracking days :"
+  print_tracking_logs(trk, rkTracking)
 
   # given the H5 file, create a referential table connecting
   # the trackings with run numbers

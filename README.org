@@ -21,7 +21,7 @@ based X-ray detector in use at the CERN Axion Solar Telescope:
 
 Some words...
 
-* Development
+* Development notes
 
 In order to do the analysis in Nim, we need two things:
 1. a filetype to store our processed data in

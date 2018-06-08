@@ -4,6 +4,7 @@
 import os
 #import ingrid/tos_helper_functions
 import tables
+import sequtils
 import re
 import helper_functions
 import strutils
@@ -89,6 +90,16 @@ proc main() =
         min_val = val
         file_min = pair[0]
     result = (min_val, file_min)
+
+  
+  let unequal1 = toSeq(values(scint1_hits)).filterIt(it != 0 and it != 4095)
+  let unequal2 = toSeq(values(scint2_hits)).filterIt(it != 0 and it != 4095)  
+
+  echo "The values unequal to 0 for 1 ", unequal1
+  echo "The values unequal to 0 for 2 ", unequal2
+
+  echo "Number of unequal values for 1 ", unequal1.len
+  echo "Number of unequal values for 2 ", unequal2.len
   
   let min_tup1 = min_of_table(scint1_hits)
   let min_tup2 = min_of_table(scint2_hits)

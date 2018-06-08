@@ -7,7 +7,35 @@ import tables
 import sequtils
 import re
 import helper_functions
-import strutils
+import strutils, strformat
+import seqmath
+import docopt
+import algorithm
+import loopfusion
+
+const doc = """
+A simple tool to extract scintillator information from a run.
+
+Usage:
+  extractScintiTriggers <runFolder> [options]
+  extractScintiTriggers <runFolder> --out [options]
+  extractScintiTriggers <runFolder> --outfolder <outfolder> [options]
+  extractScintiTriggers <runFolder> --outfile <filename> [options]
+
+
+Options:
+  --outfolder <outfolder>   Copy files of events with scintillator triggers 
+                            != 0 and != 4095
+                            to this folder
+  --out                     Same as --outfolder, but create a folder of the Runs name
+                            in the current folder
+  --outfile <filename>      If set we write the filenames of all interesting events (see
+                            --outfolder) to this file
+  -h --help                 Show this help
+  --version                 Show version
+
+"""
+
 
 proc readEventHeader*(filepath: string): Table[string, string] =
   # this procedure reads a whole event header and returns 
@@ -25,16 +53,25 @@ proc readEventHeader*(filepath: string): Table[string, string] =
       result[key] = val
 
 proc main() =
-  let args_count = paramCount()
-  if args_count < 1:
-    echo "Please hand a run folder"
-    quit()
 
+  let args = docopt(doc)
+  echo args
+
+  # init tables to store scinti information
   var scint1_hits = initTable[string, int]()
   var scint2_hits = initTable[string, int]()
 
-  var input_folder = paramStr(1)
+  var input_folder = $args["<runFolder>"]
 
+  var
+    outfolder = ""
+    outfile = ""
+  if $args["--outfolder"] != "nil":
+    outfolder = $args["--out"]
+  elif $args["--out"] == "true":
+    outfolder = "true"
+  elif $args["--outfile"] != "nil":
+    outfile = $args["--outfile"]
   # first check whether the input really is a .tar.gz file
   let is_tar = ".tar.gz" in input_folder
 
@@ -92,11 +129,20 @@ proc main() =
     result = (min_val, file_min)
 
   
-  let unequal1 = toSeq(values(scint1_hits)).filterIt(it != 0 and it != 4095)
-  let unequal2 = toSeq(values(scint2_hits)).filterIt(it != 0 and it != 4095)  
+  let unequal1_p = toSeq(pairs(scint1_hits)).filterIt(it[1] != 0 and it[1] != 4095)
+  let unequal2_p = toSeq(pairs(scint2_hits)).filterIt(it[1] != 0 and it[1] != 4095)
+  
+  let unequal1 = unequal1_p.mapIt(it[1])
+  let unequal2 = unequal2_p.mapIt(it[1])
+  
+  let unequal1_f = unequal1_p.mapIt(it[0])
+  let unequal2_f = unequal2_p.mapIt(it[0])
 
   echo "The values unequal to 0 for 1 ", unequal1
   echo "The values unequal to 0 for 2 ", unequal2
+
+  echo &"\t with a mean value of {unequal1.mapIt(it.float32).mean} for 1"
+  echo &"\t with a mean value of {unequal2.mapIt(it.float32).mean} for 2"  
 
   echo "Number of unequal values for 1 ", unequal1.len
   echo "Number of unequal values for 2 ", unequal2.len
@@ -106,6 +152,32 @@ proc main() =
 
   echo "\t Scint1_min = ", min_tup1[0], " in file ", min_tup1[1]
   echo "\t Scint2_min = ", min_tup2[0], " in file ", min_tup2[1]
+
+  
+  let files = concat(unequal1_f, unequal2_f).sorted(system.cmp[string])
+  let filesFadc = mapIt(files, it & "-fadc")
+  if outfolder.len > 0:
+    # get filenames and write to file
+    if outfolder == "true":
+      # create the correct folder name
+      outfolder = extractFilename(input_folder)
+      echo "Creating the folder ", outfolder
+      if existsOrCreateDir(outfolder):
+        echo "Folder already existed"
+
+    forZip f in files, ffadc in filesFadc:
+      let fd = joinPath(outfolder, extractFilename(f))
+      let fdFadc = joinPath(outfolder, extractFilename(ffadc))      
+      echo &"Copying file {f} to {fd}"
+      copyFile(f, fd)
+      copyFile(ffadc, fdFadc)
+
+  if outfile.len > 0:
+    var outf = open(outfile, fmWrite)
+    defer: outf.close()
+    forZip f in files, ffadc in filesFadc:
+      outf.write(f & "\n")
+      outf.write(ffadc & "\n")      
 
   # clean up after us, if desired
   if is_tar:

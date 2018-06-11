@@ -12,6 +12,7 @@ import seqmath
 import docopt
 import algorithm
 import loopfusion
+import plotly
 
 const doc = """
 A simple tool to extract scintillator information from a run.
@@ -38,8 +39,8 @@ Options:
 
 
 proc readEventHeader*(filepath: string): Table[string, string] =
-  # this procedure reads a whole event header and returns 
-  # a table containing the data, where the key is the key from the data file
+  ## this procedure reads a whole event header and returns 
+  ## a table containing the data, where the key is the key from the data file
   result = initTable[string, string]()
   
   # we define a regex for the header of the file
@@ -51,6 +52,30 @@ proc readEventHeader*(filepath: string): Table[string, string] =
       let key = strip(matches[0])
       let val = strip(matches[1])
       result[key] = val
+
+proc plotHist*[T](hist: seq[T]) =
+  ## given a seq of scintillator counts, plot them as a histogram
+  let 
+    goldenMean = (sqrt(5.0) - 1.0) / 2.0  # Aesthetic ratio
+    figWidth = 1200.0                     # width in inches
+    figHeight = figWidth * goldenMean     # height in inches
+
+  let
+    d = Trace[int](`type`: PlotType.Histogram, #histNorm: Percent, cumulative: true,
+                   #nbins: 60)#,
+                   bins: (0.0, 60.0), binSize: 1.0)
+  # filter out clock cycles larger 300 and assign to `Trace`
+  d.xs = filterIt(hist, it < 300)
+  let 
+    layout = Layout(title: "Clock cycles since last Scinti trigger",
+                    width: figWidth.int, height: figHeight.int,
+                    xaxis: Axis(title: "Clock cycles / 25 ns^-1"),
+                    yaxis: Axis(title: "# events$"),
+                    autosize: false)
+    p = Plot[int](layout: layout, traces: @[d])
+  p.show()
+  
+
 
 proc main() =
 
@@ -186,6 +211,9 @@ proc main() =
     let removed = removeFolder(input_folder)
     if removed == true:
       echo "Successfully removed all temporary files."
+
+  # now plot the scinti events
+  plotHist(unequal1)
     
 
 when isMainModule:

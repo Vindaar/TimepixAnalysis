@@ -13,30 +13,34 @@ import docopt
 import algorithm
 import loopfusion
 import plotly
+import nimhdf5
 
 const doc = """
 A simple tool to extract scintillator information from a run.
 
 Usage:
-  extractScintiTriggers <runFolder> [options]
-  extractScintiTriggers <runFolder> --out [options]
-  extractScintiTriggers <runFolder> --outfolder <outfolder> [options]
-  extractScintiTriggers <runFolder> --outfile <filename> [options]
-
+  extractScintiTriggers <runFolder> [--outfile=FILE | --outfolder=FOLDER | --infolder=FOLDER]
+  extractScintiTriggers <h5file> (--run_number=NUMBER | --all_runs) [--outfile=FILE | --outfolder=FOLDER]
 
 Options:
-  --outfolder <outfolder>   Copy files of events with scintillator triggers 
-                            != 0 and != 4095
-                            to this folder
-  --out                     Same as --outfolder, but create a folder of the Runs name
-                            in the current folder
-  --outfile <filename>      If set we write the filenames of all interesting events (see
-                            --outfolder) to this file
+  --outfolder=FOLDER        Copy files of events with scintillator triggers 
+                            != 0 and != 4095 to this folder. If no argument
+                            is given, a folder is created of the same name as
+                            the run.
+  --infolder=FOLDER         If an analysis was already done with this tool using the
+                            outfolder option, hand that folder using infolder, 
+                            to only produce the plot.
+  --run_number=NUMBER       If the input is a h5 file 
+  --outfile=FILE            If set we write the filenames of all interesting events (see --outfolder) to this file [default: 123]
   -h --help                 Show this help
   --version                 Show version
 
+Documentation:
+  This tool extracts the number of scintillator triggers in a given run. 
+
 """
 
+# TODO: plot both scintillators in one window!
 
 proc readEventHeader*(filepath: string): Table[string, string] =
   ## this procedure reads a whole event header and returns 
@@ -52,6 +56,8 @@ proc readEventHeader*(filepath: string): Table[string, string] =
       let key = strip(matches[0])
       let val = strip(matches[1])
       result[key] = val
+
+#proc 
 
 proc plotHist*[T](hist: seq[T]) =
   ## given a seq of scintillator counts, plot them as a histogram
@@ -75,43 +81,16 @@ proc plotHist*[T](hist: seq[T]) =
     p = Plot[int](layout: layout, traces: @[d])
   p.show()
   
+proc readRunFolder*(runFolder: string): (Table[string, int], Table[string, int]) =
 
-
-proc main() =
-
-  let args = docopt(doc)
-  echo args
-
-  # init tables to store scinti information
-  var scint1_hits = initTable[string, int]()
-  var scint2_hits = initTable[string, int]()
-
-  var input_folder = $args["<runFolder>"]
-
-  var
-    outfolder = ""
-    outfile = ""
-  if $args["--outfolder"] != "nil":
-    outfolder = $args["--out"]
-  elif $args["--out"] == "true":
-    outfolder = "true"
-  elif $args["--outfile"] != "nil":
-    outfile = $args["--outfile"]
-  # first check whether the input really is a .tar.gz file
-  let is_tar = ".tar.gz" in input_folder
-
-  if is_tar:
-    # in this case we need to extract the file to a temp directory
-    input_folder = untarFile(input_folder)
-    if input_folder == nil:
-      echo "Warning: Could not untar the run folder successfully. Exiting now."
-      quit()
-
+  result[0] = initTable[string, int]()
+  result[1] = initTable[string, int]()  
+  
   # first check whether the input really is a valid folder
-  if existsDir(input_folder) == true:
+  if existsDir(run_folder) == true:
     # get the list of files in the folder
     #"/data/schmidt/data/2017/DataRuns/Run_84_171108-17-49/data001101.txt"
-    let files = getListOfFiles(input_folder, r"^/?([\w-_]+/)*data\d{4,6}\.txt$")
+    let files = getListOfFiles(run_folder, r"^/?([\w-_]+/)*data\d{4,6}\.txt$")
     var inode_tab = createInodeTable(files)
     sortInodeTable(inode_tab)
     
@@ -128,18 +107,60 @@ proc main() =
       # and the src/waitconditions bug causes overcounting
       if fadc_triggered:
         if scint1 != 0:
-          scint1_hits[file] = scint1
+          result[0][file] = scint1
         if scint2 != 0:
-          scint2_hits[file] = scint2
+          result[1][file] = scint2
       if count mod 500 == 0:
-        echo count, " files read. Scint counters: 1 = ", len(scint1_hits), "; 2 = ", len(scint2_hits)
+        echo count, " files read. Scint counters: 1 = ", len(result[0]), "; 2 = ", len(result[1])
       count = count + 1
   else:
     echo "Input folder does not exist. Exiting..."
     quit()
 
+proc main() =
+
+  let args = docopt(doc, quit = false)
+  echo args
+
+  let infolder = $args["--infolder"]
+  #if infolder == "nil":
+
+  var run_folder = ""
+  var h5file = ""
+  if $args["<runFolder>"] != "nil":
+    run_folder = $args["<runFolder>"]
+  else:
+    h5file = $args["<h5file>"]    
+
+  var
+    outfolder = $args["--outfolder"]
+    outfile = ""
+  if outfolder != "nil" and outfolder != "":
+    outfolder = $args["--outfolder"]
+  elif outfolder == "":
+    outfolder = "true"
+  elif $args["--outfile"] != "nil":
+    outfile = $args["--outfile"]
+  # first check whether the input really is a .tar.gz file
+  let is_tar = ".tar.gz" in run_folder
+
+  if is_tar:
+    # in this case we need to extract the file to a temp directory
+    run_folder = untarFile(run_folder)
+    if run_folder == nil:
+      echo "Warning: Could not untar the run folder successfully. Exiting now."
+      quit()
+
+  #if infolder != "nil":
+    # init tables to store scinti information
+  let (scint1_hits, scint2_hits) = readRunFolder(runFolder)
+    #echoData(scint1_hits, scint2_hits)
+  #
+  # let scint1_hits = readFile(
+  
+
   # all done, print some output
-  echo "Reading of all files in folder ", input_folder, " finished."
+  echo "Reading of all files in folder ", run_folder, " finished."
   echo "\t Scint1     = ", len(scint1_hits)
   echo "\t Scint2     = ", len(scint2_hits)
 
@@ -185,7 +206,7 @@ proc main() =
     # get filenames and write to file
     if outfolder == "true":
       # create the correct folder name
-      outfolder = extractFilename(input_folder)
+      outfolder = extractFilename(run_folder)
       echo "Creating the folder ", outfolder
       if existsOrCreateDir(outfolder):
         echo "Folder already existed"
@@ -196,6 +217,14 @@ proc main() =
       echo &"Copying file {f} to {fd}"
       copyFile(f, fd)
       copyFile(ffadc, fdFadc)
+    
+    # now write the scintillator trigger data to the folder as well
+    var outScint1 = open("scint1.txt", fmWrite)
+    defer: outScint1.close()
+    var outScint2 = open("scint2.txt", fmWrite)
+    defer: outScint2.close()
+    outScint1.write(unequal1)
+    outScint2.write(unequal2)
 
   if outfile.len > 0:
     var outf = open(outfile, fmWrite)
@@ -208,7 +237,7 @@ proc main() =
   if is_tar:
     # in this case we need to remove the temp files again
     # now that we have all information we needed from the run, we can delete the folder again
-    let removed = removeFolder(input_folder)
+    let removed = removeFolder(run_folder)
     if removed == true:
       echo "Successfully removed all temporary files."
 

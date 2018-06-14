@@ -2,7 +2,7 @@
 # event set
 
 import os
-#import ingrid/tos_helper_functions
+import ingrid/tos_helper_functions
 import tables
 import sequtils
 import re
@@ -20,7 +20,7 @@ A simple tool to extract scintillator information from a run.
 
 Usage:
   extractScintiTriggers <runFolder> [--outfile=FILE | --outfolder=FOLDER | --infolder=FOLDER]
-  extractScintiTriggers <h5file> (--run_number=NUMBER | --all_runs) [--outfile=FILE | --outfolder=FOLDER]
+  extractScintiTriggers <h5file> (--runNumber=NUMBER | --allRuns) [--outfile=FILE | --outfolder=FOLDER]
 
 Options:
   --outfolder=FOLDER        Copy files of events with scintillator triggers 
@@ -30,14 +30,16 @@ Options:
   --infolder=FOLDER         If an analysis was already done with this tool using the
                             outfolder option, hand that folder using infolder, 
                             to only produce the plot.
-  --run_number=NUMBER       If the input is a h5 file 
-  --outfile=FILE            If set we write the filenames of all interesting events (see --outfolder) to this file [default: 123]
+  --runNumber=NUMBER        (h5file): If the input is a h5 file, hand the run for which
+                            to extract scinti information
+  --allRuns                 (h5file): use this flag to concat all runs in the h5 file.
+  --outfile=FILE            If set we write the filenames of all interesting events 
+                            (see --outfolder) to this file [default: 123]
   -h --help                 Show this help
   --version                 Show version
 
 Documentation:
   This tool extracts the number of scintillator triggers in a given run. 
-
 """
 
 # TODO: plot both scintillators in one window!
@@ -56,30 +58,6 @@ proc readEventHeader*(filepath: string): Table[string, string] =
       let key = strip(matches[0])
       let val = strip(matches[1])
       result[key] = val
-
-#proc 
-
-proc plotHist*[T](hist: seq[T]) =
-  ## given a seq of scintillator counts, plot them as a histogram
-  let 
-    goldenMean = (sqrt(5.0) - 1.0) / 2.0  # Aesthetic ratio
-    figWidth = 1200.0                     # width in inches
-    figHeight = figWidth * goldenMean     # height in inches
-
-  let
-    d = Trace[int](`type`: PlotType.Histogram, #histNorm: Percent, cumulative: true,
-                   #nbins: 60)#,
-                   bins: (0.0, 60.0), binSize: 1.0)
-  # filter out clock cycles larger 300 and assign to `Trace`
-  d.xs = filterIt(hist, it < 300)
-  let 
-    layout = Layout(title: "Clock cycles since last Scinti trigger",
-                    width: figWidth.int, height: figHeight.int,
-                    xaxis: Axis(title: "Clock cycles / 25 ns^-1"),
-                    yaxis: Axis(title: "# events$"),
-                    autosize: false)
-    p = Plot[int](layout: layout, traces: @[d])
-  p.show()
   
 proc readRunFolder*(runFolder: string): (Table[string, int], Table[string, int]) =
 
@@ -87,10 +65,10 @@ proc readRunFolder*(runFolder: string): (Table[string, int], Table[string, int])
   result[1] = initTable[string, int]()  
   
   # first check whether the input really is a valid folder
-  if existsDir(run_folder) == true:
+  if existsDir(runFolder) == true:
     # get the list of files in the folder
     #"/data/schmidt/data/2017/DataRuns/Run_84_171108-17-49/data001101.txt"
-    let files = getListOfFiles(run_folder, r"^/?([\w-_]+/)*data\d{4,6}\.txt$")
+    let files = getListOfFiles(runFolder, r"^/?([\w-_]+/)*data\d{4,6}\.txt$")
     var inode_tab = createInodeTable(files)
     sortInodeTable(inode_tab)
     
@@ -117,50 +95,82 @@ proc readRunFolder*(runFolder: string): (Table[string, int], Table[string, int])
     echo "Input folder does not exist. Exiting..."
     quit()
 
-proc main() =
-
-  let args = docopt(doc, quit = false)
-  echo args
-
-  let infolder = $args["--infolder"]
-  #if infolder == "nil":
-
-  var run_folder = ""
-  var h5file = ""
-  if $args["<runFolder>"] != "nil":
-    run_folder = $args["<runFolder>"]
+proc readScintFromH5(h5file: string, runNumber = 0, allRuns = false): (seq[int64], seq[int64]) =
+  var h5f = H5file(h5file, "r")
+  
+  if allRuns == true:
+    for num, grp in runs(h5f, rawDataBase()):
+      var
+        scint1_dset = h5f[(grp / "szint1ClockInt").dset_str]
+        scint2_dset = h5f[(grp / "szint2ClockInt").dset_str]
+      result[0] = concat(result[0], scint1_dset[int64])
+      result[1] = concat(result[1], scint2_dset[int64])
   else:
-    h5file = $args["<h5file>"]    
+    let grp = rawDataBase()
+    var
+      scint1_dset = h5f[(grp & $runNumber / "szint1ClockInt").dset_str]
+      scint2_dset = h5f[(grp & $runNumber / "szint2ClockInt").dset_str]
+    result[0] = scint1_dset[int64]
+    result[1] = scint2_dset[int64]
 
+  result[0] = filterIt(result[0], it != 0 and it != 4095)
+  result[1] = filterIt(result[0], it != 0 and it != 4095)
+
+      
+
+proc plotHist*[T](hist: seq[T]) =
+  ## given a seq of scintillator counts, plot them as a histogram
+  let 
+    goldenMean = (sqrt(5.0) - 1.0) / 2.0  # Aesthetic ratio
+    figWidth = 1200.0                     # width in inches
+    figHeight = figWidth * goldenMean     # height in inches
+
+  let
+    d = Trace[int64](`type`: PlotType.Histogram, #histNorm: Percent, cumulative: true,
+                   #nbins: 60)#,
+                   bins: (0.0, 60.0), binSize: 1.0)
+  # filter out clock cycles larger 300 and assign to `Trace`
+  d.xs = filterIt(hist, it < 300)
+  let 
+    layout = Layout(title: "Clock cycles since last Scinti trigger",
+                    width: figWidth.int, height: figHeight.int,
+                    xaxis: Axis(title: "# Clock cycles / 25 ns"),
+                    yaxis: Axis(title: "# events$"),
+                    autosize: false)
+    p = Plot[int64](layout: layout, traces: @[d])
+  p.show()
+
+proc workOnRunFolder(rf: string): (seq[int64], seq[int64]) =
+  var runFolder = rf
+
+  let args = docopt(doc)
+  
   var
     outfolder = $args["--outfolder"]
     outfile = ""
-  if outfolder != "nil" and outfolder != "":
-    outfolder = $args["--outfolder"]
-  elif outfolder == "":
+  if outfolder == "":
     outfolder = "true"
-  elif $args["--outfile"] != "nil":
+  elif outfolder == "nil":
+    outfolder = ""
+
+  if $args["--outfile"] != "nil":
     outfile = $args["--outfile"]
+    
   # first check whether the input really is a .tar.gz file
-  let is_tar = ".tar.gz" in run_folder
+  let is_tar = ".tar.gz" in runFolder
 
   if is_tar:
     # in this case we need to extract the file to a temp directory
-    run_folder = untarFile(run_folder)
-    if run_folder == nil:
+    runFolder = untarFile(runFolder)
+    if runFolder == nil:
       echo "Warning: Could not untar the run folder successfully. Exiting now."
       quit()
 
-  #if infolder != "nil":
-    # init tables to store scinti information
+  # read the actual data
   let (scint1_hits, scint2_hits) = readRunFolder(runFolder)
-    #echoData(scint1_hits, scint2_hits)
-  #
-  # let scint1_hits = readFile(
-  
 
   # all done, print some output
-  echo "Reading of all files in folder ", run_folder, " finished."
+  echo "Reading of all files in folder ", runFolder, " finished."
   echo "\t Scint1     = ", len(scint1_hits)
   echo "\t Scint2     = ", len(scint2_hits)
 
@@ -202,11 +212,12 @@ proc main() =
   
   let files = concat(unequal1_f, unequal2_f).sorted(system.cmp[string])
   let filesFadc = mapIt(files, it & "-fadc")
+
   if outfolder.len > 0:
     # get filenames and write to file
     if outfolder == "true":
       # create the correct folder name
-      outfolder = extractFilename(run_folder)
+      outfolder = extractFilename(runFolder)
       echo "Creating the folder ", outfolder
       if existsOrCreateDir(outfolder):
         echo "Folder already existed"
@@ -237,9 +248,55 @@ proc main() =
   if is_tar:
     # in this case we need to remove the temp files again
     # now that we have all information we needed from the run, we can delete the folder again
-    let removed = removeFolder(run_folder)
+    let removed = removeFolder(runFolder)
     if removed == true:
       echo "Successfully removed all temporary files."
+
+
+  result[0] = unequal1.mapIt(it.int64)
+  result[1] = unequal2.mapIt(it.int64)    
+
+
+proc workOnH5File(h5file: string): (seq[int64], seq[int64]) =
+
+  let args = docopt(doc)
+
+  let runNumberStr = $args["--runNumber"]
+  var runNumber = 0
+  if runNumberStr != "nil":
+    runNumber = parseInt(runNumberStr)
+  let allRunsStr = $args["--allRuns"]
+  var allRuns = false
+  if allRunsStr != "nil":
+    allRuns = true
+
+  result = readScintFromH5(h5file, runNumber, allRuns)
+
+proc main() =
+
+  let args = docopt(doc)#, quit = false)
+  echo args
+
+  let infolder = $args["--infolder"]
+  #if infolder == "nil":
+
+  var useH5file = false
+  
+  var runFolder = ""
+  var h5file = ""
+  if $args["<runFolder>"] != "nil":
+    runFolder = $args["<runFolder>"]
+    useH5file = false
+  else:
+    h5file = $args["<h5file>"]
+    useH5file = true
+
+  var unequal1: seq[int64]
+  var unequal2: seq[int64]
+  if useH5file == false:
+    (unequal1, unequal2) = workOnRunFolder(runFolder)
+  else:
+    (unequal1, unequal2) = workOnH5File(h5file)
 
   # now plot the scinti events
   plotHist(unequal1)

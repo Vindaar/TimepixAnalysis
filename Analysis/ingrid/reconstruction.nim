@@ -802,7 +802,7 @@ proc main() =
     reconstructRunsInFile(h5f, h5fout, flags_tab, parseInt(run_number), calib_factor = calib_factor)
     
 
-  var err: hid_t
+  var err: herr_t
   err = h5f.close()
   if err != 0:
     echo &"Failed to close H5 file {h5f.name}"

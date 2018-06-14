@@ -398,9 +398,9 @@ proc calcGeomtry(cluster: Cluster, pos_x, pos_y, rot_angle: float): ClusterGeome
   # within the transverse RMS radius and dividing by total pix
   when not defined(release):
     # DEBUG
-    echo "rms trans is ", result.rms_trans
+    echo "rms trans is ", result.rmsTransverse
     echo "std is ", stat_y.variance()
-    echo "thus filter is ", filterIt(zip(xRot, yRot), distance(it.a, it.b) <= result.rms_trans)
+    echo "thus filter is ", filterIt(zip(xRot, yRot), distance(it.a, it.b) <= result.rmsTransverse)
   result.lengthDivRmsTrans = result.length / result.rmsTransverse
   result.fractionInTransverseRms = float(filterIt(zip(xRot, yRot),
                                                   distance(it.a, it.b) <= result.rmsTransverse).len) / float(npix)
@@ -634,7 +634,7 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
   var reco_run: seq[FlowVar[ref RecoEvent]] = @[]
   
   # iterate over all raw data groups
-  for num, grp in runs(h5f, reco = false):
+  for num, grp in runs(h5f, rawDataBase()):
     # now read some data. Return value will be added later
     let run_number = parseInt(num)
     # check whether all runs are read, if not if this run is correct run number

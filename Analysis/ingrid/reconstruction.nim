@@ -351,7 +351,7 @@ proc excentricity(n: cuint, p: array[1, cdouble], grad: var array[1, cdouble], f
 
   result = -exc
 
-proc calcGeomtry(cluster: Cluster, pos_x, pos_y, rot_angle: float): ClusterGeometry =
+proc calcGeometry(cluster: Cluster, pos_x, pos_y, rot_angle: float): ClusterGeometry =
   # given a cluster and the rotation angle of it, calculate the different
   # statistical moments, i.e. RMS, skewness and kurtosis in longitudinal and
   # transverse direction
@@ -576,7 +576,7 @@ proc recoCluster(c: Cluster): ClusterObject =
 
   # now we still need to use the rotation angle to calculate the different geometric
   # properties, i.e. RMS, skewness and kurtosis along the long axis of the cluster
-  result.geometry = calcGeomtry(c, result.centerX, result.centerY, rot_angle)
+  result.geometry = calcGeometry(c, result.centerX, result.centerY, rot_angle)
 
 proc recoEvent(data: Pixels, event, chip: int): ref RecoEvent =
   result = new RecoEvent

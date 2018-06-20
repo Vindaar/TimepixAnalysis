@@ -19,6 +19,14 @@ Options:
   --version        Show the version number
 """
 
+func sCurveFunc(p: seq[float], x: float): float =
+  ## we fit the complement of a cumulative distribution function
+  ## of the normal distribution
+  # parameter p[2] == sigma
+  # parameter p[1] == x0
+  # parameter p[0] == scale factor
+  result = normalCdfC(x, p[2], p[1]) * p[0]
+
 proc getTrace[T](hist, bins: seq[T], voltage: string): Trace[T] =
 
   result = Trace[int](`type`: PlotType.Scatter)
@@ -51,6 +59,10 @@ proc plotHist*[T](traces: seq[Trace[T]], voltages: set[int16], chip = "") =
 
 proc readVoltageFile(filename: string): (string, seq[int], seq[int]) =
   let file = filename.expandTilde
+  # - read file as string
+  # - split all lines after header at \n
+  # - filter lines with no content
+  # - create tuple of (THL, Counts) for each line
   let dataTuple = readFile(file).splitLines[2..^1].filterIt(it.len > 0).mapIt(
     ((it.split('\t')[0].parseInt, it.split('\t')[1].parseInt))
   )

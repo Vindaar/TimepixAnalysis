@@ -1,18 +1,22 @@
 import plotly
 import os, strutils, strformat
 import sequtils
+import algorithm
 import math
 import docopt
+import chroma
 import seqmath
 import mpfit
 
 const doc = """
-A simple tool to plot an SCurve
+A simple tool to plot SCurves or ToT calibrations.
   
 Usage:
-  plotSCurve (--file=FILE | --folder=FOLDER) [options]
+  plotCalibration (--scurve | --tot) (--file=FILE | --folder=FOLDER) [options]
 
 Options:
+  --scurve         If set, perform SCurve analysis
+  --tot            If set, perform ToT calibration analysis
   --file=FILE      If given will read from a single file
   --folder=FOLDER  If given will read all voltage files from the given folder 
   --chip=NUMBER    The number of this chip
@@ -21,17 +25,22 @@ Options:
 """
 
 type
-  FitScurve = object
-    thl: seq[float]
-    count: seq[float]
+  FitResult = object
+    x: seq[float]
+    y: seq[float]
     pRes: seq[float]
     pErr: seq[float]
     redChiSq: float
-
+    
 const
   NTestPulses = 1000.0
   ScalePulses = 1.01
   CurveHalfWidth = 15
+
+const 
+  GoldenMean = (sqrt(5.0) - 1.0) / 2.0  # Aesthetic ratio
+  FigWidth = 1200.0                     # width in inches
+  FigHeight = FigWidth * GoldenMean     # height in inches
 
 func findDrop(thl, count: seq[float]): (float, int, int) =
   ## search for the drop of the SCurve, i.e.
@@ -84,7 +93,12 @@ func sCurveFunc(p: seq[float], x: float): float =
   # parameter p[0] == scale factor
   result = normalCdfC(x, p[2], p[1]) * p[0]
 
-proc fitSCurve[T](thl, count: seq[T], voltage: int): FitScurve =
+func thlCalibFunc(p: seq[float], x: float): float =
+  ## we fit a linear function to the charges and mean thl values
+  ## of the SCurves
+  result = p[0] + x * p[1]
+
+proc fitSCurve[T](thl, count: seq[T], voltage: int): FitResult =
   ## performs the fit of the `sCurveFunc` to the given `thl` and `count`
   ## seqs. Returns a `FitScurve` object of the fit result
   const pSigma = 5.0
@@ -104,11 +118,28 @@ proc fitSCurve[T](thl, count: seq[T], voltage: int): FitScurve =
                       err)
   echoResult(pRes, res = res)
   # create data to plot fit as result
-  result.thl = linspace(thl[minIndex].float, thl[maxIndex].float, 1000)
-  result.count = result.thl.mapIt(sCurveFunc(pRes, it))
+  result.x = linspace(thl[minIndex].float, thl[maxIndex].float, 1000)
+  result.y = result.x.mapIt(sCurveFunc(pRes, it))
   result.pRes = pRes
   result.pErr = res.error
   result.redChisq = res.reducedChisq
+
+proc fitThlCalib(charge, thl, thlErr: seq[float]): FitResult =
+
+  # determine start parameters
+  let p = @[0.0, (thl[1] - thl[0]) / (charge[1] - charge[0])]
+
+  echo "Fitting ", charge, " ", thl, " ", thlErr
+      
+  let (pRes, res) = fit(thlCalibFunc, p, charge, thl, thlErr)
+  # echo parameters 
+  echoResult(pRes, res = res)
+  
+  result.x = linspace(charge[0], charge[^1], 100)
+  result.y = result.x.mapIt(thlCalibFunc(pRes, it))
+  result.pRes = pRes
+  result.pErr = res.error
+  result.redChiSq = res.reducedChisq
 
 proc getTrace[T](bins, hist: seq[T], voltage: string): Trace[T] =
   result = Trace[T](`type`: PlotType.Scatter)
@@ -118,25 +149,39 @@ proc getTrace[T](bins, hist: seq[T], voltage: string): Trace[T] =
   result.name = &"Voltage {voltage}"
 
 proc plotHist*[T](traces: seq[Trace[T]], voltages: set[int16], chip = "") =
-  ## given a seq of scintillator counts, plot them as a histogram
-  let 
-    goldenMean = (sqrt(5.0) - 1.0) / 2.0  # Aesthetic ratio
-    figWidth = 1200.0                     # width in inches
-    figHeight = figWidth * goldenMean     # height in inches
-
-  # take the first trace of the seq as the one to extract the min and max
-  # ranges. They should all be the same
-  let
-    binMin = traces[0].xs[0].float
-    binMax = traces[0].xs[^1].float
-
+  ## given a seq of traces (SCurves and their fits), plot
   let 
     layout = Layout(title: &"SCurve of Chip {chip} for voltage {voltages}",
-                    width: figWidth.int, height: figHeight.int,
+                    width: FigWidth.int, height: FigHeight.int,
                     xaxis: Axis(title: "Threshold value"),
                     yaxis: Axis(title: "# hits$"),
                     autosize: false)
     p = Plot[float](layout: layout, traces: traces)
+  p.show()
+
+proc plotThlCalib*(thlCalib: FitResult, charge, thl, thlErr: seq[float], chip = "") =
+  let
+    data = Trace[float](mode: PlotMode.Markers, `type`: PlotType.Scatter)
+    fit = Trace[float](mode: PlotMode.Lines, `type`: PlotType.Scatter)
+  # flip the plot, i.e. show THL on x instead of y as done for the fit to
+  # include the errors
+  data.ys = charge
+  data.xs = thl
+  data.xs_err = newErrorBar(thlErr, color = Color(r: 0.5, g: 0.5, b: 0.5, a: 1.0))
+  data.name = "THL calibration"
+
+  # flip the plot 
+  fit.ys = thlCalib.x
+  fit.xs = thlCalib.y
+  fit.name = "THL calibration fit"
+  
+  let 
+    layout = Layout(title: &"THL calibration of Chip {chip}",
+                    width: FigWidth.int, height: FigHeight.int,
+                    yaxis: Axis(title: "Charge / e-"),
+                    xaxis: Axis(title: "THL"),
+                    autosize: false)
+    p = Plot[float](layout: layout, traces: @[data, fit])
   p.show()
 
 proc readVoltageFile(filename: string): (string, seq[float], seq[float]) =
@@ -152,19 +197,20 @@ proc readVoltageFile(filename: string): (string, seq[float], seq[float]) =
   result[1] = dataTuple.mapIt(it[0])
   result[2] = dataTuple.mapIt(it[1])
 
-proc main() =
-
-  let args = docopt(doc)
-  let file = $args["--file"]
-  let folder = $args["--folder"]  
-  let chip = $args["--chip"]
-
+proc plotSCurve(file, folder, chip: string) =
+  ## perform plotting and fitting of SCurves
   var
     voltages: set[int16]
     v = ""
     bins: seq[float] = @[]
     hist: seq[float] = @[]
     traces: seq[Trace[float]] = @[]
+
+    # calibration seqs
+    charge: seq[float] = @[]
+    thlMean: seq[float] = @[]
+    thlErr: seq[float] = @[]
+    
   if file != "nil":
     (v, bins, hist) = readVoltageFile(file)
     voltages.incl int16(v.parseInt)
@@ -183,12 +229,52 @@ proc main() =
         # now fit the normal cdf to the SCurve and add its data
         let fitRes = fitSCurve(bins, hist, v.parseInt)
         let
-          traceFit = getTrace(fitRes.thl, fitRes.count, &"fit {v} / chiSq {fitRes.redChiSq}")
+          traceFit = getTrace(fitRes.x, fitRes.y, &"fit {v} / chiSq {fitRes.redChiSq}")
         traces.add traceFit
 
         # given `fitRes`, add fit parameters to calibration seqs
-        
+        # why do we multiply voltage in mV by 50?
+        charge.add (v.parseFloat * 50)
+        thlMean.add (fitRes.pRes[1])
+        thlErr.add (fitRes.pErr[1])
+
   plotHist(traces, voltages, chip)
+
+  # now fit the calibration function
+  # however, the voltage data is in a wrong order. need to sort it, before
+  # we can fit
+  let thlTup = zip(thlMean, thlErr)
+  var chThl = zip(charge, thlTup)
+  let sortedChThl = chThl.sortedByIt(it[0])
+  let
+    chSort = sortedChThl.mapIt(it[0])
+    thlSort = sortedChThl.mapIt(it[1][0])
+    # increase errors artifically by factor 100... Mostly for visualization,
+    # but also as a rough guess for typical deviation visible 
+    thlErrSort = sortedChThl.mapIt(it[1][1] * 100)    
+  
+  let thlCalib = fitThlCalib(chSort, thlSort, thlErrSort)
+  plotThlCalib(thlCalib, chSort, thlSort, thlErrSort, chip)
+
+proc plotToTCalib(file, folder, chip: string) =
+  ## perform plotting and analysis of ToT calibration
+  discard
+
+proc main() =
+
+  let args = docopt(doc)
+  let file = $args["--file"]
+  let folder = $args["--folder"]  
+  let chip = $args["--chip"]
+
+  let
+    scurve = $args["--scurve"]
+    tot = $args["--tot"]
+  if scurve != "nil":
+    plotSCurve(file, folder, chip)
+  elif tot != "nil":
+    plotToTCalib(file, folder, chip)
+    
 
 when isMainModule:
   main()

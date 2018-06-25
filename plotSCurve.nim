@@ -10,7 +10,7 @@ import mpfit
 
 const doc = """
 A simple tool to plot SCurves or ToT calibrations.
-  
+
 Usage:
   plotCalibration (--scurve | --tot) (--file=FILE | --folder=FOLDER) [options]
 
@@ -18,7 +18,7 @@ Options:
   --scurve         If set, perform SCurve analysis
   --tot            If set, perform ToT calibration analysis
   --file=FILE      If given will read from a single file
-  --folder=FOLDER  If given will read all voltage files from the given folder 
+  --folder=FOLDER  If given will read all voltage files from the given folder
   --chip=NUMBER    The number of this chip
   -h, --help       Show this help
   --version        Show the version number
@@ -31,13 +31,13 @@ type
     pRes: seq[float]
     pErr: seq[float]
     redChiSq: float
-    
+
 const
   NTestPulses = 1000.0
   ScalePulses = 1.01
   CurveHalfWidth = 15
 
-const 
+const
   GoldenMean = (sqrt(5.0) - 1.0) / 2.0  # Aesthetic ratio
   FigWidth = 1200.0                     # width in inches
   FigHeight = FigWidth * GoldenMean     # height in inches
@@ -65,7 +65,7 @@ func findDrop(thl, count: seq[float]): (float, int, int) =
   let
     drop = thlCount.filterIt(it[1] > (NTestPulses / 2.0))[^1]
     (pCenterInd, pCenter) = drop[0]
-  
+
   var minIndex = max(pCenterInd - CurveHalfWidth, 0)
   # test the min index
   if count[minIndex.int] > scaleBound:
@@ -81,7 +81,7 @@ func findDrop(thl, count: seq[float]): (float, int, int) =
     # - [0]: get `int` from above, which corresponds to indices of THL
     minIndex = thlSmallerBound[0][0][0]
   let maxIndex = min(pCenterInd + CurveHalfWidth, thl.high)
-  
+
   # index is thl of ind
   result = (pCenter, minIndex, maxIndex)
 
@@ -107,10 +107,10 @@ proc fitSCurve[T](thl, count: seq[T], voltage: int): FitResult =
     err = thl.mapIt(1.0)
     p = @[NTestPulses, pCenter.float, pSigma]
 
-  let 
+  let
     thlCut = thl[minIndex .. maxIndex].mapIt(it.float)
     countCut = count[minIndex .. maxIndex].mapIt(it.float)
-    
+
     (pRes, res) = fit(sCurveFunc,
                       p,
                       thlCut,
@@ -130,11 +130,11 @@ proc fitThlCalib(charge, thl, thlErr: seq[float]): FitResult =
   let p = @[0.0, (thl[1] - thl[0]) / (charge[1] - charge[0])]
 
   echo "Fitting ", charge, " ", thl, " ", thlErr
-      
+
   let (pRes, res) = fit(thlCalibFunc, p, charge, thl, thlErr)
-  # echo parameters 
+  # echo parameters
   echoResult(pRes, res = res)
-  
+
   result.x = linspace(charge[0], charge[^1], 100)
   result.y = result.x.mapIt(thlCalibFunc(pRes, it))
   result.pRes = pRes
@@ -150,7 +150,7 @@ proc getTrace[T](bins, hist: seq[T], voltage: string): Trace[T] =
 
 proc plotHist*[T](traces: seq[Trace[T]], voltages: set[int16], chip = "") =
   ## given a seq of traces (SCurves and their fits), plot
-  let 
+  let
     layout = Layout(title: &"SCurve of Chip {chip} for voltage {voltages}",
                     width: FigWidth.int, height: FigHeight.int,
                     xaxis: Axis(title: "Threshold value"),
@@ -170,12 +170,12 @@ proc plotThlCalib*(thlCalib: FitResult, charge, thl, thlErr: seq[float], chip = 
   data.xs_err = newErrorBar(thlErr, color = Color(r: 0.5, g: 0.5, b: 0.5, a: 1.0))
   data.name = "THL calibration"
 
-  # flip the plot 
+  # flip the plot
   fit.ys = thlCalib.x
   fit.xs = thlCalib.y
   fit.name = "THL calibration fit"
-  
-  let 
+
+  let
     layout = Layout(title: &"THL calibration of Chip {chip}",
                     width: FigWidth.int, height: FigHeight.int,
                     yaxis: Axis(title: "Charge / e-"),
@@ -197,6 +197,17 @@ proc readVoltageFile(filename: string): (string, seq[float], seq[float]) =
   result[1] = dataTuple.mapIt(it[0])
   result[2] = dataTuple.mapIt(it[1])
 
+proc readToTFile(filename: string): (seq[float], seq[float]) =
+  let
+    dataLines = readFile(filename).splitLines.filterIt(it.len > 0)
+    pulses = dataLines.mapIt(it.splitWhitespace[1])
+    mean = dataLines.mapIt(it.splitWhitespace[5])
+    std = dataLines.mapIt(it.splitWhitespace[7])
+
+  echo dataLines
+
+  echo pulses.find(20.0)
+
 proc plotSCurve(file, folder, chip: string) =
   ## perform plotting and fitting of SCurves
   var
@@ -210,7 +221,7 @@ proc plotSCurve(file, folder, chip: string) =
     charge: seq[float] = @[]
     thlMean: seq[float] = @[]
     thlErr: seq[float] = @[]
-    
+
   if file != "nil":
     (v, bins, hist) = readVoltageFile(file)
     voltages.incl int16(v.parseInt)
@@ -250,31 +261,48 @@ proc plotSCurve(file, folder, chip: string) =
     chSort = sortedChThl.mapIt(it[0])
     thlSort = sortedChThl.mapIt(it[1][0])
     # increase errors artifically by factor 100... Mostly for visualization,
-    # but also as a rough guess for typical deviation visible 
-    thlErrSort = sortedChThl.mapIt(it[1][1] * 100)    
-  
+    # but also as a rough guess for typical deviation visible
+    thlErrSort = sortedChThl.mapIt(it[1][1] * 100)
+
   let thlCalib = fitThlCalib(chSort, thlSort, thlErrSort)
   plotThlCalib(thlCalib, chSort, thlSort, thlErrSort, chip)
 
 proc plotToTCalib(file, folder, chip: string) =
   ## perform plotting and analysis of ToT calibration
-  discard
+  var
+    bins: seq[float]
+    hist: seq[float]
+
+  if file != "nil":
+    (bins, hist) = readToTFile(file)
+    #voltages.incl int16(v.parseInt)
+    #let trace = getTrace(bins, hist, v)
+    #traces.add trace
+  else:
+    echo "folder is ", folder
+    for f in walkFiles(folder.expandTilde & "/*.txt"):
+      echo f
+      (bins, hist) = readToTFile(f)
+      #voltages.incl int16(v.parseInt)
+      #let trace = getTrace(bins, hist, v)
+      #traces.add trace
+
 
 proc main() =
 
   let args = docopt(doc)
   let file = $args["--file"]
-  let folder = $args["--folder"]  
+  let folder = $args["--folder"]
   let chip = $args["--chip"]
 
   let
-    scurve = $args["--scurve"]
-    tot = $args["--tot"]
-  if scurve != "nil":
+    scurve = ($args["--scurve"]).parseBool
+    tot = ($args["--tot"]).parseBool
+  if scurve == true:
     plotSCurve(file, folder, chip)
-  elif tot != "nil":
+  elif tot == true:
     plotToTCalib(file, folder, chip)
-    
+
 
 when isMainModule:
   main()

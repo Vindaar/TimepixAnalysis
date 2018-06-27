@@ -36,6 +36,8 @@ const
   NTestPulses = 1000.0
   ScalePulses = 1.01
   CurveHalfWidth = 15
+  StartToT = 20.0
+  StopToT = 450.0
 
 const
   GoldenMean = (sqrt(5.0) - 1.0) / 2.0  # Aesthetic ratio
@@ -98,6 +100,11 @@ func thlCalibFunc(p: seq[float], x: float): float =
   ## of the SCurves
   result = p[0] + x * p[1]
 
+func totCalibFunc(p: seq[float], x: float): float =
+  ## we fit a combination of a linear and a 1 / x function
+  #debugecho "Call with ", p
+  result = p[0] * x + p[1] - p[2] / (x - p[3])
+
 proc fitSCurve[T](thl, count: seq[T], voltage: int): FitResult =
   ## performs the fit of the `sCurveFunc` to the given `thl` and `count`
   ## seqs. Returns a `FitScurve` object of the fit result
@@ -122,7 +129,7 @@ proc fitSCurve[T](thl, count: seq[T], voltage: int): FitResult =
   result.y = result.x.mapIt(sCurveFunc(pRes, it))
   result.pRes = pRes
   result.pErr = res.error
-  result.redChisq = res.reducedChisq
+  result.redChiSq = res.reducedChiSq
 
 proc fitThlCalib(charge, thl, thlErr: seq[float]): FitResult =
 
@@ -139,8 +146,26 @@ proc fitThlCalib(charge, thl, thlErr: seq[float]): FitResult =
   result.y = result.x.mapIt(thlCalibFunc(pRes, it))
   result.pRes = pRes
   result.pErr = res.error
-  result.redChiSq = res.reducedChisq
+  result.redChiSq = res.reducedChiSq
 
+proc fitToTCalib(pulses, mean, std: seq[float]): FitResult =
+  # define the start parameters. Use a good guess...
+  let p = [0.149194, 23.5359, 205.735, -100.0]
+  var pLimitBare: mp_par
+  var pLimit: mp_par
+  pLimit.limited = [1.cint, 1]
+  pLimit.limits = [-100.0, 0.0]
+  
+  #let p = [0.549194, 23.5359, 50.735, -1.0]
+  let (pRes, res) = fit(totCalibFunc, p, pulses, mean, std, bounds = @[pLimitBare, pLimitBare, pLimitBare, pLimit])
+  echoResult(pRes, res = res)
+
+  result.x = linspace(pulses[0], pulses[^1], 100)
+  result.y = result.x.mapIt(totCalibFunc(pRes, it))
+  result.pRes = pRes
+  result.pErr = res.error
+  result.redChiSq = res.reducedChiSq  
+  
 proc getTrace[T](bins, hist: seq[T], voltage: string): Trace[T] =
   result = Trace[T](`type`: PlotType.Scatter)
   # filter out clock cycles larger 300 and assign to `Trace`
@@ -184,6 +209,31 @@ proc plotThlCalib*(thlCalib: FitResult, charge, thl, thlErr: seq[float], chip = 
     p = Plot[float](layout: layout, traces: @[data, fit])
   p.show()
 
+proc plotToTCalib*(totCalib: FitResult, pulses, mean, std: seq[float], chip = 0) =
+  let
+    data = Trace[float](mode: PlotMode.Markers, `type`: PlotType.Scatter)
+    fit = Trace[float](mode: PlotMode.Lines, `type`: PlotType.Scatter)
+  # flip the plot, i.e. show THL on x instead of y as done for the fit to
+  # include the errors
+  data.xs = pulses
+  data.ys = mean
+  data.ys_err = newErrorBar(std, color = Color(r: 0.5, g: 0.5, b: 0.5, a: 1.0))
+  data.name = "ToT calibration"
+
+  # flip the plot
+  fit.xs = totCalib.x
+  fit.ys = totCalib.y
+  fit.name = "ToT calibration fit"
+
+  let
+    layout = Layout(title: &"ToT calibration of Chip {chip}",
+                    width: FigWidth.int, height: FigHeight.int,
+                    yaxis: Axis(title: "U_inj / mV"),
+                    xaxis: Axis(title: "ToT / Clock cycles"),
+                    autosize: false)
+    p = Plot[float](layout: layout, traces: @[data, fit])
+  p.show() 
+
 proc readVoltageFile(filename: string): (string, seq[float], seq[float]) =
   let file = filename.expandTilde
   # - read file as string
@@ -197,18 +247,56 @@ proc readVoltageFile(filename: string): (string, seq[float], seq[float]) =
   result[1] = dataTuple.mapIt(it[0])
   result[2] = dataTuple.mapIt(it[1])
 
-proc readToTFile(filename: string): (seq[float], seq[float]) =
+proc readToTFile(filename: string): (int, seq[float], seq[float], seq[float]) =
+  ## reads the given TOT file and returns a tuple of seqs containing
+  ## the pulse heights, mean and std values
   let
     dataLines = readFile(filename).splitLines.filterIt(it.len > 0)
-    pulses = dataLines.mapIt(it.splitWhitespace[1])
-    mean = dataLines.mapIt(it.splitWhitespace[5])
-    std = dataLines.mapIt(it.splitWhitespace[7])
+  # get the TOTCalib filename prefix and use its length as a search index
+  # to find the chip number
+  let jumpTo = "TOTCalib".len
+  var chip = 0
+  try:
+    chip = ($filename.extractFilename[jumpTo]).parseInt
+  except ValueError:
+    # if we can't extract the chip number from the file, ignore it
+    discard
 
-  echo dataLines
+  # create seqs for each column
+  var
+    pulses: seq[float]
+    mean: seq[float]  
+    std: seq[float]
+  try:
+    pulses = dataLines.mapIt(it.splitWhitespace[1].parseFloat)
+    mean   = dataLines.mapIt(it.splitWhitespace[5].parseFloat)
+    # convert RMS (that's the value in the column) to one standard deviation by
+    # STD = RMS / sqrt( 4 * 256 * 256 ) = RMS / 512
+    std    = dataLines.mapIt(it.splitWhitespace[7].parseFloat / 512.0)
+  except IndexError:
+    # in this case we're *probably* reading a file, which does not contain any alphabetical
+    # characters, so try 0, 1, 2 as indices
+    pulses = dataLines.mapIt(it.splitWhitespace[0].parseFloat)
+    mean   = dataLines.mapIt(it.splitWhitespace[1].parseFloat)
+    # convert RMS (that's the value in the column) to one standard deviation by
+    # STD = RMS / sqrt( 4 * 256 * 256 ) = RMS / 512
+    std    = dataLines.mapIt(it.splitWhitespace[2].parseFloat / 512.0)
 
-  echo pulses.find(20.0)
+  # get the number of TOT calibration "starts", i.e. 20mV is the starting
+  # pulse height, so search for number of these
+  let nstarts = pulses.filterIt(it == StartToT).len
 
-proc plotSCurve(file, folder, chip: string) =
+  let lastInd = pulses.len - pulses.reversed.find(StartToT) - 2
+  if lastInd > 0:
+    # if there is only a single StartToT value, lastInd will be -1
+    pulses.delete(0, lastInd)
+    mean.delete(0, lastInd)
+    std.delete(0, lastInd)
+    
+  result = (chip, pulses, mean, std)
+  echo result
+
+proc sCurve(file, folder, chip: string) =
   ## perform plotting and fitting of SCurves
   var
     voltages: set[int16]
@@ -267,22 +355,25 @@ proc plotSCurve(file, folder, chip: string) =
   let thlCalib = fitThlCalib(chSort, thlSort, thlErrSort)
   plotThlCalib(thlCalib, chSort, thlSort, thlErrSort, chip)
 
-proc plotToTCalib(file, folder, chip: string) =
+proc totCalib(file, folder, chip: string) =
   ## perform plotting and analysis of ToT calibration
   var
     bins: seq[float]
     hist: seq[float]
 
   if file != "nil":
-    (bins, hist) = readToTFile(file)
+    let (chip, pulses, mean, std) = readToTFile(file)
+    let totCalib = fitToTCalib(pulses, mean, std)
+    plotToTCalib(totCalib, pulses, mean, std, chip)
+    
+    
     #voltages.incl int16(v.parseInt)
     #let trace = getTrace(bins, hist, v)
     #traces.add trace
   else:
     echo "folder is ", folder
     for f in walkFiles(folder.expandTilde & "/*.txt"):
-      echo f
-      (bins, hist) = readToTFile(f)
+      let (chip, pulses, mean, std) = readToTFile(f)
       #voltages.incl int16(v.parseInt)
       #let trace = getTrace(bins, hist, v)
       #traces.add trace
@@ -299,9 +390,9 @@ proc main() =
     scurve = ($args["--scurve"]).parseBool
     tot = ($args["--tot"]).parseBool
   if scurve == true:
-    plotSCurve(file, folder, chip)
+    sCurve(file, folder, chip)
   elif tot == true:
-    plotToTCalib(file, folder, chip)
+    totCalib(file, folder, chip)
 
 
 when isMainModule:

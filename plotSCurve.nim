@@ -20,6 +20,10 @@ Options:
   --file=FILE      If given will read from a single file
   --folder=FOLDER  If given will read all voltage files from the given folder
   --chip=NUMBER    The number of this chip
+  --startFit=FIT   Start the TOT fit from this measurement. If differs from 
+                   StartToT constant in source code (or the --startTot value),
+                   the other datapoints will still be plotted.
+  --startTot=TOT   Read the ToT file from this pulse height
   -h, --help       Show this help
   --version        Show the version number
 """
@@ -148,18 +152,38 @@ proc fitThlCalib(charge, thl, thlErr: seq[float]): FitResult =
   result.pErr = res.error
   result.redChiSq = res.reducedChiSq
 
-proc fitToTCalib(pulses, mean, std: seq[float]): FitResult =
+proc fitToTCalib(pulses, mean, std: seq[float], startFit = 0.0): FitResult =
+  var
+    # local mutable variables to potentially remove unwanted data for fit
+    mPulses = pulses
+    mMean = mean
+    mStd = std
+  
   # define the start parameters. Use a good guess...
   let p = [0.149194, 23.5359, 205.735, -100.0]
   var pLimitBare: mp_par
   var pLimit: mp_par
   pLimit.limited = [1.cint, 1]
   pLimit.limits = [-100.0, 0.0]
+
+  if startFit > 0:
+    # in this case cut away the undesired parameters
+    let ind = mPulses.find(startFit) - 1
+    if ind > 0:
+      mPulses.delete(0, ind)
+      mMean.delete(0, ind)
+      mStd.delete(0, ind)      
   
   #let p = [0.549194, 23.5359, 50.735, -1.0]
-  let (pRes, res) = fit(totCalibFunc, p, pulses, mean, std, bounds = @[pLimitBare, pLimitBare, pLimitBare, pLimit])
+  let (pRes, res) = fit(totCalibFunc,
+                        p,
+                        mPulses,
+                        mMean,
+                        mStd,
+                        bounds = @[pLimitBare, pLimitBare, pLimitBare, pLimit])
   echoResult(pRes, res = res)
 
+  # the plot of the fit is performed to the whole pulses range anyways, even if 
   result.x = linspace(pulses[0], pulses[^1], 100)
   result.y = result.x.mapIt(totCalibFunc(pRes, it))
   result.pRes = pRes
@@ -217,7 +241,9 @@ proc plotToTCalib*(totCalib: FitResult, pulses, mean, std: seq[float], chip = 0)
   # include the errors
   data.xs = pulses
   data.ys = mean
-  data.ys_err = newErrorBar(std, color = Color(r: 0.5, g: 0.5, b: 0.5, a: 1.0))
+  let stdValid = std.mapIt(if classify(it) == fcNaN: 0.0 else: it)
+  echo stdValid
+  data.ys_err = newErrorBar(stdValid, color = Color(r: 0.5, g: 0.5, b: 0.5, a: 1.0))
   data.name = "ToT calibration"
 
   # flip the plot
@@ -247,7 +273,8 @@ proc readVoltageFile(filename: string): (string, seq[float], seq[float]) =
   result[1] = dataTuple.mapIt(it[0])
   result[2] = dataTuple.mapIt(it[1])
 
-proc readToTFile(filename: string): (int, seq[float], seq[float], seq[float]) =
+proc readToTFile(filename: string,
+                 startRead = 0.0): (int, seq[float], seq[float], seq[float]) =
   ## reads the given TOT file and returns a tuple of seqs containing
   ## the pulse heights, mean and std values
   let
@@ -284,9 +311,14 @@ proc readToTFile(filename: string): (int, seq[float], seq[float], seq[float]) =
 
   # get the number of TOT calibration "starts", i.e. 20mV is the starting
   # pulse height, so search for number of these
-  let nstarts = pulses.filterIt(it == StartToT).len
+  var startTot = 0.0
+  if startRead > 0.0:
+    startTot = startRead
+  else:
+    startTot = StartTot
+  let nstarts = pulses.filterIt(it == startTot).len
 
-  let lastInd = pulses.len - pulses.reversed.find(StartToT) - 2
+  let lastInd = pulses.len - pulses.reversed.find(startToT) - 2
   if lastInd > 0:
     # if there is only a single StartToT value, lastInd will be -1
     pulses.delete(0, lastInd)
@@ -355,15 +387,15 @@ proc sCurve(file, folder, chip: string) =
   let thlCalib = fitThlCalib(chSort, thlSort, thlErrSort)
   plotThlCalib(thlCalib, chSort, thlSort, thlErrSort, chip)
 
-proc totCalib(file, folder, chip: string) =
+proc totCalib(file, folder, chip: string, startFit = 0.0, startTot = 0.0) =
   ## perform plotting and analysis of ToT calibration
   var
     bins: seq[float]
     hist: seq[float]
 
   if file != "nil":
-    let (chip, pulses, mean, std) = readToTFile(file)
-    let totCalib = fitToTCalib(pulses, mean, std)
+    let (chip, pulses, mean, std) = readToTFile(file, startTot)
+    let totCalib = fitToTCalib(pulses, mean, std, startFit)
     plotToTCalib(totCalib, pulses, mean, std, chip)
     
     
@@ -385,6 +417,8 @@ proc main() =
   let file = $args["--file"]
   let folder = $args["--folder"]
   let chip = $args["--chip"]
+  let startFitStr = $args["--startFit"]
+  let startTotStr = $args["--startTot"]  
 
   let
     scurve = ($args["--scurve"]).parseBool
@@ -392,7 +426,13 @@ proc main() =
   if scurve == true:
     sCurve(file, folder, chip)
   elif tot == true:
-    totCalib(file, folder, chip)
+    var startFit = 0.0
+    var startTot = 0.0    
+    if startFitStr != "nil":
+      startFit = startFitStr.parseFloat
+    if startTotStr != "nil":
+      startTot = startTotStr.parseFloat
+    totCalib(file, folder, chip, startFit, startTot)
 
 
 when isMainModule:

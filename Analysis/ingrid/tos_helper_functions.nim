@@ -99,7 +99,7 @@ proc walkRunFolderAndGetTimes*(folder: string): seq[Time] =
     if "data" in path and "fadc" in path:
       let filename = strip(path, false, true, {'-', 'f', 'a', 'd', 'c'})
       let date_str = readDateFromEvent(filename)
-      if date_str isnot "":
+      if date_str != "":
         result.add(parseTOSDateString(date_str))
       if i mod 500 == 0:
         echo i, " files read."

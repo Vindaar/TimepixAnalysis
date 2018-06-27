@@ -228,8 +228,8 @@ proc plotToTCalib*(totCalib: FitResult, pulses, mean, std: seq[float], chip = 0)
   let
     layout = Layout(title: &"ToT calibration of Chip {chip}",
                     width: FigWidth.int, height: FigHeight.int,
-                    yaxis: Axis(title: "U_inj / mV"),
-                    xaxis: Axis(title: "ToT / Clock cycles"),
+                    xaxis: Axis(title: "U_inj / mV"),
+                    yaxis: Axis(title: "ToT / Clock cycles"),
                     autosize: false)
     p = Plot[float](layout: layout, traces: @[data, fit])
   p.show() 

@@ -65,7 +65,7 @@ def getNumBinsForDset(dset):
     elif dset == "eccentricity":
         return 30
     elif dset == "ToT":
-        return 30
+        return 250
     elif dset == "length_rmsTransverse":
         return 30
     elif dset == "energyCut":
@@ -156,7 +156,9 @@ def plotData(hist, binning, range, outfile, title, xlabel, ylabel, save_plot = T
                             alpha = 0.5,
                             color = colors[i])
             else:
-                hist = hist #np.concatenate(hist).flatten()
+                # now create numpy array from list of arrays, flatten it and
+                # concat individual arrays to single one
+                hist = np.concatenate(np.asarray(hist).flatten())
                 ax.hist(hist, bins = binning, range = range, linewidth = 0.0)
         except ValueError:
             print("something broken on outfile {}".format(outfile))

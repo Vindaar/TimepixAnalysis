@@ -81,7 +81,7 @@ proc readListOfFilesAndGetTimes*(path: string, list_of_files: seq[string]): seq[
   for file in list_of_files:
     let filename = joinPath(path, file)
     let date_str = readDateFromEvent(filename)
-    if date_str isnot "":
+    if date_str != "":
       result.add(parseTOSDateString(date_str))
     if i mod 500 == 0:
       echo i, " files read."

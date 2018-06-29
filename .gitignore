@@ -1,2 +1,9 @@
 **/nimcache/*
 *~
+/Analysis/ingrid/raw_data_manipulation
+/Analysis/ingrid/reconstruction
+/Analysis/ingrid/data/*
+/Analysis/nim.cfg
+/InGrid-Python/InGrid.egg-info/*
+InGrid-Python/build/*
+InGrid-Python/dist/*

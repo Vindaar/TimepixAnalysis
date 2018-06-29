@@ -19,7 +19,7 @@ proc walkRunFolderAndGetFadcFiles*(folder: string): seq[string] =
   # let lf = system.listFiles(folder)
   result = getListOfFiles(folder, ".*-fadc")
 
-proc convertFadcTicksToVoltage*[T](array: seq[T], bit_mode14: bool): seq[T] =
+proc convertFadcTicksToVoltage*[T](array: seq[T], bitMode14: bool): seq[T] =
   ## this function converts the channel arrays from FADC ticks to V, by
   ## making use of the mode_register written to file.
   ## Mode register contains (3 bit register, see CAEN manual p.31):
@@ -30,7 +30,7 @@ proc convertFadcTicksToVoltage*[T](array: seq[T], bit_mode14: bool): seq[T] =
   ##           RAM readout
   result = @[]
   var conversion_factor: float = 1'f64
-  if bit_mode14 == true:
+  if bitMode14 == true:
     conversion_factor = 1 / 8192'f
   else:
     # should be 2048. instead of 4096 (cf. septemClasses.py)
@@ -39,7 +39,7 @@ proc convertFadcTicksToVoltage*[T](array: seq[T], bit_mode14: bool): seq[T] =
   # calculate conversion using map and lambda proc macro
   result = map(array, (x: float) -> float => x * conversion_factor)
 
-proc convertFadcTicksToVoltage*(data: Tensor[float], bit_mode14: bool): Tensor[float] =
+proc convertFadcTicksToVoltage*(data: Tensor[float], bitMode14: bool): Tensor[float] =
   ## equivalent proc to above with Tensor[T] instead of seq[T]
   ## this function converts the channel arrays from FADC ticks to V, by
   ## making use of the mode_register written to file.
@@ -50,7 +50,7 @@ proc convertFadcTicksToVoltage*(data: Tensor[float], bit_mode14: bool): Tensor[f
   ##    bit 2: AUTO_RESTART_ACQ if 1, automatic restart of acqusition at end of
   ##           RAM readout
   var conversion_factor: float = 1'f64
-  if bit_mode14 == true:
+  if bitMode14 == true:
     conversion_factor = 1 / 8192'f
   else:
     # should be 2048. instead of 4096 (cf. septemClasses.py)
@@ -67,8 +67,8 @@ proc readFadcFile*(file: seq[string]): ref FadcFile = #seq[float] =
     # speeds up the add, as the sequence does not have to be resized all the
     # time
     data = newSeqOfCap[uint16](10240)
-    posttrig, trigrec, pretrig, n_channels, frequency, sampling_mode: int
-    bit_mode14, pedestal_run: bool
+    postTrig, trigRec, preTrig, n_channels, frequency, sampling_mode: int
+    bitMode14, pedestalRun: bool
     line_spl: seq[string]
   for line in file:
     if likely('#' notin line.string):
@@ -76,19 +76,19 @@ proc readFadcFile*(file: seq[string]): ref FadcFile = #seq[float] =
       data.add(uint16(parseInt(line)))
     elif "nb of channels" in line:
       line_spl = line.splitWhitespace
-      result.n_channels = parseInt(line_spl[line_spl.high])
+      result.nChannels = parseInt(line_spl[line_spl.high])
     elif "channel mask" in line:
       line_spl = line.splitWhitespace
       result.channel_mask = parseInt(line_spl[line_spl.high])
     elif "postrig" in line or "posttrig" in line:
       line_spl = line.splitWhitespace
-      result.posttrig = parseInt(line_spl[line_spl.high])
+      result.postTrig = parseInt(line_spl[line_spl.high])
     elif "pretrig" in line:
       line_spl = line.splitWhitespace
-      result.pretrig = parseInt(line_spl[line_spl.high])
+      result.preTrig = parseInt(line_spl[line_spl.high])
     elif "triggerrecord" in line:
       line_spl = line.splitWhitespace
-      result.trigrec  = parseInt(line_spl[line_spl.high])
+      result.trigRec  = parseInt(line_spl[line_spl.high])
     elif "frequency" in line:
       line_spl = line.splitWhitespace
       result.frequency = parseInt(line_spl[line_spl.high])
@@ -96,12 +96,12 @@ proc readFadcFile*(file: seq[string]): ref FadcFile = #seq[float] =
       line_spl = line.splitWhitespace
       let mode_register = parseInt(line_spl[line_spl.high])
       # now get bit 1 from mode_register by comparing with 0b010
-      result.bit_mode14 = (mode_register and 0b010) == 0b010
+      result.bitMode14 = (mode_register and 0b010) == 0b010
       result.sampling_mode = mode_register
     elif "pedestal run" in line:
       line_spl = line.splitWhitespace
       let p_run_flag = parseInt(line_spl[line_spl.high])
-      result.pedestal_run = if p_run_flag == 0: false else: true
+      result.pedestalRun = if p_run_flag == 0: false else: true
 
   # finally assign data sequence
   result.data = data
@@ -154,11 +154,11 @@ proc calcMinOfPulseAlt*(array: Tensor[float], percentile: float): float =
   echo "Min of array is ", `min`
   result = mean(filtered_array)
 
-proc applyFadcPedestalRun*[T](fadc_data, pedestal_run: seq[T]): seq[float] =
+proc applyFadcPedestalRun*[T](fadc_data, pedestalRun: seq[T]): seq[float] =
   # applys the pedestal run given in the second argument to the first one
   # by zipping the two arrays and using map to subtract each element
   result = map(
-    zip(fadc_data, pedestal_run),
+    zip(fadc_data, pedestalRun),
     proc(val: (T, T)): float = float(val[0]) - float(val[1])
   )
 
@@ -169,7 +169,19 @@ proc getCh0Indices*(): seq[int] {.inline.} =
   # it often!
   result = arange(3, 4*2560, 4)
 
-proc fadcFileToFadcData*[T](fadc_file: FadcFile, pedestal_run: seq[T], ch0_indices: seq[int]): FadcData =
+proc performTemporalCorrection*[T](data: seq[T], trigRec, postTrig: int): seq[T] =
+  ## performs the temporal correction of the FADC cyclic register
+  ## see CAEN FADC manual p. 15
+  ## It is done by rotating the data array according to
+  ## .. code-block:
+  ##   nRoll = (trigRec - postTrig) * 20
+  let nRoll = (trigRec - postTrig) * 20
+  # now simply roll
+  result = rotatedLeft(data, nRoll)
+
+proc fadcFileToFadcData*[T](fadc_file: FadcFile,
+                            pedestalRun: seq[T],
+                            ch0_indices: seq[int]): FadcData =
   # this function converts an FadcFile object (read from a file) to
   # an FadcData object (extracted Ch0, applied pedestal run, converted
   # to volt)
@@ -177,23 +189,28 @@ proc fadcFileToFadcData*[T](fadc_file: FadcFile, pedestal_run: seq[T], ch0_indic
 
   # first apply the pedestal run
   # TODO: extend this to apply the closest pedestal run instead?
-  var fadc_data = applyFadcPedestalRun(fadc_file.data, pedestal_run)
+  var fadc_data = applyFadcPedestalRun(fadc_file.data, pedestalRun)
 
   # and cut out channel 3 (the one we take data with)
-  let ch0_vals = fadc_data[ch0_indices]
-  result.data = ch0_vals.toTensor.astype(float)
+  var ch0_vals = fadc_data[ch0_indices]
   # set the two 'faulty' registers to 0
-  result.data[0] = 0
-  result.data[1] = 0
+  ch0_vals[0] = 0
+  ch0_vals[1] = 0
+  
+  # now perform temporal correction
+  let tempCorrected = performTemporalCorrection(ch0_vals, fadc_file.trigRec, fadc_file.postTrig)  
+
+  # assign result as tensor
+  result.data = tempCorrected.toTensor.astype(float)
 
   # convert to volt
-  result.data = convertFadcTicksToVoltage(result.data, fadc_file.bit_mode14)
+  result.data = convertFadcTicksToVoltage(result.data, fadc_file.bitMode14)
 
-proc fadcFileToFadcData*[T](fadc_file: FadcFile, pedestal_run: seq[T]): FadcData =
+proc fadcFileToFadcData*[T](fadc_file: FadcFile, pedestalRun: seq[T]): FadcData =
   # proc which wraps above proc by first creating the indices needed for the
   # calculation
   let ch0_indices = getCh0Indices()
-  result = fadcFileToFadcData(fadc_file, pedestal_run, ch0_indices)
+  result = fadcFileToFadcData(fadc_file, pedestalRun, ch0_indices)
 
 proc getFadcData*(filename: string): FadcData =
   # a convenience function, which performs all steps from reading an FADC
@@ -205,8 +222,8 @@ proc getFadcData*(filename: string): FadcData =
   let ch0_indices {.global.} = arange(3, 4*2560, 4)
   # same for the pedestal run data
   const home = getHomeDir()
-  const pedestal_run = joinPath(home, "CastData/data/pedestalRuns/pedestalRun000042_1_182143774.txt-fadc")
-  let pedestal_d {.global.} = readFadcFile(pedestal_run)
+  const pedestalRun = joinPath(home, "CastData/data/pedestalRuns/pedestalRun000042_1_182143774.txt-fadc")
+  let pedestal_d {.global.} = readFadcFile(pedestalRun)
 
   let data = readFadcFile(filename)[]
   result = fadcFileToFadcData(data, pedestal_d.data)
@@ -290,8 +307,8 @@ proc isFadcFileNoisy*(file: string, n_dips: int): bool =
   # overload of proc above, which first reads a file from disk,
   # performs conversion and then checks
   var fadc_file = readFadcFile(file)
-  let pedestal_run = getPedestalRun()
-  let fadc_data = fadcFileToFadcData(fadc_file, pedestal_run)
+  let pedestalRun = getPedestalRun()
+  let fadc_data = fadcFileToFadcData(fadc_file, pedestalRun)
   result = isFadcFileNoisy(fadc_data, n_dips)
 
 #import gnuplot

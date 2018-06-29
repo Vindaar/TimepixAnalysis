@@ -92,8 +92,6 @@ proc walkRunFolderAndGetTimes*(folder: string): seq[Time] =
   var i: int = 0
   result = @[]
 
-  # for file in walkDir(folder):
-  #   let path = file.path
   for file in walkFiles(joinPath(folder, "data*.txt-fadc")):
     let path = file
     if "data" in path and "fadc" in path:
@@ -840,7 +838,7 @@ template minvalsBasename*(run_number: int): string =
 template rawFadcBasename*(run_number: int): string =
   getGroupNameForRun(run_number) / "fadc/raw_fadc"
 
-template trigrecBasename*(run_number: int): string =
+template trigRecBasename*(run_number: int): string =
   getGroupNameForRun(run_number) / "fadc/trigger_record"
 
 template fadcDataBasename*(run_number: int): string =

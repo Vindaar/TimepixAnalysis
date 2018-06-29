@@ -106,15 +106,15 @@ type
   ##############
 
   FadcObject* = object of RootObj
-    posttrig*: int
-    pretrig*: int
-    trigrec*: int
-    bit_mode14*: bool
-    n_channels*: int
-    channel_mask*: int
+    postTrig*: int
+    preTrig*: int
+    trigRec*: int
+    bitMode14*: bool
+    nChannels*: int
+    channelMask*: int
     frequency*: int
-    sampling_mode*: int
-    pedestal_run*: bool
+    samplingMode*: int
+    pedestalRun*: bool
     
     
   # object to save FADC data from file into
@@ -133,16 +133,17 @@ type
     
   ProcessedFadcData* = tuple[
     # raw fadc data
-    raw_fadc_data: seq[seq[uint16]],
+    rawFadcData: seq[seq[uint16]],
     # processed and converted FADC data
-    fadc_data: Tensor[float],
+    fadcData: Tensor[float],
     # trigger record times, stored 
-    trigrecs: seq[int],
+    trigRecs: seq[int],
     # flag which says whether event was noisy
     noisy: seq[int],
     # minimum values of events (voltage of dips)
-    minvals: seq[float]
-    # more?
+    minVals: seq[float],
+    # register of minimum value
+    minRegs: seq[int]
   ]
 
   ChipRegion* = enum

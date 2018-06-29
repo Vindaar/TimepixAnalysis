@@ -276,19 +276,19 @@ proc processFadcData(fadc_files: seq[FlowVar[ref FadcFile]]): ProcessedFadcData 
   # convert FlowVars of FadcFiles to sequence of FadcFiles
   result.raw_fadc_data = newSeq[seq[uint16]](nevents)
   result.fadc_data = zeros[float]([nevents, ch_len])
-  result.trigrecs = newSeq[int](nevents)
+  result.trigRecs = newSeq[int](nevents)
   result.noisy = newSeq[int](nevents)
-  result.minvals = newSeq[float](nevents)
+  result.minVals = newSeq[float](nevents)
   let t0 = epochTime()
   # TODO: parallelize this somehow so that it's faster!
   for i, event in fadc_files:
     let ev = (^event)[]
     result.raw_fadc_data[i] = ev.data
-    result.trigrecs[i]      = ev.trigrec
+    result.trigRecs[i]      = ev.trigRec
     let fadc_dat = ev.fadcFileToFadcData(pedestal_run, fadc_ch0_indices).data
     result.fadc_data[i, _]  = fadc_dat.reshape([1, ch_len])
     result.noisy[i]         = fadc_dat.isFadcFileNoisy(n_dips)
-    result.minvals[i]       = fadc_dat.calcMinOfPulse(min_percentile)
+    result.minVals[i]       = fadc_dat.calcMinOfPulse(min_percentile)
 
   # this parallel solution seems to be slower, instead of faster ?! well, probably
   # because we only have these two spawns and one of these functions is much slower
@@ -299,13 +299,13 @@ proc processFadcData(fadc_files: seq[FlowVar[ref FadcFile]]): ProcessedFadcData 
   #     if i < result.raw_fadc_data.len:
   #       result.raw_fadc_data[i] = ev.data
   #     let fadc_dat = ev.fadcFileToFadcData(pedestal_run, fadc_ch0_indices).data
-  #     if i < result.trigrecs.len:
-  #       result.trigrecs[i]      = ev.trigrec
+  #     if i < result.trigRecs.len:
+  #       result.trigRecs[i]      = ev.trigrec
   #       result.fadc_data[i, _]  = fadc_dat.reshape([1, ch_len])
   #     if i < result.noisy.len:
   #       result.noisy[i]         = spawn fadc_dat.isFadcFileNoisy(n_dips)
-  #     if i < result.minvals.len:
-  #       result.minvals[i]       = spawn fadc_dat.calcMinOfPulse(min_percentile)
+  #     if i < result.minVals.len:
+  #       result.minVals[i]       = spawn fadc_dat.calcMinOfPulse(min_percentile)
   #     sync()
   echo "Calculation of $# events took $# seconds" % [$nevents, $(epochTime() - t0)]
 
@@ -346,7 +346,7 @@ proc initFadcInH5(h5f: var H5FileObj, run_number, batchsize: int, filename: stri
                                        chunksize = @[batchsize, 1],
                                        maxshape = @[int.high, 1])
     # dataset stores minima of each FADC event, dip voltage
-    minvals_dset  = h5f.create_dataset(minvalsBasename(run_number), (0, 1),
+    minVals_dset  = h5f.create_dataset(minValsBasename(run_number), (0, 1),
                                        float,
                                        chunksize = @[batchsize, 1],
                                        maxshape = @[int.high, 1])
@@ -372,23 +372,23 @@ proc writeFadcDataToH5(h5f: var H5FileObj, run_number: int, f_proc: ProcessedFad
     reco_group_name = getRecoNameForRun(run_number)
     raw_name = rawFadcBasename(run_number)
     reco_name = fadcDataBasename(run_number)
-    trigrec_name = trigrecBasename(run_number)
+    trigRec_name = trigRecBasename(run_number)
     ch_len = ch_len()
     all_ch_len = all_ch_len()
     nevents = f_proc.raw_fadc_data.len
   var
     raw_fadc_dset = h5f[raw_name.dset_str]
     fadc_dset = h5f[reco_name.dset_str]
-    trigrec_dset = h5f[trigrec_name.dset_str]
+    trigRec_dset = h5f[trigRec_name.dset_str]
     noisy_dset = h5f[noiseBasename(run_number).dset_str]
-    minvals_dset = h5f[minvalsBasename(run_number).dset_str]
+    minVals_dset = h5f[minValsBasename(run_number).dset_str]
 
   echo raw_fadc_dset.shape
   echo raw_fadc_dset.maxshape
   echo fadc_dset.shape
   echo fadc_dset.maxshape
-  echo trigrec_dset.shape
-  echo trigrec_dset.maxshape
+  echo trigRec_dset.shape
+  echo trigRec_dset.maxshape
   # first need to extend the dataset, as we start with a size of 0.
   let oldsize = raw_fadc_dset.shape[0]
   let newsize = oldsize + nevents
@@ -401,9 +401,9 @@ proc writeFadcDataToH5(h5f: var H5FileObj, run_number: int, f_proc: ProcessedFad
   # the size we add
   raw_fadc_dset.resize((newsize, all_ch_len))
   fadc_dset.resize((newsize, ch_len))
-  trigrec_dset.resize((newsize, 1))
+  trigRec_dset.resize((newsize, 1))
   noisy_dset.resize((newsize, 1))
-  minvals_dset.resize((newsize, 1))
+  minVals_dset.resize((newsize, 1))
 
   # now write the data
   let t0 = epochTime()
@@ -416,13 +416,13 @@ proc writeFadcDataToH5(h5f: var H5FileObj, run_number: int, f_proc: ProcessedFad
   fadc_dset.write_hyperslab(f_proc.fadc_data.toRawSeq,
                             offset = @[oldsize, 0],
                             count = @[nevents, ch_len])
-  trigrec_dset.write_hyperslab(f_proc.trigrecs,
+  trigRec_dset.write_hyperslab(f_proc.trigRecs,
                                offset = @[oldsize, 0],
                                count = @[nevents, 1])
   noisy_dset.write_hyperslab(f_proc.noisy,
                              offset = @[oldsize, 0],
                              count = @[nevents, 1])
-  minvals_dset.write_hyperslab(f_proc.minvals,
+  minVals_dset.write_hyperslab(f_proc.minVals,
                                offset = @[oldsize, 0],
                                count = @[nevents, 1])
   echo "Writing of FADC data took $# seconds" % $(epochTime() - t0)
@@ -432,12 +432,12 @@ proc finishFadcWriteToH5(h5f: var H5FileObj, run_number: int) =
   # for now only hardlinking to combine group
   let
     noisy_target = noiseBasename(run_number)
-    minvals_target = minvalsBasename(run_number)
+    minVals_target = minValsBasename(run_number)
     noisy_link = combineRecoBasenameNoisy(run_number)
-    minvals_link = combineRecoBasenameMinvals(run_number)
+    minVals_link = combineRecoBasenameMinVals(run_number)
 
   h5f.create_hardlink(noisy_target, noisy_link)
-  h5f.create_hardlink(minvals_target, minvals_link)
+  h5f.create_hardlink(minVals_target, minVals_link)
 
 proc readProcessWriteFadcData(run_folder: string, run_number: int, h5f: var H5FileObj) =
   ## given a run_folder it reads all fadc files (data<number>.txt-fadc),

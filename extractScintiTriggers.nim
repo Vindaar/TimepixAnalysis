@@ -115,7 +115,6 @@ proc readScintFromH5(h5file: string, runNumber = 0, allRuns = false): (seq[int64
 
   result[0] = filterIt(result[0], it != 0 and it != 4095)
   result[1] = filterIt(result[0], it != 0 and it != 4095)
-
       
 
 proc plotHist*[T](hist: seq[T]) =
@@ -254,7 +253,7 @@ proc workOnRunFolder(rf: string): (seq[int64], seq[int64]) =
 
 
   result[0] = unequal1.mapIt(it.int64)
-  result[1] = unequal2.mapIt(it.int64)    
+  result[1] = unequal2.mapIt(it.int64)
 
 
 proc workOnH5File(h5file: string): (seq[int64], seq[int64]) =
@@ -274,11 +273,10 @@ proc workOnH5File(h5file: string): (seq[int64], seq[int64]) =
 
 proc main() =
 
-  let args = docopt(doc)#, quit = false)
+  let args = docopt(doc)
   echo args
 
   let infolder = $args["--infolder"]
-  #if infolder == "nil":
 
   var useH5file = false
   

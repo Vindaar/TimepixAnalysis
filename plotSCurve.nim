@@ -7,6 +7,7 @@ import docopt
 import chroma
 import seqmath
 import mpfit
+import zero_functional
 
 const doc = """
 A simple tool to plot SCurves or ToT calibrations.
@@ -324,6 +325,13 @@ proc readToTFile(filename: string,
     pulses.delete(0, lastInd)
     mean.delete(0, lastInd)
     std.delete(0, lastInd)
+
+  # filter out elements with std == 0.0
+  let nonZero = zip(std, pulses, mean) --> filter(it[0] > 0.0)
+  # see zips above for indices
+  pulses = nonZero.mapIt(it[1])
+  mean = nonZero.mapIt(it[2])
+  std = nonZero.mapIt(it[0])
     
   result = (chip, pulses, mean, std)
   echo result

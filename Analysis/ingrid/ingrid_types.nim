@@ -77,8 +77,10 @@ type
   # process events stores all data for septemboard
   # of a given run
   ProcessedRun* = tuple[
+    # just the number of chips in the run
+    nChips: int
     # run number
-    run_number: int,
+    runNumber: int,
     # table containing run header ([General] in data file)
     runHeader: Table[string, string],
     # event which stores raw data    

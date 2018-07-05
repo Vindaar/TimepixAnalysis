@@ -142,7 +142,6 @@ proc getTotHitOccDsets(h5f: var H5FileObj, chipGroupName: string):
   echo totDset
   result = (totDset, hitDset, occDset)
 
-
 # macro combineBasename(typename: static[string]): typed =
 #   # really ugly macro, mostly to toy around, to create basename templates
 #   # creates a string, which is parsed to create templates, based on static
@@ -790,11 +789,9 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
     echo "Writing $# in $#" % [$key, $dset]
     dset.resize((newsize, 1))
     dset.writeHyper(evHeaders[key])
-    #dset[dset.all] = evHeaders[key]
 
   # write other single column datasets
   durationDset.resize((newsize, 1))
-  #durationDset[durationDset.all] = duration
   durationDset.writeHyper(duration)
   echo "took a total of $# seconds" % $(epochTime() - t0)
 
@@ -823,16 +820,15 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
       hit = run.hits[chip]
       occ = run.occupancies[chip, _, _].clone
     var
-      totDset = totDsets[chip] # h5f.create_dataset((chipGroupName % $chip) & "/ToT", tot.len, int)
-      hitDset = hitDsets[chip] # h5f.create_dataset((chipGroupName % $chip) & "/Hits", hit.len, int)
-      occDset = occDsets[chip] # h5f.create_dataset((chipGroupName % $chip) & "/Occupancy", (256, 256), int)
+      totDset = totDsets[chip]
+      hitDset = hitDsets[chip]
+      occDset = occDsets[chip]
     let newTotSize = totDset.shape[0] + tot.len
     let newHitSize = hitDset.shape[0] + hit.len    
 
     let totOldSize = totDset.shape[0]
     totDset.resize((newTotSize, 1))
     hitDset.resize((newHitSize, 1))
-    # occDset.resize((newsize, 1))
     # need to handle ToT dataset differently
     totDset.write_hyperslab(tot.reshape([tot.len, 1]), offset = @[totOldSize, 0], count = @[tot.len, 1])
     hitDset.writeHyper(hit.reshape([hit.len, 1]))

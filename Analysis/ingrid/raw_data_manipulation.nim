@@ -74,9 +74,8 @@ Options:
 template ch_len(): int = 2560
 template all_ch_len(): int = ch_len() * 4
 
-template inGridGroupNames(runNumber: untyped) {.dirty.} =
-  ## dirty template to reduce boiler plate of creating variables of
-  ## for group names
+template inGridGroupNames(runNumber: int): (string, string, string, string) =
+  ## returns the names of all groups in a H5 file related to InGrid
   let
     # group name for raw data
     groupName = getGroupNameForRun(runNumber)
@@ -85,22 +84,63 @@ template inGridGroupNames(runNumber: untyped) {.dirty.} =
     # create datatypes for variable length data
     chipGroupName = group_name & "/chip_$#" #% $chp
     combineGroupName = getRawCombineName()
+  var result = (groupName, recoGroupName, chipGroupName, combineGroupName)
+  result
 
-template inGridGroups(h5f: untyped, forFadc = false) {.dirty.} =
-  ## dirty template to get groups given names from `inGridGroupNames`
-  ## from the `h5f` file
+template inGridGroups(h5f: var H5FileObj, forFadc: static[bool] = false): (H5Group, H5Group, H5Group, seq[H5Group]) =
+  ## template to get the H5 groups for
+  ## Note: some variables need to be defined in the calling scope! This
+  ## is why this is a template!
   var
     # create the groups for the run and reconstruction data
     runGroup = h5f.create_group(groupName)
     recoGroup = h5f.create_group(recoGroupName)
-  if forFadc == false:
-    # combined data group
-    combineGroup = h5f.create_group(combineGroupName)
-    # create group for each chip
-    chipGroups = mapIt(toSeq(0..<NChips), h5f.create_group(chipGroupName % $it))    
-    
+  when forFadc == false:
+    var
+      # combined data group
+      combineGroup = h5f.create_group(combineGroupName)
+      # create group for each chip
+      chipGroups = mapIt(toSeq(0..<NChips), h5f.create_group(chipGroupName % $it))
+    var result = (runGroup, recoGroup, combineGroup, chipGroups)
   else:
-    fadcCombine = h5f.create_group(combineRecoBasenameFadc)
+    var 
+      fadcCombine = h5f.create_group(combineRecoBasenameFadc())
+    var result = (runGroup, recoGroup, fadcCombine, newSeq[H5Group](0))
+  result
+
+proc specialTypesAndEvKeys(): (hid_t, hid_t, array[7, string]) = 
+  let
+    # create datatypes for variable length data
+    ev_type_xy = special_type(uint8)
+    ev_type_ch = special_type(uint16)
+    # dataset names corresponding to event header keys
+    eventHeaderKeys = ["eventNumber", "useHvFadc", "fadcReadout", "timestamp",
+                         "szint1ClockInt", "szint2ClockInt", "fadcTriggerClock"]
+  result[0] = ev_type_xy
+  result[1] = ev_type_ch
+  result[2] = eventHeaderKeys
+
+proc getTotHitOccDsetNames(chipGroupName: string):
+                          (seq[string], seq[string], seq[string]) =
+  let 
+    totDsetNames = toSeq(0 ..< NChips).mapIt((chipGroupName % $it) & "/ToT")
+    hitDsetNames = toSeq(0 ..< NChips).mapIt((chipGroupName % $it) & "/Hits")
+    occDsetNames = toSeq(0 ..< NChips).mapIt((chipGroupName % $it) & "/Occupancy")
+  result = (totDsetNames, hitDsetNames, occDsetNames)
+
+proc getTotHitOccDsets(h5f: var H5FileObj, chipGroupName: string):
+                      (seq[H5DataSet], seq[H5DataSet], seq[H5DataSet]) =
+  let (totDsetNames,
+       hitDsetNames,
+       occDsetNames) = getTotHitOccDsetNames(chipGroupName)
+
+  echo totDsetNames
+  var
+    totDset = totDsetNames.mapIt(h5f[it.dset_str])
+    hitDset = hitDsetNames.mapIt(h5f[it.dset_str])
+    occDset = occDsetNames.mapIt(h5f[it.dset_str])
+  echo totDset
+  result = (totDset, hitDset, occDset)
 
 
 # macro combineBasename(typename: static[string]): typed =

@@ -78,7 +78,7 @@ type
   # of a given run
   ProcessedRun* = tuple[
     # just the number of chips in the run
-    nChips: int
+    nChips: int,
     # run number
     runNumber: int,
     # table containing run header ([General] in data file)

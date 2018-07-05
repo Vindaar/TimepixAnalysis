@@ -11,7 +11,7 @@
 ## standard lib
 import os
 import re
-import sequtils, future
+import sequtils, sugar
 import algorithm
 import tables
 import times

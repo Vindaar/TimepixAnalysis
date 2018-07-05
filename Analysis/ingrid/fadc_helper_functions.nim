@@ -1,7 +1,7 @@
 import ospaths
 import os
 import re
-import sequtils, future
+import sequtils, sugar
 import strutils
 import helper_functions
 import threadpool
@@ -71,7 +71,7 @@ proc readFadcFile*(file: seq[string]): ref FadcFile = #seq[float] =
     bitMode14, pedestalRun: bool
     line_spl: seq[string]
   for line in file:
-    if likely('#' notin line.string):
+    if likely('#' notin line):
       # we add a likely statement, because almost all lines are data lines, hence without '#'
       data.add(uint16(parseInt(line)))
     elif "nb of channels" in line:

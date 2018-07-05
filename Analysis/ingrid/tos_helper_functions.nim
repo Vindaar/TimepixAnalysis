@@ -498,6 +498,11 @@ proc dumpRotAngle*(angles: seq[seq[float64]]) =
     echo "\tRotAngle : " & $len(angles[i]) & "\t" & $len(angles)
   writeRotAngleFile("out/rotAngle.txt", angles)
 
+proc sortByInode*(listOfFiles: seq[string]): seq[string] =
+  ## given a list of files, sorts them by Inode using `createSortedInodeTable`
+  result = createSortedInodeTable(listOfFiles).map(
+    (i: int, name: string) -> string => name
+  )
 
 proc getSortedListOfFiles*(run_folder: string, sort_type: EventSortType, event_type: EventType): seq[string] =
   # this procedure returns a sorted list of event files from a
@@ -522,8 +527,7 @@ proc getSortedListOfFiles*(run_folder: string, sort_type: EventSortType, event_t
     result = sorted(getListOfFiles(run_folder, event_regex),
                     (x: string, y: string) -> int => system.cmp[string](x, y))
   of inode:
-    result = map(createSortedInodeTable(getListOfFiles(run_folder, event_regex)),
-                 (i: int, name: string) -> string => name)
+    result = sortByInode(getListOfFiles(run_folder, event_regex))
 
 proc readListOfFiles*[T](list_of_files: seq[string],
                          regex: tuple[header, chips, pixels: string] = ("", "", "")): seq[FlowVar[ref T]] = #{.inline.} =

@@ -839,7 +839,7 @@ proc main() =
   echo &"No fadc is {nofadc}"
 
   # first check whether given folder is valid run folder
-  let (is_run_folder, contains_run_folder) = isTosRunFolder(folder)
+  let (is_run_folder, _, contains_run_folder) = isTosRunFolder(folder)
   echo "Is run folder       : ", is_run_folder
   echo "Contains run folder : ", contains_run_folder
 
@@ -861,9 +861,8 @@ proc main() =
       if kind == pcDir:
         # only support run folders, not nested run folders
         echo "occupied memory before run $# \n\n" % [$getOccupiedMem()]
-        let
-          is_rf = if isTosRunFolder(path) == (true, false): true else: false
-        if is_rf == true:
+        let (is_rf, _, contains_rf) = isTosRunFolder(path)
+        if is_rf == true and contains_rf == false:
           echo "Start processing run $#" % $path
           processAndWriteRun(h5f, path, nofadc)
         echo "occupied memory after gc $#" % [$getOccupiedMem()]

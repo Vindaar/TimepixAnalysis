@@ -575,7 +575,8 @@ proc readListOfInGridFiles*(list_of_files: seq[string],
   result = readListOfFiles[Event](list_of_files, regex_tup)
 
 
-proc isTosRunFolder*(folder: string): tuple[is_rf: bool, contains_rf: bool] =
+proc isTosRunFolder*(folder: string):
+  tuple[is_rf: bool, runNumber: int, contains_rf: bool] =
   # this procedure checks whether the given folder is a valid run folder of
   # TOS
   # done by
@@ -587,18 +588,21 @@ proc isTosRunFolder*(folder: string): tuple[is_rf: bool, contains_rf: bool] =
   # outputs:
   # returns a tuple which not only says whether it is a run folder, but also
   # whether the folder itself contains a run folder
-  #    tuple[bool, bool]:
-  #        is_rf:       is a run folder
-  #        contains_rf: contains run folders
+  #    tuple[(bool, int), bool]:
+  #        (is_rf, runNumber): is a run folder, its Number
+  #        contains_rf:        contains run folders
   let run_regex = re(r".*Run_(\d+)_.*")
   let event_regex = re(r".*data\d{4,6}\.txt$")
   var matches_rf_name: bool = false
-  if match(folder, run_regex) == true:
+  var runNumber: array[1, string]
+  if match(folder, run_regex, runNumber) == true:
     # set matches run folder flag to true, is checked when we find
     # a data<number>.txt file in the folder, so that we do not think a
     # folder with a single data<number>.txt file is a run folder
     matches_rf_name = true
-
+    
+  result.runNumber = runNumber[0].parseInt
+  
   for kind, path in walkDir(folder):
     if kind == pcFile:
       if match(path, event_regex) == true and matches_rf_name == true:
@@ -609,12 +613,17 @@ proc isTosRunFolder*(folder: string): tuple[is_rf: bool, contains_rf: bool] =
         # for now we leave this comment here, since it may come in handy
         # break
     else:
-      # else we deal with a folder. call this function recuresively
-      let (is_rf, contains_rf) = isTosRunFolder(path)
+      # else we deal with a folder. call this function recursively
+      let (is_rf, runNumber, contains_rf) = isTosRunFolder(path)
       # if the underlying folder contains an event file, this folder thus
       # contains a run folder
       if is_rf == true:
         result.contains_rf = true
+
+proc extractRunNumber*(runFolder: string): int =
+  ## given a valid TOS run folder, extract its run Number
+  let (is_rf, runNumber, contains_rf) = isTosRunFolder(runFolder)
+  result = runNumber
 
 # proc sum*[T: tuple](s: seq[T]): T {.inline.} =
 #   # this procedure sums the given array along the given axis

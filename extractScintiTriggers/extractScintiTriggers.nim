@@ -114,7 +114,7 @@ proc readScintFromH5(h5file: string, runNumber = 0, allRuns = false): (seq[int64
     result[1] = scint2_dset[int64]
 
   result[0] = filterIt(result[0], it != 0 and it != 4095)
-  result[1] = filterIt(result[0], it != 0 and it != 4095)
+  result[1] = filterIt(result[1], it != 0 and it != 4095)
       
 
 proc plotHist*[T](hist: seq[T]) =
@@ -298,6 +298,7 @@ proc main() =
 
   # now plot the scinti events
   plotHist(unequal1)
+  plotHist(unequal2)
     
 
 when isMainModule:

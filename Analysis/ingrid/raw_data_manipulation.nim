@@ -25,9 +25,9 @@ import macros
 #import nimprof
 
 # InGrid-module
-import helper_functions
-import tos_helper_functions
-import fadc_helper_functions
+import fadc_helpers
+import helpers/utils
+import tos_helpers
 import ingrid_types
 #import reconstruction
 

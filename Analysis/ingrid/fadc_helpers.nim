@@ -3,10 +3,10 @@ import os
 import re
 import sequtils, sugar
 import strutils
-import helper_functions
+import helpers/utils
 import threadpool
 # import read list of files, to read FADC files in parallel
-from tos_helper_functions import readListOfFiles, readMemFilesIntoBuffer
+from tos_helpers import readListOfFiles, readMemFilesIntoBuffer
 import ingrid_types
 import algorithm
 
@@ -286,7 +286,7 @@ proc readListOfFadcFiles*(list_of_files: seq[string]): seq[FlowVar[ref FadcFile]
   ###################################################################################
   # The following procs all deal with the calculation of whether a given FADC event #
   # is noisy or not                                                                 #
-  # NOTE: the general procs have been moved to helper_functions module              #
+  # NOTE: the general procs have been moved to helpers/utils module              #
   ###################################################################################
 
 proc isFadcFileNoisy*(fadc: FadcData, n_dips: int): bool =

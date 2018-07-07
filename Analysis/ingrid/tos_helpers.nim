@@ -9,8 +9,8 @@ import sequtils, future
 import threadpool
 import math
 
-# custom modules
-import helper_functions
+# cus modules
+import helpers/utils
 import ingrid_types
 import nimhdf5
 import seqmath
@@ -18,10 +18,90 @@ import seqmath
 # other modules
 import arraymancer
 import loopfusion
+import zero_functional
 
 import macros
 
 {.deadCodeElim: on.}
+
+const
+  # some helper constants
+  StartTot* = 20.0
+
+proc readToTFile*(filename: string,
+                  startRead = 0.0,
+                  totPrefix = "TOTCalib"): (int, seq[float], seq[float], seq[float]) =
+  ## reads the given TOT file and returns a tuple of seqs containing
+  ## the chip number, pulse heights, mean and std values
+  let
+    dataLines = readFile(filename).splitLines.filterIt(it.len > 0)
+  # get the TOTCalib filename prefix and use its length as a search index
+  # to find the chip number
+  let jumpTo = totPrefix.len
+  var chip = 0
+  try:
+    chip = ($filename.extractFilename[jumpTo]).parseInt
+  except ValueError:
+    # if we can't extract the chip number from the file, ignore it
+    discard
+
+  # create seqs for each column
+  var
+    pulses: seq[float]
+    mean: seq[float]  
+    std: seq[float]
+  try:
+    pulses = dataLines.mapIt(it.splitWhitespace[1].parseFloat)
+    mean   = dataLines.mapIt(it.splitWhitespace[5].parseFloat)
+    # convert RMS (that's the value in the column) to one standard deviation by
+    # STD = RMS / sqrt( 4 * 256 * 256 ) = RMS / 512
+    std    = dataLines.mapIt(it.splitWhitespace[7].parseFloat / 512.0)
+  except IndexError:
+    # in this case we're *probably* reading a file, which does not contain any alphabetical
+    # characters, so try 0, 1, 2 as indices
+    pulses = dataLines.mapIt(it.splitWhitespace[0].parseFloat)
+    mean   = dataLines.mapIt(it.splitWhitespace[1].parseFloat)
+    # convert RMS (that's the value in the column) to one standard deviation by
+    # STD = RMS / sqrt( 4 * 256 * 256 ) = RMS / 512
+    std    = dataLines.mapIt(it.splitWhitespace[2].parseFloat / 512.0)
+
+  # get the number of TOT calibration "starts", i.e. 20mV is the starting
+  # pulse height, so search for number of these
+  var startTot = 0.0
+  if startRead > 0.0:
+    startTot = startRead
+  else:
+    startTot = StartTot
+  let nstarts = pulses.filterIt(it == startTot).len
+
+  let lastInd = pulses.len - pulses.reversed.find(startToT) - 2
+  if lastInd > 0:
+    # if there is only a single StartToT value, lastInd will be -1
+    pulses.delete(0, lastInd)
+    mean.delete(0, lastInd)
+    std.delete(0, lastInd)
+
+  # filter out elements with std == 0.0
+  let nonZero = zip(std, pulses, mean) --> filter(it[0] > 0.0)
+  # see zips above for indices
+  pulses = nonZero.mapIt(it[1])
+  mean = nonZero.mapIt(it[2])
+  std = nonZero.mapIt(it[0])
+    
+  result = (chip, pulses, mean, std)
+
+proc readScurveVoltageFile*(filename: string): (string, seq[float], seq[float]) =
+  let file = filename.expandTilde
+  # - read file as string
+  # - split all lines after header at \n
+  # - filter lines with no content
+  # - create tuple of (THL, Counts) for each line
+  let dataTuple = readFile(file).splitLines[2..^1].filterIt(it.len > 0).mapIt(
+    ((it.split('\t')[0].parseFloat, it.split('\t')[1].parseFloat))
+  )
+  result[0] = file.extractFilename.strip(chars = {'a'..'z', '_', '.'})
+  result[1] = dataTuple.mapIt(it[0])
+  result[2] = dataTuple.mapIt(it[1])
 
 proc sum*(c: seq[Pix]): Pix {.inline.} =
   # this procedure sums the sequence of pixels such that it returns

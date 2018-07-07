@@ -6,8 +6,8 @@
 import strutils
 import os
 import osproc
-import helper_functions
-import ingrid/tos_helper_functions
+import helpers/utils
+import ingrid/tos_helpers
 import times
 
 proc main() = 

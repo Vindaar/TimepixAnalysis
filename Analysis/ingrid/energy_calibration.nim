@@ -5,7 +5,7 @@ import seqmath
 import nimhdf5
 import tables
 
-import tos_helper_functions
+import tos_helpers
 
 proc cutFeSpectrum(data: array[4, seq[float64]], event_num, hits: seq[int64]): seq[int64] =
   ## proc which receives the data for the cut, performs the cut and returns the

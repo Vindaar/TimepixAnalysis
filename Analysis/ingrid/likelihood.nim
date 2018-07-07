@@ -4,8 +4,8 @@ import strutils, strformat, ospaths
 import algorithm
 import sets
 import nimhdf5
-import tos_helper_functions
-import helper_functions
+import tos_helpers
+import helpers/utils
 import sequtils
 import seqmath
 import loopfusion
@@ -75,7 +75,7 @@ proc buildLogLHist(h5file, dset: string, region: ChipRegion = crGold): seq[float
   ## `dset` apply the cuts on all events and build the logL distribution
   ## for the energy range
   ## `dset` needs to be of the elements contained in the returned map
-  ## of tos_helper_functions.`getXrayRefTable`
+  ## of tos_helpers.`getXrayRefTable`
   ## Default `region` is the gold region
   result = @[]
   var grp_name = cdlPrefix() & dset

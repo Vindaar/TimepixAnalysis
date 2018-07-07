@@ -25,8 +25,8 @@ import seqmath
 import nimhdf5
 
 # custom modules
-import tos_helper_functions
-import helper_functions
+import tos_helpers
+import helpers/utils
 import ingrid_types
 import energy_calibration
 import fadc_analysis

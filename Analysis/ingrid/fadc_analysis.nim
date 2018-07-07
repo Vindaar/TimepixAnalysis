@@ -13,8 +13,8 @@ import typetraits
 import arraymancer
 import seqmath
 
-import tos_helper_functions
-import helper_functions
+import tos_helpers
+import helpers/utils
 
 let doc = """
 InGrid FADC analysis tool

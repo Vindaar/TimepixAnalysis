@@ -2,11 +2,11 @@
 # event set
 
 import os
-import ingrid/tos_helper_functions
+import ingrid/tos_helpers
+import helpers/utils
 import tables
 import sequtils
 import re
-import helper_functions
 import strutils, strformat
 import seqmath
 import docopt

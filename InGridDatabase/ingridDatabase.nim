@@ -5,6 +5,9 @@ import re
 import strutils, strformat, sequtils
 import ingrid/tos_helpers
 import helpers/utils
+import zero_functional
+import seqmath
+import nimhdf5
 
 const doc = """
 The InGrid database management tool.
@@ -42,6 +45,12 @@ type
     name: ChipName
     info: Table[string, string]
 
+
+  TotType = object
+    pulses: int
+    mean: float
+    std: float
+    
   Tot = object
     pulses: seq[int]
     mean: seq[float]
@@ -69,6 +78,10 @@ const
   FsrPattern = "fsr*.txt"
   TotPrefix = "TOTCalib"
   TotPattern = TotPrefix & r"*\.txt"
+  ThresholdPrefix = "threshold"
+  ThresholdPattern = r"threshold[0-9]\.txt"
+  ThresholdMeansPrefix = ThresholdPrefix & "Means"
+  ThresholdMeansPattern = ThresholdPrefix & r"Means*\.txt"
   SCurvePrefix = "voltage_"
   SCurveRegPrefix = r".*" & SCurvePrefix
   SCurvePattern = r"voltage_*\.txt"
@@ -152,6 +165,81 @@ proc parseTotFile(filename: string): Tot =
     result.pulses = pulses.asType(int)
     result.mean = mean
     result.std = std
+
+proc parseThresholdFile(filename: string): Threshold =
+  ## parses a Threshold(Means) file and returns it
+  echo filename
+  let flat = readFile(filename).splitLines -->
+    map(it.splitWhitespace) -->
+    flatten() -->
+    map(it.parseInt)
+  result = flat.toTensor().reshape([256, 256])
+
+#template chipGroup(chipName: string): string =
+iterator pairs(t: FSR): (string, int) =
+  for key, value in t:
+    yield (key, value)
+
+proc writeThreshold(h5f: var H5FileObj, threshold: Threshold, chipGroupName: string) =
+  var thresholdDset = h5f.create_dataset(joinPath(chipGroupName, ThresholdPrefix),
+                                          (256, 256),
+                                          dtype = int)
+  thresholdDset[thresholdDset.all] = threshold.data.reshape([256, 256])
+  
+
+proc addChipToH5(chip: Chip,
+                 fsr: FSR,
+                 scurves: SCurveSeq,
+                 tot: Tot,
+                 threshold: Threshold,
+                 thresholdMeans: ThresholdMeans) =
+  ## adds the given chip to the InGrid database H5 file
+
+  var h5f = H5File(db, "rw")
+  var chipGroup = h5f.create_group($chip.name)
+  # add FSR, chipInfo to chipGroup attributes
+  for key, value in chip.info:
+    echo &"Appending {key} with {value}"
+    chipGroup.attrs[key] = if value.len > 0: value else: "nil"
+  for dac, value in fsr:
+    chipGroup.attrs[dac] = value
+
+  # SCurve groups
+  if scurves.files.len > 0:
+    var scurveGroup = h5f.create_group(joinPath(chipGroup.name, SCurveFolder))
+    for i, f in scurves.files:
+      # for each file write a dataset
+      let curve = scurves.curves[i]
+      var scurveDset = h5f.create_dataset(joinPath(scurveGroup.name,
+                                                   curve.name),
+                                          (curve.thl.len, 2),
+                                          dtype = int)
+      # reshape the data to be two columns of [thl, hits] pairs and write
+      scurveDset[scurveDset.all] = zip(curve.thl, curve.hits).mapIt(@[it[0], it[1]])
+
+  if tot.pulses.len > 0:
+    # TODO: replace the TOT write by a compound data type using TotType
+    # that allows us to easily name the columns too!
+    echo sizeof(TotType)
+    var totDset = h5f.create_dataset(joinPath(chipGroup.name, TotPrefix),
+                                     (tot.pulses.len, 3),
+                                     dtype = float)
+    # sort of ugly conversion to 3 columns, using double zip
+    # since we don't have a zip for more than 2 seqs
+    totDset[totDset.all] = zip(zip(tot.pulses.asType(float),
+                               tot.mean),
+                               tot.std).mapIt(@[it[0][0],
+                                                it[0][1],
+                                                it[1]])
+
+  if threshold.shape == @[256, 256]:
+    h5f.writeThreshold(threshold, chipGroup.name)
+
+  #if thresholdMeans.shape == @[256, 256]:
+  #  h5f.writeThreshold(thresholdMeans, chipGroup.name)    
+  
+  let err = h5f.close()
+
         
 proc addChip(folder: string) =
   ## handles adding the data for a chip from a folder
@@ -168,6 +256,10 @@ proc addChip(folder: string) =
   ## Optional: if the following exists, it will be added
   ## - fsr?.txt
   ##   The FSR file of that chip
+  ## - threshold?.txt
+  ##   The threshold equalization of that chip
+  ## - thresholdMeans?.txt                         
+  ##   The mean values of threshold equalization of that chip
   ## - SCurve/
   ##   A folder containing the SCurves for that chip
   ## - TOTCalib?.txt
@@ -189,18 +281,27 @@ proc addChip(folder: string) =
     echo fsr
   
   # check for SCurves
+  var scurves: SCurveSeq
   if dirExists(joinPath(folder, SCurveFolder)) == true:
-    let scurves = parseScurveFolder(joinPath(folder, SCurveFolder))
+    scurves = parseScurveFolder(joinPath(folder, SCurveFolder))
 
   # check for TOT
+  var tot: Tot
   for f in walkFiles(joinPath(folder, TotPattern)):
-    let tot = parseTotFile(f)
+    tot = parseTotFile(f)
 
   # check for threshold / threshold means
-  
+  var
+    threshold: Threshold
+    thresholdMeans: ThresholdMeans
+  for f in walkFiles(joinPath(folder, ThresholdPattern)):
+    threshold = parseThresholdFile(f)
+  #for f in walkFiles(joinPath(folder, ThresholdMeansPattern)):
+    #thresholdMeans = parseThresholdFile(f)
+  #  assert false, "Threshold means writing not yet implemented!"
 
   # given all data, add it to the H5 file
-  addChipToH5(chip, fsr, scurves, tot)
+  addChipToH5(chip, fsr, scurves, tot, threshold, thresholdMeans)
 
 proc main() =
 

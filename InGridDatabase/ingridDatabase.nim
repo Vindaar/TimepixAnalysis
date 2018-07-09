@@ -36,40 +36,39 @@ Documentation:
 """
 
 type
-  ChipName = object
-    col: char
-    row: int
-    wafer: int
+  ChipName* = object
+    col*: char
+    row*: int
+    wafer*: int
     
-  Chip = object
-    name: ChipName
-    info: Table[string, string]
+  Chip* = object
+    name*: ChipName
+    info*: Table[string, string]
 
-
-  TotType = object
-    pulses: int
-    mean: float
-    std: float
+  TotType* = object
+    pulses*: int
+    mean*: float
+    std*: float
     
-  Tot = object
-    pulses: seq[int]
-    mean: seq[float]
-    std: seq[float]
+  Tot* = object
+    pulses*: seq[int]
+    mean*: seq[float]
+    std*: seq[float]
 
-  SCurve = object
-    name: string
-    voltage: int
-    thl: seq[int]
-    hits: seq[int]
+  SCurve* = object
+    name*: string
+    voltage*: int
+    thl*: seq[int]
+    hits*: seq[int]
     
-  SCurveSeq = object
-    files: seq[string]
-    curves: seq[SCurve]
+  SCurveSeq* = object
+    files*: seq[string]
+    curves*: seq[SCurve]
 
-  Threshold = Tensor[int]
-  ThresholdMeans = Tensor[int]
+  Threshold* = Tensor[int]
+  ThresholdMeans* = Tensor[int]
 
-  FSR = Table[string, int]
+  FSR* = Table[string, int]
 
 const db = "ingridDatabase.h5"
 const
@@ -95,21 +94,100 @@ let
   TotReg = re(TotPrefix & r"([0-9])\.txt")
   SCurveReg = re(SCurveRegPrefix & r"([0-9]+)\.txt")
 
+template withDatabase(actions: untyped): untyped =
+  ## read only template to open database as `hf5`, work with it
+  ## and close it properly
+  var h5f {.inject.} = H5File(db, "r")
+  actions
+  let err = h5f.close()
+  if err < 0:
+    echo "Could not properly close database! err = ", err
+
 proc `$`(chip: ChipName): string =
   result = $chip.col & $chip.row & " W" & $chip.wafer
 
+proc parseChipName(chipName: string): ChipName =
+  ## parses the given `chipName` as a string to a `ChipName` object
+  var mChip: array[3, string]
+  # parse the chip name
+  if match(chipName, ChipNameReg, mChip) == true:
+    result.col   = mChip[0][0]
+    result.row   = mChip[1].parseInt
+    result.wafer = mChip[2].parseInt
+  else:
+    raise newException(ValueError, "Bad chip name: $#" % chipName)
+
+proc chipNameToGroup(chipName: string): string =
+  ## given a `chipName` will return the correct name of the corresponding
+  ## chip's group
+  ## done by parsing the given string to a `ChipName` and using `ChipNames`
+  ## `$` proc.
+  result = $(parseChipName(chipName))
+
+# procs to get data from the file
+proc getTotCalib*(chipName: string): Tot =
+  ## reads the TOT calibration data from the database for `chipName`
+  let dsetName = joinPath(chipNameToGroup(chipName), TotPrefix)
+  withDatabase:
+    var dset = h5f[dsetName.dset_str]
+    let data = dset[float64].reshape2D(dset.shape).transpose
+    result.pulses = data[0].asType(int)
+    result.mean = data[1]
+    result.std = data[2]
+
+proc getScurve*[T: SomeInteger](h5f: var H5FileObj,
+                                chipName: string,
+                                voltage: T):
+                                  SCurve =
+  ## reads the given voltages' SCurve for `chipName`
+  result.name = SCurvePrefix & $voltage
+  let dsetName = joinPath(joinPath(chipNameToGroup(chipName),
+                                   SCurveFolder),
+                          result.name)
+  result.voltage = voltage
+  var dset = h5f[dsetName.dset_str]
+  let data = dset[int64].reshape2D(dset.shape).transpose
+  result.thl = data[0].asType(int)
+  result.hits = data[1].asType(int)
+
+proc getScurve*(chipName: string, voltage: int): SCurve =
+  ## reads the given voltages' SCurve for `chipName`
+  ## overload of above for the case of non opened H5 file
+  withDatabase:
+    result = h5f.getScurve(chipName, voltage)
+
+proc getScurveSeq*(chipName: string): SCurveSeq =
+  ## read all SCurves of `chipName` and return an `SCurveSeq`
+  # init result seqs (for some reason necessary?!)
+  result.files = @[]
+  result.curves = @[]
+  withDatabase:
+    h5f.visitFile()
+    var groupName = joinPath(chipNameToGroup(chipName),
+                             SCurveFolder)
+    var grp = h5f[groupName.grp_str]
+    for dsetName in keys(grp.datasets):
+      var dset = h5f[dsetName.dset_str]
+      let voltage = dset.attrs["voltage", int64].int
+      let curve = h5f.getSCurve(chipName, voltage)
+      result.files.add dsetName
+      result.curves.add curve
+
+proc getThreshold*(chipName: string): Threshold =
+  ## reads the threshold matrix of `chipName`
+  withDatabase:
+    let dsetName = joinPath(chipNameToGroup(chipName), ThresholdPrefix)
+    var dset = h5f[dsetName.dset_str]
+    result = dset[int64].toTensor.reshape(256, 256).asType(int)
+    
 proc parseChipInfo(filename: string): Chip =
   ## parses the `chipInfo` file and returns a chip object from that
   let info = readFile(filename).splitLines
   assert match(info[0], ChipNameLineReg), "The chipInfo file needs to contain the " &
     "`chipName: ` as the first line"
   let chipStr = info[0].split(':')[1].strip
-  var mChip: array[3, string]
-  # parse the chip name
-  if match(chipStr, ChipNameReg, mChip) == true:
-    result.name.col   = mChip[0][0]
-    result.name.row   = mChip[1].parseInt
-    result.name.wafer = mChip[2].parseInt
+  # fill the `name` field
+  result.name = parseChipName(chipStr)
   # parse the optional content of further notes on the chip
   # e.g. board, chip number on that board etc.
   result.info = initTable[string, string]()
@@ -175,11 +253,6 @@ proc parseThresholdFile(filename: string): Threshold =
     map(it.parseInt)
   result = flat.toTensor().reshape([256, 256])
 
-#template chipGroup(chipName: string): string =
-iterator pairs(t: FSR): (string, int) =
-  for key, value in t:
-    yield (key, value)
-
 proc writeThreshold(h5f: var H5FileObj, threshold: Threshold, chipGroupName: string) =
   var thresholdDset = h5f.create_dataset(joinPath(chipGroupName, ThresholdPrefix),
                                           (256, 256),
@@ -216,6 +289,8 @@ proc addChipToH5(chip: Chip,
                                           dtype = int)
       # reshape the data to be two columns of [thl, hits] pairs and write
       scurveDset[scurveDset.all] = zip(curve.thl, curve.hits).mapIt(@[it[0], it[1]])
+      # add voltage of dataset as attribute (for easier reading)
+      scurveDset.attrs["voltage"] = curve.voltage
 
   if tot.pulses.len > 0:
     # TODO: replace the TOT write by a compound data type using TotType

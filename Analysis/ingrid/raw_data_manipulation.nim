@@ -87,7 +87,10 @@ template inGridGroupNames(runNumber: int): (string, string, string, string) =
   var result = (groupName, recoGroupName, chipGroupName, combineGroupName)
   result
 
-template inGridGroups(h5f: var H5FileObj, forFadc: static[bool] = false): (H5Group, H5Group, H5Group, seq[H5Group]) =
+template inGridGroups(h5f: var H5FileObj,
+                      nChips: int = 0,
+                      forFadc: static[bool] = false):
+         (H5Group, H5Group, H5Group, seq[H5Group]) =
   ## template to get the H5 groups for
   ## Note: some variables need to be defined in the calling scope! This
   ## is why this is a template!
@@ -100,7 +103,7 @@ template inGridGroups(h5f: var H5FileObj, forFadc: static[bool] = false): (H5Gro
       # combined data group
       combineGroup = h5f.create_group(combineGroupName)
       # create group for each chip
-      chipGroups = mapIt(toSeq(0..<NChips), h5f.create_group(chipGroupName % $it))
+      chipGroups = mapIt(toSeq(0 ..< nChips), h5f.create_group(chipGroupName % $it))
     var result = (runGroup, recoGroup, combineGroup, chipGroups)
   else:
     var 
@@ -120,26 +123,25 @@ proc specialTypesAndEvKeys(): (hid_t, hid_t, array[7, string]) =
   result[1] = ev_type_ch
   result[2] = eventHeaderKeys
 
-proc getTotHitOccDsetNames(chipGroupName: string):
+proc getTotHitOccDsetNames(chipGroupName: string,
+                           nChips: int):
                           (seq[string], seq[string], seq[string]) =
   let 
-    totDsetNames = toSeq(0 ..< NChips).mapIt((chipGroupName % $it) & "/ToT")
-    hitDsetNames = toSeq(0 ..< NChips).mapIt((chipGroupName % $it) & "/Hits")
-    occDsetNames = toSeq(0 ..< NChips).mapIt((chipGroupName % $it) & "/Occupancy")
+    totDsetNames = toSeq(0 ..< nChips).mapIt((chipGroupName % $it) & "/ToT")
+    hitDsetNames = toSeq(0 ..< nChips).mapIt((chipGroupName % $it) & "/Hits")
+    occDsetNames = toSeq(0 ..< nChips).mapIt((chipGroupName % $it) & "/Occupancy")
   result = (totDsetNames, hitDsetNames, occDsetNames)
 
-proc getTotHitOccDsets(h5f: var H5FileObj, chipGroupName: string):
+proc getTotHitOccDsets(h5f: var H5FileObj, chipGroupName: string, nChips: int):
                       (seq[H5DataSet], seq[H5DataSet], seq[H5DataSet]) =
   let (totDsetNames,
        hitDsetNames,
-       occDsetNames) = getTotHitOccDsetNames(chipGroupName)
+       occDsetNames) = getTotHitOccDsetNames(chipGroupName, nChips)
 
-  echo totDsetNames
   var
     totDset = totDsetNames.mapIt(h5f[it.dset_str])
     hitDset = hitDsetNames.mapIt(h5f[it.dset_str])
     occDset = occDsetNames.mapIt(h5f[it.dset_str])
-  echo totDset
   result = (totDset, hitDset, occDset)
 
 # macro combineBasename(typename: static[string]): typed =
@@ -197,6 +199,7 @@ template batchFiles(files: var seq[string], bufsize, actions: untyped): untyped 
 
 proc batchFileReading[T](files: var seq[string],
                          regex_tup: tuple[header, chips, pixels: string] = ("", "", ""),
+                         rfKind: RunFolderKind = rfNewTos,
                          bufsize: int = FILE_BUFSIZE):
                           seq[FlowVar[ref T]] {.inline.} =
   # and removes all elements in the file list until all events have been read and the seq
@@ -212,7 +215,13 @@ proc batchFileReading[T](files: var seq[string],
     # read files into buffer sequence, `ind_high` is an injected variable of the template
     # after each iteration the `files` variable is modified. Read files are deleted.
     when T is Event:
-      let buf_seq = readListOfInGridFiles(files[0..ind_high], regex_tup)
+      var buf_seq: type(result)
+      case rfKind
+      of rfNewTos:
+        buf_seq = readListOfInGridFiles(files[0..ind_high], regex_tup)
+      of rfOldTos:
+        # to support reading TOS files using the old storage format
+        buf_seq = readListOfOldInGridFiles(files[0..ind_high], regex_tup)
     elif T is FadcFile:
       let buf_seq = readListOfFadcFiles(files[0..ind_high])
 
@@ -224,7 +233,9 @@ proc batchFileReading[T](files: var seq[string],
   echo "Compared with starting files " & $n_files
 
 
-proc readRawInGridData(listOfFiles: seq[string]): seq[Event] =
+proc readRawInGridData(listOfFiles: seq[string],
+                       rfKind: RunFolderKind):
+                         seq[Event] =
   ## given a run_folder it reads all event files (data<number>.txt) and returns
   ## a sequence of Events, which store the raw event data
   ## Intermediately we receive FlowVars to ref Events after reading. We read via
@@ -233,21 +244,29 @@ proc readRawInGridData(listOfFiles: seq[string]): seq[Event] =
   ## using spawn
   let regex_tup = getRegexForEvents()
   # get a sorted list of files, sorted by filename first
-  var files: seq[string] = sortByInode(listOfFiles) #getSortedListOfFiles(run_folder, EventSortType.fname, EventType.InGridType)
+  var files: seq[string] = sortByInode(listOfFiles)
   # split the sorted files into batches, and sort each batch by inode
-  #batchFiles(files, 5 * batchsize - 1):
-  let raw_ingrid = batchFileReading[Event](files, regex_tup)
-  # now sort the seq of flowvars according to event numbers again, otherwise
+  let raw_ingrid = batchFileReading[Event](files, regex_tup, rfKind)
+  # now sort the seq of FlowVars according to event numbers again, otherwise
   # h5 file is all mangled
   echo "Sorting data..."
-  var numList = mapIt(raw_ingrid, (^it)[].evHeader["eventNumber"].parseInt)
-  result = newSeq[Event](raw_ingrid.len)
-  let minIndex = numList.min
-  for i, ind in numList:
-    result[ind - minIndex] = (^raw_ingrid[i])[]
-  echo "...Sorting done"
+  # case on the old TOS' data storage and new TOS' version
+  let t0 = cpuTime()
+  case rfKind
+  of rfNewTos:
+    var numList = mapIt(raw_ingrid, (^it)[].evHeader["eventNumber"].parseInt)
+    result = newSeq[Event](raw_ingrid.len)
+    let minIndex = numList.min
+    for i, ind in numList:
+      result[ind - minIndex] = (^raw_ingrid[i])[]
+  of rfOldTos:
+    # in this case there may be missing events, so we simply sort by the indices themselves
+    var sortedTemp = raw_ingrid.sortedByIt((^it)[].evHeader["eventNumber"].parseInt)
+    result = mapIt(sortedTemp, (^it)[])
+  let t1 = cpuTime()
+  echo &"...Sorting done, took {$(t1 - t0)} seconds"
   
-proc processRawInGridData(ch: seq[Event]): ProcessedRun = #seq[FlowVar[ref Event]]): ProcessedRun =
+proc processRawInGridData(ch: seq[Event], runNumber: int): ProcessedRun = #seq[FlowVar[ref Event]]): ProcessedRun =
   ## procedure to process the raw data read from the event files by readRawInGridData
   ## inputs:
   ##    ch: seq[Event]] = seq of Event objects, which each store raw data of a single event.
@@ -259,21 +278,25 @@ proc processRawInGridData(ch: seq[Event]): ProcessedRun = #seq[FlowVar[ref Event
   ##    tuple of:
   ##      tot:  seq[seq[int]] = ToT values for each chip of Septemboard for run
   ##      hits: seq[seq[int]] = number of hits for each chip of Septemboard fo run
-  ##      occ:    Tensor[int] = (NChips, 256, 256) tensor containing occupancies of all chips for
+  ##      occ:    Tensor[int] = (nChips, 256, 256) tensor containing occupancies of all chips for
   ##        this data.
 
+  # get nChips from first `Event`. Can take any, since same for all 
+  # events in a run
+  let nChips = ch[0].nChips
+  
   # variable to count number of processed files
   var
     count = 0
     # store ToT data of all events for each chip
     # Note: still contains a single seq for each event! Need to concat
     # these seqs at the end
-    tot_run: seq[seq[seq[int]]] = newSeq[seq[seq[int]]](NChips)
+    tot_run: seq[seq[seq[int]]] = newSeq[seq[seq[int]]](nChips)
     # store occupancy frames for each chip
     # TODO: allow for other values than 7 chips!
-    occ = zeros[int](NChips, 256, 256)
+    occ = zeros[int](nChips, 256, 256)
     # store number of hits for each chip
-    hits = newSeq[seq[int]](NChips)
+    hits = newSeq[seq[int]](nChips)
     # initialize the events sequence of result, since we add to this sequence
     # instead of copying ch to it!
     events = newSeq[Event](len(ch))
@@ -283,7 +306,7 @@ proc processRawInGridData(ch: seq[Event]): ProcessedRun = #seq[FlowVar[ref Event
     mode = float(parseShutterMode(ch[0].evHeader["shutterMode"]))
 
   # set the run number
-  result.runNumber = parseInt(ch[0].evHeader["runNumber"])
+  result.runNumber = runNumber
 
   # initialize empty sequences. Input to anonymous function is var
   # as we change each inner sequence in place with newSeq
@@ -325,8 +348,8 @@ proc processRawInGridData(ch: seq[Event]): ProcessedRun = #seq[FlowVar[ref Event
 
   # use first event of run to fill event header. Fine, because event
   # header is contained in every file
-  result.runHeader = fillRunHeader(ch[0]) #^ch[0])
-  result.nChips = NChips
+  result.runHeader = ch[0].evHeader #fillRunHeader(ch[0]) #^ch[0])
+  result.nChips = nChips
   result.events = events
   result.tots = tot
   result.hits = hits
@@ -342,18 +365,18 @@ proc processFadcData(fadc_files: seq[FlowVar[ref FadcFile]]): ProcessedFadcData 
     fadc_ch0_indices = getCh0Indices()
     ch_len = ch_len()
     pedestal_run = getPedestalRun()
-    nevents = fadc_files.len
+    nEvents = fadc_files.len
     # we demand at least 4 dips, before we can consider an event as noisy
     n_dips = 4
     # the percentile considered for the calculation of the minimum
     min_percentile = 0.95
 
   # convert FlowVars of FadcFiles to sequence of FadcFiles
-  result.raw_fadc_data = newSeq[seq[uint16]](nevents)
-  result.fadc_data = zeros[float]([nevents, ch_len])
-  result.trigRecs = newSeq[int](nevents)
-  result.noisy = newSeq[int](nevents)
-  result.minVals = newSeq[float](nevents)
+  result.raw_fadc_data = newSeq[seq[uint16]](nEvents)
+  result.fadc_data = zeros[float]([nEvents, ch_len])
+  result.trigRecs = newSeq[int](nEvents)
+  result.noisy = newSeq[int](nEvents)
+  result.minVals = newSeq[float](nEvents)
   let t0 = epochTime()
   # TODO: parallelize this somehow so that it's faster!
   for i, event in fadc_files:
@@ -382,7 +405,7 @@ proc processFadcData(fadc_files: seq[FlowVar[ref FadcFile]]): ProcessedFadcData 
   #     if i < result.minVals.len:
   #       result.minVals[i]       = spawn fadc_dat.calcMinOfPulse(min_percentile)
   #     sync()
-  echo "Calculation of $# events took $# seconds" % [$nevents, $(epochTime() - t0)]
+  echo "Calculation of $# events took $# seconds" % [$nEvents, $(epochTime() - t0)]
 
 proc initFadcInH5(h5f: var H5FileObj, runNumber, batchsize: int, filename: string) =
   # proc to initialize the datasets etc in the HDF5 file for the FADC. Useful
@@ -449,7 +472,7 @@ proc writeFadcDataToH5(h5f: var H5FileObj, runNumber: int, f_proc: ProcessedFadc
     trigRec_name = trigRecBasename(runNumber)
     ch_len = ch_len()
     all_ch_len = all_ch_len()
-    nevents = f_proc.raw_fadc_data.len
+    nEvents = f_proc.raw_fadc_data.len
   var
     raw_fadc_dset = h5f[raw_name.dset_str]
     fadc_dset = h5f[reco_name.dset_str]
@@ -465,7 +488,7 @@ proc writeFadcDataToH5(h5f: var H5FileObj, runNumber: int, f_proc: ProcessedFadc
   echo trigRec_dset.maxshape
   # first need to extend the dataset, as we start with a size of 0.
   let oldsize = raw_fadc_dset.shape[0]
-  let newsize = oldsize + nevents
+  let newsize = oldsize + nEvents
   # TODO: currently this is somewhat problematic. We simply resize always. In a way this is
   # fine, because we need to resize to append. But in case we start this program twice in
   # a row, without deleting the file, we simply extend the dataset further, because we read
@@ -486,19 +509,19 @@ proc writeFadcDataToH5(h5f: var H5FileObj, runNumber: int, f_proc: ProcessedFadc
   echo "Trying to write using hyperslab! from $# to $#" % [$oldsize, $newsize]
   raw_fadc_dset.write_hyperslab(f_proc.raw_fadc_data,
                                 offset = @[oldsize, 0],
-                                count = @[nevents, all_ch_len])
+                                count = @[nEvents, all_ch_len])
   fadc_dset.write_hyperslab(f_proc.fadc_data.toRawSeq,
                             offset = @[oldsize, 0],
-                            count = @[nevents, ch_len])
+                            count = @[nEvents, ch_len])
   trigRec_dset.write_hyperslab(f_proc.trigRecs,
                                offset = @[oldsize, 0],
-                               count = @[nevents, 1])
+                               count = @[nEvents, 1])
   noisy_dset.write_hyperslab(f_proc.noisy,
                              offset = @[oldsize, 0],
-                             count = @[nevents, 1])
+                             count = @[nEvents, 1])
   minVals_dset.write_hyperslab(f_proc.minVals,
                                offset = @[oldsize, 0],
-                               count = @[nevents, 1])
+                               count = @[nEvents, 1])
   echo "Writing of FADC data took $# seconds" % $(epochTime() - t0)
 
 proc finishFadcWriteToH5(h5f: var H5FileObj, runNumber: int) =
@@ -530,6 +553,10 @@ proc readProcessWriteFadcData(run_folder: string, runNumber: int, h5f: var H5Fil
     files_read: seq[string] = @[]
   # use batchFiles template to work on 1000 files per batch
 
+  if files.len == 0:
+    # in case there are no FADC files, return from this proc
+    return
+
   const batchsize = 1000
 
   # before we start iterating over the files, initialize the H5 file
@@ -558,7 +585,7 @@ proc readProcessWriteFadcData(run_folder: string, runNumber: int, h5f: var H5Fil
   # finally finish writing to the HDF5 file
   finishFadcWriteToH5(h5f, runNumber)
 
-proc initInGridInH5(h5f: var H5FileObj, runNumber, batchsize: int) =
+proc initInGridInH5(h5f: var H5FileObj, runNumber, nChips, batchsize: int) =
   ## This proc creates the groups and dataset for the InGrid data in the H5 file
   ## inputs:
   ##   h5f: H5file = the H5 file object of the writeable HDF5 file
@@ -584,7 +611,7 @@ proc initInGridInH5(h5f: var H5FileObj, runNumber, batchsize: int) =
     combine_group = h5f.create_group(combine_group_name)
 
     # create group for each chip
-    chip_groups = mapIt(toSeq(0..<NChips), h5f.create_group(chipGroupName % $it))
+    chip_groups = mapIt(toSeq(0 ..< nChips), h5f.create_group(chipGroupName % $it))
     # datasets are chunked in the batchsize we read. Size originally 0
     x_dsets  = mapIt(chip_groups, h5f.datasetCreation(it.name & "/raw_x", ev_type_xy))
     y_dsets  = mapIt(chip_groups, h5f.datasetCreation(it.name & "/raw_y", ev_type_xy))
@@ -596,11 +623,11 @@ proc initInGridInH5(h5f: var H5FileObj, runNumber, batchsize: int) =
        h5f.datasetCreation(group_name & "/" & it, int))
     ).toTable
     # TODO: add string of datetime as well
-    #dateTimeDset = h5f.create_dataset(joinPath(group_name, "dateTime"), nevents, string)
+    #dateTimeDset = h5f.create_dataset(joinPath(group_name, "dateTime"), nEvents, string)
 
     # other single column data
     durationDset = h5f.datasetCreation(joinPath(group_name, "eventDuration"), float)
-  let names = mapIt(toSeq(0 ..< NChips), chipGroupName % $it)
+  let names = mapIt(toSeq(0 ..< nChips), chipGroupName % $it)
   var
     totDset = mapIt(names, h5f.datasetCreation(it & "/ToT", int))
     hitDset = mapIt(names, h5f.datasetCreation(it & "/Hits", int))
@@ -615,7 +642,7 @@ proc writeInGridAttrs(h5f: var H5FileObj, run: ProcessedRun) =
        chipGroupName,
        combineGroupName) = inGridGroupNames(run.runNumber)
   # use another dirty template to get the groups for the names
-  var (runGroup, recoGroup, combineGroup, chipGroups) = inGridGroups(h5f)
+  var (runGroup, recoGroup, combineGroup, chipGroups) = inGridGroups(h5f, run.nChips)
   # now write attribute data (containing the event run header, for a start
   # NOTE: unfortunately we cannot write all of it simply using applyIt,
   # because we need to parse some numbers as ints, leave some as strings
@@ -623,12 +650,18 @@ proc writeInGridAttrs(h5f: var H5FileObj, run: ProcessedRun) =
                "runMode", "fastClock", "externalTrigger"]
   let asString = ["pathName", "dateTime", "shutterMode"]
   # write run header
+  # Note: need to check for existence of the keys, because for old TOS data,
+  # not all keys are set!
   for it in asInt:
-    run_group.attrs[it]  = parseInt(run.runHeader[it])
-    reco_group.attrs[it] = parseInt(run.runHeader[it])
+    if it in run.runHeader:
+      let att = parseInt(run.runHeader[it])
+      run_group.attrs[it]  = att
+      reco_group.attrs[it] = att
   for it in asString:
-    run_group.attrs[it] = run.runHeader[it]
-    reco_group.attrs[it] = run.runHeader[it]
+    if it in run.runHeader:
+      let att = run.runHeader[it]
+      run_group.attrs[it] = att
+      reco_group.attrs[it] = att
 
   # initialize the attribute for the current number of stored events to 0  
   run_group.attrs["numEventsStored"] = 0
@@ -662,27 +695,34 @@ proc fillDataForH5(x, y: var seq[seq[seq[uint8]]],
                    duration: var seq[float],
                    events: seq[Event],
                    startEvent: int) =
-  let nevents = events.len
-  for i in 0 ..< NChips:
-    x[i]  = newSeq[seq[uint8]](nevents)
-    y[i]  = newSeq[seq[uint8]](nevents)
-    ch[i] = newSeq[seq[uint16]](nevents)
-  for event in events:
+  let
+    nEvents = events.len
+    # take 0 event to get number of chips, since same for whole run
+    nChips = events[0].nChips
+  for i in 0 ..< nChips:
+    x[i]  = newSeq[seq[uint8]](nEvents)
+    y[i]  = newSeq[seq[uint8]](nEvents)
+    ch[i] = newSeq[seq[uint16]](nEvents)
+  for i, event in events:
     # given chip number, we can write the data of this event to the correct dataset
     # need to subtract number of events already in file (min(evNumber) > 0!)
+    # NOTE: we now simply enumerate the number of events we read. There should be no reason
+    # why we should have to consider the real event numbers
+    # TODO: if you read this in the future and everything works, remove the
+    # next two lines :)
     let evNumberRaw = parseInt(event.evHeader["eventNumber"])
     let evNumber = parseInt(event.evHeader["eventNumber"]) - startEvent
     
-    echo "Accessing event ", evNumber
-    echo "Raw number ", evNumberRaw
-    duration[evNumber] = event.length
+    duration[i] = event.length
     # add event header information
     for key in keys(evHeaders):
       try:
-        evHeaders[key][evNumber] = parseInt(event.evHeader[key])
+        evHeaders[key][i] = parseInt(event.evHeader[key])
       except KeyError:
-        echo "We're reading event $# with evHeaders" % [$event] #, $evHeaders]
-        raise
+        discard
+        #echo "Event $# with evHeaders does not contain key $#" % [$event, $key]
+      except IndexError:
+        echo "Event $# with evHeaders does not contain key $#" % [$event, $key]
     # add raw chip pixel information
     for chp in event.chips:
       let
@@ -696,9 +736,9 @@ proc fillDataForH5(x, y: var seq[seq[seq[uint8]]],
         xl[i] = uint8(p[0])
         yl[i] = uint8(p[1])
         chl[i] = uint16(p[2])
-      x[num][evNumber] = xl
-      y[num][evNumber] = yl
-      ch[num][evNumber] = chl
+      x[num][i] = xl
+      y[num][i] = yl
+      ch[num][i] = chl
 
 proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
   ## this procedure writes the data from the processed run to a HDF5
@@ -707,9 +747,9 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
   ##   h5f: H5file = the H5 file object of the writeable HDF5 file
   ##   run: ProcessedRun = a tuple of the processed run data
   let
-    nevents = run.events.len
+    nEvents = run.events.len
     runNumber = run.runNumber
-    nchips = run.nChips
+    nChips = run.nChips
 
   # TODO: write the run information into the meta data of the group
   echo "Create data to write to HDF5 file"
@@ -721,7 +761,7 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
        chipGroupName,
        combineGroupName) = inGridGroupNames(run.runNumber)
   # another dirty template to get the groups for the names
-  var (runGroup, recoGroup, combineGroup, chipGroups) = inGridGroups(h5f)  
+  var (runGroup, recoGroup, combineGroup, chipGroups) = inGridGroups(h5f, nChips) 
   let (ev_type_xy, ev_type_ch, eventHeaderKeys) = specialTypesAndEvKeys()  
 
   var
@@ -735,20 +775,20 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
         (it, h5f[(groupName & "/" & it).dset_str])
       ).toTable
     # TODO: add string of datetime as well
-    #dateTimeDset = h5f.create_dataset(joinPath(group_name, "dateTime"), nevents, string)
+    #dateTimeDset = h5f.create_dataset(joinPath(group_name, "dateTime"), nEvents, string)
 
     # other single column data
     durationDset = h5f[(joinPath(groupName, "eventDuration")).dset_str]
-    duration = newSeq[float](nevents)
+    duration = newSeq[float](nEvents)
 
     evHeaders = initTable[string, seq[int]]()
-    x  = newSeq[seq[seq[uint8]]](nchips)
-    y  = newSeq[seq[seq[uint8]]](nchips)
-    ch = newSeq[seq[seq[uint16]]](nchips)
+    x  = newSeq[seq[seq[uint8]]](nChips)
+    y  = newSeq[seq[seq[uint8]]](nChips)
+    ch = newSeq[seq[seq[uint16]]](nChips)
 
   # prepare event header keys and value (init seqs)
   for key in eventHeaderKeys:
-    evHeaders[key] = newSeq[int](nevents)
+    evHeaders[key] = newSeq[int](nEvents)
 
   ##############################
   ##### Fill the data seqs #####
@@ -756,7 +796,7 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
 
   # use 
   let oldsize = runGroup.attrs["numEventsStored", int]
-  let newsize = oldsize + nevents
+  let newsize = oldsize + nEvents
   # set new size as attribute
   runGroup.attrs["numEventsStored"] = newsize
 
@@ -772,9 +812,9 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
   #let all = x_dsets[0].all
 
   template writeHyper(dset: untyped, data: untyped): untyped =
-    dset.write_hyperslab(data, offset = @[oldsize, 0], count = @[nevents, 1])
+    dset.write_hyperslab(data, offset = @[oldsize, 0], count = @[nEvents, 1])
 
-  for i in 0 ..< nchips:
+  for i in 0 ..< nChips:
     echo "Writing dsets ", i, " size x ", x_dsets.len
     x_dsets[i].resize((newsize, 1))
     y_dsets[i].resize((newsize, 1))
@@ -805,7 +845,7 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
   echo "ToTs shape is ", run.tots.shape
   echo "hits shape is ", run.hits.shape
   # into the reco group name we now write the ToT and Hits information
-  var (totDsets, hitDsets, occDsets) = getTotHitOccDsets(h5f, chipGroupName)
+  var (totDsets, hitDsets, occDsets) = getTotHitOccDsets(h5f, chipGroupName, nChips)
 
   for chip in 0 ..< run.nChips:
     # since not every chip has hits on each event, we need to create one group
@@ -835,7 +875,7 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
     # TODO: fix the occupancies! Currently only last batchs' occupancy stored!!!
     occDset[occDset.all] = occ
 
-proc linkRawToReco(h5f: var H5FileObj, runNumber: int) =
+proc linkRawToReco(h5f: var H5FileObj, runNumber, nChips: int) =
   ## perform linking from raw group to reco group
   let (groupName,
        recoGroupName,
@@ -844,7 +884,7 @@ proc linkRawToReco(h5f: var H5FileObj, runNumber: int) =
   let (_, _, eventHeaderKeys) = specialTypesAndEvKeys()
   let (totDsetNames,
        hitDsetNames,
-       occDsetNames) = getTotHitOccDsetNames(chipGroupName)
+       occDsetNames) = getTotHitOccDsetNames(chipGroupName, nChips)
   let
     durationDsetName = joinPath(groupName, "eventDuration")
   
@@ -853,12 +893,16 @@ proc linkRawToReco(h5f: var H5FileObj, runNumber: int) =
   # create hard links of header data to reco group
   for key in eventHeaderKeys:
     h5f.create_hardlink(joinPath(groupName, key), joinPath(recoGroupName, key))
-  for chip in 0 ..< NChips:
+  for chip in 0 ..< nChips:
     # create hardlinks for ToT and Hits
     h5f.create_hardlink(totDsetNames[chip], combineRawBasenameToT(chip, runNumber))
     h5f.create_hardlink(hitDsetNames[chip], combineRawBasenameHits(chip, runNumber))
 
-proc processAndWriteInGrid(listOfFiles: seq[string], h5f: var H5FileObj, nofadc = false): ProcessedRun =
+proc processAndWriteInGrid(listOfFiles: seq[string],
+                           h5f: var H5FileObj,
+                           runNumber: int,
+                           rfKind: RunFolderKind,
+                           nofadc = false): ProcessedRun =
   ## this procedure performs the necessary manipulations of a single
   ## run. This is the main part of the raw data manipulation
   ## inputs:
@@ -874,9 +918,9 @@ proc processAndWriteInGrid(listOfFiles: seq[string], h5f: var H5FileObj, nofadc 
   # -
   # read the raw event data into a seq of FlowVars
   echo "list of files ", listOfFiles.len
-  let ingrid = readRawInGridData(listOfFiles)
+  let ingrid = readRawInGridData(listOfFiles, rfKind)
   # process the data read into seq of FlowVars, save as result
-  result = processRawInGridData(ingrid)
+  result = processRawInGridData(ingrid, runNumber)
 
 proc processAndWriteFadc(run_folder: string, runNumber: int, h5f: var H5FileObj) =   
   # for the FADC we call a single function here, which works on
@@ -895,12 +939,14 @@ proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string, nofadc = f
   ##     nofadc: bool = if set, we do not read FADC data
   const batchsize = 5000
   var attrsWritten = false
+  var nChips: int
 
-  let runNumber = extractRunNumber(runFolder)
+  let (_, runNumber, rfKind, _) = isTosRunFolder(runFolder)
   var files = getSortedListOfFiles(run_folder, EventSortType.fname, EventType.InGridType)
 
   batchFiles(files, batchsize - 1):
-    let r = processAndWriteInGrid(files[0 .. ind_high], h5f, nofadc)
+    let r = processAndWriteInGrid(files[0 .. ind_high], h5f, runNumber, rfKind, nofadc)
+    nChips = r.nChips
     
     if attrsWritten == false:
       writeInGridAttrs(h5f, r)
@@ -908,14 +954,14 @@ proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string, nofadc = f
     
     let a = squeeze(r.occupancies[2,_,_])
     dumpFrameToFile("tmp/frame.txt", a)
-    initInGridInH5(h5f, r.runNumber, 1000)
+    initInGridInH5(h5f, runNumber, nChips, batchsize)
     writeProcessedRunToH5(h5f, r)
     echo "Size of total ProcessedRun object = ", sizeof(r)
 
   ####################
   # Create Hardlinks #
   ####################
-  linkRawToReco(h5f, runNumber)
+  linkRawToReco(h5f, runNumber, nChips)
     
     
 
@@ -946,7 +992,7 @@ proc main() =
   echo &"No fadc is {nofadc}"
 
   # first check whether given folder is valid run folder
-  let (is_run_folder, _, contains_run_folder) = isTosRunFolder(folder)
+  let (is_run_folder, _, _, contains_run_folder) = isTosRunFolder(folder)
   echo "Is run folder       : ", is_run_folder
   echo "Contains run folder : ", contains_run_folder
 
@@ -968,7 +1014,7 @@ proc main() =
       if kind == pcDir:
         # only support run folders, not nested run folders
         echo "occupied memory before run $# \n\n" % [$getOccupiedMem()]
-        let (is_rf, _, contains_rf) = isTosRunFolder(path)
+        let (is_rf, _, _, contains_rf) = isTosRunFolder(path)
         if is_rf == true and contains_rf == false:
           echo "Start processing run $#" % $path
           processAndWriteSingleRun(h5f, path, nofadc)
@@ -985,37 +1031,3 @@ proc main() =
 
 when isMainModule:
   main()
-
-
-
-
-
-# alternative approach writing each event one after another.
-# however, this is about 9 times slower...
-# let
-#   ev_type = special_type(int)
-#   chipGroupName = group_name & "/chip_$#" #% $chp
-#   # create group for each chip
-#   chip_groups = mapIt(toSeq(0..<NChips), h5f.create_group(chipGroupName % $it))
-# var
-#   x_dsets  = mapIt(chip_groups, h5f.create_dataset(it.name & "/raw_x", nevents, dtype = ev_type))
-#   y_dsets  = mapIt(chip_groups, h5f.create_dataset(it.name & "/raw_y", nevents, dtype = ev_type))
-#   ch_dsets = mapIt(chip_groups, h5f.create_dataset(it.name & "/raw_ch", nevents, dtype = ev_type))
-# for event in run.events:
-#   for chp in event.chips:
-#     let
-#       num = chp.chip.number
-#     # given chip number, we can write the data of this event to the correct dataset
-#     let evNumber = parseInt(event.evHeader["eventNumber"])
-#     let hits = chp.pixels.len
-#     var
-#       xl: seq[int] = newSeq[int](hits)
-#       yl: seq[int] = newSeq[int](hits)
-#       chl: seq[int] = newSeq[int](hits)
-#     for i, p in chp.pixels:
-#       xl[i] = p[0]
-#       yl[i] = p[1]
-#       chl[i] = p[2]
-#     x_dsets[num].write(@[@[evNumber, 0]], xl)
-#     y_dsets[num].write(@[@[evNumber, 0]], yl)
-#     ch_dsets[num].write(@[@[evNumber, 0]], chl)

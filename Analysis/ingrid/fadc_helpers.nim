@@ -70,7 +70,8 @@ proc readFadcFile*(file: seq[string]): ref FadcFile = #seq[float] =
     postTrig, trigRec, preTrig, n_channels, frequency, sampling_mode: int
     bitMode14, pedestalRun: bool
     line_spl: seq[string]
-  for line in file:
+  # line 0 is the filename itself
+  for line in file[1 .. ^1]:
     if likely('#' notin line):
       # we add a likely statement, because almost all lines are data lines, hence without '#'
       data.add(uint16(parseInt(line)))

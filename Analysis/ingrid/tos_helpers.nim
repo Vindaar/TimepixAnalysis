@@ -27,6 +27,13 @@ import macros
 const
   # some helper constants
   StartTot* = 20.0
+  # constant regex for InGrid type events
+  eventRegexInGrid = r".*data\d{4,6}(_1_[0-9]+)?.*\.txt$"
+
+  # default chip names, shutter modes and shutter times
+  OldShutterMode = "verylong"
+  OldShutterTime = "13"
+  OldChipName = "Christophs"
 
 proc readToTFile*(filename: string,
                   startRead = 0.0,
@@ -282,7 +289,10 @@ proc calcLength*(event: Event, time, mode: float): float =
   # overload of above, with time and mode already read
   # calculates the event length in seconds, taking into account
   # whether the FADC triggered or not and the shutter opening time
-  let fadc_triggered = parseInt(event.evHeader["fadcReadout"])
+  var fadc_triggered = 0
+  if event.evHeader.hasKey("fadcReadout"):
+    fadc_triggered = parseInt(event.evHeader["fadcReadout"])
+  
   if unlikely(fadc_triggered == 1):
     let fadc_clock_triggered = parseFloat(event.evHeader["fadcTriggerClock"])
     # in case FADC triggered it's simply the number of clockcycles the shutter was open
@@ -301,7 +311,7 @@ proc getRegexForEvents*(): tuple[header, chips, pixels: string] =
   #       pixels: the regex to read the pixel data
   result.header = r"^\#{2}\s(\w+):\s+(-?\b\S*)\b"
   result.chips  = r"^\#\s(\w+):\s+\b(\w\ \d{1,2} W\d{2}|\S*)\b"
-  result.pixels = r"^(\d+)\s+(\d+)\s+(\d+)$"
+  result.pixels = r"^(\d+)\s+(\d+)\s+(\d+)\s?$"
 
 proc readEventHeader*(filepath: string): Table[string, string] =
   # this procedure reads a whole event header and returns
@@ -318,18 +328,14 @@ proc readEventHeader*(filepath: string): Table[string, string] =
       let val = matches[1]
       result[key] = val
 
-# template createTuple(ln: int) =
-
-##   for i in 0..<ln:
-
-
 proc readMemFilesIntoBuffer*(list_of_files: seq[string]): seq[seq[string]] =
-  # procedure which reads a list of files via memory mapping and returns
-  # the thus read data as a sequence of MemFiles
-  # inputs:
-  #    list_of_files: seq[string] = seq of strings containing the filenames to be read
-  # outputs:
-  #    seq[var MemFile] = seq of memmapped files with data to work on
+  ## procedure which reads a list of files via memory mapping and returns
+  ## the thus read data as a sequence of MemFiles
+  ## inputs:
+  ##    list_of_files: seq[string] = seq of strings containing the filenames to be read
+  ## outputs:
+  ##    seq[seq[string]] = seq containing a seq of data for each file. Zeroth element
+  ##      always contains the filename
   result = newSeqOfCap[seq[string]](len(list_of_files))
 
   var
@@ -340,17 +346,23 @@ proc readMemFilesIntoBuffer*(list_of_files: seq[string]): seq[seq[string]] =
 
   echo "free memory ", getFreeMem()
   echo "occ memory ", getOccupiedMem()
+
+  # TODO: is it the smartest way to open and read the memfiles directly?
+  # I guess there's a reason why we do not return a seq of memory mapped files
+  # anymore
   for f in list_of_files:
     ff = memfiles.open(f, mode = fmRead, mappedSize = -1)
+    dat.add f
     for l in lines(ff):
-      dat.add(l)
+      dat.add l
     ff.close()
-    result.add(dat)
+    result.add dat
     dat.setLen(0)
   echo "free memory ", getFreeMem()
   echo "occ memory ", getOccupiedMem()
 
-proc processEventWithRegex*(data: seq[string], regex: tuple[header, chips, pixels: string]): ref Event =
+proc processEventWithRegex*(data: seq[string],
+                            regex: tuple[header, chips, pixels: Regex]): ref Event =
   # this template is used to create the needed functions to
   # - read the event header
   # - read the chip information for an event
@@ -373,9 +385,6 @@ proc processEventWithRegex*(data: seq[string], regex: tuple[header, chips, pixel
   var
     # variable to count already read pixels
     pix_counter = 0
-    # variables for regex
-    h_matches: array[2, string]
-    p_matches: array[3, string]
     # variables to read data into
     e_header = initTable[string, string]()
     c_header = initTable[string, string]()
@@ -389,36 +398,35 @@ proc processEventWithRegex*(data: seq[string], regex: tuple[header, chips, pixel
     # suppression!
     pix_to_read: int = 0
   result = new Event
-  let
-    regex_h = re(regex[0])
-    regex_c = re(regex[1])
-    regex_p = re(regex[2])
-
-  for line in data:
-    if match(line, regex_h, h_matches) == true:
-      e_header[h_matches[0]] = h_matches[1]
-    elif match(line, regex_c, h_matches) == true:
-      # in case we match a chip header, pix_counter to 0,
-      # need to make sure it is 0, once we reach the first
+  
+  for line in data[1 .. ^1]:
+    # NOTE: match using matching template
+    if line =~ regex.header:
+      # Event header
+      e_header[matches[0]] = matches[1]
+    elif line =~ regex.chips:
+      # Chip header
+      # set pix_counter to 0, need to make sure it is 0,
+      # once we reach the first
       # hit pixel
       pix_counter = 0
-      c_header[h_matches[0]] = h_matches[1]
-      if h_matches[0] == "numHits":
-        let nhits = parseInt(h_matches[1])
+      c_header[matches[0]] = matches[1]
+      if matches[0] == "numHits":
+        let nhits = parseInt(matches[1])
         pix_to_read = if nhits < 4096: nhits else: 4095
         if pix_to_read == 0:
           var ch_event = ChipEvent()
           ch_event.chip = (c_header["chipName"], parseInt(c_header["chipNumber"]))
           ch_event.pixels = pixels
-          # add  the chip event object to the sequence
+          # add the chip event object to the sequence
           chips.add(ch_event)
-    elif match(line, regex_p, p_matches) == true:
+    elif line =~ regex.pixels:
       # in this case we have matched a pixel hit line
       # get number of hits to process
       let
-        x: int  = parseInt(p_matches[0])
-        y: int  = parseInt(p_matches[1])
-        ch: int = parseInt(p_matches[2])
+        x: int  = parseInt(matches[0])
+        y: int  = parseInt(matches[1])
+        ch: int = parseInt(matches[2])
       # if the compiler flag (-d:REMOVE_FULL_PIX) is set, we cut all pixels, which have
       # ToT values == 11810, the max ToT value
       when defined(REMOVE_FULL_PIX):
@@ -442,12 +450,105 @@ proc processEventWithRegex*(data: seq[string], regex: tuple[header, chips, pixel
 
   # finally add the timestamp from the dateTime to the table as well
   e_header["timestamp"] = $(int(parseTOSDateString(e_header["dateTime"]).toSeconds))
+
   result.evHeader = e_header
   result.chips = chips
+  result.nChips = chips.len  
 
+proc processOldEventWithRegex*(data: seq[string],
+                               regPixels: Regex): ref OldEvent =
+  # this template is used to create the needed functions to
+  # - read the event header
+  # - read the chip information for an event
+  # - read the pixel data in an event
+  # either as single functions or as a combination of
+
+  # in this case we have a sequence of strings
+  var
+    # variable to count already read pixels
+    pix_counter = 0
+    # variables to read data into
+    e_header = initTable[string, string]()
+    c_header = initTable[string, string]()
+    # create a sequence large enough to hold most events, so that only for very large
+    # events we need to resize the sequence
+    pixels: Pixels = newSeqOfCap[Pix](400)
+    # variable to store resulting chip events
+    chips: seq[ChipEvent] = newSeqOfCap[ChipEvent](1)
+    # variable to determine, when we are reading the last pixel of one chip
+    # important, because we cannot trust numHits in chip header, due to zero
+    # suppression! We init by `-1` to deal with old TOS format, in which there
+    # is no header
+    pix_to_read: int = 0
+  result = new OldEvent
+  
+  let filepath = data[0]
+  # check for run folder kind by looking at first line of file
+  assert data[1][0] != '#', "This is not a valid rfOldTos file (old storage format)!" & data[1]
+   
+  for line in data[1 .. ^1]:
+    # match with template
+    if line =~ regPixels:
+      # in this case we have matched a pixel hit line
+      # get number of hits to process
+      let
+        x: int  = parseInt(matches[0])
+        y: int  = parseInt(matches[1])
+        ch: int = parseInt(matches[2])
+      # if the compiler flag (-d:REMOVE_FULL_PIX) is set, we cut all pixels, which have
+      # ToT values == 11810, the max ToT value
+      when defined(REMOVE_FULL_PIX):
+        if ch != 11810:
+          pixels.add((x, y, ch))
+      else:
+        pixels.add((x, y, ch))
+      # after adding pixel, increase pixel counter so that we know when we're
+      # reading the last hit of a given chip
+      inc pix_counter
+
+  # in that case we're reading an ``old event files (!)``. Get the event number
+  # from the filename
+  let evNumberRegex = re".*data(\d{4,6})_(\d)_.*"
+  var evNumChipNumStr: array[2, string]
+  if match(filepath, evNumberRegex, evNumChipNumStr) == true:
+    e_header["eventNumber"] = $(evNumChipNumStr[0].parseInt)
+    # TODO: in this case simply use the "old default constants"
+    e_header["shutterMode"] = OldShutterMode
+    e_header["shutterTime"] = OldShutterTime
+    # only support 1 chip for old storage format anyways
+    e_header["numChips"] = $1
+    c_header["numHits"] = $pix_counter
+    c_header["chipName"] = OldChipName
+    # subtract 1, because in the past TOS was 1 indexed
+    c_header["chipNumber"] = $(evNumChipNumStr[1].parseInt - 1)
+    let (head, tail) = filepath.splitPath
+    e_header["pathName"] = head
+
+  # now we are reading the last hit, process chip header and pixels
+  var ch_event = ChipEvent()
+  ch_event.chip = (c_header["chipName"], c_header["chipNumber"].parseInt)
+  ch_event.pixels = pixels
+  # add  the chip event object to the sequence
+  chips.add(ch_event)
+
+  result.evHeader = e_header
+  result.chips = chips
+  result.nChips = chips.len
+
+proc processEventWrapper(data: seq[string],
+                         regex: tuple[header, chips, pixels: Regex],                         
+                         rfKind: RunFolderKind): ref Event =
+  ## wrapper around both process event procs, which determines which one to call
+  ## based on the run folder kind. Need a wrapper, due to usage of spawn in
+  ## caling prof `readListOfFiles`.
+  case rfKind
+  of rfNewTos:
+    result = processEventWithRegex(data, regex)
+  of rfOldTos:
+    result = processOldEventWithRegex(data, regex[2])
 
 #template readEventWithRegex(filepath, regex: string): typed =
-proc readEventWithRegex*(filepath: string, regex: tuple[header, chips, pixels: string]): ref Event =
+proc readEventWithRegex*(filepath: string, regex: tuple[header, chips, pixels: Regex]): ref Event =
   # this procedure reads the lines from a given event and then calls processEventWithRegex
   # to process the file. Returns a ref to an Event object
   # inputs:
@@ -460,8 +561,6 @@ proc readEventWithRegex*(filepath: string, regex: tuple[header, chips, pixels: s
   for line in lines(f):
     data.add(line)
   result = processEventWithRegex(data, regex)
-
-
 
 proc pixelsToTOT*(pixels: Pixels): seq[int] {.inline.} =
   # extracts all charge values (ToT values) of a given pixels object (all hits
@@ -492,14 +591,6 @@ proc createTensorFromZeroSuppressed*(pixels: Pixels): Tensor[int] =
   result = zeros[int](256, 256)
   for p in pixels:
     result[p.x, p.y] = p.ch
-
-
-proc rawEventManipulation(filepath: string, regex: tuple[header, chips, pixels: string]): ref Event =
-  # this procedure performs all processing of a single event, from a raw data event to
-  # a processedEvent
-  discard
-#template
-
 
 proc dumpFrameToFile*(filepath: string, ar: Tensor[int]) =
   # this procedure dumps a given frame (tensor ar needs to be of shape (256, 256)
@@ -595,22 +686,23 @@ proc getSortedListOfFiles*(run_folder: string, sort_type: EventSortType, event_t
   # outputs:
   #    seq[string] = sequence containing event filnames, index 0 corresponds
   #                  to event data000000.txt
-  var event_regex = ""
+  var eventRegex = ""
   case event_type:
   of EventType.InGridType:
-    event_regex = r".*data\d{4,6}\.txt$"
+    eventRegex = eventRegexInGrid#r".*data\d{4,6}\.txt$"
   of EventType.FadcType:
-    event_regex = r".*data\d{4,6}\.txt-fadc$"
+    eventRegex = r".*data\d{4,6}\.txt-fadc$"
   # get the list of files from this run folder and sort it
   case sort_type
   of fname:
-    result = sorted(getListOfFiles(run_folder, event_regex),
+    result = sorted(getListOfFiles(run_folder, eventRegex),
                     (x: string, y: string) -> int => system.cmp[string](x, y))
   of inode:
-    result = sortByInode(getListOfFiles(run_folder, event_regex))
+    result = sortByInode(getListOfFiles(run_folder, eventRegex))
 
 proc readListOfFiles*[T](list_of_files: seq[string],
-                         regex: tuple[header, chips, pixels: string] = ("", "", "")): seq[FlowVar[ref T]] = #{.inline.} =
+                         regex: tuple[header, chips, pixels: string] = ("", "", "")):
+                           seq[FlowVar[ref T]] = #{.inline.} =
   ## As this is to be called from a function specifying the datatype, see the calling functions
   ## for descriptions of input and output
   let nfiles = len(list_of_files)
@@ -625,38 +717,51 @@ proc readListOfFiles*[T](list_of_files: seq[string],
   # the slicing syntax a[0..10] includes (!) the last element, thus this slice
   # has 11 elements
   result = newSeq[FlowVar[ref T]](nfiles)
+  var regex_tup = (re(regex[0]), re(regex[1]), re(regex[2]))
 
+  when T is Event:
+    # determine the run folder kind
+    let rfKind = if mmfiles[0][1][0] == '#': rfNewTos else: rfOldTos
+    echo "rf kind is ", rfKind
+    
   parallel:
     var f_count = 0
     for i, s in mmfiles:
       # loop over each file and call work on data function
       if i < len(result):
         when T is Event:
-          result[i] = spawn processEventWithRegex(s, regex)
+          result[i] = spawn processEventWrapper(s, regex_tup, rfKind)
         elif T is FadcFile:
           result[i] = spawn readFadcFile(s)
       echoFilesCounted(f_count)
   sync()
 
-
 # set experimental pragma to enable parallel: block
 {.experimental.}
 proc readListOfInGridFiles*(list_of_files: seq[string],
-                           regex_tup: tuple[header, chips, pixels: string]): seq[FlowVar[ref Event]] =
-  # this procedure receives a list of files, reads them into memory (as a buffer)
-  # and processes the content into a seq of ref Events
-  # inputs:
-  #    list_of_files: seq[string] = a seq of filenames, which are to be read in one go
-  #    regex_tup: tuple[...] = a tuple of the different regexes needed to read the different
-  #                            parts of a file
-  # outputs:
-  #    seq[FlowVar[ref Event]] = a seq of flow vars pointing to events, since we read
-  #                              in parallel
+                            regex_tup: tuple[header, chips, pixels: string]):
+                              seq[FlowVar[ref Event]] =
+  ## this procedure receives a list of files, reads them into memory (as a buffer)
+  ## and processes the content into a seq of ref Events
+  ## inputs:
+  ##    list_of_files: seq[string] = a seq of filenames, which are to be read in one go
+  ##    regex_tup: tuple[...] = a tuple of the different regexes needed to read the different
+  ##                            parts of a file
+  ## outputs:
+  ##    seq[FlowVar[ref Event]] = a seq of flow vars pointing to events, since we read
+  ##                              in parallel
   result = readListOfFiles[Event](list_of_files, regex_tup)
 
+proc readListOfOldInGridFiles*(list_of_files: seq[string],
+                            regex_tup: tuple[header, chips, pixels: string]):
+                              seq[FlowVar[ref Event]] =
+  ## see documentation of above
+  # since `OldEvent` is simply an alias for us, it can be returned as
+  # an `Event` as well
+  result = readListOfFiles[OldEvent](list_of_files, regex_tup)
 
 proc isTosRunFolder*(folder: string):
-  tuple[is_rf: bool, runNumber: int, contains_rf: bool] =
+  tuple[is_rf: bool, runNumber: int, rfKind: RunFolderKind, contains_rf: bool] =
   # this procedure checks whether the given folder is a valid run folder of
   # TOS
   # done by
@@ -671,30 +776,52 @@ proc isTosRunFolder*(folder: string):
   #    tuple[(bool, int), bool]:
   #        (is_rf, runNumber): is a run folder, its Number
   #        contains_rf:        contains run folders
-  let run_regex = re(r".*Run_(\d+)_.*")
-  let event_regex = re(r".*data\d{4,6}\.txt$")
+
+  let runRegex = re(r".*Run_(\d+)_.*")
+  # else check for old `Chistoph style` runs
+  let oldRunRegex = re(r".*Run\d{6}_\d{2}-\d{2}-\d{2}.*")
+  let oldTosRunDescriptorPrefix = r".*(\d{3})-"
+  var oldTosRunDescriptor: Regex
+  
+  let eventRegex = re(eventRegexInGrid) #r".*data\d{4,6}(_1_[0-9]+)?.*\.txt$")
   var matches_rf_name: bool = false
   var runNumber: array[1, string]
-  if match(folder, run_regex, runNumber) == true:
+  if match(folder, runRegex, runNumber) == true:
     # set matches run folder flag to true, is checked when we find
     # a data<number>.txt file in the folder, so that we do not think a
     # folder with a single data<number>.txt file is a run folder
     matches_rf_name = true
-    
-  result.runNumber = runNumber[0].parseInt
+    result.runNumber = runNumber[0].parseInt
+    result.rfKind = rfNewTos
+  elif match(folder, oldRunRegex) == true:
+    matches_rf_name = true
+    # in case of the old tos, still need to extract the run number from the
+    # <runNumber>-<folder>.dat file
+    result.rfKind = rfOldTos
+    let (head, tail) = folder.splitPath
+    oldTosRunDescriptor = re(oldTosRunDescriptorPrefix & tail & r".*")
   
   for kind, path in walkDir(folder):
     if kind == pcFile:
-      if match(path, event_regex) == true and matches_rf_name == true:
+      if match(path, eventRegex) == true and matches_rf_name == true:
         result.is_rf = true
-        # in case we found an event in the folder, we might want to stop the
-        # search, in order not to waste time. Nested run folders are
-        # undesireable anyways
-        # for now we leave this comment here, since it may come in handy
-        # break
+        # found an event file -> is run folder -> break
+        case result.rfKind
+        of rfNewTos:
+          break
+        else:
+          # only break if run number is not yet set
+          if result.runNumber != 0:
+            break
+      case result.rfKind
+      of rfOldTos:
+        if match(path, oldTosRunDescriptor, runNumber) == true and matches_rf_name == true:
+          # extract run number from descriptor
+          result.runNumber = runNumber[0].parseInt
+      else: discard
     else:
       # else we deal with a folder. call this function recursively
-      let (is_rf, runNumber, contains_rf) = isTosRunFolder(path)
+      let (is_rf, runNumber, rfKind, contains_rf) = isTosRunFolder(path)
       # if the underlying folder contains an event file, this folder thus
       # contains a run folder
       if is_rf == true:
@@ -702,8 +829,13 @@ proc isTosRunFolder*(folder: string):
 
 proc extractRunNumber*(runFolder: string): int =
   ## given a valid TOS run folder, extract its run Number
-  let (is_rf, runNumber, contains_rf) = isTosRunFolder(runFolder)
+  let (is_rf, runNumber, rfKind, contains_rf) = isTosRunFolder(runFolder)
   result = runNumber
+
+proc extractRunFolderKind*(runFolder: string): RunFolderKind =
+  ## given a valid TOS run folder, extract its run Number
+  let (is_rf, runNumber, rfKind, contains_rf) = isTosRunFolder(runFolder)
+  result = rfKind
 
 # proc sum*[T: tuple](s: seq[T]): T {.inline.} =
 #   # this procedure sums the given array along the given axis
@@ -774,6 +906,7 @@ template applyPitchConversion*[T: (float | int)](x, y: T): (float, float) =
   ((float(NPIX) - float(x) - 0.5) * PITCH, (float(y) + 0.5) * PITCH)
 
 proc fillRunHeader*(event: Event): Table[string, string] =
+  ## TODO: what's the reason for this functions existence?
   result = initTable[string, string]()
   # run number
   result["runNumber"] = event.evHeader["runNumber"]
@@ -1188,10 +1321,10 @@ iterator runs*(h5f: var H5FileObj, data_basename = recoBase()): (string, string)
   if h5f.visited == false:
     h5f.visit_file
 
-  let run_regex = re(data_basename & r"(\d+)$")
+  let runRegex = re(data_basename & r"(\d+)$")
   var run: array[1, string]
   for grp in keys(h5f.groups):
-    if grp.match(run_regex, run) == true:
+    if grp.match(runRegex, run) == true:
       # now read some data. Return value will be added later
       yield (run[0], grp)
 

@@ -34,8 +34,13 @@ type
   Event* = object
     evHeader*: Table[string, string]
     chips*: seq[ChipEvent]
+    nChips*: int
     # time the shutter was open in seconds
     length*: float
+
+  # define a distinct `OldEvent` to differentiate the (in principle) not
+  # different old TOS storage format
+  OldEvent* = Event
 
   # object which stores the geometry information of a single
   # `ClusterObject`    
@@ -102,6 +107,9 @@ type
 
   EventType* = enum
     FadcType, InGridType
+
+  RunFolderKind* = enum
+    rfNewTos, rfOldTos
 
   ##############
   # FADC types #

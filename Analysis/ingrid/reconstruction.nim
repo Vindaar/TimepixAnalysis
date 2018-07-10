@@ -308,46 +308,40 @@ proc newClusterObject(c: Cluster): ClusterObject =
                          geometry: geometry)
 
 
-proc excentricity(n: cuint, p: array[1, cdouble], grad: var array[1, cdouble], func_data: var pointer): cdouble {.cdecl.} =
-  # this function calculates the excentricity of a found pixel cluster using nimnlopt.
+proc eccentricity(p: seq[float], func_data: FitObject): float =
+  # this function calculates the eccentricity of a found pixel cluster using nimnlopt.
   # Since no proper high level library is yet available, we need to pass a var pointer
   # of func_data, which contains the x and y arrays in which the data is stored, in
   # order to calculate the RMS variables
 
   # first recover the data from the pointer to func_data, by casting the
   # raw pointer to a Cluster object
-  let fit = cast[FitObject](func_data)
+  let fit = func_data
   let c = fit.cluster
-  let (x, y) = fit.xy
+  let (centerX, centerY) = fit.xy
 
   var
-    sum_x: cdouble = 0
-    sum_y: cdouble = 0
-    sum_x2: cdouble = 0
-    sum_y2: cdouble = 0
+    sum_x: float = 0
+    sum_y: float = 0
+    sum_x2: float = 0
+    sum_y2: float = 0
 
   for i in 0..<len(c):
     let
-      new_x = cos(p[0]) * (cdouble(c[i].x) - cdouble(x)) * PITCH - sin(p[0]) * (cdouble(c[i].y) - cdouble(y)) * PITCH
-      new_y = sin(p[0]) * (cdouble(c[i].x) - cdouble(x)) * PITCH + cos(p[0]) * (cdouble(c[i].y) - cdouble(y)) * PITCH
+      new_x = cos(p[0]) * (c[i].x.float - centerX) * PITCH - sin(p[0]) * (c[i].y.float - centerY) * PITCH
+      new_y = sin(p[0]) * (c[i].x.float - centerX) * PITCH + cos(p[0]) * (c[i].y.float - centerY) * PITCH
     sum_x += new_x
     sum_y += new_y
     sum_x2 += (new_x * new_x)
     sum_y2 += (new_y * new_y)
 
   let
-    n_elements: cdouble = cdouble(len(c))
-    rms_x: cdouble = sqrt( (sum_x2 / n_elements) - (sum_x * sum_x / n_elements / n_elements))
-    rms_y: cdouble = sqrt( (sum_y2 / n_elements) - (sum_y * sum_y / n_elements / n_elements))
+    n_elements: float = len(c).float
+    rms_x: float = sqrt( (sum_x2 / n_elements) - (sum_x * sum_x / n_elements / n_elements))
+    rms_y: float = sqrt( (sum_y2 / n_elements) - (sum_y * sum_y / n_elements / n_elements))
 
+  # calc eccentricity from RMS
   let exc = rms_x / rms_y
-
-  # need to check whether grad is nil. Only used for some algorithms, otherwise a
-  # NULL pointer is handed in C
-  if unlikely(addr(grad) != nil):
-    # normally we'd calculate the gradient for the current parameters, but we're
-    # not going to use it. Can also remove this whole if statement
-    discard
 
   result = -exc
 
@@ -396,11 +390,11 @@ proc calcGeometry(cluster: Cluster, pos_x, pos_y, rot_angle: float): ClusterGeom
   result.eccentricity         = result.rmsLongitudinal / result.rmsTransverse
   # get fraction of all pixels within the transverse RMS, by filtering all elements
   # within the transverse RMS radius and dividing by total pix
-  when not defined(release):
-    # DEBUG
-    echo "rms trans is ", result.rmsTransverse
-    echo "std is ", stat_y.variance()
-    echo "thus filter is ", filterIt(zip(xRot, yRot), distance(it.a, it.b) <= result.rmsTransverse)
+  # when not defined(release):
+  #   # DEBUG
+  #   echo "rms trans is ", result.rmsTransverse
+  #   echo "std is ", stat_y.variance()
+  #   echo "thus filter is ", filterIt(zip(xRot, yRot), distance(it.a, it.b) <= result.rmsTransverse)
   result.lengthDivRmsTrans = result.length / result.rmsTransverse
   result.fractionInTransverseRms = float(filterIt(zip(xRot, yRot),
                                                   distance(it.a, it.b) <= result.rmsTransverse).len) / float(npix)
@@ -493,9 +487,10 @@ template eccentricityNloptOptimizer(fit_object: FitObject): NloptOpt =
   var
     # set the boundary values corresponding to range of 360 deg
     lb = (-4.0 * arctan(1.0), 4.0 * arctan(1.0))
-  var opt = newNloptOpt("LN_COBYLA", lb)
+  var opt = newNloptOpt("LN_COBYLA", 1, @[lb])
   # hand the function to fit as well as the data object we need in it
-  opt.setFunction(excentricity, fit_object)
+  var varStruct = newVarStruct(eccentricity, fit_object)
+  opt.setFunction(varStruct)
   # set relative precisions of x and y, as well as limit max time the algorithm
   # should take to 1 second
   # these default values have proven to be working
@@ -514,7 +509,7 @@ template fitRotAngle(cl_obj: ClusterObject, rotAngleEstimate: float): (float, fl
 
   var
     # set the fit object with which we hand the necessary data to the
-    # excentricity function
+    # eccentricity function
     fit_object: FitObject
     # the resulting fit parameter
     p = @[rotAngleEstimate]

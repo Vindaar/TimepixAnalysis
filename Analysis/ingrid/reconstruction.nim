@@ -135,10 +135,11 @@ proc writeRecoRunToH5(h5f: var H5FileObj,
   ##     potentially throws HDF5LibraryError, if a call to the H5 library fails
 
   # now we need to write into reco group for each chip
+  var rawGroup = h5f[getGroupNameForRun(runNumber).grp_str]
+  let nChips = rawGroup.attrs["numChips", int]
 
   # for now hardcode the number of chips. easy to change by getting the number
   # simply from a file or whatever
-  const nchips = 7
   echo "Number of events in total ", reco_run.len
 
   let
@@ -162,22 +163,22 @@ proc writeRecoRunToH5(h5f: var H5FileObj,
   # simply make that a compound datatype or something. Well
   var
     # create group for each chip
-    chip_groups = mapIt(toSeq(0..<nchips), h5f.create_group(chip_group_name % $it))
+    chip_groups = mapIt(toSeq(0..<nChips), h5f.create_group(chip_group_name % $it))
     combine_group = h5f.create_group(combine_group_name)
 
   # create a table containing the sequences for int datasets and corresponding names
   var int_data_tab = initTable[string, seq[seq[int]]]()
   var float_data_tab = initTable[string, seq[seq[float]]]()
-  int_data_tab.initDataTab(nchips, int_dset_names)
-  float_data_tab.initDataTab(nchips, float_dset_names)
+  int_data_tab.initDataTab(nChips, int_dset_names)
+  float_data_tab.initDataTab(nChips, float_dset_names)
 
   var
     # before we create the datasets, first parse the data we will write
-    x  = newSeq[seq[seq[int]]](nchips)
-    y  = newSeq[seq[seq[int]]](nchips)
-    ch = newSeq[seq[seq[int]]](nchips)
+    x  = newSeq[seq[seq[int]]](nChips)
+    y  = newSeq[seq[seq[int]]](nChips)
+    ch = newSeq[seq[seq[int]]](nChips)
 
-  for chip in 0 ..< nchips:
+  for chip in 0 ..< nChips:
     x[chip]  = @[]
     y[chip]  = @[]
     ch[chip] = @[]
@@ -216,26 +217,26 @@ proc writeRecoRunToH5(h5f: var H5FileObj,
     int_dsets = initTable[string, seq[H5DataSet]]()
     float_dsets = initTable[string, seq[H5DataSet]]()
     # x, y and charge datasets
-    x_dsets  = mapIt(toSeq(0..<nchips),
+    x_dsets  = mapIt(toSeq(0..<nChips),
                      h5f.create_dataset(chip_groups[it].name & "/x", x[it].len, dtype = ev_type))
-    y_dsets  = mapIt(toSeq(0..<nchips),
+    y_dsets  = mapIt(toSeq(0..<nChips),
                      h5f.create_dataset(chip_groups[it].name & "/y", y[it].len, dtype = ev_type))
-    ch_dsets  = mapIt(toSeq(0..<nchips),
+    ch_dsets  = mapIt(toSeq(0..<nChips),
                      h5f.create_dataset(chip_groups[it].name & "/ToT", ch[it].len, dtype = ev_type))
 
 
   # variable to store number of events for each chip
   let eventsPerChip = mapIt(x, it.len)
   # now create all datasets and store them in the dataset tables
-  int_dsets.createDatasets(h5f, int_dset_names, nchips, eventsPerChip, chip_groups, int)
-  float_dsets.createDatasets(h5f, float_dset_names, nchips, eventsPerChip, chip_groups, float)
+  int_dsets.createDatasets(h5f, int_dset_names, nChips, eventsPerChip, chip_groups, int)
+  float_dsets.createDatasets(h5f, float_dset_names, nChips, eventsPerChip, chip_groups, float)
 
   # now that we have the datasets, write everything...
   let all = x_dsets[0].all
   # get locations of raw data groups, so that we can copy
   # the attributes
   let raw_groups = rawDataChipBase(run_number)
-  for chip in 0 ..< nchips:
+  for chip in 0 ..< nChips:
     for dset in int_dset_names:
       int_dsets[dset][chip][all] = int_data_tab[dset][chip]
     for dset in float_cluster_names:

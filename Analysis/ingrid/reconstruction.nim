@@ -755,11 +755,11 @@ proc main() =
     echo "WARNING: writing to a different H5 file is not quite finished yet."
     echo "\t The resulting file will miss the attributes of the reco run groups"
     echo "\t as well as the common datasets like timestamps!"
-  if create_fe_arg == "nil":
+  if create_fe_arg == "false":
     create_fe_flag = false
   else:
     create_fe_flag = true
-  if calib_energy_arg == "nil":
+  if calib_energy_arg == "false":
     calib_energy_flag = false
   else:
     calib_energy_flag = true

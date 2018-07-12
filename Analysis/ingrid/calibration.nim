@@ -4,10 +4,28 @@ import future
 import seqmath
 import nimhdf5
 import tables
+import mpfit
 
 import tos_helpers
+import ingrid_types
 
-func findDrop(thl, count: seq[float]): (float, int, int) =
+type
+  # type to store results of fitting with mpfit
+  # defined here instead of ingrid_types, since it's only related
+  # to calibration
+  FitResult* = object
+    x*: seq[float]
+    y*: seq[float]
+    pRes*: seq[float]
+    pErr*: seq[float]
+    redChiSq*: float
+
+const
+  NTestPulses = 1000.0
+  ScalePulses = 1.01
+  CurveHalfWidth = 15
+
+func findDrop(thl, count: seq[int]): (float, int, int) =
   ## search for the drop of the SCurve, i.e.
   ##
   ##    ___/\__
@@ -19,8 +37,10 @@ func findDrop(thl, count: seq[float]): (float, int, int) =
   ## as indices for the thl and count seqs)
   # zip thl and count
   let
-    thlZipped = zip(toSeq(0 .. thl.high), thl)
-    thlCount = zip(thlZipped, count)
+    mthl = thl.mapIt(it.float)
+    mcount = count.mapIt(it.float)
+    thlZipped = zip(toSeq(0 .. mthl.high), mthl)
+    thlCount = zip(thlZipped, mcount)
     # helper, which is the scaled bound to check whether we need
     # to tighten the view on the valid THLs
     scaleBound = NTestPulses * ScalePulses
@@ -33,7 +53,7 @@ func findDrop(thl, count: seq[float]): (float, int, int) =
 
   var minIndex = max(pCenterInd - CurveHalfWidth, 0)
   # test the min index
-  if count[minIndex.int] > scaleBound:
+  if mcount[minIndex.int] > scaleBound:
     # in that case get the first index larger than minIndex, which
     # is smaller than the scaled test pulses
     let
@@ -68,18 +88,18 @@ func totCalibFunc(p: seq[float], x: float): float =
   #debugecho "Call with ", p
   result = p[0] * x + p[1] - p[2] / (x - p[3])
 
-proc fitSCurve*[T](thl, count: seq[T], voltage: int): FitResult =
-  ## performs the fit of the `sCurveFunc` to the given `thl` and `count`
-  ## seqs. Returns a `FitScurve` object of the fit result
+proc fitSCurve*(curve: SCurve): FitResult =
+  ## performs the fit of the `sCurveFunc` to the given `thl` and `hits`
+  ## fields of the `SCurve` object. Returns a `FitScurve` object of the fit result
   const pSigma = 5.0
   let
-    (pCenter, minIndex, maxIndex) = findDrop(thl, count)
-    err = thl.mapIt(1.0)
+    (pCenter, minIndex, maxIndex) = findDrop(curve.thl, curve.hits)
+    err = curve.thl.mapIt(1.0)
     p = @[NTestPulses, pCenter.float, pSigma]
 
   let
-    thlCut = thl[minIndex .. maxIndex].mapIt(it.float)
-    countCut = count[minIndex .. maxIndex].mapIt(it.float)
+    thlCut = curve.thl[minIndex .. maxIndex].mapIt(it.float)
+    countCut = curve.hits[minIndex .. maxIndex].mapIt(it.float)
 
     (pRes, res) = fit(sCurveFunc,
                       p,
@@ -88,11 +108,21 @@ proc fitSCurve*[T](thl, count: seq[T], voltage: int): FitResult =
                       err)
   echoResult(pRes, res = res)
   # create data to plot fit as result
-  result.x = linspace(thl[minIndex].float, thl[maxIndex].float, 1000)
+  result.x = linspace(curve.thl[minIndex].float, curve.thl[maxIndex].float, 1000)
   result.y = result.x.mapIt(sCurveFunc(pRes, it))
   result.pRes = pRes
   result.pErr = res.error
   result.redChiSq = res.reducedChiSq
+
+proc fitSCurve*[T](thl, count: seq[T], voltage: int): FitResult =
+  when T isnot float:
+    let
+      mthl = mapIt(thl.float)
+      mhits = mapIt(count.float)
+    let curve = SCurve(thl: mthl, hits: mhits, voltage: voltage)
+  else:
+    let curve = SCurve(thl: thl, hits: count, voltage: voltage)
+  result = fitSCurve(curve)
 
 proc fitThlCalib*(charge, thl, thlErr: seq[float]): FitResult =
 
@@ -111,12 +141,12 @@ proc fitThlCalib*(charge, thl, thlErr: seq[float]): FitResult =
   result.pErr = res.error
   result.redChiSq = res.reducedChiSq
 
-proc fitToTCalib*(pulses, mean, std: seq[float], startFit = 0.0): FitResult =
+proc fitToTCalib*(tot: Tot, startFit = 0.0): FitResult =
   var
     # local mutable variables to potentially remove unwanted data for fit
-    mPulses = pulses
-    mMean = mean
-    mStd = std
+    mPulses = tot.pulses.mapIt(it.float)
+    mMean = tot.mean
+    mStd = tot.std
   
   # define the start parameters. Use a good guess...
   let p = [0.149194, 23.5359, 205.735, -100.0]
@@ -143,7 +173,7 @@ proc fitToTCalib*(pulses, mean, std: seq[float], startFit = 0.0): FitResult =
   echoResult(pRes, res = res)
 
   # the plot of the fit is performed to the whole pulses range anyways, even if 
-  result.x = linspace(pulses[0], pulses[^1], 100)
+  result.x = linspace(tot.pulses[0].float, tot.pulses[^1].float, 100)
   result.y = result.x.mapIt(totCalibFunc(pRes, it))
   result.pRes = pRes
   result.pErr = res.error
@@ -259,12 +289,13 @@ when canImport(ingridDatabase):
     ##                     SQRT( (ToT[clock cycles] - (b - a*t))^2 +
     ##                           4*(a*b*t + a*c - a*t*ToT[clock cycles]) ) )
     # 1.sum term
-    let p = pixelValue - (b - a * t)
+    let p = totValue - (b - a * t)
     # 2. term of sqrt - neither is exactly the p or q from pq formula
     let q = 4 * (a * b * t  +  a * c  -  a * t * totValue)
     result = (50 / (2 * a))  * (p + sqrt(p * p + q))
 
-  proc applyChargeCalibration*(h5f: var H5FileObj, runNumber: int) {.raises: HDF5LibraryError} =
+  proc applyChargeCalibration*(h5f: var H5FileObj, runNumber: int)
+    {.raises: [HDF5LibraryError, ref ValueError, Exception]} =
     ## applies the charge calibration to the TOT values of all events of the
     ## given run
     
@@ -283,9 +314,9 @@ when canImport(ingridDatabase):
         var totDset = h5f[(grp / "TOT").dset_str]
         let tots = totDset[int64]
         # now calculate charge in electrons for all TOT values
-        let charge = mapIt(tots, float(it) * calib_factor)
+        let charge = @[0] #mapIt(tots, float(it) * calib_factor)
         # create dataset for charge values 
-        var chargeDset = h5f.create_dataset(grp / "charge", energy.len, dtype = float)
+        var chargeDset = h5f.create_dataset(grp / "charge", charge.len, dtype = float)
         chargeDset[chargeDset.all] = charge
 
         # add attributes for TOT calibration factors used

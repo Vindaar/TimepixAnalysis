@@ -34,11 +34,11 @@ const
   OldShutterMode = "verylong"
   OldShutterTime = "13"
   OldChipName = "Christophs"
-  OldTosRunDescriptorPrefix = r".*/(\d{2,3})-"
+  OldTosRunDescriptorPrefix = r".*/(\d{1,3})-"
 
 proc readToTFile*(filename: string,
                   startRead = 0.0,
-                  totPrefix = "TOTCalib"): (int, seq[float], seq[float], seq[float]) =
+                  totPrefix = "TOTCalib"): (int, Tot) =
   ## reads the given TOT file and returns a tuple of seqs containing
   ## the chip number, pulse heights, mean and std values
   let
@@ -52,7 +52,7 @@ proc readToTFile*(filename: string,
   except ValueError:
     # if we can't extract the chip number from the file, ignore it
     discard
-
+  result[0] = chip
   # create seqs for each column
   var
     pulses: seq[float]
@@ -92,24 +92,24 @@ proc readToTFile*(filename: string,
   # filter out elements with std == 0.0
   let nonZero = zip(std, pulses, mean) --> filter(it[0] > 0.0)
   # see zips above for indices
-  pulses = nonZero.mapIt(it[1])
-  mean = nonZero.mapIt(it[2])
-  std = nonZero.mapIt(it[0])
-    
-  result = (chip, pulses, mean, std)
+  result[1].pulses = nonZero.mapIt(it[1].int)
+  result[1].mean = nonZero.mapIt(it[2])
+  result[1].std = nonZero.mapIt(it[0])
 
-proc readScurveVoltageFile*(filename: string): (string, seq[float], seq[float]) =
+proc readScurveVoltageFile*(filename: string): SCurve =
+  ## reads an SCurve file and returns an SCurve object
   let file = filename.expandTilde
   # - read file as string
   # - split all lines after header at \n
   # - filter lines with no content
   # - create tuple of (THL, Counts) for each line
   let dataTuple = readFile(file).splitLines[2..^1].filterIt(it.len > 0).mapIt(
-    ((it.split('\t')[0].parseFloat, it.split('\t')[1].parseFloat))
+    ((it.split('\t')[0].parseInt, it.split('\t')[1].parseInt))
   )
-  result[0] = file.extractFilename.strip(chars = {'a'..'z', '_', '.'})
-  result[1] = dataTuple.mapIt(it[0])
-  result[2] = dataTuple.mapIt(it[1])
+  result.name = filename
+  result.voltage = file.extractFilename.strip(chars = {'a'..'z', '_', '.'}).parseInt
+  result.thl = dataTuple.mapIt(it[0])
+  result.hits = dataTuple.mapIt(it[1])
 
 proc sum*(c: seq[Pix]): Pix {.inline.} =
   # this procedure sums the sequence of pixels such that it returns
@@ -860,6 +860,13 @@ proc extractRunFolderKind*(runFolder: string): RunFolderKind =
   let (is_rf, runNumber, rfKind, contains_rf) = isTosRunFolder(runFolder)
   result = rfKind
 
+
+
+
+################################################################################
+############# Geometry calculation related procs ###############################
+################################################################################  
+
 # proc sum*[T: tuple](s: seq[T]): T {.inline.} =
 #   # this procedure sums the given array along the given axis
 #   # if T is itself e.g. a tuple, we will return a tuple, one
@@ -954,7 +961,21 @@ proc fillRunHeader*(event: Event): Table[string, string] =
   # trigger type (internal = 0, external = 1)
   result["externalTrigger"] = event.evHeader["externalTrigger"]
 
+#####################################################
+#### Procs specifically realted to hardware #########
+#####################################################
 
+proc getSeptemHChip*(chipNumber: int): string =
+  ## returns the name of a given SeptemH chip
+  const names = ["E6 W69",
+                 "K6 W69",
+                 "H9 W69",
+                 "H10 W69",
+                 "G10 W69",
+                 "D9 W69",
+                 "L8 W69"]
+  result = names[chipNumber]
+                 
 #####################################################
 # Procs describing the data layout in the HDF5 file #
 #####################################################

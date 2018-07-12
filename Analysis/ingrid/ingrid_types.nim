@@ -42,6 +42,47 @@ type
   # different old TOS storage format
   OldEvent* = Event
 
+  #############################
+  # Calibration related types #
+  #############################
+
+  Tot* = object
+    pulses*: seq[int]
+    mean*: seq[float]
+    std*: seq[float]
+
+  SCurve* = object
+    name*: string
+    voltage*: int
+    thl*: seq[int]
+    hits*: seq[int]
+    
+  SCurveSeq* = object
+    files*: seq[string]
+    curves*: seq[SCurve]
+
+  Threshold* = Tensor[int]
+  ThresholdMeans* = Tensor[int]
+
+  FSR* = Table[string, int]
+
+  ######################
+  # File related enums #
+  ######################
+
+  EventSortType* = enum
+    fname, inode
+
+  EventType* = enum
+    FadcType, InGridType
+
+  RunFolderKind* = enum
+    rfNewTos, rfOldTos
+
+  ################################
+  # Reconstruction related types #
+  ################################
+
   # object which stores the geometry information of a single
   # `ClusterObject`    
   ClusterGeometry* = object
@@ -102,15 +143,6 @@ type
     #occupancies: seq[Tensor[int]]
   ]
 
-  EventSortType* = enum
-    fname, inode
-
-  EventType* = enum
-    FadcType, InGridType
-
-  RunFolderKind* = enum
-    rfNewTos, rfOldTos
-
   ##############
   # FADC types #
   ##############
@@ -155,6 +187,10 @@ type
     # register of minimum value
     minRegs: seq[int]
   ]
+
+  ################################
+  #### Analysis related types ####
+  ################################  
 
   ChipRegion* = enum
     crGold, crSilver, crBronze, crAll

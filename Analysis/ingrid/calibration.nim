@@ -7,6 +7,149 @@ import tables
 
 import tos_helpers
 
+func findDrop(thl, count: seq[float]): (float, int, int) =
+  ## search for the drop of the SCurve, i.e.
+  ##
+  ##    ___/\__
+  ## __/       \__
+  ## 0123456789ABC
+  ## i.e. the location of feature A (the center of it)
+  ## returns the thl value at the center of the drop
+  ## and the ranges to be used for the fit (min and max
+  ## as indices for the thl and count seqs)
+  # zip thl and count
+  let
+    thlZipped = zip(toSeq(0 .. thl.high), thl)
+    thlCount = zip(thlZipped, count)
+    # helper, which is the scaled bound to check whether we need
+    # to tighten the view on the valid THLs
+    scaleBound = NTestPulses * ScalePulses
+
+  # extract all elements  of thlCount where count larger than 500, return
+  # the largest element
+  let
+    drop = thlCount.filterIt(it[1] > (NTestPulses / 2.0))[^1]
+    (pCenterInd, pCenter) = drop[0]
+
+  var minIndex = max(pCenterInd - CurveHalfWidth, 0)
+  # test the min index
+  if count[minIndex.int] > scaleBound:
+    # in that case get the first index larger than minIndex, which
+    # is smaller than the scaled test pulses
+    let
+      thlView = thlCount[minIndex.int .. thlCount.high]
+      thlSmallerBound = thlView.filterIt(it[1] < scaleBound)
+    # from all elements smaller than  the bound, extract the index,
+    # [0][0][0]:
+    # - [0]: want element at position 0, contains smallest THL values
+    # - [0]: above results in ( (`int`, `float`), `float` ), get first tupl
+    # - [0]: get `int` from above, which corresponds to indices of THL
+    minIndex = thlSmallerBound[0][0][0]
+  let maxIndex = min(pCenterInd + CurveHalfWidth, thl.high)
+
+  # index is thl of ind
+  result = (pCenter, minIndex, maxIndex)
+
+func sCurveFunc(p: seq[float], x: float): float =
+  ## we fit the complement of a cumulative distribution function
+  ## of the normal distribution
+  # parameter p[2] == sigma
+  # parameter p[1] == x0
+  # parameter p[0] == scale factor
+  result = normalCdfC(x, p[2], p[1]) * p[0]
+
+func thlCalibFunc(p: seq[float], x: float): float =
+  ## we fit a linear function to the charges and mean thl values
+  ## of the SCurves
+  result = p[0] + x * p[1]
+
+func totCalibFunc(p: seq[float], x: float): float =
+  ## we fit a combination of a linear and a 1 / x function
+  #debugecho "Call with ", p
+  result = p[0] * x + p[1] - p[2] / (x - p[3])
+
+proc fitSCurve[T](thl, count: seq[T], voltage: int): FitResult =
+  ## performs the fit of the `sCurveFunc` to the given `thl` and `count`
+  ## seqs. Returns a `FitScurve` object of the fit result
+  const pSigma = 5.0
+  let
+    (pCenter, minIndex, maxIndex) = findDrop(thl, count)
+    err = thl.mapIt(1.0)
+    p = @[NTestPulses, pCenter.float, pSigma]
+
+  let
+    thlCut = thl[minIndex .. maxIndex].mapIt(it.float)
+    countCut = count[minIndex .. maxIndex].mapIt(it.float)
+
+    (pRes, res) = fit(sCurveFunc,
+                      p,
+                      thlCut,
+                      countCut,
+                      err)
+  echoResult(pRes, res = res)
+  # create data to plot fit as result
+  result.x = linspace(thl[minIndex].float, thl[maxIndex].float, 1000)
+  result.y = result.x.mapIt(sCurveFunc(pRes, it))
+  result.pRes = pRes
+  result.pErr = res.error
+  result.redChiSq = res.reducedChiSq
+
+proc fitThlCalib(charge, thl, thlErr: seq[float]): FitResult =
+
+  # determine start parameters
+  let p = @[0.0, (thl[1] - thl[0]) / (charge[1] - charge[0])]
+
+  echo "Fitting ", charge, " ", thl, " ", thlErr
+
+  let (pRes, res) = fit(thlCalibFunc, p, charge, thl, thlErr)
+  # echo parameters
+  echoResult(pRes, res = res)
+
+  result.x = linspace(charge[0], charge[^1], 100)
+  result.y = result.x.mapIt(thlCalibFunc(pRes, it))
+  result.pRes = pRes
+  result.pErr = res.error
+  result.redChiSq = res.reducedChiSq
+
+proc fitToTCalib(pulses, mean, std: seq[float], startFit = 0.0): FitResult =
+  var
+    # local mutable variables to potentially remove unwanted data for fit
+    mPulses = pulses
+    mMean = mean
+    mStd = std
+  
+  # define the start parameters. Use a good guess...
+  let p = [0.149194, 23.5359, 205.735, -100.0]
+  var pLimitBare: mp_par
+  var pLimit: mp_par
+  pLimit.limited = [1.cint, 1]
+  pLimit.limits = [-100.0, 0.0]
+
+  if startFit > 0:
+    # in this case cut away the undesired parameters
+    let ind = mPulses.find(startFit) - 1
+    if ind > 0:
+      mPulses.delete(0, ind)
+      mMean.delete(0, ind)
+      mStd.delete(0, ind)      
+  
+  #let p = [0.549194, 23.5359, 50.735, -1.0]
+  let (pRes, res) = fit(totCalibFunc,
+                        p,
+                        mPulses,
+                        mMean,
+                        mStd,
+                        bounds = @[pLimitBare, pLimitBare, pLimitBare, pLimit])
+  echoResult(pRes, res = res)
+
+  # the plot of the fit is performed to the whole pulses range anyways, even if 
+  result.x = linspace(pulses[0], pulses[^1], 100)
+  result.y = result.x.mapIt(totCalibFunc(pRes, it))
+  result.pRes = pRes
+  result.pErr = res.error
+  result.redChiSq = res.reducedChiSq  
+
+
 proc cutFeSpectrum(data: array[4, seq[float64]], event_num, hits: seq[int64]): seq[int64] =
   ## proc which receives the data for the cut, performs the cut and returns the
   ## event numbers of the passing elements

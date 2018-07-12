@@ -28,7 +28,7 @@ import nimhdf5
 import tos_helpers
 import helpers/utils
 import ingrid_types
-import energy_calibration
+import calibration
 import fadc_analysis
 
 type

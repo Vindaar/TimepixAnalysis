@@ -68,7 +68,7 @@ func totCalibFunc(p: seq[float], x: float): float =
   #debugecho "Call with ", p
   result = p[0] * x + p[1] - p[2] / (x - p[3])
 
-proc fitSCurve[T](thl, count: seq[T], voltage: int): FitResult =
+proc fitSCurve*[T](thl, count: seq[T], voltage: int): FitResult =
   ## performs the fit of the `sCurveFunc` to the given `thl` and `count`
   ## seqs. Returns a `FitScurve` object of the fit result
   const pSigma = 5.0
@@ -94,7 +94,7 @@ proc fitSCurve[T](thl, count: seq[T], voltage: int): FitResult =
   result.pErr = res.error
   result.redChiSq = res.reducedChiSq
 
-proc fitThlCalib(charge, thl, thlErr: seq[float]): FitResult =
+proc fitThlCalib*(charge, thl, thlErr: seq[float]): FitResult =
 
   # determine start parameters
   let p = @[0.0, (thl[1] - thl[0]) / (charge[1] - charge[0])]
@@ -111,7 +111,7 @@ proc fitThlCalib(charge, thl, thlErr: seq[float]): FitResult =
   result.pErr = res.error
   result.redChiSq = res.reducedChiSq
 
-proc fitToTCalib(pulses, mean, std: seq[float], startFit = 0.0): FitResult =
+proc fitToTCalib*(pulses, mean, std: seq[float], startFit = 0.0): FitResult =
   var
     # local mutable variables to potentially remove unwanted data for fit
     mPulses = pulses

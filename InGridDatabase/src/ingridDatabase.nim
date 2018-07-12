@@ -9,6 +9,8 @@ import zero_functional
 import seqmath
 import nimhdf5
 
+import ingrid/ingrid_types
+
 const doc = """
 The InGrid database management tool.
 
@@ -49,28 +51,12 @@ type
     pulses*: int
     mean*: float
     std*: float
+
     
-  Tot* = object
-    pulses*: seq[int]
-    mean*: seq[float]
-    std*: seq[float]
+const ingridPath = staticExec("nimble path ingridDatabase")
+const db = "resources/ingridDatabase.h5"
+const dbPath = joinPath(ingridPath, db)
 
-  SCurve* = object
-    name*: string
-    voltage*: int
-    thl*: seq[int]
-    hits*: seq[int]
-    
-  SCurveSeq* = object
-    files*: seq[string]
-    curves*: seq[SCurve]
-
-  Threshold* = Tensor[int]
-  ThresholdMeans* = Tensor[int]
-
-  FSR* = Table[string, int]
-
-const db = "ingridDatabase.h5"
 const
   ChipInfo = "chipInfo.txt"
   FsrPrefix = "fsr"
@@ -97,7 +83,8 @@ let
 template withDatabase(actions: untyped): untyped =
   ## read only template to open database as `hf5`, work with it
   ## and close it properly
-  var h5f {.inject.} = H5File(db, "r")
+  echo "Opening db at ", dbPath
+  var h5f {.inject.} = H5File(dbPath, "r")
   actions
   let err = h5f.close()
   if err < 0:
@@ -161,16 +148,19 @@ proc getScurveSeq*(chipName: string): SCurveSeq =
   # init result seqs (for some reason necessary?!)
   result.files = @[]
   result.curves = @[]
+  var groupName = joinPath(chipNameToGroup(chipName),
+                           SCurveFolder)
+  echo "done ", groupName
   withDatabase:
     h5f.visitFile()
-    var groupName = joinPath(chipNameToGroup(chipName),
-                             SCurveFolder)
+    groupName = joinPath(chipNameToGroup(chipName),
+                         SCurveFolder)
     var grp = h5f[groupName.grp_str]
-    for dsetName in keys(grp.datasets):
-      var dset = h5f[dsetName.dset_str]
-      let voltage = dset.attrs["voltage", int64].int
+    for dset in grp:
+      var mdset = dset
+      let voltage = mdset.attrs["voltage", int64].int
       let curve = h5f.getSCurve(chipName, voltage)
-      result.files.add dsetName
+      result.files.add dset.name
       result.curves.add curve
 
 proc getThreshold*(chipName: string): Threshold =
@@ -225,24 +215,19 @@ proc parseScurveFolder(folder: string): SCurveSeq =
     if match(f, SCurveReg, scurveMatch):
       result.files.add f
       let voltage = scurveMatch[0].parseInt
-      let (_, thlFloat, countFloat) = readScurveVoltageFile(f)
-      let scurve = SCurve(name: (SCurvePrefix & $voltage),
-                          voltage: voltage,
-                          thl: thlFloat.asType(int),
-                          hits: countFloat.asType(int))
+      let scurve = readScurveVoltageFile(f)
       result.curves.add scurve
 
 proc parseTotFile(filename: string): Tot =
   ## checks for the existence of a TOT calibration file, reads it
   ## and returns a `Tot` object
   if existsFile(filename) == true:
-    let (chip, pulses, mean, std) = readToTFile(filename,
-                                                startRead = StartTotRead,
-                                                totPrefix = TotPrefix)
-    
-    result.pulses = pulses.asType(int)
-    result.mean = mean
-    result.std = std
+    let (chip, tot) = readToTFile(filename,
+                                  startRead = StartTotRead,
+                                  totPrefix = TotPrefix)
+    result.pulses = tot.pulses
+    result.mean = tot.mean
+    result.std = tot.std
 
 proc parseThresholdFile(filename: string): Threshold =
   ## parses a Threshold(Means) file and returns it
@@ -268,7 +253,7 @@ proc addChipToH5(chip: Chip,
                  thresholdMeans: ThresholdMeans) =
   ## adds the given chip to the InGrid database H5 file
 
-  var h5f = H5File(db, "rw")
+  var h5f = H5File(dbPath, "rw")
   var chipGroup = h5f.create_group($chip.name)
   # add FSR, chipInfo to chipGroup attributes
   for key, value in chip.info:

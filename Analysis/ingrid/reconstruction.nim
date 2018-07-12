@@ -20,7 +20,7 @@ import sets
 import macros
 
 # external modules
-import nimnlopt
+import nlopt
 import seqmath
 import nimhdf5
 

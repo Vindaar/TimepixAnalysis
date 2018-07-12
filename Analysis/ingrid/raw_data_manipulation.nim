@@ -937,7 +937,7 @@ proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string, nofadc = f
   ##     h5f: var H5FileObj = mutable copy of the H5 file object to which we will write
   ##         the data
   ##     nofadc: bool = if set, we do not read FADC data
-  const batchsize = 5000
+  const batchsize = 20000
   var attrsWritten = false
   var nChips: int
 

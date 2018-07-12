@@ -16,5 +16,6 @@ requires "nimhdf5 >= 0.2.9"
 requires "mpfit >= 0.1.0"
 requires "nlopt >= 0.3.0"
 requires "plotly >= 0.1.0"
+requires "zero_functional@#head"
 requires "helpers >= 0.2.0"
 

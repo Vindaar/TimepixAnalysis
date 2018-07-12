@@ -34,6 +34,7 @@ const
   OldShutterMode = "verylong"
   OldShutterTime = "13"
   OldChipName = "Christophs"
+  OldTosRunDescriptorPrefix = r".*/(\d{2,3})-"
 
 proc readToTFile*(filename: string,
                   startRead = 0.0,
@@ -780,7 +781,8 @@ proc isTosRunFolder*(folder: string):
   let runRegex = re(r".*Run_(\d+)_.*")
   # else check for old `Chistoph style` runs
   let oldRunRegex = re(r".*Run\d{6}_\d{2}-\d{2}-\d{2}.*")
-  let oldTosRunDescriptorPrefix = r".*(\d{3})-"
+  # TODO: check whether following works
+  const oldTosRunDescriptorPrefix = OldTosRunDescriptorPrefix
   var oldTosRunDescriptor: Regex
   
   let eventRegex = re(eventRegexInGrid) #r".*data\d{4,6}(_1_[0-9]+)?.*\.txt$")
@@ -826,6 +828,27 @@ proc isTosRunFolder*(folder: string):
       # contains a run folder
       if is_rf == true:
         result.contains_rf = true
+
+proc getOldRunInformation*(folder: string, runNumber: int, rfKind: RunFolderKind):
+  (int, int, int, int, int) =
+  ## given a TOS raw data run folder of kind `rfOldTos`, parse information based
+  ## on the `*.dat` file contained in it
+  case rfKind
+  of rfOldTos:
+    const oldTosRunDescriptorPrefix = OldTosRunDescriptorPrefix
+    let
+      (head, tail) = folder.splitPath
+      datFile = joinPath(folder, $runNumber & "-" & tail & ".dat")
+      lines = readFile(datFile).splitLines
+      # now just parse the files correctly. Everything in last column, except
+      # runTime
+      totalEvents = lines[0].splitWhitespace[^1].parseInt
+      numEvents = lines[1].splitWhitespace[^1].parseInt
+      startTime = lines[2].splitWhitespace[^1].parseInt
+      stopTime = lines[3].splitWhitespace[^1].parseInt
+      runTime = lines[4].splitWhitespace[^2].parseInt
+    result = (totalEvents, numEvents, startTime, stopTime, runTime)
+  else: discard
 
 proc extractRunNumber*(runFolder: string): int =
   ## given a valid TOS run folder, extract its run Number

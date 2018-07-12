@@ -46,7 +46,7 @@ proc cutFeSpectrum(data: array[4, seq[float64]], event_num, hits: seq[int64]): s
     # else we keep these events, hence add event number to output
     result.add hits[i]
 
-proc createFeSpectrum*(h5f: var H5FileObj, run_number: int) =
+proc createFeSpectrum*(h5f: var H5FileObj, runNumber: int) =
   ## proc which reads necessary reconstructed data from the given H5 file,
   ## performs cuts (as Christoph) and writes resulting spectrum to H5 file
   ## NOTE: currently does not perform a check whether the run is actually a
@@ -61,7 +61,7 @@ proc createFeSpectrum*(h5f: var H5FileObj, run_number: int) =
 
   # what we need:
   # pos_x, pos_y, eccentricity < 1.3, transverse RMS < 1.2
-  var reco_group = recoDataChipBase(run_number) & $chip
+  var reco_group = recoDataChipBase(runNumber) & $chip
   # get the group from file
   var group = h5f[reco_group.grp_str]
   # get the chip number from the attributes of the group
@@ -92,16 +92,72 @@ proc createFeSpectrum*(h5f: var H5FileObj, run_number: int) =
   var spectrum_dset = h5f.create_dataset(group.name & "/FeSpectrum", hits_spectrum.len, dtype = int)
   spectrum_dset[spectrum_dset.all] = hits_spectrum
 
-proc applyEnergyCalibration*(h5f: var H5FileObj, run_number: int, calib_factor: float) =
+template canImport(x): bool =
+  compiles:
+    import x
+    
+when canImport(ingridDatabase):
+  import ingridDatabase
+  
+  func calibrateCharge*(totValue: float, a, b, c, t: float): float =
+    ## calculates the charge in electrons from the TOT value, based on the TOT calibration
+    ## from MarlinTPC:
+    ## measured and fitted is ToT[clock cycles] in dependency of TestPuseHeight [mV]
+    ## fit function is:
+    ##   ToT[clock cycles] = a*TestPuseHeight [mV]  + b - ( c / (TestPuseHeight [mV] -t) )
+    ## isolating TestPuseHeight gives:
+    ##   TestPuseHeight [mV] = 1/(2*a) * (ToT[clock cycles] - (b - a*t) +
+    ##                         SQRT( (ToT[clock cycles] - (b - a*t))^2 +
+    ##                               4*(a*b*t + a*c - a*t*ToT[clock cycles]) ) )
+    ## conversion from charge to electrons:
+    ##   electrons = 50 * testpulse[mV]
+    ## so we have:
+    ## Charge[electrons] = 50 / (2*a) * (ToT[clock cycles] - (b - a*t) +
+    ##                     SQRT( (ToT[clock cycles] - (b - a*t))^2 +
+    ##                           4*(a*b*t + a*c - a*t*ToT[clock cycles]) ) )
+    # 1.sum term
+    let p = pixelValue - (b - a * t)
+    # 2. term of sqrt - neither is exactly the p or q from pq formula
+    let q = 4 * (a * b * t  +  a * c  -  a * t * totValue)
+    result = (50 / (2 * a))  * (p + sqrt(p * p + q))
+
+  proc applyChargeCalibration*(h5f: var H5FileObj, runNumber: int) {.raises: HDF5LibraryError} =
+    ## applies the charge calibration to the TOT values of all events of the
+    ## given run
+    
+    # what we need:
+    # TOT values of each run. Run them through calibration function with the TOT calibrated
+    # values taken from the `InGridDatabase`
+    var chip_base = recoDataChipBase(runNumber)
+    # get the group from file
+    for grp in keys(h5f.groups):
+      if chip_base in grp:
+        # now can start reading, get the group containing the data for this chip
+        var group = h5f[grp.grp_str]
+        # get the chip number from the attributes of the group
+        let chip_number = group.attrs["chipNumber", int]
+        # get dataset of hits
+        var totDset = h5f[(grp / "TOT").dset_str]
+        let tots = totDset[int64]
+        # now calculate charge in electrons for all TOT values
+        let charge = mapIt(tots, float(it) * calib_factor)
+        # create dataset for charge values 
+        var chargeDset = h5f.create_dataset(grp / "charge", energy.len, dtype = float)
+        chargeDset[chargeDset.all] = charge
+
+        # add attributes for TOT calibration factors used
+        #chargeDset.attrs["conversionFactorUsed"] = calib_factor
+
+proc applyEnergyCalibration*(h5f: var H5FileObj, runNumber: int, calib_factor: float) =
   ## proc which applies an energy calibration based on the number of hit pixels in an event
-  ## using a conversion factor of unit eV / hit pixel to the run given by run_number contained
+  ## using a conversion factor of unit eV / hit pixel to the run given by runNumber contained
   ## in file h5f
   ## throws:
   ##     HDF5LibraryError = in case a call to the H5 library fails, this might be raised
 
   # what we need:
   # the hits of the clusters is all we need
-  var chip_base = recoDataChipBase(run_number)
+  var chip_base = recoDataChipBase(runNumber)
   # get the group from file
   for grp in keys(h5f.groups):
     if chip_base in grp:

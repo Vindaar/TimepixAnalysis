@@ -132,7 +132,7 @@ proc sum2*(c: seq[Pix]): Pix {.inline.} =
 proc parseTOSDateString*(date_str: string): Time =
   # function receives a string from a date time from TOS and creates
   # a Time object from it
-  let date = toTime(parse(date_str, "yyyy-MM-dd.hh:mm:ss"))
+  let date = toTime(parse(date_str, "yyyy-MM-dd'.'hh:mm:ss"))
   return date
 
 proc readDateFromEvent*(filepath: string): string =

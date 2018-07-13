@@ -9,7 +9,7 @@
 ## - calculate the ToT per pixel histogram
 
 ## standard lib
-import os
+import os, osproc
 import re
 import sequtils, sugar
 import algorithm
@@ -261,8 +261,14 @@ proc readRawInGridData(listOfFiles: seq[string],
       result[ind - minIndex] = (^raw_ingrid[i])[]
   of rfOldTos:
     # in this case there may be missing events, so we simply sort by the indices themselves
-    var sortedTemp = raw_ingrid.sortedByIt((^it)[].evHeader["eventNumber"].parseInt)
-    result = mapIt(sortedTemp, (^it)[])
+    let numList = mapIt(raw_ingrid, (^it)[].evHeader["eventNumber"].parseInt)
+    let sortedNums = numList.sortedByIt(it)    
+    result = newSeqOfCap[Event](raw_ingrid.len)
+    for i in sortedNums:
+      result.add (^raw_ingrid[i])[]
+
+    #var sortedTemp = raw_ingrid.sortedByIt((^it)[].evHeader["eventNumber"].parseInt)
+    #result = mapIt(sortedTemp, (^it)[])
   let t1 = cpuTime()
   echo &"...Sorting done, took {$(t1 - t0)} seconds"
   

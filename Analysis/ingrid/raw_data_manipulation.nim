@@ -252,6 +252,7 @@ proc readRawInGridData(listOfFiles: seq[string],
   echo "Sorting data..."
   # case on the old TOS' data storage and new TOS' version
   let t0 = cpuTime()
+  # TODO: compare speed of sorting for both cases. Merge?
   case rfKind
   of rfNewTos:
     var numList = mapIt(raw_ingrid, (^it)[].evHeader["eventNumber"].parseInt)
@@ -261,14 +262,25 @@ proc readRawInGridData(listOfFiles: seq[string],
       result[ind - minIndex] = (^raw_ingrid[i])[]
   of rfOldTos:
     # in this case there may be missing events, so we simply sort by the indices themselves
-    let numList = mapIt(raw_ingrid, (^it)[].evHeader["eventNumber"].parseInt)
-    let sortedNums = numList.sortedByIt(it)    
-    result = newSeqOfCap[Event](raw_ingrid.len)
+    # sorting is done the following way:
+    # - extract list of eventNumbers from `Events`
+    # - create list of tuples of (`EventNumber`, `AtIndex`)
+    # - sort tuples by `EventNumber`
+    # - insert elements into result at sorted `AtIndex`, taking from `AtIndex` in `Events`
+    let
+      numEvents = raw_ingrid.len
+      # get event numbers
+      numList = mapIt(raw_ingrid, (^it)[].evHeader["eventNumber"].parseInt)
+      # zip event numbers with indices in raw_ingrid (unsorted!)
+      zipped = zip(numList, toSeq(0 ..< numEvents))
+      # sort tuples by event numbers (indices thus mangled, but in "correct" order
+      # for insertion)
+      sortedNums = zipped.sortedByIt(it[0])
+    # insert elements into result
+    result = newSeq[Event](raw_ingrid.len)
     for i in sortedNums:
-      result.add (^raw_ingrid[i])[]
+      result[i[1]] = (^raw_ingrid[i[1]])[]
 
-    #var sortedTemp = raw_ingrid.sortedByIt((^it)[].evHeader["eventNumber"].parseInt)
-    #result = mapIt(sortedTemp, (^it)[])
   let t1 = cpuTime()
   echo &"...Sorting done, took {$(t1 - t0)} seconds"
   

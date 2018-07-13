@@ -996,13 +996,13 @@ proc main() =
   echo "Is run folder       : ", is_run_folder
   echo "Contains run folder : ", contains_run_folder
 
-  # in order to write the processed run and FADC data to file, open the HDF5 file
-  var h5f = H5file(outfile, "rw")
-
   let t0 = epochTime()
   if is_run_folder == true and contains_run_folder == false:
     # hand H5FileObj to processSingleRun, because we need to write intermediate
     # steps to the H5 file for the FADC, otherwise we use too much RAM
+    # in order to write the processed run and FADC data to file, open the HDF5 file
+    
+    var h5f = H5file(outfile, "rw")    
     processAndWriteSingleRun(h5f, folder, nofadc)
     echo "free memory ", getFreeMem()
     echo "occupied memory so far $# \n\n" % [$getOccupiedMem()]
@@ -1016,10 +1016,24 @@ proc main() =
         echo "occupied memory before run $# \n\n" % [$getOccupiedMem()]
         let (is_rf, _, _, contains_rf) = isTosRunFolder(path)
         if is_rf == true and contains_rf == false:
-          echo "Start processing run $#" % $path
-          processAndWriteSingleRun(h5f, path, nofadc)
+          let program = getAppFilename()
+          var command = program & " " & path
+          for i in 2 .. paramCount():
+            let c = paramStr(i)
+            command = command & " " & c
+          echo "Calling command ", command
+          let errC = execCmd(command)
+          
+          # TODO: the following is the normal code. However, it leaks memory. That's
+          # why we currently just call this script on the subfolder
+          # echo "Start processing run $#" % $path
+          # var h5f = H5file(outfile, "rw")
+          # processAndWriteSingleRun(h5f, path, nofadc)
+          # echo "Closing h5file with code ", h5f.close()
+          # dumpNumberOfInstances()
+          # GC_fullCollect()
+          # dumpNumberOfInstances()          
         echo "occupied memory after gc $#" % [$getOccupiedMem()]
-    echo "Closing h5file with code ", h5f.close()
   elif is_run_folder == true and contains_run_folder == true:
     echo "Currently not implemented to run over nested run folders."
     quit()

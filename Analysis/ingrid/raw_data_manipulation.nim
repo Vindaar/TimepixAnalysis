@@ -340,7 +340,7 @@ proc processRawInGridData(ch: seq[Event], runNumber: int): ProcessedRun = #seq[F
             hits[num][i] = n_pix
         else:
           hits[num][i] = n_pix
-    echoFilesCounted(count)
+    echoFilesCounted(count, msg = " files processed.")
 
   # using concatenation, flatten the seq[seq[int]] into a seq[int] for each chip
   # in the run (currently tot_run is a seq[seq[seq[int]]]. Convert to seq[seq[int]]

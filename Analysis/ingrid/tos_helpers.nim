@@ -172,7 +172,7 @@ proc readListOfFilesAndGetTimes*(path: string, list_of_files: seq[string]): seq[
     if date_str != "":
       result.add(parseTOSDateString(date_str))
     if i mod 500 == 0:
-      echo i, " files read."
+      echoFilesCounted(i, msg = " read files and parsed times.")
     i += 1
   return result
 
@@ -188,7 +188,7 @@ proc walkRunFolderAndGetTimes*(folder: string): seq[Time] =
       if date_str != "":
         result.add(parseTOSDateString(date_str))
       if i mod 500 == 0:
-        echo i, " files read."
+        echoFilesCounted(i, msg = " files walked and parsed times.")
       i += 1
   return result
 

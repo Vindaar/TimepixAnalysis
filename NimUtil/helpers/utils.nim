@@ -335,10 +335,10 @@ proc removeFolder*(folderpath: string): bool =
   else:
     result = false
 
-template echoFilesCounted*(count: int, modby = 500) =
+template echoFilesCounted*(count: int, modby = 500, msg = " files read.") =
   inc count
   if count mod modby == 0:
-    echo count, " files read."
+    echo $count & msg
 
 proc getDaysHoursMinutes*(dur: Duration): string =
   ## returns a string of

@@ -1007,12 +1007,12 @@ proc main() =
     # hand H5FileObj to processSingleRun, because we need to write intermediate
     # steps to the H5 file for the FADC, otherwise we use too much RAM
     # in order to write the processed run and FADC data to file, open the HDF5 file
-    
     var h5f = H5file(outfile, "rw")    
     processAndWriteSingleRun(h5f, folder, nofadc)
     echo "free memory ", getFreeMem()
     echo "occupied memory so far $# \n\n" % [$getOccupiedMem()]
     echo "Closing h5file with code ", h5f.close()
+    
   elif is_run_folder == false and contains_run_folder == true:
     # in this case loop over all folder again and call processSingleRun() for each
     # run folder
@@ -1029,6 +1029,8 @@ proc main() =
             command = command & " " & c
           echo "Calling command ", command
           let errC = execCmd(command)
+          if errC != 0:
+            quit("Subprocess failed with " & $errC)
           
           # TODO: the following is the normal code. However, it leaks memory. That's
           # why we currently just call this script on the subfolder

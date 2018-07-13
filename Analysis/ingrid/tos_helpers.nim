@@ -34,7 +34,7 @@ const
   OldShutterMode = "verylong"
   OldShutterTime = "13"
   OldChipName = "Christophs"
-  OldTosRunDescriptorPrefix = r".*/(\d{1,3})-"
+  OldTosRunDescriptorPrefix* = r".*\/(\d{1,3})-"
 
 proc readToTFile*(filename: string,
                   startRead = 0.0,
@@ -780,7 +780,8 @@ proc isTosRunFolder*(folder: string):
 
   let runRegex = re(r".*Run_(\d+)_.*")
   # else check for old `Chistoph style` runs
-  let oldRunRegex = re(r".*Run\d{6}_\d{2}-\d{2}-\d{2}.*")
+  let oldRunRegexStr = r".*Run\d{6}_\d{2}-\d{2}-\d{2}.*"
+  let oldRunRegex = re(oldRunRegexStr)
   # TODO: check whether following works
   const oldTosRunDescriptorPrefix = OldTosRunDescriptorPrefix
   var oldTosRunDescriptor: Regex
@@ -797,30 +798,20 @@ proc isTosRunFolder*(folder: string):
     result.rfKind = rfNewTos
   elif match(folder, oldRunRegex) == true:
     matches_rf_name = true
-    # in case of the old tos, still need to extract the run number from the
-    # <runNumber>-<folder>.dat file
+    # in case of the old tos, extract the run number from the folder name
     result.rfKind = rfOldTos
     let (head, tail) = folder.splitPath
-    oldTosRunDescriptor = re(oldTosRunDescriptorPrefix & tail & r".*")
+    oldTosRunDescriptor = re(oldTosRunDescriptorPrefix & oldRunRegexStr)
+    if folder =~ oldTosRunDescriptor:
+      result.runNumber = matches[0].parseInt
+      
   
   for kind, path in walkDir(folder):
     if kind == pcFile:
       if match(path, eventRegex) == true and matches_rf_name == true:
         result.is_rf = true
         # found an event file -> is run folder -> break
-        case result.rfKind
-        of rfNewTos:
-          break
-        else:
-          # only break if run number is not yet set
-          if result.runNumber != 0:
-            break
-      case result.rfKind
-      of rfOldTos:
-        if match(path, oldTosRunDescriptor, runNumber) == true and matches_rf_name == true:
-          # extract run number from descriptor
-          result.runNumber = runNumber[0].parseInt
-      else: discard
+        break
     else:
       # else we deal with a folder. call this function recursively
       let (is_rf, runNumber, rfKind, contains_rf) = isTosRunFolder(path)

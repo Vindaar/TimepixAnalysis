@@ -32,6 +32,8 @@ import calibration
 import fadc_analysis
 
 type
+  # fit object, which is handed to the NLopt library in the 
+  # `VarStruct` -> to the eccentricity function
   FitObject = object
     cluster: Cluster
     xy: tuple[x, y: float64]

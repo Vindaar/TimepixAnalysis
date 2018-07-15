@@ -52,8 +52,13 @@ type
     mean*: float
     std*: float
 
+# helper proc to remove the ``src`` which is part of `nimble path`s output
+# this is a bug, fix it.
+proc removeSuffix(s: string, rm: string): string {.compileTime.} =
+  result = s
+  result.removeSuffix(rm)
     
-const ingridPath = staticExec("nimble path ingridDatabase")
+const ingridPath = staticExec("nimble path ingridDatabase").removeSuffix("src")
 const db = "resources/ingridDatabase.h5"
 const dbPath = joinPath(ingridPath, db)
 

@@ -1363,6 +1363,29 @@ iterator runs*(h5f: var H5FileObj, data_basename = recoBase()): (string, string)
       # now read some data. Return value will be added later
       yield (run[0], grp)
 
+iterator dsets*(h5f: var H5FileObj,
+                dsetName: string,
+                dtype: typedesc,
+                chipNumber: int,
+                dataBasename = recoBase()): (int, seq[dtype]) =
+  ## given a dataset name, its corresponding datatype (needed to define the return type)
+  ## and a chip number, read all datasets of all runs stored in the given H5 file.
+  ## Choose a base location, by default reconstruction group
+  ## NOTE: this cannot yield any datatypes with variable length data!
+
+  if h5f.visited == false:
+    h5f.visit_file
+
+  let dsetLocReg = re(joinPath(dataBasename), "run_(\d+)/chip_" & chipNumber)
+    
+  let dsetLocationReg = re(joinPath(chipBase & chipNumber, dsetName))
+  for dsetName in keys(h5f.datasets):
+    if dsetName =~ dsetLocationReg:
+      # found a matching dataset, yield the group number as well as the actual
+      # data
+      var dset = h5f[dsetName.dset_str]
+      echo dsetName
+      yield (matches[0].parseInt, dset[dtype])
 
 when isMainModule:
 

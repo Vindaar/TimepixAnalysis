@@ -85,7 +85,10 @@ func thlCalibFunc(p: seq[float], x: float): float =
 
 func totCalibFunc(p: seq[float], x: float): float =
   ## we fit a combination of a linear and a 1 / x function
-  #debugecho "Call with ", p
+  ## The function is:
+  ## ToT[clock cycles] = a * x + b - (c / (x - t))
+  ## where x is the test pulse height in mV and:
+  ## p = [a, b, c, t]
   result = p[0] * x + p[1] - p[2] / (x - p[3])
 
 proc fitSCurve*(curve: SCurve): FitResult =

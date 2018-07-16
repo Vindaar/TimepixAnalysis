@@ -70,6 +70,20 @@ func findDrop(thl, count: seq[int]): (float, int, int) =
   # index is thl of ind
   result = (pCenter, minIndex, maxIndex)
 
+func polya(p: seq[float], x: float): float =
+  ## Polya function to fit to TOT histogram / charge in electrons of a
+  ## run.
+  ## Parameters:
+  ## N     = p[0]    scaling factor
+  ## G     = p[1]    gas gain
+  ## theta = p[2]    parameter, which describes distribution (?! I guess it makes sens
+  ##                 since we take its power and it enters gamma)
+  let
+    thetaDash = p[2] + 1
+    coeff1 = (p[0] / p[1]) * pow(thetaDash, thetaDash) / gamma(thetaDash)
+    coeff2 = (x / p[1])^p[2] * exp(-thetaDash * x / p[1])
+  result = coeff1 * coeff2
+
 func sCurveFunc(p: seq[float], x: float): float =
   ## we fit the complement of a cumulative distribution function
   ## of the normal distribution

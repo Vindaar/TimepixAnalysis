@@ -8,18 +8,23 @@ import helpers/utils
 import zero_functional
 import seqmath
 import nimhdf5
+import times
 
 import ingrid/ingrid_types
+import ingrid/calibration
 
 const doc = """
 The InGrid database management tool.
 
 Usage:
-  ingridDatabase (--add=FOLDER | --modify | --delete=CHIPNAME) [options]
+  ingridDatabase (--add=FOLDER | --calibrate=TYPE | --modify | --delete=CHIPNAME) [options]
 
 Options:
   --add=FOLDER        Add the chip contained in the given FOLDER 
                       to the database
+  --calibrate=TYPE    Perform given calibration (TOT / SCurve) and save
+                      fit parameters as attributes. Calibrates all chips
+                      with suitable data.                      
   --modify            start a CLI interface to allow viewing the files
                       content and modify attributes / delete elements
   --delete=CHIPNAME   Delete contents of CHIPNAME from database
@@ -52,6 +57,10 @@ type
     mean*: float
     std*: float
 
+  TypeCalibrate* {.pure.} = enum
+    TotCalibrate = "tot"
+    SCurveCalibrate = "scurve"
+
 # helper proc to remove the ``src`` which is part of `nimble path`s output
 # this is a bug, fix it.
 proc removeSuffix(s: string, rm: string): string {.compileTime.} =
@@ -79,7 +88,7 @@ const
   StartTotRead = 20.0
 let
   ChipNameLineReg = re(r"chipName:")
-  ChipNameReg = re(r"([A-Z])\s*([0-9]+)\s*W\s*([0-9]{2})")
+  ChipNameReg = re(r".*([A-Z])\s*([0-9]+)\s*W\s*([0-9]{2}).*")
   FsrReg = re(FsrPrefix & r"([0-9])\.txt")
   FsrContentReg = re(r"(\w+)\s([0-9]+)")
   TotReg = re(TotPrefix & r"([0-9])\.txt")
@@ -88,12 +97,19 @@ let
 template withDatabase(actions: untyped): untyped =
   ## read only template to open database as `hf5`, work with it
   ## and close it properly
-  echo "Opening db at ", dbPath
-  var h5f {.inject.} = H5File(dbPath, "r")
+  ## NOTE: The database is only opened, if no other variable
+  ## of the name `h5f` is declared in the calling scope.
+  ## This allows to have nested calls of `withDebug` without
+  ## any issues (otherwise we get will end up trying to close
+  ## already closed objects)
+  when not declaredInScope(h5f):
+    echo "Opening db at ", dbPath
+    var h5f {.inject.} = H5File(dbPath, "r")
   actions
-  let err = h5f.close()
-  if err < 0:
-    echo "Could not properly close database! err = ", err
+  when not declaredInScope(h5f):
+    let err = h5f.close()
+    if err < 0:
+      echo "Could not properly close database! err = ", err
 
 proc `$`(chip: ChipName): string =
   result = $chip.col & $chip.row & " W" & $chip.wafer
@@ -147,7 +163,7 @@ proc getScurve*(chipName: string, voltage: int): SCurve =
   ## overload of above for the case of non opened H5 file
   withDatabase:
     result = h5f.getScurve(chipName, voltage)
-
+    
 proc getScurveSeq*(chipName: string): SCurveSeq =
   ## read all SCurves of `chipName` and return an `SCurveSeq`
   # init result seqs (for some reason necessary?!)
@@ -174,6 +190,63 @@ proc getThreshold*(chipName: string): Threshold =
     let dsetName = joinPath(chipNameToGroup(chipName), ThresholdPrefix)
     var dset = h5f[dsetName.dset_str]
     result = dset[int64].toTensor.reshape(256, 256).asType(int)
+
+proc writeTotCalibAttrs(h5f: var H5FileObj, chip: string, fitRes: FitResult) =
+  ## writes the fit results as attributes to the H5 file for `chip`
+  # group object to write attributes to
+  var mgrp = h5f[chip.grp_str]
+  # map parameter names to their position in FitResult parameter seq
+  const parMap = { "a" : 0,
+                   "b" : 1,
+                   "c" : 2,
+                   "t" : 3 }.toTable
+  mgrp.attrs["TOT Calibration"] = "performed at " & $now()
+  for key, val in parMap:
+    mgrp.attrs[key] = fitRes.pRes[val]
+    mgrp.attrs[&"{key}_err"] = fitRes.pErr[val]
+
+proc calibrateType(tcKind: TypeCalibrate) =
+  ## calibrates the given type and stores the fit results as attributes
+  ## of each chip with valid data for calibration
+  # open H5 file with write access
+  var h5f = H5file(db, "rw")
+  case tcKind
+  of TotCalibrate:
+    # perform TOT calibration for all chips, which contain a TOT
+    # calibration
+    # - get groups in root of file == chips in file
+    # - get TOT object of each chip
+    # - perform Fit as in plotCalibration
+    # - take `mpfit` result and save fit parameters as attrs
+    for group in h5f.items(depth = 1):
+      # group name is the chip name
+      let chip = group.name
+      echo "Getting TOT for chip ", chip
+      let tot = getTotCalib(chip)
+      let totCalib = fitToTCalib(tot, 0.0)
+      # given fit result write attributes:
+      h5f.writeTotCalibAttrs(chip, totCalib)
+    
+  of SCurveCalibrate:
+    discard
+
+  let err = h5f.close()
+  if err < 0:
+    echo "Could not properly close database! err = ", err
+
+
+proc parseCalibrateType(typeStr: string): TypeCalibrate =
+  ## checks the given `typeStr` whether it's a valid type to
+  ## calibrate for. If so returns that type, else raises an
+  ## exception
+  case typeStr.toLower
+  of $TotCalibrate:
+    result = TotCalibrate
+  of $SCurveCalibrate:
+    result = ScurveCalibrate
+  else:
+    raise newException(KeyError, "Given type is not a valid type to calibrate " &
+      """for. Valid types are ["TOT", "SCurve"] (case insensitive)""")
     
 proc parseChipInfo(filename: string): Chip =
   ## parses the `chipInfo` file and returns a chip object from that
@@ -197,7 +270,6 @@ proc parseChipInfo(filename: string): Chip =
       else:
         # support for lines without a key
         result.info[line.strip] = ""
-  
     
 proc parseFsr(filename: string): FSR =
   ## parses the contents of a (potential) given FSR file
@@ -375,6 +447,7 @@ proc main() =
 
   let
     addStr = $args["--add"]
+    calibrateStr = $args["--calibrate"]
     modifyStr = $args["--modify"]
     deleteStr = $args["--delete"]
 
@@ -382,6 +455,8 @@ proc main() =
     assert false, "Modify support is not implmented yet."
   elif deleteStr != "nil":
     assert false, "Delete support is not implmented yet."
+  elif calibrateStr != "nil":
+    calibrateType calibrateStr.parseCalibrateType
   else:
     # call proc to add data from folder to database
     addChip(addStr)  

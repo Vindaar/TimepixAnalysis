@@ -282,62 +282,59 @@ proc createFeSpectrum*(h5f: var H5FileObj, runNumber: int) =
   var spectrum_dset = h5f.create_dataset(group.name & "/FeSpectrum", hits_spectrum.len, dtype = int)
   spectrum_dset[spectrum_dset.all] = hits_spectrum
 
-template canImport(x): bool =
-  compiles:
-    import x
-    
-when canImport(ingridDatabase):
-  import ingridDatabase
+# TODO: also does not work I guess, because this won't be declared in case we import
+# this module
+# Find some way that works!
+# when declaredInScope(ingridDatabase):  
+func calibrateCharge*(totValue: float, a, b, c, t: float): float =
+  ## calculates the charge in electrons from the TOT value, based on the TOT calibration
+  ## from MarlinTPC:
+  ## measured and fitted is ToT[clock cycles] in dependency of TestPuseHeight [mV]
+  ## fit function is:
+  ##   ToT[clock cycles] = a*TestPuseHeight [mV]  + b - ( c / (TestPuseHeight [mV] -t) )
+  ## isolating TestPuseHeight gives:
+  ##   TestPuseHeight [mV] = 1/(2*a) * (ToT[clock cycles] - (b - a*t) +
+  ##                         SQRT( (ToT[clock cycles] - (b - a*t))^2 +
+  ##                               4*(a*b*t + a*c - a*t*ToT[clock cycles]) ) )
+  ## conversion from charge to electrons:
+  ##   electrons = 50 * testpulse[mV]
+  ## so we have:
+  ## Charge[electrons] = 50 / (2*a) * (ToT[clock cycles] - (b - a*t) +
+  ##                     SQRT( (ToT[clock cycles] - (b - a*t))^2 +
+  ##                           4*(a*b*t + a*c - a*t*ToT[clock cycles]) ) )
+  # 1.sum term
+  let p = totValue - (b - a * t)
+  # 2. term of sqrt - neither is exactly the p or q from pq formula
+  let q = 4 * (a * b * t  +  a * c  -  a * t * totValue)
+  result = (50 / (2 * a))  * (p + sqrt(p * p + q))
+
+proc applyChargeCalibration*(h5f: var H5FileObj, runNumber: int)
+  {.raises: [HDF5LibraryError, ref ValueError, Exception]} =
+  ## applies the charge calibration to the TOT values of all events of the
+  ## given run
   
-  func calibrateCharge*(totValue: float, a, b, c, t: float): float =
-    ## calculates the charge in electrons from the TOT value, based on the TOT calibration
-    ## from MarlinTPC:
-    ## measured and fitted is ToT[clock cycles] in dependency of TestPuseHeight [mV]
-    ## fit function is:
-    ##   ToT[clock cycles] = a*TestPuseHeight [mV]  + b - ( c / (TestPuseHeight [mV] -t) )
-    ## isolating TestPuseHeight gives:
-    ##   TestPuseHeight [mV] = 1/(2*a) * (ToT[clock cycles] - (b - a*t) +
-    ##                         SQRT( (ToT[clock cycles] - (b - a*t))^2 +
-    ##                               4*(a*b*t + a*c - a*t*ToT[clock cycles]) ) )
-    ## conversion from charge to electrons:
-    ##   electrons = 50 * testpulse[mV]
-    ## so we have:
-    ## Charge[electrons] = 50 / (2*a) * (ToT[clock cycles] - (b - a*t) +
-    ##                     SQRT( (ToT[clock cycles] - (b - a*t))^2 +
-    ##                           4*(a*b*t + a*c - a*t*ToT[clock cycles]) ) )
-    # 1.sum term
-    let p = totValue - (b - a * t)
-    # 2. term of sqrt - neither is exactly the p or q from pq formula
-    let q = 4 * (a * b * t  +  a * c  -  a * t * totValue)
-    result = (50 / (2 * a))  * (p + sqrt(p * p + q))
+  # what we need:
+  # TOT values of each run. Run them through calibration function with the TOT calibrated
+  # values taken from the `InGridDatabase`
+  var chip_base = recoDataChipBase(runNumber)
+  # get the group from file
+  for grp in keys(h5f.groups):
+    if chip_base in grp:
+      # now can start reading, get the group containing the data for this chip
+      var group = h5f[grp.grp_str]
+      # get the chip number from the attributes of the group
+      let chip_number = group.attrs["chipNumber", int]
+      # get dataset of hits
+      var totDset = h5f[(grp / "TOT").dset_str]
+      let tots = totDset[int64]
+      # now calculate charge in electrons for all TOT values
+      let charge = @[0] #mapIt(tots, float(it) * calib_factor)
+      # create dataset for charge values 
+      var chargeDset = h5f.create_dataset(grp / "charge", charge.len, dtype = float)
+      chargeDset[chargeDset.all] = charge
 
-  proc applyChargeCalibration*(h5f: var H5FileObj, runNumber: int)
-    {.raises: [HDF5LibraryError, ref ValueError, Exception]} =
-    ## applies the charge calibration to the TOT values of all events of the
-    ## given run
-    
-    # what we need:
-    # TOT values of each run. Run them through calibration function with the TOT calibrated
-    # values taken from the `InGridDatabase`
-    var chip_base = recoDataChipBase(runNumber)
-    # get the group from file
-    for grp in keys(h5f.groups):
-      if chip_base in grp:
-        # now can start reading, get the group containing the data for this chip
-        var group = h5f[grp.grp_str]
-        # get the chip number from the attributes of the group
-        let chip_number = group.attrs["chipNumber", int]
-        # get dataset of hits
-        var totDset = h5f[(grp / "TOT").dset_str]
-        let tots = totDset[int64]
-        # now calculate charge in electrons for all TOT values
-        let charge = @[0] #mapIt(tots, float(it) * calib_factor)
-        # create dataset for charge values 
-        var chargeDset = h5f.create_dataset(grp / "charge", charge.len, dtype = float)
-        chargeDset[chargeDset.all] = charge
-
-        # add attributes for TOT calibration factors used
-        #chargeDset.attrs["conversionFactorUsed"] = calib_factor
+      # add attributes for TOT calibration factors used
+      #chargeDset.attrs["conversionFactorUsed"] = calib_factor
 
 proc applyEnergyCalibration*(h5f: var H5FileObj, runNumber: int, calib_factor: float) =
   ## proc which applies an energy calibration based on the number of hit pixels in an event

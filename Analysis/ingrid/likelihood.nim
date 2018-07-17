@@ -1,3 +1,4 @@
+import os
 import docopt
 import tables
 import strutils, strformat, ospaths
@@ -28,7 +29,11 @@ Options:
   --version              Show version.
 """
 
-const h5cdl_file = "/mnt/Daten/Uni/CAST/data/CDL-reference/calibration-cdl.h5"
+const h5cdl_file = "/mnt/Daten/CAST/CDL-reference/calibration-cdl.h5"
+const cdlExists = fileExists(h5cdl_file)
+when not cdlExists:
+  {.fatal: "CAST CDL reference file `calibration-cdl.h5` does not exist at: " &
+    $h5cdl_file.}
 
 type
   histTuple = tuple[bins: seq[float64], hist: seq[float64]]

@@ -118,8 +118,8 @@ proc sum*(c: seq[Pix]): Pix {.inline.} =
   # element for each field in the tuple
   assert c.len > 0, "Can't sum empty sequences"
   for p in c:
-    result.x  += p.x
-    result.y  += p.y
+    result.x += p.x
+    result.y += p.y
     result.ch += p.ch
 
 proc sum2*(c: seq[Pix]): Pix {.inline.} =
@@ -1363,11 +1363,11 @@ iterator runs*(h5f: var H5FileObj, data_basename = recoBase()): (string, string)
       # now read some data. Return value will be added later
       yield (run[0], grp)
 
-iterator dsets*(h5f: var H5FileObj,
-                dsetName: string,
-                dtype: typedesc,
-                chipNumber: int,
-                dataBasename = recoBase()): (int, seq[dtype]) =
+proc dsets*(h5f: var H5FileObj,
+               dsetName: string,
+               dtype: typedesc,
+               chipNumber: int,
+               dataBasename = recoBase()): (int, seq[dtype]) =
   ## given a dataset name, its corresponding datatype (needed to define the return type)
   ## and a chip number, read all datasets of all runs stored in the given H5 file.
   ## Choose a base location, by default reconstruction group
@@ -1376,16 +1376,17 @@ iterator dsets*(h5f: var H5FileObj,
   if h5f.visited == false:
     h5f.visit_file
 
-  let dsetLocReg = re(joinPath(dataBasename), "run_(\d+)/chip_" & chipNumber)
-    
-  let dsetLocationReg = re(joinPath(chipBase & chipNumber, dsetName))
-  for dsetName in keys(h5f.datasets):
-    if dsetName =~ dsetLocationReg:
+  let runChipName = joinPath(dataBasename, r"run_(\d+)/chip_" & $chipNumber)
+  let dsetPath = joinPath(runChipName, dsetName)
+  let dsetLocationReg = re(dsetPath)
+  var runNumber = newSeq[string](1)
+  for dset in keys(h5f.datasets):
+    if match(dset, dsetLocationReg, runNumber):
       # found a matching dataset, yield the group number as well as the actual
       # data
-      var dset = h5f[dsetName.dset_str]
-      echo dsetName
-      yield (matches[0].parseInt, dset[dtype])
+      var mdset = h5f[dsetPath.dset_str]
+      echo mdset.name
+      result = (runNumber[0].parseInt, mdset[dtype])
 
 when isMainModule:
 

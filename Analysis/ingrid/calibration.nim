@@ -81,7 +81,7 @@ func polya(p: seq[float], x: float): float =
   let
     thetaDash = p[2] + 1
     coeff1 = (p[0] / p[1]) * pow(thetaDash, thetaDash) / gamma(thetaDash)
-    coeff2 = (x / p[1])^p[2] * exp(-thetaDash * x / p[1])
+    coeff2 = pow(x / p[1], p[2]) * exp(-thetaDash * x / p[1])
   result = coeff1 * coeff2
 
 func sCurveFunc(p: seq[float], x: float): float =

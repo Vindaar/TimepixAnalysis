@@ -20,10 +20,17 @@ writes them back to the H5 file
 Usage:
   likelihood <HDF5file> --reference <ref_file> [options]
   likelihood <HDF5file> --reference <ref_file> --h5out <outfile> [options]
+  likelihood <HDF5file> --extract=FOLDER --to=OUTFOLDER
 
 Options:
   --reference <ref_file> The H5 file containing the X-ray reference spectra
   --h5out <outfile>      The H5 file in which we store the events passing logL cut
+  --extract=FOLDER       Given a H5 file created by this program under the
+                         h5out argument, we will extract all raw event files,
+                         which are contained in it from the given FOLDER.
+                         Useful to e.g. plot passed events with the event display.
+  --to=FOLDER            Output location of all extracted events. Events will just
+                         be copied there.
   --tracking             If flag is set, we only consider solar trackings (signal like)
   -h --help              Show this help
   --version              Show version.
@@ -91,7 +98,7 @@ proc buildLogLHist(h5file, dset: string, region: ChipRegion = crGold): seq[float
       logL = h5f[(grp_name / "LikelihoodMarlin").dset_str][float32]
       centerX = h5f[(grp_name / "PositionX").dset_str][float32]
       centerY = h5f[(grp_name / "PositionY").dset_str][float32]
-      length = h5f[(grp_name / "Length").dset_str][float32]    
+      length = h5f[(grp_name / "Length").dset_str][float32]
       charge = h5f[(grp_name / "TotalCharge").dset_str][float32]
       rmsTrans = h5f[(grp_name / "RmsTransverse").dset_str][float32]
       npix = h5f[(grp_name / "NumberOfPixels").dset_str][float32]
@@ -149,7 +156,7 @@ proc calcCutValueTab(region: ChipRegion = crGold): Table[string, float] =
   # some debugging output
   when not defined(release):
     echo "Cut values are ", cutVals
-    echo mapIt(logHists, it.sum)  
+    echo mapIt(logHists, it.sum)
     echo "Corresponding to logL values of ", result
 
 proc calcLogLikelihood*(h5f: var H5FileObj, ref_file: string) =
@@ -262,7 +269,7 @@ proc writeLikelihoodData(h5f: var H5FileObj,
 
   # TODO: add copy of attributes from energyFromPixel dataset, which contains
   # the calibration factor!
-  
+
   # read all float datasets, which we want to write to the output file
   var float_dset_names = @(getFloatDsetNames())
   # add the final two datasets, which we'd like to write
@@ -281,7 +288,7 @@ proc writeLikelihoodData(h5f: var H5FileObj,
   var float_data_passed = initTable[string, seq[float]]()
   # create new seqs of correct size in float_data_passed
   for dset in keys(float_data_tab):
-    float_data_passed[dset] = newSeqOfCap[float](passedInds.card)    
+    float_data_passed[dset] = newSeqOfCap[float](passedInds.card)
     for i in 0 .. float_data_tab[dset].high:
       if i in passedInds:
         # add element of index `i` to "passed data"
@@ -295,10 +302,10 @@ proc writeLikelihoodData(h5f: var H5FileObj,
   var
     runGrp = h5fout.create_group(runGrpName)
     chpGrpOut = h5fout.create_group(logLgroup)
-  
+
   # got all datasets ready for write
   for dset_name in keys(float_data_passed):
-    var dset = h5fout.create_dataset((logLgroup / dset_name), 
+    var dset = h5fout.create_dataset((logLgroup / dset_name),
                                      (float_data_passed[dset_name].len, 1),
                                      float64)
     # write the data to the file
@@ -326,7 +333,7 @@ proc writeLikelihoodData(h5f: var H5FileObj,
 
 
 proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, tracking = false) =
-  ## filters all clusters with a likelihood value in the given `h5f` by 
+  ## filters all clusters with a likelihood value in the given `h5f` by
   ## the logL cut values returned by `calcCutValueTab`
   ## clusters passing the cuts are stored in `h5fout`
   ## if `tracking == false` we cut on non tracking data
@@ -355,7 +362,7 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, tracking = 
         energy = h5f[(chpGrp.name / "energyFromPixel").dset_str][float64]
         logL = h5f[(chpGrp.name / "likelihood").dset_str][float64]
         centerX = h5f[(chpGrp.name / "centerX").dset_str][float64]
-        centerY = h5f[(chpGrp.name / "centerY").dset_str][float64]        
+        centerY = h5f[(chpGrp.name / "centerY").dset_str][float64]
         evNumbers = h5f[(chpGrp.name / "eventNumber").dset_str][int64].asType(int)
         # get indices (= event numbers) corresponding to no tracking
         tracking_inds = h5f.getTrackingEvents(mgrp, tracking = tracking)
@@ -382,12 +389,51 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, tracking = 
         mchpGrp.attrs["LogLSpectrum"] = "No events passed cut"
         echo "No clusters found passing logL cut"
 
+proc extractEvents(h5f: var H5FileObj, extractFrom, outfolder: string) =
+  ## extracts all events passing the likelihood cut from the folder
+  ## ``extractFrom`` and copies them (plus potential FADC files) to
+  ## the ``outfolder``
+  # - iterate over groups
+  # - get path of run folder
+  # - iterate over chips
+  # - get dataset
+  # - for each dataset have set of event numbers
+  for grp in items(h5f, start_path = "likelihood", depth = 1):
+    echo grp.name
+    var mgrp = grp
+    let path = mgrp.attrs["pathName", string]
+    let (head, tail) = path.splitPath
+    let runFolder = joinPath(extractFrom, tail)
+    if dirExists runFolder:
+      # get all event numbers of all chips
+      var eventNumbers = initSet[int64]()
+      for chipGroup in items(h5f, start_path = mgrp.name, depth = 1):
+        var mchip = chipGroup
+        let dsetName = joinPath(mchip.name, "eventNumber").dset_str
+        var dset = h5f[dsetName]
+        let events = dset[int64]
+        for ev in events:
+          eventNumbers.incl ev
+      # now copy over all files
+      # iterate event numbers and copy files
+      for ev in eventNumbers:
+        let evFile = getFilenameFromEventNumber(ev)
+        let infile = joinPath(runFolder, evFile)
+        # check existence of corresponding FADC event
+        let fadcExists = existsFile(infile & "-fadc")
+        let outfile = joinPath(outfolder, evFile)
+        # echo &"Copying {infile} to {outfile}"
+        copyFile(infile, outfile)
+        if fadcExists:
+          copyFile(infile & "-fadc", outfile & "-fadc")
+
 proc main() =
   # create command line arguments
   let args = docopt(doc)
   let
     h5f_file = $args["<HDF5file>"]
     ref_file = $args["--reference"]
+    extractFrom = $args["--extract"]
 
   let tracking_flag = if $args["--tracking"] == "true": true else: false
 
@@ -398,25 +444,32 @@ proc main() =
   var h5f = H5file(h5f_file, "rw")
   h5f.visitFile
 
-  var h5fout: H5FileObj
-  if h5foutfile != "":
-    h5fout = H5file(h5foutfile, "rw")
+  if extractFrom == "nil":
+    var h5fout: H5FileObj
+    if h5foutfile != "":
+      h5fout = H5file(h5foutfile, "rw")
+    else:
+      # in case no outfile given, we write to the same file
+      h5fout = h5f
+
+    # perform likelihood calculation
+    h5f.calcLogLikelihood(ref_file)
+    # now perform the cut on the logL values stored in `h5f` and write
+    # the results to h5fout
+    h5f.filterClustersByLogL(h5fout, tracking = tracking_flag)
+    # given the cut values and the likelihood values for all events
+    # based on the X-ray reference distributions, we can now cut away
+    # all events not passing the cuts :)
   else:
-    # in case no outfile given, we write to the same file
-    h5fout = h5f
-  
-  # perform likelihood calculation
-  h5f.calcLogLikelihood(ref_file)
-  # now perform the cut on the logL values stored in `h5f` and write
-  # the results to h5fout
-  h5f.filterClustersByLogL(h5fout, tracking = tracking_flag)
-  # given the cut values and the likelihood values for all events
-  # based on the X-ray reference distributions, we can now cut away
-  # all events not passing the cuts :)
+    # extract all event numbers of the runs from the H5 file, check
+    # existing in FOLDER/Run_???_* and copy to `outfolder`
+    let outfolder = $args["--to"]
+    h5f.extractEvents(extractFrom, outfolder)
+
   let err = h5f.close()
   if err != 0:
     echo &"Could not close h5 file properly! Return value was {err}"
-  
+
   echo "Writing of all chips done"
 
 

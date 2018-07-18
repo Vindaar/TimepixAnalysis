@@ -148,6 +148,10 @@ proc readDateFromEvent*(filepath: string): string =
     else:
       continue
 
+proc getFilenameFromEventNumber*[T: SomeInteger](evNumber: T): string =
+  ## returns the correct TOS filename for the given event number
+  result = &"data{evNumber:06}.txt"
+
 proc formatAsOrgDate*(t: Time, org_format = "yyyy-MM-dd ddd H:mm"): string =
   # this procedure formats the given Time object as an org-mode date
   # by first converting it to a TimeInfo object

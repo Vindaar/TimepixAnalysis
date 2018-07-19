@@ -1367,11 +1367,11 @@ iterator runs*(h5f: var H5FileObj, data_basename = recoBase()): (string, string)
       # now read some data. Return value will be added later
       yield (run[0], grp)
 
-proc dsets*(h5f: var H5FileObj,
-               dsetName: string,
-               dtype: typedesc,
-               chipNumber: int,
-               dataBasename = recoBase()): (int, seq[dtype]) =
+iterator dsets*(h5f: var H5FileObj,
+                dsetName: string,
+                dtype: typedesc,
+                chipNumber: int,
+                dataBasename = recoBase()): (int, seq[dtype]) =
   ## given a dataset name, its corresponding datatype (needed to define the return type)
   ## and a chip number, read all datasets of all runs stored in the given H5 file.
   ## Choose a base location, by default reconstruction group
@@ -1390,7 +1390,7 @@ proc dsets*(h5f: var H5FileObj,
       # data
       var mdset = h5f[dsetPath.dset_str]
       echo mdset.name
-      result = (runNumber[0].parseInt, mdset[dtype])
+      yield (runNumber[0].parseInt, mdset[dtype])
 
 when isMainModule:
 

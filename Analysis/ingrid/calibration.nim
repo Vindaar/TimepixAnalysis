@@ -1,24 +1,21 @@
-import sequtils, strutils
+import sequtils, strutils, strformat
 import ospaths
 import future
 import seqmath
 import nimhdf5
 import tables
 import mpfit
+import zero_functional
+import stats
+import nlopt
+import math
+import plotly
 
 import tos_helpers
+import helper_functions
 import ingrid_types
-
-type
-  # type to store results of fitting with mpfit
-  # defined here instead of ingrid_types, since it's only related
-  # to calibration
-  FitResult* = object
-    x*: seq[float]
-    y*: seq[float]
-    pRes*: seq[float]
-    pErr*: seq[float]
-    redChiSq*: float
+import ingridDatabase/databaseRead
+import ingridDatabase/databaseDefinitions
 
 const
   NTestPulses = 1000.0
@@ -70,19 +67,52 @@ func findDrop(thl, count: seq[int]): (float, int, int) =
   # index is thl of ind
   result = (pCenter, minIndex, maxIndex)
 
-func polya(p: seq[float], x: float): float =
+func polyaImpl(p: seq[float], x: float): float =
   ## Polya function to fit to TOT histogram / charge in electrons of a
-  ## run.
+  ## run. This is the actual implementation of the polya distribution.
   ## Parameters:
   ## N     = p[0]    scaling factor
   ## G     = p[1]    gas gain
   ## theta = p[2]    parameter, which describes distribution (?! I guess it makes sens
   ##                 since we take its power and it enters gamma)
+  # debugecho "Scale ", p[0]
+  # debugecho "Gain ", p[1]
+  # debugecho "theta ", p[2]
   let
     thetaDash = p[2] + 1
-    coeff1 = (p[0] / p[1]) * pow(thetaDash, thetaDash) / gamma(thetaDash)
-    coeff2 = pow(x / p[1], p[2]) * exp(-thetaDash * x / p[1])
+    coeff1 = (p[0] / p[1]) * pow((thetaDash), thetaDash) / gamma(thetaDash)
+    coeff2 = pow((x / p[1]), p[2]) * exp(-thetaDash * x / p[1])
   result = coeff1 * coeff2
+
+type
+  FitObject = object
+    x: seq[float]
+    y: seq[float]
+
+func polya(p: seq[float], fitObj: FitObject): float =
+  ## Polya function to fit to TOT histogram / charge in electrons of a
+  ## run. This is the polya function, which is handed to NLopt to perform
+  ## the non-linear optimization of the calc'd chi^2.
+  ## Parameters:
+  ## N     = p[0]    scaling factor
+  ## G     = p[1]    gas gain
+  ## theta = p[2]    parameter, which describes distribution (?! I guess it makes sens
+  ##                 since we take its power and it enters gamma)
+  # debugecho "Scale ", p[0]
+  # debugecho "Gain ", p[1]
+  # debugecho "theta ", p[2]
+  # TODO: add errors, proper chi^2 intead of unscaled values,
+  # which results in huge chi^2 despite good fit
+  let x = fitObj.x
+  let y = fitObj.y
+  var fitY = x.mapIt(polyaImpl(p, it))
+  var diff = newSeq[float](x.len)
+  result = 0.0
+  for i in 0 .. x.high:
+    diff[i] = y[i] - fitY[i]
+    result += pow(diff[i], 2.0)
+
+  result = result / (x.len - p.len).float
 
 func sCurveFunc(p: seq[float], x: float): float =
   ## we fit the complement of a cumulative distribution function
@@ -164,7 +194,7 @@ proc fitToTCalib*(tot: Tot, startFit = 0.0): FitResult =
     mPulses = tot.pulses.mapIt(it.float)
     mMean = tot.mean
     mStd = tot.std
-  
+
   # define the start parameters. Use a good guess...
   let p = [0.149194, 23.5359, 205.735, -100.0]
   var pLimitBare: mp_par
@@ -178,8 +208,8 @@ proc fitToTCalib*(tot: Tot, startFit = 0.0): FitResult =
     if ind > 0:
       mPulses.delete(0, ind)
       mMean.delete(0, ind)
-      mStd.delete(0, ind)      
-  
+      mStd.delete(0, ind)
+
   #let p = [0.549194, 23.5359, 50.735, -1.0]
   let (pRes, res) = fit(totCalibFunc,
                         p,
@@ -189,13 +219,98 @@ proc fitToTCalib*(tot: Tot, startFit = 0.0): FitResult =
                         bounds = @[pLimitBare, pLimitBare, pLimitBare, pLimit])
   echoResult(pRes, res = res)
 
-  # the plot of the fit is performed to the whole pulses range anyways, even if 
+  # the plot of the fit is performed to the whole pulses range anyways, even if
   result.x = linspace(tot.pulses[0].float, tot.pulses[^1].float, 100)
   result.y = result.x.mapIt(totCalibFunc(pRes, it))
   result.pRes = pRes
   result.pErr = res.error
-  result.redChiSq = res.reducedChiSq  
+  result.redChiSq = res.reducedChiSq
 
+proc plotGasGain*[T](traces: seq[Trace[T]], chipNumber, runNumber: int) =
+  ## given a seq of traces (polya distributions for gas gain) plot
+  ## the data and the fit, save plots as svg.
+  let
+    layout = Layout(title: "Polya for gas gain",
+                    width: 1200, height: 800,
+                    xaxis: Axis(title: "charge / e-"),
+                    yaxis: Axis(title: "counts"),
+                    autosize: false)
+    p = Plot[float](layout: layout, traces: traces)
+  # save plots
+  let filename = &"out/gas_gain_run_{runNumber}_chip_{chipNumber}.svg"
+  p.show(filename)
+
+proc getTrace[T](ch, counts: seq[T], info = "", `type`: PlotType = PlotType.Scatter): Trace[float] =
+  result = Trace[float](`type`: `type`)
+  # filter out clock cycles larger 300 and assign to `Trace`
+  result.xs = ch
+  result.ys = counts
+  result.name = info
+
+proc fitPolya*(charges,
+               counts: seq[float],
+               chipNumber, runNumber: int,
+               createPlots = true): FitResult =
+  ## proc to fit a polya distribution to the charge values of the
+  ## reconstructed run. Called if `reconstruction` ran with --only_charge.
+  ## After charge calc from TOT calib, this proc calculates the gas gain
+  ## for this run.
+  # determine start parameters
+  # estimate of 3000 or gas gain
+  # TODO: test again with mpfit. Possible to get it working?
+  # start parameters
+  let
+    # typical gain
+    gain = 3500.0
+    # start parameter for p[0] (scaling) is gas gain * max count value / 2.0
+    # as good guess
+    scaling = max(counts) * gain / 2.0
+    # factor 23.0 found by trial and error! Works
+    rms = standardDeviation(counts) / 23.0
+    # combine paramters, 3rd arg from `polya.C` ROOT script by Lucian
+    p = @[scaling, gain, gain * gain / (rms * rms) - 1.0]
+
+  # data trace
+  let trData = getTrace(charges,
+                        counts.asType(float64),
+                        &"polya data {chipNumber}",
+                        PlotType.Bar)
+  # create NLopt optimizer without parameter bounds
+  var opt = newNloptOpt("LN_COBYLA", 3, @[])
+  # hand the function to fit as well as the data object we need in it
+  var fitObject: FitObject
+  fitObject.x = charges
+  fitObject.y = counts
+  var varStruct = newVarStruct(polya, fitObject)
+  opt.setFunction(varStruct)
+  # set relative precisions of x and y, as well as limit max time the algorithm
+  # should take to 5 second (will take much longer, time spent in NLopt lib!)
+  # these default values have proven to be working
+  opt.xtol_rel = 1e-8
+  opt.ftol_rel = 1e-8
+  opt.maxtime  = 5.0
+  # start actual optimization
+  let (params, minVal) = opt.optimize(p)
+  if opt.status < NLOPT_SUCCESS:
+    echo opt.status
+    echo "nlopt failed!"
+  # clean up optimizer
+  nlopt_destroy(opt.optimizer)
+
+  echo "Result of gas gain opt: ", params, " at chisq ", minVal
+
+  # set ``x``, ``y`` result and use to create plot
+  result.x = linspace(charges[0], charges[^1], 100)
+  result.y = result.x.mapIt(polyaImpl(params, it))
+
+  if createPlots:
+    # create plots if desired
+    let trFit = getTrace(result.x, result.y, "Gas gain fit")
+    plotGasGain(@[trData, trFit], chipNumber, runNumber)
+
+  result.pRes = params
+  # calc reduced Chi^2 from total Chi^2
+  result.redChiSq = minVal / (charges.len - p.len).float
 
 proc cutFeSpectrum(data: array[4, seq[float64]], event_num, hits: seq[int64]): seq[int64] =
   ## proc which receives the data for the cut, performs the cut and returns the
@@ -285,7 +400,7 @@ proc createFeSpectrum*(h5f: var H5FileObj, runNumber: int) =
 # TODO: also does not work I guess, because this won't be declared in case we import
 # this module
 # Find some way that works!
-# when declaredInScope(ingridDatabase):  
+# when declaredInScope(ingridDatabase):
 func calibrateCharge*(totValue: float, a, b, c, t: float): float =
   ## calculates the charge in electrons from the TOT value, based on the TOT calibration
   ## from MarlinTPC:
@@ -312,29 +427,81 @@ proc applyChargeCalibration*(h5f: var H5FileObj, runNumber: int)
   {.raises: [HDF5LibraryError, ref ValueError, Exception]} =
   ## applies the charge calibration to the TOT values of all events of the
   ## given run
-  
+
   # what we need:
   # TOT values of each run. Run them through calibration function with the TOT calibrated
   # values taken from the `InGridDatabase`
-  var chip_base = recoDataChipBase(runNumber)
+  var chipBase = recoDataChipBase(runNumber)
   # get the group from file
   for grp in keys(h5f.groups):
-    if chip_base in grp:
+    if chipBase in grp:
       # now can start reading, get the group containing the data for this chip
       var group = h5f[grp.grp_str]
       # get the chip number from the attributes of the group
-      let chip_number = group.attrs["chipNumber", int]
+      let chipNumber = group.attrs["chipNumber", int]
+      let chipName = group.attrs["chipName", string]
       # get dataset of hits
-      var totDset = h5f[(grp / "TOT").dset_str]
-      let tots = totDset[int64]
+      var totDset = h5f[(grp / "ToT").dset_str]
+      let vlenInt = special_type(int64)
+      let tots = totDset[vlenInt, int64]
       # now calculate charge in electrons for all TOT values
-      let charge = @[0] #mapIt(tots, float(it) * calib_factor)
-      # create dataset for charge values 
-      var chargeDset = h5f.create_dataset(grp / "charge", charge.len, dtype = float)
+      # need calibration factors from InGrid database for that
+      let (a, b, c, t) = getTotCalibParameters(chipName)
+      #mapIt(it.mapIt(calibrateCharge(it.float, a, b, c, t)))
+      var charge = newSeqWith(tots.len, newSeq[float]())
+      for i, vec in tots:
+        #echo vec
+        charge[i] = vec.mapIt((calibrateCharge(it.float, a, b, c, t)))
+      #let charge = tots --> map(it --> map(it --> calibrateCharge(it.float, a, b, c, t))) --> to(seq[seq[float]])
+      # create dataset for charge values
+      let vlenFloat = special_type(float64)
+      var chargeDset = h5f.create_dataset(grp / "charge", charge.len, dtype = vlenFloat)
       chargeDset[chargeDset.all] = charge
-
       # add attributes for TOT calibration factors used
-      #chargeDset.attrs["conversionFactorUsed"] = calib_factor
+      chargeDset.attrs["charge_a"] = a
+      chargeDset.attrs["charge_b"] = b
+      chargeDset.attrs["charge_c"] = c
+      chargeDset.attrs["charge_t"] = t
+
+proc calcGasGain*(h5f: var H5FileObj, runNumber: int) =
+  ## fits the polya distribution to the charge values and writes the
+  ## fit parameters (including the gas gain) to the H5 file
+  var chipBase = recoDataChipBase(runNumber)
+  # get the group from file
+  echo "Calcing gas gain"
+  for grp in keys(h5f.groups):
+    if chipBase in grp:
+      # now can start reading, get the group containing the data for this chip
+      var group = h5f[grp.grp_str]
+      # get the chip number from the attributes of the group
+      let chipNumber = group.attrs["chipNumber", int]
+      let chipName = group.attrs["chipName", string]
+      # get dataset of hits
+      var chargeDset = h5f[(grp / "charge").dset_str]
+      var totDset = h5f[(grp / "ToT").dset_str]
+      let vlenInt = special_type(float64)
+      # get all charge values as seq[seq[float]] flatten
+      let charges = chargeDset[vlenInt, float64].flatten
+      let tots = totDset[vlenInt, int64].flatten
+      # bin the data according to ToT values
+      let (a, b, c, t) = getTotCalibParameters(chipName)
+      # get bin edges by calculating charge values for all TOT values at TOT's bin edges
+      #let bin_edges = mapIt(linspace(-0.5, 249.5, 251), calibrateCharge(it, a, b, c, t))
+      let bin_edges = mapIt(linspace(-0.5, 100.5, 101), calibrateCharge(it, a, b, c, t))
+      # the histogram counts are the same for ToT values as well as for charge values,
+      # so calculate for ToT
+      let binned = tots.histogram(bins = 101, range = (0.0, 100.0))
+      # given binned histogram, fit polya
+      let fitResult = fitPolya(bin_edges, binned.asType(float64), chipNumber, runNumber)
+      # now write resulting fit parameters as attributes
+      chargeDset.attrs["N"] = fitResult.pRes[0]
+      chargeDset.attrs["G"] = fitResult.pRes[1]
+      chargeDset.attrs["theta"] = fitResult.pRes[2]
+      # TODO: get some errors from NLopt?
+      #chargeDset.attrs["N_err"] = fitResult.pErr[0]
+      #chargeDset.attrs["G_err"] = fitResult.pErr[1]
+      #chargeDset.attrs["theta_err"] = fitResutl.pErr[2]
+      chargeDset.attrs["redChiSq"] = fitResult.redChiSq
 
 proc applyEnergyCalibration*(h5f: var H5FileObj, runNumber: int, calib_factor: float) =
   ## proc which applies an energy calibration based on the number of hit pixels in an event
@@ -345,14 +512,14 @@ proc applyEnergyCalibration*(h5f: var H5FileObj, runNumber: int, calib_factor: f
 
   # what we need:
   # the hits of the clusters is all we need
-  var chip_base = recoDataChipBase(runNumber)
+  var chipBase = recoDataChipBase(runNumber)
   # get the group from file
   for grp in keys(h5f.groups):
-    if chip_base in grp:
+    if chipBase in grp:
       # now can start reading, get the group containing the data for this chip
       var group = h5f[grp.grp_str]
       # get the chip number from the attributes of the group
-      let chip_number = group.attrs["chipNumber", int]
+      let chipNumber = group.attrs["chipNumber", int]
       # get dataset of hits
       var hits_dset = h5f[(grp / "hits").dset_str]
       let hits = hits_dset[int64]
@@ -364,8 +531,3 @@ proc applyEnergyCalibration*(h5f: var H5FileObj, runNumber: int, calib_factor: f
       energy_dset[energy_dset.all] = energy
       # attach used conversion factor to dataset
       energy_dset.attrs["conversionFactorUsed"] = calib_factor
-
-
-
-
-  

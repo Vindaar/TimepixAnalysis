@@ -72,7 +72,7 @@ proc plotHist*[T](traces: seq[Trace[T]], voltages: set[int16], chip = "") =
                     yaxis: Axis(title: "# hits$"),
                     autosize: false)
     p = Plot[float](layout: layout, traces: traces)
-  let filename = &"scurves_{chip}.svg"
+  let filename = &"out/scurves_{chip}.svg"
   p.saveImage(filename)
 
 proc plotThlCalib*(thlCalib: FitResult, charge, thl, thlErr: seq[float], chip = "") =
@@ -98,7 +98,7 @@ proc plotThlCalib*(thlCalib: FitResult, charge, thl, thlErr: seq[float], chip = 
                     xaxis: Axis(title: "THL"),
                     autosize: false)
     p = Plot[float](layout: layout, traces: @[data, fit])
-  let filename = &"thl_calib_{chip}.svg"
+  let filename = &"out/thl_calib_{chip}.svg"
   p.saveImage(filename)
 
 proc plotToTCalib*(totCalib: FitResult, tot: Tot, chip = 0) =
@@ -126,7 +126,7 @@ proc plotToTCalib*(totCalib: FitResult, tot: Tot, chip = 0) =
                     yaxis: Axis(title: "ToT / Clock cycles"),
                     autosize: false)
     p = Plot[float](layout: layout, traces: @[data, fit])
-  let filename = &"tot_calib_{chip}.svg"
+  let filename = &"out/tot_calib_{chip}.svg"
   p.saveImage(filename)
 
 iterator sCurves(args: DocoptTab): SCurve =

@@ -209,7 +209,6 @@ type
     yMin*: float
     yMax*: float
     radius*: float
-    
 
 # and some general InGrid related constants
 const NPIX* = 256

@@ -214,16 +214,22 @@ proc writeRecoRunToH5(h5f: var H5FileObj,
   echo "Now creating dset stuff"
   # define type for variable length pixel data
   let ev_type = special_type(int)
+  #let ev_type_xy = special_type(uint8)
+  #let ev_type_ch = special_type(uint16)
+
   var
     # datasets for x, y and charge
     int_dsets = initTable[string, seq[H5DataSet]]()
     float_dsets = initTable[string, seq[H5DataSet]]()
     # x, y and charge datasets
-    x_dsets  = mapIt(toSeq(0..<nChips),
-                     h5f.create_dataset(chip_groups[it].name & "/x", x[it].len, dtype = ev_type))
-    y_dsets  = mapIt(toSeq(0..<nChips),
-                     h5f.create_dataset(chip_groups[it].name & "/y", y[it].len, dtype = ev_type))
-    ch_dsets  = mapIt(toSeq(0..<nChips),
+    x_dsets = mapIt(toSeq(0..<nChips),
+                    #h5f.create_dataset(chip_groups[it].name & "/x", x[it].len, dtype = ev_type_xy))
+                    h5f.create_dataset(chip_groups[it].name & "/x", x[it].len, dtype = ev_type))
+    y_dsets = mapIt(toSeq(0..<nChips),
+                    #h5f.create_dataset(chip_groups[it].name & "/y", y[it].len, dtype = ev_type_xy))
+                    h5f.create_dataset(chip_groups[it].name & "/y", y[it].len, dtype = ev_type))
+    ch_dsets = mapIt(toSeq(0..<nChips),
+                     #h5f.create_dataset(chip_groups[it].name & "/ToT", ch[it].len, dtype = ev_type_ch))
                      h5f.create_dataset(chip_groups[it].name & "/ToT", ch[it].len, dtype = ev_type))
 
 

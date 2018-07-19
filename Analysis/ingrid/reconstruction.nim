@@ -32,7 +32,7 @@ import calibration
 import fadc_analysis
 
 type
-  # fit object, which is handed to the NLopt library in the 
+  # fit object, which is handed to the NLopt library in the
   # `VarStruct` -> to the eccentricity function
   FitObject = object
     cluster: Cluster
@@ -49,6 +49,7 @@ Usage:
   reconstruction <HDF5file> --runNumber <number> --create_fe_spec [options]
   reconstruction <HDF5file> --runNumber <number> --create_fe_spec --out <name> [options]
   reconstruction <HDF5file> --runNumber <number> --only_energy <factor> [options]
+  reconstruction <HDF5file> --runNumber <number> --only_charge [options]
   reconstruction <HDF5file> --runNumber <number> --only_fadc [options]
   reconstruction <HDF5file> --runNumber <number> [options]
   reconstruction <HDF5file> (--create_fe_spec | --calib_energy) [options]
@@ -68,6 +69,8 @@ Options:
                           Takes precedence over --create_fe_spec and --calib_energy if set.
                           If no runNumber is given, performs energy calibration on all runs
                           in the HDF5 file.
+  --only_charge           Toggle to /only/ calculate the charge for each TOT value based on
+                          the TOT calibration. The `ingridDatabase.h5` needs to be present.
   --only_fadc             If this flag is set, the reconstructed FADC data is used to calculate
                           FADC values such as rise and fall times among others, which are written
                           to the H5 file.
@@ -631,19 +634,21 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
   ##   `runNumber`: optional run number, if given only this run is reconstructed
   ##   `calib_factor`: factor to use to calculate energy of clusters
   ##   `h5fout`: optional file to which the reconstructed data is written instead
-  
+
   let
     raw_data_basename = rawDataBase()
     t0 = epochTime()
   var reco_run: seq[FlowVar[ref RecoEvent]] = @[]
-  
+
   # iterate over all raw data groups
   for num, grp in runs(h5f, rawDataBase()):
     # now read some data. Return value will be added later
     let runNumber = parseInt(num)
     # check whether all runs are read, if not if this run is correct run number
     if run_num_arg < 0 or runNumber == run_num_arg:
-      if flags_tab["only_energy"] == false and flags_tab["only_fadc"] == false:
+      if flags_tab["only_energy"] == false and
+         flags_tab["only_fadc"] == false and
+         flags_tab["only_charge"] == false:
         # TODO: we can in principle perform energy calibration in one go
         # together with creation of spectrum, if we work as follows:
         # 1. calibration runs:
@@ -681,11 +686,15 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
         if hasKey(h5fout.groups, (recoBase & $runNumber)) == true:
           if flags_tab["only_energy"] == true:
             h5fout.applyEnergyCalibration(runNumber, calib_factor)
+          if flags_tab["only_charge"] == true:
+            h5fout.applyChargeCalibration(runNumber)
+            h5fout.calcGasGain(runNumber)
+
           if flags_tab["only_fadc"] == true:
             h5fout.calcRiseAndFallTimes(runNumber)
         else:
           echo "No reconstructed run found for $#" % $grp
-        
+
   echo "Reconstruction of all runs in $# took $# seconds" % [$h5f.name, $(epochTime() - t0)]
 
 proc reconstructRunsInFile(h5f: var H5FileObj,
@@ -699,7 +708,7 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
   # simply set h5fout to h5f. This creates a copy of h5f, but we don't care
   # since it points to the same file and the important group / dset tables
   # are stored as references anyways
-  reconstructRunsInFile(h5f, h5f, flags_tab, run_num_arg, calib_factor)  
+  reconstructRunsInFile(h5f, h5f, flags_tab, run_num_arg, calib_factor)
 
 proc reconstructSingleRunFolder(folder: string) =
   # procedure which receives path to a run folder and reconstructs the objects
@@ -752,6 +761,7 @@ proc main() =
     calib_factor: float = Inf
     only_energy_flag: bool
     only_fadc: bool
+    only_charge_flag = if $args["--only_charge"] == "true": true else: false
   if runNumber == "nil":
     runNumber = ""
   if outfile == "nil":
@@ -784,6 +794,7 @@ proc main() =
   let flags_tab = { "create_fe": create_fe_flag,
                     "calib_energy": calib_energy_flag,
                     "only_energy": only_energy_flag,
+                    "only_charge": only_charge_flag,
                     "only_fadc": only_fadc}.toTable
 
 
@@ -794,7 +805,7 @@ proc main() =
   if outfile != "None":
     h5fout = H5file(outfile, "rw")
     h5fout.visitFile
-  
+
   let raw_data_basename = rawDataBase()
   if runNumber == "" and outfile == "None":
     reconstructRunsInFile(h5f, flags_tab, calib_factor = calib_factor)
@@ -804,7 +815,7 @@ proc main() =
     reconstructRunsInFile(h5f, h5fout, flags_tab, calib_factor = calib_factor)
   elif runNumber != "" and outfile != "None":
     reconstructRunsInFile(h5f, h5fout, flags_tab, parseInt(runNumber), calib_factor = calib_factor)
-    
+
 
   var err: herr_t
   err = h5f.close()
@@ -814,7 +825,7 @@ proc main() =
     err = h5fout.close()
     if err != 0:
       echo &"Failed to close H5 file {h5fout.name}"
-    
+
   # NOTE: there's no point for this anymore, at least not at the moment
   # # first check whether given folder is valid run folder
   # let (is_run_folder, contains_run_folder) = isTosRunFolder(folder)

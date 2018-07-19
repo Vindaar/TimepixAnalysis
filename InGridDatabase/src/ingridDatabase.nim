@@ -10,7 +10,13 @@ import seqmath
 import nimhdf5
 import times
 
-import ingrid/ingrid_types
+import ingridDatabase/databaseDefinitions
+import ingridDatabase/databaseRead
+import ingridDatabase/databaseWrite
+import ingridDatabase/databaseUtils
+
+# cannot import `Chip` due to clash with this modules `Chip`
+import ingrid/ingrid_types except Chip
 import ingrid/calibration
 
 const doc = """
@@ -42,174 +48,11 @@ Documentation:
   to get the ToT values of that chip.
 """
 
-type
-  ChipName* = object
-    col*: char
-    row*: int
-    wafer*: int
-    
-  Chip* = object
-    name*: ChipName
-    info*: Table[string, string]
-
-  TotType* = object
-    pulses*: int
-    mean*: float
-    std*: float
-
-  TypeCalibrate* {.pure.} = enum
-    TotCalibrate = "tot"
-    SCurveCalibrate = "scurve"
-
-# helper proc to remove the ``src`` which is part of `nimble path`s output
-# this is a bug, fix it.
-proc removeSuffix(s: string, rm: string): string {.compileTime.} =
-  result = s
-  result.removeSuffix(rm)
-    
-const ingridPath = staticExec("nimble path ingridDatabase").removeSuffix("src")
-const db = "resources/ingridDatabase.h5"
-const dbPath = joinPath(ingridPath, db)
-
-const
-  ChipInfo = "chipInfo.txt"
-  FsrPrefix = "fsr"
-  FsrPattern = "fsr*.txt"
-  TotPrefix = "TOTCalib"
-  TotPattern = TotPrefix & r"*\.txt"
-  ThresholdPrefix = "threshold"
-  ThresholdPattern = r"threshold[0-9]\.txt"
-  ThresholdMeansPrefix = ThresholdPrefix & "Means"
-  ThresholdMeansPattern = ThresholdPrefix & r"Means*\.txt"
-  SCurvePrefix = "voltage_"
-  SCurveRegPrefix = r".*" & SCurvePrefix
-  SCurvePattern = r"voltage_*\.txt"
-  SCurveFolder = "SCurve/"
-  StartTotRead = 20.0
-let
-  ChipNameLineReg = re(r"chipName:")
-  ChipNameReg = re(r".*([A-Z])\s*([0-9]+)\s*W\s*([0-9]{2}).*")
-  FsrReg = re(FsrPrefix & r"([0-9])\.txt")
-  FsrContentReg = re(r"(\w+)\s([0-9]+)")
-  TotReg = re(TotPrefix & r"([0-9])\.txt")
-  SCurveReg = re(SCurveRegPrefix & r"([0-9]+)\.txt")
-
-template withDatabase(actions: untyped): untyped =
-  ## read only template to open database as `hf5`, work with it
-  ## and close it properly
-  ## NOTE: The database is only opened, if no other variable
-  ## of the name `h5f` is declared in the calling scope.
-  ## This allows to have nested calls of `withDebug` without
-  ## any issues (otherwise we get will end up trying to close
-  ## already closed objects)
-  when not declaredInScope(h5f):
-    echo "Opening db at ", dbPath
-    var h5f {.inject.} = H5File(dbPath, "r")
-  actions
-  when not declaredInScope(h5f):
-    let err = h5f.close()
-    if err < 0:
-      echo "Could not properly close database! err = ", err
-
-proc `$`(chip: ChipName): string =
-  result = $chip.col & $chip.row & " W" & $chip.wafer
-
-proc parseChipName(chipName: string): ChipName =
-  ## parses the given `chipName` as a string to a `ChipName` object
-  var mChip: array[3, string]
-  # parse the chip name
-  if match(chipName, ChipNameReg, mChip) == true:
-    result.col   = mChip[0][0]
-    result.row   = mChip[1].parseInt
-    result.wafer = mChip[2].parseInt
-  else:
-    raise newException(ValueError, "Bad chip name: $#" % chipName)
-
-proc chipNameToGroup(chipName: string): string =
-  ## given a `chipName` will return the correct name of the corresponding
-  ## chip's group
-  ## done by parsing the given string to a `ChipName` and using `ChipNames`
-  ## `$` proc.
-  result = $(parseChipName(chipName))
-
-# procs to get data from the file
-proc getTotCalib*(chipName: string): Tot =
-  ## reads the TOT calibration data from the database for `chipName`
-  let dsetName = joinPath(chipNameToGroup(chipName), TotPrefix)
-  withDatabase:
-    var dset = h5f[dsetName.dset_str]
-    let data = dset[float64].reshape2D(dset.shape).transpose
-    result.pulses = data[0].asType(int)
-    result.mean = data[1]
-    result.std = data[2]
-
-proc getScurve*[T: SomeInteger](h5f: var H5FileObj,
-                                chipName: string,
-                                voltage: T):
-                                  SCurve =
-  ## reads the given voltages' SCurve for `chipName`
-  result.name = SCurvePrefix & $voltage
-  let dsetName = joinPath(joinPath(chipNameToGroup(chipName),
-                                   SCurveFolder),
-                          result.name)
-  result.voltage = voltage
-  var dset = h5f[dsetName.dset_str]
-  let data = dset[int64].reshape2D(dset.shape).transpose
-  result.thl = data[0].asType(int)
-  result.hits = data[1].asType(int)
-
-proc getScurve*(chipName: string, voltage: int): SCurve =
-  ## reads the given voltages' SCurve for `chipName`
-  ## overload of above for the case of non opened H5 file
-  withDatabase:
-    result = h5f.getScurve(chipName, voltage)
-    
-proc getScurveSeq*(chipName: string): SCurveSeq =
-  ## read all SCurves of `chipName` and return an `SCurveSeq`
-  # init result seqs (for some reason necessary?!)
-  result.files = @[]
-  result.curves = @[]
-  var groupName = joinPath(chipNameToGroup(chipName),
-                           SCurveFolder)
-  echo "done ", groupName
-  withDatabase:
-    h5f.visitFile()
-    groupName = joinPath(chipNameToGroup(chipName),
-                         SCurveFolder)
-    var grp = h5f[groupName.grp_str]
-    for dset in grp:
-      var mdset = dset
-      let voltage = mdset.attrs["voltage", int64].int
-      let curve = h5f.getSCurve(chipName, voltage)
-      result.files.add dset.name
-      result.curves.add curve
-
-proc getThreshold*(chipName: string): Threshold =
-  ## reads the threshold matrix of `chipName`
-  withDatabase:
-    let dsetName = joinPath(chipNameToGroup(chipName), ThresholdPrefix)
-    var dset = h5f[dsetName.dset_str]
-    result = dset[int64].toTensor.reshape(256, 256).asType(int)
-
-proc writeTotCalibAttrs(h5f: var H5FileObj, chip: string, fitRes: FitResult) =
-  ## writes the fit results as attributes to the H5 file for `chip`
-  # group object to write attributes to
-  var mgrp = h5f[chip.grp_str]
-  # map parameter names to their position in FitResult parameter seq
-  const parMap = { "a" : 0,
-                   "b" : 1,
-                   "c" : 2,
-                   "t" : 3 }.toTable
-  mgrp.attrs["TOT Calibration"] = "performed at " & $now()
-  for key, val in parMap:
-    mgrp.attrs[key] = fitRes.pRes[val]
-    mgrp.attrs[&"{key}_err"] = fitRes.pErr[val]
-
 proc calibrateType(tcKind: TypeCalibrate) =
   ## calibrates the given type and stores the fit results as attributes
   ## of each chip with valid data for calibration
   # open H5 file with write access
-  var h5f = H5file(db, "rw")
+  var h5f = H5file(dbPath, "rw")
   case tcKind
   of TotCalibrate:
     # perform TOT calibration for all chips, which contain a TOT
@@ -315,69 +158,6 @@ proc parseThresholdFile(filename: string): Threshold =
     map(it.parseInt)
   result = flat.toTensor().reshape([256, 256])
 
-proc writeThreshold(h5f: var H5FileObj, threshold: Threshold, chipGroupName: string) =
-  var thresholdDset = h5f.create_dataset(joinPath(chipGroupName, ThresholdPrefix),
-                                          (256, 256),
-                                          dtype = int)
-  thresholdDset[thresholdDset.all] = threshold.data.reshape([256, 256])
-  
-
-proc addChipToH5(chip: Chip,
-                 fsr: FSR,
-                 scurves: SCurveSeq,
-                 tot: Tot,
-                 threshold: Threshold,
-                 thresholdMeans: ThresholdMeans) =
-  ## adds the given chip to the InGrid database H5 file
-
-  var h5f = H5File(dbPath, "rw")
-  var chipGroup = h5f.create_group($chip.name)
-  # add FSR, chipInfo to chipGroup attributes
-  for key, value in chip.info:
-    echo &"Appending {key} with {value}"
-    chipGroup.attrs[key] = if value.len > 0: value else: "nil"
-  for dac, value in fsr:
-    chipGroup.attrs[dac] = value
-
-  # SCurve groups
-  if scurves.files.len > 0:
-    var scurveGroup = h5f.create_group(joinPath(chipGroup.name, SCurveFolder))
-    for i, f in scurves.files:
-      # for each file write a dataset
-      let curve = scurves.curves[i]
-      var scurveDset = h5f.create_dataset(joinPath(scurveGroup.name,
-                                                   curve.name),
-                                          (curve.thl.len, 2),
-                                          dtype = int)
-      # reshape the data to be two columns of [thl, hits] pairs and write
-      scurveDset[scurveDset.all] = zip(curve.thl, curve.hits).mapIt(@[it[0], it[1]])
-      # add voltage of dataset as attribute (for easier reading)
-      scurveDset.attrs["voltage"] = curve.voltage
-
-  if tot.pulses.len > 0:
-    # TODO: replace the TOT write by a compound data type using TotType
-    # that allows us to easily name the columns too!
-    echo sizeof(TotType)
-    var totDset = h5f.create_dataset(joinPath(chipGroup.name, TotPrefix),
-                                     (tot.pulses.len, 3),
-                                     dtype = float)
-    # sort of ugly conversion to 3 columns, using double zip
-    # since we don't have a zip for more than 2 seqs
-    totDset[totDset.all] = zip(zip(tot.pulses.asType(float),
-                               tot.mean),
-                               tot.std).mapIt(@[it[0][0],
-                                                it[0][1],
-                                                it[1]])
-
-  if threshold.shape == @[256, 256]:
-    h5f.writeThreshold(threshold, chipGroup.name)
-
-  #if thresholdMeans.shape == @[256, 256]:
-  #  h5f.writeThreshold(thresholdMeans, chipGroup.name)    
-  
-  let err = h5f.close()
-
-        
 proc addChip(folder: string) =
   ## handles adding the data for a chip from a folder
   ## it parses all available data in the folder and adds it to the correct group

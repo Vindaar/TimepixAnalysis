@@ -23,32 +23,32 @@ Usage:
   extractScintiTriggers <h5file> (--runNumber=NUMBER | --allRuns) [--outfile=FILE | --outfolder=FOLDER]
 
 Options:
-  --outfolder=FOLDER        Copy files of events with scintillator triggers 
+  --outfolder=FOLDER        Copy files of events with scintillator triggers
                             != 0 and != 4095 to this folder. If no argument
                             is given, a folder is created of the same name as
                             the run.
   --infolder=FOLDER         If an analysis was already done with this tool using the
-                            outfolder option, hand that folder using infolder, 
+                            outfolder option, hand that folder using infolder,
                             to only produce the plot.
   --runNumber=NUMBER        (h5file): If the input is a h5 file, hand the run for which
                             to extract scinti information
   --allRuns                 (h5file): use this flag to concat all runs in the h5 file.
-  --outfile=FILE            If set we write the filenames of all interesting events 
+  --outfile=FILE            If set we write the filenames of all interesting events
                             (see --outfolder) to this file [default: 123]
   -h --help                 Show this help
   --version                 Show version
 
 Documentation:
-  This tool extracts the number of scintillator triggers in a given run. 
+  This tool extracts the number of scintillator triggers in a given run.
 """
 
 # TODO: plot both scintillators in one window!
 
 proc readEventHeader*(filepath: string): Table[string, string] =
-  ## this procedure reads a whole event header and returns 
+  ## this procedure reads a whole event header and returns
   ## a table containing the data, where the key is the key from the data file
   result = initTable[string, string]()
-  
+
   # we define a regex for the header of the file
   let regex = r"^\#\# (.*):\s(.*)"
   var matches: array[2, string]
@@ -58,12 +58,12 @@ proc readEventHeader*(filepath: string): Table[string, string] =
       let key = strip(matches[0])
       let val = strip(matches[1])
       result[key] = val
-  
+
 proc readRunFolder*(runFolder: string): (Table[string, int], Table[string, int]) =
 
   result[0] = initTable[string, int]()
-  result[1] = initTable[string, int]()  
-  
+  result[1] = initTable[string, int]()
+
   # first check whether the input really is a valid folder
   if existsDir(runFolder) == true:
     # get the list of files in the folder
@@ -71,7 +71,7 @@ proc readRunFolder*(runFolder: string): (Table[string, int], Table[string, int])
     let files = getListOfFiles(runFolder, r"^/?([\w-_]+/)*data\d{4,6}\.txt$")
     var inode_tab = createInodeTable(files)
     sortInodeTable(inode_tab)
-    
+
     var count = 0
     for tup in pairs(inode_tab):
       let file = tup[1]
@@ -80,7 +80,7 @@ proc readRunFolder*(runFolder: string): (Table[string, int], Table[string, int])
       let scint1 = parseInt(t["szint1ClockInt"])
       let scint2 = parseInt(t["szint2ClockInt"])
       let fadc_triggered = if parseInt(t["fadcReadout"]) == 1: true else: false
-      # make sure we only read the scintillator counters, in case the fadc was 
+      # make sure we only read the scintillator counters, in case the fadc was
       # actually read out. Otherwise it does not make sense (scintis not read out)
       # and the src/waitconditions bug causes overcounting
       if fadc_triggered:
@@ -97,7 +97,7 @@ proc readRunFolder*(runFolder: string): (Table[string, int], Table[string, int])
 
 proc readScintFromH5(h5file: string, runNumber = 0, allRuns = false): (seq[int64], seq[int64]) =
   var h5f = H5file(h5file, "r")
-  
+
   if allRuns == true:
     for num, grp in runs(h5f, rawDataBase()):
       var
@@ -115,35 +115,38 @@ proc readScintFromH5(h5file: string, runNumber = 0, allRuns = false): (seq[int64
 
   result[0] = filterIt(result[0], it != 0 and it != 4095)
   result[1] = filterIt(result[1], it != 0 and it != 4095)
-      
 
-proc plotHist*[T](hist: seq[T]) =
+proc getScintTrace[T](hist: seq[T], title = ""): Trace[T] =
+  ## returns histogram trace suitable to plot scintillator triggers
+  result = Trace[T](`type`: PlotType.Histogram,
+                    bins: (0.0, 75.0), binSize: 1.0, histNorm: Percent)
+  # filter out clock cycles larger 300 and assign to `Trace`
+  result.xs = filterIt(hist, it < 300)
+  result.name = title
+
+proc plotHist*[T](traces: seq[Trace[T]]) =
   ## given a seq of scintillator counts, plot them as a histogram
-  let 
+  let
     goldenMean = (sqrt(5.0) - 1.0) / 2.0  # Aesthetic ratio
     figWidth = 1200.0                     # width in inches
     figHeight = figWidth * goldenMean     # height in inches
 
   let
-    d = Trace[int64](`type`: PlotType.Histogram, #histNorm: Percent, cumulative: true,
-                   #nbins: 60)#,
-                   bins: (0.0, 60.0), binSize: 1.0)
-  # filter out clock cycles larger 300 and assign to `Trace`
-  d.xs = filterIt(hist, it < 300)
-  let 
     layout = Layout(title: "Clock cycles since last Scinti trigger",
                     width: figWidth.int, height: figHeight.int,
                     xaxis: Axis(title: "# Clock cycles / 25 ns"),
-                    yaxis: Axis(title: "# events$"),
+                    yaxis: Axis(title: "# events"),
+                    barmode: BarMode.Overlay,
                     autosize: false)
-    p = Plot[int64](layout: layout, traces: @[d])
-  p.show()
+    p = Plot[int64](layout: layout, traces: traces)
+  let filename = "scinti_triggers.svg"
+  p.show(filename)
 
 proc workOnRunFolder(rf: string): (seq[int64], seq[int64]) =
   var runFolder = rf
 
   let args = docopt(doc)
-  
+
   var
     outfolder = $args["--outfolder"]
     outfile = ""
@@ -154,7 +157,7 @@ proc workOnRunFolder(rf: string): (seq[int64], seq[int64]) =
 
   if $args["--outfile"] != "nil":
     outfile = $args["--outfile"]
-    
+
   # first check whether the input really is a .tar.gz file
   let is_tar = ".tar.gz" in runFolder
 
@@ -183,13 +186,13 @@ proc workOnRunFolder(rf: string): (seq[int64], seq[int64]) =
         file_min = pair[0]
     result = (min_val, file_min)
 
-  
+
   let unequal1_p = toSeq(pairs(scint1_hits)).filterIt(it[1] != 0 and it[1] != 4095)
   let unequal2_p = toSeq(pairs(scint2_hits)).filterIt(it[1] != 0 and it[1] != 4095)
-  
+
   let unequal1 = unequal1_p.mapIt(it[1])
   let unequal2 = unequal2_p.mapIt(it[1])
-  
+
   let unequal1_f = unequal1_p.mapIt(it[0])
   let unequal2_f = unequal2_p.mapIt(it[0])
 
@@ -197,18 +200,18 @@ proc workOnRunFolder(rf: string): (seq[int64], seq[int64]) =
   echo "The values unequal to 0 for 2 ", unequal2
 
   echo &"\t with a mean value of {unequal1.mapIt(it.float32).mean} for 1"
-  echo &"\t with a mean value of {unequal2.mapIt(it.float32).mean} for 2"  
+  echo &"\t with a mean value of {unequal2.mapIt(it.float32).mean} for 2"
 
   echo "Number of unequal values for 1 ", unequal1.len
   echo "Number of unequal values for 2 ", unequal2.len
-  
+
   let min_tup1 = min_of_table(scint1_hits)
   let min_tup2 = min_of_table(scint2_hits)
 
   echo "\t Scint1_min = ", min_tup1[0], " in file ", min_tup1[1]
   echo "\t Scint2_min = ", min_tup2[0], " in file ", min_tup2[1]
 
-  
+
   let files = concat(unequal1_f, unequal2_f).sorted(system.cmp[string])
   let filesFadc = mapIt(files, it & "-fadc")
 
@@ -223,11 +226,11 @@ proc workOnRunFolder(rf: string): (seq[int64], seq[int64]) =
 
     forZip f in files, ffadc in filesFadc:
       let fd = joinPath(outfolder, extractFilename(f))
-      let fdFadc = joinPath(outfolder, extractFilename(ffadc))      
+      let fdFadc = joinPath(outfolder, extractFilename(ffadc))
       echo &"Copying file {f} to {fd}"
       copyFile(f, fd)
       copyFile(ffadc, fdFadc)
-    
+
     # now write the scintillator trigger data to the folder as well
     var outScint1 = open("scint1.txt", fmWrite)
     defer: outScint1.close()
@@ -241,7 +244,7 @@ proc workOnRunFolder(rf: string): (seq[int64], seq[int64]) =
     defer: outf.close()
     forZip f in files, ffadc in filesFadc:
       outf.write(f & "\n")
-      outf.write(ffadc & "\n")      
+      outf.write(ffadc & "\n")
 
   # clean up after us, if desired
   if is_tar:
@@ -279,7 +282,7 @@ proc main() =
   let infolder = $args["--infolder"]
 
   var useH5file = false
-  
+
   var runFolder = ""
   var h5file = ""
   if $args["<runFolder>"] != "nil":
@@ -297,9 +300,9 @@ proc main() =
     (unequal1, unequal2) = workOnH5File(h5file)
 
   # now plot the scinti events
-  plotHist(unequal1)
-  plotHist(unequal2)
-    
+  let traceScint1 = getScintTrace(unequal1, "SiPM")
+  let traceScint2 = getScintTrace(unequal2, "Veto scinti")
+  plotHist(@[traceScint2, traceScint1])
 
 when isMainModule:
   main()

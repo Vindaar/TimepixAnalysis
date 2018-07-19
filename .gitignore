@@ -8,6 +8,5 @@
 InGrid-Python/build/*
 InGrid-Python/dist/*
 /extractScintiTriggers/scinti_triggers.svg
-/Analysis/ingrid/out/gas_gain_0.svg
 /Analysis/ingrid/out/*
 /Plotting/plotCalibration/out/*

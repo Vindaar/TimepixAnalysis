@@ -1,3 +1,72 @@
+proc fitPolya*(charges, counts: seq[float], chipNumber: int): FitResult =
+  ## proc to fit a polya distribution to the charge values of the
+  ## reconstructed run. Called if `reconstruction` ran with --only_charge.
+  ## After charge calc from TOT calib, this proc calculates the gas gain
+  ## for this run.
+  # determine start parameters
+  # estimate of 3000 or gas gain
+  # TODO: test again with mpfit. Possible to get it working?
+  # start parameters
+  let
+    # typical gain
+    gain = 3500.0 
+    # start parameter for p[0] (scaling) is gas gain * max count value / 2.0
+    # as good guess
+    scaling = max(counts) * gain / 2.0
+    # factor 23.0 found by trial and error! Works 
+    rms = standardDeviation(counts) / 23.0
+    # combine paramters, 3rd arg from `polya.C` ROOT script by Lucian
+    p = @[scaling, gain, gain * gain / (rms * rms) - 1.0]
+
+  # start parameters used to calc counts. Useful for debugging 
+  let toFit = charges.mapIt(polyaImpl(p, it.float))
+  let toPlot = toFit.mapIt(if classify(it) != fcInf: it else: 0)
+  let trToFit = getTrace(charges, toPlot, "polya to fit")
+    
+  # data trace
+  let trData = getTrace(charges,
+                        counts.asType(float64),
+                        &"polya data {chipNumber}",
+                        PlotType.Bar)
+
+  let chErrs = mapIt(toSeq(0 .. counts.high), 0.1) #counts.mapIt(sqrt(it))
+  var parConf = newSeq[mp_par](3)
+  for i in 0 .. 2:
+    parConf[i].deriv_debug = 1
+  # parConf[0].step = 10.0
+  # parConf[1].step = 50.0
+  # parConf[2].step = 1.0
+  parConf[0].relstep = 1e-5
+  parConf[1].relstep = 1e-5
+  parConf[2].relstep = 1e-5
+  
+  echo "p is ", p
+  echo "charges is ", charges.len
+  echo "counts ", counts.len
+  echo "chErr ", chErrs
+  plotHist(@[tr, tr2])
+  let (pRes, res) = fit(polya, p, charges, counts, chErrs, bounds = parConf)
+  
+  # echo parameters
+  echoResult(pRes, res = res)
+  
+  let fitted = charges.mapIt(polya(pRes, it.float))
+  let tr3 = getTrace(charges, fitted, "fit result")
+  
+  plotHist(@[tr, tr2, tr3])
+
+  result.x = linspace(charges[0], charges[^1], 100)
+  result.y = result.x.mapIt(polyaImpl(params, it))
+
+  let tr3 = getTrace(result.x, result.y, "fit gas gain")
+  
+  plotGasGaing(@[tr, tr3], chipNumber)
+  
+  result.pRes = pRes
+  result.pErr = res.error
+  result.redChiSq = res.reducedChiSq
+  
+
 proc findSimpleClusterSet*(pixels: HashSet[Pix]): seq[HashSet[Pix]] = #seq[Cluster] =
   # a working implementation of cluster finder using hashsets instead of sequences
   # should be faster, due to union, exclusion etc being faster than for a sequence?

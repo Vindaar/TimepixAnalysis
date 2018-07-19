@@ -87,6 +87,10 @@ def main(args):
         factor = 1e5
     else:
         factor = 1.0
+    # Christoph 2014 / 15
+    # time_back = 4000 * 3600
+    # shutter_open = 0.97
+    # 2017
     time_back = 1123 * 3600 
     shutter_open = 0.88
     area = (0.95 - 0.45)**2

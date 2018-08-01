@@ -106,12 +106,12 @@ template inGridGroups(h5f: var H5FileObj,
       chipGroups = mapIt(toSeq(0 ..< nChips), h5f.create_group(chipGroupName % $it))
     var result = (runGroup, recoGroup, combineGroup, chipGroups)
   else:
-    var 
+    var
       fadcCombine = h5f.create_group(combineRecoBasenameFadc())
     var result = (runGroup, recoGroup, fadcCombine, newSeq[H5Group](0))
   result
 
-proc specialTypesAndEvKeys(): (hid_t, hid_t, array[7, string]) = 
+proc specialTypesAndEvKeys(): (hid_t, hid_t, array[7, string]) =
   let
     # create datatypes for variable length data
     ev_type_xy = special_type(uint8)
@@ -126,7 +126,7 @@ proc specialTypesAndEvKeys(): (hid_t, hid_t, array[7, string]) =
 proc getTotHitOccDsetNames(chipGroupName: string,
                            nChips: int):
                           (seq[string], seq[string], seq[string]) =
-  let 
+  let
     totDsetNames = toSeq(0 ..< nChips).mapIt((chipGroupName % $it) & "/ToT")
     hitDsetNames = toSeq(0 ..< nChips).mapIt((chipGroupName % $it) & "/Hits")
     occDsetNames = toSeq(0 ..< nChips).mapIt((chipGroupName % $it) & "/Occupancy")
@@ -283,7 +283,7 @@ proc readRawInGridData(listOfFiles: seq[string],
 
   let t1 = cpuTime()
   echo &"...Sorting done, took {$(t1 - t0)} seconds"
-  
+
 proc processRawInGridData(ch: seq[Event], runNumber: int): ProcessedRun = #seq[FlowVar[ref Event]]): ProcessedRun =
   ## procedure to process the raw data read from the event files by readRawInGridData
   ## inputs:
@@ -299,10 +299,10 @@ proc processRawInGridData(ch: seq[Event], runNumber: int): ProcessedRun = #seq[F
   ##      occ:    Tensor[int] = (nChips, 256, 256) tensor containing occupancies of all chips for
   ##        this data.
 
-  # get nChips from first `Event`. Can take any, since same for all 
+  # get nChips from first `Event`. Can take any, since same for all
   # events in a run
   let nChips = ch[0].nChips
-  
+
   # variable to count number of processed files
   var
     count = 0
@@ -588,10 +588,10 @@ proc readProcessWriteFadcData(run_folder: string, runNumber: int, h5f: var H5Fil
 
     raw_fadc_data = batchFileReading[FadcFile](mfiles)
 
-    # TODO: read FADC files also by inode and then sort the fadc 
+    # TODO: read FADC files also by inode and then sort the fadc
     # we just read here. NOTE: for that have to change the writeFadcDataToH5
     # proc to accomodate that!
-    
+
     # given read files, we now need to append this data to the HDF5 file, before
     # we can process more data, otherwise we might run out of RAM
     f_proc = raw_fadc_data.processFadcData
@@ -649,7 +649,7 @@ proc initInGridInH5(h5f: var H5FileObj, runNumber, nChips, batchsize: int) =
   var
     totDset = mapIt(names, h5f.datasetCreation(it & "/ToT", int))
     hitDset = mapIt(names, h5f.datasetCreation(it & "/Hits", int))
-    # use normal dataset creation proc, due to static size of occupancies    
+    # use normal dataset creation proc, due to static size of occupancies
     occDset = mapIt(names, h5f.create_dataset(it & "/Occupancy", (256, 256), int))
 
 proc writeInGridAttrs(h5f: var H5FileObj, run: ProcessedRun) =
@@ -681,7 +681,7 @@ proc writeInGridAttrs(h5f: var H5FileObj, run: ProcessedRun) =
       run_group.attrs[it] = att
       reco_group.attrs[it] = att
 
-  # initialize the attribute for the current number of stored events to 0  
+  # initialize the attribute for the current number of stored events to 0
   run_group.attrs["numEventsStored"] = 0
   # write attributes for each chip
   var i = 0
@@ -730,7 +730,7 @@ proc fillDataForH5(x, y: var seq[seq[seq[uint8]]],
     # next two lines :)
     let evNumberRaw = parseInt(event.evHeader["eventNumber"])
     let evNumber = parseInt(event.evHeader["eventNumber"]) - startEvent
-    
+
     duration[i] = event.length
     # add event header information
     for key in keys(evHeaders):
@@ -779,8 +779,8 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
        chipGroupName,
        combineGroupName) = inGridGroupNames(run.runNumber)
   # another dirty template to get the groups for the names
-  var (runGroup, recoGroup, combineGroup, chipGroups) = inGridGroups(h5f, nChips) 
-  let (ev_type_xy, ev_type_ch, eventHeaderKeys) = specialTypesAndEvKeys()  
+  var (runGroup, recoGroup, combineGroup, chipGroups) = inGridGroups(h5f, nChips)
+  let (ev_type_xy, ev_type_ch, eventHeaderKeys) = specialTypesAndEvKeys()
 
   var
     # get the datasets from the file in `chipGroups`
@@ -812,7 +812,7 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
   ##### Fill the data seqs #####
   ##############################
 
-  # use 
+  # use
   let oldsize = runGroup.attrs["numEventsStored", int]
   let newsize = oldsize + nEvents
   # set new size as attribute
@@ -842,7 +842,7 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
     x_dsets[i].writeHyper(x[i])
     y_dsets[i].writeHyper(y[i])
     ch_dsets[i].writeHyper(ch[i])
-    
+
   for key, dset in mpairs(evHeadersDsetTab):
     echo "Writing $# in $#" % [$key, $dset]
     dset.resize((newsize, 1))
@@ -859,7 +859,7 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
 
   # TODO: maybe this needs to be done in a pass after everything has been done?
   # at least for occupancy?
-  
+
   echo "ToTs shape is ", run.tots.shape
   echo "hits shape is ", run.hits.shape
   # into the reco group name we now write the ToT and Hits information
@@ -882,7 +882,7 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
       hitDset = hitDsets[chip]
       occDset = occDsets[chip]
     let newTotSize = totDset.shape[0] + tot.len
-    let newHitSize = hitDset.shape[0] + hit.len    
+    let newHitSize = hitDset.shape[0] + hit.len
 
     let totOldSize = totDset.shape[0]
     totDset.resize((newTotSize, 1))
@@ -891,7 +891,7 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
     totDset.write_hyperslab(tot.reshape([tot.len, 1]), offset = @[totOldSize, 0], count = @[tot.len, 1])
     hitDset.writeHyper(hit.reshape([hit.len, 1]))
     # TODO: fix the occupancies! Currently only last batchs' occupancy stored!!!
-    occDset[occDset.all] = occ
+    occDset.unsafeWrite(occ.get_data_ptr, occ.size)
 
 proc linkRawToReco(h5f: var H5FileObj, runNumber, nChips: int) =
   ## perform linking from raw group to reco group
@@ -905,7 +905,7 @@ proc linkRawToReco(h5f: var H5FileObj, runNumber, nChips: int) =
        occDsetNames) = getTotHitOccDsetNames(chipGroupName, nChips)
   let
     durationDsetName = joinPath(groupName, "eventDuration")
-  
+
   # link over to reconstruction group
   h5f.create_hardlink(durationDsetName, recoGroupName / extractFilename(durationDsetName))
   # create hard links of header data to reco group
@@ -940,7 +940,7 @@ proc processAndWriteInGrid(listOfFiles: seq[string],
   # process the data read into seq of FlowVars, save as result
   result = processRawInGridData(ingrid, runNumber)
 
-proc processAndWriteFadc(run_folder: string, runNumber: int, h5f: var H5FileObj) =   
+proc processAndWriteFadc(run_folder: string, runNumber: int, h5f: var H5FileObj) =
   # for the FADC we call a single function here, which works on
   # the FADC files in a buffered way, always reading 1000 FADC
   # filsa at a time.
@@ -965,11 +965,11 @@ proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string, nofadc = f
   batchFiles(files, batchsize - 1):
     let r = processAndWriteInGrid(files[0 .. ind_high], h5f, runNumber, rfKind, nofadc)
     nChips = r.nChips
-    
+
     if attrsWritten == false:
       writeInGridAttrs(h5f, r)
       attrsWritten = true
-    
+
     let a = squeeze(r.occupancies[2,_,_])
     dumpFrameToFile("tmp/frame.txt", a)
     initInGridInH5(h5f, runNumber, nChips, batchsize)
@@ -980,8 +980,8 @@ proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string, nofadc = f
   # Create Hardlinks #
   ####################
   linkRawToReco(h5f, runNumber, nChips)
-    
-    
+
+
 
   # dump sequences to file
   #dumpToTandHits(folder, run_type, r.tots, r.hits)
@@ -1019,12 +1019,12 @@ proc main() =
     # hand H5FileObj to processSingleRun, because we need to write intermediate
     # steps to the H5 file for the FADC, otherwise we use too much RAM
     # in order to write the processed run and FADC data to file, open the HDF5 file
-    var h5f = H5file(outfile, "rw")    
+    var h5f = H5file(outfile, "rw")
     processAndWriteSingleRun(h5f, folder, nofadc)
     echo "free memory ", getFreeMem()
     echo "occupied memory so far $# \n\n" % [$getOccupiedMem()]
     echo "Closing h5file with code ", h5f.close()
-    
+
   elif is_run_folder == false and contains_run_folder == true:
     # in this case loop over all folder again and call processSingleRun() for each
     # run folder
@@ -1043,7 +1043,7 @@ proc main() =
           let errC = execCmd(command)
           if errC != 0:
             quit("Subprocess failed with " & $errC)
-          
+
           # TODO: the following is the normal code. However, it leaks memory. That's
           # why we currently just call this script on the subfolder
           # echo "Start processing run $#" % $path
@@ -1052,7 +1052,7 @@ proc main() =
           # echo "Closing h5file with code ", h5f.close()
           # dumpNumberOfInstances()
           # GC_fullCollect()
-          # dumpNumberOfInstances()          
+          # dumpNumberOfInstances()
         echo "occupied memory after gc $#" % [$getOccupiedMem()]
   elif is_run_folder == true and contains_run_folder == true:
     echo "Currently not implemented to run over nested run folders."

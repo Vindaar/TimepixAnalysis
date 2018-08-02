@@ -32,18 +32,18 @@ import arraymancer
 #       break
 #   result
 
-# proc argmin*[T](a: AnyTensor[T], axis: int): int =
-#   let `min` = min(a)
-#   for i, x in a:
-#     if x == `min`:
-#       return i[axis]
+proc argmin*[T](a: AnyTensor[T], axis: int): int =
+  let `min` = min(a)
+  for i, x in a:
+    if x == `min`:
+      return i[axis]
 
-# proc argmin*[T](a: AnyTensor[T]): int =
-#   # argmin for 1D tensors
-#   let `min` = min(a)
-#   for i, x in a:
-#     if x == `min`:
-#       return i[0]
+proc argmin*[T](a: AnyTensor[T]): int =
+  # argmin for 1D tensors
+  let `min` = min(a)
+  for i, x in a:
+    if x == `min`:
+      return i[0]
 
 macro `+`*[N, M: int](a: array[N, string], b: array[M, string]): untyped =
   ## macro to concat two const arrays `a`, `b` at compile time to return a new
@@ -352,7 +352,7 @@ proc getDaysHoursMinutes*(dur: Duration): string =
 
 template getDateSyntax*(): string =
   ## returns the default syntax used when echoing a `DateTime` or `Time` object
-  ## to parse a thusly created string   
+  ## to parse a thusly created string
   "yyyy-MM-dd'T'HH-mm-sszzz"
 
 when isMainModule:

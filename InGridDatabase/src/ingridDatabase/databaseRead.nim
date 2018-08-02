@@ -1,4 +1,4 @@
-import ospaths
+import ospaths, sequtils
 import nimhdf5, seqmath, helper_functions, arraymancer
 
 import databaseUtils
@@ -38,7 +38,7 @@ proc getScurve*(chipName: string, voltage: int): SCurve =
   ## overload of above for the case of non opened H5 file
   withDatabase:
     result = h5f.getScurve(chipName, voltage)
-    
+
 proc getScurveSeq*(chipName: string): SCurveSeq =
   ## read all SCurves of `chipName` and return an `SCurveSeq`
   # init result seqs (for some reason necessary?!)
@@ -82,4 +82,3 @@ proc getTotCalibParameters*(chipName: string):
       c = grp.attrs["c", float64]
       t = grp.attrs["t", float64]
     result = (a, b, c, t)
-

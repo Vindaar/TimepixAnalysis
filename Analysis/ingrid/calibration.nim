@@ -12,7 +12,7 @@ import math
 import plotly
 
 import tos_helpers
-import helper_functions
+import helpers/utils
 import ingrid_types
 import ingridDatabase/databaseRead
 import ingridDatabase/databaseDefinitions

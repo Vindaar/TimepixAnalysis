@@ -1,5 +1,5 @@
 import ospaths, sequtils
-import nimhdf5, seqmath, helper_functions, arraymancer
+import nimhdf5, seqmath, helpers/utils, arraymancer
 
 import databaseUtils
 import databaseDefinitions

@@ -158,7 +158,11 @@ def plotData(hist, binning, range, outfile, title, xlabel, ylabel, save_plot = T
             else:
                 # now create numpy array from list of arrays, flatten it and
                 # concat individual arrays to single one
-                hist = np.concatenate(np.asarray(hist).flatten())
+                shape = np.shape(hist)
+                if shape[0] > 1:
+                    hist = np.concatenate(np.asarray(hist).flatten())
+                else:
+                    hist = np.asarray(hist).flatten()
                 ax.hist(hist, bins = binning, range = range, linewidth = 0.0)
         except ValueError:
             print("something broken on outfile {}".format(outfile))

@@ -147,7 +147,15 @@ def plotData(hist, binning, range, outfile, title, xlabel, ylabel, save_plot = T
                 # in this case we plot 2 files instead of 1
                 colors = ["red", "blue", "green", "purple", "sienna"]
                 for i in xrange(len(hist)):
-                    hist_i = hist[i] #np.concatenate(hist[i]).flatten()
+                    try:
+                        # if this works we're dealing with datasets like ToT, x and y, which are
+                        # VLEN datasets (== 1D dataset where each element is a variable length
+                        # vector). If a 1D scalar dataset is given, the next line will raise
+                        # a ValueError, since 1D cannot be concat'd
+                        hist_i = np.concatenate(hist[i]).flatten()
+                    except ValueError:
+                        # in this case (1D scalar dset) just take the element as is
+                        hist_i = hist[i]
                     ax.hist(hist_i,
                             bins = binning,
                             range = range,

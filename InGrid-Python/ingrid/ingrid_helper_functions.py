@@ -320,7 +320,7 @@ def readH5Data(h5file, group_name, chip, dset_names):
         for name in iterH5RunGroups(h5f, group_name):
             if "fadc" in dset_names[0]:
                 grp_name = group_name + name + "/fadc"
-                result.extend(readH5DataSingle(h5f, grp_name, [dset_names[0].lstrip("fadc_")]))
+                result.extend(readFadcInGridDset(h5f, grp_name, dset_names[0]))
             else:
                 grp_name = group_name + name + "/chip_{}".format(chip)
                 print("Reading group {}".format(grp_name))

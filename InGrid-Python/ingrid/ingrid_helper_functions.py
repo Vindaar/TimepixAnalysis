@@ -33,7 +33,7 @@ def getBinRangeForDset(dset):
     elif dset == "kurtosisTransverse":
         return (-2, 8)
     elif dset == "eccentricity":
-        return (0, 7.5)
+        return (1.0, 3.5)
     elif dset == "ToT":
         return (0, 250)
     elif dset == "length_rmsTransverse":

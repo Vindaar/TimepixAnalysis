@@ -199,14 +199,12 @@ proc findThresholdValue[T](data: seq[seq[T]], x_min: seq[int], threshold: seq[T]
       # positive == true would mean el[x] > thr
       if left == true:
         dec x
-        # NOTE: the 2 here represents the fact that the FADC data is 0 for the first entry in the
-        # array!
-        if x < 2:
-          x = el.len
+        if x == 0:
+          x = el.high
       else:
         inc x
         if x > el.high:
-          x = 2
+          x = 0
       inc count
     # once we're out, we found our threshold in the data
     if count >= 2560:

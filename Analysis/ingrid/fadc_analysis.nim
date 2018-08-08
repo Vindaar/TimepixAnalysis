@@ -187,9 +187,9 @@ proc writeNoiseData(tab_tup: tuple[f50, f100: Table[string, float64]], outfile: 
     
 
 proc findThresholdValue[T](data: seq[seq[T]], x_min: seq[int], threshold: seq[T], left = true, positive = false): seq[int] =
-  # left determines whether we start search left or right
-  # positive sets the range of the data. postiive == false means we consider
-  # dips instaed of peaks
+  ## left determines whether we start search left or right
+  ## positive sets the range of the data. postiive == false means we consider
+  ## dips instaed of peaks
   result = newSeq[int](x_min.len)
   for i, el in data:
     let thr     = threshold[i]
@@ -217,8 +217,8 @@ proc findThresholdValue[T](data: seq[seq[T]], x_min: seq[int], threshold: seq[T]
 
 
 proc reshapeFadc[T](s: seq[T], shape = int): seq[seq[T]] =
-  # unfinished proc which reshapes the given sequence to a
-  # higher order nested sequence. Currently hardcoded for FADC
+  ## unfinished proc which reshapes the given sequence to a
+  ## higher order nested sequence. Currently hardcoded for FADC
   let dim2 = s.len
   var tmp: seq[T] = @[]
   echo dim2
@@ -231,6 +231,8 @@ proc reshapeFadc[T](s: seq[T], shape = int): seq[seq[T]] =
     tmp.add s[i]
 
 proc diffUnderModulo[T](a, b: T, modulo: int): T {.inline.} =
+  ## returns the difference between two values taking into account
+  ## modulo a certain value
   let
     d1 = abs(a - b)
     d2 = abs(modulo - abs(a - b))
@@ -238,7 +240,7 @@ proc diffUnderModulo[T](a, b: T, modulo: int): T {.inline.} =
 
 proc calcRiseAndFallTimes*(h5f: var H5FileObj, run_number: int) =
   ## proc which reads the FADC data from the given file
-  ## then performs the calculation of fall and rise tim
+  ## then performs the calculation of fall and rise time
   ## starting from the index of the minimum
 
   let

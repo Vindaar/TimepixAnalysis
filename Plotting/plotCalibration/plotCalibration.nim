@@ -12,7 +12,7 @@ import ingrid/ingrid_types
 import ingrid/tos_helpers
 import ingrid/calibration
 import helpers/utils
-import ingridDatabase
+import ingridDatabase / [databaseDefinitions, databaseRead]
 
 type
   # for clarity define a type for the Docopt argument table

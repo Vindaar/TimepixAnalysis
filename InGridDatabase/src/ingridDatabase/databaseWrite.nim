@@ -8,7 +8,7 @@ import databaseDefinitions
 
 # cannot import `Chip`, due to clash with this modules `Chip`
 import ingrid/ingrid_types except Chip
-import helper_functions
+import helpers/utils
 
 proc writeTotCalibAttrs*(h5f: var H5FileObj, chip: string, fitRes: FitResult) =
   ## writes the fit results as attributes to the H5 file for `chip`

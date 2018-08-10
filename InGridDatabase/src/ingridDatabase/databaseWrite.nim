@@ -29,7 +29,7 @@ proc writeThreshold*(h5f: var H5FileObj, threshold: Threshold, chipGroupName: st
                                           (256, 256),
                                           dtype = int)
   thresholdDset[thresholdDset.all] = threshold.data.reshape([256, 256])
-  
+
 
 proc addChipToH5*(chip: Chip,
                   fsr: FSR,
@@ -57,9 +57,9 @@ proc addChipToH5*(chip: Chip,
       var scurveDset = h5f.create_dataset(joinPath(scurveGroup.name,
                                                    curve.name),
                                           (curve.thl.len, 2),
-                                          dtype = int)
+                                          dtype = float)
       # reshape the data to be two columns of [thl, hits] pairs and write
-      scurveDset[scurveDset.all] = zip(curve.thl, curve.hits).mapIt(@[it[0], it[1]])
+      scurveDset[scurveDset.all] = zip(curve.thl.asType(float), curve.hits).mapIt(@[it[0], it[1]])
       # add voltage of dataset as attribute (for easier reading)
       scurveDset.attrs["voltage"] = curve.voltage
 

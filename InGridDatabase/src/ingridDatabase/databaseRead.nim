@@ -29,9 +29,9 @@ proc getScurve*[T: SomeInteger](h5f: var H5FileObj,
                           result.name)
   result.voltage = voltage
   var dset = h5f[dsetName.dset_str]
-  let data = dset[int64].reshape2D(dset.shape).transpose
+  let data = dset[float64].reshape2D(dset.shape).transpose
   result.thl = data[0].asType(int)
-  result.hits = data[1].asType(int)
+  result.hits = data[1]
 
 proc getScurve*(chipName: string, voltage: int): SCurve =
   ## reads the given voltages' SCurve for `chipName`

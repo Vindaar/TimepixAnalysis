@@ -22,7 +22,7 @@ const
   ScalePulses = 1.01
   CurveHalfWidth = 15
 
-func findDrop(thl, count: seq[int]): (float, int, int) =
+func findDrop(thl: seq[int], count: seq[float]): (float, int, int) =
   ## search for the drop of the SCurve, i.e.
   ##
   ##    ___/\__

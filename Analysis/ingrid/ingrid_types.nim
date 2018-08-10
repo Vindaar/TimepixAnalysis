@@ -30,7 +30,7 @@ type
   ChipEvent* = object
     chip*: Chip
     pixels*: Pixels
-    
+
   Event* = object
     evHeader*: Table[string, string]
     chips*: seq[ChipEvent]
@@ -55,8 +55,8 @@ type
     name*: string
     voltage*: int
     thl*: seq[int]
-    hits*: seq[int]
-    
+    hits*: seq[float]
+
   SCurveSeq* = object
     files*: seq[string]
     curves*: seq[SCurve]

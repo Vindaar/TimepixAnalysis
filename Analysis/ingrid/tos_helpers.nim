@@ -104,7 +104,7 @@ proc readScurveVoltageFile*(filename: string): SCurve =
   # - filter lines with no content
   # - create tuple of (THL, Counts) for each line
   let dataTuple = readFile(file).splitLines[2..^1].filterIt(it.len > 0).mapIt(
-    ((it.split('\t')[0].parseInt, it.split('\t')[1].parseInt))
+    ((it.split('\t')[0].parseInt, it.split('\t')[1].parseFloat))
   )
   result.name = filename
   result.voltage = file.extractFilename.strip(chars = {'a'..'z', '_', '.'}).parseInt

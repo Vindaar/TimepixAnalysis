@@ -3,7 +3,7 @@ import times
 import tables
 import arraymancer
 
-type 
+type
   # an object, which stores information about a run's start, end and length
   RunTimeInfo* = object
     t_start*: Time
@@ -18,7 +18,7 @@ type
   # Coord type which contains (x, y) coordinates of a pixel
   Coord* = tuple[x, y: int]
   # cluster object
-  Cluster* = seq[Pix]  
+  Cluster* = seq[Pix]
 
   Pixels_prot = object#Table[string, seq[int]]
     x:  seq[int]
@@ -84,7 +84,7 @@ type
   ################################
 
   # object which stores the geometry information of a single
-  # `ClusterObject`    
+  # `ClusterObject`
   ClusterGeometry* = object
     rmsLongitudinal*: float
     rmsTransverse*: float
@@ -129,7 +129,7 @@ type
     runNumber: int,
     # table containing run header ([General] in data file)
     runHeader: Table[string, string],
-    # event which stores raw data    
+    # event which stores raw data
     events: seq[Event],
     # time the shutter was open in seconds, one value for each
     # event
@@ -157,8 +157,8 @@ type
     frequency*: int
     samplingMode*: int
     pedestalRun*: bool
-    
-    
+
+
   # object to save FADC data from file into
   # inherits from FadcObject, only adds a sequence
   # to store the data
@@ -172,13 +172,13 @@ type
   FadcData* = object of FadcObject
     # will be a 2560 element tensor
     data*: Tensor[float]
-    
+
   ProcessedFadcData* = tuple[
     # raw fadc data
     rawFadcData: seq[seq[uint16]],
     # processed and converted FADC data
     fadcData: Tensor[float],
-    # trigger record times, stored 
+    # trigger record times, stored
     trigRecs: seq[int],
     # flag which says whether event was noisy
     noisy: seq[int],
@@ -190,7 +190,7 @@ type
 
   ################################
   #### Analysis related types ####
-  ################################  
+  ################################
 
   ChipRegion* = enum
     crGold, crSilver, crBronze, crAll
@@ -213,4 +213,3 @@ type
 # and some general InGrid related constants
 const NPIX* = 256
 const PITCH* = 0.055
-

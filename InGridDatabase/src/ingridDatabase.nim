@@ -26,11 +26,11 @@ Usage:
   ingridDatabase (--add=FOLDER | --calibrate=TYPE | --modify | --delete=CHIPNAME) [options]
 
 Options:
-  --add=FOLDER        Add the chip contained in the given FOLDER 
+  --add=FOLDER        Add the chip contained in the given FOLDER
                       to the database
   --calibrate=TYPE    Perform given calibration (TOT / SCurve) and save
                       fit parameters as attributes. Calibrates all chips
-                      with suitable data.                      
+                      with suitable data.
   --modify            start a CLI interface to allow viewing the files
                       content and modify attributes / delete elements
   --delete=CHIPNAME   Delete contents of CHIPNAME from database
@@ -38,7 +38,7 @@ Options:
   --version           Show the version number
 
 Documentation:
-  This tool and library aims to provide two things. Running it as a main 
+  This tool and library aims to provide two things. Running it as a main
   module, it is a tool to add / manage the InGrid database HDF5 file, which
   stores information like FSR, thresholds, TOT calibration etc. for each chip
   with the corresponding name and location (e.g. Septem H).
@@ -69,7 +69,7 @@ proc calibrateType(tcKind: TypeCalibrate) =
       let totCalib = fitToTCalib(tot, 0.0)
       # given fit result write attributes:
       h5f.writeTotCalibAttrs(chip, totCalib)
-    
+
   of SCurveCalibrate:
     discard
 
@@ -90,7 +90,7 @@ proc parseCalibrateType(typeStr: string): TypeCalibrate =
   else:
     raise newException(KeyError, "Given type is not a valid type to calibrate " &
       """for. Valid types are ["TOT", "SCurve"] (case insensitive)""")
-    
+
 proc parseChipInfo(filename: string): Chip =
   ## parses the `chipInfo` file and returns a chip object from that
   let info = readFile(filename).splitLines
@@ -113,7 +113,7 @@ proc parseChipInfo(filename: string): Chip =
       else:
         # support for lines without a key
         result.info[line.strip] = ""
-    
+
 proc parseFsr(filename: string): FSR =
   ## parses the contents of a (potential) given FSR file
   ## uses regex `FsrContentReg` to parse the file
@@ -175,7 +175,7 @@ proc addChip(folder: string) =
   ##   The FSR file of that chip
   ## - threshold?.txt
   ##   The threshold equalization of that chip
-  ## - thresholdMeans?.txt                         
+  ## - thresholdMeans?.txt
   ##   The mean values of threshold equalization of that chip
   ## - SCurve/
   ##   A folder containing the SCurves for that chip
@@ -196,7 +196,7 @@ proc addChip(folder: string) =
   let fsr = parseFsr fsrFileName
   if fsr.len > 0:
     echo fsr
-  
+
   # check for SCurves
   var scurves: SCurveSeq
   if dirExists(joinPath(folder, SCurveFolder)) == true:
@@ -239,8 +239,7 @@ proc main() =
     calibrateType calibrateStr.parseCalibrateType
   else:
     # call proc to add data from folder to database
-    addChip(addStr)  
+    addChip(addStr)
 
 when isMainModule:
   main()
-    

@@ -56,7 +56,7 @@ proc readToTFile*(filename: string,
   # create seqs for each column
   var
     pulses: seq[float]
-    mean: seq[float]  
+    mean: seq[float]
     std: seq[float]
   try:
     pulses = dataLines.mapIt(it.splitWhitespace[1].parseFloat)
@@ -297,7 +297,7 @@ proc calcLength*(event: Event, time, mode: float): float =
   var fadc_triggered = 0
   if event.evHeader.hasKey("fadcReadout"):
     fadc_triggered = parseInt(event.evHeader["fadcReadout"])
-  
+
   if unlikely(fadc_triggered == 1):
     let fadc_clock_triggered = parseFloat(event.evHeader["fadcTriggerClock"])
     # in case FADC triggered it's simply the number of clockcycles the shutter was open
@@ -403,7 +403,7 @@ proc processEventWithRegex*(data: seq[string],
     # suppression!
     pix_to_read: int = 0
   result = new Event
-  
+
   for line in data[1 .. ^1]:
     # NOTE: match using matching template
     if line =~ regex.header:
@@ -458,7 +458,7 @@ proc processEventWithRegex*(data: seq[string],
 
   result.evHeader = e_header
   result.chips = chips
-  result.nChips = chips.len  
+  result.nChips = chips.len
 
 proc processOldEventWithRegex*(data: seq[string],
                                regPixels: Regex): ref OldEvent =
@@ -486,11 +486,11 @@ proc processOldEventWithRegex*(data: seq[string],
     # is no header
     pix_to_read: int = 0
   result = new OldEvent
-  
+
   let filepath = data[0]
   # check for run folder kind by looking at first line of file
   assert data[1][0] != '#', "This is not a valid rfOldTos file (old storage format)!" & data[1]
-   
+
   for line in data[1 .. ^1]:
     # match with template
     if line =~ regPixels:
@@ -541,7 +541,7 @@ proc processOldEventWithRegex*(data: seq[string],
   result.nChips = chips.len
 
 proc processEventWrapper(data: seq[string],
-                         regex: tuple[header, chips, pixels: Regex],                         
+                         regex: tuple[header, chips, pixels: Regex],
                          rfKind: RunFolderKind): ref Event =
   ## wrapper around both process event procs, which determines which one to call
   ## based on the run folder kind. Need a wrapper, due to usage of spawn in
@@ -728,7 +728,7 @@ proc readListOfFiles*[T](list_of_files: seq[string],
     # determine the run folder kind
     let rfKind = if mmfiles[0][1][0] == '#': rfNewTos else: rfOldTos
     echo "rf kind is ", rfKind
-    
+
   parallel:
     var f_count = 0
     for i, s in mmfiles:
@@ -789,7 +789,7 @@ proc isTosRunFolder*(folder: string):
   # TODO: check whether following works
   const oldTosRunDescriptorPrefix = OldTosRunDescriptorPrefix
   var oldTosRunDescriptor: Regex
-  
+
   let eventRegex = re(eventRegexInGrid) #r".*data\d{4,6}(_1_[0-9]+)?.*\.txt$")
   var matches_rf_name: bool = false
   var runNumber: array[1, string]
@@ -808,8 +808,8 @@ proc isTosRunFolder*(folder: string):
     oldTosRunDescriptor = re(oldTosRunDescriptorPrefix & oldRunRegexStr)
     if folder =~ oldTosRunDescriptor:
       result.runNumber = matches[0].parseInt
-      
-  
+
+
   for kind, path in walkDir(folder):
     if kind == pcFile:
       if match(path, eventRegex) == true and matches_rf_name == true:
@@ -860,7 +860,7 @@ proc extractRunFolderKind*(runFolder: string): RunFolderKind =
 
 ################################################################################
 ############# Geometry calculation related procs ###############################
-################################################################################  
+################################################################################
 
 # proc sum*[T: tuple](s: seq[T]): T {.inline.} =
 #   # this procedure sums the given array along the given axis
@@ -970,7 +970,7 @@ proc getSeptemHChip*(chipNumber: int): string =
                  "D9 W69",
                  "L8 W69"]
   result = names[chipNumber]
-                 
+
 #####################################################
 # Procs describing the data layout in the HDF5 file #
 #####################################################
@@ -990,7 +990,7 @@ proc getFloatClusterNames*(): array[2, string] =
 proc getFloatDsetNames*(): array[14, string] =
   ## returns the names of all datasets in the H5 output file, which appear as
   ## (N, 1) data columns. Combination of two above procs
-  # need to define consts of arrays to use `+` macro  
+  # need to define consts of arrays to use `+` macro
   const
     float_geo = getFloatGeometryNames()
     float_obj = getFloatClusterNames()
@@ -1000,7 +1000,7 @@ proc getIntClusterNames*(): array[2, string] =
   ## returns names of datasets in H5 output file, which are integer datasets and
   ## members of a `ClusterObject`
   result = ["hits", "sumTot"]
-  
+
 proc getIntDsetNames*(): array[3, string] =
   ## returns all names of integer dataset for the H5 output file, which appear
   ## as (N, 1) data columns
@@ -1229,7 +1229,7 @@ proc getRegionCut*(region: ChipRegion): CutsRegion =
     xMaxChip = 14.0
     yMinChip = 0.0
     yMaxChip = 14.0
-  
+
   case region
   of crGold:
     result = CutsRegion(xMin: 4.5,
@@ -1275,12 +1275,12 @@ proc getTrackingEvents*(h5f: var H5FileObj, group: H5Group, num_tracking: int = 
     # try except for check of num_trackings
     let ntrackings = attrs["num_trackings", int]
     const date_syntax = getDateSyntax()
-    
+
     var
       tr_starts = newSeq[DateTime](ntrackings)
       tr_stops  = newSeq[DateTime](ntrackings)
     for i in 0 ..< ntrackings:
-      # get start and stop time of each tracking 
+      # get start and stop time of each tracking
       tr_starts[i] = attrs[&"tracking_start_{i}", string].parse(date_syntax)
       tr_stops[i]  = attrs[&"tracking_stop_{i}", string].parse(date_syntax)
     # get the timestamp of all events
@@ -1309,12 +1309,12 @@ proc getTrackingEvents*(h5f: var H5FileObj, group: H5Group, num_tracking: int = 
       let allTrackingsFlat = flatten(allTrackingInds)
       # and now filter all indices not part of flattened index
       result = filterIt(toSeq(0 ..< tstamp.len)) do:
-        it notin allTrackingsFlat    
+        it notin allTrackingsFlat
   except KeyError:
     # in this case there is no tracking information. Keep all indices
     echo &"No tracking information in {group.name} found, use all clusters"
     result = @[]
-    
+
 
 proc filterTrackingEvents*[T: SomeInteger](cluster_events: seq[T], tracking_inds: seq[int]): seq[int] =
   ## filters out all indices (= event numbers) of a reconstructed run for one chip
@@ -1333,7 +1333,7 @@ proc filterTrackingEvents*[T: SomeInteger](cluster_events: seq[T], tracking_inds
     # create capped sequence of max possible length `cluster_events`
     result = newSeqOfCap[int](cluster_events.len)
     # using allowed events get indices for other events by iterating
-    # over all allowed events and removing those, which are not 
+    # over all allowed events and removing those, which are not
     # in the events of a chip
     for ind in tracking_inds:
       # remove all events of the allowed events, which are not
@@ -1355,7 +1355,7 @@ proc filterTrackingEvents*(h5f: var H5FileObj, group: H5Group, tracking_inds: se
   result = filterTrackingEvents(evNumbers, tracking_inds)
 
 iterator runs*(h5f: var H5FileObj, data_basename = recoBase()): (string, string) =
-  ## simple iterator, which yields the run number and group name of runs in the file. 
+  ## simple iterator, which yields the run number and group name of runs in the file.
   ## If reco is true (default) we yield reconstruction groups, else raw groups
   if h5f.visited == false:
     h5f.visit_file

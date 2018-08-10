@@ -82,8 +82,6 @@ proc addChipToH5*(chip: Chip,
     h5f.writeThreshold(threshold, chipGroup.name)
 
   #if thresholdMeans.shape == @[256, 256]:
-  #  h5f.writeThreshold(thresholdMeans, chipGroup.name)    
-  
-  let err = h5f.close()
+  #  h5f.writeThreshold(thresholdMeans, chipGroup.name)
 
-        
+  let err = h5f.close()

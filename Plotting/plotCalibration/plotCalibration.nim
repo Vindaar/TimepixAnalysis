@@ -23,7 +23,7 @@ template canImport(x: untyped): bool =
     import x
 
 when canImport(ingridDatabase):
-  # only in this case give option to use plot from database  
+  # only in this case give option to use plot from database
   import ingridDatabase
 
 const doc = """
@@ -35,12 +35,12 @@ Usage:
 Options:
   --scurve         If set, perform SCurve analysis
   --tot            If set, perform ToT calibration analysis
-  --db=chipNumber  If given will read information from InGrid database, if 
+  --db=chipNumber  If given will read information from InGrid database, if
                    available
   --file=FILE      If given will read from a single file
   --folder=FOLDER  If given will read all voltage files from the given folder
   --chip=NUMBER    The number of this chip
-  --startFit=FIT   Start the TOT fit from this measurement. If differs from 
+  --startFit=FIT   Start the TOT fit from this measurement. If differs from
                    StartToT constant in source code (or the --startTot value),
                    the other datapoints will still be plotted.
   --startTot=TOT   Read the ToT file from this pulse height
@@ -164,7 +164,7 @@ proc sCurve(args: DocoptTab, chip: string) =
     thlErr: seq[float] = @[]
 
   for curve in sCurves(args):
-    let trace = getTrace(curve.thl, curve.hits, $curve.voltage)
+    let trace = getTrace(curve.thl.asType(float), curve.hits, $curve.voltage)
     traces.add trace
     voltages.incl int16(curve.voltage)
     if curve.voltage > 0:
@@ -218,12 +218,12 @@ proc parseTotInput(args: DocoptTab, startTot = 0.0): (int, Tot) =
       tot = getTotCalib(chipName)
   elif file != "nil":
     (chip, tot) = readToTFile(file, startTot)
- 
+
   else:
     for f in walkFiles(folder.expandTilde & "/*.txt"):
       # TODO: implement multiple in same plot?
       (chip, tot) = readToTFile(f, startTot)
-    
+
   result = (chip, tot)
 
 proc totCalib(args: DocoptTab, startFit = 0.0, startTot = 0.0) =
@@ -258,7 +258,7 @@ proc main() =
     sCurve(args, chip)
   elif tot == true:
     var startFit = 0.0
-    var startTot = 0.0    
+    var startTot = 0.0
     if startFitStr != "nil":
       startFit = startFitStr.parseFloat
     if startTotStr != "nil":

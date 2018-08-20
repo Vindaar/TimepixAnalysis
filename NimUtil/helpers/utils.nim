@@ -290,7 +290,7 @@ proc untarFile*(filepath: string): string =
   #   filepath: string = the absolute path to the run file to be extracted
   # outputs:
   #   on success: the path to the extracted run folder
-  #   on failure: nil
+  #   on failure: ""
 
   # if successful, it will return the path to the extracted run folder
   let (dir, name_tar, ext) = splitFile(filepath)
@@ -304,7 +304,7 @@ proc untarFile*(filepath: string): string =
   var (x, y) = execCmdEx(cmd_tar)
   if y != 0:
     echo "Warning: the extraction failed with exit status: x = ", x, " y = ", y
-    return nil
+    result = ""
   else:
     # in this case tar returned 0 (== success)
     # now that we have extracted the folder, get list of files in run folder

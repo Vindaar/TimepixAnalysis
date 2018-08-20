@@ -164,7 +164,7 @@ proc workOnRunFolder(rf: string): (seq[int64], seq[int64]) =
   if is_tar:
     # in this case we need to extract the file to a temp directory
     runFolder = untarFile(runFolder)
-    if runFolder == nil:
+    if runFolder == "":
       echo "Warning: Could not untar the run folder successfully. Exiting now."
       quit()
 

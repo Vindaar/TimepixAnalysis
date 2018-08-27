@@ -139,7 +139,7 @@ type
     # hits = num hits per event of whole run
     hits: seq[seq[int]],
     # occupancies = occupancies of each chip for run
-    occupancies: Tensor[int]
+    occupancies: Tensor[int64]
     #occupancies: seq[Tensor[int]]
   ]
 

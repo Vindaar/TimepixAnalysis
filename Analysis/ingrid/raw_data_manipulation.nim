@@ -312,7 +312,7 @@ proc processRawInGridData(ch: seq[Event], runNumber: int): ProcessedRun = #seq[F
     tot_run: seq[seq[seq[int]]] = newSeq[seq[seq[int]]](nChips)
     # store occupancy frames for each chip
     # TODO: allow for other values than 7 chips!
-    occ = zeros[int](nChips, 256, 256)
+    occ = zeros[int64](nChips, 256, 256)
     # store number of hits for each chip
     hits = newSeq[seq[int]](nChips)
     # initialize the events sequence of result, since we add to this sequence
@@ -876,7 +876,7 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
     let
       tot = run.tots[chip]
       hit = run.hits[chip]
-      occ = run.occupancies[chip, _, _].clone
+      occ = run.occupancies[chip, _, _].squeeze.clone
     var
       totDset = totDsets[chip]
       hitDset = hitDsets[chip]
@@ -890,8 +890,11 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
     # need to handle ToT dataset differently
     totDset.write_hyperslab(tot.reshape([tot.len, 1]), offset = @[totOldSize, 0], count = @[tot.len, 1])
     hitDset.writeHyper(hit.reshape([hit.len, 1]))
-    # TODO: fix the occupancies! Currently only last batchs' occupancy stored!!!
-    occDset.unsafeWrite(occ.get_data_ptr, occ.size)
+    # before writing the occupancy dataset, we need to read the old, stack the current
+    # occupancy on it and finally write the result
+    let stackOcc = occDset[int64].toTensor.reshape([256, 256]) .+ occ
+    occDset.unsafeWrite(stackOcc.get_data_ptr, stackOcc.size)
+
 
 proc linkRawToReco(h5f: var H5FileObj, runNumber, nChips: int) =
   ## perform linking from raw group to reco group

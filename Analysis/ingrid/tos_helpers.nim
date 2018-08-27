@@ -577,27 +577,27 @@ proc pixelsToTOT*(pixels: Pixels): seq[int] {.inline.} =
   result = filter(map(pixels, (p: tuple[x, y, ch: int]) -> int => p.ch),
                   (ch: int) -> bool => ch < 11810)
 
-template addPixelsToOccupancy*(ar: Tensor[int], pixels: Pixels) =
+template addPixelsToOccupancy*[T](ar: Tensor[T], pixels: Pixels) =
   # template to add pixels to occupancy by using map
   #map(pixels, (p: tuple[x, y, c: int]) => ar[p.x, p.y] = p.c)
   for p in pixels:
     ar[p.x, p.y] += 1#p.ch
 
-template addPixelsToOccupancySeptem*(ar: var Tensor[int], pixels: Pixels, ch_num: int) =
+template addPixelsToOccupancySeptem*[T](ar: var Tensor[T], pixels: Pixels, ch_num: int) =
   # template to add pixels to occupancy by using map
   #map(pixels, (p: tuple[x, y, c: int]) => ar[p.x, p.y] = p.c)
   #proc(ar: var Tensor[int], pixels: Pixels, ch_num: int) =
   for p in pixels:
     ar[ch_num, p.x, p.y] += 1#p.ch
 
-proc createTensorFromZeroSuppressed*(pixels: Pixels): Tensor[int] =
+proc createTensorFromZeroSuppressed*[T](pixels: Pixels): Tensor[T] =
   # procedure to create a (256, 256) int array from a Pixels (seq[tuple[x, y, ch]])
   # object
-  result = zeros[int](256, 256)
+  result = zeros[T](256, 256)
   for p in pixels:
     result[p.x, p.y] = p.ch
 
-proc dumpFrameToFile*(filepath: string, ar: Tensor[int]) =
+proc dumpFrameToFile*[T](filepath: string, ar: Tensor[T]) =
   # this procedure dumps a given frame (tensor ar needs to be of shape (256, 256)
   # to a file 'filepath'
   # inputs:

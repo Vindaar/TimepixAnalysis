@@ -50,7 +50,15 @@ import arraymancer
 const FILE_BUFSIZE = 10000
 const NChips = 7
 
-let doc = """
+when defined(linux):
+  const commitHash = staticExec("git rev-parse --short HEAD")
+  const currentDate = staticExec("date")
+else:
+  const commitHash = ""
+  const currentDate = ""
+
+const docTmpl = """
+Version: $# built on: $#
 InGrid raw data manipulation.
 
 Usage:
@@ -64,12 +72,13 @@ Usage:
 
 Options:
   --run_type <type>   Select run type (Calib | Data)
-  --out <name>        Filename and path of output file
+  --out <name>        Filename of output file
   --nofadc            Do not read FADC files
   -h --help           Show this help
   --version           Show version.
 
 """
+const doc = docTmpl % [commitHash, currentDate]
 
 template ch_len(): int = 2560
 template all_ch_len(): int = ch_len() * 4

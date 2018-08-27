@@ -38,8 +38,15 @@ type
     cluster: Cluster
     xy: tuple[x, y: float64]
 
+when defined(linux):
+  const commitHash = staticExec("git rev-parse --short HEAD")
+  const currentDate = staticExec("date")
+else:
+  const commitHash = ""
+  const currentDate = ""
 
-let doc = """
+const docTmpl = """
+Version: $# built on: $#
 InGrid reconstruction and energy calibration.
 
 Usage:
@@ -78,6 +85,7 @@ Options:
   -h --help               Show this help
   --version               Show version.
 """
+const doc = docTmpl % [commitHash, currentDate]
 
 template benchmark(num: int, actions: untyped) {.dirty.} =
   for i in 0 ..< num:

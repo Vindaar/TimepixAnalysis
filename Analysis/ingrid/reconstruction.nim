@@ -87,6 +87,11 @@ Options:
 """
 const doc = docTmpl % [commitHash, currentDate]
 
+# the filter we use globally in this file
+let filter = H5Filter(kind: fkZlib, zlibLevel: 4)
+#let filter = H5Filter(kind: fkNone)
+const Chunksize = 10000
+
 template benchmark(num: int, actions: untyped) {.dirty.} =
   for i in 0 ..< num:
     actions
@@ -128,7 +133,12 @@ proc createDatasets[N: int](dset_tab: var Table[string, seq[H5DataSet]],
   for dset in names:
     dset_tab[dset] = newSeq[H5DataSet](nchips)
     for chip in 0 ..< nchips:
-      dset_tab[dset][chip] = h5f.create_dataset(groups[chip].name / dset, lengths[chip], dtype = dtype)
+      dset_tab[dset][chip] = h5f.create_dataset(groups[chip].name / dset, lengths[chip],
+                                                dtype = dtype,
+                                                chunksize = @[Chunksize, 1],
+                                                # calling with maxshape @[] seems to produce `nimhdf5` bug
+                                                maxshape = @[int.high, 1],
+                                                filter = filter)
 
 proc writeRecoRunToH5(h5f: var H5FileObj,
                       h5fraw: var H5FileObj,

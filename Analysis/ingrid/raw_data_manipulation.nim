@@ -80,6 +80,24 @@ Options:
 """
 const doc = docTmpl % [commitHash, currentDate]
 
+# define the compression filter we use
+#let filter = H5Filter(kind: fkZlib, zlibLevel: 6) # on run 146 took: 0.889728331565857 min
+let filter = H5Filter(kind: fkZlib, zlibLevel: 4) # on run 146 took: 0.5987015843391419 min
+#let filter = H5Filter(kind: fkZlib, zlibLevel: 9) # on run 146 took:  2.170824865500132 min
+# let filter = H5Filter(kind: fkBlosc, bloscLevel: 4,
+#                       doShuffle: false,
+#                       compressor: BloscCompressor.LZ4) # on run 146 took: 0.7583944002787272 min
+# let filter = H5Filter(kind: fkBlosc, bloscLevel: 9,
+#                       doShuffle: false,
+#                       compressor: BloscCompressor.LZ4) # on run 146 took: 0.6799025972684224 min
+# let filter = H5Filter(kind: fkBlosc, bloscLevel: 4,
+#                       doShuffle: true,
+#                       compressor: BloscCompressor.LZ4) # on run 146 took: 0.6656568646430969 min
+# let filter = H5Filter(kind: fkBlosc, bloscLevel: 9,
+#                       doShuffle: true,
+#                       compressor: BloscCompressor.LZ4) # on run 146 took: 0.4899360696474711 min
+# let filter = H5Filter(kind: fkNone)
+
 template ch_len(): int = 2560
 template all_ch_len(): int = ch_len() * 4
 
@@ -455,25 +473,30 @@ proc initFadcInH5(h5f: var H5FileObj, runNumber, batchsize: int, filename: strin
     raw_fadc_dset = h5f.create_dataset(rawFadcBasename(runNumber), (0, all_ch_len),
                                        uint16,
                                        chunksize = @[batchsize, all_ch_len],
-                                       maxshape = @[int.high, all_ch_len])
+                                       maxshape = @[int.high, all_ch_len],
+                                       filter = filter)
     fadc_dset     = h5f.create_dataset(fadcDataBasename(runNumber), (0, ch_len),
                                        float,
                                        chunksize = @[batchsize, ch_len],
-                                       maxshape = @[int.high, ch_len])
+                                       maxshape = @[int.high, ch_len],
+                                       filter = filter)
     trigrec_dset  = h5f.create_dataset(trigrecBasename(runNumber), (0, 1),
                                        int,
                                        chunksize = @[batchsize, 1],
-                                       maxshape = @[int.high, 1])
+                                       maxshape = @[int.high, 1],
+                                       filter = filter)
     # dataset stores flag whether FADC event was a noisy one (using our algorithm)
     noisy_dset    = h5f.create_dataset(noiseBasename(runNumber), (0, 1),
                                        int,
                                        chunksize = @[batchsize, 1],
-                                       maxshape = @[int.high, 1])
+                                       maxshape = @[int.high, 1],
+                                       filter = filter)
     # dataset stores minima of each FADC event, dip voltage
     minVals_dset  = h5f.create_dataset(minValsBasename(runNumber), (0, 1),
                                        float,
                                        chunksize = @[batchsize, 1],
-                                       maxshape = @[int.high, 1])
+                                       maxshape = @[int.high, 1],
+                                       filter = filter)
 
   # write attributes to FADC groups
   # read the given FADC file and extract that information from it
@@ -627,7 +650,8 @@ proc initInGridInH5(h5f: var H5FileObj, runNumber, nChips, batchsize: int) =
                        (0, 1),
                        dtype = `type`,
                        chunksize = @[batchsize, 1],
-                       maxshape = @[int.high, 1])
+                       maxshape = @[int.high, 1],
+                       filter = filter)
 
   var
     # group for raw data

@@ -54,8 +54,10 @@ proc addChipToH5*(chip: Chip,
     for i, f in scurves.files:
       # for each file write a dataset
       let curve = scurves.curves[i]
+      # get the actual filename from the curve (potentially contains full path)
+      let (_, curveName, _) = curve.name.splitFile
       var scurveDset = h5f.create_dataset(joinPath(scurveGroup.name,
-                                                   curve.name),
+                                                   curveName),
                                           (curve.thl.len, 2),
                                           dtype = float)
       # reshape the data to be two columns of [thl, hits] pairs and write

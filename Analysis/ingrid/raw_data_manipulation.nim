@@ -50,7 +50,15 @@ import arraymancer
 const FILE_BUFSIZE = 10000
 const NChips = 7
 
-let doc = """
+when defined(linux):
+  const commitHash = staticExec("git rev-parse --short HEAD")
+  const currentDate = staticExec("date")
+else:
+  const commitHash = ""
+  const currentDate = ""
+
+const docTmpl = """
+Version: $# built on: $#
 InGrid raw data manipulation.
 
 Usage:
@@ -64,12 +72,31 @@ Usage:
 
 Options:
   --run_type <type>   Select run type (Calib | Data)
-  --out <name>        Filename and path of output file
+  --out <name>        Filename of output file
   --nofadc            Do not read FADC files
   -h --help           Show this help
   --version           Show version.
 
 """
+const doc = docTmpl % [commitHash, currentDate]
+
+# define the compression filter we use
+#let filter = H5Filter(kind: fkZlib, zlibLevel: 6) # on run 146 took: 0.889728331565857 min
+let filter = H5Filter(kind: fkZlib, zlibLevel: 4) # on run 146 took: 0.5987015843391419 min
+#let filter = H5Filter(kind: fkZlib, zlibLevel: 9) # on run 146 took:  2.170824865500132 min
+# let filter = H5Filter(kind: fkBlosc, bloscLevel: 4,
+#                       doShuffle: false,
+#                       compressor: BloscCompressor.LZ4) # on run 146 took: 0.7583944002787272 min
+# let filter = H5Filter(kind: fkBlosc, bloscLevel: 9,
+#                       doShuffle: false,
+#                       compressor: BloscCompressor.LZ4) # on run 146 took: 0.6799025972684224 min
+# let filter = H5Filter(kind: fkBlosc, bloscLevel: 4,
+#                       doShuffle: true,
+#                       compressor: BloscCompressor.LZ4) # on run 146 took: 0.6656568646430969 min
+# let filter = H5Filter(kind: fkBlosc, bloscLevel: 9,
+#                       doShuffle: true,
+#                       compressor: BloscCompressor.LZ4) # on run 146 took: 0.4899360696474711 min
+# let filter = H5Filter(kind: fkNone)
 
 template ch_len(): int = 2560
 template all_ch_len(): int = ch_len() * 4
@@ -312,7 +339,7 @@ proc processRawInGridData(ch: seq[Event], runNumber: int): ProcessedRun = #seq[F
     tot_run: seq[seq[seq[int]]] = newSeq[seq[seq[int]]](nChips)
     # store occupancy frames for each chip
     # TODO: allow for other values than 7 chips!
-    occ = zeros[int](nChips, 256, 256)
+    occ = zeros[int64](nChips, 256, 256)
     # store number of hits for each chip
     hits = newSeq[seq[int]](nChips)
     # initialize the events sequence of result, since we add to this sequence
@@ -448,30 +475,37 @@ proc initFadcInH5(h5f: var H5FileObj, runNumber, batchsize: int, filename: strin
     raw_fadc_dset = h5f.create_dataset(rawFadcBasename(runNumber), (0, all_ch_len),
                                        uint16,
                                        chunksize = @[batchsize, all_ch_len],
-                                       maxshape = @[int.high, all_ch_len])
+                                       maxshape = @[int.high, all_ch_len],
+                                       filter = filter)
     fadc_dset     = h5f.create_dataset(fadcDataBasename(runNumber), (0, ch_len),
                                        float,
                                        chunksize = @[batchsize, ch_len],
-                                       maxshape = @[int.high, ch_len])
+                                       maxshape = @[int.high, ch_len],
+                                       filter = filter)
     trigrec_dset  = h5f.create_dataset(trigrecBasename(runNumber), (0, 1),
                                        int,
                                        chunksize = @[batchsize, 1],
-                                       maxshape = @[int.high, 1])
+                                       maxshape = @[int.high, 1],
+                                       filter = filter)
     # dataset of eventNumber
     eventNumber_dset = h5f.create_dataset(eventNumberBasename(runNumber), (0, 1),
                                        int,
                                        chunksize = @[batchsize, 1],
-                                       maxshape = @[int.high, 1])
+                                       maxshape = @[int.high, 1],
+                                       filter = filter)
+                                       
     # dataset stores flag whether FADC event was a noisy one (using our algorithm)
     noisy_dset    = h5f.create_dataset(noiseBasename(runNumber), (0, 1),
                                        int,
                                        chunksize = @[batchsize, 1],
-                                       maxshape = @[int.high, 1])
+                                       maxshape = @[int.high, 1],
+                                       filter = filter)
     # dataset stores minima of each FADC event, dip voltage
     minVals_dset  = h5f.create_dataset(minValsBasename(runNumber), (0, 1),
                                        float,
                                        chunksize = @[batchsize, 1],
-                                       maxshape = @[int.high, 1])
+                                       maxshape = @[int.high, 1],
+                                       filter = filter)
 
   # write attributes to FADC groups
   # read the given FADC file and extract that information from it
@@ -633,7 +667,8 @@ proc initInGridInH5(h5f: var H5FileObj, runNumber, nChips, batchsize: int) =
                        (0, 1),
                        dtype = `type`,
                        chunksize = @[batchsize, 1],
-                       maxshape = @[int.high, 1])
+                       maxshape = @[int.high, 1],
+                       filter = filter)
 
   var
     # group for raw data
@@ -891,7 +926,7 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
     let
       tot = run.tots[chip]
       hit = run.hits[chip]
-      occ = run.occupancies[chip, _, _].clone
+      occ = run.occupancies[chip, _, _].squeeze.clone
     var
       totDset = totDsets[chip]
       hitDset = hitDsets[chip]
@@ -905,8 +940,11 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
     # need to handle ToT dataset differently
     totDset.write_hyperslab(tot.reshape([tot.len, 1]), offset = @[totOldSize, 0], count = @[tot.len, 1])
     hitDset.writeHyper(hit.reshape([hit.len, 1]))
-    # TODO: fix the occupancies! Currently only last batchs' occupancy stored!!!
-    occDset.unsafeWrite(occ.get_data_ptr, occ.size)
+    # before writing the occupancy dataset, we need to read the old, stack the current
+    # occupancy on it and finally write the result
+    let stackOcc = occDset[int64].toTensor.reshape([256, 256]) .+ occ
+    occDset.unsafeWrite(stackOcc.get_data_ptr, stackOcc.size)
+
 
 proc linkRawToReco(h5f: var H5FileObj, runNumber, nChips: int) =
   ## perform linking from raw group to reco group

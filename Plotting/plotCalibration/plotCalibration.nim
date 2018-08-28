@@ -26,7 +26,15 @@ when canImport(ingridDatabase):
   # only in this case give option to use plot from database
   import ingridDatabase
 
-const doc = """
+when defined(linux):
+  const commitHash = staticExec("git rev-parse --short HEAD")
+  const currentDate = staticExec("date")
+else:
+  const commitHash = ""
+  const currentDate = ""
+
+const docTmpl = """
+Version: $# built on: $#
 A simple tool to plot SCurves or ToT calibrations.
 
 Usage:
@@ -47,6 +55,7 @@ Options:
   -h, --help       Show this help
   --version        Show the version number
 """
+const doc = docTmpl % [commitHash, currentDate]
 
 const
   StopToT = 450.0

@@ -38,8 +38,15 @@ type
     cluster: Cluster
     xy: tuple[x, y: float64]
 
+when defined(linux):
+  const commitHash = staticExec("git rev-parse --short HEAD")
+  const currentDate = staticExec("date")
+else:
+  const commitHash = ""
+  const currentDate = ""
 
-let doc = """
+const docTmpl = """
+Version: $# built on: $#
 InGrid reconstruction and energy calibration.
 
 Usage:
@@ -78,6 +85,12 @@ Options:
   -h --help               Show this help
   --version               Show version.
 """
+const doc = docTmpl % [commitHash, currentDate]
+
+# the filter we use globally in this file
+let filter = H5Filter(kind: fkZlib, zlibLevel: 4)
+#let filter = H5Filter(kind: fkNone)
+const Chunksize = 10000
 
 template benchmark(num: int, actions: untyped) {.dirty.} =
   for i in 0 ..< num:
@@ -120,7 +133,12 @@ proc createDatasets[N: int](dset_tab: var Table[string, seq[H5DataSet]],
   for dset in names:
     dset_tab[dset] = newSeq[H5DataSet](nchips)
     for chip in 0 ..< nchips:
-      dset_tab[dset][chip] = h5f.create_dataset(groups[chip].name / dset, lengths[chip], dtype = dtype)
+      dset_tab[dset][chip] = h5f.create_dataset(groups[chip].name / dset, lengths[chip],
+                                                dtype = dtype,
+                                                chunksize = @[Chunksize, 1],
+                                                # calling with maxshape @[] seems to produce `nimhdf5` bug
+                                                maxshape = @[int.high, 1],
+                                                filter = filter)
 
 proc writeRecoRunToH5(h5f: var H5FileObj,
                       h5fraw: var H5FileObj,
@@ -179,9 +197,9 @@ proc writeRecoRunToH5(h5f: var H5FileObj,
 
   var
     # before we create the datasets, first parse the data we will write
-    x  = newSeq[seq[seq[int]]](nChips)
-    y  = newSeq[seq[seq[int]]](nChips)
-    ch = newSeq[seq[seq[int]]](nChips)
+    x  = newSeq[seq[seq[uint8]]](nChips)
+    y  = newSeq[seq[seq[uint8]]](nChips)
+    ch = newSeq[seq[seq[uint16]]](nChips)
 
   for chip in 0 ..< nChips:
     x[chip]  = @[]
@@ -195,9 +213,9 @@ proc writeRecoRunToH5(h5f: var H5FileObj,
       num = event.event_number
       chip = event.chip_number
     for i, cl in event.cluster:
-      x[chip].add(newSeq[int](cl.data.len))
-      y[chip].add(newSeq[int](cl.data.len))
-      ch[chip].add(newSeq[int](cl.data.len))
+      x[chip].add(newSeq[uint8](cl.data.len))
+      y[chip].add(newSeq[uint8](cl.data.len))
+      ch[chip].add(newSeq[uint16](cl.data.len))
       for j in 0..cl.data.high:
         x[chip][^1][j] = cl.data[j].x
         y[chip][^1][j] = cl.data[j].y
@@ -216,9 +234,18 @@ proc writeRecoRunToH5(h5f: var H5FileObj,
   # we can create the datasets
   echo "Now creating dset stuff"
   # define type for variable length pixel data
-  let ev_type = special_type(int)
-  #let ev_type_xy = special_type(uint8)
-  #let ev_type_ch = special_type(uint16)
+  let ev_type_xy = special_type(uint8)
+  let ev_type_ch = special_type(uint16)
+
+  template datasetCreation(h5f: untyped, name, dlen, `type`: untyped): untyped =
+    ## inserts the correct data set creation parameters
+    echo "Creating dataset ", name
+    h5f.create_dataset(name,
+                       dlen,
+                       dtype = `type`,
+                       chunksize = @[Chunksize, 1],
+                       maxshape = @[int.high, 1],
+                       filter = filter)
 
   var
     # datasets for x, y and charge
@@ -226,15 +253,17 @@ proc writeRecoRunToH5(h5f: var H5FileObj,
     float_dsets = initTable[string, seq[H5DataSet]]()
     # x, y and charge datasets
     x_dsets = mapIt(toSeq(0..<nChips),
-                    #h5f.create_dataset(chip_groups[it].name & "/x", x[it].len, dtype = ev_type_xy))
-                    h5f.create_dataset(chip_groups[it].name & "/x", x[it].len, dtype = ev_type))
+                    h5f.datasetCreation(chip_groups[it].name & "/x",
+                                        x[it].len,
+                                        ev_type_xy))
     y_dsets = mapIt(toSeq(0..<nChips),
-                    #h5f.create_dataset(chip_groups[it].name & "/y", y[it].len, dtype = ev_type_xy))
-                    h5f.create_dataset(chip_groups[it].name & "/y", y[it].len, dtype = ev_type))
+                    h5f.datasetCreation(chip_groups[it].name & "/y",
+                                        y[it].len,
+                                        ev_type_xy))
     ch_dsets = mapIt(toSeq(0..<nChips),
-                     #h5f.create_dataset(chip_groups[it].name & "/ToT", ch[it].len, dtype = ev_type_ch))
-                     h5f.create_dataset(chip_groups[it].name & "/ToT", ch[it].len, dtype = ev_type))
-
+                    h5f.datasetCreation(chip_groups[it].name & "/ToT",
+                                        ch[it].len,
+                                        ev_type_ch))
 
   # variable to store number of events for each chip
   let eventsPerChip = mapIt(x, it.len)
@@ -290,8 +319,8 @@ iterator readDataFromH5(h5f: var H5FileObj, group: string, runNumber: int): (int
         raw_y  = raw_y_dset[vlen_xy, uint8]
         raw_ch = raw_ch_dset[vlen_ch, uint16]
       # combine the raw data into a sequence of pixels
-      let run_pix = map(toSeq(0..raw_x.high), (i: int) -> seq[(int, int, int)] =>
-                        mapIt(toSeq(0..raw_x[i].high), (int(raw_x[i][it]), int(raw_y[i][it]), int(raw_ch[i][it]))))
+      let run_pix = map(toSeq(0..raw_x.high), (i: int) -> seq[(uint8, uint8, uint16)] =>
+                        mapIt(toSeq(0..raw_x[i].high), (raw_x[i][it], raw_y[i][it], raw_ch[i][it])))
       # and yield them
       yield (chip_number, run_pix)
 
@@ -423,19 +452,19 @@ proc isPixInSearchRadius(p1, p2: Coord, search_r: int): bool =
   #          false if not
   let
     # determine boundary of search space
-    right = p1.x + search_r
-    left  = p1.x - search_r
-    up    = p1.y + search_r
-    down  = p1.y - search_r
+    right = p1.x.int + search_r
+    left  = p1.x.int - search_r
+    up    = p1.y.int + search_r
+    down  = p1.y.int - search_r
   # NOTE: for performance we may want to use the fact that we may know that
   # p1 is either to the left (if in the same row) or below (if not in same row)
   var
     in_x: bool = false
     in_y: bool = false
 
-  if p2.x < right and p2.x > left:
+  if p2.x.int < right and p2.x.int > left:
     in_x = true
-  if p2.y < up and p2.y > down:
+  if p2.y.int < up and p2.y.int > down:
     in_y = true
   result = if in_x == true and in_y == true: true else: false
 
@@ -472,7 +501,8 @@ proc findSimpleCluster*(pixels: Pixels): seq[Cluster] =
   while raw_event.len > 0 and i < c.len:
     let p1: Coord = (x: c[i].x, y: c[i].y)
     # alternatively:
-    let t = filter(raw_event, (p: tuple[x, y, ch: int]) -> bool => isPixInSearchRadius(p1, (p.x, p.y), search_r))
+    let t = filter(raw_event, (p: tuple[x, y: uint8, ch: uint16]) ->
+                   bool => isPixInSearchRadius(p1, (p.x, p.y), search_r))
 
     # add all found pixels to current cluster
     c = concat(c, t)
@@ -545,9 +575,10 @@ proc recoCluster(c: Cluster): ClusterObject =
     clustersize: int = len(c)
     (sum_x, sum_y, sumTotInCluster) = sum(c)
     # using map and sum[Pix] we can calculate sum of x^2, y^2 and x*y in one line
-    (sum_x2, sum_y2, sum_xy) = sum(map(c, (p: Pix) -> Pix => (p.x * p.x,
-                                                              p.y * p.y,
-                                                              p.x * p.y)))
+    (sum_x2, sum_y2, sum_xy) = sum(map(c, (p: Pix) ->
+                                   (int, int, int) => (p.x.int * p.x.int,
+                                                       p.y.int * p.y.int,
+                                                       p.x.int * p.y.int)))
     pos_x = float64(sum_x) / float64(clustersize)
     pos_y = float64(sum_y) / float64(clustersize)
   var
@@ -558,7 +589,7 @@ proc recoCluster(c: Cluster): ClusterObject =
 
   # set the total "charge" in the cluster (sum of ToT values), can be
   # converted to electrons with ToT calibration
-  result.sum_tot = sumTotInCluster
+  result.sum_tot = sumTotInCluster.int
   # set number of hits in cluster
   result.hits = clustersize
   # set the position

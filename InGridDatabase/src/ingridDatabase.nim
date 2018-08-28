@@ -19,7 +19,16 @@ import ingridDatabase/databaseUtils
 import ingrid/ingrid_types except Chip
 import ingrid/calibration
 
-const doc = """
+
+when defined(linux):
+  const commitHash = staticExec("git rev-parse --short HEAD")
+  const currentDate = staticExec("date")
+else:
+  const commitHash = ""
+  const currentDate = ""
+
+const docTmpl = """
+Version: $# built on: $#
 The InGrid database management tool.
 
 Usage:
@@ -47,6 +56,7 @@ Documentation:
   getTot(chipName)
   to get the ToT values of that chip.
 """
+const doc = docTmpl % [commitHash, currentDate]
 
 proc calibrateType(tcKind: TypeCalibrate) =
   ## calibrates the given type and stores the fit results as attributes

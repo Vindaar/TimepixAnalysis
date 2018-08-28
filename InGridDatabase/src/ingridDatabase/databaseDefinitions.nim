@@ -1,14 +1,56 @@
-import strutils, ospaths, re, tables
+import strutils, ospaths, re, tables, macros
 
 # helper proc to remove the ``src`` which is part of `nimble path`s output
 # this is a bug, fix it.
 proc removeSuffix(s: string, rm: string): string {.compileTime.} =
   result = s
   result.removeSuffix(rm)
-    
-const ingridPath* = staticExec("nimble path ingridDatabase").removeSuffix("src")
-const db = "resources/ingridDatabase.h5"
-const dbPath* = joinPath(ingridPath, db)
+
+# TODO: this is way too complicated. For some reason I didn't realize yesterday
+# that `dirExists` DOES work at compile time :S Fix this
+
+const dbDir = "resources"
+const path1 = staticExec("nimble path ingridDatabase") / dbDir
+const path2 = staticExec("nimble path ingridDatabase").removeSuffix("src") / dbDir
+var tmpPath {.compileTime.} = ""
+
+# check whether path exists to check whether we need the `src` or not
+when defined(windows):
+  const doesExist = "True"
+  const doesNotExist = "False"
+  # Need to be run in PowerShell as far as I'm aware
+  const exists1 = gorge("Test-Path " & path1)
+  const exists2 = gorge("Test-Path " & path2)
+  static:
+    when exists1 == doesExist:
+      tmpPath = path1
+    elif exists2 == doesExist:
+      tmpPath = path2
+    else:
+      # else write a warning and put path to local folder
+      fatal("Could not find valid path to ingridDatabase.h5 file! Did you forget" &
+        "to install the `ingridDatabase` nim module?")
+else:
+  const doesExist = 0
+  const doesNotExist = 1
+  const existsTup1 = gorgeEx("stat " & path1)
+  const existsTup2 = gorgeEx("stat " & path2)
+  static:
+    when existsTup1[1] == doesExist:
+      tmpPath = path1
+    elif existsTup2[1] == doesExist:
+      # else check without src
+      tmpPath = path2
+    else:
+      # else write a warning and put path to local folder
+      fatal("Could not find valid path to ingridDatabase.h5 file! Did you forget" &
+        "to install the `ingridDatabase` nim module?")
+
+# if we haven't quit we found the path
+const ingridPath* = tmpPath
+static:
+  hint("Found path " & ingridPath)
+const dbPath* = joinPath(ingridPath, "ingridDatabase.h5")
 
 const
   ChipInfo* = "chipInfo.txt"
@@ -38,7 +80,7 @@ type
     col*: char
     row*: int
     wafer*: int
-    
+
   Chip* = object
     name*: ChipName
     info*: Table[string, string]
@@ -62,5 +104,3 @@ type
 
 proc `$`*(chip: ChipName): string =
   result = $chip.col & $chip.row & " W" & $chip.wafer
-
-    

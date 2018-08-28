@@ -71,6 +71,8 @@ proc readFadcFile*(file: seq[string]): ref FadcFile = #seq[float] =
     bitMode14, pedestalRun: bool
     line_spl: seq[string]
   # line 0 is the filename itself
+  let filepath = file[0]
+
   for line in file[1 .. ^1]:
     if likely('#' notin line):
       # we add a likely statement, because almost all lines are data lines, hence without '#'
@@ -103,6 +105,15 @@ proc readFadcFile*(file: seq[string]): ref FadcFile = #seq[float] =
       line_spl = line.splitWhitespace
       let p_run_flag = parseInt(line_spl[line_spl.high])
       result.pedestalRun = if p_run_flag == 0: false else: true
+
+  let evNumberRegex =  re".*data(\d{4,6})\.txt-fadc"
+  var evNumChipNumStr: array[1, string]
+
+  if match(filepath, evNumberRegex, evNumChipNumStr) == true:
+    echo (evNumChipNumStr[0].parseInt)
+    result.eventNumber = parseInt(evNumChipNumStr[0])
+  else:
+    echo "error. could not match file"
 
   # finally assign data sequence
   result.data = data
@@ -197,9 +208,9 @@ proc fadcFileToFadcData*[T](fadc_file: FadcFile,
   # set the two 'faulty' registers to 0
   ch0_vals[0] = 0
   ch0_vals[1] = 0
-  
+
   # now perform temporal correction
-  let tempCorrected = performTemporalCorrection(ch0_vals, fadc_file.trigRec, fadc_file.postTrig)  
+  let tempCorrected = performTemporalCorrection(ch0_vals, fadc_file.trigRec, fadc_file.postTrig)
 
   # assign result as tensor
   result.data = tempCorrected.toTensor.astype(float)

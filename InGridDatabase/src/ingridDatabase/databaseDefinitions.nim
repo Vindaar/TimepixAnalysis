@@ -6,6 +6,9 @@ proc removeSuffix(s: string, rm: string): string {.compileTime.} =
   result = s
   result.removeSuffix(rm)
 
+# TODO: this is way too complicated. For some reason I didn't realize yesterday
+# that `dirExists` DOES work at compile time :S Fix this
+
 const dbDir = "resources"
 const path1 = staticExec("nimble path ingridDatabase") / dbDir
 const path2 = staticExec("nimble path ingridDatabase").removeSuffix("src") / dbDir

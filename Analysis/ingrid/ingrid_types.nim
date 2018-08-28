@@ -164,6 +164,7 @@ type
   # to store the data
   FadcFile* = object of FadcObject
     data*: seq[uint16]
+    eventNumber*: int
 
   # object to store actual FADC data, which is
   # used (ch0 already extracted)
@@ -185,7 +186,9 @@ type
     # minimum values of events (voltage of dips)
     minVals: seq[float],
     # register of minimum value
-    minRegs: seq[int]
+    minRegs: seq[int],
+    #eventNumber for FADC
+    eventNumber: seq[int],
   ]
 
   ################################

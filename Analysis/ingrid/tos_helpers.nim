@@ -1127,6 +1127,9 @@ template riseTimeBasename*(run_number: int): string =
 template fallTimeBasename*(run_number: int): string =
   getRecoNameForRun(run_number) / "fadc/fallTime"
 
+template eventNumberBasename*(run_number: int): string =
+  getRecoNameForRun(run_number) / "fadc/eventNumber"
+
 
 ################################################################################
 ##################### procs related to X-ray reference datasets ################

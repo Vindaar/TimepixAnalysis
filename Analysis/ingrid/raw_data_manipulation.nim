@@ -395,12 +395,14 @@ proc processFadcData(fadc_files: seq[FlowVar[ref FadcFile]]): ProcessedFadcData 
   result.trigRecs = newSeq[int](nEvents)
   result.noisy = newSeq[int](nEvents)
   result.minVals = newSeq[float](nEvents)
+  result.eventNumber = newSeq[int](nEvents)
   let t0 = epochTime()
   # TODO: parallelize this somehow so that it's faster!
   for i, event in fadc_files:
     let ev = (^event)[]
     result.raw_fadc_data[i] = ev.data
     result.trigRecs[i]      = ev.trigRec
+    result.eventNumber[i]   = ev.eventNumber
     let fadc_dat = ev.fadcFileToFadcData(pedestal_run, fadc_ch0_indices).data
     result.fadc_data[i, _]  = fadc_dat.reshape([1, ch_len])
     result.noisy[i]         = fadc_dat.isFadcFileNoisy(n_dips)
@@ -455,6 +457,11 @@ proc initFadcInH5(h5f: var H5FileObj, runNumber, batchsize: int, filename: strin
                                        int,
                                        chunksize = @[batchsize, 1],
                                        maxshape = @[int.high, 1])
+    # dataset of eventNumber
+    eventNumber_dset = h5f.create_dataset(eventNumberBasename(runNumber), (0, 1),
+                                       int,
+                                       chunksize = @[batchsize, 1],
+                                       maxshape = @[int.high, 1])
     # dataset stores flag whether FADC event was a noisy one (using our algorithm)
     noisy_dset    = h5f.create_dataset(noiseBasename(runNumber), (0, 1),
                                        int,
@@ -488,6 +495,7 @@ proc writeFadcDataToH5(h5f: var H5FileObj, runNumber: int, f_proc: ProcessedFadc
     raw_name = rawFadcBasename(runNumber)
     reco_name = fadcDataBasename(runNumber)
     trigRec_name = trigRecBasename(runNumber)
+    eventNumber_name = eventNumberBasename(runNumber)
     ch_len = ch_len()
     all_ch_len = all_ch_len()
     nEvents = f_proc.raw_fadc_data.len
@@ -495,6 +503,7 @@ proc writeFadcDataToH5(h5f: var H5FileObj, runNumber: int, f_proc: ProcessedFadc
     raw_fadc_dset = h5f[raw_name.dset_str]
     fadc_dset = h5f[reco_name.dset_str]
     trigRec_dset = h5f[trigRec_name.dset_str]
+    eventNumber_dset = h5f[eventNumber_name.dset_str]
     noisy_dset = h5f[noiseBasename(runNumber).dset_str]
     minVals_dset = h5f[minValsBasename(runNumber).dset_str]
 
@@ -504,6 +513,8 @@ proc writeFadcDataToH5(h5f: var H5FileObj, runNumber: int, f_proc: ProcessedFadc
   echo fadc_dset.maxshape
   echo trigRec_dset.shape
   echo trigRec_dset.maxshape
+  echo eventNumber_dset.shape
+  echo eventNumber_dset.maxshape
   # first need to extend the dataset, as we start with a size of 0.
   let oldsize = raw_fadc_dset.shape[0]
   let newsize = oldsize + nEvents
@@ -517,6 +528,7 @@ proc writeFadcDataToH5(h5f: var H5FileObj, runNumber: int, f_proc: ProcessedFadc
   raw_fadc_dset.resize((newsize, all_ch_len))
   fadc_dset.resize((newsize, ch_len))
   trigRec_dset.resize((newsize, 1))
+  eventNumber_dset.resize((newsize, 1))
   noisy_dset.resize((newsize, 1))
   minVals_dset.resize((newsize, 1))
 
@@ -532,6 +544,9 @@ proc writeFadcDataToH5(h5f: var H5FileObj, runNumber: int, f_proc: ProcessedFadc
                             offset = @[oldsize, 0],
                             count = @[nEvents, ch_len])
   trigRec_dset.write_hyperslab(f_proc.trigRecs,
+                               offset = @[oldsize, 0],
+                               count = @[nEvents, 1])
+  eventNumber_dset.write_hyperslab(f_proc.eventNumber,
                                offset = @[oldsize, 0],
                                count = @[nEvents, 1])
   noisy_dset.write_hyperslab(f_proc.noisy,

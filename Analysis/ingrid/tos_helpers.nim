@@ -140,14 +140,14 @@ proc sum2*(c: seq[Pix]): Pix {.inline, deprecated.} =
     result.ch += p.ch * p.ch
 
 proc parseTOSDateString*(date_str: string): Time =
-  # function receives a string from a date time from TOS and creates
-  # a Time object from it
+  ## function receives a string from a date time from TOS and creates
+  ## a Time object from it
   let date = toTime(parse(date_str, "yyyy-MM-dd'.'hh:mm:ss"))
   return date
 
 proc readDateFromEvent*(filepath: string): string =
-  # procedure opens the given file and returns the dateTime value
-  # (TOS syntaxed date string)
+  ## procedure opens the given file and returns the dateTime value
+  ## (TOS syntaxed date string)
   for line in lines filepath:
     if "dateTime" in line:
       # if dateTime is found, split, assign to string and break from while
@@ -162,20 +162,20 @@ proc getFilenameFromEventNumber*[T: SomeInteger](evNumber: T): string =
   result = &"data{evNumber:06}.txt"
 
 proc formatAsOrgDate*(t: Time, org_format = "yyyy-MM-dd ddd H:mm"): string =
-  # this procedure formats the given Time object as an org-mode date
-  # by first converting it to a TimeInfo object
+  ## this procedure formats the given Time object as an org-mode date
+  ## by first converting it to a TimeInfo object
   let ti = getLocalTime(t)
   result = format(ti, org_format)
 
 proc getTimeFromEvent*(file: string): Time =
-  # this procedure returns the time info from an event,
-  # given the filename by parsing the TOS date syntax
+  ## this procedure returns the time info from an event,
+  ## given the filename by parsing the TOS date syntax
   let date_str = readDateFromEvent(file)
   result = parseTOSDateString(date_str)
 
 proc readListOfFilesAndGetTimes*(path: string, list_of_files: seq[string]): seq[Time] =
-  # function analogues to walkRunFolderAndGetTimes except we read all files
-  # given by list_of_files
+  ## function analogues to walkRunFolderAndGetTimes except we read all files
+  ## given by list_of_files
   var i: int = 0
   result = @[]
 
@@ -249,11 +249,11 @@ proc initIntervalOld*(milliseconds, seconds, minutes, hours, days, months,
 
 
 proc getRunTimeInfo*(run_files: seq[string]): RunTimeInfo =
-  # this procdure creates a RunTimeInfo object from a given list of files
-  # in a run folder (not sorted). The list is sorted and then the first and
-  # last event are read, converted to Time objects and the length of the run
-  # is calculated from the difference between both events
-  # sort list of files
+  ## this procdure creates a RunTimeInfo object from a given list of files
+  ## in a run folder (not sorted). The list is sorted and then the first and
+  ## last event are read, converted to Time objects and the length of the run
+  ## is calculated from the difference between both events
+  ## sort list of files
   result = RunTimeInfo()
 
   let
@@ -274,7 +274,7 @@ proc getRunTimeInfo*(run_files: seq[string]): RunTimeInfo =
   result.t_length = run_length
 
 proc parseShutterMode*(mode: string): int =
-  # proc to parse the TOS shutter mode selection
+  ## proc to parse the TOS shutter mode selection
   if mode == "verylong" or mode == "vl":
     result = 2
   elif mode == "long" or mode == "l":
@@ -283,10 +283,10 @@ proc parseShutterMode*(mode: string): int =
     result = 0
 
 proc calcLength*(event: Event): float =
-  # calculates the event length in seconds, taking into account
-  # whether the FADC triggered or not and the shutter opening time
-  # TODO: is it really * 46 or not? Kind of important...
-  # 2, 13 comes out correctly with 46!
+  ## calculates the event length in seconds, taking into account
+  ## whether the FADC triggered or not and the shutter opening time
+  ## TODO: is it really * 46 or not? Kind of important...
+  ## 2, 13 comes out correctly with 46!
   let
     time = parseFloat(event.evHeader["shutterTime"])
     mode = float(parseShutterMode(event.evHeader["shutterMode"]))
@@ -300,9 +300,9 @@ proc calcLength*(event: Event): float =
     result = pow(256'f, mode) * 46'f * time / 40'f / 1_000_000'f
 
 proc calcLength*(event: Event, time, mode: float): float =
-  # overload of above, with time and mode already read
-  # calculates the event length in seconds, taking into account
-  # whether the FADC triggered or not and the shutter opening time
+  ## overload of above, with time and mode already read
+  ## calculates the event length in seconds, taking into account
+  ## whether the FADC triggered or not and the shutter opening time
   var fadc_triggered = 0
   if event.evHeader.hasKey("fadcReadout"):
     fadc_triggered = parseInt(event.evHeader["fadcReadout"])
@@ -316,20 +316,20 @@ proc calcLength*(event: Event, time, mode: float): float =
     result = pow(256'f, mode) * 46'f * time / 40'f / 1_000_000'f
 
 proc getRegexForEvents*(): tuple[header, chips, pixels: string] =
-  # this procedure returns a tuple of the regexes used to
-  # read different parts of the events
-  # outputs:
-  #     tuple[header, chips, pixels: string] =
-  #       header: the regex to read the event header
-  #       chips: the regex to read the chip headers
-  #       pixels: the regex to read the pixel data
+  ## this procedure returns a tuple of the regexes used to
+  ## read different parts of the events
+  ## outputs:
+  ##     tuple[header, chips, pixels: string] =
+  ##       header: the regex to read the event header
+  ##       chips: the regex to read the chip headers
+  ##       pixels: the regex to read the pixel data
   result.header = r"^\#{2}\s(\w+):\s+(-?\b\S*)\b"
   result.chips  = r"^\#\s(\w+):\s+\b(\w\ \d{1,2} W\d{2}|\S*)\b"
   result.pixels = r"^(\d+)\s+(\d+)\s+(\d+)\s?$"
 
 proc readEventHeader*(filepath: string): Table[string, string] =
-  # this procedure reads a whole event header and returns
-  # a table containing the data, where the key is the key from the data file
+  ## this procedure reads a whole event header and returns
+  ## a table containing the data, where the key is the key from the data file
   result = initTable[string, string]()
 
   # we define a regex for the header of the file
@@ -377,25 +377,26 @@ proc readMemFilesIntoBuffer*(list_of_files: seq[string]): seq[seq[string]] =
 
 proc processEventWithRegex*(data: seq[string],
                             regex: tuple[header, chips, pixels: Regex]): ref Event =
-  # this template is used to create the needed functions to
-  # - read the event header
-  # - read the chip information for an event
-  # - read the pixel data in an event
-  # either as single functions or as a combination of
-  # all
-  # when type(regex) == string:
-  #   # in this case we deal with a single regex string
-  #   result = newTable[string, string]()
-  #   for line in lines filepath:
-  #     if line.match(re(regex), matches):
-  #       # get rid of whitespace and add to result
-  #       let key = matches[0]
-  #       let val = matches[1]
-  #       result[key] = val
-  # regex[0] == header
-  # regex[1] == chips
-  # regex[2] == pixels
-  # in this case we have a sequence of strings
+  ## TODO: update doc!
+  ## this template is used to create the needed functions to
+  ## - read the event header
+  ## - read the chip information for an event
+  ## - read the pixel data in an event
+  ## either as single functions or as a combination of
+  ## all
+  ## when type(regex) == string:
+  ##   # in this case we deal with a single regex string
+  ##   result = newTable[string, string]()
+  ##   for line in lines filepath:
+  ##     if line.match(re(regex), matches):
+  ##       # get rid of whitespace and add to result
+  ##       let key = matches[0]
+  ##       let val = matches[1]
+  ##       result[key] = val
+  ## regex[0] == header
+  ## regex[1] == chips
+  ## regex[2] == pixels
+  ## in this case we have a sequence of strings
   var
     # variable to count already read pixels
     pix_counter = 0
@@ -471,11 +472,11 @@ proc processEventWithRegex*(data: seq[string],
 
 proc processOldEventWithRegex*(data: seq[string],
                                regPixels: Regex): ref OldEvent =
-  # this template is used to create the needed functions to
-  # - read the event header
-  # - read the chip information for an event
-  # - read the pixel data in an event
-  # either as single functions or as a combination of
+  ## this template is used to create the needed functions to
+  ## - read the event header
+  ## - read the chip information for an event
+  ## - read the pixel data in an event
+  ## either as single functions or as a combination of
 
   # in this case we have a sequence of strings
   var
@@ -563,55 +564,52 @@ proc processEventWrapper(data: seq[string],
 
 #template readEventWithRegex(filepath, regex: string): typed =
 proc readEventWithRegex*(filepath: string, regex: tuple[header, chips, pixels: Regex]): ref Event =
-  # this procedure reads the lines from a given event and then calls processEventWithRegex
-  # to process the file. Returns a ref to an Event object
-  # inputs:
-  #    filepath: string = the path to the file to be read
-  #    regex: tuple[...] = tuple of 3 regex's, one for each part of an event file
-  # outputs:
-  #    ref Event: reference to an event object
+  ## this procedure reads the lines from a given event and then calls processEventWithRegex
+  ## to process the file. Returns a ref to an Event object
+  ## inputs:
+  ##    filepath: string = the path to the file to be read
+  ##    regex: tuple[...] = tuple of 3 regex's, one for each part of an event file
+  ## outputs:
+  ##    ref Event: reference to an event object
   var f = memfiles.open(filepath, mode = fmRead, mappedSize = -1)
   var data: seq[string] = @[]
   for line in lines(f):
     data.add(line)
   result = processEventWithRegex(data, regex)
 
-proc pixelsToTOT*(pixels: Pixels): seq[int] {.inline.} =
-  # extracts all charge values (ToT values) of a given pixels object (all hits
-  # of a single chip in a given event, filters the full values of 11810
-  # inputs:
-  #    pixels: Pixels: input pixel sequence of tuples containing hits of one event
-  # output:
-  #    seq[int]: all ToT values smaller ToT
-  result = filter(map(pixels, (p: tuple[x, y, ch: int]) -> int => p.ch),
-                  (ch: int) -> bool => ch < 11810)
+proc pixelsToTOT*(pixels: Pixels): seq[uint16] {.inline.} =
+  ## extracts all charge values (ToT values) of a given pixels object (all hits
+  ## of a single chip in a given event, filters the full values of 11810
+  ## inputs:
+  ##    pixels: Pixels: input pixel sequence of tuples containing hits of one event
+  ## output:
+  ##    seq[int]: all ToT values smaller ToT
+  result = filter(map(pixels, (p: tuple[x, y: uint8, ch: uint16]) -> uint16 => p.ch),
+                  (ch: uint16) -> bool => ch < 11810'u16)
 
 template addPixelsToOccupancy*[T](ar: Tensor[T], pixels: Pixels) =
-  # template to add pixels to occupancy by using map
-  #map(pixels, (p: tuple[x, y, c: int]) => ar[p.x, p.y] = p.c)
+  ## template to add pixels to occupancy by using map
   for p in pixels:
     ar[p.x, p.y] += 1#p.ch
 
 template addPixelsToOccupancySeptem*[T](ar: var Tensor[T], pixels: Pixels, ch_num: int) =
-  # template to add pixels to occupancy by using map
-  #map(pixels, (p: tuple[x, y, c: int]) => ar[p.x, p.y] = p.c)
-  #proc(ar: var Tensor[int], pixels: Pixels, ch_num: int) =
+  ## template to add pixels to occupancy by using map
   for p in pixels:
     ar[ch_num, p.x, p.y] += 1#p.ch
 
 proc createTensorFromZeroSuppressed*[T](pixels: Pixels): Tensor[T] =
-  # procedure to create a (256, 256) int array from a Pixels (seq[tuple[x, y, ch]])
-  # object
+  ## procedure to create a (256, 256) int array from a Pixels (seq[tuple[x, y, ch]])
+  ## object
   result = zeros[T](256, 256)
   for p in pixels:
     result[p.x, p.y] = p.ch
 
 proc dumpFrameToFile*[T](filepath: string, ar: Tensor[T]) =
-  # this procedure dumps a given frame (tensor ar needs to be of shape (256, 256)
-  # to a file 'filepath'
-  # inputs:
-  #   filepath: string = the file to write to
-  #   ar: Tensor[int] = a tensor of shape (256, 256) containing the data to be written
+  ## this procedure dumps a given frame (tensor ar needs to be of shape (256, 256)
+  ## to a file 'filepath'
+  ## inputs:
+  ##   filepath: string = the file to write to
+  ##   ar: Tensor[int] = a tensor of shape (256, 256) containing the data to be written
   doAssert(ar.shape == [256, 256])
   var f: File
   if open(f, filepath, fmWrite):
@@ -624,7 +622,7 @@ proc dumpFrameToFile*[T](filepath: string, ar: Tensor[T]) =
     echo "Warning: File to dump frame data could not be opened! Does the output folder exist? Path was ", filepath
 
 template writeSeqsToFile[T](filename, header, element_header: string, collection: seq[seq[T]]) =
-  # a template to construct different write file procedures with different headers
+  ## a template to construct different write file procedures with different headers
   var f: File
   let n_el = len(collection)
   for index in 0..<n_el:
@@ -639,31 +637,31 @@ template writeSeqsToFile[T](filename, header, element_header: string, collection
       echo "Warning: Could not open file " & filename & " to write."
 
 proc writeHitsFile[T](filename: string, collection: seq[seq[T]]) =
-  # procedure to write the number of hits in a given run to file by
-  # calling writeSeqsToFile template
+  ## procedure to write the number of hits in a given run to file by
+  ## calling writeSeqsToFile template
   let header = "Hits per Event"
   let element_header = "Chip "
   writeSeqsToFile(filename, header, element_header, collection)
 
 proc writeToTFile[T](filename: string, collection: seq[seq[T]]) =
-  # procedure to write the ToT values per pixel in a given run to file by
-  # calling writeSeqsToFile template
+  ## procedure to write the ToT values per pixel in a given run to file by
+  ## calling writeSeqsToFile template
   let header = "ToT per pixel"
   let element_header = "Chip "
   writeSeqsToFile(filename, header, element_header, collection)
 
 
 proc writeRotAngleFile[T](filename: string, collection: seq[seq[T]]) =
-  # procedure to write the ToT values per pixel in a given run to file by
-  # calling writeSeqsToFile template
+  ## procedure to write the ToT values per pixel in a given run to file by
+  ## calling writeSeqsToFile template
   let header = "Rotation angle"
   let element_header = "Chip "
   writeSeqsToFile(filename, header, element_header, collection)
 
 
 proc dumpToTandHits*(name, run_type: string, tots, hits: seq[seq[int]]) =
-  # this procedure dumps the ToT and Hits sequences to .txt files
-  # in the out/ folder
+  ## this procedure dumps the ToT and Hits sequences to .txt files
+  ## in the out/ folder
   for i in 0..<7:
     echo "Chip " & $i & ":"
     echo "\tToT : " & $len(tots[i]) & "\t" & $len(tots)
@@ -676,8 +674,8 @@ proc dumpToTandHits*(name, run_type: string, tots, hits: seq[seq[int]]) =
   writeToTFile(totfile, tots)
 
 proc dumpRotAngle*(angles: seq[seq[float64]]) =
-  # this procedure dumps the ToT and Hits sequences to .txt files
-  # in the out/ folder
+  ## this procedure dumps the ToT and Hits sequences to .txt files
+  ## in the out/ folder
   for i in 0..<7:
     echo "Chip " & $i & ":"
     echo "\tRotAngle : " & $len(angles[i]) & "\t" & $len(angles)
@@ -690,16 +688,16 @@ proc sortByInode*(listOfFiles: seq[string]): seq[string] =
   )
 
 proc getSortedListOfFiles*(run_folder: string, sort_type: EventSortType, event_type: EventType): seq[string] =
-  # this procedure returns a sorted list of event files from a
-  # run folder. The returned files are sorted by the event number
-  # inputs:
-  #    run_folder: string = folder from which to read filenames
-  #    sort_type: EventSortType = enum which decides whether we sort by
-  #               inode or filename
-  #    event_type: EventType = enum which decides which files we read
-  # outputs:
-  #    seq[string] = sequence containing event filnames, index 0 corresponds
-  #                  to event data000000.txt
+  ## this procedure returns a sorted list of event files from a
+  ## run folder. The returned files are sorted by the event number
+  ## inputs:
+  ##    run_folder: string = folder from which to read filenames
+  ##    sort_type: EventSortType = enum which decides whether we sort by
+  ##               inode or filename
+  ##    event_type: EventType = enum which decides which files we read
+  ## outputs:
+  ##    seq[string] = sequence containing event filnames, index 0 corresponds
+  ##                  to event data000000.txt
   var eventRegex = ""
   case event_type:
   of EventType.InGridType:
@@ -776,20 +774,20 @@ proc readListOfOldInGridFiles*(list_of_files: seq[string],
 
 proc isTosRunFolder*(folder: string):
   tuple[is_rf: bool, runNumber: int, rfKind: RunFolderKind, contains_rf: bool] =
-  # this procedure checks whether the given folder is a valid run folder of
-  # TOS
-  # done by
-  # - checking whether the name of the folder is a valid name for a
-  #   run folder (contains Run_<number>) in the name and
-  # - checking whether folder contains data<number>.txt files
-  # inputs:
-  #    folder: string = the given name of the folder to check
-  # outputs:
-  # returns a tuple which not only says whether it is a run folder, but also
-  # whether the folder itself contains a run folder
-  #    tuple[(bool, int), bool]:
-  #        (is_rf, runNumber): is a run folder, its Number
-  #        contains_rf:        contains run folders
+  ## this procedure checks whether the given folder is a valid run folder of
+  ## TOS
+  ## done by
+  ## - checking whether the name of the folder is a valid name for a
+  ##   run folder (contains Run_<number>) in the name and
+  ## - checking whether folder contains data<number>.txt files
+  ## inputs:
+  ##    folder: string = the given name of the folder to check
+  ## outputs:
+  ## returns a tuple which not only says whether it is a run folder, but also
+  ## whether the folder itself contains a run folder
+  ##    tuple[(bool, int), bool]:
+  ##        (is_rf, runNumber): is a run folder, its Number
+  ##        contains_rf:        contains run folders
 
   let runRegex = re(r".*Run_(\d+)_.*")
   # else check for old `Chistoph style` runs
@@ -882,15 +880,15 @@ proc extractRunFolderKind*(runFolder: string): RunFolderKind =
 #       sum_t[f] += p[n]
 
 proc calcCentroidOfEvent*(pix: Pixels): tuple[x, y: float] =
-  # proc to calc centroid of the given pixels
-  # inputs:
-  #    pixels object (seq[tuple[x, y, ch: int]]) containing raw event
-  # outputs:
-  #    tuple[x, y: int]: tuple containing centroid x and y position
-  # let x = map(pix, (p: tuple[x, y, ch: int]) -> int => p.x)
-  # let y = map(pix, (p: tuple[x, y, ch: int]) -> int => p.y)
-  # let sum_x = foldl(x, a + b)
-  # let sum_y = foldl(y, a + b)
+  ## proc to calc centroid of the given pixels
+  ## inputs:
+  ##    pixels object (seq[tuple[x, y, ch: int]]) containing raw event
+  ## outputs:
+  ##    tuple[x, y: int]: tuple containing centroid x and y position
+  ## let x = map(pix, (p: tuple[x, y, ch: int]) -> int => p.x)
+  ## let y = map(pix, (p: tuple[x, y, ch: int]) -> int => p.y)
+  ## let sum_x = foldl(x, a + b)
+  ## let sum_y = foldl(y, a + b)
   var
     sum_x: int = 0
     sum_y: int = 0
@@ -903,11 +901,11 @@ proc calcCentroidOfEvent*(pix: Pixels): tuple[x, y: float] =
 
 
 proc isNearCenterOfChip*(pix: Pixels): bool =
-  # proc to check whether event is located around center of chip
-  # inputs:
-  #    pixels object (seq[tuple[x, y, ch: int]]) containing raw event
-  # outputs:
-  #    true if within 4.5mm center square, false otherwise
+  ## proc to check whether event is located around center of chip
+  ## inputs:
+  ##    pixels object (seq[tuple[x, y, ch: int]]) containing raw event
+  ## outputs:
+  ##    true if within 4.5mm center square, false otherwise
   let (center_x, center_y) = calcCentroidOfEvent(pix)
   # pitch in um
   let pitch = 0.05
@@ -934,9 +932,9 @@ template distance*(x, y): float = sqrt(x * x + y * y)
 # constants are:
 # const NPIX = 256
 # const PITCH = 0.0055 (see ingrid_types)
-template applyPitchConversion*[T: (float | int)](x, y: T): (float, float) =
-  # template which returns the converted positions on a Timepix
-  # pixel position --> position from center in mm
+template applyPitchConversion*[T: (float | SomeInteger)](x, y: T): (float, float) =
+  ## template which returns the converted positions on a Timepix
+  ## pixel position --> position from center in mm
   ((float(NPIX) - float(x) - 0.5) * PITCH, (float(y) + 0.5) * PITCH)
 
 proc fillRunHeader*(event: Event): Table[string, string] =
@@ -1051,9 +1049,9 @@ proc getRecoCombineName*(): string =
   result = "/reconstruction/combined/"
 
 macro createCombineTemplates(name, datatype: string): typed =
-  # creates a template, which returns a basename of the type
-  # combineBasename`name`(chip_number, run_number): string =
-  #   "/runs/combined/`name`_$#_$#" % [$chip_number, $run_number]
+  ## creates a template, which returns a basename of the type
+  ## combineBasename`name`(chip_number, run_number): string =
+  ##   "/runs/combined/`name`_$#_$#" % [$chip_number, $run_number]
   var source = ""
   case datatype.strVal
   of "runs":

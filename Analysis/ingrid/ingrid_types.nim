@@ -12,18 +12,21 @@ type
 
   EventHeader* = Table[string, string]
   ChipHeader*  = Table[string, string]
-  Pix*         = tuple[x, y, ch: int]
+  Pix*         = tuple[x, y: uint8, ch: uint16]
   Pixels*      = seq[Pix]
 
   # Coord type which contains (x, y) coordinates of a pixel
-  Coord* = tuple[x, y: int]
+  Coord* = tuple[x, y: uint8]
   # cluster object
   Cluster* = seq[Pix]
 
   Pixels_prot = object#Table[string, seq[int]]
-    x:  seq[int]
-    y:  seq[int]
-    ch: seq[int]
+    # x:  seq[int]
+    # y:  seq[int]
+    # ch: seq[int]
+    x:  seq[uint8]
+    y:  seq[uint8]
+    ch: seq[uint16]
 
   Chip* = tuple[name: string, number: int]
 

@@ -111,19 +111,28 @@ proc readScurveVoltageFile*(filename: string): SCurve =
   result.thl = dataTuple.mapIt(it[0])
   result.hits = dataTuple.mapIt(it[1])
 
-proc sum*(c: seq[Pix]): Pix {.inline.} =
-  # this procedure sums the sequence of pixels such that it returns
-  # a tuple of (sum_x, sum_y, sum_charge)
-  # if T is itself e.g. a tuple, we will return a tuple, one
-  # element for each field in the tuple
+proc sum*(c: seq[Pix]): (int, int, int) {.inline.} =
+  ## this procedure sums the sequence of pixels such that it returns
+  ## a tuple of (sum_x, sum_y, sum_charge)
+  ## Need to return `int`, because the sum may be much larger than
+  ## what fits into `uint8` or `uint16` as per `Pix`
   assert c.len > 0, "Can't sum empty sequences"
   for p in c:
-    result.x += p.x
-    result.y += p.y
-    result.ch += p.ch
+    result[0] += p.x.int
+    result[1] += p.y.int
+    result[2] += p.ch.int
 
-proc sum2*(c: seq[Pix]): Pix {.inline.} =
-  # this procedure sums the squares of the pixels in the sequence
+proc sum*[T: SomeInteger](c: seq[(T, T, T)]): (int, int, int) {.inline.} =
+  ## same as `sum[Pix]` above, but taking in any integer
+  assert c.len > 0, "Can't sum empty sequences"
+  for p in c:
+    result[0] += p[0].int
+    result[1] += p[1].int
+    result[2] += p[2].int
+
+proc sum2*(c: seq[Pix]): Pix {.inline, deprecated.} =
+  ## this procedure sums the squares of the pixels in the sequence
+  ## NOTE: this proc is used nowhere!
   assert c.len > 0, "Can't sum empty sequences"
   for p in c:
     result.x += p.x * p.x
@@ -429,9 +438,9 @@ proc processEventWithRegex*(data: seq[string],
       # in this case we have matched a pixel hit line
       # get number of hits to process
       let
-        x: int  = parseInt(matches[0])
-        y: int  = parseInt(matches[1])
-        ch: int = parseInt(matches[2])
+        x: uint8  = parseInt(matches[0]).uint8
+        y: uint8  = parseInt(matches[1]).uint8
+        ch: uint16 = parseInt(matches[2]).uint16
       # if the compiler flag (-d:REMOVE_FULL_PIX) is set, we cut all pixels, which have
       # ToT values == 11810, the max ToT value
       when defined(REMOVE_FULL_PIX):
@@ -497,9 +506,9 @@ proc processOldEventWithRegex*(data: seq[string],
       # in this case we have matched a pixel hit line
       # get number of hits to process
       let
-        x: int  = parseInt(matches[0])
-        y: int  = parseInt(matches[1])
-        ch: int = parseInt(matches[2])
+        x  = parseInt(matches[0]).uint8
+        y  = parseInt(matches[1]).uint8
+        ch = parseInt(matches[2]).uint16
       # if the compiler flag (-d:REMOVE_FULL_PIX) is set, we cut all pixels, which have
       # ToT values == 11810, the max ToT value
       when defined(REMOVE_FULL_PIX):
@@ -886,8 +895,8 @@ proc calcCentroidOfEvent*(pix: Pixels): tuple[x, y: float] =
     sum_x: int = 0
     sum_y: int = 0
   for p in pix:
-    sum_x += p.x
-    sum_y += p.y
+    sum_x += p.x.int
+    sum_y += p.y.int
   #let (sum_x, sum_y, sum_ch) = sum(pix)
   result.x = float(sum_x) / float(len(pix))
   result.y = float(sum_y) / float(len(pix))

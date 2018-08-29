@@ -138,7 +138,7 @@ type
     # event
     length: seq[float],
     # tots = ToT per pixel of whole run
-    tots: seq[seq[int]],
+    tots: seq[seq[uint16]],
     # hits = num hits per event of whole run
     hits: seq[seq[int]],
     # occupancies = occupancies of each chip for run

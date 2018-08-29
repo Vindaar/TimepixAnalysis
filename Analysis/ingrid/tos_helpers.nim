@@ -595,7 +595,7 @@ template addPixelsToOccupancy*[T](ar: Tensor[T], pixels: Pixels) =
 template addPixelsToOccupancySeptem*[T](ar: var Tensor[T], pixels: Pixels, ch_num: int) =
   ## template to add pixels to occupancy by using map
   for p in pixels:
-    ar[ch_num, p.x, p.y] += 1#p.ch
+    ar[ch_num, p.x.int, p.y.int] += 1#p.ch
 
 proc createTensorFromZeroSuppressed*[T](pixels: Pixels): Tensor[T] =
   ## procedure to create a (256, 256) int array from a Pixels (seq[tuple[x, y, ch]])

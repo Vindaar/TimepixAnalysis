@@ -336,7 +336,7 @@ proc processRawInGridData(ch: seq[Event], runNumber: int): ProcessedRun = #seq[F
     # store ToT data of all events for each chip
     # Note: still contains a single seq for each event! Need to concat
     # these seqs at the end
-    tot_run: seq[seq[seq[int]]] = newSeq[seq[seq[int]]](nChips)
+    tot_run: seq[seq[seq[uint16]]] = newSeq[seq[seq[uint16]]](nChips)
     # store occupancy frames for each chip
     # TODO: allow for other values than 7 chips!
     occ = zeros[int64](nChips, 256, 256)
@@ -355,7 +355,7 @@ proc processRawInGridData(ch: seq[Event], runNumber: int): ProcessedRun = #seq[F
 
   # initialize empty sequences. Input to anonymous function is var
   # as we change each inner sequence in place with newSeq
-  apply(tot_run, (x: var seq[seq[int]]) => newSeq[seq[int]](x, len(ch)))
+  apply(tot_run, (x: var seq[seq[uint16]]) => newSeq[seq[uint16]](x, len(ch)))
   apply(hits, (x: var seq[int]) => newSeq[int](x, len(ch)))
 
   echo "starting to process events..."
@@ -387,16 +387,12 @@ proc processRawInGridData(ch: seq[Event], runNumber: int): ProcessedRun = #seq[F
           hits[num][i] = n_pix
     echoFilesCounted(count, msg = " files processed.")
 
-  # using concatenation, flatten the seq[seq[int]] into a seq[int] for each chip
-  # in the run (currently tot_run is a seq[seq[seq[int]]]. Convert to seq[seq[int]]
-  let tot = map(tot_run, (t: seq[seq[int]]) -> seq[int] => concat(t))
-
   # use first event of run to fill event header. Fine, because event
   # header is contained in every file
   result.runHeader = ch[0].evHeader #fillRunHeader(ch[0]) #^ch[0])
   result.nChips = nChips
   result.events = events
-  result.tots = tot
+  result.tots = tot_run --> flatten() --> to(seq[seq[uint16]]) # flatten 1 level
   result.hits = hits
   result.occupancies = occ
 
@@ -924,7 +920,7 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
     # - Hits
     # ... more later
     let
-      tot = run.tots[chip]
+      tot = run.tots[chip].asType(int)
       hit = run.hits[chip]
       occ = run.occupancies[chip, _, _].squeeze.clone
     var

@@ -110,10 +110,9 @@ proc readFadcFile*(file: seq[string]): ref FadcFile = #seq[float] =
   var evNumChipNumStr: array[1, string]
 
   if match(filepath, evNumberRegex, evNumChipNumStr) == true:
-    echo (evNumChipNumStr[0].parseInt)
     result.eventNumber = parseInt(evNumChipNumStr[0])
   else:
-    echo "error. could not match file"
+    echo "Warning: could not match event number match for file " & $filepath
 
   # finally assign data sequence
   result.data = data

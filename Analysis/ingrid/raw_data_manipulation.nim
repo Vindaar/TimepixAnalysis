@@ -9,7 +9,7 @@
 ## - calculate the ToT per pixel histogram
 
 ## standard lib
-import os, osproc
+import os, osproc, logging
 import re
 import sequtils, sugar
 import algorithm
@@ -35,6 +35,7 @@ import ingrid_types
 import seqmath
 import nimhdf5
 import arraymancer
+import zero_functional
 
 # global experimental pragma to use parallel: statement in readRawInGridData()
 {.experimental.}
@@ -97,6 +98,16 @@ let filter = H5Filter(kind: fkZlib, zlibLevel: 4) # on run 146 took: 0.598701584
 #                       doShuffle: true,
 #                       compressor: BloscCompressor.LZ4) # on run 146 took: 0.4899360696474711 min
 # let filter = H5Filter(kind: fkNone)
+
+################################################################################
+
+# set up the logger
+var L = newConsoleLogger()
+var fL = newFileLogger("logs/raw_data_manipulation.log", fmtStr = verboseFmtStr)
+addHandler(L)
+addHandler(fL)
+
+################################################################################
 
 template ch_len(): int = 2560
 template all_ch_len(): int = ch_len() * 4
@@ -220,7 +231,7 @@ template batchFiles(files: var seq[string], bufsize, actions: untyped): untyped 
     # perform actions as desired
     actions
 
-    echo "... removing read elements from list"
+    info "... removing read elements from list"
     # sequtils.delete removes the element with ind_high as well!
     files.delete(0, ind_high)
 
@@ -252,12 +263,12 @@ proc batchFileReading[T](files: var seq[string],
     elif T is FadcFile:
       let buf_seq = readListOfFadcFiles(files[0..ind_high])
 
-    echo "... and concating buffered sequence to result"
+    info "... and concating buffered sequence to result"
     result = concat(result, buf_seq)
     count += bufsize
-  echo "All files read. Number = " & $len(result)
-  echo "Reading took $# seconds" % $(epochTime() - t0)
-  echo "Compared with starting files " & $n_files
+  info "All files read. Number = " & $len(result)
+  info "Reading took $# seconds" % $(epochTime() - t0)
+  info "Compared with starting files " & $n_files
 
 
 proc readRawInGridData(listOfFiles: seq[string],
@@ -276,7 +287,7 @@ proc readRawInGridData(listOfFiles: seq[string],
   let raw_ingrid = batchFileReading[Event](files, regex_tup, rfKind)
   # now sort the seq of FlowVars according to event numbers again, otherwise
   # h5 file is all mangled
-  echo "Sorting data..."
+  info "Sorting data..."
   # case on the old TOS' data storage and new TOS' version
   let t0 = cpuTime()
   # TODO: compare speed of sorting for both cases. Merge?
@@ -309,7 +320,7 @@ proc readRawInGridData(listOfFiles: seq[string],
       result[i[1]] = (^raw_ingrid[i[1]])[]
 
   let t1 = cpuTime()
-  echo &"...Sorting done, took {$(t1 - t0)} seconds"
+  info &"...Sorting done, took {$(t1 - t0)} seconds"
 
 proc processRawInGridData(ch: seq[Event], runNumber: int): ProcessedRun = #seq[FlowVar[ref Event]]): ProcessedRun =
   ## procedure to process the raw data read from the event files by readRawInGridData
@@ -358,7 +369,7 @@ proc processRawInGridData(ch: seq[Event], runNumber: int): ProcessedRun = #seq[F
   apply(tot_run, (x: var seq[seq[uint16]]) => newSeq[seq[uint16]](x, len(ch)))
   apply(hits, (x: var seq[int]) => newSeq[int](x, len(ch)))
 
-  echo "starting to process events..."
+  info "starting to process events..."
   count = 0
   for i in 0 .. ch.high:
   # assign the length field of the ref object
@@ -448,7 +459,7 @@ proc processFadcData(fadc_files: seq[FlowVar[ref FadcFile]]): ProcessedFadcData 
   #     if i < result.minVals.len:
   #       result.minVals[i]       = spawn fadc_dat.calcMinOfPulse(min_percentile)
   #     sync()
-  echo "Calculation of $# events took $# seconds" % [$nEvents, $(epochTime() - t0)]
+  info "Calculation of $# events took $# seconds" % [$nEvents, $(epochTime() - t0)]
 
 proc initFadcInH5(h5f: var H5FileObj, runNumber, batchsize: int, filename: string) =
   # proc to initialize the datasets etc in the HDF5 file for the FADC. Useful
@@ -537,14 +548,14 @@ proc writeFadcDataToH5(h5f: var H5FileObj, runNumber: int, f_proc: ProcessedFadc
     noisy_dset = h5f[noiseBasename(runNumber).dset_str]
     minVals_dset = h5f[minValsBasename(runNumber).dset_str]
 
-  echo raw_fadc_dset.shape
-  echo raw_fadc_dset.maxshape
-  echo fadc_dset.shape
-  echo fadc_dset.maxshape
-  echo trigRec_dset.shape
-  echo trigRec_dset.maxshape
-  echo eventNumber_dset.shape
-  echo eventNumber_dset.maxshape
+  info raw_fadc_dset.shape
+  info raw_fadc_dset.maxshape
+  info fadc_dset.shape
+  info fadc_dset.maxshape
+  info trigRec_dset.shape
+  info trigRec_dset.maxshape
+  info eventNumber_dset.shape
+  info eventNumber_dset.maxshape
   # first need to extend the dataset, as we start with a size of 0.
   let oldsize = raw_fadc_dset.shape[0]
   let newsize = oldsize + nEvents
@@ -566,7 +577,7 @@ proc writeFadcDataToH5(h5f: var H5FileObj, runNumber: int, f_proc: ProcessedFadc
   let t0 = epochTime()
   # TODO: speed this up
   # write using hyperslab
-  echo "Trying to write using hyperslab! from $# to $#" % [$oldsize, $newsize]
+  info "Trying to write using hyperslab! from $# to $#" % [$oldsize, $newsize]
   raw_fadc_dset.write_hyperslab(f_proc.raw_fadc_data,
                                 offset = @[oldsize, 0],
                                 count = @[nEvents, all_ch_len])
@@ -585,7 +596,7 @@ proc writeFadcDataToH5(h5f: var H5FileObj, runNumber: int, f_proc: ProcessedFadc
   minVals_dset.write_hyperslab(f_proc.minVals,
                                offset = @[oldsize, 0],
                                count = @[nEvents, 1])
-  echo "Writing of FADC data took $# seconds" % $(epochTime() - t0)
+  info "Writing of FADC data took $# seconds" % $(epochTime() - t0)
 
 proc finishFadcWriteToH5(h5f: var H5FileObj, runNumber: int) =
   # proc to finalize the last things we need to write for the FADC data
@@ -628,7 +639,7 @@ proc readProcessWriteFadcData(run_folder: string, runNumber: int, h5f: var H5Fil
   batchFiles(files, batchsize - 1):
     # batch in 1000 file pieces
     var mfiles = files[0..ind_high]
-    echo "Starting with file $# and ending with file $#" % [$mfiles[0], $mfiles[^1]]
+    info "Starting with file $# and ending with file $#" % [$mfiles[0], $mfiles[^1]]
     files_read = files_read.concat(mfiles)
 
     raw_fadc_data = batchFileReading[FadcFile](mfiles)
@@ -640,11 +651,11 @@ proc readProcessWriteFadcData(run_folder: string, runNumber: int, h5f: var H5Fil
     # given read files, we now need to append this data to the HDF5 file, before
     # we can process more data, otherwise we might run out of RAM
     f_proc = raw_fadc_data.processFadcData
-    echo "Number of FADC files in this batch ", raw_fadc_data.len
+    info "Number of FADC files in this batch ", raw_fadc_data.len
 
     h5f.writeFadcDataToH5(runNumber, f_proc)
 
-  echo files_read.toSet.len
+  info "Number of files read: ", files_read.toSet.len
   # finally finish writing to the HDF5 file
   finishFadcWriteToH5(h5f, runNumber)
 
@@ -738,8 +749,8 @@ proc writeInGridAttrs(h5f: var H5FileObj, run: ProcessedRun) =
     grp.attrs["numEventsStored"] = 0
     inc i
 
-  echo "ToTs shape is ", run.tots.shape
-  echo "hits shape is ", run.hits.shape
+  info "ToTs shape is ", run.tots.shape
+  info "hits shape is ", run.hits.shape
   # into the reco group name we now write the ToT and Hits information
   # var totDset = h5f.create_dataset(reco_group & "/ToT")
   #for chip in 0 .. run.nChips:
@@ -786,7 +797,7 @@ proc fillDataForH5(x, y: var seq[seq[seq[uint8]]],
         discard
         #echo "Event $# with evHeaders does not contain key $#" % [$event, $key]
       except IndexError:
-        echo "Event $# with evHeaders does not contain key $#" % [$event, $key]
+        logging.error "Event $# with evHeaders does not contain key $#" % [$event, $key]
     # add raw chip pixel information
     for chp in event.chips:
       let
@@ -872,32 +883,35 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
   ###### Write the data ########
   ##############################
 
-  echo "Writing all dset x data "
+  info "Writing all dset x data "
   #let all = x_dsets[0].all
 
   template writeHyper(dset: untyped, data: untyped): untyped =
     dset.write_hyperslab(data, offset = @[oldsize, 0], count = @[nEvents, 1])
 
   for i in 0 ..< nChips:
-    echo "Writing dsets ", i, " size x ", x_dsets.len
+    withDebug:
+      info "Writing dsets ", i, " size x ", x_dsets.len
     x_dsets[i].resize((newsize, 1))
     y_dsets[i].resize((newsize, 1))
     ch_dsets[i].resize((newsize, 1))
-    echo "Shape of x ", x[i].len, " ", x[i].shape
-    echo "Shape of dset ", x_dsets[i].shape
+    withDebug:
+      info "Shape of x ", x[i].len, " ", x[i].shape
+      info "Shape of dset ", x_dsets[i].shape
     x_dsets[i].writeHyper(x[i])
     y_dsets[i].writeHyper(y[i])
     ch_dsets[i].writeHyper(ch[i])
 
   for key, dset in mpairs(evHeadersDsetTab):
-    echo "Writing $# in $#" % [$key, $dset]
+    withDebug:
+      info "Writing $# in $#" % [$key, $dset]
     dset.resize((newsize, 1))
     dset.writeHyper(evHeaders[key])
 
   # write other single column datasets
   durationDset.resize((newsize, 1))
   durationDset.writeHyper(duration)
-  echo "took a total of $# seconds" % $(epochTime() - t0)
+  info "took a total of $# seconds" % $(epochTime() - t0)
 
   ####################
   #  Reconstruction  #
@@ -906,8 +920,8 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
   # TODO: maybe this needs to be done in a pass after everything has been done?
   # at least for occupancy?
 
-  echo "ToTs shape is ", run.tots.shape
-  echo "hits shape is ", run.hits.shape
+  info "ToTs shape is ", run.tots.shape
+  info "hits shape is ", run.hits.shape
   # into the reco group name we now write the ToT and Hits information
   var (totDsets, hitDsets, occDsets) = getTotHitOccDsets(h5f, chipGroupName, nChips)
 
@@ -984,7 +998,7 @@ proc processAndWriteInGrid(listOfFiles: seq[string],
   # - read event header for each file
   # -
   # read the raw event data into a seq of FlowVars
-  echo "list of files ", listOfFiles.len
+  info "list of files ", listOfFiles.len
   let ingrid = readRawInGridData(listOfFiles, rfKind)
   # process the data read into seq of FlowVars, save as result
   result = processRawInGridData(ingrid, runNumber)
@@ -994,9 +1008,9 @@ proc processAndWriteFadc(run_folder: string, runNumber: int, h5f: var H5FileObj)
   # the FADC files in a buffered way, always reading 1000 FADC
   # filsa at a time.
   let mem1 = getOccupiedMem()
-  echo "occupied memory before fadc $# \n\n" % [$mem1]
+  info "occupied memory before fadc $# \n\n" % [$mem1]
   readProcessWriteFadcData(run_folder, runNumber, h5f)
-  echo "FADC took $# data" % $(getOccupiedMem() - mem1)
+  info "FADC took $# data" % $(getOccupiedMem() - mem1)
 
 proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string, nofadc = false) =
   ## proc to process and write a single run
@@ -1023,7 +1037,7 @@ proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string, nofadc = f
     dumpFrameToFile("tmp/frame.txt", a)
     initInGridInH5(h5f, runNumber, nChips, batchsize)
     writeProcessedRunToH5(h5f, r)
-    echo "Size of total ProcessedRun object = ", sizeof(r)
+    info "Size of total ProcessedRun object = ", sizeof(r)
 
   ####################
   # Create Hardlinks #
@@ -1060,8 +1074,8 @@ proc main() =
 
   # first check whether given folder is valid run folder
   let (is_run_folder, _, _, contains_run_folder) = isTosRunFolder(folder)
-  echo "Is run folder       : ", is_run_folder
-  echo "Contains run folder : ", contains_run_folder
+  info "Is run folder       : ", is_run_folder
+  info "Contains run folder : ", contains_run_folder
 
   let t0 = epochTime()
   if is_run_folder == true and contains_run_folder == false:
@@ -1070,9 +1084,9 @@ proc main() =
     # in order to write the processed run and FADC data to file, open the HDF5 file
     var h5f = H5file(outfile, "rw")
     processAndWriteSingleRun(h5f, folder, nofadc)
-    echo "free memory ", getFreeMem()
-    echo "occupied memory so far $# \n\n" % [$getOccupiedMem()]
-    echo "Closing h5file with code ", h5f.close()
+    info "free memory ", getFreeMem()
+    info "occupied memory so far $# \n\n" % [$getOccupiedMem()]
+    info "Closing h5file with code ", h5f.close()
 
   elif is_run_folder == false and contains_run_folder == true:
     # in this case loop over all folder again and call processSingleRun() for each
@@ -1088,7 +1102,7 @@ proc main() =
           for i in 2 .. paramCount():
             let c = paramStr(i)
             command = command & " " & c
-          echo "Calling command ", command
+          info "Calling command ", command
           let errC = execCmd(command)
           if errC != 0:
             quit("Subprocess failed with " & $errC)
@@ -1102,15 +1116,15 @@ proc main() =
           # dumpNumberOfInstances()
           # GC_fullCollect()
           # dumpNumberOfInstances()
-        echo "occupied memory after gc $#" % [$getOccupiedMem()]
+        info "occupied memory after gc $#" % [$getOccupiedMem()]
   elif is_run_folder == true and contains_run_folder == true:
-    echo "Currently not implemented to run over nested run folders."
+    logging.error "Currently not implemented to run over nested run folders."
     quit()
   else:
-    echo "No run folder found in given path."
+    logging.error "No run folder found in given path."
     quit()
 
-  echo "Processing all given runs took $# minutes" % $( (epochTime() - t0) / 60'f )
+  info "Processing all given runs took $# minutes" % $( (epochTime() - t0) / 60'f )
 
 when isMainModule:
   main()

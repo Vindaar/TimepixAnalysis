@@ -7,6 +7,7 @@
 import os
 import sequtils, future
 import threadpool
+import logging
 import math
 import tables
 import docopt
@@ -92,6 +93,18 @@ let filter = H5Filter(kind: fkZlib, zlibLevel: 4)
 #let filter = H5Filter(kind: fkNone)
 const Chunksize = 10000
 
+
+################################################################################
+
+# set up the logger
+var L = newConsoleLogger()
+var fL = newFileLogger("logs/reconstruction.log", fmtStr = verboseFmtStr)
+addHandler(L)
+addHandler(fL)
+
+################################################################################
+
+
 template benchmark(num: int, actions: untyped) {.dirty.} =
   for i in 0 ..< num:
     actions
@@ -136,7 +149,6 @@ proc createDatasets[N: int](dset_tab: var Table[string, seq[H5DataSet]],
       dset_tab[dset][chip] = h5f.create_dataset(groups[chip].name / dset, lengths[chip],
                                                 dtype = dtype,
                                                 chunksize = @[Chunksize, 1],
-                                                # calling with maxshape @[] seems to produce `nimhdf5` bug
                                                 maxshape = @[int.high, 1],
                                                 filter = filter)
 
@@ -163,7 +175,7 @@ proc writeRecoRunToH5(h5f: var H5FileObj,
 
   # for now hardcode the number of chips. easy to change by getting the number
   # simply from a file or whatever
-  echo "Number of events in total ", reco_run.len
+  info "Number of events in total ", reco_run.len
 
   let
     # start time for timing the write
@@ -232,14 +244,14 @@ proc writeRecoRunToH5(h5f: var H5FileObj,
 
   # now that we have the data and now how many elements each type has
   # we can create the datasets
-  echo "Now creating dset stuff"
+  info "Now creating datasets"
   # define type for variable length pixel data
   let ev_type_xy = special_type(uint8)
   let ev_type_ch = special_type(uint16)
 
   template datasetCreation(h5f: untyped, name, dlen, `type`: untyped): untyped =
     ## inserts the correct data set creation parameters
-    echo "Creating dataset ", name
+    info "Creating dataset ", name
     h5f.create_dataset(name,
                        dlen,
                        dtype = `type`,
@@ -275,6 +287,7 @@ proc writeRecoRunToH5(h5f: var H5FileObj,
   let all = x_dsets[0].all
   # get locations of raw data groups, so that we can copy
   # the attributes
+  info "Writing data to datasets"
   let raw_groups = rawDataChipBase(runNumber)
   for chip in 0 ..< nChips:
     for dset in int_dset_names:
@@ -562,8 +575,8 @@ template fitRotAngle(cl_obj: ClusterObject, rotAngleEstimate: float): (float, fl
   # start minimization
   let (params, min_val) = opt.optimize(p)
   if opt.status < NLOPT_SUCCESS:
-    echo opt.status
-    echo "nlopt failed!\n"
+    info opt.status
+    warn "nlopt failed!"
   # clean up optimizer
   nlopt_destroy(opt.optimizer)
   # now return the rotation angle and eccentricity
@@ -604,10 +617,10 @@ proc recoCluster(c: Cluster): ClusterObject =
     #echo "correcting 2"
     rotAngleEstimate -= 4 * arctan(1.0)
   elif classify(rotAngleEstimate) != fcNormal:
-    echo "Rot angle estimate is NaN, vals are ", rms_x, " ", rms_y
+    warn "Rot angle estimate is NaN, vals are ", $rms_x, " ", $rms_y
     # what do we do in this case with the geometry?!
     #raise newException(ValueError, "Rotation angle estimate returned bad value")
-    echo "Fit will probably fail!"
+    warn "Fit will probably fail!"
 
   # else we can minimize the rotation angle and calc the eccentricity
   let (rot_angle, eccentricity) = fitRotAngle(result, rotAngleEstimate)
@@ -635,8 +648,8 @@ proc reconstructSingleChip(data: seq[Pixels], run, chip: int): seq[FlowVar[ref R
   #    data: seq[Pixels] = data of pixels for this chip containing pixels for each event
   #    run: int = run number of run
   #    chip: int = chip number working on
-  echo &"Working on chip {chip} in run {run}"
-  echo &"We have {data.len} events to reconstruct"
+  info &"Working on chip {chip} in run {run}"
+  info &"We have {data.len} events to reconstruct"
   var count = 0
   result = newSeq[FlowVar[ref RecoEvent]](data.len)
   #result = newSeq[ref RecoEvent](data.len)
@@ -693,10 +706,10 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
           # events in ascending order of event number, i.e.
           # [0] -> eventNumber == 0 and so on
           reco_run.add reconstructSingleChip(pixdata, runNumber, chip)
-          echo &"Reco run now contains {reco_run.len} elements"
+          info &"Reco run now contains {reco_run.len} elements"
 
 
-        echo "Reconstruction of run $# took $# seconds" % [$runNumber, $(epochTime() - t1)]
+        info "Reconstruction of run $# took $# seconds" % [$runNumber, $(epochTime() - t1)]
         # finished run, so write run to H5 file
         h5fout.writeRecoRunToH5(h5f, reco_run, runNumber)
         # set reco run length back to 0
@@ -724,9 +737,9 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
           if flags_tab["only_fadc"] == true:
             h5fout.calcRiseAndFallTimes(runNumber)
         else:
-          echo "No reconstructed run found for $#" % $grp
+          warn "No reconstructed run found for $#" % $grp
 
-  echo "Reconstruction of all runs in $# took $# seconds" % [$h5f.name, $(epochTime() - t0)]
+  info "Reconstruction of all runs in $# took $# seconds" % [$h5f.name, $(epochTime() - t0)]
 
 proc reconstructRunsInFile(h5f: var H5FileObj,
                            flags_tab: Table[string, bool],
@@ -746,7 +759,7 @@ proc reconstructSingleRunFolder(folder: string) =
   # in that folder
   # inputs:
   #    folder: string = the run folder from which to reconstruct events
-  echo "Starting to read list of files"
+  info "Starting to read list of files"
   let
     files = getSortedListOfFiles(folder, EventSortType.inode, EventType.InGridType)
     regex_tup = getRegexForEvents()
@@ -800,10 +813,10 @@ proc main() =
     outfile = "None"
   else:
     outfile = $args["--out"]
-    echo &"Set outfile to {outfile}"
-    echo "WARNING: writing to a different H5 file is not quite finished yet."
-    echo "\t The resulting file will miss the attributes of the reco run groups"
-    echo "\t as well as the common datasets like timestamps!"
+    info &"Set outfile to {outfile}"
+    warn "WARNING: writing to a different H5 file is not quite finished yet."
+    warn "\t The resulting file will miss the attributes of the reco run groups"
+    warn "\t as well as the common datasets like timestamps!"
   if create_fe_arg == "false":
     create_fe_flag = false
   else:
@@ -851,11 +864,11 @@ proc main() =
   var err: herr_t
   err = h5f.close()
   if err != 0:
-    echo &"Failed to close H5 file {h5f.name}"
+    logging.error &"Failed to close H5 file {h5f.name}"
   if outfile != "None":
     err = h5fout.close()
     if err != 0:
-      echo &"Failed to close H5 file {h5fout.name}"
+      logging.error &"Failed to close H5 file {h5fout.name}"
 
   # NOTE: there's no point for this anymore, at least not at the moment
   # # first check whether given folder is valid run folder

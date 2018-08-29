@@ -712,6 +712,9 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
         info "Reconstruction of run $# took $# seconds" % [$runNumber, $(epochTime() - t1)]
         # finished run, so write run to H5 file
         h5fout.writeRecoRunToH5(h5f, reco_run, runNumber)
+        # now flush both files
+        h5fout.flush
+        h5f.flush
         # set reco run length back to 0
         reco_run.setLen(0)
 

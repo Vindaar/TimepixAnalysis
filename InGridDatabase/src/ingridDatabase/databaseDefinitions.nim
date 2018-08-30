@@ -10,18 +10,20 @@ proc removeSuffix(s: string, rm: string): string {.compileTime.} =
 # that `dirExists` DOES work at compile time :S Fix this
 
 const dbDir = "resources"
-const path1 = staticExec("nimble path ingridDatabase") / dbDir
-const path2 = staticExec("nimble path ingridDatabase").removeSuffix("src") / dbDir
+const path1 = staticExec("nimble path ingridDatabase").strip / dbDir
+const path2 = staticExec("nimble path ingridDatabase").strip.removeSuffix("src") / dbDir
 var tmpPath {.compileTime.} = ""
 # check whether path exists to check whether we need the `src` or not
-when dirExists(path1):
-  tmpPath = path1
-elif dirExists(path2):
-  tmpPath = path2
-else:
-  # else write a warning and put path to local folder
-  {.fatal: "Could not find valid path to ingridDatabase.h5 file! Did you forget" &
-    "to install the `ingridDatabase` nim module?".}
+static:
+  # needs to be in static, otherwise tmpPath won't be set
+  when dirExists(path1):
+    tmpPath = path1
+  elif dirExists(path2):
+    tmpPath = path2
+  else:
+    # else write a warning and put path to local folder
+    {.fatal: "Could not find valid path to ingridDatabase.h5 file! Did you forget" &
+      "to install the `ingridDatabase` nim module?".}
 
 # if we haven't quit we found the path
 const ingridPath* = tmpPath

@@ -28,8 +28,8 @@ when defined(windows):
       tmpPath = path2
     else:
       # else write a warning and put path to local folder
-      fatal("Could not find valid path to ingridDatabase.h5 file! Did you forget" &
-        "to install the `ingridDatabase` nim module?")
+      {.fatal: "Could not find valid path to ingridDatabase.h5 file! Did you forget" &
+        "to install the `ingridDatabase` nim module?".}
 else:
   const doesExist = 0
   const doesNotExist = 1
@@ -43,8 +43,8 @@ else:
       tmpPath = path2
     else:
       # else write a warning and put path to local folder
-      fatal("Could not find valid path to ingridDatabase.h5 file! Did you forget" &
-        "to install the `ingridDatabase` nim module?")
+      {.fatal: "Could not find valid path to ingridDatabase.h5 file! Did you forget" &
+        "to install the `ingridDatabase` nim module?".}
 
 # if we haven't quit we found the path
 const ingridPath* = tmpPath

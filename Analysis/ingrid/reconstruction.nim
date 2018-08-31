@@ -311,7 +311,7 @@ proc writeRecoRunToH5(h5f: var H5FileObj,
     chip_groups[ch_numb].attrs["chipName"] = ch_name
 
 iterator readDataFromH5(h5f: var H5FileObj, group: string, runNumber: int): (int, seq[Pixels]) =
-  # proc to read data from the HDF5 file from `group`
+  ## proc to read data from the HDF5 file from `group`
   var chip_base = rawDataChipBase(runNumber)
   let raw_data_basename = rawDataBase()
   for grp in keys(h5f.groups):
@@ -352,7 +352,7 @@ proc newClusterGeometry(): ClusterGeometry =
 
 
 proc newClusterObject(c: Cluster): ClusterObject =
-  # initialize variables with Inf for now
+  ## initialize variables with Inf for now
   # TODO: should we initialize geometry values by Inf as well?
   let geometry = ClusterGeometry()
   result = ClusterObject(data: c,
@@ -361,12 +361,11 @@ proc newClusterObject(c: Cluster): ClusterObject =
                          energy: Inf,
                          geometry: geometry)
 
-
 proc eccentricity(p: seq[float], func_data: FitObject): float =
-  # this function calculates the eccentricity of a found pixel cluster using nimnlopt.
-  # Since no proper high level library is yet available, we need to pass a var pointer
-  # of func_data, which contains the x and y arrays in which the data is stored, in
-  # order to calculate the RMS variables
+  ## this function calculates the eccentricity of a found pixel cluster using nimnlopt.
+  ## Since no proper high level library is yet available, we need to pass a var pointer
+  ## of func_data, which contains the x and y arrays in which the data is stored, in
+  ## order to calculate the RMS variables
 
   # first recover the data from the pointer to func_data, by casting the
   # raw pointer to a Cluster object
@@ -400,10 +399,10 @@ proc eccentricity(p: seq[float], func_data: FitObject): float =
   result = -exc
 
 proc calcGeometry(cluster: Cluster, pos_x, pos_y, rot_angle: float): ClusterGeometry =
-  # given a cluster and the rotation angle of it, calculate the different
-  # statistical moments, i.e. RMS, skewness and kurtosis in longitudinal and
-  # transverse direction
-  # done by rotating the cluster by the angle to define the two directions
+  ## given a cluster and the rotation angle of it, calculate the different
+  ## statistical moments, i.e. RMS, skewness and kurtosis in longitudinal and
+  ## transverse direction
+  ## done by rotating the cluster by the angle to define the two directions
   let npix = cluster.len
 
   var
@@ -454,15 +453,15 @@ proc calcGeometry(cluster: Cluster, pos_x, pos_y, rot_angle: float): ClusterGeom
                                                   distance(it.a, it.b) <= result.rmsTransverse).len) / float(npix)
 
 proc isPixInSearchRadius(p1, p2: Coord, search_r: int): bool =
-  # given two pixels, p1 and p2, we check whether p2 is within one square search
-  # of p1
-  # inputs:
-  #   p1: Pix = pixel from which to start search
-  #   p2: Pix = pixel for which to check
-  #   search_r: int = search radius (square) in which to check for p2 in (p1 V search_r)
-  # outpuits:
-  #   bool = true if within search_r
-  #          false if not
+  ## given two pixels, p1 and p2, we check whether p2 is within one square search
+  ## of p1
+  ## inputs:
+  ##   p1: Pix = pixel from which to start search
+  ##   p2: Pix = pixel for which to check
+  ##   search_r: int = search radius (square) in which to check for p2 in (p1 V search_r)
+  ## outpuits:
+  ##   bool = true if within search_r
+  ##          false if not
   let
     # determine boundary of search space
     right = p1.x.int + search_r
@@ -482,13 +481,13 @@ proc isPixInSearchRadius(p1, p2: Coord, search_r: int): bool =
   result = if in_x == true and in_y == true: true else: false
 
 proc findSimpleCluster*(pixels: Pixels): seq[Cluster] =
-  # this procedure searches for clusters based on a fixed search radius, whether
-  # a pixel is found within that boundary, e.g. searchRadius = 50:
-  # if within 50 pixels another pixel is found, add pixel to cluster, continue
-  # inputs:
-  #   -
-  # ouputs:
-  #   -
+  ## this procedure searches for clusters based on a fixed search radius, whether
+  ## a pixel is found within that boundary, e.g. searchRadius = 50:
+  ## if within 50 pixels another pixel is found, add pixel to cluster, continue
+  ## inputs:
+  ##   -
+  ## ouputs:
+  ##   -
 
   # - iterate over all hit pixels in event
   # - check next pixel, is it within search bound? yes,
@@ -536,9 +535,9 @@ proc findSimpleCluster*(pixels: Pixels): seq[Cluster] =
     inc i
 
 template eccentricityNloptOptimizer(fit_object: FitObject): NloptOpt =
-  # returns the already configured Nlopt optimizer to fit the rotation angle /
-  # eccentricity
-  # set  the values of the fit objectn
+  ## returns the already configured Nlopt optimizer to fit the rotation angle /
+  ## eccentricity
+  ## set  the values of the fit objectn
   var
     # set the boundary values corresponding to range of 360 deg
     lb = (-4.0 * arctan(1.0), 4.0 * arctan(1.0))
@@ -556,9 +555,9 @@ template eccentricityNloptOptimizer(fit_object: FitObject): NloptOpt =
   opt
 
 template fitRotAngle(cl_obj: ClusterObject, rotAngleEstimate: float): (float, float) =
-  # simple template which wraps the optimization of the rotation angle /
-  # eccentricity
-  # cluster object is handed as var to avoid any copying
+  ## simple template which wraps the optimization of the rotation angle /
+  ## eccentricity
+  ## cluster object is handed as var to avoid any copying
 
   # TODO: think about what to do with 11810 pixels, throw them out
 
@@ -642,12 +641,12 @@ proc recoEvent(data: Pixels, event, chip: int): ref RecoEvent =
 {.experimental.}
 #proc reconstructSingleChip(data: seq[Pixels], run, chip: int): seq[ref RecoEvent] =
 proc reconstructSingleChip(data: seq[Pixels], run, chip: int): seq[FlowVar[ref RecoEvent]] =
-  # procedure which receives pixel data for a given chip and run number
-  # and performs the reconstruction on it
-  # inputs:
-  #    data: seq[Pixels] = data of pixels for this chip containing pixels for each event
-  #    run: int = run number of run
-  #    chip: int = chip number working on
+  ## procedure which receives pixel data for a given chip and run number
+  ## and performs the reconstruction on it
+  ## inputs:
+  ##    data: seq[Pixels] = data of pixels for this chip containing pixels for each event
+  ##    run: int = run number of run
+  ##    chip: int = chip number working on
   info &"Working on chip {chip} in run {run}"
   info &"We have {data.len} events to reconstruct"
   var count = 0
@@ -685,9 +684,13 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
   var reco_run: seq[FlowVar[ref RecoEvent]] = @[]
 
   # iterate over all raw data groups
+  var runNumbersIterated: set[uint16]
+  var runNumbersDone: set[uint16]
+
   for num, grp in runs(h5f, rawDataBase()):
     # now read some data. Return value will be added later
     let runNumber = parseInt(num)
+    runNumbersIterated.incl runNumber.uint16
     # check whether all runs are read, if not if this run is correct run number
     if run_num_arg < 0 or runNumber == run_num_arg:
       if flags_tab["only_energy"] == false and
@@ -718,6 +721,8 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
         # set reco run length back to 0
         reco_run.setLen(0)
 
+        runNumbersDone.incl runNumber.uint16
+
         # now check whether create iron spectrum flag is set
         if flags_tab["create_fe"] == true:
           h5fout.createFeSpectrum(runNumber)
@@ -744,6 +749,11 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
 
   info "Reconstruction of all runs in $# took $# seconds" % [$h5f.name, $(epochTime() - t0)]
 
+  info "Performed reconstruction of the following runs:"
+  info $runNumbersDone
+  info "while iterating over the following:"
+  info $runNumbersIterated
+
 proc reconstructRunsInFile(h5f: var H5FileObj,
                            flags_tab: Table[string, bool],
                            run_num_arg: int = -1,
@@ -758,10 +768,10 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
   reconstructRunsInFile(h5f, h5f, flags_tab, run_num_arg, calib_factor)
 
 proc reconstructSingleRunFolder(folder: string) =
-  # procedure which receives path to a run folder and reconstructs the objects
-  # in that folder
-  # inputs:
-  #    folder: string = the run folder from which to reconstruct events
+  ## procedure which receives path to a run folder and reconstructs the objects
+  ## in that folder
+  ## inputs:
+  ##    folder: string = the run folder from which to reconstruct events
   info "Starting to read list of files"
   let
     files = getSortedListOfFiles(folder, EventSortType.inode, EventType.InGridType)

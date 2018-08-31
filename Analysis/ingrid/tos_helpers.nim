@@ -1367,12 +1367,21 @@ proc filterTrackingEvents*(h5f: var H5FileObj, group: H5Group, tracking_inds: se
 iterator runs*(h5f: var H5FileObj, data_basename = recoBase()): (string, string) =
   ## simple iterator, which yields the run number and group name of runs in the file.
   ## If reco is true (default) we yield reconstruction groups, else raw groups
+  ## Iterator saves the state of `h5f` during the first call to this iterator! If
+  ## additional groups are added while iterating, they will be ignored.
   if h5f.visited == false:
     h5f.visit_file
 
+  # get a seq of all groups currently in the H5 file
+  # only want to iterate over groups existing at the time, when
+  # this proc is being called.
+  # If we just use the `keys` iterator for `h5f.groups` we end up
+  # skipping runs randomly, since we insert new groups, changing the
+  # iterator while iterating. Bad! Solves issue #8
+  let groups = toSeq(keys(h5f.groups))
   let runRegex = re(data_basename & r"(\d+)$")
   var run: array[1, string]
-  for grp in keys(h5f.groups):
+  for grp in groups:
     if grp.match(runRegex, run) == true:
       # now read some data. Return value will be added later
       yield (run[0], grp)

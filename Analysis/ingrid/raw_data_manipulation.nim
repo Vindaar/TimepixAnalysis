@@ -1073,9 +1073,15 @@ proc main() =
   echo &"No fadc is {nofadc}"
 
   # first check whether given folder is valid run folder
-  let (is_run_folder, _, _, contains_run_folder) = isTosRunFolder(folder)
+  let (is_run_folder, _, rfKind, contains_run_folder) = isTosRunFolder(folder)
   info "Is run folder       : ", is_run_folder
   info "Contains run folder : ", contains_run_folder
+
+  if rfKind == rfOldTos:
+    # in case of old TOS runs, there never was a detector with an FADC
+    # so force `nofadc`
+    info "runKind is " & $rfOldTos & ", hence `nofadc` -> true"
+    nofadc = true
 
   let t0 = epochTime()
   if is_run_folder == true and contains_run_folder == false:

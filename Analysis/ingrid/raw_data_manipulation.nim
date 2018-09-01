@@ -314,6 +314,8 @@ proc readRawInGridData(listOfFiles: seq[string],
       # sort tuples by event numbers (indices thus mangled, but in "correct" order
       # for insertion)
       sortedNums = zipped.sortedByIt(it[0])
+
+    info &"Min event number {min(numList)} and max number {max(numList)}"
     # insert elements into result
     result = newSeq[Event](raw_ingrid.len)
     for i in sortedNums:
@@ -751,8 +753,6 @@ proc writeInGridAttrs(h5f: var H5FileObj, run: ProcessedRun) =
     grp.attrs["numEventsStored"] = 0
     inc i
 
-  info "ToTs shape is ", run.tots.shape
-  info "hits shape is ", run.hits.shape
   # into the reco group name we now write the ToT and Hits information
   # var totDset = h5f.create_dataset(reco_group & "/ToT")
   #for chip in 0 .. run.nChips:
@@ -829,7 +829,7 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
     nChips = run.nChips
 
   # TODO: write the run information into the meta data of the group
-  echo "Create data to write to HDF5 file"
+  info "Create data to write to HDF5 file"
   let t0 = epochTime()
   # first write the raw data
   # get the names of the groups
@@ -943,6 +943,7 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
       totDset = totDsets[chip]
       hitDset = hitDsets[chip]
       occDset = occDsets[chip]
+
     let newTotSize = totDset.shape[0] + tot.len
     let newHitSize = hitDset.shape[0] + hit.len
 

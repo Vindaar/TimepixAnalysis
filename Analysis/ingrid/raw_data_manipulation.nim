@@ -403,7 +403,9 @@ proc processRawInGridData(ch: seq[Event], runNumber: int): ProcessedRun = #seq[F
   result.runHeader = ch[0].evHeader #fillRunHeader(ch[0]) #^ch[0])
   result.nChips = nChips
   result.events = events
-  result.tots = tot_run --> flatten() --> to(seq[seq[uint16]]) # flatten 1 level
+  result.tots = tot_run -->> map(it -->
+                                 flatten().
+                                 to(seq[uint16])) --> to(seq[seq[uint16]])# flatten 1 level
   result.hits = hits
   result.occupancies = occ
 

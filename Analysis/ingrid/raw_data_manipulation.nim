@@ -1033,11 +1033,12 @@ proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string, nofadc = f
 
     if attrsWritten == false:
       writeInGridAttrs(h5f, r)
+      # create datasets in H5 file
+      initInGridInH5(h5f, runNumber, nChips, batchsize)
       attrsWritten = true
 
     let a = squeeze(r.occupancies[2,_,_])
     dumpFrameToFile("tmp/frame.txt", a)
-    initInGridInH5(h5f, runNumber, nChips, batchsize)
     writeProcessedRunToH5(h5f, r)
     info "Size of total ProcessedRun object = ", sizeof(r)
 

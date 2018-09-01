@@ -140,7 +140,7 @@ type
     # tots = ToT per pixel of whole run
     tots: seq[seq[uint16]],
     # hits = num hits per event of whole run
-    hits: seq[seq[int]],
+    hits: seq[seq[uint16]],
     # occupancies = occupancies of each chip for run
     occupancies: Tensor[int64]
     #occupancies: seq[Tensor[int]]

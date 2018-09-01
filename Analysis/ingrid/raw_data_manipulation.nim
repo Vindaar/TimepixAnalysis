@@ -354,7 +354,7 @@ proc processRawInGridData(ch: seq[Event], runNumber: int): ProcessedRun = #seq[F
     # TODO: allow for other values than 7 chips!
     occ = zeros[int64](nChips, 256, 256)
     # store number of hits for each chip
-    hits = newSeq[seq[int]](nChips)
+    hits = newSeq[seq[uint16]](nChips)
     # initialize the events sequence of result, since we add to this sequence
     # instead of copying ch to it!
     events = newSeq[Event](len(ch))
@@ -369,7 +369,7 @@ proc processRawInGridData(ch: seq[Event], runNumber: int): ProcessedRun = #seq[F
   # initialize empty sequences. Input to anonymous function is var
   # as we change each inner sequence in place with newSeq
   apply(tot_run, (x: var seq[seq[uint16]]) => newSeq[seq[uint16]](x, len(ch)))
-  apply(hits, (x: var seq[int]) => newSeq[int](x, len(ch)))
+  apply(hits, (x: var seq[uint16]) => newSeq[uint16](x, len(ch)))
 
   info "starting to process events..."
   count = 0
@@ -389,8 +389,8 @@ proc processRawInGridData(ch: seq[Event], runNumber: int): ProcessedRun = #seq[F
       addPixelsToOccupancySeptem(occ, pixels, num)
       let tot_event = pixelsToTOT(pixels)
       tot_run[num][i] = tot_event
-      let n_pix = len(tot_event)
-      if n_pix > 0:
+      let n_pix = len(tot_event).uint16
+      if n_pix > 0'u16:
         # if the compiler flag (-d:CUT_ON_CENTER) is set, we cut all events, which are
         # in the center 4.5mm^2 square of the chip
         when defined(CUT_ON_CENTER):
@@ -708,8 +708,8 @@ proc initInGridInH5(h5f: var H5FileObj, runNumber, nChips, batchsize: int) =
     durationDset = h5f.datasetCreation(joinPath(group_name, "eventDuration"), float)
   let names = mapIt(toSeq(0 ..< nChips), chipGroupName % $it)
   var
-    totDset = mapIt(names, h5f.datasetCreation(it & "/ToT", int))
-    hitDset = mapIt(names, h5f.datasetCreation(it & "/Hits", int))
+    totDset = mapIt(names, h5f.datasetCreation(it & "/ToT", uint16))
+    hitDset = mapIt(names, h5f.datasetCreation(it & "/Hits", uint16))
     # use normal dataset creation proc, due to static size of occupancies
     occDset = mapIt(names, h5f.create_dataset(it & "/Occupancy", (256, 256), int))
 
@@ -936,7 +936,7 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
     # - Hits
     # ... more later
     let
-      tot = run.tots[chip].asType(int)
+      tot = run.tots[chip]
       hit = run.hits[chip]
       occ = run.occupancies[chip, _, _].squeeze.clone
     var

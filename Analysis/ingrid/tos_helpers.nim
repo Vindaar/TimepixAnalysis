@@ -364,11 +364,12 @@ proc readMemFilesIntoBuffer*(list_of_files: seq[string]): seq[seq[string]] =
   # TODO: is it the smartest way to open and read the memfiles directly?
   # I guess there's a reason why we do not return a seq of memory mapped files
   # anymore
+  var lineBuf = newStringOfCap(80)
   for f in list_of_files:
     ff = memfiles.open(f, mode = fmRead, mappedSize = -1)
     dat.add f
-    for l in lines(ff):
-      dat.add l
+    for _ in lines(ff, lineBuf):
+      dat.add lineBuf
     ff.close()
     result.add dat
     dat.setLen(0)

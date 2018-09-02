@@ -982,24 +982,14 @@ proc linkRawToReco(h5f: var H5FileObj, runNumber, nChips: int) =
     h5f.create_hardlink(totDsetNames[chip], combineRawBasenameToT(chip, runNumber))
     h5f.create_hardlink(hitDsetNames[chip], combineRawBasenameHits(chip, runNumber))
 
-proc processAndWriteInGrid(listOfFiles: seq[string],
-                           h5f: var H5FileObj,
-                           runNumber: int,
-                           rfKind: RunFolderKind,
-                           nofadc = false): ProcessedRun =
-  ## this procedure performs the necessary manipulations of a single
-  ## run. This is the main part of the raw data manipulation
+proc readAndProcessInGrid(listOfFiles: seq[string],
+                          runNumber: int,
+                          rfKind: RunFolderKind): ProcessedRun =
+  ## Calls the procs to read InGrid data and hands it to the processing proc
   ## inputs:
-  ##     run_folder: string = the run folder (has to be one!, check with isTosRunFolder())
-  ##         to be processed
-  ##     h5f: var H5FileObj = mutable copy of the H5 file object to which we will write
-  ##         the data
-  ##     nofadc: bool = if set, we do not read FADC data
-  # need to:
-  # - create list of all data<number>.txt files in the folder
-  #   - and corresponding -fadc files
-  # - read event header for each file
-  # -
+  ##   listOfFiles: all the files to be read
+  ##   runNumber: run we're reading from
+  ##   rfKind: old or new TOS data
   # read the raw event data into a seq of FlowVars
   info "list of files ", listOfFiles.len
   let ingrid = readRawInGridData(listOfFiles, rfKind)
@@ -1029,7 +1019,7 @@ proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string, nofadc = f
   var files = getSortedListOfFiles(run_folder, EventSortType.fname, EventType.InGridType)
 
   batchFiles(files, batchsize - 1):
-    let r = processAndWriteInGrid(files[0 .. ind_high], h5f, runNumber, rfKind, nofadc)
+    let r = readAndProcessInGrid(files[0 .. ind_high], runNumber, rfKind)
     nChips = r.nChips
 
     if attrsWritten == false:

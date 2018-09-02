@@ -639,13 +639,11 @@ proc readProcessWriteFadcData(run_folder: string, runNumber: int, h5f: var H5Fil
 
   # before we start iterating over the files, initialize the H5 file
   h5f.initFadcInH5(runNumber, batchsize, files[0])
-
   batchFiles(files, batchsize - 1):
     # batch in 1000 file pieces
     var mfiles = files[0..ind_high]
     info "Starting with file $# and ending with file $#" % [$mfiles[0], $mfiles[^1]]
     files_read = files_read.concat(mfiles)
-
     raw_fadc_data = batchFileReading[FadcFile](mfiles)
 
     # TODO: read FADC files also by inode and then sort the fadc

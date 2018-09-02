@@ -616,33 +616,35 @@ proc processEventWithScanf*(data: seq[string]): ref Event =
   # perform the matching using helpers
   ##############################
 
-  # we can skip line `data[1]`, since that is the General header
-  for line in data[2 .. ^1]:
+  # first parse the event header (first 19 lines)
+  # we can skip line `data[0 .. 1]`, since that:
+  # - data[0] == filename
+  # - data[1] == `[General]` header
+  for line in data[2 .. 19]:
+    # event header
+    # start from 3 to skip ``## ``
+    line[3 .. line.high].matchEventHeader(e_header,
+                                          keyMatch,
+                                          valMatch)
+
+  # parse the rest of the file
+  for line in data[20 .. ^1]:
     # NOTE: match using matching template
     case line[0]
     of '#':
-      # event or chip header
-      case line[1]
-      of '#':
-        # event header
-        # start from 3 to skip ``## ``
-        line[3 .. line.high].matchEventHeader(e_header,
-                                              keyMatch,
-                                              valMatch)
-      else:
-        # Chip header
-        # set pix_counter to 0, need to make sure it is 0,
-        # once we reach the first
-        # hit pixel
-        line[2 .. line.high].matchChipHeader(c_header,
-                                             pixels,
-                                             keyMatch,
-                                             valMatch,
-                                             pix_counter,
-                                             cHeaderCount,
-                                             pix_to_read,
-                                             chips,
-                                             filename)
+      # Chip header
+      # set pix_counter to 0, need to make sure it is 0,
+      # once we reach the first
+      # hit pixel
+      line[2 .. line.high].matchChipHeader(c_header,
+                                           pixels,
+                                           keyMatch,
+                                           valMatch,
+                                           pix_counter,
+                                           cHeaderCount,
+                                           pix_to_read,
+                                           chips,
+                                           filename)
     else:
       # in this case we have matched a pixel hit line
       # get number of hits to process

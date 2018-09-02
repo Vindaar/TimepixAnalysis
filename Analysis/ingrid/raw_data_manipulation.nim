@@ -271,9 +271,9 @@ proc batchFileReading[T](files: var seq[string],
   info "Compared with starting files " & $n_files
 
 
-proc readRawInGridData(listOfFiles: seq[string],
-                       rfKind: RunFolderKind):
-                         seq[Event] =
+proc readRawInGridData*(listOfFiles: seq[string],
+                        rfKind: RunFolderKind):
+                          seq[Event] =
   ## given a run_folder it reads all event files (data<number>.txt) and returns
   ## a sequence of Events, which store the raw event data
   ## Intermediately we receive FlowVars to ref Events after reading. We read via

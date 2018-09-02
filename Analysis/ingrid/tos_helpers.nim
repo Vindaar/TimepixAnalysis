@@ -1,5 +1,5 @@
 import os, ospaths
-import strutils, strformat
+import strutils, strformat, strscans
 import times
 import algorithm
 import re
@@ -376,8 +376,10 @@ proc readMemFilesIntoBuffer*(list_of_files: seq[string]): seq[seq[string]] =
   echo "occ memory ", getOccupiedMem()
 
 proc processEventWithRegex*(data: seq[string],
-                            regex: tuple[header, chips, pixels: Regex]): ref Event =
-  ## TODO: update doc!
+                            regex: tuple[header, chips, pixels: Regex]):
+                              ref Event {.deprecated.}=
+  ## This proc is deprecated, use `processEventWithScanf` instead,
+  ## it's a lot faster!
   ## this template is used to create the needed functions to
   ## - read the event header
   ## - read the chip information for an event
@@ -470,14 +472,217 @@ proc processEventWithRegex*(data: seq[string],
   result.chips = chips
   result.nChips = chips.len
 
-proc processOldEventWithRegex*(data: seq[string],
-                               regPixels: Regex): ref OldEvent =
-  ## this template is used to create the needed functions to
-  ## - read the event header
-  ## - read the chip information for an event
-  ## - read the pixel data in an event
-  ## either as single functions or as a combination of
+proc processEventWithScanf*(data: seq[string]): ref Event =
+  ## Reads a current TOS event file using the strscans.scanf
+  ## macro. It
+  ## - reads the event header
+  ## - reads the chip information for an event
+  ## - reads the pixel data in an event
+  ## able to read arbitrary many chips per file
+  var
+    # variable to count already read pixels
+    pix_counter = 0
+    # variable to count line in chip header (always 3 lines),
+    # 3rd line is important for number of pixels
+    cHeaderCount = 0
+    # variables to read data into
+    e_header = initTable[string, string]()
+    c_header = initTable[string, string]()
+    # create a sequence large enough to hold most events, so that only for very large
+    # events we need to resize the sequence
+    pixels: Pixels = newSeqOfCap[Pix](400)
+    # variable to store resulting chip events
+    chips: seq[ChipEvent] = newSeqOfCap[ChipEvent](7)
+    # variable to determine, when we are reading the last pixel of one chip
+    # important, because we cannot trust numHits in chip header, due to zero
+    # suppression!
+    pix_to_read: int = 0
 
+  result = new Event
+  # get filename as 0th element of data seq
+  let filename = data[0]
+
+  var
+    # variables to use for `scanf` matching
+    keyMatch: string
+    valMatch: string
+    x: int
+    y: int
+    ch: int
+
+  const
+    # the constants to match against using `scanf`
+    headerMatch = "$*:$s${matchNonSpace}"
+    pixMatch = "$i$s$i$s$i"
+
+  ##############################
+  # some helper procs for matching
+  ##############################
+
+  proc matchNonSpace(input: string, strVal: var string, start: int): int =
+    ## proc for `scanf` macro to many any ascii character
+    var i = 0
+    while i + start < input.len:
+      strVal.add input[i + start]
+      inc i
+    result = i
+
+  proc matchEventHeader(line: string,
+                        e_header: var Table[string, string],
+                        keyMatch, valMatch: var string) {.inline.} =
+    ## proc performing the match of `Event Header` part using strscans.scanf.
+    ## These lines start with `## `.
+    ## The given string has already been stripped of the prefix
+    if likely(line[0]!= '[') and
+       likely(scanf(line, headerMatch, keyMatch, valMatch)):
+      e_header[keyMatch] = valMatch
+      keyMatch.setLen(0)
+      valMatch.setLen(0)
+
+  proc matchChipHeader(line: string,
+                       c_header: var Table[string, string],
+                       pixels: var seq[Pix],
+                       keyMatch, valMatch: var string,
+                       pix_counter, cHeaderCount, pix_to_read: var int,
+                       chips: var seq[ChipEvent],
+                       filepath: string) {.inline.} =
+    ## performs the parsing of the chip header using strscans.scanf.
+    ## These line start with `# `. The input has already been stripped
+    ## of the prefix.
+    pix_counter = 0
+    # start from 2 to skip ``# ``
+    if likely(scanf(line, headerMatch, keyMatch, valMatch)):
+      c_header[keyMatch] = valMatch
+      if cHeaderCount == 2:
+        # we're in the 3rd line of chip header containing numHits
+        # reset cHeaderCount
+        cHeaderCount = 0
+        assert keyMatch == "numHits", "File seems broken: " & filepath
+        let nhits = valMatch.parseInt
+        pix_to_read = if nhits < 4096: nhits else: 4095
+        if pix_to_read == 0:
+          var ch_event = ChipEvent()
+          ch_event.chip = (c_header["chipName"], parseInt(c_header["chipNumber"]))
+          ch_event.pixels = pixels
+          # add the chip event object to the sequence
+          chips.add(ch_event)
+      else:
+        # only increase cHeader count if it wasn't 2
+        inc cHeaderCount
+      # increase chip header count
+      keyMatch.setLen(0)
+      valMatch.setLen(0)
+    else:
+      raise newException(IOError, "ChipHeader: This shouldn't happen. File is broken!" &
+        " filename: " & filepath)
+
+  proc matchPixels(line: string,
+                   c_header: var Table[string, string],
+                   pixels: var seq[Pix],
+                   x, y, ch: var int,
+                   pix_counter: var int,
+                   pix_to_read: var int,
+                   chips: var seq[ChipEvent],
+                   filename: string) {.inline.} =
+    ## matches the lines containing pixels using strscans.scanf macro
+    if likely(scanf(line, pixMatch, x, y, ch)):
+      # if the compiler flag (-d:REMOVE_FULL_PIX) is set, we cut all pixels, which have
+      # ToT values == 11810, the max ToT value
+      when defined(REMOVE_FULL_PIX):
+        if ch != 11810:
+          pixels.add((x.uint8, y.uint8, ch.uint16))
+      else:
+        pixels.add((x.uint8, y.uint8, ch.uint16))
+
+      # after adding pixel, increase pixel counter so that we know when we're
+      # reading the last hit of a given chip
+      inc pix_counter
+      if pix_counter == pix_to_read:
+        # now we are reading the last hit, process chip header and pixels
+        var ch_event = ChipEvent()
+        ch_event.chip = (c_header["chipName"], parseInt(c_header["chipNumber"]))
+        ch_event.pixels = pixels
+        # add  the chip event object to the sequence
+        chips.add(ch_event)
+        # reset the pixels sequence
+        pixels = newSeqOfCap[Pix](400)
+        pix_to_read = 0
+    else:
+      raise newException(IOError, "PixMatch: This shouldn't happen. File is broken!" &
+          " filename: " & filename)
+
+  ##############################
+  # perform the matching using helpers
+  ##############################
+
+  # we can skip line `data[1]`, since that is the General header
+  for line in data[2 .. ^1]:
+    # NOTE: match using matching template
+    case line[0]
+    of '#':
+      # event or chip header
+      case line[1]
+      of '#':
+        # event header
+        # start from 3 to skip ``## ``
+        line[3 .. line.high].matchEventHeader(e_header,
+                                              keyMatch,
+                                              valMatch)
+      else:
+        # Chip header
+        # set pix_counter to 0, need to make sure it is 0,
+        # once we reach the first
+        # hit pixel
+        line[2 .. line.high].matchChipHeader(c_header,
+                                             pixels,
+                                             keyMatch,
+                                             valMatch,
+                                             pix_counter,
+                                             cHeaderCount,
+                                             pix_to_read,
+                                             chips,
+                                             filename)
+    else:
+      # in this case we have matched a pixel hit line
+      # get number of hits to process
+      # match the line with scanf
+      line.matchPixels(c_header,
+                       pixels,
+                       x, y, ch,
+                       pix_counter,
+                       pix_to_read,
+                       chips,
+                       filename)
+
+  # finally add the timestamp from the dateTime to the table as well
+  e_header["timestamp"] = $(int(parseTOSDateString(e_header["dateTime"]).toSeconds))
+
+  result.evHeader = e_header
+  result.chips = chips
+  result.nChips = chips.len
+
+proc addOldHeaderKeys(e_header, c_header: var Table[string, string],
+                      eventNumber, chipNumber, pix_counter: int,
+                      filepath: string) {.inline.} =
+  ## inline adds the keys to tables of event header and chip header
+  e_header["eventNumber"] = $eventNumber
+  # TODO: in this case simply use the "old default constants"
+  e_header["shutterMode"] = OldShutterMode
+  e_header["shutterTime"] = OldShutterTime
+  # only support 1 chip for old storage format anyways
+  e_header["numChips"] = $1
+  c_header["numHits"] = $pix_counter
+  c_header["chipName"] = OldChipName
+  # subtract 1, because in the past TOS was 1 indexed
+  c_header["chipNumber"] = $(chipNumber - 1)
+  let (head, tail) = filepath.splitPath
+  e_header["pathName"] = head
+
+proc processOldEventWithRegex*(data: seq[string],
+                               regPixels: Regex):
+                                 ref OldEvent {.deprecated.} =
+  ## This proc is deprecated, use `processEventWithScanf` instead,
+  ## it's a lot faster!  ## TODO: update doc!
   # in this case we have a sequence of strings
   var
     # variable to count already read pixels
@@ -526,18 +731,12 @@ proc processOldEventWithRegex*(data: seq[string],
   let evNumberRegex = re".*data(\d{4,6})_(\d)_.*"
   var evNumChipNumStr: array[2, string]
   if match(filepath, evNumberRegex, evNumChipNumStr) == true:
-    e_header["eventNumber"] = $(evNumChipNumStr[0].parseInt)
-    # TODO: in this case simply use the "old default constants"
-    e_header["shutterMode"] = OldShutterMode
-    e_header["shutterTime"] = OldShutterTime
-    # only support 1 chip for old storage format anyways
-    e_header["numChips"] = $1
-    c_header["numHits"] = $pix_counter
-    c_header["chipName"] = OldChipName
-    # subtract 1, because in the past TOS was 1 indexed
-    c_header["chipNumber"] = $(evNumChipNumStr[1].parseInt - 1)
-    let (head, tail) = filepath.splitPath
-    e_header["pathName"] = head
+    addOldHeaderKeys(e_header,
+                     c_header,
+                     evNumChipNumStr[0].parseInt,
+                     evNumChipNumStr[1].parseInt,
+                     pix_counter,
+                     filepath)
 
   # now we are reading the last hit, process chip header and pixels
   var ch_event = ChipEvent()
@@ -550,17 +749,98 @@ proc processOldEventWithRegex*(data: seq[string],
   result.chips = chips
   result.nChips = chips.len
 
+proc processOldEventScanf*(data: seq[string]): ref OldEvent =
+# proc processOldEventScanf*(tup: tuple[fname: string, dataStream: MemMapFileStream]): ref OldEvent =
+  ## Reads an Old TOS zero suppressed data file using the strscans.scanf
+  ## macro
+  ## - read the pixel data in an event
+  ## the event and chip header are added from sane defaults for the
+  ## 2014/15 data (defined as constans at top of `tos_helpers.nim`).
+
+  # in this case we have a sequence of strings
+  var
+    # variable to count already read pixels
+    pix_counter = 0
+    # variables to read data into
+    e_header = initTable[string, string]()
+    c_header = initTable[string, string]()
+    # create a sequence large enough to hold most events, so that only for very large
+    # events we need to resize the sequence
+    pixels: Pixels = newSeqOfCap[Pix](400)
+    # variable to store resulting chip events
+    chips: seq[ChipEvent] = newSeqOfCap[ChipEvent](1)
+    # variable to determine, when we are reading the last pixel of one chip
+    # important, because we cannot trust numHits in chip header, due to zero
+    # suppression! We init by `-1` to deal with old TOS format, in which there
+    # is no header
+    pix_to_read: int = 0
+  result = new OldEvent
+
+  let filepath = data[0]
+  # check for run folder kind by looking at first line of file
+  assert data[1][0] != '#', "This is not a valid rfOldTos file (old storage format)!" & data[1]
+
+  var
+    x: int
+    y: int
+    ch: int
+
+  for line in data[1 .. ^1]:
+    # match with scanf
+    if scanf(line, "$i$s$i$s$i", x, y, ch):
+      # if the compiler flag (-d:REMOVE_FULL_PIX) is set, we cut all pixels, which have
+      # ToT values == 11810, the max ToT value
+      when defined(REMOVE_FULL_PIX):
+        if ch != 11810:
+          pixels.add((x.uint8, y.uint8, ch.uint16))
+      else:
+        pixels.add((x.uint8, y.uint8, ch.uint16))
+      # after adding pixel, increase pixel counter so that we know when we're
+      # reading the last hit of a given chip
+      inc pix_counter
+
+  # in that case we're reading an ``old event files (!)``. Get the event number
+  # from the filename
+  var
+    evNumber: string
+    chipNumber: string
+    dummy: string
+  # need to use `$*` to parse, because if we use $i for integers, we end up
+  # parsing the `_` tokens as well, making scanf fail
+  # TODO: implement custom parser proc
+  if scanf(filepath, r"$*data$*_$*_", dummy, evNumber, chipNumber):
+    addOldHeaderKeys(e_header,
+                     c_header,
+                     evNumber.parseInt,
+                     chipNumber.parseInt,
+                     pix_counter,
+                     filepath)
+
+  # now we are reading the last hit, process chip header and pixels
+  var ch_event = ChipEvent()
+  ch_event.chip = (c_header["chipName"], c_header["chipNumber"].parseInt)
+  ch_event.pixels = pixels
+  # add  the chip event object to the sequence
+  chips.add(ch_event)
+
+  result.evHeader = e_header
+  result.chips = chips
+  result.nChips = chips.len
+
+
 proc processEventWrapper(data: seq[string],
                          regex: tuple[header, chips, pixels: Regex],
-                         rfKind: RunFolderKind): ref Event =
+                         rfKind: RunFolderKind): ref Event {.inline.} =
   ## wrapper around both process event procs, which determines which one to call
   ## based on the run folder kind. Need a wrapper, due to usage of spawn in
   ## caling prof `readListOfFiles`.
   case rfKind
   of rfNewTos:
-    result = processEventWithRegex(data, regex)
+    #result = processEventWithRegex(data, regex)
+    result = processEventWithScanf(data)
   of rfOldTos:
-    result = processOldEventWithRegex(data, regex[2])
+    # result = processOldEventWithRegex(data, regex[2])
+    result = processOldEventScanf(data)
 
 #template readEventWithRegex(filepath, regex: string): typed =
 proc readEventWithRegex*(filepath: string, regex: tuple[header, chips, pixels: Regex]): ref Event =

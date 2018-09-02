@@ -9,6 +9,8 @@ import sequtils, future
 import threadpool
 import math
 
+import typetraits
+
 # cus modules
 import helpers/utils
 import ingrid_types

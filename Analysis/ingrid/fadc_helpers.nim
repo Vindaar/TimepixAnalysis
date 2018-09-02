@@ -2,13 +2,14 @@ import ospaths
 import os
 import re
 import sequtils, sugar
-import strutils
+import strutils, strscans
 import helpers/utils
 import threadpool
 # import read list of files, to read FADC files in parallel
 from tos_helpers import readListOfFiles, readMemFilesIntoBuffer
 import ingrid_types
 import algorithm
+import macros
 
 import seqmath
 import arraymancer
@@ -61,6 +62,17 @@ proc convertFadcTicksToVoltage*(data: Tensor[float], bitMode14: bool): Tensor[fl
   result = data.map(x => x * conversion_factor)
 
 proc readFadcFile*(file: seq[string]): ref FadcFile = #seq[float] =
+  ## reads an FADC file. Example header + data line
+  ## # nb of channels: 0
+  ## # channel mask: 15
+  ## # postrig: 16
+  ## # pretrig: 15000
+  ## # triggerrecord: 115
+  ## # frequency: 2
+  ## # sampling mode: 0
+  ## # pedestal run: 1
+  ## #Data: followed by lines 10 - 21 commented out, and then
+  ## single integers for data
   result = new FadcFile
   var
     # create a sequence with a cap size large enough to hold the whole file
@@ -73,46 +85,67 @@ proc readFadcFile*(file: seq[string]): ref FadcFile = #seq[float] =
   # line 0 is the filename itself
   let filepath = file[0]
 
-  for line in file[1 .. ^1]:
-    if likely('#' notin line):
-      # we add a likely statement, because almost all lines are data lines, hence without '#'
-      data.add(uint16(parseInt(line)))
-    elif "nb of channels" in line:
-      line_spl = line.splitWhitespace
-      result.nChannels = parseInt(line_spl[line_spl.high])
-    elif "channel mask" in line:
-      line_spl = line.splitWhitespace
-      result.channel_mask = parseInt(line_spl[line_spl.high])
-    elif "postrig" in line or "posttrig" in line:
-      line_spl = line.splitWhitespace
-      result.postTrig = parseInt(line_spl[line_spl.high])
-    elif "pretrig" in line:
-      line_spl = line.splitWhitespace
-      result.preTrig = parseInt(line_spl[line_spl.high])
-    elif "triggerrecord" in line:
-      line_spl = line.splitWhitespace
-      result.trigRec  = parseInt(line_spl[line_spl.high])
-    elif "frequency" in line:
-      line_spl = line.splitWhitespace
-      result.frequency = parseInt(line_spl[line_spl.high])
-    elif "sampling mode" in line:
-      line_spl = line.splitWhitespace
-      let mode_register = parseInt(line_spl[line_spl.high])
-      # now get bit 1 from mode_register by comparing with 0b010
-      result.bitMode14 = (mode_register and 0b010) == 0b010
-      result.sampling_mode = mode_register
-    elif "pedestal run" in line:
-      line_spl = line.splitWhitespace
-      let p_run_flag = parseInt(line_spl[line_spl.high])
-      result.pedestalRun = if p_run_flag == 0: false else: true
+  # variable we use to match value in header line
+  var valMatch: int
+  const matchHeader = "# $*: $i"
+  const fadcHeaderFields = ["nChannels",
+                            "channel_mask",
+                            "postTrig",
+                            "preTrig",
+                            "trigRec",
+                            "frequency"]
+  macro writeMatchHeader(line: seq[string],
+                         fadcHeaderFields: static[array[6, string]],
+                         matchHeader,
+                         dummy,
+                         valMatch,
+                         fadcFile: typed): untyped =
+    ## helper macro to create scanf statements for the first
+    ## 6 lines of the FADC header
+    ## produces:
+    ##   if scanf(line[1], matchHeader, valMatch):
+    ##     result.nChannels = valMatch
+    ## like lines for each FADC field written in `fadcHeaderFields`.
+    ## does not save too much space, but is nicer :) (:
+    result = newStmtList()
+    var i = 0
+    for name in fadcHeaderFields:
+      let fieldName = parseExpr(name)
+      result.add quote do:
+        if scanf(`line`[`i`], `matchHeader`, `dummy`, `valMatch`):
+          `fadcFile`.`fieldName` = `valMatch`
+        else:
+          raise newException(Exception, "Coulnd't match line " & $`i` & " for " &
+            " field " & $`name` & " line is: " & `line`[`i`])
+      inc i
 
-  let evNumberRegex =  re".*data(\d{4,6})\.txt-fadc"
-  var evNumChipNumStr: array[1, string]
+  # parsing for first 6 lines
+  var dummy: string
+  writeMatchHeader(file[1 .. 6],
+                   fadcHeaderFields,
+                   matchHeader, dummy,
+                   valMatch, result)
+  # line 7: sampling mode
+  if scanf(file[7], matchHeader, dummy, valMatch):
+    let mode_register = valMatch
+    # now get bit 1 from mode_register by comparing with 0b010
+    result.bitMode14 = (mode_register and 0b010) == 0b010
+    result.sampling_mode = mode_register
+  # line 8: pedestal run flag
+  if scanf(file[8], matchHeader, dummy, valMatch):
+    let p_run_flag = valMatch
+    result.pedestalRun = if p_run_flag == 0: false else: true
 
-  if match(filepath, evNumberRegex, evNumChipNumStr) == true:
-    result.eventNumber = parseInt(evNumChipNumStr[0])
-  else:
-    echo "Warning: could not match event number match for file " & $filepath
+  # lines 9 - 21: #Data + commented out lines
+  for line in file[22 .. ^4]:
+    data.add uint16(parseInt(line))
+  const evNumberMatch = "$*/data$i.txt"
+  if scanf(filepath, evNumberMatch, dummy, valMatch):
+    result.eventNumber = valMatch
+  elif not result.pedestalRun:
+    # raise exception if this is no pedestal run
+    raise newException(Exception, "Warning: could not match event number match for file " &
+      $filepath & " and result " & $result[])
 
   # finally assign data sequence
   result.data = data
@@ -121,7 +154,7 @@ proc readFadcFile*(filename: string): ref FadcFile =
   # wrapper around readFadcFile(file: seq[string]), which first
   # reads all lines in the file before
   let file = readFile(filename).strip.splitLines
-  result = readFadcFile(file)
+  result = readFadcFile(filename & file)
 
 proc calcMinOfPulse*(ar: Tensor[float], percentile: float): float =
   # calculates the minimum of the input ar (an FADC pulse) based on

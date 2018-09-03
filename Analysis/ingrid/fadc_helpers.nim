@@ -139,8 +139,9 @@ proc readFadcFile*(file: seq[string]): ref FadcFile = #seq[float] =
   # lines 9 - 21: #Data + commented out lines
   for line in file[22 .. ^4]:
     data.add uint16(parseInt(line))
-  const evNumberMatch = "$*/data$i.txt"
-  if scanf(filepath, evNumberMatch, dummy, valMatch):
+  const evNumberMatch = "data$i.txt-fadc"
+  # TODO: replace `extractFilename` call by something simpler!
+  if scanf(filepath.extractFilename, evNumberMatch, valMatch):
     result.eventNumber = valMatch
   elif not result.pedestalRun:
     # raise exception if this is no pedestal run

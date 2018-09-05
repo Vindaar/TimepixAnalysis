@@ -442,8 +442,8 @@ proc applyChargeCalibration*(h5f: var H5FileObj, runNumber: int)
       let chipName = group.attrs["chipName", string]
       # get dataset of hits
       var totDset = h5f[(grp / "ToT").dset_str]
-      let vlenInt = special_type(int64)
-      let tots = totDset[vlenInt, int64]
+      let vlenInt = special_type(uint16)
+      let tots = totDset[vlenInt, uint16]
       # now calculate charge in electrons for all TOT values
       # need calibration factors from InGrid database for that
       let (a, b, c, t) = getTotCalibParameters(chipName)
@@ -479,10 +479,11 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int) =
       # get dataset of hits
       var chargeDset = h5f[(grp / "charge").dset_str]
       var totDset = h5f[(grp / "ToT").dset_str]
-      let vlenInt = special_type(float64)
+      let vlenFloat = special_type(float64)
+      let vlenInt = special_type(uint16)
       # get all charge values as seq[seq[float]] flatten
-      let charges = chargeDset[vlenInt, float64].flatten
-      let tots = totDset[vlenInt, int64].flatten
+      let charges = chargeDset[vlenFloat, float64].flatten
+      let tots = totDset[vlenInt, uint16].flatten
       # bin the data according to ToT values
       let (a, b, c, t) = getTotCalibParameters(chipName)
       # get bin edges by calculating charge values for all TOT values at TOT's bin edges

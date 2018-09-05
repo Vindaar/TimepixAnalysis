@@ -273,7 +273,7 @@ proc batchFileReading[T](files: var seq[string],
 
 proc readRawInGridData*(listOfFiles: seq[string],
                         rfKind: RunFolderKind):
-                          seq[Event] =
+                          seq[FlowVar[ref Event]] =
   ## given a run_folder it reads all event files (data<number>.txt) and returns
   ## a sequence of Events, which store the raw event data
   ## Intermediately we receive FlowVars to ref Events after reading. We read via
@@ -284,9 +284,12 @@ proc readRawInGridData*(listOfFiles: seq[string],
   # get a sorted list of files, sorted by filename first
   var files: seq[string] = sortByInode(listOfFiles)
   # split the sorted files into batches, and sort each batch by inode
-  let raw_ingrid = batchFileReading[Event](files, regex_tup, rfKind)
-  # now sort the seq of FlowVars according to event numbers again, otherwise
-  # h5 file is all mangled
+  result = batchFileReading[Event](files, regex_tup, rfKind)
+
+proc sortReadInGridData(rawIngrid: seq[FlowVar[ref Event]],
+                        rfKind: RunFolderKind): seq[Event] =
+  ## sorts the seq of FlowVars according to event numbers again, otherwise
+  ## h5 file is all mangled
   info "Sorting data..."
   # case on the old TOS' data storage and new TOS' version
   let t0 = cpuTime()
@@ -991,8 +994,9 @@ proc readAndProcessInGrid(listOfFiles: seq[string],
   # read the raw event data into a seq of FlowVars
   info "list of files ", listOfFiles.len
   let ingrid = readRawInGridData(listOfFiles, rfKind)
+  let sortedIngrid = sortReadInGridData(ingrid, rfKind)
   # process the data read into seq of FlowVars, save as result
-  result = processRawInGridData(ingrid, runNumber)
+  result = processRawInGridData(sortedIngrid, runNumber)
 
 proc processAndWriteFadc(run_folder: string, runNumber: int, h5f: var H5FileObj) =
   # for the FADC we call a single function here, which works on

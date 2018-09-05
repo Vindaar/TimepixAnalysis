@@ -307,7 +307,7 @@ proc sortReadInGridData(rawIngrid: seq[FlowVar[ref Event]],
     # - extract list of eventNumbers from `Events`
     # - create list of tuples of (`EventNumber`, `AtIndex`)
     # - sort tuples by `EventNumber`
-    # - insert elements into result at sorted `AtIndex`, taking from `AtIndex` in `Events`
+    # - add elements to result taken from `AtIndex` in `Events`
     let
       numEvents = raw_ingrid.len
       # get event numbers
@@ -320,12 +320,13 @@ proc sortReadInGridData(rawIngrid: seq[FlowVar[ref Event]],
 
     info &"Min event number {min(numList)} and max number {max(numList)}"
     # insert elements into result
-    result = newSeq[Event](raw_ingrid.len)
+    result = newSeqOfCap[Event](raw_ingrid.len)
     for i in sortedNums:
-      result[i[1]] = (^raw_ingrid[i[1]])[]
+      result.add (^raw_ingrid[i[1]])[]
 
   let t1 = cpuTime()
   info &"...Sorting done, took {$(t1 - t0)} seconds"
+
 
 proc processRawInGridData(ch: seq[Event], runNumber: int): ProcessedRun = #seq[FlowVar[ref Event]]): ProcessedRun =
   ## procedure to process the raw data read from the event files by readRawInGridData

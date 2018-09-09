@@ -36,6 +36,7 @@ import seqmath
 import nimhdf5
 import arraymancer
 import zero_functional
+import stp
 
 # global experimental pragma to use parallel: statement in readRawInGridData()
 {.experimental.}
@@ -125,7 +126,7 @@ template inGridGroupNames(runNumber: int): (string, string, string, string) =
   var result = (groupName, recoGroupName, chipGroupName, combineGroupName)
   result
 
-template inGridGroups(h5f: var H5FileObj,
+template inGridGroups(h5f: H5FileObj,
                       nChips: int = 0,
                       forFadc: static[bool] = false):
          (H5Group, H5Group, H5Group, seq[H5Group]) =
@@ -170,7 +171,7 @@ proc getTotHitOccDsetNames(chipGroupName: string,
     occDsetNames = toSeq(0 ..< nChips).mapIt((chipGroupName % $it) & "/Occupancy")
   result = (totDsetNames, hitDsetNames, occDsetNames)
 
-proc getTotHitOccDsets(h5f: var H5FileObj, chipGroupName: string, nChips: int):
+proc getTotHitOccDsets(h5f: H5FileObj, chipGroupName: string, nChips: int):
                       (seq[H5DataSet], seq[H5DataSet], seq[H5DataSet]) =
   let (totDsetNames,
        hitDsetNames,
@@ -249,11 +250,11 @@ proc batchFileReading[T](files: var seq[string],
   # initialize sequence
   result = @[]
 
+  var buf_seq: type(result)
   batchFiles(files, bufsize):
     # read files into buffer sequence, `ind_high` is an injected variable of the template
     # after each iteration the `files` variable is modified. Read files are deleted.
     when T is Event:
-      var buf_seq: type(result)
       case rfKind
       of rfNewTos:
         buf_seq = readListOfInGridFiles(files[0..ind_high], regex_tup)
@@ -261,7 +262,7 @@ proc batchFileReading[T](files: var seq[string],
         # to support reading TOS files using the old storage format
         buf_seq = readListOfOldInGridFiles(files[0..ind_high], regex_tup)
     elif T is FadcFile:
-      let buf_seq = readListOfFadcFiles(files[0..ind_high])
+      buf_seq = readListOfFadcFiles(files[0..ind_high])
 
     info "... and concating buffered sequence to result"
     result = concat(result, buf_seq)
@@ -271,9 +272,11 @@ proc batchFileReading[T](files: var seq[string],
   info "Compared with starting files " & $n_files
 
 
-proc readRawInGridData*(listOfFiles: seq[string],
+proc readRawInGridData(listOfFiles: seq[string],
                         rfKind: RunFolderKind):
-                          seq[FlowVar[ref Event]] =
+                          #seq[FlowVar[ref Event]] {.stpThread: "1/3".} =
+                          seq[Event] =
+                          #seq[Event] {.stpThread: "1/3".} =
   ## given a run_folder it reads all event files (data<number>.txt) and returns
   ## a sequence of Events, which store the raw event data
   ## Intermediately we receive FlowVars to ref Events after reading. We read via
@@ -284,23 +287,25 @@ proc readRawInGridData*(listOfFiles: seq[string],
   # get a sorted list of files, sorted by filename first
   var files: seq[string] = sortByInode(listOfFiles)
   # split the sorted files into batches, and sort each batch by inode
-  result = batchFileReading[Event](files, regex_tup, rfKind)
+  result = batchFileReading[Event](files, regex_tup, rfKind).mapIt((^it)[])
 
-proc sortReadInGridData(rawIngrid: seq[FlowVar[ref Event]],
+#proc sortReadInGridData(rawIngrid: seq[FlowVar[ref Event]],
+proc sortReadInGridData(rawIngrid: seq[Event],
                         rfKind: RunFolderKind): seq[Event] =
+                        #rfKind: RunFolderKind): seq[Event] {.stpThread: "2/3".} =
   ## sorts the seq of FlowVars according to event numbers again, otherwise
   ## h5 file is all mangled
   info "Sorting data..."
   # case on the old TOS' data storage and new TOS' version
-  let t0 = cpuTime()
+  let t0 = epochTime()
   # TODO: compare speed of sorting for both cases. Merge?
   case rfKind
   of rfNewTos:
-    var numList = mapIt(raw_ingrid, (^it)[].evHeader["eventNumber"].parseInt)
+    var numList = mapIt(raw_ingrid, it.evHeader["eventNumber"].parseInt) #(^it)[].evHeader["eventNumber"].parseInt)
     result = newSeq[Event](raw_ingrid.len)
     let minIndex = numList.min
     for i, ind in numList:
-      result[ind - minIndex] = (^raw_ingrid[i])[]
+      result[ind - minIndex] = raw_ingrid[i] #(^raw_ingrid[i])[]
   of rfOldTos:
     # in this case there may be missing events, so we simply sort by the indices themselves
     # sorting is done the following way:
@@ -311,7 +316,8 @@ proc sortReadInGridData(rawIngrid: seq[FlowVar[ref Event]],
     let
       numEvents = raw_ingrid.len
       # get event numbers
-      numList = mapIt(raw_ingrid, (^it)[].evHeader["eventNumber"].parseInt)
+      #nonFlow = mapIt(raw_ingrid, (^it)[])
+      numList = mapIt(raw_ingrid, it.evHeader["eventNumber"].parseInt)
       # zip event numbers with indices in raw_ingrid (unsorted!)
       zipped = zip(numList, toSeq(0 ..< numEvents))
       # sort tuples by event numbers (indices thus mangled, but in "correct" order
@@ -322,13 +328,15 @@ proc sortReadInGridData(rawIngrid: seq[FlowVar[ref Event]],
     # insert elements into result
     result = newSeqOfCap[Event](raw_ingrid.len)
     for i in sortedNums:
-      result.add (^raw_ingrid[i[1]])[]
+      result.add raw_ingrid[i[1]]
 
-  let t1 = cpuTime()
+  let t1 = epochTime()
   info &"...Sorting done, took {$(t1 - t0)} seconds"
 
 
-proc processRawInGridData(ch: seq[Event], runNumber: int): ProcessedRun = #seq[FlowVar[ref Event]]): ProcessedRun =
+proc processRawInGridData(ch: seq[Event], runNumber: int): ProcessedRun =
+#proc processRawInGridData(ch: seq[Event], runNumber: int): ProcessedRun {.stpThread: "3/3".} =
+  #seq[FlowVar[ref Event]]): ProcessedRun =
   ## procedure to process the raw data read from the event files by readRawInGridData
   ## inputs:
   ##    ch: seq[Event]] = seq of Event objects, which each store raw data of a single event.
@@ -415,8 +423,15 @@ proc processRawInGridData(ch: seq[Event], runNumber: int): ProcessedRun = #seq[F
   result.hits = hits
   result.occupancies = occ
 
+#proc readFadcFileWrapper(files: seq[string]): seq[FadcFile] {.stpThread: "1/3".} =
+proc readFadcFileWrapper(files: seq[string]): seq[FadcFile] =
+  var mfiles = files
+  result = batchFileReading[FadcFile](mfiles).mapIt((^it)[])
+
 {.experimental.}
-proc processFadcData(fadc_files: seq[FlowVar[ref FadcFile]]): ProcessedFadcData {.inline.} =
+#proc processFadcData(fadc_files: seq[FlowVar[ref FadcFile]]): ProcessedFadcData {.inline, stpThread: "2/3".} =
+#proc processFadcData(fadc_files: seq[FadcFile]): ProcessedFadcData {.inline, stpThread: "2/3".} =
+proc processFadcData(fadc_files: seq[FadcFile]): ProcessedFadcData {.inline.} =
   ## proc which performs all processing needed to be done on the raw FADC
   ## data. Starting from conversion of FadcFiles -> FadcData, but includes
   ## calculation of minimum and check for noisy events
@@ -440,15 +455,23 @@ proc processFadcData(fadc_files: seq[FlowVar[ref FadcFile]]): ProcessedFadcData 
   result.eventNumber = newSeq[int](nEvents)
   let t0 = epochTime()
   # TODO: parallelize this somehow so that it's faster!
-  for i, event in fadc_files:
-    let ev = (^event)[]
+  # assign the data in parallel:
+  var fadcCorr = newSeq[Tensor[float]](nEvents)
+  for i, ev in fadc_files:
+    #let ev = (^event)[]
     result.raw_fadc_data[i] = ev.data
     result.trigRecs[i]      = ev.trigRec
     result.eventNumber[i]   = ev.eventNumber
-    let fadc_dat = ev.fadcFileToFadcData(pedestal_run, fadc_ch0_indices).data
-    result.fadc_data[i, _]  = fadc_dat.reshape([1, ch_len])
-    result.noisy[i]         = fadc_dat.isFadcFileNoisy(n_dips)
-    result.minVals[i]       = fadc_dat.calcMinOfPulse(min_percentile)
+    fadcCorr[i] = ev.fadcFileToFadcData(pedestal_run, fadc_ch0_indices).data
+    result.fadc_data[i, _]  = fadcCorr[i].reshape([1, ch_len])
+  var noisy = newSeq[FlowVar[int]](nEvents)
+  var minVals = newSeq[FlowVar[float]](nEvents)
+  for i in 0 .. fadcCorr.high:
+    noisy[i] = spawn fadcCorr[i].isFadcFileNoisy(n_dips)
+    minVals[i] = spawn fadcCorr[i].calcMinOfPulse(min_percentile)
+  for i in 0 ..< nEvents:
+    result.noisy[i] = ^ noisy[i]
+    result.minVals[i] = ^ minVals[i]
 
   # this parallel solution seems to be slower, instead of faster ?! well, probably
   # because we only have these two spawns and one of these functions is much slower
@@ -469,7 +492,7 @@ proc processFadcData(fadc_files: seq[FlowVar[ref FadcFile]]): ProcessedFadcData 
   #     sync()
   info "Calculation of $# events took $# seconds" % [$nEvents, $(epochTime() - t0)]
 
-proc initFadcInH5(h5f: var H5FileObj, runNumber, batchsize: int, filename: string) =
+proc initFadcInH5(h5f: H5FileObj, runNumber, batchsize: int, filename: string) =
   # proc to initialize the datasets etc in the HDF5 file for the FADC. Useful
   # since we don't want to do this every time we call the write function
   let
@@ -536,9 +559,13 @@ proc initFadcInH5(h5f: var H5FileObj, runNumber, batchsize: int, filename: strin
     group.attrs["sampling_mode"] = fadc_for_attrs.sampling_mode
     group.attrs["pedestal_run"] = if fadc_for_attrs.pedestal_run == true: 1 else: 0
 
-proc writeFadcDataToH5(h5f: var H5FileObj, runNumber: int, f_proc: ProcessedFadcData) =
+#proc writeFadcDataToH5(h5f: var H5FileObj, runNumber: int, f_proc: ProcessedFadcData) =
+#proc writeFadcDataToH5(f_proc: ProcessedFadcData, h5fP: ptr H5FileObj, runNumber: int): int {.gcsafe, stpThread: "3/3".} =
+proc writeFadcDataToH5(f_proc: ProcessedFadcData, h5fP: ptr H5FileObj, runNumber: int): int {.gcsafe.} =
   # proc to write the current FADC data to the H5 file
   # now write the data
+  echo "AAA in write fadc"
+  var h5f = h5fP[]
   let
     reco_group_name = getRecoNameForRun(runNumber)
     raw_name = rawFadcBasename(runNumber)
@@ -606,7 +633,7 @@ proc writeFadcDataToH5(h5f: var H5FileObj, runNumber: int, f_proc: ProcessedFadc
                                count = @[nEvents, 1])
   info "Writing of FADC data took $# seconds" % $(epochTime() - t0)
 
-proc finishFadcWriteToH5(h5f: var H5FileObj, runNumber: int) =
+proc finishFadcWriteToH5(h5f: H5FileObj, runNumber: int) =
   # proc to finalize the last things we need to write for the FADC data
   # for now only hardlinking to combine group
   let
@@ -618,7 +645,7 @@ proc finishFadcWriteToH5(h5f: var H5FileObj, runNumber: int) =
   h5f.create_hardlink(noisy_target, noisy_link)
   h5f.create_hardlink(minVals_target, minVals_link)
 
-proc readProcessWriteFadcData(run_folder: string, runNumber: int, h5f: var H5FileObj) =
+proc readProcessWriteFadcData(run_folder: string, runNumber: int, h5f: H5FileObj) =
   ## given a run_folder it reads all fadc files (data<number>.txt-fadc),
   ## processes it (FadcFile -> FadcData) and writes it to the HDF5 file
 
@@ -639,7 +666,7 @@ proc readProcessWriteFadcData(run_folder: string, runNumber: int, h5f: var H5Fil
     # in case there are no FADC files, return from this proc
     return
 
-  const batchsize = 1000
+  const batchsize = 10000
 
   # before we start iterating over the files, initialize the H5 file
   h5f.initFadcInH5(runNumber, batchsize, files[0])
@@ -649,23 +676,30 @@ proc readProcessWriteFadcData(run_folder: string, runNumber: int, h5f: var H5Fil
     info "Starting with file $# and ending with file $#" % [$mfiles[0], $mfiles[^1]]
     files_read = files_read.concat(mfiles)
     raw_fadc_data = batchFileReading[FadcFile](mfiles)
-
+    let f_proc = mfiles.readFadcFileWrapper.processFadcData
     # TODO: read FADC files also by inode and then sort the fadc
     # we just read here. NOTE: for that have to change the writeFadcDataToH5
     # proc to accomodate that!
 
     # given read files, we now need to append this data to the HDF5 file, before
     # we can process more data, otherwise we might run out of RAM
-    f_proc = raw_fadc_data.processFadcData
-    info "Number of FADC files in this batch ", raw_fadc_data.len
+    #f_proc = raw_fadc_data.processFadcData
+    #info "Number of FADC files in this batch ", raw_fadc_data.len
+    let h5fP = unsafeAddr h5f
 
-    h5f.writeFadcDataToH5(runNumber, f_proc)
+    #stPipe(resName):
+    #  let res = mfiles.readFadcFileWrapper.processFadcData.writeFadcDataToH5(h5fP, runNumber)
+    #  #h5f.writeFadcDataToH5(runNumber, f_proc)
+    #let f_proc = resName[0]
+
+    discard writeFadcDataToH5(f_proc, h5fP, runNumber)
+    #h5f.writeFadcDataToH5(runNumber, f_proc)
 
   info "Number of files read: ", files_read.toSet.len
   # finally finish writing to the HDF5 file
   finishFadcWriteToH5(h5f, runNumber)
 
-proc initInGridInH5(h5f: var H5FileObj, runNumber, nChips, batchsize: int) =
+proc initInGridInH5(h5f: H5FileObj, runNumber, nChips, batchsize: int) =
   ## This proc creates the groups and dataset for the InGrid data in the H5 file
   ## inputs:
   ##   h5f: H5file = the H5 file object of the writeable HDF5 file
@@ -715,7 +749,7 @@ proc initInGridInH5(h5f: var H5FileObj, runNumber, nChips, batchsize: int) =
     # use normal dataset creation proc, due to static size of occupancies
     occDset = mapIt(names, h5f.create_dataset(it & "/Occupancy", (256, 256), int))
 
-proc writeInGridAttrs(h5f: var H5FileObj, run: ProcessedRun) =
+proc writeInGridAttrs(h5f: H5FileObj, run: ProcessedRun) =
 
   # use dirty template to define variables of group names
   let (groupName,
@@ -819,7 +853,7 @@ proc fillDataForH5(x, y: var seq[seq[seq[uint8]]],
       y[num][i] = yl
       ch[num][i] = chl
 
-proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
+proc writeProcessedRunToH5(h5f: H5FileObj, run: ProcessedRun) =
   ## this procedure writes the data from the processed run to a HDF5
   ## (opened already) given by h5file_id
   ## inputs:
@@ -961,7 +995,7 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
     occDset.unsafeWrite(stackOcc.get_data_ptr, stackOcc.size)
 
 
-proc linkRawToReco(h5f: var H5FileObj, runNumber, nChips: int) =
+proc linkRawToReco(h5f: H5FileObj, runNumber, nChips: int) =
   ## perform linking from raw group to reco group
   let (groupName,
        recoGroupName,
@@ -984,6 +1018,30 @@ proc linkRawToReco(h5f: var H5FileObj, runNumber, nChips: int) =
     h5f.create_hardlink(totDsetNames[chip], combineRawBasenameToT(chip, runNumber))
     h5f.create_hardlink(hitDsetNames[chip], combineRawBasenameHits(chip, runNumber))
 
+proc handleThreading(listOfFiles, runNumber: int,
+                     rfKind: RunFolderKind): ProcessedRun =
+  ## handles managment of multiple threads
+  ## - reader (calls readRawInGridData)
+  ## - sorter (calls sortReadInGridData)
+  ## - processor (calls processRawInGridData)
+
+proc concat(prs: seq[ProcessedRun]): ProcessedRun =
+  result.nChips = prs[0].nChips
+  result.runNumber = prs[0].runNumber
+  result.runHeader = prs[0].runHeader
+  result.events = newSeqOfCap[Event]((prs[0].events.len * prs.len).int)
+  result.length = newSeqOfCap[float]((prs[0].events.len * prs.len).int)
+  result.tots = newSeq[seq[uint16]](7)
+  result.hits = newSeq[seq[uint16]](7)
+  result.occupancies = zeros[int64](result.nChips, 256, 256)
+  for p in prs:
+    result.events.add p.events
+    result.length.add p.length
+    for i in 0 ..< result.nChips:
+      result.tots[i].add p.tots[i]
+      result.hits[i].add p.hits[i]
+    result.occupancies = result.occupancies .+ p.occupancies
+
 proc readAndProcessInGrid(listOfFiles: seq[string],
                           runNumber: int,
                           rfKind: RunFolderKind): ProcessedRun =
@@ -994,12 +1052,21 @@ proc readAndProcessInGrid(listOfFiles: seq[string],
   ##   rfKind: old or new TOS data
   # read the raw event data into a seq of FlowVars
   info "list of files ", listOfFiles.len
-  let ingrid = readRawInGridData(listOfFiles, rfKind)
-  let sortedIngrid = sortReadInGridData(ingrid, rfKind)
+  #let ingrid = readRawInGridData(listOfFiles, rfKind)
+  #let sortedIngrid = sortReadInGridData(ingrid, rfKind)
   # process the data read into seq of FlowVars, save as result
-  result = processRawInGridData(sortedIngrid, runNumber)
+  #result = processRawInGridData(sortedIngrid, runNumber)
+  #stPipe(resTemp):
+  #  let tmp = listOfFiles.readRawInGridData(rfKind).
+  #                        sortReadInGridData(rfKind).
+  #                        processRawInGridData(runNumber)
+  ## now combine several `ProcessedRun` to one?
+  #result = concat resTemp#resTemp[0]
+  result = listOfFiles.readRawInGridData(rfKind).
+                       sortReadInGridData(rfKind).
+                       processRawInGridData(runNumber)
 
-proc processAndWriteFadc(run_folder: string, runNumber: int, h5f: var H5FileObj) =
+proc processAndWriteFadc(run_folder: string, runNumber: int, h5f: H5FileObj) =
   # for the FADC we call a single function here, which works on
   # the FADC files in a buffered way, always reading 1000 FADC
   # filsa at a time.
@@ -1008,13 +1075,13 @@ proc processAndWriteFadc(run_folder: string, runNumber: int, h5f: var H5FileObj)
   readProcessWriteFadcData(run_folder, runNumber, h5f)
   info "FADC took $# data" % $(getOccupiedMem() - mem1)
 
-proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string, nofadc = false) =
+proc processAndWriteSingleRun(h5f: H5FileObj, run_folder: string, nofadc = false) =
   ## proc to process and write a single run
   ## inputs:
   ##     h5f: var H5FileObj = mutable copy of the H5 file object to which we will write
   ##         the data
   ##     nofadc: bool = if set, we do not read FADC data
-  const batchsize = 20000
+  const batchsize = 1500000 #20000
   var attrsWritten = false
   var nChips: int
 

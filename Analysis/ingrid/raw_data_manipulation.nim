@@ -249,11 +249,11 @@ proc batchFileReading[T](files: var seq[string],
   # initialize sequence
   result = @[]
 
+  var buf_seq: type(result)
   batchFiles(files, bufsize):
     # read files into buffer sequence, `ind_high` is an injected variable of the template
     # after each iteration the `files` variable is modified. Read files are deleted.
     when T is Event:
-      var buf_seq: type(result)
       case rfKind
       of rfNewTos:
         buf_seq = readListOfInGridFiles(files[0..ind_high], regex_tup)
@@ -261,7 +261,7 @@ proc batchFileReading[T](files: var seq[string],
         # to support reading TOS files using the old storage format
         buf_seq = readListOfOldInGridFiles(files[0..ind_high], regex_tup)
     elif T is FadcFile:
-      let buf_seq = readListOfFadcFiles(files[0..ind_high])
+      buf_seq = readListOfFadcFiles(files[0..ind_high])
 
     info "... and concating buffered sequence to result"
     result = concat(result, buf_seq)
@@ -292,7 +292,7 @@ proc sortReadInGridData(rawIngrid: seq[FlowVar[ref Event]],
   ## h5 file is all mangled
   info "Sorting data..."
   # case on the old TOS' data storage and new TOS' version
-  let t0 = cpuTime()
+  let t0 = epochTime()
   # TODO: compare speed of sorting for both cases. Merge?
   case rfKind
   of rfNewTos:
@@ -324,7 +324,7 @@ proc sortReadInGridData(rawIngrid: seq[FlowVar[ref Event]],
     for i in sortedNums:
       result.add (^raw_ingrid[i[1]])[]
 
-  let t1 = cpuTime()
+  let t1 = epochTime()
   info &"...Sorting done, took {$(t1 - t0)} seconds"
 
 

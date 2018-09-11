@@ -17,7 +17,7 @@ import tables
 import times
 import threadpool
 import memfiles
-import strutils, strformat
+import strutils, strformat, parseutils
 import docopt
 import typetraits
 import sets
@@ -51,6 +51,28 @@ import zero_functional
 const FILE_BUFSIZE = 10000
 const NChips = 7
 
+##############################
+# create globals for 2014/15 run list
+##############################
+# TOD: should this actually be in here?
+const OldTosRunlist = "Runlist-CAST-D03-W0063.csv"
+const AppDir = getProjectPath()
+var TpxDir {.compileTime.} = ""
+static:
+  discard parseUntil(AppDir, TpxDir, "TimepixAnalysis")
+  TpxDir = TpxDir / "TimepixAnalysis/resources/" / OldTosRunList
+const OldTosRunListPath = TpxDir
+when fileExists(OldTosRunListPath):
+  let oldTosCalibRuns = parseOldTosRunlist(OldTosRunListPath, rtCalibration)
+  let oldTosBackRuns  = parseOldTosRunlist(OldTosRunListPath, rtBackground)
+  let oldTosXrayRuns  = parseOldTosRunlist(OldTosRunListPath, rtXrayFinger)
+else:
+  static:
+    hint("Compiling without 2014/15 run list")
+  const oldTosCalibRuns = ""
+  const oldTosBackRuns  = ""
+  const oldTosXrayRuns  = ""
+
 when defined(linux):
   const commitHash = staticExec("git rev-parse --short HEAD")
   const currentDate = staticExec("date")
@@ -64,17 +86,25 @@ InGrid raw data manipulation.
 
 Usage:
   raw_data_manipulation <folder> [options]
-  raw_data_manipulation <folder> --run_type <type> [options]
+  raw_data_manipulation <folder> --runType <type> [options]
   raw_data_manipulation <folder> --out <name> [options]
   raw_data_manipulation <folder> --nofadc [options]
+  raw_data_manipulation <folder> --runType <type> --ignoreRunList [options]
   raw_data_manipulation <folder> --out <name> --nofadc [options]
+  raw_data_manipulation <folder> --out <name> --runType <type> --ignoreRunList [options]
   raw_data_manipulation -h | --help
   raw_data_manipulation --version
 
 Options:
-  --run_type <type>   Select run type (Calib | Data)
+  --runType <type>   Select run type (Calib | Back | Xray)
+                      The following are parsed case insensetive:
+                      Calib = {"calib", "calibration", "c"}
+                      Back = {"back", "background", "b"}
+                      Xray = {"xray", "xrayfinger", "x"}
   --out <name>        Filename of output file
   --nofadc            Do not read FADC files
+  --ignoreRunList     If set ignores the run list 2014/15 to indicate
+                      using any rfOldTos run
   -h --help           Show this help
   --version           Show version.
 
@@ -715,7 +745,7 @@ proc initInGridInH5(h5f: var H5FileObj, runNumber, nChips, batchsize: int) =
     # use normal dataset creation proc, due to static size of occupancies
     occDset = mapIt(names, h5f.create_dataset(it & "/Occupancy", (256, 256), int))
 
-proc writeInGridAttrs(h5f: var H5FileObj, run: ProcessedRun) =
+proc writeInGridAttrs(h5f: var H5FileObj, run: ProcessedRun, runType: RunTypeKind) =
 
   # use dirty template to define variables of group names
   let (groupName,
@@ -754,6 +784,10 @@ proc writeInGridAttrs(h5f: var H5FileObj, run: ProcessedRun) =
     # initialize the attribute for the current number of stored events to 0
     grp.attrs["numEventsStored"] = 0
     inc i
+
+  # finally write run type
+  run_group.attrs["runType"] = runType
+  reco_group.attrs["runType"] = runType
 
   # into the reco group name we now write the ToT and Hits information
   # var totDset = h5f.create_dataset(reco_group & "/ToT")
@@ -1008,7 +1042,8 @@ proc processAndWriteFadc(run_folder: string, runNumber: int, h5f: var H5FileObj)
   readProcessWriteFadcData(run_folder, runNumber, h5f)
   info "FADC took $# data" % $(getOccupiedMem() - mem1)
 
-proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string, nofadc = false) =
+proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string,
+                              nofadc = false, runType: RunTypeKind = rtNone) =
   ## proc to process and write a single run
   ## inputs:
   ##     h5f: var H5FileObj = mutable copy of the H5 file object to which we will write
@@ -1026,7 +1061,7 @@ proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string, nofadc = f
     nChips = r.nChips
 
     if attrsWritten == false:
-      writeInGridAttrs(h5f, r)
+      writeInGridAttrs(h5f, r, runType)
       # create datasets in H5 file
       initInGridInH5(h5f, runNumber, nChips, batchsize)
       attrsWritten = true
@@ -1044,7 +1079,7 @@ proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string, nofadc = f
 
 
   # dump sequences to file
-  #dumpToTandHits(folder, run_type, r.tots, r.hits)
+  #dumpToTandHits(folder, runType, r.tots, r.hits)
 
   if nofadc == false:
     processAndWriteFadc(runFolder, runNumber, h5f)
@@ -1055,22 +1090,28 @@ proc main() =
   let args = docopt(doc)
   echo args
 
+  #echo oldTosBackRuns
+
   let folder = $args["<folder>"]
-  var run_type = $args["--run_type"]
+  var runTypeStr = $args["--runType"]
+  var runType: RunTypeKind
   var outfile = $args["--out"]
-  if run_type == "nil":
-    run_type = ""
+  if runTypeStr == "nil":
+    runType = parseRunType(runTypeStr)
   if outfile == "nil":
     outfile = "run_file.h5"
   var nofadc: bool = false
   if $args["--nofadc"] != "false":
     echo $args["--nofadc"]
     nofadc = true
+  var ignoreRunList: bool = false
+  if $args["--ignoreRunList"] != "false":
+    ignoreRunList = true
 
   echo &"No fadc is {nofadc}"
 
   # first check whether given folder is valid run folder
-  let (is_run_folder, _, rfKind, contains_run_folder) = isTosRunFolder(folder)
+  let (is_run_folder, runNumber, rfKind, contains_run_folder) = isTosRunFolder(folder)
   info "Is run folder       : ", is_run_folder
   info "Contains run folder : ", contains_run_folder
 
@@ -1086,7 +1127,22 @@ proc main() =
     # steps to the H5 file for the FADC, otherwise we use too much RAM
     # in order to write the processed run and FADC data to file, open the HDF5 file
     var h5f = H5file(outfile, "rw")
-    processAndWriteSingleRun(h5f, folder, nofadc)
+    case rfKind
+    of rfOldTos:
+      case runType
+      of rtCalibration:
+        if not ignoreRunList and runNumber.uint16 in oldTosCalibRuns:
+          processAndWriteSingleRun(h5f, folder, nofadc, runType)
+      of rtBackground:
+        if not ignoreRunList and runNumber.uint16 in oldTosBackRuns:
+          processAndWriteSingleRun(h5f, folder, nofadc, runType)
+      of rtXrayFinger:
+        if not ignoreRunList and runNumber.uint16 in oldTosXrayRuns:
+          processAndWriteSingleRun(h5f, folder, nofadc, runType)
+      else:
+        info &"Run {runNumber} with path {folder} is invalid for type {runType}"
+    of rfNewTos:
+      processAndWriteSingleRun(h5f, folder, nofadc)
     info "free memory ", getFreeMem()
     info "occupied memory so far $# \n\n" % [$getOccupiedMem()]
     info "Closing h5file with code ", h5f.close()

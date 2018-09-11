@@ -1131,13 +1131,13 @@ proc main() =
     of rfOldTos:
       case runType
       of rtCalibration:
-        if not ignoreRunList and runNumber.uint16 in oldTosCalibRuns:
+        if ignoreRunList or runNumber.uint16 in oldTosCalibRuns:
           processAndWriteSingleRun(h5f, folder, nofadc, runType)
       of rtBackground:
-        if not ignoreRunList and runNumber.uint16 in oldTosBackRuns:
+        if ignoreRunList or runNumber.uint16 in oldTosBackRuns:
           processAndWriteSingleRun(h5f, folder, nofadc, runType)
       of rtXrayFinger:
-        if not ignoreRunList and runNumber.uint16 in oldTosXrayRuns:
+        if ignoreRunList or runNumber.uint16 in oldTosXrayRuns:
           processAndWriteSingleRun(h5f, folder, nofadc, runType)
       else:
         info &"Run {runNumber} with path {folder} is invalid for type {runType}"

@@ -80,7 +80,7 @@ type
     FadcType, InGridType
 
   RunTypeKind* = enum
-    rtCalibration, rtBackground, rtXrayFinger
+    rtNone, rtCalibration, rtBackground, rtXrayFinger
 
   RunFolderKind* = enum
     rfNewTos, rfOldTos

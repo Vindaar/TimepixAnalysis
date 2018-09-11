@@ -8,6 +8,7 @@ import memfiles
 import sequtils, future
 import threadpool
 import math
+import streams, parsecsv
 
 import typetraits
 
@@ -1137,6 +1138,27 @@ proc getOldRunInformation*(folder: string, runNumber: int, rfKind: RunFolderKind
     result = (totalEvents, numEvents, startTime, stopTime, runTime)
   else: discard
 
+proc parseOldTosRunlist*(path: string, rtKind: RunTypeKind): set[uint16] =
+  ## parses the run list and returns a set of integers, corresponding to
+  ## the valid run numbers of the `RunTypeKind` given
+  var s = newFileStream(path, fmRead)
+  defer: s.close()
+  var typeStr: string
+  case rtKind
+  of rtCalibration:
+    typeStr = "C"
+  of rtBackground:
+    typeStr = "B"
+  of rtXrayFinger:
+    typeStr = "X"
+
+  var csv: CsvParser
+  open(csv, s, path)
+  while readRow(csv):
+    if csv.row[2] == typeStr:
+      result.incl csv.row[0].strip.parseInt.uint16
+  csv.close()
+
 proc extractRunNumber*(runFolder: string): int =
   ## given a valid TOS run folder, extract its run Number
   let (is_rf, runNumber, rfKind, contains_rf) = isTosRunFolder(runFolder)
@@ -1146,8 +1168,6 @@ proc extractRunFolderKind*(runFolder: string): RunFolderKind =
   ## given a valid TOS run folder, extract its run Number
   let (is_rf, runNumber, rfKind, contains_rf) = isTosRunFolder(runFolder)
   result = rfKind
-
-
 
 
 ################################################################################

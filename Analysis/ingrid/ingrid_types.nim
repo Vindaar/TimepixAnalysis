@@ -79,6 +79,9 @@ type
   EventType* = enum
     FadcType, InGridType
 
+  RunTypeKind* = enum
+    rtCalibration, rtBackground, rtXrayFinger
+
   RunFolderKind* = enum
     rfNewTos, rfOldTos
 

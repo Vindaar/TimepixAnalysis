@@ -9,6 +9,7 @@ import sequtils, future
 import threadpool
 import math
 import streams, parsecsv
+import sets
 
 import typetraits
 
@@ -147,6 +148,18 @@ proc parseTOSDateString*(date_str: string): Time =
   ## a Time object from it
   let date = toTime(parse(date_str, "yyyy-MM-dd'.'hh:mm:ss"))
   return date
+
+proc parseRunType*(runType: string): RunTypeKind =
+  ## given a string describing a run type, return the correct
+  ## `RunTypeKind`
+  if runType.normalize in ["calibration", "calib", "c"]:
+    result = rtCalibration
+  elif runType.normalize in ["background", "back", "b"]:
+    result = rtBackground
+  elif runType.normalize in ["xrayfinger", "xray", "x"]:
+    result = rtXrayFinger
+  else:
+    result = rtNone
 
 proc readDateFromEvent*(filepath: string): string =
   ## procedure opens the given file and returns the dateTime value
@@ -1151,6 +1164,8 @@ proc parseOldTosRunlist*(path: string, rtKind: RunTypeKind): set[uint16] =
     typeStr = "B"
   of rtXrayFinger:
     typeStr = "X"
+  else:
+    return {}
 
   var csv: CsvParser
   open(csv, s, path)

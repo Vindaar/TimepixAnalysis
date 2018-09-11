@@ -22,10 +22,11 @@ import ingrid/calibration
 
 when defined(linux):
   const commitHash = staticExec("git rev-parse --short HEAD")
-  const currentDate = staticExec("date")
 else:
   const commitHash = ""
-  const currentDate = ""
+
+# get date using `CompileDate` magic
+const currentDate = CompileDate & " at " & CompileTime
 
 const docTmpl = """
 Version: $# built on: $#

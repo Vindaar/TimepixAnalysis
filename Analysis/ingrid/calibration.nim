@@ -313,9 +313,9 @@ proc fitPolya*(charges,
   result.redChiSq = minVal / (charges.len - p.len).float
 
 proc cutFeSpectrum(data: array[4, seq[float64]], eventNum, hits: seq[int64]):
-                    seq[(int64, int64)] =
+                    seq[(int64, int64, int64)] =
   ## proc which receives the data for the cut, performs the cut and returns tuples of
-  ## event numbers and number of hits of the passing elements
+  ## event numbers, number of hits and the indices of the passing elements
   ## inputs:
   ##    data: array[4, seq[float64]] = array containing 4 sequences
   ##      - pos_x, pos_y, eccentricity, rms_transverse which we need for cuts
@@ -350,7 +350,7 @@ proc cutFeSpectrum(data: array[4, seq[float64]], eventNum, hits: seq[int64]):
       continue
 
     # else we keep these events, hence add event number to output
-    result.add (eventNum[i], hits[i])
+    result.add (eventNum[i], hits[i], i.int64)
 
 proc createFeSpectrum*(h5f: var H5FileObj, runNumber: int) =
   ## proc which reads necessary reconstructed data from the given H5 file,
@@ -397,6 +397,7 @@ proc createFeSpectrum*(h5f: var H5FileObj, runNumber: int) =
   let
     eventSpectrum = hitsSpecTuples.mapIt(it[0])
     hitsSpectrum = hitsSpecTuples.mapIt(it[1])
+    specIndices = hitsSpecTuples.mapIt(it[2])
 
   # given hits, write spectrum to file
   let
@@ -406,8 +407,12 @@ proc createFeSpectrum*(h5f: var H5FileObj, runNumber: int) =
     specEventDset = h5f.create_dataset(group.name & "/FeSpectrumEvents",
                                        nEventsPassed,
                                        dtype = int)
+    specIndDset = h5f.create_dataset(group.name & "/FeSpectrumIndices",
+                                       nEventsPassed,
+                                       dtype = int)
   spectrumDset[spectrumDset.all] = hitsSpectrum
   specEventDset[specEventDset.all] = eventSpectrum
+  specIndDset[specIndDset.all] = specIndices
 
 # TODO: also does not work I guess, because this won't be declared in case we import
 # this module

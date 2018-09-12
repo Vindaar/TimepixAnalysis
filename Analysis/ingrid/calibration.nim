@@ -312,13 +312,14 @@ proc fitPolya*(charges,
   # calc reduced Chi^2 from total Chi^2
   result.redChiSq = minVal / (charges.len - p.len).float
 
-proc cutFeSpectrum(data: array[4, seq[float64]], event_num, hits: seq[int64]): seq[int64] =
-  ## proc which receives the data for the cut, performs the cut and returns the
-  ## event numbers of the passing elements
+proc cutFeSpectrum(data: array[4, seq[float64]], eventNum, hits: seq[int64]):
+                    seq[(int64, int64)] =
+  ## proc which receives the data for the cut, performs the cut and returns tuples of
+  ## event numbers and number of hits of the passing elements
   ## inputs:
   ##    data: array[4, seq[float64]] = array containing 4 sequences
   ##      - pos_x, pos_y, eccentricity, rms_transverse which we need for cuts
-  ##    event_num: seq[int] = sequence containing event numbers of data stored in
+  ##    eventNum: seq[int] = sequence containing event numbers of data stored in
   ##        other seqs
   ##    hits: seq[int] = sequence containing the hits of the corresponding event
   ##        which are the data in the final spectrum
@@ -349,7 +350,7 @@ proc cutFeSpectrum(data: array[4, seq[float64]], event_num, hits: seq[int64]): s
       continue
 
     # else we keep these events, hence add event number to output
-    result.add hits[i]
+    result.add (eventNum[i], hits[i])
 
 proc createFeSpectrum*(h5f: var H5FileObj, runNumber: int) =
   ## proc which reads necessary reconstructed data from the given H5 file,
@@ -389,13 +390,24 @@ proc createFeSpectrum*(h5f: var H5FileObj, runNumber: int) =
     hits = hits_dset[int64]
 
   # given this data, filter all events which don't conform
-  let hits_spectrum = cutFeSpectrum([pos_x, pos_y, ecc, rms_trans], event_num, hits)
+  let hitsSpecTuples = cutFeSpectrum([pos_x, pos_y, ecc, rms_trans], event_num, hits)
+  let nEventsPassed = hitsSpecTuples.len
   # with the events to use for the spectrum
-  echo "Elements passing cut : ", hits_spectrum.len
+  echo "Elements passing cut : ", nEventsPassed
+  let
+    eventSpectrum = hitsSpecTuples.mapIt(it[0])
+    hitsSpectrum = hitsSpecTuples.mapIt(it[1])
 
   # given hits, write spectrum to file
-  var spectrum_dset = h5f.create_dataset(group.name & "/FeSpectrum", hits_spectrum.len, dtype = int)
-  spectrum_dset[spectrum_dset.all] = hits_spectrum
+  let
+    spectrumDset  = h5f.create_dataset(group.name & "/FeSpectrum",
+                                       nEventsPassed,
+                                       dtype = int)
+    specEventDset = h5f.create_dataset(group.name & "/FeSpectrumEvents",
+                                       nEventsPassed,
+                                       dtype = int)
+  spectrumDset[spectrumDset.all] = hitsSpectrum
+  specEventDset[specEventDset.all] = eventSpectrum
 
 # TODO: also does not work I guess, because this won't be declared in case we import
 # this module

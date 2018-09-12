@@ -40,6 +40,22 @@ def expGauss(x_ar, p):
 
     return x_out
 
+def feSpectrumFuncCharge(x, *p_ar):
+    ## the fitting function used for the Fe spectrum with charge bins, see `XrayCalib.c`
+    # fix N_Kbeta/N_Kalpha to theoretical value from XDB
+    p6 = 17.0 / 150.0
+    t1 = p_ar[0] * np.exp(-(x - p_ar[1]) * (x - p_ar[1]) / (2 * p_ar[2] * p_ar[2]))
+    t2exp = -(x - (p_ar[1] * 3.53 / 2.94)) * (x - (p_ar[1] * 3.53/2.94)) / (2 * p_ar[2] * p_ar[2])
+    t2 = p_ar[0] * p6 * np.exp(t2exp)
+    t3 = p_ar[3] * np.exp(-(x - p_ar[4]) * (x - p_ar[4]) / (2 * p_ar[5] * p_ar[5]))
+    t4exp = -(x - (p_ar[4] * 6.49 / 5.90)) * (x - (p_ar[4] * 6.49 / 5.90)) / (2 * p_ar[5] * p_ar[5])
+    t4 = p_ar[3] * p6 * np.exp(t4exp)
+    return (t1 + t2 + t3 + t4)
+
+def feSpectrumFuncPixels(x, *p_ar):
+    ## to be implemented
+    pass
+
 def feSpectrumFunc(x, *p_ar):#p_ar):
     # NOTE: should we init with 0? or 1?
 

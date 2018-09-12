@@ -537,6 +537,47 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int) =
       #chargeDset.attrs["theta_err"] = fitResutl.pErr[2]
       chargeDset.attrs["redChiSq"] = fitResult.redChiSq
 
+## need nimpy to call python functions
+import nimpy
+proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int) =
+  ## (currently) calls Python functions from `ingrid` Python module to
+  ## perform fit to the `FeSpectrum` dataset in the given run number
+  ## NOTE: due to calling Python functions, this proc is *extremely*
+  ## inefficient!
+  let pyFitFe = pyImport("ingrid.fit_fe_spectrum")
+  # get the fe spectrum for the run
+  let
+    groupName = recoDataChipBase(runNumber) & $chipNumber
+    feDset = h5f[(groupName / "FeSpectrum").dsetStr]
+    feData = feDset[int64]
+  echo "feData is ", feData
+  # call python function with data
+  let res = pyFitFe.fitAndPlotFeSpectrum([feData], "", ".", runNumber, true)
+  echo res
+  let err = h5f.close()
+  if err == 0:
+    let factor = pyFitFe.writeFitParametersH5(h5f.name, res, groupName, feDset.name)
+    echo "Factor is ", factor
+  else:
+    echo "Err is ", err
+
+  # reopen the file
+  h5f = H5file(h5f.name, "rw")
+  # now fit charge
+
+  if h5f.hasTotalChargeDset(runNumber, chipNumber):
+    # also fit to the charge spectrum
+    let feIdx = h5f[groupName / "FeSpectrumIndices", int64]
+    let totChargeData = h5f[groupName / "totalCharge", float64]
+    # extract correct clusters from totChargeData using indices
+    let totChSpec = feIdx.mapIt(totChargeData[it.int])
+    echo "Tot charge spectrum is ", totChSpec.len, " long!"
+
+    let res2 = pyFitFe.fitAndPlotFeSpectrumCharge([totChSpec], "", ".", runNumber, true)
+  else:
+    echo "Warning: `totalCharge` dataset does not exist in file. No fit to " &
+      "charge Fe spectrum will be performed!"
+
 proc applyEnergyCalibration*(h5f: var H5FileObj, runNumber: int, calib_factor: float) =
   ## proc which applies an energy calibration based on the number of hit pixels in an event
   ## using a conversion factor of unit eV / hit pixel to the run given by runNumber contained

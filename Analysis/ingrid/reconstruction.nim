@@ -40,7 +40,8 @@ type
     xy: tuple[x, y: float64]
 
   RecoFlagKind = enum
-    rfNone, rfCreateFe, rfCalibEnergy, rfOnlyEnergy, rfOnlyCharge, rfOnlyFadc
+    rfNone, rfCreateFe, rfCalibEnergy, rfOnlyEnergy, rfOnlyCharge,
+    rfOnlyFadc
 
 when defined(linux):
   const commitHash = staticExec("git rev-parse --short HEAD")
@@ -729,11 +730,14 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
         # now check whether create iron spectrum flag is set
         if rfCreateFe in flags:
           h5fout.createFeSpectrum(runNumber)
-        elif rfCalibEnergy in flags:
-          # TODO: change the 1.1 to the correct value gained from the Fe spectrum
-          # However, this can only be done after the fit has been done in Python
-          # we may call another function before, which makes a system call to the
-          # Python fitting script and reads the value back from there.
+        if rfCalibEnergy in flags:
+          # TODO: assign correct chip for detector
+          # could have a center chip attribute or just iterate over all
+          # chips and check which has a FeSpectrum dataset
+          # NOTE: STILL WIP
+          const centerChip = 3
+          h5fout.fitToFeSpectrum(runNumber, centerChip)
+          echo "Applying energy calib now "
           h5fout.applyEnergyCalibration(runNumber, 1.1)
       else:
         # only perform energy calibration of the reconstructed runs in file
@@ -743,6 +747,9 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
             h5fout.applyEnergyCalibration(runNumber, calib_factor)
           if rfOnlyCharge in flags:
             h5fout.applyChargeCalibration(runNumber)
+            # NOTE: STILL WIP
+            const centerChip = 3
+            h5fout.fitToFeSpectrum(runNumber, centerChip)
             h5fout.calcGasGain(runNumber)
           if rfOnlyFadc in flags:
             h5fout.calcRiseAndFallTimes(runNumber)

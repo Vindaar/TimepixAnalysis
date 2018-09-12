@@ -9,7 +9,7 @@ from datetime import datetime
 
 def getListOfDsets():
     dsets = ["hits", "sumTot", "centerX", "centerY",
-             "energyFromPixel", "rmsLongitudinal", "rmsTransverse", 
+             "energyFromPixel", "rmsLongitudinal", "rmsTransverse",
              "skewnessLongitudinal", "skewnessTransverse", "kurtosisLongitudinal",
              "kurtosisTransverse", "eccentricity", "rotationAngle",
              "length", "width", "fractionInTransverseRms", "lengthDivRmsTrans",
@@ -50,7 +50,7 @@ def getBinRangeForDset(dset):
         return None
 
 def getNumBinsForDset(dset):
-    print "Getting number of bins for ", dset
+    print("Getting number of bins for ", dset)
     if dset == "hits":
         return 500
     elif dset == "energyFromPixel":
@@ -77,8 +77,8 @@ def getNumBinsForDset(dset):
     elif "fallTime" in dset:
         return 30
     else:
-        return None    
-    
+        return None
+
 
 def readFileColumn(filename):
     lines = open(filename, "r").readlines()
@@ -87,7 +87,7 @@ def readFileColumn(filename):
         if "#" not in line and "nan" not in line:
             data.append(float(line))
     return np.asarray(data)
-    
+
 def readFadcSpectrumFile(filename):
     return readFileColumn(filename)
 
@@ -122,12 +122,12 @@ def binData(data, cuts):
           # this could do something evil!
           cut = eval(cut_str)
           data = data[np.where(cut)[0]]
-          #print data
+          #print(data)
 
     # assume binsize of 1 for now
     data = np.concatenate(data).flatten()
     binning = np.linspace(-0.5, np.max(data) + 0.5, np.max(data) + 2)
-    
+
     hist, bin_edges = np.histogram(data, binning)
     bins = np.arange(np.max(data) + 1)
 
@@ -139,7 +139,7 @@ def plotData(hist, binning, range, outfile, title, xlabel, ylabel, save_plot = T
     fig, ax = plt.subplots(1, 1)
     #ax.hist(data, bins = 199)
     if binning is None:
-        print "Binning is ", binning
+        print("Binning is ", binning)
         binning = 249
     if type(binning) is int:
         try:
@@ -174,7 +174,7 @@ def plotData(hist, binning, range, outfile, title, xlabel, ylabel, save_plot = T
                 ax.hist(hist, bins = binning, range = range, linewidth = 0.0)
         except ValueError:
             print("something broken on outfile {}".format(outfile))
-            #print hist
+            #print(hist)
             raise
     else:
         print(np.shape(hist), np.shape(binning))
@@ -209,9 +209,9 @@ def plotVsTime(times, y_data, x_range, y_range, outfile, title, xlabel, ylabel, 
     # information as a unix timestamp
     fig, ax = plt.subplots(1, 1)
 
-    print "Converting..."
-    print np.size(times)
-    print np.size(y_data)
+    print("Converting...")
+    print(np.size(times))
+    print(np.size(y_data))
     # TODO: the following is a hack to get rid of broken
     # timestamp in some events contained in calibratino_w_timestamps.h5 and
     # background_w_timestamps.h5
@@ -223,7 +223,7 @@ def plotVsTime(times, y_data, x_range, y_range, outfile, title, xlabel, ylabel, 
         datetimes.append(el)
         #yvals.append(y_data[i])
 
-    print "Plotting..."
+    print("Plotting...")
     ax.plot(datetimes, yvals, linestyle = "", marker = ".")
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
@@ -231,8 +231,8 @@ def plotVsTime(times, y_data, x_range, y_range, outfile, title, xlabel, ylabel, 
     if save_plot == True:
         savefigure(outfile)
 
-    plt.show()    
-    
+    plt.show()
+
 
 def readH5DataSingle(h5f, group_name, dset_names):
     # proc which reads datasets from the a single group
@@ -247,7 +247,7 @@ def readH5DataSingle(h5f, group_name, dset_names):
         print("Opening dset {}".format(dset))
         dset_h5 = group[dset]
         result.append(dset_h5[:])
-        print result
+        print(result)
     return result
 
 def iterH5RunGroups(h5f, group_type = recoBase()):
@@ -268,14 +268,14 @@ def iterH5RunGroups(h5f, group_type = recoBase()):
     # in this case have to iterate over all runs
     for grp in basegroup.keys():
         if "run_" in grp:
-            print "Reading group ", grp
+            print("Reading group ", grp)
             yield grp
 
 def iterH5DatasetAndChps(h5f, dset, run_number = None):
     # this function yields a combined dataset (unless run_number is specified)
     # from a H5 file for all chips one after another
     nchips = 7
-    for chip in xrange(nchips):
+    for chip in range(nchips):
         data = readH5Data(h5f, recoBase(), chip, [dset])
         yield (chip, data)
 
@@ -284,7 +284,7 @@ def iterTwoH5DatasetAndChps(h5_files, dset, run_number = None):
     # from a list of H5 files
     nchips = 7
 
-    for chip in xrange(nchips):
+    for chip in range(nchips):
         data = []
         for h5f in h5_files:
             data.append(readH5Data(h5f, recoBase(), chip, [dset]))
@@ -296,7 +296,7 @@ def readFadcInGridDset(h5f, group_name, dset_name):
     if "fadc" in dset_name:
         dset = dset_name.split("_")[1]
         result = readH5DataSingle(h5f, group_name, [dset])
-        
+
     else:
         result = readH5DataSingle(h5f, group_name, [dset_name])
 
@@ -310,11 +310,11 @@ def readH5Data(h5file, group_name, chip, dset_names):
     print("Opening h5file {}".format(h5file))
     h5f = h5py.File(h5file, "r")
     print(h5f)
-    
+
     # first check whether we read one run or all
     result = []
     if group_name == recoBase() or group_name == likelihoodBase():
-        print("Reading group {}".format(group_name))        
+        print("Reading group {}".format(group_name))
         basegroup = h5f[group_name]
         # in this case have to iterate over all runs
         for name in iterH5RunGroups(h5f, group_name):
@@ -341,7 +341,7 @@ def readH5Data(h5file, group_name, chip, dset_names):
         else:
             result = readFadcInGridDset(h5f, group_name, dset_names[0])
             result = np.asarray(result)
-        
+
     h5f.close()
     return result
 
@@ -352,7 +352,14 @@ def writeFitParametersH5(h5file, fit_results, group_name, dset_name):
     # as the results for the spectrum are not actully used in the
     # reconstruction or analysis
     h5f = h5py.File(h5file, "r+")
-    group = h5f[group_name]
+    if isinstance(group_name, list):
+        if len(group_name) > 1:
+            raise ValueError("Group name is a list with more than 1 "
+                             "element in `writeFitParametersH5`. Why? ",
+                             group_name)
+        group = h5f[group_name[0]]
+    else:
+        group = h5f[group_name]
     dset_h5 = group[dset_name]
 
     popt, pcov, popt_E, pcov_E = fit_results

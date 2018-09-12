@@ -13,7 +13,7 @@ from scipy.optimize import curve_fit
 
 import numpy as np
 
-from fit_fe_spectrum import *
+from ingrid.fit_fe_spectrum import *
 
 
 def fancy_plotting():
@@ -36,7 +36,8 @@ def fancy_plotting():
               'xtick.labelsize':     8,#8,
               'ytick.labelsize':     8,#8,
               'text.usetex':         True,
-              'text.latex.preamble': [r'\usepackage{siunitx} \usepackage{mhchem}'],
+              'text.latex.preamble': [r'\usepackage{siunitx} \usepackage{mhchem}'
+                                      + r'\usepackage{amsmath}'],
               'font.family':         'serif',
               'font.serif':          'cm',
               'figure.figsize':      fig_size}
@@ -55,7 +56,7 @@ def plotsForAllDsets(h5file, all_runs = False, h5file2 = None):
         # datasets, which are defined in ingrid_helper_functions
         for grp in iterH5RunGroups(h5f):
             run_number = grp.split("_")[-1]
-            for chip in xrange(nchips):
+            for chip in range(nchips):
                 grp_name = recoBase() + grp + "/chip_{}".format(chip)
                 for dset in dsets:
                     print("Reading dataset {}".format(dset))
@@ -102,7 +103,7 @@ def createGroupName(run_number, all_plots, dset_name, chip, all_runs):
     # as well as the all_plots flag
     group_name = []
     if type(run_number) is not list:
-        print "broken"
+        print("broken")
         if "fadc" not in dset_name:
             group_name = recoDataChipBase(run_number) + str(chip)
         else:
@@ -113,7 +114,7 @@ def createGroupName(run_number, all_plots, dset_name, chip, all_runs):
                 group_name.append(recoDataChipBase(run) + str(chip))
             else:
                 group_name.append(recoFadcBase(run) + "fadc/")
-                        
+
     if all_runs == True:
         group_name = recoBase()
     return group_name
@@ -159,7 +160,7 @@ def readAndPlotRatioDsets(h5file, h5file2, group_name, chip, dset_name, run_numb
     # of the remaining datasets, calculate the ratio of the two
     dataf1 = dataf1[0] / dataf1[1]
     if h5file2 != None:
-        dataf2 = dataf2[0] / dataf2[1]    
+        dataf2 = dataf2[0] / dataf2[1]
 
     if dataf2.size > 0:
         data = [dataf1, dataf2]
@@ -168,13 +169,13 @@ def readAndPlotRatioDsets(h5file, h5file2, group_name, chip, dset_name, run_numb
     dset_name = dset_name[0] + "_" + dset_name[1]
     range = getBinRangeForDset(dset_name)
     nbins = getNumBinsForDset(dset)
-    print range
+    print(range)
     plotData(data, nbins, range,#binning,
              "{0}_{1}".format(dset_name, run_number),
              "{0} of run {1}".format(dset_name, run_number),
              dset_name,
              "# hits")
-        
+
 
 def main(args):
 
@@ -192,11 +193,11 @@ def main(args):
     parser.add_argument('--dset_name',
                         default = "FeSpectrum",
                         dest = "dset_name",
-                        help = """The data to be plotted. 
+                        help = """The data to be plotted.
                         Note: if you want to plot an FADC
                         dataset (minvals etc.), prepend it with `fadc_` such as:
                         --dset_name fadc_minvals
-                        Note2: if you wish to plot a ratio of two datasets, simply 
+                        Note2: if you wish to plot a ratio of two datasets, simply
                         provide the two datasets to divide separated by a '/' without
                         spaces, e.g.:
                         --dset_name length/rmsTransverse""")
@@ -233,7 +234,7 @@ def main(args):
                         help = "The folder in which to save the plots")
     parser.add_argument('--fitting_only',
                         action = 'store_true',
-                        help = """Set this if you don't want any plots showed (only saved). 
+                        help = """Set this if you don't want any plots showed (only saved).
                         Useful to call script externally, without getting blocking behavior.""")
     parser.add_argument('--fancy',
                         default = False,
@@ -269,7 +270,7 @@ def main(args):
     if (chip is None or (run_number is None and all_runs == False)) and all_plots == False and "fadc" not in dset_name:
         import sys
         sys.exit("Please provide a run and chip number!")
-    
+
     group_name = createGroupName(run_number, all_runs, dset_name, chip, all_runs)
 
     # given the dataset name, parse the user input and determine if we
@@ -285,7 +286,7 @@ def main(args):
             data.append(readH5Data(h5file, group_name, chip, [dset_name]))
             if ignore_full_frames == True:
                 data[0] = filterFullFrames(data[0], h5file, group_name, chip)
-            if h5file2 != None:            
+            if h5file2 != None:
                 data.append(readH5Data(h5file2, group_name, chip, [dset_name]))
                 if ignore_full_frames == True:
                     data[1] = filterFullFrames(data[1], h5file2, group_name, chip)
@@ -306,13 +307,13 @@ def main(args):
                     calib_factor = writeFitParametersH5(h5file, fit_results, group_name, dset_name)
 
                     if fitting_only == True:
-                        # now print the calibration factor again so that it can be read as the last line
+                        # now print(the calibration factor again so that it can be read as the last line)
                         # from a calling process
                         print("\n{}".format(calib_factor))
         else:
             # in this case we plot the ratio of two datasets
             readAndPlotRatioDsets(h5file, h5file2, group_name, chip, dset_name, run_number, ratio, ignore_full_frames)
-                
+
 if __name__=="__main__":
     import sys
     main(sys.argv[1:])

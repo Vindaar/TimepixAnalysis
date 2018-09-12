@@ -453,27 +453,39 @@ proc applyChargeCalibration*(h5f: var H5FileObj, runNumber: int)
       let chipNumber = group.attrs["chipNumber", int]
       let chipName = group.attrs["chipName", string]
       # get dataset of hits
-      var totDset = h5f[(grp / "ToT").dset_str]
-      let vlenInt = special_type(uint16)
-      let tots = totDset[vlenInt, uint16]
+      let
+        totDset = h5f[(grp / "ToT").dset_str]
+        sumTotDset = h5f[(grp / "sumTot").dset_str]
+        vlenInt = special_type(uint16)
+        tots = totDset[vlenInt, uint16]
+        sumTots = sumTotDset[int64]
       # now calculate charge in electrons for all TOT values
       # need calibration factors from InGrid database for that
       let (a, b, c, t) = getTotCalibParameters(chipName)
       #mapIt(it.mapIt(calibrateCharge(it.float, a, b, c, t)))
       var charge = newSeqWith(tots.len, newSeq[float]())
+      var totalCharge = newSeq[float](sumTots.len)
       for i, vec in tots:
-        #echo vec
+        # calculate charge values for individual pixels
         charge[i] = vec.mapIt((calibrateCharge(it.float, a, b, c, t)))
+        # and for the sum of all in one cluster
+        totalCharge[i] = calibrateCharge(sumTots[i].float, a, b, c, t)
       #let charge = tots --> map(it --> map(it --> calibrateCharge(it.float, a, b, c, t))) --> to(seq[seq[float]])
       # create dataset for charge values
       let vlenFloat = special_type(float64)
-      var chargeDset = h5f.create_dataset(grp / "charge", charge.len, dtype = vlenFloat)
-      chargeDset[chargeDset.all] = charge
-      # add attributes for TOT calibration factors used
-      chargeDset.attrs["charge_a"] = a
-      chargeDset.attrs["charge_b"] = b
-      chargeDset.attrs["charge_c"] = c
-      chargeDset.attrs["charge_t"] = t
+      var
+        chargeDset = h5f.create_dataset(grp / "charge", charge.len, dtype = vlenFloat)
+        totalChargeDset = h5f.create_dataset(grp / "totalCharge", charge.len, dtype = float64)
+
+      template writeDset(dset: H5DataSet, data: untyped) =
+        dset[dset.all] = data
+        # add attributes for TOT calibration factors used
+        dset.attrs["charge_a"] = a
+        dset.attrs["charge_b"] = b
+        dset.attrs["charge_c"] = c
+        dset.attrs["charge_t"] = t
+      chargeDset.writeDset(charge)
+      totalChargeDset.writeDset(totalCharge)
 
 proc calcGasGain*(h5f: var H5FileObj, runNumber: int) =
   ## fits the polya distribution to the charge values and writes the

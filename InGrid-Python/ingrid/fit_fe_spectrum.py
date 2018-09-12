@@ -1,6 +1,7 @@
 from ingrid.ingrid_helper_functions import *
 from scipy.optimize import curve_fit
 import numpy as np
+import matplotlib as mpl
 
 # this whole fit is probably going to be pretty slow.
 # convert to Nim functions, which we compile to lib and call
@@ -96,9 +97,9 @@ def fitFeSpectrum(hist, binning, cuts):
     mu_kalpha = np.argmax(hist)
     sigma_kalpha = mu_kalpha / 10.0
     n_kalpha = hist[mu_kalpha]
-    print mu_kalpha
-    print sigma_kalpha
-    print n_kalpha
+    print(mu_kalpha)
+    print(sigma_kalpha)
+    print(n_kalpha)
     mu_kalpha_esc = mu_kalpha * 2.9/5.75
     sigma_kalpha_esc = mu_kalpha_esc / 10.0
     n_kalpha_esc = n_kalpha / 10.0
@@ -116,7 +117,7 @@ def fitFeSpectrum(hist, binning, cuts):
 
     l_bounds = []
     u_bounds = []
-    for i in xrange(15):
+    for i in range(15):
         l_bounds.append(-np.inf)
         u_bounds.append(np.inf)
     # set bound on paramerters
@@ -152,17 +153,17 @@ def fitFeSpectrum(hist, binning, cuts):
     # be small anyways...
     bounds = (l_bounds, u_bounds)
     print(len(bounds))
-    print bounds
+    print(bounds)
     print(len(params))
 
     # only fit in range up to 350 hits. Can take index 350 on both, since we
     # created the histogram for a binning with width == 1 pixel per hit
     data_tofit = hist[0:350]
     bins_tofit = binning[0:350]
-    #print data_tofit
-    #print bins_tofit
+    #print(data_tofit)
+    #print(bins_tofit)
     lb, ub = [np.asarray(b, dtype=float) for b in bounds]
-    print ub
+    print(ub)
 
     result = curve_fit(feSpectrumFunc, bins_tofit, data_tofit, p0=params, bounds = bounds)#, full_output=True)
     popt = result[0]
@@ -171,13 +172,13 @@ def fitFeSpectrum(hist, binning, cuts):
     # n_dof: # degrees of freedom
     #n_dof  = (np.size(infodict[0]['fvec']) - np.size(popt))
     #chi_sq = np.sum(infodict[0]['fvec']**2) / n_dof
-    print '--------------------------------------------------'
-    print 'Parameters of calibration fit: '
+    print('--------------------------------------------------')
+    print('Parameters of calibration fit: ')
     for i, p in enumerate(popt):
-        print 'p_{} ='.format(i), popt[i], '+-', np.sqrt(pcov[i][i])
-    #print 'Chi^2 / dof =', chi_sq
+        print('p_{} ='.format(i), popt[i], '+-', np.sqrt(pcov[i][i]))
+    #print('Chi^2 / dof =', chi_sq)
 
-    print "yay :)"
+    print("yay :)")
 
     return popt, pcov
 
@@ -185,7 +186,7 @@ def linear_func(x, a):
     return a * x
 
 def fitAndPlotFeSpectrum(data, cuts, outfolder, run_number, fitting_only = False):
-
+    print("Got data: ", data)
     # bin the data
     hist, binning = binData(data, cuts)
 
@@ -210,15 +211,15 @@ def fitAndPlotFeSpectrum(data, cuts, outfolder, run_number, fitting_only = False
     # n_dof: # degrees of freedom
     n_dof  = (np.size(infodict[0]['fvec']) - np.size(popt_E))
     chi_sq = np.sum(infodict[0]['fvec']**2) / n_dof
-    print '--------------------------------------------------'
-    print 'Parameters of linear fit to peaks: '
+    print('--------------------------------------------------')
+    print('Parameters of linear fit to peaks: ')
     for i, p in enumerate(popt_E):
-        print 'p_{} ='.format(i), popt_E[i], '+-', np.sqrt(pcov_E[i][i])
+        print('p_{} ='.format(i), popt_E[i], '+-', np.sqrt(pcov_E[i][i]))
 
     a_inv = 1.0 / popt_E[0] * 1000
     da_inv = a_inv * np.sqrt(pcov_E[0][0]) / popt_E[0]
     print("a^-1 = {0} +- {1}".format(a_inv, da_inv))
-    print 'Chi^2 / dof =', chi_sq
+    print('Chi^2 / dof =', chi_sq)
 
     E_calc = np.linspace(2, 7, 1000)
     H_calc = linear_func(E_calc, popt_E[0])
@@ -231,10 +232,15 @@ def fitAndPlotFeSpectrum(data, cuts, outfolder, run_number, fitting_only = False
     ax.set_xlim(0, 350)
     ax.plot(x_pl, y_pl, linewidth = 2, color = "red")
 
-    text  = "$\mu = \SI{" + "{0:.1f}".format(k_alpha) + "}{pix}$"
-    text2 = "$\sim\SI{" + "{0:.1f}".format(a_inv) + "}{\electronvolt \per pix}$"
+    if mpl.rcParams["text.usetex"] == True:
+        text  = "$\mu = \SI{" + "{0:.1f}".format(k_alpha) + "}{pix}$"
+        text2 = "$\sim\SI{" + "{0:.1f}".format(a_inv) + "}{\electronvolt \per pix}$"
+    else:
+        text  = "mu = " + "{0:.1f}".format(k_alpha) + "pix"
+        text2 = "{0:.1f}".format(a_inv) + "ev / pix"
     ax.text(120, 150, text, fontsize = 20)
     ax.text(120, 135, text2, fontsize = 20)
+
 
     plt.savefig(os.path.join(outfolder, "fe_spectrum_{}.pdf".format(run_number)))
     if fitting_only == False:

@@ -39,6 +39,9 @@ type
     cluster: Cluster
     xy: tuple[x, y: float64]
 
+  RecoFlagKind = enum
+    rfNone, rfCreateFe, rfCalibEnergy, rfOnlyEnergy, rfOnlyCharge, rfOnlyFadc
+
 when defined(linux):
   const commitHash = staticExec("git rev-parse --short HEAD")
 else:
@@ -663,7 +666,7 @@ proc reconstructSingleChip(data: seq[Pixels], run, chip: int): seq[FlowVar[ref R
 
 proc reconstructRunsInFile(h5f: var H5FileObj,
                            h5fout: var H5FileObj,
-                           flags_tab: Table[string, bool],
+                           flags: set[RecoFlagKind],
                            run_num_arg: int = -1,
                            calib_factor: float = 1.0) =
   ## proc which performs reconstruction of runs in a given file (all by default)
@@ -673,7 +676,7 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
   ## inputs:
   ##   `h5f`: the file from which we read the raw data
   ##   `h5fout`: the file to which we write the reconstructed data. May be the same file
-  ##   `flags_tab`: stores the command line arguments
+  ##   `flags`: stores the command line arguments
   ##   `runNumber`: optional run number, if given only this run is reconstructed
   ##   `calib_factor`: factor to use to calculate energy of clusters
   ##   `h5fout`: optional file to which the reconstructed data is written instead
@@ -693,9 +696,9 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
     runNumbersIterated.incl runNumber.uint16
     # check whether all runs are read, if not if this run is correct run number
     if run_num_arg < 0 or runNumber == run_num_arg:
-      if flags_tab["only_energy"] == false and
-         flags_tab["only_fadc"] == false and
-         flags_tab["only_charge"] == false:
+      if rfOnlyEnergy notin flags and
+         rfOnlyFadc notin flags and
+         rfOnlyCharge notin flags:
         # TODO: we can in principle perform energy calibration in one go
         # together with creation of spectrum, if we work as follows:
         # 1. calibration runs:
@@ -724,9 +727,9 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
         runNumbersDone.incl runNumber.uint16
 
         # now check whether create iron spectrum flag is set
-        if flags_tab["create_fe"] == true:
+        if rfCreateFe in flags:
           h5fout.createFeSpectrum(runNumber)
-        elif flags_tab["calib_energy"] == true:
+        elif rfCalibEnergy in flags:
           # TODO: change the 1.1 to the correct value gained from the Fe spectrum
           # However, this can only be done after the fit has been done in Python
           # we may call another function before, which makes a system call to the
@@ -736,13 +739,12 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
         # only perform energy calibration of the reconstructed runs in file
         # check if reconstructed run exists
         if hasKey(h5fout.groups, (recoBase & $runNumber)) == true:
-          if flags_tab["only_energy"] == true:
+          if rfOnlyEnergy in flags:
             h5fout.applyEnergyCalibration(runNumber, calib_factor)
-          if flags_tab["only_charge"] == true:
+          if rfOnlyCharge in flags:
             h5fout.applyChargeCalibration(runNumber)
             h5fout.calcGasGain(runNumber)
-
-          if flags_tab["only_fadc"] == true:
+          if rfOnlyFadc in flags:
             h5fout.calcRiseAndFallTimes(runNumber)
         else:
           warn "No reconstructed run found for $#" % $grp
@@ -755,7 +757,7 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
   info $runNumbersIterated
 
 proc reconstructRunsInFile(h5f: var H5FileObj,
-                           flags_tab: Table[string, bool],
+                           flags: set[RecoFlagKind],
                            run_num_arg: int = -1,
                            calib_factor: float = 1.0) =
   ## this proc is a wrapper around the one above, which is called in case
@@ -765,7 +767,7 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
   # simply set h5fout to h5f. This creates a copy of h5f, but we don't care
   # since it points to the same file and the important group / dset tables
   # are stored as references anyways
-  reconstructRunsInFile(h5f, h5f, flags_tab, run_num_arg, calib_factor)
+  reconstructRunsInFile(h5f, h5f, flags, run_num_arg, calib_factor)
 
 proc reconstructSingleRunFolder(folder: string) =
   ## procedure which receives path to a run folder and reconstructs the objects
@@ -810,15 +812,13 @@ proc main() =
     calib_energy_arg = $args["--calib_energy"]
 
   var
+    flags: set[RecoFlagKind]
     runNumber = $args["--runNumber"]
     outfile = $args["--out"]
-    create_fe_flag: bool
-    calib_energy_flag: bool
     calib_factor_str = $args["--only_energy"]
     calib_factor: float = Inf
-    only_energy_flag: bool
-    only_fadc: bool
-    only_charge_flag = if $args["--only_charge"] == "true": true else: false
+  if $args["--only_charge"] == "true":
+    flags.incl rfOnlyCharge
   if runNumber == "nil":
     runNumber = ""
   if outfile == "nil":
@@ -830,30 +830,15 @@ proc main() =
     warn "WARNING: writing to a different H5 file is not quite finished yet."
     warn "\t The resulting file will miss the attributes of the reco run groups"
     warn "\t as well as the common datasets like timestamps!"
-  if create_fe_arg == "false":
-    create_fe_flag = false
-  else:
-    create_fe_flag = true
-  if calib_energy_arg == "false":
-    calib_energy_flag = false
-  else:
-    calib_energy_flag = true
-  if calib_factor_str == "nil":
-    only_energy_flag = false
-  else:
-    only_energy_flag = true
+  if create_fe_arg == "true":
+    flags.incl rfCreateFe
+  if calib_energy_arg == "true":
+    flags.incl rfCalibEnergy
+  if calib_factor_str != "nil":
+    flags.incl rfOnlyEnergy
     calib_factor = parseFloat(calib_factor_str)
-  if $args["--only_fadc"] == "false":
-    only_fadc = false
-  else:
-    only_fadc = true
-
-  let flags_tab = { "create_fe": create_fe_flag,
-                    "calib_energy": calib_energy_flag,
-                    "only_energy": only_energy_flag,
-                    "only_charge": only_charge_flag,
-                    "only_fadc": only_fadc}.toTable
-
+  if $args["--only_fadc"] == "true":
+    flags.incl rfOnlyFadc
 
   var h5f = H5file(h5f_name, "rw")
   # visit the whole file to read which groups exist
@@ -865,13 +850,13 @@ proc main() =
 
   let raw_data_basename = rawDataBase()
   if runNumber == "" and outfile == "None":
-    reconstructRunsInFile(h5f, flags_tab, calib_factor = calib_factor)
+    reconstructRunsInFile(h5f, flags, calib_factor = calib_factor)
   elif runNumber != "" and outfile == "None":
-    reconstructRunsInFile(h5f, flags_tab, parseInt(runNumber), calib_factor)
+    reconstructRunsInFile(h5f, flags, parseInt(runNumber), calib_factor)
   elif runNumber == "" and outfile != "None":
-    reconstructRunsInFile(h5f, h5fout, flags_tab, calib_factor = calib_factor)
+    reconstructRunsInFile(h5f, h5fout, flags, calib_factor = calib_factor)
   elif runNumber != "" and outfile != "None":
-    reconstructRunsInFile(h5f, h5fout, flags_tab, parseInt(runNumber), calib_factor = calib_factor)
+    reconstructRunsInFile(h5f, h5fout, flags, parseInt(runNumber), calib_factor = calib_factor)
 
 
   var err: herr_t

@@ -1368,6 +1368,24 @@ proc getRecoCombineName*(): string =
   # generates the base path for the combine folder
   result = "/reconstruction/combined/"
 
+proc hasDset*(h5f: var H5FileObj, runNumber, chipNumber: int, dset: string):
+                bool =
+  ## returns `true` if the given run and chip has the given `dset`
+  if h5f.visited == false:
+    h5f.visit_file
+  let path = recoDataChipBase(runNumber) & $chipNumber / dset
+  if hasKey(h5f.datasets, path):
+    result = true
+  else:
+    result = false
+
+proc hasTotalChargeDset*(h5f: var H5FileObj, runNumber, chipNumber: int):
+                           bool {.inline.} =
+  ## returns `true` if the given run and chip has the
+  ## `totalCharge`
+  ## dataset
+  result = h5f.hasDset(runNumber, chipNumber, "totalCharge")
+
 macro createCombineTemplates(name, datatype: string): typed =
   ## creates a template, which returns a basename of the type
   ## combineBasename`name`(chip_number, run_number): string =

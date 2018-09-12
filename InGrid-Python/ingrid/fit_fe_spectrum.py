@@ -186,10 +186,8 @@ def linear_func(x, a):
     return a * x
 
 def fitAndPlotFeSpectrum(data, cuts, outfolder, run_number, fitting_only = False):
-    print("Got data: ", data)
     # bin the data
     hist, binning = binData(data, cuts)
-
     popt, pcov = fitFeSpectrum(hist, binning, cuts)
     k_alpha = popt[10]
 
@@ -197,7 +195,6 @@ def fitAndPlotFeSpectrum(data, cuts, outfolder, run_number, fitting_only = False
     # given these values, plot
     x_pl = np.linspace(0, 350, 3500)
     y_pl = feSpectrumFunc(x_pl, *popt)
-
     # before we plot the Fe spectrum, perform the calculations and fit of
     # the fit to the spectrum peaks
         # now we can fit the energy calibration function
@@ -245,6 +242,10 @@ def fitAndPlotFeSpectrum(data, cuts, outfolder, run_number, fitting_only = False
     plt.savefig(os.path.join(outfolder, "fe_spectrum_{}.pdf".format(run_number)))
     if fitting_only == False:
         plt.show()
+    else:
+        # in that case clear the current figure to not end up with
+        # both plots in one
+        plt.clf()
 
     plt.errorbar(energies, pixels_peaks, yerr = pixels_err, marker = ".", markersize = 8, linestyle = "", color = "red")
     plt.plot(E_calc, H_calc, marker = "", linestyle = "-")

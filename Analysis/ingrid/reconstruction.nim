@@ -41,7 +41,7 @@ type
 
   RecoFlagKind = enum
     rfNone, rfCreateFe, rfCalibEnergy, rfOnlyEnergy, rfOnlyCharge,
-    rfOnlyFadc
+    rfOnlyFadc, rfReadAllRuns
 
 when defined(linux):
   const commitHash = staticExec("git rev-parse --short HEAD")
@@ -661,7 +661,7 @@ proc reconstructSingleChip(data: seq[Pixels], run, chip: int): seq[FlowVar[ref R
 proc reconstructRunsInFile(h5f: var H5FileObj,
                            h5fout: var H5FileObj,
                            flags: set[RecoFlagKind],
-                           run_num_arg: int = -1,
+                           runNumberArg: int = -1,
                            calib_factor: float = 1.0) =
   ## proc which performs reconstruction of runs in a given file (all by default)
   ## if the --only_energy command line argument is set, we skip the reconstruction
@@ -671,7 +671,7 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
   ##   `h5f`: the file from which we read the raw data
   ##   `h5fout`: the file to which we write the reconstructed data. May be the same file
   ##   `flags`: stores the command line arguments
-  ##   `runNumber`: optional run number, if given only this run is reconstructed
+  ##   `runNumberArg`: optional run number, if given only this run is reconstructed
   ##   `calib_factor`: factor to use to calculate energy of clusters
   ##   `h5fout`: optional file to which the reconstructed data is written instead
 
@@ -689,7 +689,7 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
     let runNumber = parseInt(num)
     runNumbersIterated.incl runNumber.uint16
     # check whether all runs are read, if not if this run is correct run number
-    if run_num_arg < 0 or runNumber == run_num_arg:
+    if rfReadAllRuns in flags or runNumber == runNumberArg:
       if rfOnlyEnergy notin flags and
          rfOnlyFadc notin flags and
          rfOnlyCharge notin flags:
@@ -758,7 +758,7 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
 
 proc reconstructRunsInFile(h5f: var H5FileObj,
                            flags: set[RecoFlagKind],
-                           run_num_arg: int = -1,
+                           runNumberArg: int = -1,
                            calib_factor: float = 1.0) =
   ## this proc is a wrapper around the one above, which is called in case
   ## no output H5 file is given. In that case we simply hand the input file
@@ -767,7 +767,7 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
   # simply set h5fout to h5f. This creates a copy of h5f, but we don't care
   # since it points to the same file and the important group / dset tables
   # are stored as references anyways
-  reconstructRunsInFile(h5f, h5f, flags, run_num_arg, calib_factor)
+  reconstructRunsInFile(h5f, h5f, flags, runNumberArg, calib_factor)
 
 proc reconstructSingleRunFolder(folder: string) =
   ## procedure which receives path to a run folder and reconstructs the objects
@@ -820,7 +820,7 @@ proc main() =
   if $args["--only_charge"] == "true":
     flags.incl rfOnlyCharge
   if runNumber == "nil":
-    runNumber = ""
+    flags.incl rfReadAllRuns
   if outfile == "nil":
     echo &"Currently not implemented. What even for? outfile was {outfile}"
     outfile = "None"
@@ -849,15 +849,14 @@ proc main() =
     h5fout.visitFile
 
   let raw_data_basename = rawDataBase()
-  if runNumber == "" and outfile == "None":
+  if rfReadAllRuns in flags and outfile == "None":
     reconstructRunsInFile(h5f, flags, calib_factor = calib_factor)
-  elif runNumber != "" and outfile == "None":
+  elif rfReadAllRuns notin flags and outfile == "None":
     reconstructRunsInFile(h5f, flags, parseInt(runNumber), calib_factor)
-  elif runNumber == "" and outfile != "None":
+  elif rfReadAllRuns in flags and outfile != "None":
     reconstructRunsInFile(h5f, h5fout, flags, calib_factor = calib_factor)
-  elif runNumber != "" and outfile != "None":
+  elif rfReadAllRuns notin flags and outfile != "None":
     reconstructRunsInFile(h5f, h5fout, flags, parseInt(runNumber), calib_factor = calib_factor)
-
 
   var err: herr_t
   err = h5f.close()

@@ -366,6 +366,8 @@ def fitAndPlotFeSpectrum(data, cuts, outfolder, run_number, fitting_only = False
     plt.savefig(os.path.join(outfolder, "fe_energy_calibration_{}.pdf".format(run_number)))
     if fitting_only == False:
         plt.show()
+    else:
+        plt.close()
 
     # return fit results so that we can write them to the H5 file
     return (popt, pcov, popt_E, pcov_E)

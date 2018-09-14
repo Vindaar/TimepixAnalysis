@@ -87,11 +87,8 @@ InGrid raw data manipulation.
 Usage:
   raw_data_manipulation <folder> [options]
   raw_data_manipulation <folder> --runType <type> [options]
-  raw_data_manipulation <folder> --out <name> [options]
+  raw_data_manipulation <folder> --out <name> [--nofadc] [--runType <type>] [--ignoreRunList] [options]
   raw_data_manipulation <folder> --nofadc [options]
-  raw_data_manipulation <folder> --runType <type> --ignoreRunList [options]
-  raw_data_manipulation <folder> --out <name> --nofadc [options]
-  raw_data_manipulation <folder> --out <name> --runType <type> --ignoreRunList [options]
   raw_data_manipulation -h | --help
   raw_data_manipulation --version
 

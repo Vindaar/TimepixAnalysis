@@ -56,18 +56,11 @@ InGrid reconstruction and energy calibration.
 
 Usage:
   reconstruction <HDF5file> [options]
-  reconstruction <HDF5file> --out <name> [options]
-  reconstruction <HDF5file> --runNumber <number> --out <name> [options]
-  reconstruction <HDF5file> --runNumber <number> --create_fe_spec [options]
-  reconstruction <HDF5file> --runNumber <number> --create_fe_spec --out <name> [options]
-  reconstruction <HDF5file> --runNumber <number> --only_energy <factor> [options]
-  reconstruction <HDF5file> --runNumber <number> --only_charge [options]
-  reconstruction <HDF5file> --runNumber <number> --only_fadc [options]
-  reconstruction <HDF5file> --runNumber <number> [options]
+  reconstruction <HDF5file> [--out <name>] [--runNumber <number>] [--create_fe_spec] [options]
+  reconstruction <HDF5file> [--runNumber <number>] --only_energy <factor> [options]
+  reconstruction <HDF5file> [--runNumber <number>] --only_charge [options]
+  reconstruction <HDF5file> [--runNumber <number>] --only_fadc [options]
   reconstruction <HDF5file> (--create_fe_spec | --calib_energy) [options]
-  reconstruction <HDF5file> --only_energy <factor> [options]
-  reconstruction <HDF5file> --only_fadc [options]
-
   reconstruction -h | --help
   reconstruction --version
 

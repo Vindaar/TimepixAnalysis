@@ -783,8 +783,8 @@ proc writeInGridAttrs(h5f: var H5FileObj, run: ProcessedRun, runType: RunTypeKin
     inc i
 
   # finally write run type
-  run_group.attrs["runType"] = runType
-  reco_group.attrs["runType"] = runType
+  run_group.attrs["runType"] = $runType
+  reco_group.attrs["runType"] = $runType
 
   # into the reco group name we now write the ToT and Hits information
   # var totDset = h5f.create_dataset(reco_group & "/ToT")
@@ -1093,7 +1093,7 @@ proc main() =
   var runTypeStr = $args["--runType"]
   var runType: RunTypeKind
   var outfile = $args["--out"]
-  if runTypeStr == "nil":
+  if runTypeStr != "nil":
     runType = parseRunType(runTypeStr)
   if outfile == "nil":
     outfile = "run_file.h5"
@@ -1139,7 +1139,7 @@ proc main() =
       else:
         info &"Run {runNumber} with path {folder} is invalid for type {runType}"
     of rfNewTos:
-      processAndWriteSingleRun(h5f, folder, nofadc)
+      processAndWriteSingleRun(h5f, folder, nofadc, runType)
     info "free memory ", getFreeMem()
     info "occupied memory so far $# \n\n" % [$getOccupiedMem()]
     info "Closing h5file with code ", h5f.close()

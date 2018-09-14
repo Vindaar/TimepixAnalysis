@@ -684,10 +684,17 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
   var runNumbersIterated: set[uint16]
   var runNumbersDone: set[uint16]
 
+  # check if run type is stored in group, read it
+  var runType = rtNone
+  var rawGroup = h5f[rawGroupName]
+  if "runType" in rawGroup.attrs:
+    runType = parseEnum[RunTypeKind](rawGroup.attrs["runType", string])
+
   for num, grp in runs(h5f, rawDataBase()):
     # now read some data. Return value will be added later
     let runNumber = parseInt(num)
     runNumbersIterated.incl runNumber.uint16
+
     # check whether all runs are read, if not if this run is correct run number
     if rfReadAllRuns in flags or runNumber == runNumberArg:
       if rfOnlyEnergy notin flags and
@@ -721,7 +728,8 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
         runNumbersDone.incl runNumber.uint16
 
         # now check whether create iron spectrum flag is set
-        if rfCreateFe in flags:
+        # or this is a calibration run, then always create it
+        if rfCreateFe in flags or runType == rtCalibration:
           h5fout.createFeSpectrum(runNumber)
         if rfCalibEnergy in flags:
           # TODO: assign correct chip for detector

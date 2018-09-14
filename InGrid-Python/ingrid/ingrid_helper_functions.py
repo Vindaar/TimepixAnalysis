@@ -177,7 +177,6 @@ def plotData(hist, binning, range, outfile, title, xlabel, ylabel, save_plot = T
             #print(hist)
             raise
     else:
-        print(np.shape(hist), np.shape(binning))
         ax.bar(binning, hist, 1., align='edge', linewidth=0.2)
     if title is not None:
         ax.set_title(title)

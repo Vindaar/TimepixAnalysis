@@ -109,9 +109,7 @@ def getLines(hist):
     mu_kalpha = np.argmax(hist)
     sigma_kalpha = mu_kalpha / 10.0
     n_kalpha = hist[mu_kalpha]
-    print(mu_kalpha)
-    print(sigma_kalpha)
-    print(n_kalpha)
+
     mu_kalpha_esc = mu_kalpha * 2.9/5.75
     sigma_kalpha_esc = mu_kalpha_esc / 10.0
     n_kalpha_esc = n_kalpha / 10.0
@@ -165,18 +163,19 @@ def fitFeSpectrumToCharge(hist, binning, cuts):
 
     # combine bounds
     bounds = (l_bounds, u_bounds)
-    print(len(bounds))
+    #print(len(bounds))
     print("Bounds for charge fit: ", bounds)
     print("N params for charge fit: ", len(params))
     # only fit in range up to 350 hits. Can take index 350 on both, since we
     # created the histogram for a binning with width == 1 pixel per hit
     inds = np.where(np.logical_and(binning > 200, binning < 2000))[0]
     data_tofit = hist[inds]
-    print("Data to fit: ", data_tofit)
+    #print("Data to fit: ", data_tofit)
     bins_tofit = binning[inds]
     print("Binning to fit: ", bins_tofit)
-    lb, ub = [np.asarray(b, dtype=float) for b in bounds]
-
+    print("l bounds : ", l_bounds)
+    #lb, ub = [np.asarray(b, dtype=float) for b in bounds]
+    print("Bounds are : ", bounds)
     result = curve_fit(feSpectrumFuncCharge, bins_tofit, data_tofit, p0=params, bounds = bounds)#, full_output=True)
     popt = result[0]
     pcov = result[1]
@@ -329,10 +328,6 @@ def fitFeSpectrum(hist, binning, cuts):
     # created the histogram for a binning with width == 1 pixel per hit
     data_tofit = hist[0:350]
     bins_tofit = binning[0:350]
-    #print(data_tofit)
-    #print(bins_tofit)
-    lb, ub = [np.asarray(b, dtype=float) for b in bounds]
-    print(ub)
 
     result = curve_fit(feSpectrumFunc, bins_tofit, data_tofit, p0=params, bounds = bounds)#, full_output=True)
     popt = result[0]
@@ -360,7 +355,6 @@ def fitAndPlotFeSpectrumCharge(data, cuts, outfolder, run_number, fitting_only =
     data = np.asarray(data) / 1000
     hist, binning = binData(data, cuts)
     popt, pcov = fitFeSpectrumToCharge(hist, binning, cuts)
-    print("POPT ", popt)
 
     # now get some nice x / y points from the fit parameters
     # given these values, plot

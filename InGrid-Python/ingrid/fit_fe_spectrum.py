@@ -52,10 +52,6 @@ def feSpectrumFuncCharge(x, *p_ar):
     t4 = p_ar[3] * p6 * np.exp(t4exp)
     return (t1 + t2 + t3 + t4)
 
-def feSpectrumFuncPixels(x, *p_ar):
-    ## to be implemented
-    pass
-
 def feSpectrumFunc(x, *p_ar):#p_ar):
     # NOTE: should we init with 0? or 1?
 
@@ -192,83 +188,6 @@ def fitFeSpectrumToCharge(hist, binning, cuts):
     print("yay :)")
 
     return popt, pcov
-
-def fitFeSpectrumToPixels(hist, binning, cuts):
-    # perform the fit of the Fe spectrum to the charge data instead
-    # of the number of hit pixels data
-    mu_kalpha, sigma_kalpha, n_kalpha, mu_kalpha_esc, sigma_kalpha_esc, n_kalpha_esc = getLines(hist)
-    params = np.zeros(8, dtype = np.float)
-    # parameter names are the following:
-    # 0 : "N^{esc}_{K_{#alpha}}"
-    # 1 : "#mu^{esc}_{K_{#alpha}}"
-    # 2 : "#sigma^{esc}_{K_{#alpha}}"
-    # 3 : "N_{K_{#beta}}/N_{K_{#alpha}}");
-    # 4 : "a_{K_{#alpha}}"
-    # 5 : "b_{K_{#alpha}}"
-    # 6 : "N_{K_{#alpha}}"
-    # 7 : "#mu_{K_{#alpha}}"
-    # 8 : "#sigma_{K_{#alpha}}"
-    # assign lines as parameters
-    params[0] = n_kalpha_esc
-    params[1] = mu_kalpha_esc
-    params[2] = sigma_kalpha_esc
-    params[5] = n_kalpha
-    params[6] = mu_kalpha
-    params[7] = sigma_kalpha
-
-    # get lists defining the bounds of the parameters
-    l_bounds, u_bounds = getBoundsList(8)
-    # set parameter bounds
-    l_bounds[0] = 0
-    u_bounds[0] = 10000
-    l_bounds[5] = 0
-    u_bounds[5] = 10000
-
-    l_bounds[1] = mu_kalpha_esc*0.8
-    u_bounds[1] = mu_kalpha_esc*1.2
-    l_bounds[6] = mu_kalpha*0.8
-    u_bounds[6] = mu_kalpha*1.2
-
-    l_bounds[2] = sigma_kalpha_esc*0.5
-    u_bounds[2] = sigma_kalpha_esc*1.5
-    l_bounds[7] = sigma_kalpha*0.5
-    u_bounds[7] = sigma_kalpha*1.5
-
-    bounds = (l_bounds, u_bounds)
-    print(len(bounds))
-    print("Bounds for pixel fit: ", bounds)
-    print("N params for pixel fit: ", len(params))
-
-    # only fit in range up to 350 hits. Can take index 350 on both, since we
-    # created the histogram for a binning with width == 1 pixel per hit
-    print(hist)
-    data_tofit = hist[80:320]
-    print(binning)
-    bins_tofit = binning[80:320]
-    #print(data_tofit)
-    #print(bins_tofit)
-    lb, ub = [np.asarray(b, dtype=float) for b in bounds]
-    print(ub)
-
-    # NOTE NOTE NOTE the fit function used is WRONG!!! still points to old XrayCalibPixel.C instead
-    # of new one from 2014_15 folder!
-    result = curve_fit(feSpectrumFuncPixels, bins_tofit, data_tofit, p0=params, bounds = bounds)#, full_output=True)
-    popt = result[0]
-    pcov = result[1]
-    # Calculate the reduced Chi^2:
-    # n_dof: # degrees of freedom
-    #n_dof  = (np.size(infodict[0]['fvec']) - np.size(popt))
-    #chi_sq = np.sum(infodict[0]['fvec']**2) / n_dof
-    print('--------------------------------------------------')
-    print('Parameters of calibration fit: ')
-    for i, p in enumerate(popt):
-        print('p_{} ='.format(i), popt[i], '+-', np.sqrt(pcov[i][i]))
-    #print('Chi^2 / dof =', chi_sq)
-
-    print("yay :)")
-
-    return popt, pcov
-
 
 def fitFeSpectrum(hist, binning, cuts):
     # given our histogram and binning data
@@ -450,3 +369,99 @@ def fitAndPlotFeSpectrum(data, cuts, outfolder, run_number, fitting_only = False
 
     # return fit results so that we can write them to the H5 file
     return (popt, pcov, popt_E, pcov_E)
+
+
+
+
+
+
+
+
+
+
+def feSpectrumFuncPixels(x, *p_ar):
+    ## to be implemented
+    pass
+
+def fitFeSpectrumToPixels(hist, binning, cuts):
+    # perform the fit of the Fe spectrum to the charge data instead
+    # of the number of hit pixels data
+    mu_kalpha, sigma_kalpha, n_kalpha, mu_kalpha_esc, sigma_kalpha_esc, n_kalpha_esc = getLines(hist)
+    params = np.zeros(8, dtype = np.float)
+    # parameter names are the following:
+    # 0 : "N^{esc}_{K_{#alpha}}"
+    # 1 : "#mu^{esc}_{K_{#alpha}}"
+    # 2 : "#sigma^{esc}_{K_{#alpha}}"
+    # 3 : "N_{K_{#beta}}/N_{K_{#alpha}}");
+    # 4 : "a_{K_{#alpha}}"
+    # 5 : "b_{K_{#alpha}}"
+    # 6 : "N_{K_{#alpha}}"
+    # 7 : "#mu_{K_{#alpha}}"
+    # 8 : "#sigma_{K_{#alpha}}"
+    # assign lines as parameters
+    params[0] = n_kalpha_esc
+    params[1] = mu_kalpha_esc
+    params[2] = sigma_kalpha_esc
+    params[5] = n_kalpha
+    params[6] = mu_kalpha
+    params[7] = sigma_kalpha
+
+    # get lists defining the bounds of the parameters
+    l_bounds, u_bounds = getBoundsList(8)
+    # set parameter bounds
+    l_bounds[0] = 0
+    u_bounds[0] = 10000
+    l_bounds[5] = 0
+    u_bounds[5] = 10000
+
+    l_bounds[1] = mu_kalpha_esc*0.8
+    u_bounds[1] = mu_kalpha_esc*1.2
+    l_bounds[6] = mu_kalpha*0.8
+    u_bounds[6] = mu_kalpha*1.2
+
+    l_bounds[2] = sigma_kalpha_esc*0.5
+    u_bounds[2] = sigma_kalpha_esc*1.5
+    l_bounds[7] = sigma_kalpha*0.5
+    u_bounds[7] = sigma_kalpha*1.5
+
+    bounds = (l_bounds, u_bounds)
+    print(len(bounds))
+    print("Bounds for pixel fit: ", bounds)
+    print("N params for pixel fit: ", len(params))
+
+    # only fit in range up to 350 hits. Can take index 350 on both, since we
+    # created the histogram for a binning with width == 1 pixel per hit
+    print(hist)
+    data_tofit = hist[80:320]
+    print(binning)
+    bins_tofit = binning[80:320]
+    #print(data_tofit)
+    #print(bins_tofit)
+    lb, ub = [np.asarray(b, dtype=float) for b in bounds]
+    print(ub)
+
+    # NOTE NOTE NOTE the fit function used is WRONG!!! still points to old XrayCalibPixel.C instead
+    # of new one from 2014_15 folder!
+    result = curve_fit(feSpectrumFuncPixels, bins_tofit, data_tofit, p0=params, bounds = bounds)#, full_output=True)
+    popt = result[0]
+    pcov = result[1]
+    # Calculate the reduced Chi^2:
+    # n_dof: # degrees of freedom
+    #n_dof  = (np.size(infodict[0]['fvec']) - np.size(popt))
+    #chi_sq = np.sum(infodict[0]['fvec']**2) / n_dof
+    print('--------------------------------------------------')
+    print('Parameters of calibration fit: ')
+    for i, p in enumerate(popt):
+        print('p_{} ='.format(i), popt[i], '+-', np.sqrt(pcov[i][i]))
+    #print('Chi^2 / dof =', chi_sq)
+
+    print("yay :)")
+
+    return popt, pcov
+
+def fitAndPlotFeSpectrumPixels(data, cuts, outfolder, run_number, fitting_only = False):
+    # bin the data
+    hist, binning = binData(data, cuts)
+    popt, pcov = fitFeSpectrumToPixels(hist, binning, cuts)
+    print("POPT ", popt)
+    return popt

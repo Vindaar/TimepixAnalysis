@@ -782,9 +782,12 @@ proc writeInGridAttrs(h5f: var H5FileObj, run: ProcessedRun, runType: RunTypeKin
     grp.attrs["numEventsStored"] = 0
     inc i
 
-  # finally write run type
-  run_group.attrs["runType"] = $runType
-  reco_group.attrs["runType"] = $runType
+  # finally write run type to base runs / reconstruction groups
+  var
+    rawG = h5f["runs".grp_str]
+    recoG = h5f["reconstruction".grp_str]
+  rawG.attrs["runType"] = $runType
+  recoG.attrs["runType"] = $runType
 
   # into the reco group name we now write the ToT and Hits information
   # var totDset = h5f.create_dataset(reco_group & "/ToT")

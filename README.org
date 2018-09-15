@@ -621,6 +621,37 @@ With release flag:
 - multi-threaded: 10.3 s
 
 
+
+**** DONE implement D03-W0063 into ingridDatabase
+Need to integrate Christoph's chip into the ingrid database, in order
+to perform charge calibration etc.
+
+**** DONE perform Fe spectrum charge fit
+We're done performing the fit of the Fe spectrum not only for the # of
+pixels, but also for the total charge, see
+[[file:Analysis/ingrid/calibration.nim::547]]
+This will now perform the necessary calculations for the Fe Charge
+spectrum if the =runType= is =rtCalibration=. Then the fit results are
+stored on the =FeSpetrumCharge= dataset for the "center chip" considered.
+
+**** TODO dependency of Fe charge calibration on gas gain
+Need to iterate over all calibration runs and for each get 
+- =FeSpectrumCharge= datasets, extract the =keV_per_electron=
+  attribute 
+- =charge= datasets, extract the =G= attribute
+Having two =seq= perform a linear fit of this dependency.
+
+The fit results shall be stored in the =ingridDatabase.h5=. This fit
+will then in addition to the gas gain, which is calculated for each
+background run from the =charge= dataset, be used to get the correct
+calibration factor for this run.
+
+Then just reconstruct background runs, open the =ingridDatabase=
+and get the just fitted parameters, calculate correction factor and
+calculate energy based on charge.
+
+Once that is done we can do the likelihood based on this. :)
+
 *** Likelihood
 
 We have calc'd all logL values based on the X-ray reference datasets

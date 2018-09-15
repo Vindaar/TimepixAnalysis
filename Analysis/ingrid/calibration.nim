@@ -228,19 +228,24 @@ proc fitToTCalib*(tot: Tot, startFit = 0.0): FitResult =
   result.pErr = res.error
   result.redChiSq = res.reducedChiSq
 
-proc plotGasGain*[T](traces: seq[Trace[T]], chipNumber, runNumber: int) =
+proc plotGasGain*[T](traces: seq[Trace[T]], chipNumber, runNumber: int,
+                     toSave = true) =
   ## given a seq of traces (polya distributions for gas gain) plot
   ## the data and the fit, save plots as svg.
   let
-    layout = Layout(title: "Polya for gas gain",
+    layout = Layout(title: &"Polya for gas gain of chip {chipNumber} " &
+                    &"and run {runNumber}",
                     width: 1200, height: 800,
                     xaxis: Axis(title: "charge / e-"),
                     yaxis: Axis(title: "counts"),
                     autosize: false)
     p = Plot[float](layout: layout, traces: traces)
   # save plots
-  let filename = &"out/gas_gain_run_{runNumber}_chip_{chipNumber}.svg"
-  p.show(filename)
+  if toSave:
+    let filename = &"out/gas_gain_run_{runNumber}_chip_{chipNumber}.svg"
+    p.show(filename)
+  else:
+    p.show()
 
 proc getTrace[T](ch, counts: seq[T], info = "", `type`: PlotType = PlotType.Scatter): Trace[float] =
   result = Trace[float](`type`: `type`)

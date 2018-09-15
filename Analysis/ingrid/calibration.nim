@@ -599,7 +599,7 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int) =
     # extract correct clusters from totChargeData using indices
     let totChSpec = feIdx.mapIt(totChargeData[it.int])
     # create and write as a dataset
-    var totChDset = h5f.write_dataset(groupName / "FeSpetrumCharge", totChSpec)
+    var totChDset = h5f.write_dataset(groupName / "FeSpectrumCharge", totChSpec)
     let resCharge = pyFitFe.fitAndPlotFeSpectrumCharge([totChSpec], "", ".", runNumber, true)
     # given resCharge, need to write the result of that fit to H5 file, analogous to
     # `writeFitParametersH5` in Python

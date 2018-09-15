@@ -506,13 +506,15 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int) =
   ## fit parameters (including the gas gain) to the H5 file
   var chipBase = recoDataChipBase(runNumber)
   # get the group from file
-  echo "Calcing gas gain"
+  echo "Calcing gas gain for run: ", chipBase
   for grp in keys(h5f.groups):
     if chipBase in grp:
       # now can start reading, get the group containing the data for this chip
       var group = h5f[grp.grp_str]
       # get the chip number from the attributes of the group
       let chipNumber = group.attrs["chipNumber", int]
+      #if chipNumber != 3:
+      #  continue
       let chipName = group.attrs["chipName", string]
       # get dataset of hits
       var chargeDset = h5f[(grp / "charge").dset_str]

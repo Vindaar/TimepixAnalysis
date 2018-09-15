@@ -707,6 +707,8 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
         # 1. calibration runs:
         #    - need to interface with Python code, i.e. call fitting procedure,
         #      which returns the value to the Nim program as its return value
+        var runGroup = h5f[grp.grp_str]
+        let nChips = runGroup.attrs["numChips", int]
 
         let t1 = epochTime()
         for chip, pixdata in h5f.readDataFromH5(grp, runNumber):
@@ -731,7 +733,14 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
         # now check whether create iron spectrum flag is set
         # or this is a calibration run, then always create it
         if rfCreateFe in flags or runType == rtCalibration:
-          h5fout.createFeSpectrum(runNumber)
+          var centerChip = 0
+          if nChips == 1:
+            centerChip = 0
+          elif nChips == 7:
+            centerChip = 3
+          h5fout.createFeSpectrum(runNumber, centerChip)
+          h5fout.applyChargeCalibration(runNumber)
+          h5fout.fitToFeSpectrum(runNumber, centerChip)
         if rfCalibEnergy in flags:
           # TODO: assign correct chip for detector
           # could have a center chip attribute or just iterate over all

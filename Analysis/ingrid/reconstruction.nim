@@ -41,7 +41,7 @@ type
 
   RecoFlagKind = enum
     rfNone, rfCreateFe, rfCalibEnergy, rfOnlyEnergy, rfOnlyCharge,
-    rfOnlyFadc, rfReadAllRuns
+    rfOnlyFadc, rfReadAllRuns, rfOnlyGasGain
 
 when defined(linux):
   const commitHash = staticExec("git rev-parse --short HEAD")
@@ -60,6 +60,7 @@ Usage:
   reconstruction <HDF5file> [--runNumber <number>] --only_energy <factor> [options]
   reconstruction <HDF5file> [--runNumber <number>] --only_charge [options]
   reconstruction <HDF5file> [--runNumber <number>] --only_fadc [options]
+  reconstruction <HDF5file> [--runNumber <number>] --only_gas_gain [options]
   reconstruction <HDF5file> (--create_fe_spec | --calib_energy) [options]
   reconstruction -h | --help
   reconstruction --version
@@ -699,7 +700,8 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
     if rfReadAllRuns in flags or runNumber == runNumberArg:
       if rfOnlyEnergy notin flags and
          rfOnlyFadc notin flags and
-         rfOnlyCharge notin flags:
+         rfOnlyCharge notin flags and
+         rfOnlyGasGain notin flags:
         # TODO: we can in principle perform energy calibration in one go
         # together with creation of spectrum, if we work as follows:
         # 1. calibration runs:
@@ -714,7 +716,6 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
           # [0] -> eventNumber == 0 and so on
           reco_run.add reconstructSingleChip(pixdata, runNumber, chip)
           info &"Reco run now contains {reco_run.len} elements"
-
 
         info "Reconstruction of run $# took $# seconds" % [$runNumber, $(epochTime() - t1)]
         # finished run, so write run to H5 file
@@ -751,6 +752,7 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
             # NOTE: STILL WIP
             const centerChip = 3
             h5fout.fitToFeSpectrum(runNumber, centerChip)
+          if rfOnlyGasGain in flags:
             h5fout.calcGasGain(runNumber)
           if rfOnlyFadc in flags:
             h5fout.calcRiseAndFallTimes(runNumber)
@@ -847,6 +849,8 @@ proc main() =
     calib_factor = parseFloat(calib_factor_str)
   if $args["--only_fadc"] == "true":
     flags.incl rfOnlyFadc
+  if $args["--only_gas_gain"] == "true":
+    flags.incl rfOnlyGasGain
 
   var h5f = H5file(h5f_name, "rw")
   # visit the whole file to read which groups exist

@@ -1,4 +1,4 @@
-import ospaths, sequtils
+import ospaths, sequtils, tables, strformat
 import nimhdf5, seqmath, helpers/utils, arraymancer
 
 import databaseUtils
@@ -82,3 +82,18 @@ proc getTotCalibParameters*(chipName: string):
       c = grp.attrs["c", float64]
       t = grp.attrs["t", float64]
     result = (a, b, c, t)
+
+proc getCalibVsGasGainFactors*(chipName: string): (float, float) =
+  ## returns the fit parameters (no errors) for the given chip
+  ## of the calibration of Fe charge spectrum vs gas gain
+  withDatabase:
+    h5f.visitFile()
+    let grpName = chipNameToGroup(chipName)
+    if hasKey(h5f.datasets, grpName / ChargeCalibGasGain):
+      var dset = h5f[(grpName / ChargeCalibGasGain).dset_str]
+      result[0] = dset.attrs["b", float64]
+      result[1] = dset.attrs["m", float64]
+    else:
+      discard h5f.close()
+      raise newException(Exception, "Charge calibration vs gas gain dataset " &
+                         &"does not exist for chip {parseChipName(chipName)}")

@@ -46,6 +46,7 @@ const
   SCurvePattern* = r"voltage_*\.txt"
   SCurveFolder* = "SCurve/"
   StartTotRead* = 20.0
+  ChargeCalibGasGain* = "chargeCalibGasGain"
 let
   ChipNameLineReg* = re(r"chipName:")
   ChipNameReg* = re(r".*([A-Z])\s*([0-9]+)\s*W\s*([0-9]{2}).*")

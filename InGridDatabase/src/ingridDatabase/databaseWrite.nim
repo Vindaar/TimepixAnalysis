@@ -4,11 +4,12 @@ import times
 import strformat, strutils, ospaths
 import arraymancer
 
-import databaseDefinitions
+import databaseDefinitions, databaseUtils
 
 # cannot import `Chip`, due to clash with this modules `Chip`
 import ingrid/ingrid_types except Chip
 import helpers/utils
+import zero_functional
 
 proc writeTotCalibAttrs*(h5f: var H5FileObj, chip: string, fitRes: FitResult) =
   ## writes the fit results as attributes to the H5 file for `chip`
@@ -29,6 +30,31 @@ proc writeThreshold*(h5f: var H5FileObj, threshold: Threshold, chipGroupName: st
                                           (256, 256),
                                           dtype = int)
   thresholdDset[thresholdDset.all] = threshold.data.reshape([256, 256])
+
+proc writeCalibVsGasGain*(gain, calib, calibErr: seq[float64],
+                          fitResult: FitResult,
+                          chipName: string) =
+  ## writes the fit data and results of the Fe charge spectrum vs gas gain
+  ## fit to the database.
+  var db = H5File(dbPath, "rw")
+  defer: discard db.close()
+  let grpName = chipNameToGroup(chipName)
+  var mgrp = db[grpName.grp_str]
+  # create new dataset
+  var mdset = db.create_dataset(grpName / ChargeCalibGasGain,
+                                 (gain.len, 3),
+                                 dtype = float64)
+  let data = zip(gain, calib, calibErr) -->> map(@[it[0], it[1], it[2]]) --> to(seq[seq[float]])
+  # store data as (N, 3) dataset.
+  mdset[mdset.all] = data
+  # write fit parameters as attributes
+  mdset.attrs["Units of fit parameters"] = "1e-6 keV / e-"
+  mdset.attrs["Fit func"] = "y = m * x + b"
+  mdset.attrs["m"] = fitResult.pRes[1]
+  mdset.attrs["b"] = fitResult.pRes[0]
+  mdset.attrs["mErr"] = fitResult.pErr[1]
+  mdset.attrs["bErr"] = fitResult.pErr[0]
+  mdset.attrs["Chi^2 / dof"] = fitResult.redChiSq
 
 
 proc addChipToH5*(chip: Chip,

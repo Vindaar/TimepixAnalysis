@@ -36,4 +36,3 @@ proc chipNameToGroup*(chipName: string): string =
   ## done by parsing the given string to a `ChipName` and using `ChipNames`
   ## `$` proc.
   result = $(parseChipName(chipName))
-

@@ -37,7 +37,7 @@ const
   # default chip names, shutter modes and shutter times
   OldShutterMode = "verylong"
   OldShutterTime = "13"
-  OldChipName = "Christophs"
+  OldChipName = "D3 W63"
   OldTosRunDescriptorPrefix* = r".*\/(\d{1,3})-"
 
 proc readToTFile*(filename: string,

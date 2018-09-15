@@ -1337,10 +1337,10 @@ proc getIntDsetNames*(): array[3, string] =
     int_dset = ["eventNumber"]
   result = int_cluster + int_dset
 
-template rawGroupName*(): grp_str =
+template rawGroupGrpStr*(): grp_str =
   "/runs/".grp_str
 
-template recoGroupName*(): grp_str =
+template recoGroupGrpStr*(): grp_str =
   "/reconstruction/".grp_str
 
 template rawDataBase*(): string =

@@ -687,7 +687,7 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
 
   # check if run type is stored in group, read it
   var runType = rtNone
-  var rawGroup = h5f[rawGroupName]
+  var rawGroup = h5f[rawGroupGrpStr]
   if "runType" in rawGroup.attrs:
     runType = parseEnum[RunTypeKind](rawGroup.attrs["runType", string])
 

@@ -520,18 +520,20 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int) =
       let vlenFloat = special_type(float64)
       let vlenInt = special_type(uint16)
       # get all charge values as seq[seq[float]] flatten
-      let charges = chargeDset[vlenFloat, float64].flatten
       let tots = totDset[vlenInt, uint16].flatten
       # bin the data according to ToT values
       let (a, b, c, t) = getTotCalibParameters(chipName)
       # get bin edges by calculating charge values for all TOT values at TOT's bin edges
       #let bin_edges = mapIt(linspace(-0.5, 249.5, 251), calibrateCharge(it, a, b, c, t))
-      let bin_edges = mapIt(linspace(-0.5, 100.5, 101), calibrateCharge(it, a, b, c, t))
+      let bin_edges = mapIt(linspace(-0.5, 99.5, 100), calibrateCharge(it, a, b, c, t))
       # the histogram counts are the same for ToT values as well as for charge values,
       # so calculate for ToT
       let binned = tots.histogram(bins = 101, range = (0.0, 100.0))
       # given binned histogram, fit polya
-      let fitResult = fitPolya(bin_edges, binned.asType(float64), chipNumber, runNumber)
+      let fitResult = fitPolya(bin_edges,
+                               binned.asType(float64),
+                               chipNumber, runNumber,
+                               createPlots = false)
       # now write resulting fit parameters as attributes
       chargeDset.attrs["N"] = fitResult.pRes[0]
       chargeDset.attrs["G"] = fitResult.pRes[1]

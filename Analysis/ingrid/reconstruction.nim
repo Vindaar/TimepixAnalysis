@@ -760,13 +760,13 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
           const centerChip = 3
           h5fout.fitToFeSpectrum(runNumber, centerChip)
           echo "Applying energy calib now "
-          h5fout.applyEnergyCalibration(runNumber, 1.1)
+          #h5fout.applyPixelEnergyCalib(runNumber, 1.1)
       else:
         # only perform energy calibration of the reconstructed runs in file
         # check if reconstructed run exists
         if hasKey(h5fout.groups, (recoBase & $runNumber)) == true:
           if rfOnlyEnergy in flags:
-            h5fout.applyEnergyCalibration(runNumber, calib_factor)
+            #h5fout.applyPixelEnergyCalib(runNumber, calib_factor)
           if rfOnlyCharge in flags:
             h5fout.applyChargeCalibration(runNumber)
             # NOTE: STILL WIP

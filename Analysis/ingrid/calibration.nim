@@ -612,7 +612,6 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int) =
     echo "Warning: `totalCharge` dataset does not exist in file. No fit to " &
       "charge Fe spectrum will be performed!"
 
-proc applyEnergyCalibration*(h5f: var H5FileObj, runNumber: int, calib_factor: float) =
 proc performChargeCalibGasGainFit*(h5f: var H5FileObj, centerChip: int) =
   ## performs the fit of the charge calibration factors vs gas gain fit
   ## Assumes:
@@ -675,6 +674,8 @@ proc performChargeCalibGasGainFit*(h5f: var H5FileObj, centerChip: int) =
                 yaxis: Axis(title: "Calibration factor `a^{-1}` [1e-6 keV / e]"))
     p = Plot[float64](layout: lo, traces: @[chGainTrace, fitTrace])
   p.show()
+
+proc applyPixelEnergyCalib*(h5f: var H5FileObj, runNumber: int, calib_factor: float) =
   ## proc which applies an energy calibration based on the number of hit pixels in an event
   ## using a conversion factor of unit eV / hit pixel to the run given by runNumber contained
   ## in file h5f

@@ -88,6 +88,7 @@ type
   FitObject = object
     x: seq[float]
     y: seq[float]
+    yErr: seq[float]
 
 func polya(p: seq[float], fitObj: FitObject): float =
   ## Polya function to fit to TOT histogram / charge in electrons of a
@@ -105,14 +106,15 @@ func polya(p: seq[float], fitObj: FitObject): float =
   # which results in huge chi^2 despite good fit
   let x = fitObj.x
   let y = fitObj.y
+  let yErr = fitObj.yErr
   var fitY = x.mapIt(polyaImpl(p, it))
   var diff = newSeq[float](x.len)
   result = 0.0
   for i in 0 .. x.high:
-    diff[i] = y[i] - fitY[i]
+    diff[i] = (y[i] - fitY[i]) / yErr[i]
     result += pow(diff[i], 2.0)
-
   result = result / (x.len - p.len).float
+
 
 func sCurveFunc(p: seq[float], x: float): float =
   ## we fit the complement of a cumulative distribution function
@@ -281,6 +283,7 @@ proc fitPolya*(charges,
   var fitObject: FitObject
   fitObject.x = charges
   fitObject.y = counts
+  fitObject.yErr = counts.mapIt(if it >= 1.0: sqrt(it) else: Inf)
   var varStruct = newVarStruct(polya, fitObject)
   opt.setFunction(varStruct)
   # set relative precisions of x and y, as well as limit max time the algorithm

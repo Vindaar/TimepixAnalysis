@@ -10,12 +10,13 @@ import stats
 import nlopt
 import math
 import plotly
+import chroma
 
 import tos_helpers
 import helpers/utils
 import ingrid_types
-import ingridDatabase/databaseRead
-import ingridDatabase/databaseDefinitions
+import ingridDatabase / [databaseRead, databaseDefinitions]
+from ingridDatabase/databaseWrite import writeCalibVsGasGain
 
 const
   NTestPulses = 1000.0
@@ -612,6 +613,68 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int) =
       "charge Fe spectrum will be performed!"
 
 proc applyEnergyCalibration*(h5f: var H5FileObj, runNumber: int, calib_factor: float) =
+proc performChargeCalibGasGainFit*(h5f: var H5FileObj, centerChip: int) =
+  ## performs the fit of the charge calibration factors vs gas gain fit
+  ## Assumes:
+  ## - h5f points to a h5 file of `runType == rtCalibration`
+  ## - for all runs the Fe spectrum was calculated and fitted
+  ## writes the resulting fit data to the ingridDatabase
+  # iterate over all runs, extract center chip grou
+  echo "woah"
+  var
+    calib = newSeq[float64]()
+    calibErr = newSeq[float64]()
+    gainVals = newSeq[float64]()
+    chipName: string
+  for run, grp in runs(h5f):
+    var centerChipGrp = h5f[(grp / "chip_" & $centerChip).grp_str]
+    # read the chip name
+    if chipName.len == 0:
+      chipName = centerChipGrp.attrs["chipName", string]
+    # given correct group, get the `charge` and `FeSpectrumCharge` dsets
+    var
+      chargeDset = h5f[(centerChipGrp.name / "charge").dset_str]
+      feChargeSpec: H5DataSet
+    # TODO: FIX NAME, then take out first case!
+    if hasDset(h5f, run.parseInt, centerChip, "FeSpetrumCharge"):
+      feChargeSpec = h5f[(centerChipGrp.name / "FeSpetrumCharge").dset_str]
+    else:
+      feChargeSpec = h5f[(centerChipGrp.name / "FeSpectrumCharge").dset_str]
+    let
+      keVPerE = feChargeSpec.attrs["keV_per_electron", float64]
+      dkeVPerE = feChargeSpec.attrs["d_keV_per_electron", float64]
+      gain = chargeDset.attrs["G", float64]
+    calib.add keVPerE * 1e6
+    calibErr.add dkeVPerE * 1e6
+    gainVals.add gain
+
+  # now that we have all, plot them first
+  let chGainTrace = Trace[float64](mode: PlotMode.Markers, `type`: PlotType.Scatter)
+  chGainTrace.xs = gainVals
+  chGainTrace.ys = calib
+  chGainTrace.ys_err = newErrorBar(calibErr,
+                                   color = Color(r: 0.5, g: 0.5, b: 0.5, a: 1.0))
+  chGainTrace.name = "Charge calibration factors vs gas gain"
+
+  # TODO: refactor the following by creating a function which takes care of
+  # boilerplate in the whole file here
+  let
+    fitResult = chargeCalibVsGasGain(gainVals, calib, calibErr)
+    fitTrace = Trace[float64](mode: PlotMode.Lines, `type`: PlotType.Scatter,
+                              xs: fitResult.x,
+                              ys: fitResult.y,
+                              name: "ChiSq: " & $fitResult.redChiSq)
+
+  # write results to ingrid database
+  writeCalibVsGasGain(gainVals, calib, calibErr, fitResult, chipName)
+
+  let
+    lo = Layout(title: "Charge calibration factors vs gas gain",
+                width: 1200, height: 800,
+                xaxis: Axis(title: "Gas gain `G`"),
+                yaxis: Axis(title: "Calibration factor `a^{-1}` [1e-6 keV / e]"))
+    p = Plot[float64](layout: lo, traces: @[chGainTrace, fitTrace])
+  p.show()
   ## proc which applies an energy calibration based on the number of hit pixels in an event
   ## using a conversion factor of unit eV / hit pixel to the run given by runNumber contained
   ## in file h5f

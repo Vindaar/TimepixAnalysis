@@ -41,7 +41,7 @@ type
 
   RecoFlagKind = enum
     rfNone, rfCreateFe, rfCalibEnergy, rfOnlyEnergy, rfOnlyCharge,
-    rfOnlyFadc, rfReadAllRuns, rfOnlyGasGain
+    rfOnlyFadc, rfReadAllRuns, rfOnlyGasGain, rfOnlyGainFit
 
 when defined(linux):
   const commitHash = staticExec("git rev-parse --short HEAD")
@@ -61,6 +61,7 @@ Usage:
   reconstruction <HDF5file> [--runNumber <number>] --only_charge [options]
   reconstruction <HDF5file> [--runNumber <number>] --only_fadc [options]
   reconstruction <HDF5file> [--runNumber <number>] --only_gas_gain [options]
+  reconstruction <HDF5file> [--runNumber <number>] --only_gain_fit [options]
   reconstruction <HDF5file> (--create_fe_spec | --calib_energy) [options]
   reconstruction -h | --help
   reconstruction --version
@@ -690,6 +691,16 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
   var rawGroup = h5f[rawGroupGrpStr]
   if "runType" in rawGroup.attrs:
     runType = parseEnum[RunTypeKind](rawGroup.attrs["runType", string])
+    if rfOnlyGainFit in flags and runType != rtCalibration:
+      warn "Fit to charge calibration / gas gain only possible for " &
+        "calibration runs!"
+      return
+    else:
+      h5f.performChargeCalibGasGainFit(0)
+      # return early
+      # TODO: move this whole stuff somewhere else! Does not belong into
+      # reconstruction like this!
+      return
 
   for num, grp in runs(h5f, rawDataBase()):
     # now read some data. Return value will be added later
@@ -860,6 +871,8 @@ proc main() =
     flags.incl rfOnlyFadc
   if $args["--only_gas_gain"] == "true":
     flags.incl rfOnlyGasGain
+  if $args["--only_gain_fit"] == "true":
+    flags.incl rfOnlyGainFit
 
   var h5f = H5file(h5f_name, "rw")
   # visit the whole file to read which groups exist

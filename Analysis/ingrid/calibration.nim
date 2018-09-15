@@ -561,30 +561,32 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int) =
     groupName = recoDataChipBase(runNumber) & $chipNumber
     feDset = h5f[(groupName / "FeSpectrum").dsetStr]
     feData = feDset[int64]
-  echo "feData is ", feData
   # call python function with data
   let res = pyFitFe.fitAndPlotFeSpectrum([feData], "", ".", runNumber, true)
-  echo res
+  # close h5 file so that Python can access it
   let err = h5f.close()
   if err == 0:
     let factor = pyFitFe.writeFitParametersH5(h5f.name, res, groupName, feDset.name)
     echo "Factor is ", factor
-  else:
-    echo "Err is ", err
 
   # reopen the file
   h5f = H5file(h5f.name, "rw")
   # now fit charge
-
   if h5f.hasTotalChargeDset(runNumber, chipNumber):
     # also fit to the charge spectrum
     let feIdx = h5f[groupName / "FeSpectrumIndices", int64]
     let totChargeData = h5f[groupName / "totalCharge", float64]
     # extract correct clusters from totChargeData using indices
     let totChSpec = feIdx.mapIt(totChargeData[it.int])
-    echo "Tot charge spectrum is ", totChSpec.len, " long!"
-
-    let res2 = pyFitFe.fitAndPlotFeSpectrumCharge([totChSpec], "", ".", runNumber, true)
+    # create and write as a dataset
+    var totChDset = h5f.write_dataset(groupName / "FeSpetrumCharge", totChSpec)
+    let resCharge = pyFitFe.fitAndPlotFeSpectrumCharge([totChSpec], "", ".", runNumber, true)
+    # given resCharge, need to write the result of that fit to H5 file, analogous to
+    # `writeFitParametersH5` in Python
+    let a = resCharge[2].to(float64)
+    let aInv = 1 / a / 1000.0
+    totChDset.attrs["keV_per_electron"] = aInv
+    totChDset.attrs["d_keV_per_electron"] = aInv * resCharge[3].to(float64) / a
   else:
     echo "Warning: `totalCharge` dataset does not exist in file. No fit to " &
       "charge Fe spectrum will be performed!"

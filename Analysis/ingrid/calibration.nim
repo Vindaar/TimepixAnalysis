@@ -296,7 +296,7 @@ proc fitPolya*(charges,
   # these default values have proven to be working
   opt.xtol_rel = 1e-8
   opt.ftol_rel = 1e-8
-  opt.maxtime  = 5.0
+  opt.maxtime  = 0.5
   # start actual optimization
   let (params, minVal) = opt.optimize(p)
   if opt.status < NLOPT_SUCCESS:
@@ -360,7 +360,7 @@ proc cutFeSpectrum(data: array[4, seq[float64]], eventNum, hits: seq[int64]):
     # else we keep these events, hence add event number to output
     result.add (eventNum[i], hits[i], i.int64)
 
-proc createFeSpectrum*(h5f: var H5FileObj, runNumber: int) =
+proc createFeSpectrum*(h5f: var H5FileObj, runNumber, centerChip: int) =
   ## proc which reads necessary reconstructed data from the given H5 file,
   ## performs cuts (as Christoph) and writes resulting spectrum to H5 file
   ## NOTE: currently does not perform a check whether the run is actually a
@@ -371,7 +371,7 @@ proc createFeSpectrum*(h5f: var H5FileObj, runNumber: int) =
   # sense, since we don't have X-rays there
   # obviously means that calibration will only be good for center chip,
   # but that is fine, since we only care about details on that one
-  const chip = 3
+  let chip = centerChip
 
   # what we need:
   # pos_x, pos_y, eccentricity < 1.3, transverse RMS < 1.2
@@ -402,6 +402,7 @@ proc createFeSpectrum*(h5f: var H5FileObj, runNumber: int) =
   let nEventsPassed = hitsSpecTuples.len
   # with the events to use for the spectrum
   echo "Elements passing cut : ", nEventsPassed
+
   let
     eventSpectrum = hitsSpecTuples.mapIt(it[0])
     hitsSpectrum = hitsSpecTuples.mapIt(it[1])
@@ -446,7 +447,7 @@ func calibrateCharge*(totValue: float, a, b, c, t: float): float =
   let p = totValue - (b - a * t)
   # 2. term of sqrt - neither is exactly the p or q from pq formula
   let q = 4 * (a * b * t  +  a * c  -  a * t * totValue)
-  result = (50 / (2 * a))  * (p + sqrt(p * p + q))
+  result = (50 / (2 * a)) * (p + sqrt(p * p + q))
 
 proc applyChargeCalibration*(h5f: var H5FileObj, runNumber: int)
   {.raises: [HDF5LibraryError, ref ValueError, Exception]} =

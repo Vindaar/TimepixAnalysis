@@ -124,10 +124,13 @@ func sCurveFunc(p: seq[float], x: float): float =
   # parameter p[0] == scale factor
   result = normalCdfC(x, p[2], p[1]) * p[0]
 
-func thlCalibFunc(p: seq[float], x: float): float =
+func linearFunc(p: seq[float], x: float): float =
+  result = p[0] + x * p[1]
+
+template thlCalibFunc(p: seq[float], x: float): float =
   ## we fit a linear function to the charges and mean thl values
   ## of the SCurves
-  result = p[0] + x * p[1]
+  linearFunc(p, x)
 
 func totCalibFunc(p: seq[float], x: float): float =
   ## we fit a combination of a linear and a 1 / x function
@@ -186,6 +189,21 @@ proc fitThlCalib*(charge, thl, thlErr: seq[float]): FitResult =
 
   result.x = linspace(charge[0], charge[^1], 100)
   result.y = result.x.mapIt(thlCalibFunc(pRes, it))
+  result.pRes = pRes
+  result.pErr = res.error
+  result.redChiSq = res.reducedChiSq
+
+proc chargeCalibVsGasGain(gain, calib, calibErr: seq[float]): FitResult =
+  ## fits a linear function to the relation between gas gain and the
+  ## calibration factor of the charge Fe spectrum
+  # approximate start parameters
+  let p = @[30.0,
+            (max(calib) - min(calib)) / (max(gain) - min(gain))]
+  let (pRes, res) = fit(linearFunc, p, gain, calib, calibErr)
+  # echo parameters
+  echoResult(pRes, res = res)
+  result.x = linspace(min(gain), max(gain), 100)
+  result.y = result.x.mapIt(linearFunc(pRes, it))
   result.pRes = pRes
   result.pErr = res.error
   result.redChiSq = res.reducedChiSq

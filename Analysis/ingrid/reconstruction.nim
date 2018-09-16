@@ -699,7 +699,7 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
       warn "Fit to charge calibration / gas gain only possible for " &
         "calibration runs!"
       return
-    else:
+    elif rfOnlyGainFit in flags:
       h5f.performChargeCalibGasGainFit(0)
       # return early
       # TODO: move this whole stuff somewhere else! Does not belong into

@@ -18,6 +18,9 @@ import ingrid_types
 import ingridDatabase / [databaseRead, databaseDefinitions]
 from ingridDatabase/databaseWrite import writeCalibVsGasGain
 
+## need nimpy to call python functions
+import nimpy
+
 const
   NTestPulses = 1000.0
   ScalePulses = 1.01
@@ -76,9 +79,6 @@ func polyaImpl(p: seq[float], x: float): float =
   ## G     = p[1]    gas gain
   ## theta = p[2]    parameter, which describes distribution (?! I guess it makes sens
   ##                 since we take its power and it enters gamma)
-  # debugecho "Scale ", p[0]
-  # debugecho "Gain ", p[1]
-  # debugecho "theta ", p[2]
   let
     thetaDash = p[2] + 1
     coeff1 = (p[0] / p[1]) * pow((thetaDash), thetaDash) / gamma(thetaDash)
@@ -604,10 +604,10 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int) =
       # so calculate for ToT
       let binned = tots.histogram(bins = 101, range = (2.0, 102.0))
       # given binned histogram, fit polya
-      let fitResult = fitPolya(bin_edges,
-                               binned.asType(float64),
-                               chipNumber, runNumber,
-                               createPlots = false)
+      let fitResult = fitPolyaPython(bin_edges,
+                                     binned.asType(float64),
+                                     chipNumber, runNumber,
+                                     createPlots = false)
       # now write resulting fit parameters as attributes
       chargeDset.attrs["N"] = fitResult.pRes[0]
       chargeDset.attrs["G"] = fitResult.pRes[1]
@@ -622,8 +622,6 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int) =
       #chargeDset.attrs["theta_err"] = fitResutl.pErr[2]
       chargeDset.attrs["redChiSq"] = fitResult.redChiSq
 
-## need nimpy to call python functions
-import nimpy
 proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int) =
   ## (currently) calls Python functions from `ingrid` Python module to
   ## perform fit to the `FeSpectrum` dataset in the given run number

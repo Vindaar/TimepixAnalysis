@@ -700,7 +700,7 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
         "calibration runs!"
       return
     elif rfOnlyGainFit in flags:
-      h5f.performChargeCalibGasGainFit(0)
+      h5f.performChargeCalibGasGainFit()
       # return early
       # TODO: move this whole stuff somewhere else! Does not belong into
       # reconstruction like this!

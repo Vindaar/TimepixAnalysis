@@ -41,9 +41,9 @@ def readXrayData(h5file, chip):
     # read data
     group_name = likelihoodBase()
     chipNumber = chip
-    energy = readH5Data(h5file, group_name, chipNumber, ["energyFromPixel"])
+    energy = readH5Data(h5file, group_name, chipNumber, ["energyFromCharge"])
     return energy
-    
+
 def main(args):
     parser = argparse.ArgumentParser(description = 'H5 Data plotter')
     parser.add_argument('file',
@@ -64,7 +64,7 @@ def main(args):
                         default = False,
                         action = 'store_true',
                         help = "Flag to activate fancy plotting via LaTeX output")
-    
+
     args_dict = vars(parser.parse_args())
     h5file = os.path.abspath(args_dict["file"])
     print(args_dict)
@@ -76,8 +76,8 @@ def main(args):
     if fancy == True:
         fancy_plotting()
 
-    energy = readXrayData(h5file, chip) / 1000.0
-    print np.shape(energy)
+    energy = readXrayData(h5file, chip) # / 1000.0 division needed for E from P since in eV
+    print(np.shape(energy))
     #print energy
     hist, bin_edges = np.histogram(energy, bins=25, range=(0.2, 10))
     hist_err = np.sqrt(hist)

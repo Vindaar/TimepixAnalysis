@@ -220,14 +220,15 @@ proc calcLogLikelihood*(h5f: var H5FileObj, ref_file: string) =
         lengthDivRmsTrans = h5f[(grp.name / "lengthDivRmsTrans").dset_str][float64]
         fracRmsTrans = h5f[(grp.name / "fractionInTransverseRms").dset_str][float64]
         # energy to choose correct bin
-        energies = h5f[(grp.name / "energyFromPixel").dset_str][float64]
+        energies = h5f[(grp.name / "energyFromCharge").dset_str][float64]
 
       # create seq to store data logL data for this chip
       var logL_s = newSeq[float64](ecc.len)
       for i in 0 .. ecc.high:
         var logL = 0.0'f64
         # try simple logL calc
-        let refset = toRefDset(energies[i] / 1000.0)
+        let refset = toRefDset(energies[i]) # / 1000.0) division needed for E from Pix,
+                                            # since that is in eV inst of keV
         logL += logLikelihood(ecc_ref[refset][1],
                               ecc[i],
                               ecc_ref[refset][0])
@@ -274,7 +275,7 @@ proc writeLikelihoodData(h5f: var H5FileObj,
   var float_dset_names = @(getFloatDsetNames())
   # add the final two datasets, which we'd like to write
   float_dset_names.add "likelihood"
-  float_dset_names.add "energyFromPixel"
+  float_dset_names.add "energyFromCharge"
   var float_data_tab = initTable[string, seq[float]]()
   let chpGrpName = group.name / &"chip_{chipNumber}"
   # get mutable group for this chip to copy attributes
@@ -359,7 +360,7 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, tracking = 
         # get chip specific dsets
         chipNumber = attrs["chipNumber", int]
         # get the datasets needed for LogL
-        energy = h5f[(chpGrp.name / "energyFromPixel").dset_str][float64]
+        energy = h5f[(chpGrp.name / "energyFromCharge").dset_str][float64]
         logL = h5f[(chpGrp.name / "likelihood").dset_str][float64]
         centerX = h5f[(chpGrp.name / "centerX").dset_str][float64]
         centerY = h5f[(chpGrp.name / "centerY").dset_str][float64]

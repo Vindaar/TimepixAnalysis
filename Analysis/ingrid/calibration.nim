@@ -675,7 +675,7 @@ proc performChargeCalibGasGainFit*(h5f: var H5FileObj, centerChip: int) =
     p = Plot[float64](layout: lo, traces: @[chGainTrace, fitTrace])
   p.show()
 
-proc applyPixelEnergyCalib*(h5f: var H5FileObj, runNumber: int, calib_factor: float) =
+proc calcEnergyFromPixels*(h5f: var H5FileObj, runNumber: int, calib_factor: float) =
   ## proc which applies an energy calibration based on the number of hit pixels in an event
   ## using a conversion factor of unit eV / hit pixel to the run given by runNumber contained
   ## in file h5f

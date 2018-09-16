@@ -766,7 +766,8 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
         # check if reconstructed run exists
         if hasKey(h5fout.groups, (recoBase & $runNumber)) == true:
           if rfOnlyEnergy in flags:
-            #h5fout.applyPixelEnergyCalib(runNumber, calib_factor)
+            # TODO: take this out
+            h5fout.calcEnergyFromPixels(runNumber, calib_factor)
           if rfOnlyCharge in flags:
             h5fout.applyChargeCalibration(runNumber)
             # NOTE: STILL WIP

@@ -41,7 +41,8 @@ type
 
   RecoFlagKind = enum
     rfNone, rfCreateFe, rfCalibEnergy, rfOnlyEnergy, rfOnlyCharge,
-    rfOnlyFadc, rfReadAllRuns, rfOnlyGasGain, rfOnlyGainFit
+    rfOnlyFadc, rfReadAllRuns, rfOnlyGasGain, rfOnlyGainFit,
+    rfOnlyEnergyElectrons
 
 when defined(linux):
   const commitHash = staticExec("git rev-parse --short HEAD")
@@ -58,6 +59,7 @@ Usage:
   reconstruction <HDF5file> [options]
   reconstruction <HDF5file> [--out <name>] [--runNumber <number>] [--create_fe_spec] [options]
   reconstruction <HDF5file> [--runNumber <number>] --only_energy <factor> [options]
+  reconstruction <HDF5file> [--runNumber <number>] --only_energy_from_e [options]
   reconstruction <HDF5file> [--runNumber <number>] --only_charge [options]
   reconstruction <HDF5file> [--runNumber <number>] --only_fadc [options]
   reconstruction <HDF5file> [--runNumber <number>] --only_gas_gain [options]
@@ -76,6 +78,8 @@ Options:
                           Takes precedence over --create_fe_spec and --calib_energy if set.
                           If no runNumber is given, performs energy calibration on all runs
                           in the HDF5 file.
+  --only_energy_from_e    Toggle to /only/ calculate the energy for each cluster based on
+                          the Fe charge spectrum vs gas gain calibration
   --only_charge           Toggle to /only/ calculate the charge for each TOT value based on
                           the TOT calibration. The `ingridDatabase.h5` needs to be present.
   --only_fadc             If this flag is set, the reconstructed FADC data is used to calculate
@@ -706,21 +710,20 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
     # now read some data. Return value will be added later
     let runNumber = parseInt(num)
     runNumbersIterated.incl runNumber.uint16
-
     # check whether all runs are read, if not if this run is correct run number
     if rfReadAllRuns in flags or runNumber == runNumberArg:
       if rfOnlyEnergy notin flags and
          rfOnlyFadc notin flags and
          rfOnlyCharge notin flags and
-         rfOnlyGasGain notin flags:
+         rfOnlyGasGain notin flags and
+         rfOnlyEnergyElectrons notin flags:
+        var runGroupForAttrs = h5f[grp.grp_str]
+        let nChips = runGroupForAttrs.attrs["numChips", int]
         # TODO: we can in principle perform energy calibration in one go
         # together with creation of spectrum, if we work as follows:
         # 1. calibration runs:
         #    - need to interface with Python code, i.e. call fitting procedure,
         #      which returns the value to the Nim program as its return value
-        var runGroup = h5f[grp.grp_str]
-        let nChips = runGroup.attrs["numChips", int]
-
         let t1 = epochTime()
         for chip, pixdata in h5f.readDataFromH5(grp, runNumber):
           # given single runs pixel data, call reconstruct run proc
@@ -761,6 +764,8 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
           h5fout.fitToFeSpectrum(runNumber, centerChip)
           echo "Applying energy calib now "
           #h5fout.applyPixelEnergyCalib(runNumber, 1.1)
+          # THIS DOESN'T MAKE SENSE HERE ANYMORE!
+          #h5fout.calcEnergyFromCharge(runNumber, centerChip)
       else:
         # only perform energy calibration of the reconstructed runs in file
         # check if reconstructed run exists
@@ -779,6 +784,10 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
             h5fout.calcRiseAndFallTimes(runNumber)
         else:
           warn "No reconstructed run found for $#" % $grp
+
+  if rfOnlyEnergyElectrons in flags:
+    #h5fout.calcEnergyFromPixels(runNumber, calib_factor)
+    h5fout.calcEnergyFromCharge()
 
   info "Reconstruction of all runs in $# took $# seconds" % [$h5f.name, $(epochTime() - t0)]
 
@@ -874,6 +883,8 @@ proc main() =
     flags.incl rfOnlyGasGain
   if $args["--only_gain_fit"] == "true":
     flags.incl rfOnlyGainFit
+  if $args["--only_energy_from_e"] == "true":
+    flags.incl rfOnlyEnergyElectrons
 
   var h5f = H5file(h5f_name, "rw")
   # visit the whole file to read which groups exist

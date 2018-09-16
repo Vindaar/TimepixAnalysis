@@ -91,8 +91,10 @@ proc getCalibVsGasGainFactors*(chipName: string): (float, float) =
     let grpName = chipNameToGroup(chipName)
     if hasKey(h5f.datasets, grpName / ChargeCalibGasGain):
       var dset = h5f[(grpName / ChargeCalibGasGain).dset_str]
-      result[0] = dset.attrs["b", float64]
-      result[1] = dset.attrs["m", float64]
+      let
+        b = dset.attrs["b", float64]
+        m = dset.attrs["m", float64]
+      result = (b, m)
     else:
       discard h5f.close()
       raise newException(Exception, "Charge calibration vs gas gain dataset " &

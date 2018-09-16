@@ -742,7 +742,9 @@ proc initInGridInH5(h5f: var H5FileObj, runNumber, nChips, batchsize: int) =
     # use normal dataset creation proc, due to static size of occupancies
     occDset = mapIt(names, h5f.create_dataset(it & "/Occupancy", (256, 256), int))
 
-proc writeInGridAttrs(h5f: var H5FileObj, run: ProcessedRun, runType: RunTypeKind) =
+proc writeInGridAttrs(h5f: var H5FileObj, run: ProcessedRun,
+                      rfKind: RunFolderKind,
+                      runType: RunTypeKind) =
 
   # use dirty template to define variables of group names
   let (groupName,
@@ -788,6 +790,24 @@ proc writeInGridAttrs(h5f: var H5FileObj, run: ProcessedRun, runType: RunTypeKin
     recoG = h5f["reconstruction".grp_str]
   rawG.attrs["runType"] = $runType
   recoG.attrs["runType"] = $runType
+  rawG.attrs["runFolderKind"] = $rfKind
+  recoG.attrs["runFolderKind"] = $rfKind
+  # Currently hardcode the number of chips we use.
+  # TODO: Find nicer solution!
+  var centerChip = 0
+  case run.nChips
+  of 1:
+    centerChip = 0
+  of 7:
+    centerChip = 3
+  else:
+    warn &"This number of chips ({run.nChips}) currently unsupported for" &
+      " `centerChip` determination. Will be set to 0."
+  let centerName = run.events[0].chips[centerChip].chip.name
+  rawG.attrs["centerChip"] = centerChip
+  recoG.attrs["centerChip"] = centerChip
+  rawG.attrs["centerChipName"] = centerName
+  recoG.attrs["centerChipName"] = centerName
 
   # into the reco group name we now write the ToT and Hits information
   # var totDset = h5f.create_dataset(reco_group & "/ToT")
@@ -1061,7 +1081,7 @@ proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string,
     nChips = r.nChips
 
     if attrsWritten == false:
-      writeInGridAttrs(h5f, r, runType)
+      writeInGridAttrs(h5f, r, rfKind, runType)
       # create datasets in H5 file
       initInGridInH5(h5f, runNumber, nChips, batchsize)
       attrsWritten = true

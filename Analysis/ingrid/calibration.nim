@@ -546,10 +546,11 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int) =
       let (a, b, c, t) = getTotCalibParameters(chipName)
       # get bin edges by calculating charge values for all TOT values at TOT's bin edges
       #let bin_edges = mapIt(linspace(-0.5, 249.5, 251), calibrateCharge(it, a, b, c, t))
-      let bin_edges = mapIt(linspace(-0.5, 99.5, 100), calibrateCharge(it, a, b, c, t))
+      # skip range from 0 - 1.5 to leave out noisy pixels w/ very low ToT
+      let bin_edges = mapIt(linspace(1.5, 101.5, 100), calibrateCharge(it, a, b, c, t))
       # the histogram counts are the same for ToT values as well as for charge values,
       # so calculate for ToT
-      let binned = tots.histogram(bins = 101, range = (0.0, 100.0))
+      let binned = tots.histogram(bins = 101, range = (2.0, 102.0))
       # given binned histogram, fit polya
       let fitResult = fitPolya(bin_edges,
                                binned.asType(float64),

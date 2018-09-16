@@ -273,10 +273,13 @@ proc getTrace[T](ch, counts: seq[T], info = "", `type`: PlotType = PlotType.Scat
   result.ys = counts
   result.name = info
 
-proc fitPolya*(charges,
-               counts: seq[float],
-               chipNumber, runNumber: int,
-               createPlots = true): FitResult =
+template fitPolyaTmpl(charges,
+                      counts: seq[float],
+                      chipNumber, runNumber: int,
+                      createPlots = true,
+                      actions: untyped): untyped =
+  ## template which wraps the boilerplate code around the fitting implementation
+  ## chosen
   ## proc to fit a polya distribution to the charge values of the
   ## reconstructed run. Called if `reconstruction` ran with --only_charge.
   ## After charge calc from TOT calib, this proc calculates the gas gain
@@ -292,39 +295,18 @@ proc fitPolya*(charges,
     # as good guess
     scaling = max(counts) * gain / 2.0
     # factor 23.0 found by trial and error! Works
-    rms = standardDeviation(counts) / 23.0
+    rms = standardDeviation(counts) / 25.0
     # combine paramters, 3rd arg from `polya.C` ROOT script by Lucian
-    p = @[scaling, gain, gain * gain / (rms * rms) - 1.0]
+    p {.inject.} = @[scaling, gain, 1.0] #gain * gain / (rms * rms) - 1.0]
 
   # data trace
   let trData = getTrace(charges,
                         counts.asType(float64),
                         &"polya data {chipNumber}",
                         PlotType.Bar)
-  # create NLopt optimizer without parameter bounds
-  var opt = newNloptOpt("LN_COBYLA", 3, @[])
-  # hand the function to fit as well as the data object we need in it
-  var fitObject: FitObject
-  fitObject.x = charges
-  fitObject.y = counts
-  fitObject.yErr = counts.mapIt(if it >= 1.0: sqrt(it) else: Inf)
-  var varStruct = newVarStruct(polya, fitObject)
-  opt.setFunction(varStruct)
-  # set relative precisions of x and y, as well as limit max time the algorithm
-  # should take to 5 second (will take much longer, time spent in NLopt lib!)
-  # these default values have proven to be working
-  opt.xtol_rel = 1e-8
-  opt.ftol_rel = 1e-8
-  opt.maxtime  = 0.5
-  # start actual optimization
-  let (params, minVal) = opt.optimize(p)
-  if opt.status < NLOPT_SUCCESS:
-    echo opt.status
-    echo "nlopt failed!"
-  # clean up optimizer
-  nlopt_destroy(opt.optimizer)
 
-  echo "Result of gas gain opt: ", params, " at chisq ", minVal
+  ## code will be inserted here
+  actions
 
   # set ``x``, ``y`` result and use to create plot
   result.x = linspace(charges[0], charges[^1], 100)
@@ -338,6 +320,76 @@ proc fitPolya*(charges,
   result.pRes = params
   # calc reduced Chi^2 from total Chi^2
   result.redChiSq = minVal / (charges.len - p.len).float
+
+proc fitPolyaNim*(charges,
+                  counts: seq[float],
+                  chipNumber, runNumber: int,
+                  createPlots = true): FitResult =
+  fitPolyaTmpl(charges, counts, chipNumber, runNumber, createPlots):
+    # set ``x``, ``y`` result and use to create plot
+    # create NLopt optimizer without parameter bounds
+    let bounds = @[(-Inf, Inf), (-Inf, Inf), (0.5, 15.0)]
+    var opt = newNloptOpt("LN_COBYLA", 3, bounds)
+    # hand the function to fit as well as the data object we need in it
+    var fitObject: FitObject
+    let toFitInds = toSeq(0 ..< charges.len).filterIt(charges[it] > 1200.0)# and charges[it] < 4500.0)
+    let chToFit = toFitInds.mapIt(charges[it])
+    let countsToFit = toFitInds.mapIt(counts[it])
+
+    fitObject.x = chToFit#charges
+    fitObject.y = countsToFit#counts
+    fitObject.yErr = countsToFit.mapIt(if it >= 1.0: sqrt(it) else: Inf)
+    var varStruct = newVarStruct(polya, fitObject)
+    opt.setFunction(varStruct)
+    # set relative precisions of x and y, as well as limit max time the algorithm
+    # should take to 5 second (will take much longer, time spent in NLopt lib!)
+    # these default values have proven to be working
+    opt.xtol_rel = 1e-10
+    opt.ftol_rel = 1e-10
+    opt.maxtime  = 5.0
+    # start actual optimization
+    let (params, minVal) = opt.optimize(p)
+    if opt.status < NLOPT_SUCCESS:
+      echo opt.status
+      echo "nlopt failed!"
+    # clean up optimizer
+    nlopt_destroy(opt.optimizer)
+    echo &"Result of gas gain opt for chip {chipNumber} and run {runNumber}: "
+    echo "\t ", params, " at chisq ", minVal
+
+proc fitPolyaPython*(charges,
+                     counts: seq[float],
+                     chipNumber, runNumber: int,
+                     createPlots = true): FitResult =
+  fitPolyaTmpl(charges, counts, chipNumber, runNumber, createPlots):
+    # set ``x``, ``y`` result and use to create plot
+    #echo "Charges ", charges
+    #let preX = linspace(min(charges), max(charges), 100)
+    #let preY = preX.mapIt(polyaImpl(p, it))
+    #let preTr = getTrace(preX, preY, "gas gain pre fit")
+    #echo preY
+    #plotGasGain(@[trData, preTr], chipNumber, runNumber, false)
+    # create NLopt optimizer without parameter bounds
+    let bounds = @[(-Inf, Inf), (-Inf, Inf), (0.5, 15.0)]
+    let toFitInds = toSeq(0 ..< charges.len).filterIt(charges[it] > 1200.0)# and charges[it] < 4500.0)
+    let chToFit = toFitInds.mapIt(charges[it])
+    let countsToFit = toFitInds.mapIt(counts[it])
+    # try to fit using scipy.optimize.curve_fit
+    #let scipyOpt = pyImport("scipy.optimize")
+    #let pyRes = scipyOpt.curve_fit(polyaPython, chToFit, countsToFit,
+    #                               p0=p, bounds = bounds, full_output=True)
+    let bPy = (@[-Inf, -Inf, 0.5], @[Inf, Inf, 15.0])
+    let pyPolyaFit = pyImport("ingrid.fitPolya")
+    let pyRes = pyPolyaFit.fitPolyaFunc(chToFit, countsToFit, p, bPy)
+    # echo pyRes
+    var params = newSeq[float](p.len)
+    var count = 0
+    for resP in pyRes[0]:
+      params[count] = resP.to(float)
+      inc count
+    let minVal = 0.0
+    echo &"Result of gas gain opt for chip {chipNumber} and run {runNumber}: "
+    echo "\t ", params, " at chisq `not available`"#, minVal
 
 proc cutFeSpectrum(data: array[4, seq[float64]], eventNum, hits: seq[int64]):
                     seq[(int64, int64, int64)] =

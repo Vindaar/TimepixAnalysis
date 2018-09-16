@@ -703,3 +703,72 @@ proc calcEnergyFromPixels*(h5f: var H5FileObj, runNumber: int, calib_factor: flo
       energy_dset[energy_dset.all] = energy
       # attach used conversion factor to dataset
       energy_dset.attrs["conversionFactorUsed"] = calib_factor
+
+proc calcEnergyFromCharge*(h5f: var H5FileObj) =
+                             #runType: RunTypeKind) =
+  ## proc which applies an energy calibration based on the number of electrons in a cluster
+  ## using a conversion factor of unit 1e6 keV / electron to the run given by runNumber contained
+  ## in file h5f
+  ## The `performChargeCalibGasGainFit` has to be run on the calibration dataset before,
+  ## i.e. we need calibration fit results in the `ingridDatabase` for the center chip of
+  ## the current detector
+  ## throws:
+  ##     HDF5LibraryError = in case a call to the H5 library fails, this might be raised
+  # get the parameters from
+  # TODO: FIX THIS STUPID HACK!!!
+  const chip2014 = "D03W63"
+  const chip2017 = "H10W69"
+  var chipName = ""
+  # get the calibration factors for the current center chip
+  # TODO: since we always use the same calibration factors for all runs in
+  # a single file, make sure we only call this proc once and iterate over
+  # all runs in here!
+  var
+    b: float
+    m: float
+  # get the group from file
+
+  for num, grp in runs(h5f):
+    # now can start reading, get the group containing the data for this chip
+    var group = h5f[grp.grp_str]
+    echo "Energy from charge calibration for run ", num
+    if chipName.len == 0:
+      # HACK, only happens in first iteration...
+      # only need to set it once
+      let nChips = group.attrs["numChips", int]
+      if nChips == 1:
+        # 2014/15 data
+        chipName = chip2014
+      elif nChips == 7:
+        chipName = chip2017
+      else: quit("Invalid number of chips for now! " & $nChips)
+      # get parameters during first iter...
+      (b, m) = getCalibVsGasGainFactors(chipName)
+
+    # now iterate over chips in this run
+    for chpGrp in items(h5f, start_path = group.name):
+      # get the chip number from the attributes of the group
+      var mchpGrp = chpGrp
+      let chipNumber = mchpGrp.attrs["chipNumber", int]
+      # get dataset of total charge
+      var chargeDset = h5f[(mchpGrp.name / "charge").dset_str]
+      var gain: float
+      if "G" in chargeDset.attrs:
+        gain = chargeDset.attrs["G", float64]
+      else:
+        # TODO: good idea? or just call calc gas gain?
+        discard h5f.close()
+        raise newException(Exception, "Gas gain not yet calculated for " &
+          "run " & $mchpGrp.name)
+      let totCharge = h5f[(mchpGrp.name / "totalCharge"), float64]
+      # remove correction factor of 1e6
+      let calibFactor = linearFunc(@[b, m], gain) * 1e-6
+      # now calculate energy for all hits
+      let energy = mapIt(totCharge, it * calibFactor)
+      # create dataset for energy
+      var energy_dset = h5f.create_dataset(mchpGrp.name / "energyFromCharge", energy.len, dtype = float)
+      energy_dset[energy_dset.all] = energy
+      # attach used conversion factor to dataset
+      energy_dset.attrs["Calibration function"] = "y = m * x + b"
+      energy_dset.attrs["calib_b"] = b
+      energy_dset.attrs["calib_m"] = m

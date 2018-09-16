@@ -1186,7 +1186,8 @@ proc main() =
     # open H5 output file to check if run already exists
     var h5f = H5file(outfile, "r")
     for kind, path in walkDir(folder):
-      if kind == pcDir:
+      case kind
+      of pcDir, pcLinkToDir:
         # only support run folders, not nested run folders
         echo "occupied memory before run $# \n\n" % [$getOccupiedMem()]
         let (is_rf, runNumber, _, contains_rf) = isTosRunFolder(path)
@@ -1215,14 +1216,15 @@ proc main() =
 
           # TODO: the following is the normal code. However, it leaks memory. That's
           # why we currently just call this script on the subfolder
-          # echo "Start processing run $#" % $path
           # var h5f = H5file(outfile, "rw")
           # processAndWriteSingleRun(h5f, path, nofadc)
-          # echo "Closing h5file with code ", h5f.close()
           # dumpNumberOfInstances()
           # GC_fullCollect()
           # dumpNumberOfInstances()
         info "occupied memory after gc $#" % [$getOccupiedMem()]
+      else:
+        # other types will be skipped
+        discard
   elif is_run_folder == true and contains_run_folder == true:
     logging.error "Currently not implemented to run over nested run folders."
     quit()

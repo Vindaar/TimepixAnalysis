@@ -776,8 +776,9 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
           if rfOnlyCharge in flags:
             h5fout.applyChargeCalibration(runNumber)
             # NOTE: STILL WIP
-            const centerChip = 3
-            h5fout.fitToFeSpectrum(runNumber, centerChip)
+            #const centerChip = 3
+            # TODO: does not belong here
+            #h5fout.fitToFeSpectrum(runNumber, centerChip)
           if rfOnlyGasGain in flags:
             h5fout.calcGasGain(runNumber)
           if rfOnlyFadc in flags:

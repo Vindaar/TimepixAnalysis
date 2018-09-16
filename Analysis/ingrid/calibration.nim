@@ -612,40 +612,64 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int) =
     echo "Warning: `totalCharge` dataset does not exist in file. No fit to " &
       "charge Fe spectrum will be performed!"
 
-proc performChargeCalibGasGainFit*(h5f: var H5FileObj, centerChip: int) =
+proc performChargeCalibGasGainFit*(h5f: var H5FileObj) =
   ## performs the fit of the charge calibration factors vs gas gain fit
   ## Assumes:
   ## - h5f points to a h5 file of `runType == rtCalibration`
   ## - for all runs the Fe spectrum was calculated and fitted
   ## writes the resulting fit data to the ingridDatabase
   # iterate over all runs, extract center chip grou
-  echo "woah"
   var
     calib = newSeq[float64]()
     calibErr = newSeq[float64]()
     gainVals = newSeq[float64]()
-    chipName: string
+    centerChipName: string
+    centerChip = 0
+    # to differentiate old and new TOS data
+    rfKind: RunFolderKind
+  var recoGroup = h5f[recoGroupGrpStr]
+  if "centerChipName" in recoGroup.attrs:
+    centerChipName = recoGroup.attrs["centerChipName", string]
+    rfKind = parseEnum[RunFolderKind](recoGroup.attrs["runFolderKind", string])
+    centerChip = recoGroup.attrs["centerChip", int]
+  else:
+    rfKind = rfOldTos
+    centerChipName = ""
   for run, grp in runs(h5f):
-    var centerChipGrp = h5f[(grp / "chip_" & $centerChip).grp_str]
-    # read the chip name
-    if chipName.len == 0:
-      chipName = centerChipGrp.attrs["chipName", string]
-    # given correct group, get the `charge` and `FeSpectrumCharge` dsets
-    var
-      chargeDset = h5f[(centerChipGrp.name / "charge").dset_str]
-      feChargeSpec: H5DataSet
-    # TODO: FIX NAME, then take out first case!
-    if hasDset(h5f, run.parseInt, centerChip, "FeSpetrumCharge"):
-      feChargeSpec = h5f[(centerChipGrp.name / "FeSpetrumCharge").dset_str]
-    else:
-      feChargeSpec = h5f[(centerChipGrp.name / "FeSpectrumCharge").dset_str]
-    let
-      keVPerE = feChargeSpec.attrs["keV_per_electron", float64]
-      dkeVPerE = feChargeSpec.attrs["d_keV_per_electron", float64]
-      gain = chargeDset.attrs["G", float64]
-    calib.add keVPerE * 1e6
-    calibErr.add dkeVPerE * 1e6
-    gainVals.add gain
+    var centerChipGrp: H5Group
+    # TODO: TAKE OUT once we have ran over old CalibrationRuns again
+    # so that we have `centerChipName` attribute there as well!
+    # now iterate over chips in this run
+    for chpGrp in items(h5f, start_path = grp):
+      centerChipGrp = chpGrp
+      case rfKind
+      of rfOldTos:
+        if centerChipName.len == 0:
+          centerChipName = centerChipGrp.attrs["chipName", string]
+      of rfNewTos:
+        if ("chip_" & $centerChip) notin centerChipGrp.name:
+          # skip this chip, since not the center chip
+          echo "Skipping group ", centerChipGrp.name
+          continue
+        else:
+          echo "\t taking group ", centerChipGrp.name
+      # read the chip name
+      # given correct group, get the `charge` and `FeSpectrumCharge` dsets
+      var
+        chargeDset = h5f[(centerChipGrp.name / "charge").dset_str]
+        feChargeSpec: H5DataSet
+      # TODO: FIX NAME, then take out first case!
+      if hasDset(h5f, run.parseInt, centerChip, "FeSpetrumCharge"):
+        feChargeSpec = h5f[(centerChipGrp.name / "FeSpetrumCharge").dset_str]
+      else:
+        feChargeSpec = h5f[(centerChipGrp.name / "FeSpectrumCharge").dset_str]
+      let
+        keVPerE = feChargeSpec.attrs["keV_per_electron", float64]
+        dkeVPerE = feChargeSpec.attrs["d_keV_per_electron", float64]
+        gain = chargeDset.attrs["G", float64]
+      calib.add keVPerE * 1e6
+      calibErr.add dkeVPerE * 1e6
+      gainVals.add gain
 
   # now that we have all, plot them first
   let chGainTrace = Trace[float64](mode: PlotMode.Markers, `type`: PlotType.Scatter)
@@ -665,7 +689,7 @@ proc performChargeCalibGasGainFit*(h5f: var H5FileObj, centerChip: int) =
                               name: "ChiSq: " & $fitResult.redChiSq)
 
   # write results to ingrid database
-  writeCalibVsGasGain(gainVals, calib, calibErr, fitResult, chipName)
+  writeCalibVsGasGain(gainVals, calib, calibErr, fitResult, centerChipName)
 
   let
     lo = Layout(title: "Charge calibration factors vs gas gain",

@@ -48,7 +48,11 @@ import zero_functional
 ## ToT values as uint16
 ## hits as uint16
 
-const FILE_BUFSIZE = 10000
+type
+  RawFlagKind = enum
+    rfIgnoreRunList, rfOverwrite, rfNoFadc
+
+const FILE_BUFSIZE = 25000
 const NChips = 7
 
 ##############################
@@ -1063,13 +1067,13 @@ proc processAndWriteFadc(run_folder: string, runNumber: int, h5f: var H5FileObj)
   info "FADC took $# data" % $(getOccupiedMem() - mem1)
 
 proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string,
-                              nofadc = false, runType: RunTypeKind = rtNone) =
+                              flags: set[RawFlagKind], runType: RunTypeKind = rtNone) =
   ## proc to process and write a single run
   ## inputs:
   ##     h5f: var H5FileObj = mutable copy of the H5 file object to which we will write
   ##         the data
-  ##     nofadc: bool = if set, we do not read FADC data
-  const batchsize = 20000
+  ##     flags: set[RawFlagKind] = flags indicating different settings, e.g. `nofadc`
+  const batchsize = 50000
   var attrsWritten = false
   var nChips: int
 
@@ -1101,7 +1105,7 @@ proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string,
   # dump sequences to file
   #dumpToTandHits(folder, runType, r.tots, r.hits)
 
-  if nofadc == false:
+  if rfNoFadc in flags:
     processAndWriteFadc(runFolder, runNumber, h5f)
 
 proc main() =
@@ -1115,20 +1119,18 @@ proc main() =
   let folder = $args["<folder>"]
   var runTypeStr = $args["--runType"]
   var runType: RunTypeKind
+  var flags: set[RawFlagKind]
   var outfile = $args["--out"]
   if runTypeStr != "nil":
     runType = parseRunType(runTypeStr)
   if outfile == "nil":
     outfile = "run_file.h5"
-  var nofadc: bool = false
-  if $args["--nofadc"] != "false":
-    echo $args["--nofadc"]
-    nofadc = true
-  var ignoreRunList: bool = false
+  if $args["--nofadc"] == "true":
+    flags.incl rfNoFadc
   if $args["--ignoreRunList"] != "false":
-    ignoreRunList = true
+    flags.incl rfIgnoreRunList
 
-  echo &"No fadc is {nofadc}"
+  echo &"Flags are is {flags}"
 
   # first check whether given folder is valid run folder
   let (is_run_folder, runNumber, rfKind, contains_run_folder) = isTosRunFolder(folder)
@@ -1139,7 +1141,7 @@ proc main() =
     # in case of old TOS runs, there never was a detector with an FADC
     # so force `nofadc`
     info "runKind is " & $rfOldTos & ", hence `nofadc` -> true"
-    nofadc = true
+    flags.incl rfNoFadc
 
   let t0 = epochTime()
   if is_run_folder == true and contains_run_folder == false:
@@ -1151,18 +1153,18 @@ proc main() =
     of rfOldTos:
       case runType
       of rtCalibration:
-        if ignoreRunList or runNumber.uint16 in oldTosCalibRuns:
-          processAndWriteSingleRun(h5f, folder, nofadc, runType)
+        if rfIgnoreRunList in flags or runNumber.uint16 in oldTosCalibRuns:
+          processAndWriteSingleRun(h5f, folder, flags, runType)
       of rtBackground:
-        if ignoreRunList or runNumber.uint16 in oldTosBackRuns:
-          processAndWriteSingleRun(h5f, folder, nofadc, runType)
+        if rfIgnoreRunList in flags or runNumber.uint16 in oldTosBackRuns:
+          processAndWriteSingleRun(h5f, folder, flags, runType)
       of rtXrayFinger:
-        if ignoreRunList or runNumber.uint16 in oldTosXrayRuns:
-          processAndWriteSingleRun(h5f, folder, nofadc, runType)
+        if rfIgnoreRunList in flags or runNumber.uint16 in oldTosXrayRuns:
+          processAndWriteSingleRun(h5f, folder, flags, runType)
       else:
         info &"Run {runNumber} with path {folder} is invalid for type {runType}"
     of rfNewTos:
-      processAndWriteSingleRun(h5f, folder, nofadc, runType)
+      processAndWriteSingleRun(h5f, folder, flags, runType)
     info "free memory ", getFreeMem()
     info "occupied memory so far $# \n\n" % [$getOccupiedMem()]
     info "Closing h5file with code ", h5f.close()

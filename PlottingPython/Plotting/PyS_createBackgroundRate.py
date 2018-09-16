@@ -49,25 +49,27 @@ def readXrayData(h5file, chip):
 
 def preparePlot(h5file, chip, logY):
     year = ""
-    time_back = 0
-    shutter_open = 0
+    h5f = h5py.File(h5file, "r")
+    lhGrp = h5f["/likelihood"]
+    time_back = lhGrp.attrs["totalDuration"]
+    shutter_open = 1.0
     if "2014" in h5file:
-        year = "2014"
+        year = "2014/15"
         # Christoph 2014 / 15
-        time_back = 4000 * 3600
-        shutter_open = 0.97
+        #time_back = 4000 * 3600
+        #shutter_open = 0.97
         color = color2014
     elif "2017" in h5file:
         # 2017
-        year = "2017"
-        time_back = 1123 * 3600
-        shutter_open = 0.88
+        year = "2017/18"
+        #time_back = 1123 * 3600
+        #shutter_open = 0.88
         color = color2017
     else:
         import sys
         sys.exit("File needs to state if 2014 or 2017 data!")
 
-    if year == "2014":
+    if year == "2014/15":
         chip = 0
 
     energy = readXrayData(h5file, chip) # / 1000.0 division needed for E from P since in eV
@@ -85,6 +87,7 @@ def preparePlot(h5file, chip, logY):
     area = (0.95 - 0.45)**2
     bin_width = 0.392
     scale = factor / (time_back * shutter_open * area * bin_width)
+    print("Total duration is {} h".format(time_back / 3600.0))
     print("Scale is ", scale)
     print("Hist is ", hist)
     hist = hist * scale
@@ -105,7 +108,7 @@ def preparePlot(h5file, chip, logY):
                  linewidth = 2,
                  label = year)
 
-    return year
+    return year, chip
 
 def main(args):
     parser = argparse.ArgumentParser(description = 'H5 Data plotter')
@@ -144,9 +147,11 @@ def main(args):
     if fancy == True:
         fancy_plotting()
 
-    year = preparePlot(h5file, chip, logY)
+    year1, chip1 = preparePlot(h5file, chip, logY)
     if h5file2 is not None:
-        year = year + " and " + preparePlot(h5file2, chip, logY)
+        year2, chip2 = preparePlot(h5file2, chip, logY)
+        year = year1 + " and " + year2
+        chip = str(chip1) + " and " + str(chip2)
 
     if fancy == True:
         plt.xlabel('Energy / $\\si{\\keV}$')

@@ -87,19 +87,32 @@ def main(args):
         factor = 1e5
     else:
         factor = 1.0
-    # Christoph 2014 / 15
-    # time_back = 4000 * 3600
-    # shutter_open = 0.97
-    # 2017
-    time_back = 1123 * 3600 
-    shutter_open = 0.88
+    time_back = 0
+    shutter_open = 0
+    year = ""
+    if "2014" in h5file:
+        year = "2014"
+        # Christoph 2014 / 15
+        time_back = 4000 * 3600
+        shutter_open = 0.97
+    elif "2017" in h5file:
+        # 2017
+        year = "2017"
+        time_back = 1123 * 3600
+        shutter_open = 0.88
+    else:
+        import sys
+        sys.exit("File needs to state if 2014 or 2017 data!")
     area = (0.95 - 0.45)**2
     bin_width = 0.392
     scale = factor / (time_back * shutter_open * area * bin_width)
+    print("Scale is ", scale)
+    print("Hist is ", hist)
     hist = hist * scale
+    print("Hist is now ", hist)
     hist_err = hist_err * scale
-    
-    bins = [(bin_edges[i+1] + bin_edges[i]) / 2.0 for i in xrange(len(bin_edges) - 1)]
+
+    bins = [(bin_edges[i+1] + bin_edges[i]) / 2.0 for i in range(len(bin_edges) - 1)]
     plt.errorbar(bins, hist, yerr = hist_err, xerr = bin_width / 2.0,
                  linestyle = '',
                  marker = '.',
@@ -118,17 +131,16 @@ def main(args):
             plt.ylabel('Rate / $\\si{\\keV \\per \\cm^2 \\per \\s}$')
     plt.xticks(np.arange(0, 11, 1))
     if region != "all":
-        plt.title("Background rate of 2017 in {} region for chip {}".format(region, chip))
+        plt.title("Background rate of {} in {} region for chip {}".format(year, region, chip))
     else:
-        plt.title("Background rate of 2017 over whole chip {}".format(chip))
+        plt.title("Background rate of {} over whole chip {}".format(year, chip))
     plt.xlim(0, 10)
     if logY == True:
         plt.semilogy()
     plt.grid()
     plt.show()
-    
+
 
 if __name__=="__main__":
     import sys
     main(sys.argv[1:])
-        

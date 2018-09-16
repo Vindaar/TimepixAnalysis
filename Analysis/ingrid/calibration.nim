@@ -747,6 +747,8 @@ proc calcEnergyFromCharge*(h5f: var H5FileObj) =
 
     # now iterate over chips in this run
     for chpGrp in items(h5f, start_path = group.name):
+      if "fadc" in chpGrp.name:
+        continue
       # get the chip number from the attributes of the group
       var mchpGrp = chpGrp
       let chipNumber = mchpGrp.attrs["chipNumber", int]

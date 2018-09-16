@@ -106,6 +106,10 @@ Options:
   --nofadc            Do not read FADC files
   --ignoreRunList     If set ignores the run list 2014/15 to indicate
                       using any rfOldTos run
+  --overwrite         If set will overwrite runs already existing in the
+                      file. By default runs found in the file will be skipped.
+                      HOWEVER: overwriting is assumed, if you only hand a
+                      run folder!
   -h --help           Show this help
   --version           Show version.
 
@@ -1108,6 +1112,11 @@ proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string,
   if rfNoFadc in flags:
     processAndWriteFadc(runFolder, runNumber, h5f)
 
+  # finally once we're done, add `rawDataFinished` attribute
+  runFinished(h5f, runNumber)
+  # TODO: write all other settings to file too? e.g. `nofadc`,
+  # `ignoreRunList` etc?
+
 proc main() =
 
   # use the usage docstring to generate an CL argument table
@@ -1129,6 +1138,8 @@ proc main() =
     flags.incl rfNoFadc
   if $args["--ignoreRunList"] != "false":
     flags.incl rfIgnoreRunList
+  if $args["--overwrite"] == "true":
+    flags.incl rfOverwrite
 
   echo &"Flags are is {flags}"
 
@@ -1172,12 +1183,23 @@ proc main() =
   elif is_run_folder == false and contains_run_folder == true:
     # in this case loop over all folder again and call processSingleRun() for each
     # run folder
+    # open H5 output file to check if run already exists
+    var h5f = H5file(outfile, "r")
     for kind, path in walkDir(folder):
       if kind == pcDir:
         # only support run folders, not nested run folders
         echo "occupied memory before run $# \n\n" % [$getOccupiedMem()]
-        let (is_rf, _, _, contains_rf) = isTosRunFolder(path)
+        let (is_rf, runNumber, _, contains_rf) = isTosRunFolder(path)
         if is_rf == true and contains_rf == false:
+          if rfOverwrite notin flags and hasRawRun(h5f, runNumber):
+            # skip this run if no overwrite or run not in file
+            info &"Run number {runNumber} already exists in file, skipping."
+            continue
+          else:
+            info &"Starting raw data manipulation for run number {runNumber}"
+            # close h5 file so that subprocess can access it
+            discard h5f.close()
+
           let program = getAppFilename()
           var command = program & " " & path
           for i in 2 .. paramCount():
@@ -1187,6 +1209,9 @@ proc main() =
           let errC = execCmd(command)
           if errC != 0:
             quit("Subprocess failed with " & $errC)
+
+          # reopen the hdf5 file
+          h5f = H5file(outfile, "r")
 
           # TODO: the following is the normal code. However, it leaks memory. That's
           # why we currently just call this script on the subfolder

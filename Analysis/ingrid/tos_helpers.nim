@@ -1184,7 +1184,6 @@ proc extractRunFolderKind*(runFolder: string): RunFolderKind =
   let (is_rf, runNumber, rfKind, contains_rf) = isTosRunFolder(runFolder)
   result = rfKind
 
-
 ################################################################################
 ############# Geometry calculation related procs ###############################
 ################################################################################
@@ -1377,13 +1376,8 @@ proc getRecoCombineName*(): string =
 proc hasDset*(h5f: var H5FileObj, runNumber, chipNumber: int, dset: string):
                 bool =
   ## returns `true` if the given run and chip has the given `dset`
-  if h5f.visited == false:
-    h5f.visit_file
   let path = recoDataChipBase(runNumber) & $chipNumber / dset
-  if hasKey(h5f.datasets, path):
-    result = true
-  else:
-    result = false
+  result = if path in h5f: true else: false
 
 proc hasTotalChargeDset*(h5f: var H5FileObj, runNumber, chipNumber: int):
                            bool {.inline.} =
@@ -1391,6 +1385,30 @@ proc hasTotalChargeDset*(h5f: var H5FileObj, runNumber, chipNumber: int):
   ## `totalCharge`
   ## dataset
   result = h5f.hasDset(runNumber, chipNumber, "totalCharge")
+
+proc hasRawRun*(h5f: var H5FileObj, runNumber: int): bool =
+  ## checks for the existence of the given run in the file
+  let path = rawDataBase & $runNumber
+  result = if path in h5f: true else: false
+  when false:
+    # this will be the implementation once we reran the whole analysis...
+    if path in h5f:
+      # check if attribute `done` on run
+      var grp = h5f[path.grp_str]
+      let isDone = grp.attrs["rawDataFinished", string]
+      if isDone == "true":
+        result = true
+      else:
+        result = false
+    else:
+      result = false
+
+proc runFinished*(h5f: var H5FileObj, runNumber: int) =
+  ## writes the `rawDataFinished` attribute to the run with
+  ## `runNumber`
+  let path = rawDataBase & $runNumber
+  var grp = h5f[path.grp_str]
+  grp.attrs["rawDataFinished"] = "true"
 
 macro createCombineTemplates(name, datatype: string): typed =
   ## creates a template, which returns a basename of the type

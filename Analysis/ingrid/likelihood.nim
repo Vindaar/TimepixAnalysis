@@ -265,12 +265,15 @@ proc writeLikelihoodData(h5f: var H5FileObj,
                          chipNumber: int,
                          cutTab: Table[string, float],
                          passedInds: HashSet[int]) =
+                         #durations: (float64, float64)) =
   ## writes all relevant cluster data of events corresponding to `passedInds` in
   ## the group given by `group` for chip `chipNumber` to the output file `h5f`
 
+  when false:
+    let (totalDuration, totalDurationPassed) = durations
+
   # TODO: add copy of attributes from energyFromPixel dataset, which contains
   # the calibration factor!
-
   # read all float datasets, which we want to write to the output file
   var float_dset_names = @(getFloatDsetNames())
   # add the final two datasets, which we'd like to write
@@ -328,6 +331,10 @@ proc writeLikelihoodData(h5f: var H5FileObj,
     chpGrpOut.attrs["SpectrumType"] = "background"
   # write total number of clusters
   chpGrpOut.attrs["Total number of cluster"] = evNumbers.len
+  when false:
+    # still missing per chip information
+    runGrp.attrs["totalDurationRun"] = totalDuration
+    runGrp.attrs["totalDurationPassed"] = totalDurationPassed
   # copy attributes over from the input file
   runGrp.copy_attributes(group.attrs)
   chpGrpOut.copy_attributes(chpGrpIn.attrs)
@@ -343,6 +350,18 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, tracking = 
   let cutTab = calcCutValueTab(region)
   # get the likelihood and energy datasets
   # get the group from file
+  when false:
+    # not yet supported, since no event duration for
+    # each chip individually
+    # Note: could only be calc'ed from correlating event numbers
+    # with event durations, too much of a hassle RIGHT NOW
+    # total duration in seconds of run time
+    var
+      totalDurations = initTable[int, float64]()
+      totalDurationsPassed = initTable[int, float64]()
+  else:
+    # alternative, total duration of whole run
+    var totalDuration: float64 = 0.0
   for num, group in runs(h5f):
     echo &"Start logL cutting of run {group}"
     # get number of chips from attributes
@@ -351,6 +370,9 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, tracking = 
     let nChips = run_attrs["numChips", int]
     # get timestamp for run
     let tstamp = h5f[(group / "timestamp").dset_str][int64]
+    let evDurations = h5f[group / "eventDuration", float64]
+    # add sum of event durations
+    totalDuration += evDurations.foldl(a + b, 0.0)
     for chpGrp in items(h5f, group):
       if "fadc" in chpGrp.name:
         continue
@@ -359,6 +381,17 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, tracking = 
       let
         # get chip specific dsets
         chipNumber = attrs["chipNumber", int]
+      when false:
+        # add duration for this chip to Duration table
+        totalDurations[chipNumber] = 0.0
+        totalDurationsPassed[chipNumber] = 0.0
+        # vars for this chips durations
+        # currently unsupported, since not part of reco files for
+        # each chip group yet
+        var
+          totalDurationRun = 0.0
+          totalDurationRunPassed = 0.0
+      let
         # get the datasets needed for LogL
         energy = h5f[(chpGrp.name / "energyFromCharge").dset_str][float64]
         logL = h5f[(chpGrp.name / "likelihood").dset_str][float64]
@@ -375,20 +408,49 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, tracking = 
       # iterate through all clusters not part of tracking and apply logL cut
       for ind in tracking_events:
         let dset = energy[ind].toRefDset
+        when false:
+          # see above, not yet implemented
+          # add current event to total duration; note before cut, since we want
+          # total time detector was alive!
+          totalDurationRun += evDurations[ind]
         # given datasest add element to dataset, iff it passes cut
         let regionCut = cutPosition(centerX[ind], centerY[ind], region)
         if logL[ind] <= cutTab[dset] and regionCut == true:
           # include this index to the set of indices
+          when false:
+            totalDurationRunPassed += evDurations[ind]
           passedInds.incl ind
 
       # create dataset to store it
       if passedInds.card > 0:
         # call function which handles writing the data
-        h5f.writeLikelihoodData(h5fout, mgrp, chipNumber, cutTab, passedInds)
+        h5f.writeLikelihoodData(h5fout,
+                                mgrp,
+                                chipNumber,
+                                cutTab,
+                                passedInds)
+        when false:
+          (totalDurationRun, totalDurationRunPassed)
       else:
         var mchpGrp = chpGrp
         mchpGrp.attrs["LogLSpectrum"] = "No events passed cut"
         echo "No clusters found passing logL cut"
+
+      when false:
+        # finally add totalDuration to total duration vars
+        totalDurations[chipNumber] += totalDurationRun
+        totalDurationsPassed[chipNumber] += totalDurationRunPassed
+
+  # once done write total duration as attributes to `likelihood` group
+  var lhGrp = h5fout[likelihoodGroupGrpStr()]
+  when false:
+    for key, val in totalDurations:
+      lhGrp.attrs["totalDurationChip_" & $key] = val
+    for key, val in totalDurationsPassed:
+      lhGrp.attrs["totalDurationPassedChip_" & $key] = val
+  else:
+    # simply take full duration of all events
+    lhGrp.attrs["totalDuration"] = totalDuration
 
 proc extractEvents(h5f: var H5FileObj, extractFrom, outfolder: string) =
   ## extracts all events passing the likelihood cut from the folder

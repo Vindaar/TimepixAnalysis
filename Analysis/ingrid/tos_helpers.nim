@@ -1342,6 +1342,9 @@ template rawGroupGrpStr*(): grp_str =
 template recoGroupGrpStr*(): grp_str =
   "/reconstruction/".grp_str
 
+template likelihoodGroupGrpStr*(): grp_str =
+  "/likelihood/".grp_str
+
 template rawDataBase*(): string =
   "/runs/run_"
 

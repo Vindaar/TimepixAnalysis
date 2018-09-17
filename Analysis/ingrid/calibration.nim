@@ -748,7 +748,8 @@ proc performChargeCalibGasGainFit*(h5f: var H5FileObj) =
                 xaxis: Axis(title: "Gas gain `G`"),
                 yaxis: Axis(title: "Calibration factor `a^{-1}` [1e-6 keV / e]"))
     p = Plot[float64](layout: lo, traces: @[chGainTrace, fitTrace])
-  p.show()
+  # TODO: change filename to include more info
+  p.show("gasgain_vs_calibration_charge.svg")
 
 proc calcEnergyFromPixels*(h5f: var H5FileObj, runNumber: int, calib_factor: float) =
   ## proc which applies an energy calibration based on the number of hit pixels in an event

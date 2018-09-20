@@ -186,9 +186,9 @@ proc calcCutValueTab(region: ChipRegion = crGold): Table[string, float] =
     # software eff of 80%
     efficiency = 0.8
     # logL binning range
-    nbins = 500
+    nbins = 200 # NO CHANGE IF SET TO 200
     # range of histogram in logL
-    logLrange = (5.0, 20.0)
+    logLrange = (0.0, 30.0)
 
   let
     # get the raw log likelihood histograms (seq of individual values). Takes into account

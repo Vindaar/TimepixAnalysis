@@ -760,3 +760,40 @@ for dset_name in keys(float_data_tab):
 
 
 
+
+** TODO Debug different background results cmp to old analysis
+Currently we observe a quite different background rate spectrum
+compared with Christoph's old analysis. While it does produce similar
+results above \SI{2}{\kilo \electronvolt}, below we "lose" a lot of
+background (would be great of course).
+Interesting things to take in mind / to try out:
+- [ ] loss of background $\le \SI{2}{\kilo \electronvolt}$ for *gold
+  region*, but increase for whole chip!
+- [ ] difference of calibration factors for carge calibrated Fe spectrum
+  of old vs new framework
+- [ ] gas gains are different, use the mean of the histogram instead of
+  the fit result as the gas gain. Just multiply =bin center * bin
+  content=. Check whether to use raw histogram or histogram based on
+  fit result?
+- [ ] check all cuts applied to reference datasets. Maybe application of
+  one is wrong? Maybe value of one is wrong? Especially for the small
+  energy bins?
+- [ ] plot the reference datasets / the resulting distributions after the
+  cuts and compare with old plots (see his PhD thesis)
+- [ ] calculate properties from single raw event and see if and which
+  properties show different values than event from old
+  framework. Might be done using the reference tree, since there we
+  should have everything in one place?
+- [ ] plot again the distributions from the actual data after
+  reconstruction and compare
+- [ ] take a look at PhD thesis, reference spectrum bin =E= has a lot of
+  plots to compare against
+- [ ] or calculation of logL spectra of reference sets check for overflow
+  bins, empty bins in the resulting spectra etc., check the values
+  used to construct these distributions (number of bins, start and end
+  value etc). If several bins were empty in the low energy ranges and
+  we'd get an event from the background dataset whose logL value
+  resides in that bin, it'd drop out! That would fit with our
+  observation!
+- [ ] what else?
+  

@@ -10,6 +10,7 @@ import helpers/utils
 import sequtils
 import seqmath
 import loopfusion
+import plotly
 import ingrid_types
 
 let doc = """
@@ -81,6 +82,51 @@ proc cutPosition(centerX, centerY: float, region: ChipRegion): bool =
     # TODO: should gold cut be allowed? i.e. is gold region part of silver region?
     result = if radius <= regCut.radius: true else : false
 
+proc getTrace[T](x, y: seq[T], `type`: PlotType, info = ""): Trace[T] =
+  result = Trace[T](`type`: `type`)
+  result.xs = x
+  case `type`
+  of PlotType.Scatter, PlotType.Bar:
+    result.ys = y
+  else: discard
+  result.name = info
+
+func getLayout(title, xlabel, ylabel: string): Layout =
+    result = Layout(title: title,
+                    width: 1200, height: 800,
+                    xaxis: Axis(title: xlabel),
+                    yaxis: Axis(title: ylabel),
+                    autosize: false)
+
+proc plot[T](x: seq[T], y: seq[T] = @[], `type` = PlotType.Scatter, x_err, y_err: seq[T] = @[],
+             title = "", xlabel = "", ylabel = "", filename = "") =
+  case `type`
+  of PlotType.Scatter, PlotType.Bar:
+    let layout = getLayout(title, xlabel, ylabel)
+    let trace = getTrace(x, y, `type`)
+    let p = Plot[T](layout: layout, traces: @[trace])
+    p.show()
+  of PlotType.Histogram:
+    raise newException(Exception, "Please use the `hist` proc to plot histograms instead!")
+  else: discard
+
+proc hist[T](x: seq[T], bins: (float, float), binSize: float, nBins = 0,
+             title = "", xlabel = "", ylabel = "", filename = "") =
+  let xFilt = x.filterIt(it != Inf and it != -Inf)
+  let layout = getLayout(title, xlabel, ylabel)
+  layout.xaxis.range = (bins[0], bins[1])
+  var trace: Trace[T]
+  if nBins != 0:
+    trace = Trace[T](`type`: PlotType.Histogram, nBins: nBins)
+  else:
+    echo "Setting bins and binsize"
+    trace = Trace[T](`type`: PlotType.Histogram, bins: bins, binSize: binSize)
+  trace.xs = xFilt
+  let p = Plot[T](layout: layout, traces: @[trace])
+  if title.len > 0:
+    p.show(title & ".svg")
+  else:
+    p.show()
 
 proc buildLogLHist(h5file, dset: string, region: ChipRegion = crGold): seq[float] =
   ## given a file `h5file` containing a CDL calibration dataset
@@ -115,6 +161,12 @@ proc buildLogLHist(h5file, dset: string, region: ChipRegion = crGold): seq[float
       # add event to likelihood if all cuts passed
       if allIt([regionCut, chargeCut, rmsCut, lengthCut, pixelCut], it):
         result.add logL[i]
+
+  # now create plots of all ref likelihood distributions
+  echo min(result), " ", max(result)
+  if "4kV" in dset or "0.6kV" in dset:
+    let binSize = (30.0 + 0.0) / 200.0
+    hist(result, bins = (0.0, 30.0), binSize = binSize, title = dset & " for region: " & $region)
 
 proc determineCutValue[T](hist: seq[T], eff: float): int =
   ## given a histogram `hist`, determine the correct bin to cut at to achieve
@@ -154,7 +206,8 @@ proc calcCutValueTab(region: ChipRegion = crGold): Table[string, float] =
     # incl the correct values for the logL cut values
     result[dset] = bins[cutVals[key]]
   # some debugging output
-  when not defined(release):
+  when not defined(release) or defined(DEBUG):
+    echo logHists
     echo "Cut values are ", cutVals
     echo mapIt(logHists, it.sum)
     echo "Corresponding to logL values of ", result
@@ -362,6 +415,9 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, tracking = 
   else:
     # alternative, total duration of whole run
     var totalDuration: float64 = 0.0
+
+  var logLSeq = newSeq[float64]()
+  var logLSeqLow = newSeq[float64]()
   for num, group in runs(h5f):
     echo &"Start logL cutting of run {group}"
     # get number of chips from attributes
@@ -403,6 +459,13 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, tracking = 
         # get all events part of tracking
         tracking_events = filterTrackingEvents(evNumbers, tracking_inds)
 
+      if chipNumber == 0:
+        for i, e in energy:
+          let energyDset = e.toRefDset
+          if "4kV" in energyDset:
+            logLSeq.add logL[i]
+          if "0.6kV" in energyDset:
+            logLSeqLow.add logL[i]
       # hash set containing all indices of clusters, which pass the cuts
       var passedInds = initSet[int]()
       # iterate through all clusters not part of tracking and apply logL cut
@@ -440,6 +503,11 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, tracking = 
         # finally add totalDuration to total duration vars
         totalDurations[chipNumber] += totalDurationRun
         totalDurationsPassed[chipNumber] += totalDurationRunPassed
+
+  let binSize = (30.0 + 0.0) / 200.0
+  let bins = (0.0, 30.0)
+  hist(logLSeq, bins = bins, binSize = binSize, title = "Background logL for all runs 4kV Al")
+  hist(logLSeqLow, bins = bins, binSize = binSize, title = "Background logL for all runs 0.6kV C")
 
   # once done write total duration as attributes to `likelihood` group
   var lhGrp = h5fout[likelihoodGroupGrpStr()]

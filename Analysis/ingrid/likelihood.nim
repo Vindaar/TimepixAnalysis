@@ -190,24 +190,28 @@ proc calcCutValueTab(region: ChipRegion = crGold): Table[string, float] =
     # range of histogram in logL
     logLrange = (0.0, 30.0)
 
-  let
-    # get the raw log likelihood histograms (seq of individual values). Takes into account
-    # cuts on properties and chip region
-    rawLogHists = mapIt(toSeq(values(xray_ref)), buildLogLHist(h5cdl_file, it, region))
-    # given raw log histograms, create the correctly binned histograms from it
-    logHists = mapIt(rawLogHists, histogram(it, nbins, logLrange))
-    # get the cut value for a software efficiency of 80%
-    cutVals = mapIt(logHists, determineCutValue(it, efficiency))
-    # get the correct binning for the histograms
-    bins = linspace(logLrange[0], logLrange[1], nbins + 1, endpoint = true)
+  when true:
+    let
+      # get the raw log likelihood histograms (seq of individual values). Takes into account
+      # cuts on properties and chip region
+      rawLogHists = mapIt(toSeq(values(xray_ref)), buildLogLHist(h5cdl_file, it, region))
+      # given raw log histograms, create the correctly binned histograms from it
+      logHists = mapIt(rawLogHists, histogram(it, nbins, logLrange))
+      # get the cut value for a software efficiency of 80%
+      cutVals = mapIt(logHists, determineCutValue(it, efficiency))
+      # get the correct binning for the histograms
+      bins = linspace(logLrange[0], logLrange[1], nbins + 1, endpoint = true)
 
-  result = initTable[string, float]()
-  for key, dset in pairs(xray_ref):
-    # incl the correct values for the logL cut values
-    result[dset] = bins[cutVals[key]]
-  # some debugging output
+    result = initTable[string, float]()
+    for key, dset in pairs(xray_ref):
+      # incl the correct values for the logL cut values
+      result[dset] = bins[cutVals[key]]
+    # some debugging output
+  else:
+    result = getChristophCutVals()
   when not defined(release) or defined(DEBUG):
-    echo logHists
+    #echo logHists
+    echo "Bins are ", bins
     echo "Cut values are ", cutVals
     echo mapIt(logHists, it.sum)
     echo "Corresponding to logL values of ", result

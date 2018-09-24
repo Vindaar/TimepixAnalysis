@@ -43,6 +43,12 @@ when not cdlExists:
   {.fatal: "CAST CDL reference file `calibration-cdl.h5` does not exist at: " &
     $h5cdl_file.}
 
+
+# cut performed regardless of logL value on the data, since transverse
+# rms > 1.5 cannot be a physical photon, due to diffusion in 3cm drift
+# distance
+const RmsCleaningCut = 1.5
+
 type
   histTuple = tuple[bins: seq[float64], hist: seq[float64]]
 
@@ -79,7 +85,7 @@ proc cutPosition(centerX, centerY: float, region: ChipRegion): bool =
       xdiff = (centerX - centerChip)
       ydiff = (centerY - centerChip)
       radius = distance(xdiff, ydiff)
-    # TODO: should gold cut be allowed? i.e. is gold region part of silver region?
+    # TODO: gold cut is NOT part of the silver region (see C. Krieger PhD p. 133)
     result = if radius <= regCut.radius: true else : false
 
 proc getTrace[T](x, y: seq[T], `type`: PlotType, info = ""): Trace[T] =
@@ -472,6 +478,7 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, tracking = 
         logL = h5f[(chpGrp.name / "likelihood").dset_str][float64]
         centerX = h5f[(chpGrp.name / "centerX").dset_str][float64]
         centerY = h5f[(chpGrp.name / "centerY").dset_str][float64]
+        rmsTrans = h5f[(chpGrp.name / "rmsTransverse").dset_str][float64]
         evNumbers = h5f[(chpGrp.name / "eventNumber").dset_str][int64].asType(int)
         # get indices (= event numbers) corresponding to no tracking
         tracking_inds = h5f.getTrackingEvents(mgrp, tracking = tracking)
@@ -495,9 +502,11 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, tracking = 
           # add current event to total duration; note before cut, since we want
           # total time detector was alive!
           totalDurationRun += evDurations[ind]
-        # given datasest add element to dataset, iff it passes cut
+        # given datasest add element to dataset, iff it passes logL, region and
+        # cleaning cut
         let regionCut = cutPosition(centerX[ind], centerY[ind], region)
-        if logL[ind] <= cutTab[dset] and regionCut == true:
+        if logL[ind] <= cutTab[dset] and regionCut == true and
+           rmsTrans[ind] <= RmsCleaningCut:
           # include this index to the set of indices
           when false:
             totalDurationRunPassed += evDurations[ind]

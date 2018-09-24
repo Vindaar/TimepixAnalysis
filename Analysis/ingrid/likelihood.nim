@@ -137,6 +137,11 @@ proc buildLogLHist(h5file, dset: string, region: ChipRegion = crGold): seq[float
   ## Default `region` is the gold region
   result = @[]
   var grp_name = cdlPrefix() & dset
+  # create global vars for xray and normal cuts table to avoid having
+  # to recreate them each time
+  let xrayCutsTab {.global.} = getXraySpectrumCutVals()
+  let cutsTab {.global.} = getEnergyBinMinMaxVals()
+
   withH5(h5file, "r"):
     # open h5 file using template
     let
@@ -144,22 +149,32 @@ proc buildLogLHist(h5file, dset: string, region: ChipRegion = crGold): seq[float
       logL = h5f[(grp_name / "LikelihoodMarlin").dset_str][float32]
       centerX = h5f[(grp_name / "PositionX").dset_str][float32]
       centerY = h5f[(grp_name / "PositionY").dset_str][float32]
+      ecc = h5f[(grp_name / "Excentricity").dset_str][float32]
       length = h5f[(grp_name / "Length").dset_str][float32]
       charge = h5f[(grp_name / "TotalCharge").dset_str][float32]
       rmsTrans = h5f[(grp_name / "RmsTransverse").dset_str][float32]
       npix = h5f[(grp_name / "NumberOfPixels").dset_str][float32]
       # get the cut values for this dataset
-      cuts = getEnergyBinMinMaxVals()[dset]
-
+      cuts = cutsTab[dset]
+      xrayCuts = xrayCutsTab[dset]
     for i in 0 .. energy.high:
       let
-        regionCut = cutPosition(centerX[i], centerY[i], region)
+        # first apply Xray cuts (see C. Krieger PhD Appendix B & C)
+        regionCut = cutPosition(centerX[i], centerY[i], crSilver)
+        xRmsCut = if rmsTrans[i] >= xrayCuts.minRms and
+                     rmsTrans[i] <= xrayCuts.maxRms:
+                    true
+                  else:
+                    false
+        xLengthCut = if length[i] <= xrayCuts.maxLength: true else: false
+        xEccCut = if ecc[i] <= xrayCuts.maxEccentricity: true else: false
+        # then apply reference cuts
         chargeCut = if charge[i]   > cuts.minCharge and charge[i]   < cuts.maxCharge: true else: false
         rmsCut    = if rmsTrans[i] > cuts.minRms    and rmsTrans[i] < cuts.maxRms:    true else: false
         lengthCut = if length[i] < cuts.maxLength: true else: false
         pixelCut  = if npix[i]   > cuts.minPix:    true else: false
       # add event to likelihood if all cuts passed
-      if allIt([regionCut, chargeCut, rmsCut, lengthCut, pixelCut], it):
+      if allIt([regionCut, xRmsCut, xLengthCut, xEccCut, chargeCut, rmsCut, lengthCut, pixelCut], it):
         result.add logL[i]
 
   # now create plots of all ref likelihood distributions

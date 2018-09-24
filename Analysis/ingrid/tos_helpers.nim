@@ -1607,57 +1607,83 @@ macro replace(c: typed, x: untyped): untyped =
   result = cImpl
   echo result.repr
 
-proc getEnergyBinMinMaxVals*(): Table[string, Cuts] =
-  ## returns a table of Cuts objects, one for each energy bin
+proc getXraySpectrumCutVals*(): Table[string, Cuts] =
+  ## returns a table of Cuts (kind ckXray) objects, one for each energy bin
+  let baseCut = Cuts(kind: ckXray,
+                     minPix: 3,
+                     cutTo: crSilver,
+                     maxLength: Inf,
+                     minRms: 0.1,
+                     maxRms: 1.1,
+                     maxEccentricity: Inf)
+  let range0 = replace(baseCut):
+    maxLength = 6.0
+  let range1 = replace(baseCut):
+    maxEccentricity = 2.0
+  let range2 = replace(baseCut):
+    maxEccentricity = 2.0
+  let range3 = replace(baseCut):
+    maxEccentricity = 2.0
+  let range4 = replace(baseCut):
+    maxEccentricity = 1.4
+    maxRms = 1.0
+    maxLength = 6.0
+  let range5 = replace(baseCut):
+    maxEccentricity = 1.3
+    maxRms = 1.0
+  let range6 = replace(baseCut):
+    maxEccentricity = 1.3
+    maxRms = 1.0
+  let range7 = replace(baseCut):
+    maxEccentricity = 1.3
+    maxRms = 1.0
   let
-    range0 = Cuts(minCharge: 0.0,
-                  maxCharge: 5e4,
-                  minRms: 0.1,
-                  maxRms: 20.0,
-                  maxLength: 6.0,
-                  minPix: 3)
-    range1 = Cuts(minCharge: 3.0e4,
-                  maxCharge: 8.0e4,
-                  minRms: 0.0,
-                  maxRms: 1.1,
-                  maxLength: 6.0,
-                  minPix: 3)
-    range2 = Cuts(minCharge: 7.0e4,
-                  maxCharge: 1.3e5,
-                  minRms: 0.0,
-                  maxRms: 1.1,
-                  maxLength: 7.0,
-                  minPix: 3)
-    range3 = Cuts(minCharge: 9.0e4,
-                  maxCharge: 2.1e5,
-                  minRms: 0.0,
-                  maxRms: 1.1,
-                  maxLength: 7.0,
-                  minPix: 3)
-    range4 = Cuts(minCharge: 2.0e5,
-                  maxCharge: 4.0e5,
-                  minRms: 0.0,
-                  maxRms: 1.1,
-                  maxLength: 7.0,
-                  minPix: 3)
-    range5 = Cuts(minCharge: 2.9e5,
-                  maxCharge: 5.5e5,
-                  minRms: 0.0,
-                  maxRms: 1.1,
-                  maxLength: 7.0,
-                  minPix: 3)
-    range6 = Cuts(minCharge: 3.5e5,
-                  maxCharge: 6.0e5,
-                  minRms: 0.0,
-                  maxRms: 1.1,
-                  maxLength: 7.0,
-                  minPix: 3)
-    range7 = Cuts(minCharge: 5.9e5,
-                  maxCharge: 1.0e6,
-                  minRms: 0.0,
-                  maxRms: 1.1,
-                  maxLength: 7.0,
-                  minPix: 3)
+    ranges = [range0, range1, range2, range3, range4, range5, range6, range7]
+    xray_ref = getXrayRefTable()
+
+  result = initTable[string, Cuts]()
+  for key, vals in pairs(xray_ref):
+    result[vals] = ranges[key]
+
+
+proc getEnergyBinMinMaxVals*(): Table[string, Cuts] =
+  ## returns a table of Cuts (kind ckReference) objects, one for each energy bin
+  let baseCut = Cuts(kind: ckReference,
+                     minRms: 0.1,
+                     maxRms: 1.1,
+                     maxLength: 7.0,
+                     minPix: 3,
+                     minCharge: -Inf,
+                     maxCharge: Inf)
+  let range0 = replace(baseCut):
+    minCharge = 0.0
+    maxCharge = 5e4
+    minRms = -Inf
+    maxRms = Inf
+    maxLength = 6.0
+  let range1 = replace(baseCut):
+    minCharge = 3.0e4
+    maxCharge = 8.0e4
+    maxLength = 6.0
+  let range2 = replace(baseCut):
+    minCharge = 7.0e4
+    maxCharge = 1.3e5
+  let range3 = replace(baseCut):
+    minCharge = 5.9e4
+    maxCharge = 2.1e5
+  let range4 = replace(baseCut):
+    minCharge = 2.0e5
+    maxCharge = 4.0e5
+  let range5 = replace(baseCut):
+    minCharge = 2.9e5
+    maxCharge = 5.5e5
+  let range6 = replace(baseCut):
+    minCharge = 3.5e5
+    maxCharge = 6.0e5
+  let range7 = replace(baseCut):
+    minCharge = 5.9e5
+    maxCharge = 1e6
+  let
     ranges = [range0, range1, range2, range3, range4, range5, range6, range7]
     xray_ref = getXrayRefTable()
 

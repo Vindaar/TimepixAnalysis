@@ -204,13 +204,30 @@ type
   ChipRegion* = enum
     crGold, crSilver, crBronze, crAll
 
+  CutsKind* = enum
+    ckReference, ckXray
+
+  # variant object to store cut values to either get
+  # the reference spectra from the Xray spectra or
+  # to build the Xray spectra from the raw calibration-cdl.h5
+  # data
+  # NOTE: in principle one would combine the variant
+  # object into one! This is only not done, to reflect the
+  # 2 stage process described in Christoph's PhD thesis
   Cuts* = object
-    minCharge*: float
-    maxCharge*: float
     minRms*: float
     maxRms*: float
     maxLength*: float
     minPix*: float
+    case kind*: CutsKind
+    of ckReference:
+      minCharge*: float
+      maxCharge*: float
+    of ckXray:
+      maxEccentricity*: float
+      # we also cut to the silver region
+      cutTo*: ChipRegion
+
   # object to store region based cuts (gold, silver, bronze region)
   CutsRegion* = object
     xMin*: float

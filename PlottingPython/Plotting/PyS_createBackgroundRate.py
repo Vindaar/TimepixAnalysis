@@ -13,6 +13,7 @@ import numpy as np
 
 color2017 = (99/255.0, 59/255.0, 171/255.0) #(220/255.0, 37/255.0, 102/255.0)#(147/255.0, 88/255.0, 254/255.0) #(99/255.0, 59/255.0, 171/255.0)
 color2014 = (253/255.0, 151/255.0, 31/255.0) #(147/255.0, 88/255.0, 254/255.0) #(220/255.0, 37/255.0, 102/255.0)
+colorMarlin = (143/255.0, 192/255.0, 41/255.0)
 
 def fancy_plotting():
     # set up some LaTeX plotting parameters
@@ -46,6 +47,45 @@ def readXrayData(h5file, chip):
     chipNumber = chip
     energy = readH5Data(h5file, group_name, chipNumber, ["energyFromCharge"])
     return energy
+
+def prepareChristophFrameworkPlot(logY):
+    ## creates the plot for the background rate of Christoph's analysis framework
+    lines = open("../../resources/background-rate-gold.2014+2015.dat", 'r').readlines()[1:]
+    energy = []
+    rate = []
+    ratePlus = []
+    rateMinus = []
+    for l in lines:
+        spl = l.split()
+        energy.append(float(spl[0]))
+        rate.append(float(spl[1]))
+        ratePlus.append(float(spl[2]))
+        rateMinus.append(float(spl[3]))
+    energy = np.asarray(energy)
+    rate = np.asarray(rate)
+    ratePlus = np.asarray(ratePlus)
+    rateMinus = np.asarray(rateMinus)
+
+    # scale hist
+    if logY == False:
+        factor = 1e5
+    else:
+        factor = 1.0
+    rate = rate * factor
+    ratePlus = ratePlus * factor
+    rateMinus = rateMinus * factor
+    dRate = (rateMinus, ratePlus)
+
+    year = "Marlin2014"
+
+    plt.errorbar(energy, rate, yerr = dRate,
+                 linestyle = '',
+                 marker = '.',
+                 markersize = 15.,
+                 color = colorMarlin,
+                 label = year
+    )
+    return year, 0
 
 def preparePlot(h5file, chip, logY):
     year = ""
@@ -152,6 +192,9 @@ def main(args):
         year2, chip2 = preparePlot(h5file2, chip, logY)
         year = year1 + " and " + year2
         chip = str(chip1) + " and " + str(chip2)
+    year3, chip3 = prepareChristophFrameworkPlot(logY)
+    year = year + " and " + year3
+    chip = chip + " and " + str(chip3)
 
     if fancy == True:
         plt.xlabel('Energy / $\\si{\\keV}$')
@@ -170,7 +213,6 @@ def main(args):
     plt.grid()
     plt.legend()
     plt.show()
-
 
 if __name__=="__main__":
     import sys

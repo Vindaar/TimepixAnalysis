@@ -14,7 +14,7 @@ else:
   const currentDate = ""
 
 const docTmpl = """
-InGrid/FADC reading and cuting.
+InGrid/FADC reading and cutting.
 
 Usage:
  FADCtest <HDF5file> [options]
@@ -57,18 +57,6 @@ proc readandcut*(h5f: var H5FileObj, runNumber: int, chip: int) =
   var fadc_evNumbersDset = h5f[fadc_eventNumber_name.dset_str]
   let fadc_evNumbers = fadc_evNumbersDset[int64]
   #echo fadc_evNumbers
-
-  var riseStart_name = riseStartBasename(runNumber)
-  var fadc_riseStartDset = h5f[riseStart_name.dset_str]
-  let fadc_riseStart = fadc_riseStartDset[uint16]
-
-  var fallStop_name = fallStopBasename(runNumber)
-  var fadc_fallStopDset = h5f[fallStop_name.dset_str]
-  let fadc_fallStop = fadc_fallStopDset[uint16]
-
-  var riseTime_name = riseTimeBasename(runNumber)
-  var fadc_riseTimeDset = h5f[riseTime_name.dset_str]
-  let fadc_riseTime = fadc_riseTimeDset[uint16]
 
   var fallTime_name = fallTimeBasename(runNumber)
   var fadc_fallTimeDset = h5f[fallTime_name.dset_str]
@@ -122,24 +110,7 @@ proc main() =
   var runN: int
   var runNumint: int
   var chipNumint: int
- #  const chip = 1
- # var chipNumber: int
   var dataBasename = recoBase()
-
-  ##first idea to read name, run and chip from the shell
-  ##now achieved with docopt
-  #if paramCount() > 0:
-   # h5file=paramStr(1)
-   # runNum=paramStr(2)
-   # chipNum=paramStr(3)
-    #echo  h5file
-   # echo  chipNum
-  #else:
-   # echo "missing file"
-    #quit()
-
- # var runNumint = runNum.parseInt
- # var chipNumint = chipNum.parseInt
 
   ##get the runNumber and the chip number
 
@@ -149,7 +120,6 @@ proc main() =
   var run: array[1, string]
   for grp in groups:
     if grp.match(runRegex, run) == true:
-      # now read some data. Return value will be added later
       echo (run[0], grp)
   var runNumber = run[0].parseInt
   #echo groups

@@ -1184,7 +1184,11 @@ proc main() =
     # in this case loop over all folder again and call processSingleRun() for each
     # run folder
     # open H5 output file to check if run already exists
-    var h5f = H5file(outfile, "r")
+    var h5f: H5FileObj
+    if fileExists(outfile):
+      h5f = H5file(outfile, "r")
+    else:
+      h5f = H5file(outfile, "rw")
     for kind, path in walkDir(folder):
       case kind
       of pcDir, pcLinkToDir:

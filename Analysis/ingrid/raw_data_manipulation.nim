@@ -1109,7 +1109,7 @@ proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string,
   # dump sequences to file
   #dumpToTandHits(folder, runType, r.tots, r.hits)
 
-  if rfNoFadc in flags:
+  if rfNoFadc notin flags:
     processAndWriteFadc(runFolder, runNumber, h5f)
 
   # finally once we're done, add `rawDataFinished` attribute

@@ -60,34 +60,6 @@ proc splitSeq[T, U](s: seq[seq[T]], dtype: typedesc[U]): (seq[U], seq[U]) =
     result[0][i] = s[i][0].U
     result[1][i] = s[i][1].U
 
-proc cutPosition(centerX, centerY: float, region: ChipRegion): bool =
-  ## returns the result of a cut on a certain chip `region`. Inputs the
-  ## `centerX` and `centerY` position of a cluster and returns true if
-  ## the cluster is within the region
-  const centerChip = 7.0
-  # make sure this is only initialized once somehow...
-  let regCut = getRegionCut(region)
-  case region
-  of crGold:
-    result = if centerX >= regCut.xMin and
-                centerX <= regCut.xMax and
-                centerY >= regCut.yMin and
-                centerY <= regCut.yMax:
-               true
-             else:
-               false
-  of crAll:
-    # simply always return good
-    result = true
-  else:
-    # silver and bronze region only different by radius
-    let
-      xdiff = (centerX - centerChip)
-      ydiff = (centerY - centerChip)
-      radius = distance(xdiff, ydiff)
-    # TODO: gold cut is NOT part of the silver region (see C. Krieger PhD p. 133)
-    result = if radius <= regCut.radius: true else : false
-
 proc getTrace[T](x, y: seq[T], `type`: PlotType, info = ""): Trace[T] =
   result = Trace[T](`type`: `type`)
   result.xs = x
@@ -166,7 +138,7 @@ proc buildLogLHist(h5file, dset: string, region: ChipRegion = crGold): seq[float
     for i in 0 .. energy.high:
       let
         # first apply Xray cuts (see C. Krieger PhD Appendix B & C)
-        regionCut = cutPosition(centerX[i], centerY[i], crSilver)
+        regionCut = inRegion(centerX[i], centerY[i], crSilver)
         xRmsCut = if rmsTrans[i] >= xrayCuts.minRms and
                      rmsTrans[i] <= xrayCuts.maxRms:
                     true
@@ -504,7 +476,7 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, tracking = 
           totalDurationRun += evDurations[ind]
         # given datasest add element to dataset, iff it passes logL, region and
         # cleaning cut
-        let regionCut = cutPosition(centerX[ind], centerY[ind], region)
+        let regionCut = inRegion(centerX[ind], centerY[ind], region)
         if logL[ind] <= cutTab[dset] and regionCut == true and
            rmsTrans[ind] <= RmsCleaningCut:
           # include this index to the set of indices

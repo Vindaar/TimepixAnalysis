@@ -1607,7 +1607,7 @@ macro replace(c: typed, x: untyped): untyped =
   result = cImpl
   echo result.repr
 
-proc getXraySpectrumCutVals*(): Table[string, Cuts] =
+func getXraySpectrumCutVals*(): Table[string, Cuts] =
   ## returns a table of Cuts (kind ckXray) objects, one for each energy bin
   let baseCut = Cuts(kind: ckXray,
                      minPix: 3,
@@ -1646,7 +1646,7 @@ proc getXraySpectrumCutVals*(): Table[string, Cuts] =
     result[vals] = ranges[key]
 
 
-proc getEnergyBinMinMaxVals*(): Table[string, Cuts] =
+func getEnergyBinMinMaxVals*(): Table[string, Cuts] =
   ## returns a table of Cuts (kind ckReference) objects, one for each energy bin
   let baseCut = Cuts(kind: ckReference,
                      minRms: 0.1,
@@ -1691,7 +1691,7 @@ proc getEnergyBinMinMaxVals*(): Table[string, Cuts] =
   for key, vals in pairs(xray_ref):
     result[vals] = ranges[key]
 
-proc getRegionCut*(region: ChipRegion): CutsRegion =
+func getRegionCut*(region: ChipRegion): CutsRegion =
   const
     xMinChip = 0.0
     xMaxChip = 14.0
@@ -1725,6 +1725,33 @@ proc getRegionCut*(region: ChipRegion): CutsRegion =
                         yMax: 0.0,
                         radius: 0.0)
 
+func inRegion*(centerX, centerY: float, region: ChipRegion): bool =
+  ## returns the result of a cut on a certain chip `region`. Inputs the
+  ## `centerX` and `centerY` position of a cluster and returns true if
+  ## the cluster is within the region
+  const centerChip = 7.0
+  # make sure this is only initialized once somehow...
+  let regCut = getRegionCut(region)
+  case region
+  of crGold:
+    result = if centerX >= regCut.xMin and
+                centerX <= regCut.xMax and
+                centerY >= regCut.yMin and
+                centerY <= regCut.yMax:
+               true
+             else:
+               false
+  of crAll:
+    # simply always return good
+    result = true
+  else:
+    # silver and bronze region only different by radius
+    let
+      xdiff = (centerX - centerChip)
+      ydiff = (centerY - centerChip)
+      radius = distance(xdiff, ydiff)
+    # TODO: gold cut is NOT part of the silver region (see C. Krieger PhD p. 133)
+    result = if radius <= regCut.radius: true else : false
 
 
 ################################################################################

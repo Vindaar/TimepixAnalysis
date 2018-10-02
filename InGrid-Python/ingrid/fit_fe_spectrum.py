@@ -2,6 +2,9 @@ from ingrid.ingrid_helper_functions import *
 from scipy.optimize import curve_fit
 import numpy as np
 import matplotlib as mpl
+import sys
+sys.path.append("/home/basti/CastData/ExternCode/TimepixAnalysis/Analysis/ingrid/")
+import procsForPython
 
 # this whole fit is probably going to be pretty slow.
 # convert to Nim functions, which we compile to lib and call
@@ -172,7 +175,11 @@ def fitFeSpectrumToCharge(hist, binning, cuts):
     print("l bounds : ", l_bounds)
     #lb, ub = [np.asarray(b, dtype=float) for b in bounds]
     print("Bounds are : ", bounds)
-    result = curve_fit(feSpectrumFuncCharge, bins_tofit, data_tofit, p0=params, bounds = bounds)#, full_output=True)
+    result = curve_fit(procsForPython.feSpectrumFuncCharge,
+                       bins_tofit,
+                       data_tofit,
+                       p0=params,
+                       bounds = bounds)#, full_output=True)
     popt = result[0]
     pcov = result[1]
     # Calculate the reduced Chi^2:
@@ -278,14 +285,19 @@ def fitAndPlotFeSpectrumCharge(data, cuts, outfolder, run_number, fitting_only =
     # now get some nice x / y points from the fit parameters
     # given these values, plot
     x_pl = np.linspace(0, max(binning), 3500)
-    y_pl = feSpectrumFuncCharge(x_pl, *popt)
+    y_pl = procsForPython.feSpectrumFuncCharge(x_pl, *popt)
     # before we plot the Fe spectrum, perform the calculations and fit of
     # the fit to the spectrum peaks
     # now we can fit the energy calibration function
     energies = [2.942, 5.899]
     chargesPeak = [popt[1], popt[4]]
     chargesErr = [np.sqrt(pcov[1][1]), np.sqrt(pcov[4][4])]
-    result = curve_fit(linear_func, energies, chargesPeak, sigma = chargesErr, full_output=True)
+    result = curve_fit(procsForPython.linearFunc,
+                       energies,
+                       chargesPeak,
+                       sigma = chargesErr,
+                       p0 = 1.0,
+                       full_output=True)
     popt_E = result[0]
     pcov_E = result[1]
     infodict = result[2:]
@@ -303,7 +315,7 @@ def fitAndPlotFeSpectrumCharge(data, cuts, outfolder, run_number, fitting_only =
     print('Chi^2 / dof =', chi_sq)
 
     E_calc = np.linspace(0, 10, 1000)
-    H_calc = linear_func(E_calc, popt_E[0])
+    H_calc = procsForPython.linearFunc(E_calc, popt_E[0])
 
     # create both plots
     # create both plots
@@ -363,7 +375,13 @@ def fitAndPlotFeSpectrum(data, cuts, outfolder, run_number, fitting_only = False
     energies = [2.925, 5.755]
     pixels_peaks = [popt[3], k_alpha]
     pixels_err = [np.sqrt(pcov[3][3]), np.sqrt(pcov[10][10])]
-    result = curve_fit(linear_func, energies, pixels_peaks, sigma = pixels_err, full_output=True)
+    #print("Result is ", procsForPython.linearFunc(5.0, 1.1))
+    result = curve_fit(procsForPython.linearFunc,
+                       energies,
+                       pixels_peaks,
+                       sigma = pixels_err,
+                       p0 = 1.0,
+                       full_output=True)
     popt_E = result[0]
     pcov_E = result[1]
     infodict = result[2:]
@@ -381,7 +399,7 @@ def fitAndPlotFeSpectrum(data, cuts, outfolder, run_number, fitting_only = False
     print('Chi^2 / dof =', chi_sq)
 
     E_calc = np.linspace(2, 7, 1000)
-    H_calc = linear_func(E_calc, popt_E[0])
+    H_calc = procsForPython.linearFunc(E_calc, popt_E[0])
 
     # create both plots
     fig, ax = plotData(hist, binning, None, "", "Fe spectrum", "\\# pixels hit", "\\# events", False)
@@ -423,9 +441,6 @@ def fitAndPlotFeSpectrum(data, cuts, outfolder, run_number, fitting_only = False
 
     # return fit results so that we can write them to the H5 file
     return (popt, pcov, popt_E, pcov_E)
-
-
-
 
 
 

@@ -40,7 +40,6 @@ proc readandcut*[T](h5f: var H5FileObj, runNumber: int, chip: int, chParams: str
   ##get the ingrid data
 
   var reco_group = rawDatabase() & $runNumber
-  #echo reco_group
   var reco_group_chip = recoDataChipBase(runNumber) & $chip
   var group = h5f[reco_group.grp_str]
   var group_chip = h5f[reco_group_chip.grp_str]
@@ -48,7 +47,7 @@ proc readandcut*[T](h5f: var H5FileObj, runNumber: int, chip: int, chParams: str
   let evNumbers = h5f[group_chip.name / "eventNumber", int64]
 #  let eccentricity = h5f[group_chip.name / "eccentricity", float64]
   let choosenParams = h5f[group_chip.name / chParams, float64]
-  echo chParams
+
   ##get the fadc data
 
   var fadc_eventNumber_name = eventNumberBasename(runNumber)
@@ -69,7 +68,7 @@ proc readandcut*[T](h5f: var H5FileObj, runNumber: int, chip: int, chParams: str
   let cutb = cutData.mapIt(it[1])
   result = cutb
 
-proc plotcuts*[T](cuts: seq[T]) =
+proc plotcuts*[T](cuts: seq[T], chParams: string) =
   ##plot the results
   let
     d = Trace[float](`type`: PlotType.Histogram,
@@ -79,12 +78,12 @@ proc plotcuts*[T](cuts: seq[T]) =
   let
     layout = Layout(title: "distribution histogram of the choosen parameter",
                     width: 1200, height: 800,
-                    xaxis: Axis(title:"choosen parameter"),
+                    xaxis: Axis(title: chParams),
                     yaxis: Axis(title:"counts"),
                     autosize: false)
     p = Plot[float](layout: layout, traces: @[d])
   p.show()
-#  p.saveImage("test.png")
+#  p.saveImage("test.pdf")
 
 
 proc main() =
@@ -109,8 +108,7 @@ proc main() =
 
   if $args["--evParams"] ==  "true":
     echo getFloatGeometryNames()
-  #var chParamsfloat = chParams
-  #echo chParams
+
   ##get the runNumber and the center chip number
 
   let groups = toSeq(keys(h5f.groups))
@@ -131,16 +129,14 @@ proc main() =
         var runNumber = run[0].parseInt
         runNumint = run[0].parseInt
         cuts.add readandcut[float](h5f, runNumint, chipNumint, chParams)
-        #echo cuts
-        #plotcuts(cuts)
+
   else:
     runNumint = runNum.parseInt
     cuts = readandcut[float](h5f, runNumint, chipNumint, chParams)
-   # plotcuts(cuts)
-   # discard
+  # discard
 
   #echo cuts
-  plotcuts(cuts)
+  plotcuts(cuts, chParams)
 
   discard h5f.close()
 

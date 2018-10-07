@@ -91,18 +91,18 @@ InGrid raw data manipulation.
 Usage:
   raw_data_manipulation <folder> [options]
   raw_data_manipulation <folder> --runType <type> [options]
-  raw_data_manipulation <folder> --out <name> [--nofadc] [--runType <type>] [--ignoreRunList] [options]
+  raw_data_manipulation <folder> --out=<name> [--nofadc] [--runType=<type>] [--ignoreRunList] [options]
   raw_data_manipulation <folder> --nofadc [options]
   raw_data_manipulation -h | --help
   raw_data_manipulation --version
 
 Options:
-  --runType <type>   Select run type (Calib | Back | Xray)
+  --runType=<type>    Select run type (Calib | Back | Xray)
                       The following are parsed case insensetive:
                       Calib = {"calib", "calibration", "c"}
                       Back = {"back", "background", "b"}
                       Xray = {"xray", "xrayfinger", "x"}
-  --out <name>        Filename of output file
+  --out=<name>        Filename of output file
   --nofadc            Do not read FADC files
   --ignoreRunList     If set ignores the run list 2014/15 to indicate
                       using any rfOldTos run

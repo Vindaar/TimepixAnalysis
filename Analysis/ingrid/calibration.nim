@@ -391,8 +391,45 @@ proc fitPolyaPython*(charges,
     echo &"Result of gas gain opt for chip {chipNumber} and run {runNumber}: "
     echo "\t ", params, " at chisq `not available`"#, minVal
 
+proc cutOnDsets[T](eventNumbers: seq[SomeInteger],
+                   region: ChipRegion,
+                   posX, posY: seq[T],
+                   nPix: seq[SomeInteger],
+                   data: varargs[tuple[d: seq[T], lower, upper: T]]):
+                     (seq[SomeInteger], seq[SomeInteger], seq[SomeInteger]) =
+  ## given tuples of sequences and values, will cut eventNumbers to
+  ## those which match all cut criteria
+  ## in addition we cut on the chip region and a minimum of 3 pixels
+  ## returns a tuple of three seq.
+  ## - the event number of the passing events
+  ## - the number of pixels in said cluster
+  ## - the index of the events, which pass the cut (not necessarily the same
+  ##   as the event number!)
+  # allow max size of seq to avoid too much reallocation
+  for res in fields(result):
+    res = newSeqOfCap[SomeInteger](eventNumbers.len)
+
+  for i, ev in eventNumbers:
+    # check number of pixels
+    if nPix[i] < 3:
+      continue
+    # now perform region cut
+    if not inRegion(posX[i], posY[i], crSilver):
+      continue
+    var skipThis = false
+    for el in data:
+      let
+        d = el.d[i]
+      if d < el.lower or d > el.upper:
+        skipThis = true
+        break
+    if not skipThis:
+      # else we add the element
+      result[0].add ev
+      result[1].add nPix[i]
+      result[2].add i.int64
 proc cutFeSpectrum(data: array[4, seq[float64]], eventNum, hits: seq[int64]):
-                    seq[(int64, int64, int64)] =
+                    (seq[int64], seq[int64], seq[int64]) =
   ## proc which receives the data for the cut, performs the cut and returns tuples of
   ## event numbers, number of hits and the indices of the passing elements
   ## inputs:
@@ -403,9 +440,9 @@ proc cutFeSpectrum(data: array[4, seq[float64]], eventNum, hits: seq[int64]):
   ##    hits: seq[int] = sequence containing the hits of the corresponding event
   ##        which are the data in the final spectrum
   ## outputs:
-  ##    seq[int] = hits of the events passing the cuts
-  # constants whihc define the cuts
-  result = @[]
+  ##    (seq[int], seq[int], seq[int]) = event numbers of passing clusters, number
+  ##      of hits of these and indices of these clusters in the input
+  # constants which define the cuts
   const
     cut_x = 7.0
     cut_y = 7.0
@@ -419,17 +456,10 @@ proc cutFeSpectrum(data: array[4, seq[float64]], eventNum, hits: seq[int64]):
     ecc = data[2]
     rms_trans = data[3]
 
-  for i in 0 .. pos_x.high:
-    let dist = distance( (pos_x[i] - cut_x), (pos_y[i] - cut_y) )
-    if dist > cut_r:
-      continue
-    if ecc[i] > cut_ecc_high:
-      continue
-    if rms_trans[i] > cut_rms_trans_high:
-      continue
-
-    # else we keep these events, hence add event number to output
-    result.add (eventNum[i], hits[i], i.int64)
+  result = cutOnDsets(eventNum, crSilver,
+                      pos_x, pos_y, hits,
+                      (ecc, -Inf, cut_ecc_high),
+                      (rms_trans, -Inf, cut_rms_trans_high))
 
 proc createFeSpectrum*(h5f: var H5FileObj, runNumber, centerChip: int) =
   ## proc which reads necessary reconstructed data from the given H5 file,
@@ -469,15 +499,12 @@ proc createFeSpectrum*(h5f: var H5FileObj, runNumber, centerChip: int) =
     hits = hits_dset[int64]
 
   # given this data, filter all events which don't conform
-  let hitsSpecTuples = cutFeSpectrum([pos_x, pos_y, ecc, rms_trans], event_num, hits)
-  let nEventsPassed = hitsSpecTuples.len
+  let (eventSpectrum,
+       hitsSpectrum,
+       specIndices) = cutFeSpectrum([pos_x, pos_y, ecc, rms_trans], event_num, hits)
+  let nEventsPassed = eventSpectrum.len
   # with the events to use for the spectrum
   echo "Elements passing cut : ", nEventsPassed
-
-  let
-    eventSpectrum = hitsSpecTuples.mapIt(it[0])
-    hitsSpectrum = hitsSpecTuples.mapIt(it[1])
-    specIndices = hitsSpecTuples.mapIt(it[2])
 
   # given hits, write spectrum to file
   let

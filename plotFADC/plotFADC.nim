@@ -43,9 +43,9 @@ proc readandcut*[T](h5f: var H5FileObj, runNumber: int, chip: int, chParams: str
   var reco_group_chip = recoDataChipBase(runNumber) & $chip
   var group = h5f[reco_group.grp_str]
   var group_chip = h5f[reco_group_chip.grp_str]
-#  let chip_number = group_chip.attrs["chipNumber", int]
+  let chip_number = group_chip.attrs["chipNumber", int]
   let evNumbers = h5f[group_chip.name / "eventNumber", int64]
-#  let eccentricity = h5f[group_chip.name / "eccentricity", float64]
+  #let eccentricity = h5f[group_chip.name / "eccentricity", float64]
   let choosenParams = h5f[group_chip.name / chParams, float64]
 
   ##get the fadc data
@@ -96,7 +96,7 @@ proc main() =
     chipNumflag = $args["--chipNumber"]
     chipNum = $args["<chipnum>"]
     evParamsflag = $args["--evParams"]
-    chParamsflag = $args["--chParams"]
+    chParamsflag = $args["--choose"]
     chParams = $args["<chparams>"]
 
   var h5f = H5file(h5file, "rw")
@@ -104,10 +104,14 @@ proc main() =
   var runNumint: int
   var chipNumint: int
   var cuts: seq[float]
+  var chParamstring: string
   var dataBasename = recoBase()
 
-  if $args["--evParams"] ==  "true":
-    echo getFloatGeometryNames()
+  if $args["--choose"] == "true":
+    chParamstring = chParams
+  else:
+    chParamstring = "eccentricity"
+    echo "When no Ingrid Parameter was choosen, the eccentricity will be used"
 
   ##get the runNumber and the center chip number
 
@@ -128,15 +132,15 @@ proc main() =
         #echo (run[0], grp)
         var runNumber = run[0].parseInt
         runNumint = run[0].parseInt
-        cuts.add readandcut[float](h5f, runNumint, chipNumint, chParams)
-
+        cuts.add readandcut[float](h5f, runNumint, chipNumint, chParamstring)
   else:
     runNumint = runNum.parseInt
-    cuts = readandcut[float](h5f, runNumint, chipNumint, chParams)
-  # discard
+    cuts = readandcut[float](h5f, runNumint, chipNumint, chParamstring)
 
-  #echo cuts
-  plotcuts(cuts, chParams)
+  if $args["--evParams"] ==  "true":
+    echo getFloatGeometryNames()
+  else:
+    plotcuts(cuts, chParamstring)
 
   discard h5f.close()
 

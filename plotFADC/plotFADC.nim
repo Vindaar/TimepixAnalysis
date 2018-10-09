@@ -1,19 +1,11 @@
-import nimhdf5, os, ingrid/tos_helpers, sequtils, strutils
+import nimhdf5, os, ingrid/tos_helpers, sequtils, strutils, math
 import sets
 import plotly
 import tables
 import re
 import docopt
 
-
-when defined(linux):
-  const commitHash = staticExec("git rev-parse --short HEAD")
-  const currentDate = staticExec("date")
-else:
-  const commitHash = ""
-  const currentDate = ""
-
-const docTmpl = """
+let doc = """
 InGrid/FADC reading and cutting.
 
 Usage:
@@ -23,17 +15,17 @@ Usage:
  plotFADC <HDF5file> --chipNumber <chipnum> [options]
  plotFADC <HDF5file> --evParams  [options]
  plotFADC <HDF5file> --choose <chparams> [options]
+ plotFADC <HDF5file> --cutFADC <fadccut> [options]
 
 Options:
  --runNumber      choose the run you would like to look at
  --chipNumber     choose the chip you would like to look at
- --evParams       shows a list of Parameters to choose from
- --chParams       choose the Parameter from the list
+ --evParams       shows a list of possible InGrid Parameters
+ --choose         choose one InGrid Parameter from the list
+ --cutFADC        choose a cut value
  -h --help        show this text
 
  """
-
-const doc = docTmpl % [commitHash, currentDate]
 
 proc readandcut*[T](h5f: var H5FileObj, runNumber: int, chip: int, chParams: string): seq[T] =
 
@@ -47,6 +39,8 @@ proc readandcut*[T](h5f: var H5FileObj, runNumber: int, chip: int, chParams: str
   let evNumbers = h5f[group_chip.name / "eventNumber", int64]
   #let eccentricity = h5f[group_chip.name / "eccentricity", float64]
   let choosenParams = h5f[group_chip.name / chParams, float64]
+  let a = choosenParams
+  let b = a.filterIt(abs(it).classify != fcInf) ## filter for fcInf, to guarantee that all Parameters can be plotted
 
   ##get the fadc data
 
@@ -57,26 +51,28 @@ proc readandcut*[T](h5f: var H5FileObj, runNumber: int, chip: int, chParams: str
 
   ##process data and make cuts
 
-  let zipData = zip(evNumbers, choosenParams)
+  let zipData = zip(evNumbers, b)
   let zipData_fadc = zip(fadc_evNumbers, fadc_fallTime)
-  let cutData_fadc = zipData_fadc.filterIt(it[1] > 500'u16)
+  let cutData_fadc = zipData_fadc.filterIt(it[1] > 400'u16)
+
   let evcut_fadc = cutData_fadc.mapIt(it[0])
   let evcut_fadc_set = toSet(evcut_fadc)
-
   let cutData = zipData.filterIt(it[0] in evcut_fadc_set)
   let cuta = cutData.mapIt(it[0])
   let cutb = cutData.mapIt(it[1])
+  #echo cutb
+
   result = cutb
 
 proc plotcuts*[T](cuts: seq[T], chParams: string) =
   ##plot the results
   let
     d = Trace[float](`type`: PlotType.Histogram,
-                    bins: (0.0, 60.0), binSize: 0.01 ) ##somehow change bin and binsize in respect to the data
-  d.xs = cuts
+                     bins: (0.0, 30.0), binSize: 0.1 ) ##somehow change bin and binsize in respect to the data
 
+  d.xs = cuts
   let
-    layout = Layout(title: "distribution histogram of the choosen parameter",
+    layout = Layout(title: "distribution histogram"  ,
                     width: 1200, height: 800,
                     xaxis: Axis(title: chParams),
                     yaxis: Axis(title:"counts"),
@@ -98,6 +94,8 @@ proc main() =
     evParamsflag = $args["--evParams"]
     chParamsflag = $args["--choose"]
     chParams = $args["<chparams>"]
+    #cutFADCflag = $args["--cutFADC"]
+    #cutFADCnum = $args["<fadccut>"]
 
   var h5f = H5file(h5file, "rw")
   h5f.visit_file
@@ -111,7 +109,9 @@ proc main() =
     chParamstring = chParams
   else:
     chParamstring = "eccentricity"
-    echo "When no Ingrid Parameter was choosen, the eccentricity will be used"
+    echo "When no InGrid Parameter is set, the eccentricity will be used"
+
+  if
 
   ##get the runNumber and the center chip number
 
@@ -120,6 +120,7 @@ proc main() =
   let center_chip = rawG.attrs["centerChip", int]
   if chipNum == "nil":
     chipNumint = center_chip
+    echo "When no chip is set, the center chip will be used"
   else:
     chipNumint = chipNum.parseInt
 
@@ -138,7 +139,7 @@ proc main() =
     cuts = readandcut[float](h5f, runNumint, chipNumint, chParamstring)
 
   if $args["--evParams"] ==  "true":
-    echo getFloatGeometryNames()
+    echo getFloatDsetNames()
   else:
     plotcuts(cuts, chParamstring)
 

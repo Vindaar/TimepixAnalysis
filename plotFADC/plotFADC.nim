@@ -15,19 +15,22 @@ Usage:
  plotFADC <HDF5file> --chipNumber <chipnum> [options]
  plotFADC <HDF5file> --evParams  [options]
  plotFADC <HDF5file> --choose <chparams> [options]
- plotFADC <HDF5file> --cutFADC <fadccut> [options]
+ plotFADC <HDF5file> --choose <chparams> --cutFADC_low <fadccutlow> --cutFADC_high <fadccuthigh> [options]
+ plotFADC <HDF5file> --cutFADC_low <fadccutlow> [options]
+ plotFADC <HDF5file> --cutFADC_high <fadccuthigh> [options]
 
 Options:
  --runNumber      choose the run you would like to look at
  --chipNumber     choose the chip you would like to look at
  --evParams       shows a list of possible InGrid Parameters
  --choose         choose one InGrid Parameter from the list
- --cutFADC        choose a cut value
+ --cutFADC_low    choose a low limit for cuts
+ --cutFADC_high   choose a high limit for cuts
  -h --help        show this text
 
  """
 
-proc readandcut*[T](h5f: var H5FileObj, runNumber: int, chip: int, chParams: string): seq[T] =
+proc readandcut*[T](h5f: var H5FileObj, runNumber: int, chip: int, chParams: string, cutlow: int, cuthigh: int): seq[T] =
 
   ##get the ingrid data
 
@@ -53,14 +56,13 @@ proc readandcut*[T](h5f: var H5FileObj, runNumber: int, chip: int, chParams: str
 
   let zipData = zip(evNumbers, b)
   let zipData_fadc = zip(fadc_evNumbers, fadc_fallTime)
-  let cutData_fadc = zipData_fadc.filterIt(it[1] > 400'u16)
+  let cutData_fadc = zipData_fadc.filterIt(it[1] > cutlow.uint16 and it[1] < cuthigh.uint16)
 
   let evcut_fadc = cutData_fadc.mapIt(it[0])
   let evcut_fadc_set = toSet(evcut_fadc)
   let cutData = zipData.filterIt(it[0] in evcut_fadc_set)
   let cuta = cutData.mapIt(it[0])
   let cutb = cutData.mapIt(it[1])
-  #echo cutb
 
   result = cutb
 
@@ -94,8 +96,10 @@ proc main() =
     evParamsflag = $args["--evParams"]
     chParamsflag = $args["--choose"]
     chParams = $args["<chparams>"]
-    #cutFADCflag = $args["--cutFADC"]
-    #cutFADCnum = $args["<fadccut>"]
+    cutFADCflag_low = $args["--cutFADC_low"]
+    cutFADCnum_low = $args["<fadccutlow>"]
+    cutFADCflag_high = $args["--cutFADC_high"]
+    cutFADCnum_high = $args["<fadccuthigh>"]
 
   var h5f = H5file(h5file, "rw")
   h5f.visit_file
@@ -103,6 +107,8 @@ proc main() =
   var chipNumint: int
   var cuts: seq[float]
   var chParamstring: string
+  var cutlow: int
+  var cuthigh: int
   var dataBasename = recoBase()
 
   if $args["--choose"] == "true":
@@ -111,7 +117,15 @@ proc main() =
     chParamstring = "eccentricity"
     echo "When no InGrid Parameter is set, the eccentricity will be used"
 
-  if
+  if $args["--cutFADC_low"] == "true":
+    cutlow = cutFADCnum_low.parseInt
+  else:
+    cutlow = 1
+
+  if $args["--cutFADC_high"] == "true":
+    cuthigh = cutFADCnum_high.parseInt
+  else:
+    cuthigh = 1000
 
   ##get the runNumber and the center chip number
 
@@ -133,10 +147,10 @@ proc main() =
         #echo (run[0], grp)
         var runNumber = run[0].parseInt
         runNumint = run[0].parseInt
-        cuts.add readandcut[float](h5f, runNumint, chipNumint, chParamstring)
+        cuts.add readandcut[float](h5f, runNumint, chipNumint, chParamstring, cutlow, cuthigh)
   else:
     runNumint = runNum.parseInt
-    cuts = readandcut[float](h5f, runNumint, chipNumint, chParamstring)
+    cuts = readandcut[float](h5f, runNumint, chipNumint, chParamstring, cutlow, cuthigh)
 
   if $args["--evParams"] ==  "true":
     echo getFloatDsetNames()

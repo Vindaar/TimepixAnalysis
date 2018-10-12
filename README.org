@@ -4,7 +4,7 @@
   [[https://gitter.im/TimepixAnalysis/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge][file:https://badges.gitter.im/TimepixAnalysis/Lobby.svg]]
 
 This repository contains code related to the data analysis of Timepix
-based gaseous detectors. 
+based gaseous detectors.
 
 It contains code to calibrate a Timepix ASIC and perform event shape
 analysis of data to differentiate between background events (mainly
@@ -22,28 +22,28 @@ based X-ray detector in use at the CERN Axion Solar Telescope:
 
 
 * Project structure
-This repository contains a big project combining several tools used
-analyze data based Timepix based detectors as well as the CAST
+This repository contains a big project combining several tools used to
+analyze data based on Timepix detectors as well as the CAST
 experiment.
 
 *NOTE:* If you are mainly interested in using the reconstruction and analysis
 utilities for TOS data, the [[file:Analysis/][Analysis]] folder is what you're looking
 for. See the [[Installation]] section for more information.
 
-- [[file:Analysis/][Analysis]]: 
+- [[file:Analysis/][Analysis]]:
   Is the =ingrid= module, which contains the major programs of this
   repository [[file:Analysis/ingrid/raw_data_manipulation.nim][raw_data_manipulation]] and [[file:Analysis/ingrid/reconstruction.nim][reconstruction]] and to a lesser
-  extent (depending on your use case) [[file:Analysis/ingrid/likelihood.nim][likelihood]]. 
+  extent (depending on your use case) [[file:Analysis/ingrid/likelihood.nim][likelihood]].
   - [[file:Analysis/ingrid/raw_data_manipulation.nim][raw_data_manipulation]]:
     Reads folders of raw TOS data and outputs to a HDF5 file.
     Supported TOS data types:
     - old ~2015 era Virtex V6 TOS
-    - current Virtex TOS
+    - current Virtex V6 TOS
     - *soon:* current SRS TOS
   - [[file:Analysis/ingrid/reconstruction.nim][reconstruction]]:
     Takes the output of the above program and performs reconstruction
     of clusters within the data, i.e. calculate geometric properties.
-  - [[file:Analysis/ingrid/likelihood.nim][likelihood]]: 
+  - [[file:Analysis/ingrid/likelihood.nim][likelihood]]:
     Performs an event shape likelihood based analysis on
     the reconstructed data comparing with reference X-ray datasets.
   The other files in the folder are imported by these programs. An
@@ -51,7 +51,7 @@ for. See the [[Installation]] section for more information.
   a wrapper of the other programs so that a nicer interface can be
   provided. A combination of a https://github.com/yglukhov/nimx based
   GUI with a =readline= based command line interface will be
-  developed. 
+  developed.
 - [[file:CDL-RootToHdf5/][CDL-RootToHdf5]]:
   A Python tool to (currently only) convert X-ray calibration data
   from the CAST detector lab from ROOT trees to HDF5 files. This could
@@ -88,7 +88,7 @@ for. See the [[Installation]] section for more information.
   A Python module containing additional functions used in the Nim
   analysis (fit of Fe55 spectrum and polya gas gain fit done using
   https://github.com/yglukhov/nimpy) and the Python plotting tool (see
-  below). 
+  below).
 - [[file:LogReader/][LogReader]]:
   A Nim tool to read and process CAST slow control and tracking log
   files. From these environmental sensors can be read if needed for
@@ -103,8 +103,8 @@ for. See the [[Installation]] section for more information.
   the InGrid database and plots =ToT= calibration (+ fits) and
   SCurves.
 - [[file:PlottingPython/][PlottingPython]]:
-  A set of Python plotting tools. 
-  - [[file:PlottingPython/Plotting/PyS_createBackgroundRate.py][PyS_createBackgroundRate.py]]: 
+  A set of Python plotting tools.
+  - [[file:PlottingPython/Plotting/PyS_createBackgroundRate.py][PyS_createBackgroundRate.py]]:
     used to create the background rate plots for the CAST data taking
     after the likelihood analysis has been performed.
   - [[file:PlottingPython/Plotting/PyS_plotH5data.py][PyS_plotH5data.py]]:
@@ -118,7 +118,7 @@ for. See the [[Installation]] section for more information.
   2014/15 background rates etc.
   TODO: maybe add folders for known chips for InGrid database in here
   or at least an example directory.
-- [[file:SolarEclipticToEarth][SolarEclipticToEarth]]: 
+- [[file:SolarEclipticToEarth][SolarEclipticToEarth]]:
   A simple Python tool part of solar chameleon
   analysis, which calculates the projection of the solar ecliptic onto
   Earth (chameleon flux potentially varies greatly depending on solar
@@ -136,6 +136,172 @@ for. See the [[Installation]] section for more information.
   the belt, which slipped and caused misalignment. That problem has
   since been fixed.
   TODO: should be moved to [[file:Tools/][Tools]].
+
+* Installation
+
+The project has only a few dependencies, which are all mostly easy to
+install. The Nim compiler is *only* a dependency to compile the Nim
+programs. But if you just wish to run the built binaries, the Nim
+compiler is *not* a dependency! E.g. compiling the
+=raw_data_manipulation= and =reconstruction= on an x86-64 linux system
+creates an (almost) dependency free binary.
+
+The following shared libraries are linked at runtime:
+- =libhdf5=
+- =libnlopt=
+- =libmpfit=
+Their installation procedures are explained below.
+
+** Nim
+
+Nim is obviously required to compile the Nim projects of this
+repository. There are two approaches to install the Nim
+compiler. Using =choosenim= or cloning the Nim repository.
+
+*** Clone the Nim repository and build the compiler locally
+
+Go to some folder where you wish to store the Nim compiler, e.g. [[file:~/src/][~/src]]
+or create a folder if does not exist:
+#+BEGIN_SRC sh
+cd ~/
+mkdir src
+#+END_SRC
+Please replace this directory by your choice in the rest of this
+section.
+
+Then clone the git repository from GitHub (assuming =git= is
+installed):
+#+BEGIN_SRC
+git clone https://github.com/nim-lang/nim
+#+END_SRC
+enter the folder:
+#+BEGIN_SRC sh
+cd nim
+#+END_SRC
+and if you're on a Unix system run:
+#+BEGIN_SRC sh
+sh build_all.sh
+#+END_SRC
+to build the compiler and additional tools like =nimble= (Nim's
+package manager), =nimsuggest= (allows smart auto complete for Nim
+procs), etc.
+
+Now add the following to your =PATH= variable in your shell's
+configuration file, e.g. [[file:~/.bashrc][~/.bashrc]]:
+#+BEGIN_SRC sh
+# add location of Nim's binaries to PATH
+export PATH=$PATH:$HOME/src/nim/bin
+#+END_SRC
+and finally reload the shell via
+#+BEGIN_SRC sh
+source ~/.bashrc
+#+END_SRC
+or the appropriate shell config (or start a new shell).
+
+With this approach updating the Nim compiler is trivial. First update
+your local git repository by pulling from the =devel= branch:
+#+BEGIN_SRC sh
+cd ~/src/nim
+git pull origin devel
+#+END_SRC
+and finally use Nim's built tool =koch= to update the Nim compiler:
+#+BEGIN_SRC sh
+./koch boot -d:release
+#+END_SRC
+
+*** Choosenim
+An alternative to the above mentioned method is to use =choosenim=.
+Type the following into your terminal:
+#+BEGIN_SRC sh
+curl https://nim-lang.org/choosenim/init.sh -sSf | sh
+#+END_SRC
+Then follow the instructions and extend the =PATH= variable in your
+shell's configuration file, e.g. [[file:~/.bashrc][~/.bashrc]].
+Finally reload that file via:
+#+BEGIN_SRC sh
+source ~/.bashrc
+#+END_SRC
+or simply start a new shell.
+
+** HDF5
+The major dependency of the Nim projects is HDF5. On a reasonably
+modern Linux distribution the =libhdf5= should be part of the package
+repositories. The supported HDF5 versions are:
+- =1.8=: as a legacy mode, compile the Nim projects with
+  =-d:H5_LEGACY=
+- =1.10=: the current HDF5 version and the default
+
+If the HDF5 library is not available on your OS, you may download the
+binaries or the source code from the [[url:https://www.hdfgroup.org/downloads/hdf5/][HDF group]].
+
+*** HDF View
+HDF View is a very useful tool to look at HDF5 files with a graphical
+user interface. For HEP users: it is very similar to ROOT's TBrowser.
+
+Although many package repositories contain a version of HDF View, it
+is typically relatively old. The current version is version 3.0.0,
+which has some nice features, so it may be a good idea to install it
+manually.
+
+** NLopt
+
+The NLopt library is a nonlinear optimization library, which is used
+in this project to fit the rotation angle of clusters and perform fits of
+the gas gain. The Nim wrapper is found at
+[[https://github.com/vindaar/nimnlopt]]. To build the C library follow the
+following instructions, (taken from [[https://github.com/vindaar/nimnlopt/c_header][here]]):
+#+BEGIN_SRC sh
+git clone git://github.com/stevengj/nlopt # clone the repository
+cd nlopt
+mkdir build
+cd build
+cmake ..
+make
+sudo make install
+#+END_SRC
+This introduces =cmake= as a dependency. Note that this installs the
+=libnlopt.so= system wide. If you do not wish to do that, you need to
+set your =LD_PRELOAD_PATH= accordingly!
+
+Afterwards installation of the Nim =nlopt= module is sufficient (done
+automatically later).
+
+** MPfit
+
+MPfit is a non-linear least squares fitting library. It is required as
+a dependency, since it's used to perform different fits in the
+analysis. The Nim wrapper is located at
+[[https://github.com/vindaar/nim-mpfit]]. Compilation of this shared
+object is easiest by cloning the git repository of the Nim wrapper:
+#+BEGIN_SRC sh
+cd ~/src
+git clone https://github.com/vindaar/nim-mpfit
+cd nim-mpfit
+#+END_SRC
+And then build the library from the =c_src= directory as follows:
+#+BEGIN_SRC sh
+cd c_src
+gcc -c -Wall -Werror -fpic mpfit.c mpfit.h
+gcc -shared -o libmpfit.so mpfit.o
+#+END_SRC
+which should create the =libmpfit.so=. Now install that library system
+wide (again to avoid having to deal with =LD_PRELOAD_PATH=
+manually). Depending on your system, a suitable choice may be
+[[file:/usr/local/lib/]]:
+#+BEGIN_SRC sh
+sudo cp libmpfit.so /usr/local/lib
+#+END_SRC
+
+** TODO Blosc [optional]
+
+[[https://github.com/Blosc/c-blosc][Blosc]] is a compression library used to compress the binary data in the
+HDF5 files. If the shared object is not available, compression falls
+back to =Zlib= compression.
+TODO: make sure that's currently actually the case?!
+
+** TODO Install the TimpixAnalysis framework
+
+* TODO Usage
 
 * Analysis pipeline
 

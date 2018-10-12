@@ -9,11 +9,12 @@ skipExt       = @["h5"]
 
 # Dependencies
 
-requires "nim >= 0.18.1"
-requires "loopfusion >= 0.0.1"
-requires "arraymancer >= 0.4.0"
+requires "nim >= 0.19.0"
+requires "loopfusion#head"
+requires "arraymancer#head"
 requires "https://github.com/vindaar/seqmath#head"
 requires "nimhdf5#head"
+requires "docopt#head"
 requires "mpfit#head"
 requires "nlopt#head"
 requires "plotly#head"

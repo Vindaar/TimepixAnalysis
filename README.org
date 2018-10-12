@@ -204,7 +204,7 @@ your local git repository by pulling from the =devel= branch:
 cd ~/src/nim
 git pull origin devel
 #+END_SRC
-and finally use Nim's built tool =koch= to update the Nim compiler:
+and finally use Nim's build tool =koch= to update the Nim compiler:
 #+BEGIN_SRC sh
 ./koch boot -d:release
 #+END_SRC

@@ -10,23 +10,24 @@ InGrid/FADC reading and cutting.
 
 Usage:
  plotFADC <HDF5file> [options]
- plotFADC <HDF5file> --runNumber <runnum> [options]
- plotFADC <HDF5file> --runNumber <runnum> --chipNumber <chipnum> [options]
- plotFADC <HDF5file> --chipNumber <chipnum> [options]
+ plotFADC <HDF5file> [--runNumber <runnum>] [--chipNumber <chipnum>] [options]
  plotFADC <HDF5file> --evParams  [options]
- plotFADC <HDF5file> --choose <chparams> [options]
- plotFADC <HDF5file> --choose <chparams> --cutFADC_low <fadccutlow> --cutFADC_high <fadccuthigh> [options]
- plotFADC <HDF5file> --cutFADC_low <fadccutlow> [options]
- plotFADC <HDF5file> --cutFADC_high <fadccuthigh> [options]
+ plotFADC <HDF5file> [--choose <chparams>] [--cutFADC_low <fadccutlow>] [options]
+ plotFADC <HDF5file> [--choose <chparams>] [--cutFADC_high <fadccuthigh>] [options]
+ plotFADC <HDF5file> [--choose <chparams>] [--cutFADC_low <fadccutlow>] [--cutFADC_high <fadccuthigh>] [options]
+ plotFADC <HDF5file>  [--choose <chparams>] [--plot_low <plotlow>] [options]
+ plotFADC <HDF5file>  [--choose <chparams>] [--plot_high <plothigh>] [options]
+ plotFADC <HDF5file>  [--choose <chparams>] [--plot_low <plotlow>] [--plot_high <plothigh>] [options]
+
 
 Options:
- --runNumber      choose the run you would like to look at
- --chipNumber     choose the chip you would like to look at
- --evParams       shows a list of possible InGrid Parameters
- --choose         choose one InGrid Parameter from the list
- --cutFADC_low    choose a low limit for cuts
- --cutFADC_high   choose a high limit for cuts
- -h --help        show this text
+ --runNumber           choose the run you would like to look at
+ --chipNumber          choose the chip you would like to look at
+ --evParams            shows a list of possible InGrid Parameters
+ --choose              choose one InGrid Parameter from the list
+ --cutFADC_low/high    choose a low/high limit for cuts
+ --plot_low/high       choose a low/high limit for plot range
+ -h --help             show this text
 
  """
 
@@ -40,10 +41,10 @@ proc readandcut*[T](h5f: var H5FileObj, runNumber: int, chip: int, chParams: str
   var group_chip = h5f[reco_group_chip.grp_str]
   let chip_number = group_chip.attrs["chipNumber", int]
   let evNumbers = h5f[group_chip.name / "eventNumber", int64]
-  #let eccentricity = h5f[group_chip.name / "eccentricity", float64]
   let choosenParams = h5f[group_chip.name / chParams, float64]
-  let a = choosenParams
+  let a = choosenParams.filterIt(it < 1000)
   let b = a.filterIt(abs(it).classify != fcInf) ## filter for fcInf, to guarantee that all Parameters can be plotted
+
 
   ##get the fadc data
 
@@ -66,11 +67,11 @@ proc readandcut*[T](h5f: var H5FileObj, runNumber: int, chip: int, chParams: str
 
   result = cutb
 
-proc plotcuts*[T](cuts: seq[T], chParams: string) =
+proc plotcuts*[T](cuts: seq[T], chParams: string, maxcut: float) =
   ##plot the results
   let
     d = Trace[float](`type`: PlotType.Histogram,
-                     bins: (0.0, 30.0), binSize: 0.1 ) ##somehow change bin and binsize in respect to the data
+                     bins: (0.0, maxcut), binSize: 0.1 ) ##somehow change bin and binsize in respect to the data
 
   d.xs = cuts
   let
@@ -80,8 +81,8 @@ proc plotcuts*[T](cuts: seq[T], chParams: string) =
                     yaxis: Axis(title:"counts"),
                     autosize: false)
     p = Plot[float](layout: layout, traces: @[d])
-  p.show()
-#  p.saveImage("test.pdf")
+#  p.show()
+#  p.saveImage("chParams.pdf")
 
 
 proc main() =
@@ -89,17 +90,12 @@ proc main() =
   let args = docopt(doc)
   let  h5file = $args["<HDF5file>"]
   var
-    runNumflag = $args["--runNumber"]
     runNum = $args["<runnum>"]
-    chipNumflag = $args["--chipNumber"]
     chipNum = $args["<chipnum>"]
-    evParamsflag = $args["--evParams"]
-    chParamsflag = $args["--choose"]
     chParams = $args["<chparams>"]
-    cutFADCflag_low = $args["--cutFADC_low"]
     cutFADCnum_low = $args["<fadccutlow>"]
-    cutFADCflag_high = $args["--cutFADC_high"]
     cutFADCnum_high = $args["<fadccuthigh>"]
+    plothigh_num = $args["<plothigh>"]
 
   var h5f = H5file(h5file, "rw")
   h5f.visit_file
@@ -110,6 +106,8 @@ proc main() =
   var cutlow: int
   var cuthigh: int
   var dataBasename = recoBase()
+  var maxcut: int
+  var maxcutfloat: float
 
   if $args["--choose"] == "true":
     chParamstring = chParams
@@ -121,12 +119,14 @@ proc main() =
     cutlow = cutFADCnum_low.parseInt
   else:
     cutlow = 1
+    echo "Standard low cut limit is 1"
 
   if $args["--cutFADC_high"] == "true":
     cuthigh = cutFADCnum_high.parseInt
   else:
     cuthigh = 1000
-
+    echo "Standard high cut limit is 1000"
+  #echo cuthigh
   ##get the runNumber and the center chip number
 
   let groups = toSeq(keys(h5f.groups))
@@ -152,10 +152,16 @@ proc main() =
     runNumint = runNum.parseInt
     cuts = readandcut[float](h5f, runNumint, chipNumint, chParamstring, cutlow, cuthigh)
 
+  if $args["--plot_high"] == "true":
+     maxcutfloat = plothigh_num.parseFloat
+  else:
+     maxcutfloat = cuts.max ##find the maximum to define the upper plotting limit
+ # echo plothigh_num
+
   if $args["--evParams"] ==  "true":
     echo getFloatDsetNames()
   else:
-    plotcuts(cuts, chParamstring)
+    plotcuts(cuts, chParamstring, maxcutfloat)
 
   discard h5f.close()
 

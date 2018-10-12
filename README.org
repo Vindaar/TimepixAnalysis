@@ -295,9 +295,11 @@ sudo cp libmpfit.so /usr/local/lib
 ** TODO Blosc [optional]
 
 [[https://github.com/Blosc/c-blosc][Blosc]] is a compression library used to compress the binary data in the
-HDF5 files. If the shared object is not available, compression falls
-back to =Zlib= compression.
-TODO: make sure that's currently actually the case?!
+HDF5 files. By default however =Zlib= compression is used, so this is
+typically not needed.
+If one wishes to read Timepix3 based HDF5 files however, this module
+will is needed, although support for these detectors is currently not
+part of this repository.
 
 ** TODO Install the TimpixAnalysis framework
 

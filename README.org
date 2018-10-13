@@ -656,6 +656,10 @@ The last three steps are not part of the first call to
 For a full analysis, you'd now have to perform the likelihood
 analysis.
 
+*** TODO note about Fe spectra
+
+*TODO:* add a note about creation of Fe spectra
+
 ** TODO Likelihood [optional]
 
 The likelihood analysis is the final step done in order to filter out

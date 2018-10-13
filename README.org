@@ -150,7 +150,32 @@ The following shared libraries are linked at runtime:
 - =libhdf5=
 - =libnlopt=
 - =libmpfit=
+- =libpcre=
 Their installation procedures are explained below.
+
+** General remarks
+
+A note about the dependeny of the source code on the Nim compiler:
+#+BEGIN_CENTER
+This project *strictly* depends on the devel branch of the Nim
+compiler! If new features are implemented in the compiler (or
+libraries it depends on for that matter), which are useful for this
+project, they will be used! If you run into compilation issues try to
+update to the current =#head= of the package, which fails compilation
+(if the error happens in a module not part of this repo) and update
+the Nim compiler!
+#+END_CENTER
+
+A general note about compiling Nim programs. Unless debuggin the code,
+you should always compile your programs with the =-d:release= flag. It
+disables many different run time checks, which slow down the execution
+speed by a factor of 5 to 10, depending on the workload!
+
+*** TODO Include example of a =config.nims=
+
+Include an example of a =config.nims=, which defines common
+compilation flags like =-d:release=, =--threads:on= or =-d:H5_LEGACY=
+(if applicable) to ease the compilation process for users.
 
 ** Nim
 
@@ -292,6 +317,34 @@ manually). Depending on your system, a suitable choice may be
 sudo cp libmpfit.so /usr/local/lib
 #+END_SRC
 
+Finally, you may install the Nim wrapper via
+#+BEGIN_SRC sh
+nimble install
+#+END_SRC
+or tell =nimble= to point to the directory of the respitory here via:
+#+BEGIN_SRC sh
+nimble develop
+#+END_SRC
+The latter makes updating the package much easier, since updating the
+git repository is enough.
+
+** PCRE
+Perl Compatible Regular Expressions (PCRE) is a library for regular
+expression matching. On almost any unix system, this library is
+already available. For some distributions (possibly some CentOS or
+Scientific Linux) it may not be.
+
+This currently means you'll have to build this library by yourself.
+
+*** Different RE implementations
+
+The default RE library in Nim is a wrapper around PCRE, due to PCRE's
+very high performance. However, the performance critical parts do not
+depend on PCRE anymore.
+In principle we could thus replace the =re= module with
+https://github.com/nitely/nim-regex, a purely Nim based regex
+engine. PRs welcome! :)
+
 ** TODO Blosc [optional]
 
 [[https://github.com/Blosc/c-blosc][Blosc]] is a compression library used to compress the binary data in the
@@ -301,9 +354,330 @@ If one wishes to read Timepix3 based HDF5 files however, this module
 will is needed, although support for these detectors is currently not
 part of this repository.
 
-** TODO Install the TimpixAnalysis framework
+** Install the TimpixAnalysis framework
 
-* TODO Usage
+Once the dependencies are installed, we can prepare the framework.
+
+*** Preparing the =TimepixAnalysis= repository
+We start by cloning the =TimepixAnalysis= repository somewhere, e.g.:
+#+BEGIN_SRC sh
+cd ~/src
+git clone https://github.com/Vindaar/TimepixAnalysis
+#+END_SRC
+
+The next step is to prepare installation of the modules within this
+repository. That means we need to install
+- the [[file:NimUtil/][helpers]] module
+- the [[file:InGridDatabase/][InGridDatabase]] module
+- the [[file:Analysis/][ingrid]] (contains the analysis) module
+
+This is done by calling either =nimble install= or =nimble develop= in
+the folders linked above, which contain a =.nimble= file.
+
+*** Note on =nimble install= vs. =nimble develop=
+
+#+BEGIN_CENTER
+_Aside:_ The difference between nimble's =install= and =develop=
+commands is:
+- =install= copies the source files of the module to your local
+  =nimble= packages folder, by default [[file:~/.nimble/pkgs/][~/.nimble/pkgs/]]
+- =develop= just creates a link in the said folder, which points to
+  the location where the source files lie,
+  e.g. =~/src/TimepixAnalysis/InGridDatabase/src= or similar.
+Thus, using =nimble develop= is very convenient for packages, which
+are updated frequently using =git pull= or which are actively
+developed by yourself. No reinstallation necessary, if the source changes.
+#+END_CENTER
+
+*** Installation of the sub modules
+
+Choosing =nimble develop=, we install the following (assuming you're
+in the root of the =TimepixAnalysis= repository):
+#+BEGIN_SRC sh
+cd NimUtil
+nimble develop
+cd ../InGridDatabase
+nimble develop
+cd ../Analysis
+nimble develop
+cd ..
+#+END_SRC
+Calling =nimble develop= in the Analysis directory, will install all
+needed dependencies (in principle also =nimhdf5=, =nlopt= and =mpfit=
+libraries).
+If there are no regressions upstream on any of the packages (we
+install =#head= of all dependencies), installation should be smooth
+and you should be set to compile the programs!
+
+*** Compilation of the two major tools
+
+Now we're ready to compile the =raw_data_manipulation= and
+=reconstruction= programs. First enter the Analysis directory:
+#+BEGIN_SRC sh
+cd Analysis/ingrid
+#+END_SRC
+Now a basic Nim compilation looks as follows:
+#+BEGIN_SRC
+nim c raw_data_manipulation.nim
+#+END_SRC
+=c= stands for =compile to C= (technically just for =compile= with the
+default backend. The =C= target specifically is called by
+=cc=). Alternatively you can use =cpp= to compile to =C++=, =js= to
+compile to Javascript or =objc= to compile to Objective-C. Note that
+the filename extension for =myfile.nim= is optional.
+
+If you compile a program to actually use it (and not to test or
+debug), you'll want to compile it with the =-d:release= flag, like so:
+#+BEGIN_SRC sh
+nim c -d:release raw_data_manipulation.nim
+#+END_SRC
+
+Since basically all programs part of this project use multiple
+threads, another option is necessary, the =--threads:on= flag:
+#+BEGIN_SRC sh
+nim c -d:release --threads:on raw_data_manipulation.nim
+#+END_SRC
+This in principle is all you need to do to get a standalone binary,
+which depends on the aforementioned shared libraries.
+
+By default the resulting binary is called after the compiled Nim file
+without a file extension. If you wish a different filename, use the
+=--out= option:
+#+BEGIN_SRC sh
+nim c -d:release --threads:on --out:myName raw_data_manipulation.nim
+#+END_SRC
+_Note:_ this can also be used to place the resulting binary in a
+different folder!
+_Note 2:_ take care that you *cannot* write neither =--threads on= nor
+=--threads=on=! The colon is mandatory.
+
+The =reconstruction= program is compiled in the same way.
+#+BEGIN_SRC sh
+nim c -d:release --threads:on reconstruction.nim
+#+END_SRC
+
+*** TODO Python dependency [optional]
+
+For some parts of the later analysis a Python module is necessary,
+because we call Python code from Nim to perform two different fits.
+
+Mainly we need to install the =InGrid-Python= module, via:
+#+BEGIN_SRC sh
+cd InGrid-Python
+python3 setup.py develop
+cd ..
+#+END_SRC
+potentially with =sudo= rights, depending on your setup. This will
+create a link to the =InGrid-Python= directory, similar to what
+=nimble develop= does.
+
+*TODO:* To run the code for the gas gain calculations, in addition we
+need to compile a small Nim module [[file:Analysis/ingrid/procsForPython.nim][procsForPython.nim]]. This module
+defines several Nim procs, which are compiled as a shared object and
+called from Python in order to accelerate the fitting significantly.
+
+That module needs to be compiled as:
+#+BEGIN_SRC sh
+cd Analysis/ingrid/
+nim c -d:release --app:lib --out:procsForPython.so procsForPython.nim
+#+END_SRC
+and potenatially copied over to the source directory of the
+=InGrid-Python= module.
+
+*** Troubleshooting
+
+If you run into problems trying to run one of the programs, it might
+be an easy fix.
+
+An error such as
+#+BEGIN_EXAMPLE
+could not import: H5P_LST_FILE_CREATE_g
+#+END_EXAMPLE
+means that you compiled against a different HDF5 libary version than
+the one you have installed and is being tried to link at run time.
+_Solution:_ compile the program with the =-d:H5_LEGACY= option, e.g.:
+#+BEGIN_SRC sh
+nim c -d:release --threads:on -d:H5_LEGACY raw_data_manipulation.nim
+#+END_SRC
+
+Another common problem is an error such as:
+#+BEGIN_SRC sh
+Error: cannot open file: docopt
+#+END_SRC
+This indicates that the module named =docopt= (only an example) could
+not be imported. Most likely a simple
+#+BEGIN_SRC sh
+nimble install docopt
+#+END_SRC
+would suffice. A call to =nimble install= with a package name will try
+to install a package from the path declared in the =packages.json=
+from here:
+https://github.com/nim-lang/packages/blob/master/packages.json
+
+If you know that you need the =#head= of such a package, you can
+install it via
+#+BEGIN_SRC sh
+nimble install "docopt@#head"
+#+END_SRC
+_Note:_ depending on your shell the ="= may not be needed.
+_Note 2:_ instead of a simple package name, you may also hand nimble a
+full path to a git or mercurial repository. This is necessary in some
+cases, e.g. for the =seqmath= module, because we depend on a fork:
+#+BEGIN_SRC sh
+nimble install "https://github.com/vindaar/seqmath#head"
+#+END_SRC
+
+*** List of nimble dependencies
+
+The following Nim modules are definitely required for
+=raw_data_manipulation= and =reconstruction=:
+#+BEGIN_SRC
+loopfusion
+arraymancer
+https://github.com/vindaar/seqmath#head
+nimhdf5
+docopt
+mpfit
+nlopt
+plotly
+zero_functional
+helpers
+nimpy
+ingridDatabase
+#+END_SRC
+
+* Usage
+
+In general the usage of the analysis programs is straight forward and
+explained in the docstring, which can be echoed by calling a program
+with the =-h= or =--help= option:
+#+BEGIN_SRC sh
+./reconstruction -h
+#+END_SRC
+would print:
+#+BEGIN_SRC
+Version: b49c061 built on: 2018-10-10 at 13:01:29
+InGrid raw data manipulation.
+
+Usage:
+  raw_data_manipulation <folder> [options]
+  raw_data_manipulation <folder> --runType <type> [options]
+  raw_data_manipulation <folder> --out=<name> [--nofadc] [--runType=<type>] [--ignoreRunList] [options]
+  raw_data_manipulation <folder> --nofadc [options]
+  raw_data_manipulation -h | --help
+  raw_data_manipulation --version
+
+Options:
+  --runType=<type>    Select run type (Calib | Back | Xray)
+                      The following are parsed case insensetive:
+                      Calib = {"calib", "calibration", "c"}
+                      Back = {"back", "background", "b"}
+                      Xray = {"xray", "xrayfinger", "x"}
+  --out=<name>        Filename of output file
+  --nofadc            Do not read FADC files
+  --ignoreRunList     If set ignores the run list 2014/15 to indicate
+                      using any rfOldTos run
+  --overwrite         If set will overwrite runs already existing in the
+                      file. By default runs found in the file will be skipped.
+                      HOWEVER: overwriting is assumed, if you only hand a
+                      run folder!
+  -h --help           Show this help
+  --version           Show version.
+#+END_SRC
+similar docstrings are available for all programs.
+
+In order to analyze a raw TOS run, we'd perform the following
+steps. The command line arguments are examples. Those required will be
+exaplained, for the others see the doc stings.
+
+** Raw data manipulation
+
+Assuming we have a TOS run folder located in
+=~/data/Run_168_180702-15-24/=:
+#+BEGIN_SRC sh
+cd ~/src/TimepixAnalysis/Analysis/ingrid
+./raw_data_manipulation ~/data/Run_168_180702-15-24/ --runType=calibration --out=run168.h5
+#+END_SRC
+where we give the =runType= (either calibration, background or X-ray
+finger run), which is useful to store in the resulting HDF5 file. For
+calibration runs several additional reconstruction steps are also done
+automatically during the reconstruction phase. We also store the data
+in a file called =run168.h5=. The default filename is
+=run_file.h5=. The HDF5 file now contains two groups (=runs= and
+=reconstruction=). =runs= stores the raw data. =reconstruction is
+still mainly empty, some datasets are linked from the =runs= group.
+
+Alternatively you may also hand a directory, which contains several
+run folders. So if you had several runs located in =~/data=, simply
+handing that would work. The program would work on all runs in =data=
+after another. Each run is stored in its own group in the resulting
+HDF5 file.
+
+** Reconstruction
+
+Afterwards we go on to the reconstruction phase. Here the raw data is
+read back from the HDF5 file and clusters within events are separated
+and geometric properties calculated. This is done by:
+#+BEGIN_SRC sh
+./reconstruction run168.h5
+#+END_SRC
+
+After the reconstruction is done and depending on whether the run type
+is calibration or background / X-ray finger run, you can continue to
+calculate futher properties, e.g. the energy of all clusters.
+
+The next step is to apply the ToT calibration to calculate the charge
+of all clusters via:
+#+BEGIN_SRC sh
+./reconstruction run168.h5 --only charge
+#+END_SRC
+_Note:_ this requires an entry for your chip in the ingrid
+database. See below for more information.
+
+Once the charges are calibrated, you may calculate the gas gain of
+the run via:
+#+BEGIN_SRC sh
+./reconstruction run168.h5 --only_gas_gain
+#+END_SRC
+_Note:_ this depends on an optional Python module to fit the polya
+distribution. See above for an explanation on how to compile that.
+
+Finally, you can calculate the energy of all custers by doing:
+#+BEGIN_SRC sh
+./reconstruction run168.h5 --only_energy_from_e
+#+END_SRC
+
+The last three steps are not part of the first call to
+=reconstruction=, due to non trivial dependencies
+- charge calib requires ToT data
+- gas gain requires Python module
+- energy from charge requires the above two.
+
+For a full analysis, you'd now have to perform the likelihood
+analysis.
+
+** TODO Likelihood [optional]
+
+The likelihood analysis is the final step done in order to filter out
+events, which are not X-ray like, based on a likelihood cut. The
+likelihood program however, needs two different input files.
+This is not yet as streamlined as it should be, which is why it's not
+explained here in detail. Take a look at the docstring of the program
+or ask me (@Vindaar).
+
+*TODO:* make the CDL data part of the repository somehow?
+
+** TODO Adding a chip to the InGrid database [optional]
+
+If you wish to perform charge calibration and from that energy
+calibration, you need to add your chip to the ingrid database.
+
+For now take a look at [[file:InGridDatabase/src/ingridDatabase.nim]] to
+understand how to do that.
+
+*TODO:* finish explanation on how to do that. For that first add
+example folder, which is handed.
+
 
 * Analysis pipeline
 

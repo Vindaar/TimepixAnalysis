@@ -678,6 +678,14 @@ understand how to do that.
 *TODO:* finish explanation on how to do that. For that first add
 example folder, which is handed.
 
+** TODO Plotting
+
+There are several tools available to visualize the data created by
+the programs in this repository.
+
+*** TODO Nim
+
+*** TODO Python
 
 * Analysis pipeline
 

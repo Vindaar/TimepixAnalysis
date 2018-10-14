@@ -31,8 +31,10 @@ import macros
 const
   # some helper constants
   StartTot* = 20.0
-  # constant regex for InGrid type events
-  eventRegexInGrid = r".*data\d{4,6}(_1_[0-9]+)?.*\.txt$"
+  # constant regex for InGrid type events for the Virtex TOS
+  eventRegexVirtex = r".*data\d{4,6}(_1_[0-9]+)?.*\.txt$"
+  newVirtexRunRegex = r".*Run_(\d+)_\d{6}-\d{2}-\d{2}.*"
+  oldVirtexRunRegex = r".*Run\d{6}_\d{2}-\d{2}-\d{2}.*"
 
   # default chip names, shutter modes and shutter times
   OldShutterMode = "verylong"
@@ -1080,17 +1082,16 @@ proc isTosRunFolder*(folder: string):
   ##        (is_rf, runNumber): is a run folder, its Number
   ##        contains_rf:        contains run folders
 
-  let runRegex = re(r".*Run_(\d+)_.*")
+  let runRegex = re(newVirtexRunRegex)
   # else check for old `Chistoph style` runs
-  let oldRunRegexStr = r".*Run\d{6}_\d{2}-\d{2}-\d{2}.*"
-  let oldRunRegex = re(oldRunRegexStr)
+  let oldRunRegex = re(oldVirtexRunRegex)
   # TODO: check whether following works
   const oldTosRunDescriptorPrefix = OldTosRunDescriptorPrefix
   var oldTosRunDescriptor: Regex
 
-  let eventRegex = re(eventRegexInGrid) #r".*data\d{4,6}(_1_[0-9]+)?.*\.txt$")
   var matches_rf_name: bool = false
   var runNumber: array[1, string]
+  result.rfKind = rfUnknown
   if match(folder, runRegex, runNumber) == true:
     # set matches run folder flag to true, is checked when we find
     # a data<number>.txt file in the folder, so that we do not think a
@@ -1103,11 +1104,14 @@ proc isTosRunFolder*(folder: string):
     # in case of the old tos, extract the run number from the folder name
     result.rfKind = rfOldTos
     let (head, tail) = folder.splitPath
-    oldTosRunDescriptor = re(oldTosRunDescriptorPrefix & oldRunRegexStr)
+    oldTosRunDescriptor = re(oldTosRunDescriptorPrefix & oldVirtexRunRegex)
     if folder =~ oldTosRunDescriptor:
       result.runNumber = matches[0].parseInt
 
-
+  var eventRegex: Regex
+  case result.rfKind
+  of rfOldTos, rfNewTos:
+    eventRegex = re(eventRegexVirtex)
   for kind, path in walkDir(folder):
     if kind == pcFile:
       if match(path, eventRegex) == true and matches_rf_name == true:

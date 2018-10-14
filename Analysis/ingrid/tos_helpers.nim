@@ -848,7 +848,6 @@ proc processOldEventScanf*(data: seq[string]): ref OldEvent =
 
 
 proc processEventWrapper(data: seq[string],
-                         regex: tuple[header, chips, pixels: Regex],
                          rfKind: RunFolderKind): ref Event {.inline.} =
   ## wrapper around both process event procs, which determines which one to call
   ## based on the run folder kind. Need a wrapper, due to usage of spawn in
@@ -1012,7 +1011,7 @@ proc getSortedListOfFiles*(run_folder: string, sort_type: EventSortType, event_t
     result = sortByInode(getListOfFiles(run_folder, eventRegex))
 
 proc readListOfFiles*[T](list_of_files: seq[string],
-                         regex: tuple[header, chips, pixels: string] = ("", "", "")):
+                         rfKind: RunFolderKind = rfUnknown):
                            seq[FlowVar[ref T]] = #{.inline.} =
   ## As this is to be called from a function specifying the datatype, see the calling functions
   ## for descriptions of input and output
@@ -1028,12 +1027,6 @@ proc readListOfFiles*[T](list_of_files: seq[string],
   # the slicing syntax a[0..10] includes (!) the last element, thus this slice
   # has 11 elements
   result = newSeq[FlowVar[ref T]](nfiles)
-  var regex_tup = (re(regex[0]), re(regex[1]), re(regex[2]))
-
-  when T is Event:
-    # determine the run folder kind
-    let rfKind = if mmfiles[0][1][0] == '#': rfNewTos else: rfOldTos
-    echo "rf kind is ", rfKind
 
   parallel:
     var f_count = 0
@@ -1041,7 +1034,7 @@ proc readListOfFiles*[T](list_of_files: seq[string],
       # loop over each file and call work on data function
       if i < len(result):
         when T is Event:
-          result[i] = spawn processEventWrapper(s, regex_tup, rfKind)
+          result[i] = spawn processEventWrapper(s, rfKind)
         elif T is FadcFile:
           result[i] = spawn readFadcFile(s)
       echoFilesCounted(f_count)
@@ -1049,27 +1042,23 @@ proc readListOfFiles*[T](list_of_files: seq[string],
 
 # set experimental pragma to enable parallel: block
 {.experimental.}
-proc readListOfInGridFiles*(list_of_files: seq[string],
-                            regex_tup: tuple[header, chips, pixels: string]):
-                              seq[FlowVar[ref Event]] =
+proc readListOfInGridFiles*(list_of_files: seq[string]):
+                          seq[FlowVar[ref Event]] =
   ## this procedure receives a list of files, reads them into memory (as a buffer)
   ## and processes the content into a seq of ref Events
   ## inputs:
   ##    list_of_files: seq[string] = a seq of filenames, which are to be read in one go
-  ##    regex_tup: tuple[...] = a tuple of the different regexes needed to read the different
-  ##                            parts of a file
   ## outputs:
   ##    seq[FlowVar[ref Event]] = a seq of flow vars pointing to events, since we read
   ##                              in parallel
-  result = readListOfFiles[Event](list_of_files, regex_tup)
+  result = readListOfFiles[Event](list_of_files)
 
-proc readListOfOldInGridFiles*(list_of_files: seq[string],
-                            regex_tup: tuple[header, chips, pixels: string]):
-                              seq[FlowVar[ref Event]] =
+proc readListOfOldInGridFiles*(list_of_files: seq[string]):
+                             seq[FlowVar[ref Event]] =
   ## see documentation of above
   # since `OldEvent` is simply an alias for us, it can be returned as
   # an `Event` as well
-  result = readListOfFiles[OldEvent](list_of_files, regex_tup)
+  result = readListOfFiles[OldEvent](list_of_files)
 
 proc isTosRunFolder*(folder: string):
   tuple[is_rf: bool, runNumber: int, rfKind: RunFolderKind, contains_rf: bool] =

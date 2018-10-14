@@ -271,7 +271,6 @@ template batchFiles(files: var seq[string], bufsize, actions: untyped): untyped 
     files.delete(0, ind_high)
 
 proc batchFileReading[T](files: var seq[string],
-                         regex_tup: tuple[header, chips, pixels: string] = ("", "", ""),
                          rfKind: RunFolderKind = rfNewTos,
                          bufsize: int = FILE_BUFSIZE):
                           seq[FlowVar[ref T]] {.inline.} =
@@ -291,10 +290,10 @@ proc batchFileReading[T](files: var seq[string],
     when T is Event:
       case rfKind
       of rfNewTos:
-        buf_seq = readListOfInGridFiles(files[0..ind_high], regex_tup)
+        buf_seq = readListOfInGridFiles(files[0..ind_high])
       of rfOldTos:
         # to support reading TOS files using the old storage format
-        buf_seq = readListOfOldInGridFiles(files[0..ind_high], regex_tup)
+        buf_seq = readListOfOldInGridFiles(files[0..ind_high])
     elif T is FadcFile:
       buf_seq = readListOfFadcFiles(files[0..ind_high])
 
@@ -315,11 +314,10 @@ proc readRawInGridData*(listOfFiles: seq[string],
   ## inodes, which may be scramled, so we sort the data and get the FlowVar values.
   ## NOTE: this procedure does the reading of the data in parallel, thanks to
   ## using spawn
-  let regex_tup = getRegexForEvents()
   # get a sorted list of files, sorted by filename first
   var files: seq[string] = sortByInode(listOfFiles)
   # split the sorted files into batches, and sort each batch by inode
-  result = batchFileReading[Event](files, regex_tup, rfKind)
+  result = batchFileReading[Event](files, rfKind)
 
 proc sortReadInGridData(rawIngrid: seq[FlowVar[ref Event]],
                         rfKind: RunFolderKind): seq[Event] =

@@ -1,5 +1,6 @@
 import os, ospaths
 import strutils, strformat, strscans
+import parseutils
 import times
 import algorithm
 import re
@@ -33,8 +34,16 @@ const
   StartTot* = 20.0
   # constant regex for InGrid type events for the Virtex TOS
   eventRegexVirtex = r".*data\d{4,6}(_1_[0-9]+)?.*\.txt$"
+  # constant regex for InGrid type events for the SRS TOS
+  eventRegexSrs = r".*run_(\d{6})_data_(\d{6})_(\d{6})_(\d{2})-(\d{2})-(\d{2}).txt"
+
   newVirtexRunRegex = r".*Run_(\d+)_\d{6}-\d{2}-\d{2}.*"
   oldVirtexRunRegex = r".*Run\d{6}_\d{2}-\d{2}-\d{2}.*"
+  srsRunRegex       = r".*Run_(\d{6})_\d{6}_\d{2}-\d{2}-\d{2}.*"
+
+  SrsRunIncomplete = "incomplete"
+  SrsRunIncompleteMsg = "This run does not contain a run.txt and so " &
+      "is incomplete!"
 
   # default chip names, shutter modes and shutter times
   OldShutterMode = "verylong"
@@ -360,11 +369,64 @@ proc readEventHeader*(filepath: string): Table[string, string] =
       let val = matches[1]
       result[key] = val
 
+proc parseSrsRunInfo(path: string): Table[string, string] =
+  result = initTable[string, string]()
+  let runPath = path / "run.txt"
+  if fileExists(runPath):
+    # all good, can parse it
+    # run number, start and end time
+    # won't be considered
+    for line in lines(runPath):
+      if line.len == 0 or line[0] != '\t':
+        continue
+      else:
+        let val = line.splitWhitespace[^1]
+        var key = ""
+        if "run mode" in line:
+          key = "runMode"
+        elif "run time" in line:
+          key = "runTime"
+        elif "shutter mode" in line:
+          key = "shutterMode"
+        elif "shutter time" in line:
+          key = "shutterTime"
+          # we assign here to break afterwards
+          result[key] = val
+          break
+        result[key] = val
+    # finally correct `runTime` and add `runTimeFrames`
+    if result["runMode"] == "1":
+      result["runTimeFrames"] = result["runTime"]
+      result["runTime"] = "0"
+    else:
+      result["runTimeFrames"] = "1"
+  else:
+    # doesn't exist, mark run as incomplete and assign
+    # dummy values for information stored in run.txt
+    result[SrsRunIncomplete] = SrsRunIncompleteMsg
+    result["shutterMode"] = "0"
+    result["shutterTime"] = "0"
+
 proc getRunHeader*(ev: Event, rfKind: RunFolderKind): Table[string, string] =
   ## returns the correct run header based on the `RunFolderKind`
   case rfKind
   of rfOldTos, rfNewTos:
     result = ev.evHeader
+  of rfSrsTos:
+    # here we need to combine evHeader data and data stored in
+    # `run.txt`
+    # event header as basis
+    result = ev.evHeader
+    let runPath = result["pathName"]
+    let runInfo = parseSrsRunInfo(runPath)
+    # echo write (potentially replace) keys read from run.txt in result
+    for key, val in pairs(runInfo):
+      result[key] = val
+
+  else:
+    discard
+
+
 proc readMemFilesIntoBuffer*(list_of_files: seq[string]): seq[seq[string]] =
   ## procedure which reads a list of files via memory mapping and returns
   ## the thus read data as a sequence of MemFiles
@@ -853,6 +915,137 @@ proc processOldEventScanf*(data: seq[string]): ref OldEvent =
   result.chips = chips
   result.nChips = chips.len
 
+proc processSrsEventScanf*(data: seq[string]): ref SrsEvent =
+  ## Reads an SRS TOS zero suppressed data file using the strscans.scanf
+  ## macro
+  ## - read the pixel data in an event
+  # in this case we have a sequence of strings
+  var
+    # variable to count already read pixels
+    pix_counter = 0
+    # variables to read data into
+    e_header = initTable[string, string]()
+    c_header = initTable[string, string]()
+    # create a sequence large enough to hold most events, so that only for very large
+    # events we need to resize the sequence
+    pixels: Pixels = newSeqOfCap[Pix](400)
+    # variable to store resulting chip events
+    chips: seq[ChipEvent] = newSeqOfCap[ChipEvent](1) # 1 chip at least, pot. more
+    # variable to determine, when we are reading the last pixel of one chip
+    # important, because we cannot trust numHits in chip header, due to zero
+    # suppression! We init by `-1` to deal with old TOS format, in which there
+    # is no header
+    pix_to_read: int = 0
+  result = new SrsEvent
+
+  let filepath = data[0]
+  # check for run folder kind by looking at first line of file
+  assert data[1][0 .. 2] == "FEC", "This is not a valid rfSrsTos file!" & data[0]
+
+  var
+    x: int
+    y: int
+    ch: int
+    valMatch: int
+    lineCnt = 1
+    cnt: int
+    line = ""
+
+  proc parseVal(line: string,
+                key: string,
+                start: int,
+                valMatch: var int,
+                c_header: var Table[string, string]): int =
+    result = start
+    result += skipUntil(line, ' ', start = result)
+    result += parseInt(line, valMatch, start = result + 1)
+    if key == "chipNumber":
+      # subtract 1 from chip number, since SRS TOS still starts
+      # countint at 1
+      valMatch -= 1
+    c_header[key] = $valMatch
+
+  template incLine(line: var string,
+                   lineCnt: var int) =
+    line = data[lineCnt]
+    inc lineCnt
+
+  while lineCnt < data.len:
+    incLine(line, lineCnt)
+    cnt = parseVal(line, "FEC", 0, valMatch, c_header)
+    incLine(line, lineCnt)
+    cnt = parseVal(line, "Board", 0, valMatch, c_header)
+    incLine(line, lineCnt)
+    # echo "Line is ", line
+    cnt = parseVal(line, "chipNumber", 0, valMatch, c_header)
+    # echo "Cnt is ", cnt
+    # start from cnt + 1 to skip space after chip number to get to `,Hits`
+    cnt = parseVal(line, "numHits", cnt + 2, valMatch, c_header)
+    # echo "And now Cnt is ", cnt
+    # echo "Line is ", line
+    let nPix = parseInt(c_header["numHits"])
+    let pixToRead = if nPix > 4095: 4095 else: nPix
+
+    # now iterate over all hits
+    for i in 0 ..< pixToRead:
+      incLine(line, lineCnt)
+      if scanf(line, "$i$s$i$s$i", x, y, ch):
+        # if the compiler flag (-d:REMOVE_FULL_PIX) is set, we cut all pixels, which have
+        # ToT values == 11810, the max ToT value
+        when defined(REMOVE_FULL_PIX):
+          if ch != 11810:
+            pixels.add((x.uint8, y.uint8, ch.uint16))
+        else:
+          pixels.add((x.uint8, y.uint8, ch.uint16))
+    # once we're done with all pixels, add chip header
+    # now we are reading the last hit, process chip header and pixels
+    var ch_event = ChipEvent()
+    ch_event.chip = ("SRS Chip", parseInt(c_header["chipNumber"]))
+    ch_event.pixels = pixels
+    # add  the chip event object to the sequence
+    chips.add(ch_event)
+    # reset the pixels sequence
+    pixels = newSeqOfCap[Pix](400)
+
+  # in that case we're reading an ``old event files (!)``. Get the event number
+  # from the filename
+  var
+    evNumber: string
+    chipNumber: string
+    runNumber: string
+    dummy: string
+  # need to use `$*` to parse, because if we use $i for integers, we end up
+  # parsing the `_` tokens as well, making scanf fail
+  proc parseSrsTosDate(input: string, date: var Time, start: int): int =
+    ## proc for `scanf` macro to parse an SRS TOS date string from a filename
+    ## example filename:
+    ## run_004001_data_079135_181009_23-19-28.txt
+    ## we parse from:         ^ here         ^ to here (excl.)
+    # length of parsing range is 15
+    result = 15 # 6 from year / month / day, 6 from hour / min / sec, 3 '_','-'
+    var stop = start + result
+    let dateStr = input[start ..< stop]
+    const SrsTosDateSyntax = "yyMMdd'_'HH-mm-ss"
+    date = dateStr.parse(SrsTosDateSyntax).toTime
+    assert input[stop] == '.', "Assertion failed. Token was: " & $input[stop]
+
+  # assign chips and nChips to store in event header
+  result.chips = chips
+  result.nChips = chips.len
+
+  var date: Time
+  if scanf(filepath, r"$*run_$*_data_$*_${parseSrsTosDate}", dummy, runNumber, evNumber, date):
+    e_header["dateTime"] = $date
+    e_header["timestamp"] = $(int(date.toSeconds))
+    e_header["eventNumber"] = evNumber.strip(trailing = false, chars = {'0'})
+    e_header["runNumber"] = runNumber.strip(trailing = false, chars = {'0'})
+    e_header["numChips"] = $result.nChips
+    let (head, tail) = filepath.splitPath
+    e_header["pathName"] = head
+  else:
+    raise newException(IOError, "SRS filename does not match `scanf` syntax! " &
+      "Filename: " & filepath)
+  result.evHeader = e_header
 
 proc processEventWrapper(data: seq[string],
                          rfKind: RunFolderKind): ref Event {.inline.} =
@@ -866,6 +1059,12 @@ proc processEventWrapper(data: seq[string],
   of rfOldTos:
     # result = processOldEventWithRegex(data, regex[2])
     result = processOldEventScanf(data)
+  of rfSrsTos:
+    result = processSrsEventScanf(data)
+  of rfUnknown:
+    raise newException(IOError, "Unknown run folder kind. Unclear what files " &
+      "are events!")
+
 
 #template readEventWithRegex(filepath, regex: string): typed =
 proc readEventWithRegex*(filepath: string, regex: tuple[header, chips, pixels: Regex]): ref Event =
@@ -1012,6 +1211,11 @@ proc getSortedListOfFiles*(run_folder: string,
     case rfKind
     of rfOldTos, rfNewTos:
       eventRegex = eventRegexVirtex
+    of rfSrsTos:
+      eventRegex = eventRegexSrs
+    else:
+      raise newException(IOError, "Unknown run folder kind. Unclear what files " &
+        "are events!")
   of EventType.FadcType:
     eventRegex = r".*data\d{4,6}\.txt-fadc$"
   # get the list of files from this run folder and sort it
@@ -1085,6 +1289,7 @@ proc isTosRunFolder*(folder: string):
   let runRegex = re(newVirtexRunRegex)
   # else check for old `Chistoph style` runs
   let oldRunRegex = re(oldVirtexRunRegex)
+  let srsRunRegex = re(srsRunRegex)
   # TODO: check whether following works
   const oldTosRunDescriptorPrefix = OldTosRunDescriptorPrefix
   var oldTosRunDescriptor: Regex
@@ -1107,11 +1312,23 @@ proc isTosRunFolder*(folder: string):
     oldTosRunDescriptor = re(oldTosRunDescriptorPrefix & oldVirtexRunRegex)
     if folder =~ oldTosRunDescriptor:
       result.runNumber = matches[0].parseInt
+  elif match(folder, srsRunRegex, runNumber) == true:
+    matches_rf_name = true
+    # in case of the old tos, extract the run number from the folder name
+    result.runNumber = runNumber[0].parseInt
+    result.rfKind = rfSrsTos
 
   var eventRegex: Regex
   case result.rfKind
   of rfOldTos, rfNewTos:
     eventRegex = re(eventRegexVirtex)
+  of rfSrsTos:
+    eventRegex = re(eventRegexSrs)
+  else:
+    # return early
+    result.is_rf = false
+    result.contains_rf = false
+    return result
   for kind, path in walkDir(folder):
     if kind == pcFile:
       if match(path, eventRegex) == true and matches_rf_name == true:

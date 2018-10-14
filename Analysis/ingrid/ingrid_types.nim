@@ -44,6 +44,8 @@ type
   # define a distinct `OldEvent` to differentiate the (in principle) not
   # different old TOS storage format
   OldEvent* = Event
+  # alias for SRS events for the Event. Only difference is meta information
+  SrsEvent* = Event
 
   #############################
   # Calibration related types #
@@ -83,7 +85,7 @@ type
     rtNone, rtCalibration, rtBackground, rtXrayFinger
 
   RunFolderKind* = enum
-    rfNewTos, rfOldTos
+    rfNewTos, rfOldTos, rfSrsTos, rfUnknown
 
   ################################
   # Reconstruction related types #

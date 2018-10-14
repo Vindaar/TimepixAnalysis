@@ -289,11 +289,11 @@ proc batchFileReading[T](files: var seq[string],
     # after each iteration the `files` variable is modified. Read files are deleted.
     when T is Event:
       case rfKind
-      of rfNewTos:
-        buf_seq = readListOfInGridFiles(files[0..ind_high])
-      of rfOldTos:
-        # to support reading TOS files using the old storage format
-        buf_seq = readListOfOldInGridFiles(files[0..ind_high])
+      of rfOldTos, rfNewTos, rfSrsTos:
+        buf_seq = readListOfInGridFiles(files[0..ind_high], rfKind)
+      else:
+        raise newException(IOError, "Unknown run folder kind. Cannot read " &
+          "event files!")
     elif T is FadcFile:
       buf_seq = readListOfFadcFiles(files[0..ind_high])
 
@@ -334,7 +334,7 @@ proc sortReadInGridData(rawIngrid: seq[FlowVar[ref Event]],
     let minIndex = numList.min
     for i, ind in numList:
       result[ind - minIndex] = (^raw_ingrid[i])[]
-  of rfOldTos:
+  of rfOldTos, rfSrsTos:
     # in this case there may be missing events, so we simply sort by the indices themselves
     # sorting is done the following way:
     # - extract list of eventNumbers from `Events`
@@ -350,12 +350,16 @@ proc sortReadInGridData(rawIngrid: seq[FlowVar[ref Event]],
       # sort tuples by event numbers (indices thus mangled, but in "correct" order
       # for insertion)
       sortedNums = zipped.sortedByIt(it[0])
-
     info &"Min event number {min(numList)} and max number {max(numList)}"
     # insert elements into result
     result = newSeqOfCap[Event](raw_ingrid.len)
     for i in sortedNums:
       result.add (^raw_ingrid[i[1]])[]
+  else:
+    # we'll never end up here with rfUnknown, unless something bad happens
+    logging.fatal("Unkown error. Ended up with unknown run folder kind " &
+      "in `sortReadInGridData`. Stopping program")
+    quit(1)
 
   let t1 = epochTime()
   info &"...Sorting done, took {$(t1 - t0)} seconds"
@@ -1106,7 +1110,7 @@ proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string,
       initInGridInH5(h5f, runNumber, nChips, batchsize)
       attrsWritten = true
 
-    let a = squeeze(r.occupancies[2,_,_])
+    let a = squeeze(r.occupancies[0,_,_])
     dumpFrameToFile("tmp/frame.txt", a)
     writeProcessedRunToH5(h5f, r)
     info "Size of total ProcessedRun object = ", sizeof(r)
@@ -1186,8 +1190,11 @@ proc main() =
           processAndWriteSingleRun(h5f, folder, flags, runType)
       else:
         info &"Run {runNumber} with path {folder} is invalid for type {runType}"
-    of rfNewTos:
+    of rfNewTos, rfSrsTos:
       processAndWriteSingleRun(h5f, folder, flags, runType)
+    else:
+      raise newException(IOError, "Unknown run folder kind. Cannot read " &
+        "events!")
     info "free memory ", getFreeMem()
     info "occupied memory so far $# \n\n" % [$getOccupiedMem()]
     info "Closing h5file with code ", h5f.close()

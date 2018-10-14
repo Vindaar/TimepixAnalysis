@@ -361,12 +361,16 @@ proc sortReadInGridData(rawIngrid: seq[FlowVar[ref Event]],
   info &"...Sorting done, took {$(t1 - t0)} seconds"
 
 
-proc processRawInGridData(ch: seq[Event], runNumber: int): ProcessedRun = #seq[FlowVar[ref Event]]): ProcessedRun =
+proc processRawInGridData(ch: seq[Event],
+                          runNumber: int,
+                          runHeader: Table[string, string]): ProcessedRun =
   ## procedure to process the raw data read from the event files by readRawInGridData
   ## inputs:
   ##    ch: seq[Event]] = seq of Event objects, which each store raw data of a single event.
   ##        We read normal events, perform calculations
   ##        to obtain ToT per pixel, number of hits and occupancies of that data
+  ##    runNumber: int = the run number of the current run
+  ##    runHeader = The header valid for the whole run.
   ## outputs:
   ##   ProcessedRun containing:
   ##    events:    seq[Event] = the raw data from the seq of FlowVars saved in seq of Events
@@ -376,9 +380,8 @@ proc processRawInGridData(ch: seq[Event], runNumber: int): ProcessedRun = #seq[F
   ##      occ:    Tensor[int] = (nChips, 256, 256) tensor containing occupancies of all chips for
   ##        this data.
 
-  # get nChips from first `Event`. Can take any, since same for all
-  # events in a run
-  let nChips = ch[0].nChips
+  # get number of chips from header
+  let nChips = parseInt(runHeader["numChips"])
 
   # variable to count number of processed files
   var
@@ -397,8 +400,8 @@ proc processRawInGridData(ch: seq[Event], runNumber: int): ProcessedRun = #seq[F
     events = newSeq[Event](len(ch))
   let
     # get the run specific time and shutter mode
-    time = parseFloat(ch[0].evHeader["shutterTime"])
-    mode = float(parseShutterMode(ch[0].evHeader["shutterMode"]))
+    time = parseFloat(runHeader["shutterTime"])
+    mode = float(parseShutterMode(runHeader["shutterMode"]))
 
   # set the run number
   result.runNumber = runNumber
@@ -439,7 +442,7 @@ proc processRawInGridData(ch: seq[Event], runNumber: int): ProcessedRun = #seq[F
 
   # use first event of run to fill event header. Fine, because event
   # header is contained in every file
-  result.runHeader = ch[0].evHeader #fillRunHeader(ch[0]) #^ch[0])
+  result.runHeader = runHeader
   result.nChips = nChips
   result.events = events
   result.tots = tot_run -->> map(it -->
@@ -1056,8 +1059,13 @@ proc readAndProcessInGrid(listOfFiles: seq[string],
   info "list of files ", listOfFiles.len
   let ingrid = readRawInGridData(listOfFiles, rfKind)
   let sortedIngrid = sortReadInGridData(ingrid, rfKind)
+
+  # to extract the run header, we only need any element of
+  # the data. For `rfNewTos` and `rfOldTos` the run header is
+  # equivalent to the event header. For `rfSrsTos` it's different
+  let runHeader = getRunHeader(sortedIngrid[0], rfKind)
   # process the data read into seq of FlowVars, save as result
-  result = processRawInGridData(sortedIngrid, runNumber)
+  result = processRawInGridData(sortedIngrid, runNumber, runHeader)
 
 proc processAndWriteFadc(run_folder: string, runNumber: int, h5f: var H5FileObj) =
   # for the FADC we call a single function here, which works on

@@ -358,6 +358,11 @@ proc readEventHeader*(filepath: string): Table[string, string] =
       let val = matches[1]
       result[key] = val
 
+proc getRunHeader*(ev: Event, rfKind: RunFolderKind): Table[string, string] =
+  ## returns the correct run header based on the `RunFolderKind`
+  case rfKind
+  of rfOldTos, rfNewTos:
+    result = ev.evHeader
 proc readMemFilesIntoBuffer*(list_of_files: seq[string]): seq[seq[string]] =
   ## procedure which reads a list of files via memory mapping and returns
   ## the thus read data as a sequence of MemFiles
@@ -893,7 +898,7 @@ template addPixelsToOccupancy*[T](ar: Tensor[T], pixels: Pixels) =
 template addPixelsToOccupancySeptem*[T](ar: var Tensor[T], pixels: Pixels, ch_num: int) =
   ## template to add pixels to occupancy by using map
   for p in pixels:
-    ar[ch_num, p.x.int, p.y.int] += 1#p.ch
+    ar[ch_num, p.x.int, p.y.int] += 1
 
 proc createTensorFromZeroSuppressed*[T](pixels: Pixels): Tensor[T] =
   ## procedure to create a (256, 256) int array from a Pixels (seq[tuple[x, y, ch]])

@@ -660,7 +660,10 @@ proc readProcessWriteFadcData(run_folder: string, runNumber: int, h5f: var H5Fil
 
   # get a sorted list of files, sorted by inode
   var
-    files: seq[string] = getSortedListOfFiles(run_folder, EventSortType.fname, EventType.FadcType)
+    files: seq[string] = getSortedListOfFiles(run_folder,
+                                              EventSortType.fname,
+                                              EventType.FadcType,
+                                              RunFolderKind.rfUnknown)
     raw_fadc_data: seq[FlowVar[ref FadcFile]] = @[]
     # variable to store the processed FADC data
     f_proc: ProcessedFadcData
@@ -1088,7 +1091,10 @@ proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string,
   var nChips: int
 
   let (_, runNumber, rfKind, _) = isTosRunFolder(runFolder)
-  var files = getSortedListOfFiles(run_folder, EventSortType.fname, EventType.InGridType)
+  var files = getSortedListOfFiles(run_folder,
+                                   EventSortType.fname,
+                                   EventType.InGridType,
+                                   rfKind)
 
   batchFiles(files, batchsize - 1):
     let r = readAndProcessInGrid(files[0 .. ind_high], runNumber, rfKind)

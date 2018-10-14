@@ -990,7 +990,10 @@ proc sortByInode*(listOfFiles: seq[string]): seq[string] =
     (i: int, name: string) -> string => name
   )
 
-proc getSortedListOfFiles*(run_folder: string, sort_type: EventSortType, event_type: EventType): seq[string] =
+proc getSortedListOfFiles*(run_folder: string,
+                           sort_type: EventSortType,
+                           event_type: EventType,
+                           rfKind: RunFolderKind): seq[string] =
   ## this procedure returns a sorted list of event files from a
   ## run folder. The returned files are sorted by the event number
   ## inputs:
@@ -1004,7 +1007,9 @@ proc getSortedListOfFiles*(run_folder: string, sort_type: EventSortType, event_t
   var eventRegex = ""
   case event_type:
   of EventType.InGridType:
-    eventRegex = eventRegexInGrid#r".*data\d{4,6}\.txt$"
+    case rfKind
+    of rfOldTos, rfNewTos:
+      eventRegex = eventRegexVirtex
   of EventType.FadcType:
     eventRegex = r".*data\d{4,6}\.txt-fadc$"
   # get the list of files from this run folder and sort it
@@ -1047,7 +1052,7 @@ proc readListOfFiles*[T](list_of_files: seq[string],
 
 # set experimental pragma to enable parallel: block
 {.experimental.}
-proc readListOfInGridFiles*(list_of_files: seq[string]):
+proc readListOfInGridFiles*(list_of_files: seq[string], rfKind: RunFolderKind):
                           seq[FlowVar[ref Event]] =
   ## this procedure receives a list of files, reads them into memory (as a buffer)
   ## and processes the content into a seq of ref Events
@@ -1056,14 +1061,7 @@ proc readListOfInGridFiles*(list_of_files: seq[string]):
   ## outputs:
   ##    seq[FlowVar[ref Event]] = a seq of flow vars pointing to events, since we read
   ##                              in parallel
-  result = readListOfFiles[Event](list_of_files)
-
-proc readListOfOldInGridFiles*(list_of_files: seq[string]):
-                             seq[FlowVar[ref Event]] =
-  ## see documentation of above
-  # since `OldEvent` is simply an alias for us, it can be returned as
-  # an `Event` as well
-  result = readListOfFiles[OldEvent](list_of_files)
+  result = readListOfFiles[Event](list_of_files, rfKind)
 
 proc isTosRunFolder*(folder: string):
   tuple[is_rf: bool, runNumber: int, rfKind: RunFolderKind, contains_rf: bool] =

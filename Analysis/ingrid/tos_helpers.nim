@@ -376,10 +376,25 @@ proc parseSrsRunInfo(path: string): Table[string, string] =
     # all good, can parse it
     # run number, start and end time
     # won't be considered
-    for line in lines(runPath):
-      if line.len == 0 or line[0] != '\t':
+    var idx = 0
+    var s = openFileStream(runPath)
+    defer: s.close()
+    var line = ""
+    var
+      inParameters = false
+      inChipIds = false
+
+    while readLine(s, line):
+      if line.startsWith("Run parameters:"):
+        inParameters = true
         continue
-      else:
+      elif line.startsWith("Chip IDs:"):
+        inParameters = false
+        inChipIds = true
+        continue
+      elif line.len == 0 or line[0] != '\t':
+        continue
+      elif inParameters:
         let val = line.splitWhitespace[^1]
         var key = ""
         if "run mode" in line:
@@ -390,10 +405,24 @@ proc parseSrsRunInfo(path: string): Table[string, string] =
           key = "shutterMode"
         elif "shutter time" in line:
           key = "shutterTime"
-          # we assign here to break afterwards
+        if key.len > 0:
           result[key] = val
-          break
-        result[key] = val
+      elif inChipIds:
+        # parse the chip ids
+        var
+          fec = 0
+          board = 0
+          chip = 0
+          colRow = ""
+          wafer = ""
+        if scanf(line, "$sFEC $i Board $i Chip $i: $w-$w", fec, board, chip, colRow, wafer):
+          # subtract 1 from chip number to get 0 indexing
+          let
+            chipName = &"chip_{chip - 1}"
+            nChips = result.getOrDefault("numChips", "0").parseInt
+          result[chipName] = &"{colRow} {wafer}"
+          # add number of chips
+          result["numChips"] = $(nChips + 1)
     # finally correct `runTime` and add `runTimeFrames`
     if result["runMode"] == "1":
       result["runTimeFrames"] = result["runTime"]

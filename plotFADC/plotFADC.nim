@@ -8,27 +8,26 @@ import docopt
 let doc = """
 InGrid/FADC reading and cutting.
 
+
 Usage:
- plotFADC <HDF5file> [options]
- plotFADC <HDF5file> [--runNumber <runnum>] [--chipNumber <chipnum>] [options]
- plotFADC <HDF5file> --evParams  [options]
- plotFADC <HDF5file> [--choose <chparams>] [--cutFADC_low <fadccutlow>] [options]
- plotFADC <HDF5file> [--choose <chparams>] [--cutFADC_high <fadccuthigh>] [options]
- plotFADC <HDF5file> [--choose <chparams>] [--cutFADC_low <fadccutlow>] [--cutFADC_high <fadccuthigh>] [options]
- plotFADC <HDF5file>  [--choose <chparams>] [--plot_low <plotlow>] [options]
- plotFADC <HDF5file>  [--choose <chparams>] [--plot_high <plothigh>] [options]
- plotFADC <HDF5file>  [--choose <chparams>] [--plot_low <plotlow>] [--plot_high <plothigh>] [options]
+  plotFADC <HDF5file> [options]
+  plotFADC <HDF5file> [--runNumber <runnum>] [--chipNumber <chipnum>] [options]
+  plotFADC <HDF5file> --evParams  [options]
+  plotFADC <HDF5file> [--choose <chparams>] [--cutFADC_low <fadccutlow>] [--cutFADC_high <fadccuthigh>] [options]
+  plotFADC <HDF5file>  [--choose <chparams>] [--plot_low <plotlow>] [--plot_high <plothigh>] [options]
+  plotFADC -h | --help
 
 
 Options:
- --runNumber           choose the run you would like to look at
- --chipNumber          choose the chip you would like to look at
- --evParams            shows a list of possible InGrid Parameters
- --choose              choose one InGrid Parameter from the list
- --cutFADC_low/high    choose a low/high limit for cuts
- --plot_low/high       choose a low/high limit for plot range
- -h --help             show this text
-
+  --runNumber <runnum>          choose the run you would like to look at
+  --chipNumber <chipnum>        choose the chip you would like to look at
+  --evParams                    shows a list of possible InGrid Parameters
+  --choose <chparams>           choose one InGrid Parameter from the list
+  --cutFADC_low <fadccutlow>    choose a low limit for cuts
+  --cutFADC_high <fadccuthigh>  choose a high limit for cuts
+  --plot_low <plotlow>          choose a low limit for plot range
+  --plot_high <plothigh>        choose a high limit for plot range
+  -h --help                     show this text
  """
 
 proc readandcut*[T](h5f: var H5FileObj, runNumber: int, chip: int, chParams: string, cutlow: int, cuthigh: int): seq[T] =
@@ -88,14 +87,17 @@ proc plotcuts*[T](cuts: seq[T], chParams: string, maxcut: float) =
 proc main() =
 
   let args = docopt(doc)
+  when not defined(release):
+    echo args
   let  h5file = $args["<HDF5file>"]
   var
-    runNum = $args["<runnum>"]
-    chipNum = $args["<chipnum>"]
-    chParams = $args["<chparams>"]
-    cutFADCnum_low = $args["<fadccutlow>"]
-    cutFADCnum_high = $args["<fadccuthigh>"]
-    plothigh_num = $args["<plothigh>"]
+    runNum = $args["--runNumber"]
+    chipNum = $args["--chipNumber"]
+    chParams = $args["--choose"]
+    cutFADCnum_low = $args["--cutFADC_low"]
+    cutFADCnum_high = $args["--cutFADC_high"]
+    plothigh_num = $args["--plot_high"]
+    plotlow_num = $args["--plot_low"]
 
   var h5f = H5file(h5file, "rw")
   h5f.visit_file
@@ -109,19 +111,19 @@ proc main() =
   var maxcut: int
   var maxcutfloat: float
 
-  if $args["--choose"] == "true":
+  if chParams != "nil":
     chParamstring = chParams
   else:
     chParamstring = "eccentricity"
     echo "When no InGrid Parameter is set, the eccentricity will be used"
 
-  if $args["--cutFADC_low"] == "true":
+  if cutFADCnum_low != "nil":
     cutlow = cutFADCnum_low.parseInt
   else:
     cutlow = 1
     echo "Standard low cut limit is 1"
 
-  if $args["--cutFADC_high"] == "true":
+  if cutFADCnum_high != "nil":
     cuthigh = cutFADCnum_high.parseInt
   else:
     cuthigh = 1000
@@ -152,7 +154,7 @@ proc main() =
     runNumint = runNum.parseInt
     cuts = readandcut[float](h5f, runNumint, chipNumint, chParamstring, cutlow, cuthigh)
 
-  if $args["--plot_high"] == "true":
+  if plothigh_num != "nil":
      maxcutfloat = plothigh_num.parseFloat
   else:
      maxcutfloat = cuts.max ##find the maximum to define the upper plotting limit

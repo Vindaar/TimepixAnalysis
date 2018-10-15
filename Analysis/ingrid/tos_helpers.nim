@@ -41,10 +41,6 @@ const
   oldVirtexRunRegex = r".*Run\d{6}_\d{2}-\d{2}-\d{2}.*"
   srsRunRegex       = r".*Run_(\d{6})_\d{6}_\d{2}-\d{2}-\d{2}.*"
 
-  SrsRunIncomplete = "incomplete"
-  SrsRunIncompleteMsg = "This run does not contain a run.txt and so " &
-      "is incomplete!"
-
   # default chip names, shutter modes and shutter times
   OldShutterMode = "verylong"
   OldShutterTime = "13"
@@ -429,6 +425,11 @@ proc parseSrsRunInfo(path: string): Table[string, string] =
       result["runTime"] = "0"
     else:
       result["runTimeFrames"] = "1"
+
+    # if `inChipIds` is still false, there was no chip ID information in the
+    # `run.txt` (old format). Add note to run header
+    if not inChipIds:
+      result[SrsNoChipId] = SrsNoChipIdMsg
   else:
     # doesn't exist, mark run as incomplete and assign
     # dummy values for information stored in run.txt

@@ -41,6 +41,14 @@ type
     # time the shutter was open in seconds
     length*: float
 
+  Run* = object
+    # a run stores raw run data of a sequence of events
+    # and information about the chips
+    events*: seq[Event]
+    chips*: seq[Chip]
+    runNumber*: int
+    runHeader*: Table[string, string]
+
   # define a distinct `OldEvent` to differentiate the (in principle) not
   # different old TOS storage format
   OldEvent* = Event
@@ -133,6 +141,8 @@ type
   ProcessedRun* = tuple[
     # just the number of chips in the run
     nChips: int,
+    # the chips as (name, number) tuples
+    chips: seq[Chip],
     # run number
     runNumber: int,
     # table containing run header ([General] in data file)
@@ -241,3 +251,9 @@ type
 # and some general InGrid related constants
 const NPIX* = 256
 const PITCH* = 0.055
+
+const SrsRunIncomplete* = "incomplete"
+const SrsRunIncompleteMsg* = "This run does not contain a run.txt and so " &
+  "is incomplete!"
+const SrsNoChipId* = "ChipIDMissing"
+const SrsNoChipIdMsg* = "The chip IDs are missing from the run.txt. Old format!"

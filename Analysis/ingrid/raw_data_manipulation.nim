@@ -365,9 +365,7 @@ proc sortReadInGridData(rawIngrid: seq[FlowVar[ref Event]],
   info &"...Sorting done, took {$(t1 - t0)} seconds"
 
 
-proc processRawInGridData(ch: seq[Event],
-                          runNumber: int,
-                          runHeader: Table[string, string]): ProcessedRun =
+proc processRawInGridData(run: Run): ProcessedRun =
   ## procedure to process the raw data read from the event files by readRawInGridData
   ## inputs:
   ##    ch: seq[Event]] = seq of Event objects, which each store raw data of a single event.
@@ -384,6 +382,9 @@ proc processRawInGridData(ch: seq[Event],
   ##      occ:    Tensor[int] = (nChips, 256, 256) tensor containing occupancies of all chips for
   ##        this data.
 
+  let
+    ch = run.events
+    runHeader = run.runHeader
   # get number of chips from header
   let nChips = parseInt(runHeader["numChips"])
 
@@ -408,7 +409,7 @@ proc processRawInGridData(ch: seq[Event],
     mode = float(parseShutterMode(runHeader["shutterMode"]))
 
   # set the run number
-  result.runNumber = runNumber
+  result.runNumber = run.runNumber
 
   # initialize empty sequences. Input to anonymous function is var
   # as we change each inner sequence in place with newSeq
@@ -447,6 +448,7 @@ proc processRawInGridData(ch: seq[Event],
   # use first event of run to fill event header. Fine, because event
   # header is contained in every file
   result.runHeader = runHeader
+  result.chips = run.chips
   result.nChips = nChips
   result.events = events
   result.tots = tot_run -->> map(it -->
@@ -794,8 +796,8 @@ proc writeInGridAttrs(h5f: var H5FileObj, run: ProcessedRun,
   # write attributes for each chip
   var i = 0
   for grp in mitems(chip_groups):
-    grp.attrs["chipNumber"] = run.events[0].chips[i].chip.number
-    grp.attrs["chipName"]   = run.events[0].chips[i].chip.name
+    grp.attrs["chipNumber"] = run.chips[i].number
+    grp.attrs["chipName"]   = run.chips[i].name
     # initialize the attribute for the current number of stored events to 0
     grp.attrs["numEventsStored"] = 0
     inc i
@@ -819,7 +821,7 @@ proc writeInGridAttrs(h5f: var H5FileObj, run: ProcessedRun,
   else:
     warn &"This number of chips ({run.nChips}) currently unsupported for" &
       " `centerChip` determination. Will be set to 0."
-  let centerName = run.events[0].chips[centerChip].chip.name
+  let centerName = run.chips[centerChip].name
   rawG.attrs["centerChip"] = centerChip
   recoG.attrs["centerChip"] = centerChip
   rawG.attrs["centerChipName"] = centerName
@@ -949,7 +951,6 @@ proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
   # set new size as attribute
   runGroup.attrs["numEventsStored"] = newsize
 
-
   # call proc to write the data from the events to the seqs, tables
   fillDataForH5(x, y, ch, evHeaders, duration, run.events, oldsize)
 
@@ -1054,6 +1055,41 @@ proc linkRawToReco(h5f: var H5FileObj, runNumber, nChips: int) =
     h5f.create_hardlink(totDsetNames[chip], combineRawBasenameToT(chip, runNumber))
     h5f.create_hardlink(hitDsetNames[chip], combineRawBasenameHits(chip, runNumber))
 
+proc createRun(runHeader: Table[string, string],
+               runNumber: int,
+               events: seq[Event],
+               rfKind: RunFolderKind): Run =
+  ## performs the conversion from a sequence `Event` plus meta
+  ## information to a `Run`, which combines everything and deals
+  ## with differences of data storage for SRS, old V6 and new V6
+  result.runHeader = runHeader
+  result.runNumber = runNumber
+  result.events = events
+  # now extract the chips correclty depending on data type
+  case rfKind
+  of rfOldTos, rfNewTos:
+    # just get it from any event
+    let ev = events[0]
+    # extract each `Chip` from each `ChipEvent`
+    result.chips = ev.chips.mapIt(it.chip)
+  of rfSrsTos:
+    # in this case need to extract information from the
+    # run header
+    if not result.runHeader.hasKey(SrsRunIncomplete) and
+       not result.runHeader.hasKey(SrsNoChipId):
+      let nChips = result.runHeader["numChips"].parseInt
+      result.chips = newSeq[Chip](nChips)
+      for i in 0 ..< nChips:
+        let name = result.runHeader[&"chip_{i}"]
+        result.chips[i] = (name, i)
+    else:
+      # in this case take bad information from chips too
+      let ev = events[0]
+      result.chips = ev.chips.mapIt(it.chip)
+  of rfUnknown:
+    raise newException(Exception, "Creation of a `Run` is impossible for an " &
+      "unknown run folder kind at the moment!")
+
 proc readAndProcessInGrid(listOfFiles: seq[string],
                           runNumber: int,
                           rfKind: RunFolderKind): ProcessedRun =
@@ -1072,7 +1108,8 @@ proc readAndProcessInGrid(listOfFiles: seq[string],
   # equivalent to the event header. For `rfSrsTos` it's different
   let runHeader = getRunHeader(sortedIngrid[0], rfKind)
   # process the data read into seq of FlowVars, save as result
-  result = processRawInGridData(sortedIngrid, runNumber, runHeader)
+  let run = createRun(runHeader, runNumber, sortedIngrid, rfKind)
+  result = processRawInGridData(run)
 
 proc processAndWriteFadc(run_folder: string, runNumber: int, h5f: var H5FileObj) =
   # for the FADC we call a single function here, which works on

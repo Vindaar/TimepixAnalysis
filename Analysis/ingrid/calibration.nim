@@ -739,11 +739,6 @@ proc performChargeCalibGasGainFit*(h5f: var H5FileObj) =
       # given correct group, get the `charge` and `FeSpectrumCharge` dsets
       var
         chargeDset = h5f[(centerChipGrp.name / "charge").dset_str]
-        feChargeSpec: H5DataSet
-      # TODO: FIX NAME, then take out first case!
-      if hasDset(h5f, run.parseInt, centerChip, "FeSpetrumCharge"):
-        feChargeSpec = h5f[(centerChipGrp.name / "FeSpetrumCharge").dset_str]
-      else:
         feChargeSpec = h5f[(centerChipGrp.name / "FeSpectrumCharge").dset_str]
       let
         keVPerE = feChargeSpec.attrs["keV_per_electron", float64]

@@ -1042,6 +1042,14 @@ proc processSrsEventScanf*(data: seq[string]): ref SrsEvent =
     e_header["numChips"] = $result.nChips
     let (head, tail) = filepath.splitPath
     e_header["pathName"] = head
+
+    # since we strip the '0' characters, we might strip everything, if the
+    # event or run number is number 0. Thus check if nothing is left and
+    # if so set to 0 manually.
+    if e_header["eventNumber"].len == 0:
+      e_header["eventNumber"] = "0"
+    if e_header["runNumber"].len == 0:
+      e_header["runNumber"] = "0"
   else:
     raise newException(IOError, "SRS filename does not match `scanf` syntax! " &
       "Filename: " & filepath)

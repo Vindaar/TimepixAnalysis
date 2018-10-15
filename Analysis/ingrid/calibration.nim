@@ -721,7 +721,7 @@ proc performChargeCalibGasGainFit*(h5f: var H5FileObj) =
     for chpGrp in items(h5f, start_path = grp):
       centerChipGrp = chpGrp
       case rfKind
-      of rfOldTos:
+      of rfOldTos, rfSrsTos:
         if centerChipName.len == 0:
           centerChipName = centerChipGrp.attrs["chipName", string]
       of rfNewTos:
@@ -731,6 +731,10 @@ proc performChargeCalibGasGainFit*(h5f: var H5FileObj) =
           continue
         else:
           echo "\t taking group ", centerChipGrp.name
+      of rfUnknown:
+        echo "Unknown run folder kind. Skipping charge calibration for run " &
+          centerChipGrp.name & "!"
+        continue
       # read the chip name
       # given correct group, get the `charge` and `FeSpectrumCharge` dsets
       var

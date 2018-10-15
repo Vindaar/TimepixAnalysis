@@ -810,17 +810,23 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
   # are stored as references anyways
   reconstructRunsInFile(h5f, h5f, flags, runNumberArg, calib_factor)
 
-proc reconstructSingleRunFolder(folder: string) =
+proc reconstructSingleRunFolder(folder: string)
+    {.deprecated: "This proc is deprecated! Run raw_data_manipulation before!".} =
   ## procedure which receives path to a run folder and reconstructs the objects
   ## in that folder
   ## inputs:
   ##    folder: string = the run folder from which to reconstruct events
+
+  # TODO: Either remove this proc soon or revive it, but with proper run support
+  # and calling the actual reconstruction procs from the data!
+  # Latter might be a good idea actually for quick convenience!
+
   info "Starting to read list of files"
   let
-    files = getSortedListOfFiles(folder, EventSortType.inode, EventType.InGridType)
-    regex_tup = getRegexForEvents()
+    files = getSortedListOfFiles(folder, EventSortType.inode, EventType.InGridType,
+                                 rfUnknown)
     f_to_read = if files.high < 30000: files.high else: 30000
-    data = readListOfInGridFiles(files[0..f_to_read], regex_tup)
+    data = readListOfInGridFiles(files[0..f_to_read], rfUnknown)
   var
     min_val = 10.0
     min_seq = newSeq[seq[float64]](7)

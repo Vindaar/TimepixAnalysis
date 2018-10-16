@@ -14,6 +14,7 @@ Usage:
   plotFADC <HDF5file> [--runNumber <runnum>] [--chipNumber <chipnum>] [options]
   plotFADC <HDF5file> --evParams  [options]
   plotFADC <HDF5file> [--choose <chparams>] [--cutFADC_low <fadccutlow>] [--cutFADC_high <fadccuthigh>] [options]
+  plotFADC <HDF5file> [--choose <chparams>] [--cutFADC_low <fadccutlow>] [--cutFADC_high <fadccuthigh>] [--plot_high <plothigh>] [options]
   plotFADC <HDF5file>  [--choose <chparams>] [--plot_low <plotlow>] [--plot_high <plothigh>] [options]
   plotFADC -h | --help
 
@@ -66,11 +67,11 @@ proc readandcut*[T](h5f: var H5FileObj, runNumber: int, chip: int, chParams: str
 
   result = cutb
 
-proc plotcuts*[T](cuts: seq[T], chParams: string, maxcut: float) =
+proc plotcuts*[T](cuts: seq[T], chParams: string, mincut:float, maxcut: float) =
   ##plot the results
   let
     d = Trace[float](`type`: PlotType.Histogram,
-                     bins: (0.0, maxcut), binSize: 0.1 ) ##somehow change bin and binsize in respect to the data
+                     bins: (mincut, maxcut), binSize: 0.1 ) ##somehow change bin and binsize in respect to the data
 
   d.xs = cuts
   let
@@ -80,7 +81,7 @@ proc plotcuts*[T](cuts: seq[T], chParams: string, maxcut: float) =
                     yaxis: Axis(title:"counts"),
                     autosize: false)
     p = Plot[float](layout: layout, traces: @[d])
-#  p.show()
+  p.show()
 #  p.saveImage("chParams.pdf")
 
 
@@ -110,6 +111,7 @@ proc main() =
   var dataBasename = recoBase()
   var maxcut: int
   var maxcutfloat: float
+  var mincutfloat: float
 
   if chParams != "nil":
     chParamstring = chParams
@@ -128,7 +130,7 @@ proc main() =
   else:
     cuthigh = 1000
     echo "Standard high cut limit is 1000"
-  #echo cuthigh
+
   ##get the runNumber and the center chip number
 
   let groups = toSeq(keys(h5f.groups))
@@ -146,7 +148,6 @@ proc main() =
   if runNum == "nil":
     for grp in groups:
       if grp.match(runRegex, run) == true:
-        #echo (run[0], grp)
         var runNumber = run[0].parseInt
         runNumint = run[0].parseInt
         cuts.add readandcut[float](h5f, runNumint, chipNumint, chParamstring, cutlow, cuthigh)
@@ -154,16 +155,20 @@ proc main() =
     runNumint = runNum.parseInt
     cuts = readandcut[float](h5f, runNumint, chipNumint, chParamstring, cutlow, cuthigh)
 
+  if $args["--plot_low"] != "nil":
+     mincutfloat = plotlow_num.parseFloat
+  else:
+     mincutfloat = 0.0
+
   if plothigh_num != "nil":
      maxcutfloat = plothigh_num.parseFloat
   else:
      maxcutfloat = cuts.max ##find the maximum to define the upper plotting limit
- # echo plothigh_num
 
   if $args["--evParams"] ==  "true":
     echo getFloatDsetNames()
   else:
-    plotcuts(cuts, chParamstring, maxcutfloat)
+    plotcuts(cuts, chParamstring, mincutfloat,  maxcutfloat)
 
   discard h5f.close()
 

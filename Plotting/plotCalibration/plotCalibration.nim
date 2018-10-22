@@ -39,13 +39,15 @@ Version: $# built on: $#
 A simple tool to plot SCurves or ToT calibrations.
 
 Usage:
-  plotCalibration (--scurve | --tot) (--db=chipNumber | --file=FILE | --folder=FOLDER) [options]
+  plotCalibration (--scurve | --tot) (--db=chip | --file=FILE | --folder=FOLDER) [options]
 
 Options:
   --scurve         If set, perform SCurve analysis
   --tot            If set, perform ToT calibration analysis
-  --db=chipNumber  If given will read information from InGrid database, if
-                   available
+  --db=chip        If given will read information from InGrid database, if
+                   available. Either chip number or chip name supported.
+                   NOTE: if a chip number is used, it is assumed that it
+                   corresponds to said chip on the Septem H board!
   --file=FILE      If given will read from a single file
   --folder=FOLDER  If given will read all voltage files from the given folder
   --chip=NUMBER    The number of this chip
@@ -65,6 +67,19 @@ const
   GoldenMean = (sqrt(5.0) - 1.0) / 2.0  # Aesthetic ratio
   FigWidth = 1200.0                     # width in inches
   FigHeight = FigWidth * GoldenMean     # height in inches
+
+func parseDbChipArg(dbArg: string): string =
+  ## given the argument to the `--db` flag, perform the necessary
+  ## conversion to get a valid chip name from the InGrid database
+  ## NOTE: If the argument is a valid integer, it is assumed that
+  ## the chip is on the Septem H board!
+  # first try to parse the argument as an integer
+  try:
+    let chipNum = dbArg.parseInt
+    result = getSeptemHChip(chipNum)
+  except ValueError:
+    # not a valid chip number. Interpret as chip name
+    result = dbArg
 
 proc getTrace[T](thl, hits: seq[T], voltage: string): Trace[float] =
   result = Trace[float](`type`: PlotType.Scatter)
@@ -147,7 +162,7 @@ iterator sCurves(args: DocoptTab): SCurve =
   let db = $args["--db"]
   if db != "nil":
     when declared(ingridDatabase):
-      let chipName = getSeptemHChip(db.parseInt)
+      let chipName = parseDbChipArg(db)
       let scurves = getScurveSeq(chipName)
       for curve in scurves.curves:
         yield curve
@@ -223,8 +238,7 @@ proc parseTotInput(args: DocoptTab, startTot = 0.0): (int, Tot) =
 
   if db != "nil":
     when declared(ingridDatabase):
-      chip = db.parseInt
-      let chipName = getSeptemHChip(chip)
+      let chipName = parseDbChipArg(db)
       tot = getTotCalib(chipName)
   elif file != "nil":
     (chip, tot) = readToTFile(file, startTot)

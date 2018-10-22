@@ -128,7 +128,7 @@ func sCurveFunc(p: seq[float], x: float): float =
 func linearFunc(p: seq[float], x: float): float =
   result = p[0] + x * p[1]
 
-template thlCalibFunc(p: seq[float], x: float): float =
+proc thlCalibFunc(p: seq[float], x: float): float =
   ## we fit a linear function to the charges and mean thl values
   ## of the SCurves
   linearFunc(p, x)

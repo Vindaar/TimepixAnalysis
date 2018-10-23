@@ -90,7 +90,7 @@ proc getFadcIntTime(date: DateTime): FadcIntTime =
   let
     t1 = initDateTime(7, mDec, 2017, 8, 0, 0)
     t2 = initDateTime(8, mDec, 2017, 17, 50, 0)
-    t3 = initDateTime(15, mDec, 2017, 10, 20, 0)    
+    t3 = initDateTime(15, mDec, 2017, 10, 20, 0)
   if date < t1:
     result = fk50
   elif date > t1 and date < t2:
@@ -111,7 +111,7 @@ proc noiseAnalysis(h5f: var H5FileObj): tuple[f50, f100: Table[string, float64]]
   # table to store (middle) dates of each run and the corresponding percentage
   # the detector was active. For 50 and 100 ns integration time
   var date_tab_50  = initTable[string, float64]()
-  var date_tab_100 = initTable[string, float64]()  
+  var date_tab_100 = initTable[string, float64]()
 
   for num, group in runs(h5f):
     # for each event we get the start and end time of the tracking
@@ -184,7 +184,7 @@ proc writeNoiseData(tab_tup: tuple[f50, f100: Table[string, float64]], outfile: 
   outf.write("# 100 ns integration time\n")
   for k, v in t100:
     outf.write(&"{k} \t {v}\n")
-    
+
 
 proc findThresholdValue[T](data: seq[seq[T]], x_min: seq[int], threshold: seq[T], left = true, positive = false): seq[int] =
   ## left determines whether we start search left or right
@@ -199,11 +199,11 @@ proc findThresholdValue[T](data: seq[seq[T]], x_min: seq[int], threshold: seq[T]
       # positive == true would mean el[x] > thr
       if left == true:
         dec x
-        if x == 0:
+        if x <= 0:
           x = el.high
       else:
         inc x
-        if x > el.high:
+        if x >= el.high:
           x = 0
       inc count
     # once we're out, we found our threshold in the data

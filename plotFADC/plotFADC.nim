@@ -1,4 +1,4 @@
-import nimhdf5, os, ingrid/tos_helpers, sequtils, strutils, math
+import nimhdf5, os, ingrid/tos_helpers, sequtils, strutils, math, strformat
 import sets
 import plotly
 import tables
@@ -45,7 +45,6 @@ proc readandcut*[T](h5f: var H5FileObj, runNumber: int, chip: int, chParams: str
   let a = choosenParams.filterIt(it < 1000)
   let b = a.filterIt(abs(it).classify != fcInf) ## filter for fcInf, to guarantee that all Parameters can be plotted
 
-
   ##get the fadc data
 
   var fadc_eventNumber_name = eventNumberBasename(runNumber)
@@ -71,18 +70,21 @@ proc plotcuts*[T](cuts: seq[T], chParams: string, mincut:float, maxcut: float) =
   ##plot the results
   let
     d = Trace[float](`type`: PlotType.Histogram,
-                     bins: (mincut, maxcut), binSize: 0.1 ) ##somehow change bin and binsize in respect to the data
-
+                     bins: (mincut, maxcut), binSize: 0.1 )
   d.xs = cuts
   let
+
+   # font = Font(size: 16)
     layout = Layout(title: "distribution histogram"  ,
-                    width: 1200, height: 800,
+                    width: 800, height: 400,
                     xaxis: Axis(title: chParams),
                     yaxis: Axis(title:"counts"),
                     autosize: false)
     p = Plot[float](layout: layout, traces: @[d])
-  p.show()
-#  p.saveImage("chParams.pdf")
+#  p.show()
+#  p.saveImage("$#.svg" % [$chParams])
+  p.saveImage(chParams & ".svg")
+#  p.saveImage(&"{chParams}.svg")
 
 
 proc main() =
@@ -165,7 +167,7 @@ proc main() =
   else:
      maxcutfloat = cuts.max ##find the maximum to define the upper plotting limit
 
-  if $args["--evParams"] ==  "true":
+  if $args["--evParams"] == "true":
     echo getFloatDsetNames()
   else:
     plotcuts(cuts, chParamstring, mincutfloat,  maxcutfloat)

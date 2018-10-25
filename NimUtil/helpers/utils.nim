@@ -9,41 +9,6 @@ import osproc
 import re
 import times
 import seqmath
-import arraymancer
-
-
-# a simple collection of useful function for nim, mostly regarding arrays
-# and sequences
-
-# template orderedTableMap[S, T](result, t: typed) =
-
-#   newSeq(result, t.len)
-#   var i = 0
-#   for k, v in pairs(t):
-#     result[i] = op(k, v)
-#     inc i
-
-# template argmin*[T](a: AnyTensor[T]): int =
-#   let min = min(a)
-#   var result: int
-#   for i, x in a:
-#     if x == min:
-#       result = i[0]
-#       break
-#   result
-
-proc argmin*[T](a: AnyTensor[T], axis: int): int =
-  let `min` = min(a)
-  for i, x in a:
-    if x == `min`:
-      return i[axis]
-
-proc argmin*[T](a: AnyTensor[T]): int =
-  # argmin for 1D tensors
-  let `min` = min(a)
-  for i, x in a:
-    if x == `min`:
-      return i[0]
 
 macro `+`*[N, M: int](a: array[N, string], b: array[M, string]): untyped =
   ## macro to concat two const arrays `a`, `b` at compile time to return a new
@@ -60,19 +25,6 @@ macro `+`*[N, M: int](a: array[N, string], b: array[M, string]): untyped =
   result = nnkStmtList.newTree(
     tree
   )
-
-proc findArgOfLocalMin*[T](view: AnyTensor[T], current_ind: int): int {.inline.} =
-  # procedure to find the argument in a given view of a tensor
-  result = argmin(view) + current_ind
-
-proc findArgOfLocalMinAlt*[T](view: AnyTensor[T], current_ind: int): int {.inline.} =
-  # old very slow implementation. Why so complicated?
-  # procedure to find the argument in a given view of a tensor
-  var r_min = 1000.0
-  for i, x in view:
-    if r_min > x:
-      r_min = x
-      result = i[0] + current_ind
 
 template asType*[T](s: seq[T], dtype: typedesc): untyped =
   ## convenience template to convert type of a `seq` to a different type,
@@ -94,52 +46,6 @@ proc getNewBound*(ind, width, size: int, up_flag: bool = true): int {.inline.} =
   else:
     result = ind + width_half
     result = if result < (size - 1): result else: size - 1
-
-proc findPeaks*(t: Tensor[float], width: int, skip_non_outliers: bool = true): seq[int] =
-  # NOTE: trying to use a generic for this function (for any datatype in the tensor)
-  # fails due to a bug in arraymancer, issue #62:
-  # https://github.com/mratsim/Arraymancer/issues/62
-  # this procedure searches for peaks (or dips) in the given array, by scanning
-  # the array for elements, which are larger than any of the surrounding
-  # 'width' elements. Thus, width defines the 'resolution' and locality of
-  # the peaks for which to scan
-  # TODO: rework this so that it's faster
-
-  result = @[]
-  #let t = x.toTensor()
-  let size = size(t)
-  let steps = int(size / width)
-  # the value of the minimum in a given interval
-  var int_min = 0.0
-
-  # we define the cut value (which determines skip_non_outliers) as values, which are
-  # smaller than one sigma smaller than the mean value
-  var cut_value: float
-  if skip_non_outliers == true:
-    cut_value = mean(t) - std(t)
-
-  var
-    ind, u, min_ind, min_range, max_range, min_from_min: int = 0
-
-  for i in 0..<steps:
-    ind = i * width
-    u   = ind + width - 1
-    let view = t[ind..u]
-    min_ind = findArgOfLocalMin(view, ind)
-    # given the current minimum, check whether we skip this element
-    # since it is outside our bounds of interest anyway
-    if skip_non_outliers == true:
-      int_min = t[min_ind]
-      if int_min > cut_value:
-        continue
-
-    min_range = getNewBound(min_ind, width, size, false)
-    max_range = getNewBound(min_ind, width, size, true)
-
-    min_from_min = findArgOfLocalMin(t[min_range..max_range], min_range)
-    if min_ind == min_from_min:
-      result.add(min_ind)
-
 
 proc map*[S, T, U](t: OrderedTable[S, T], op: proc(k: S, v: T): U {.closure.}):
                                                                  seq[U] {.inline.} =
@@ -354,6 +260,82 @@ template getDateSyntax*(): string =
   ## returns the default syntax used when echoing a `DateTime` or `Time` object
   ## to parse a thusly created string
   "yyyy-MM-dd'T'HH-mm-sszzz"
+
+# import the arraymancer related procs only if the `-d:pure` flag is not
+# set. This allows us to keep this dependency out, if desired
+when not defined(pure):
+  import arraymancer
+  proc argmin*[T](a: AnyTensor[T], axis: int): int =
+    let `min` = min(a)
+    for i, x in a:
+      if x == `min`:
+        return i[axis]
+
+  proc argmin*[T](a: AnyTensor[T]): int =
+    # argmin for 1D tensors
+    let `min` = min(a)
+    for i, x in a:
+      if x == `min`:
+        return i[0]
+
+  proc findArgOfLocalMin*[T](view: AnyTensor[T], current_ind: int): int {.inline.} =
+    # procedure to find the argument in a given view of a tensor
+    result = argmin(view) + current_ind
+
+  proc findArgOfLocalMinAlt*[T](view: AnyTensor[T], current_ind: int): int {.inline.} =
+    # old very slow implementation. Why so complicated?
+    # procedure to find the argument in a given view of a tensor
+    var r_min = 1000.0
+    for i, x in view:
+      if r_min > x:
+        r_min = x
+        result = i[0] + current_ind
+
+  proc findPeaks*(t: Tensor[float], width: int, skip_non_outliers: bool = true): seq[int] =
+    # NOTE: trying to use a generic for this function (for any datatype in the tensor)
+    # fails due to a bug in arraymancer, issue #62:
+    # https://github.com/mratsim/Arraymancer/issues/62
+    # this procedure searches for peaks (or dips) in the given array, by scanning
+    # the array for elements, which are larger than any of the surrounding
+    # 'width' elements. Thus, width defines the 'resolution' and locality of
+    # the peaks for which to scan
+    # TODO: rework this so that it's faster
+
+    result = @[]
+    #let t = x.toTensor()
+    let size = size(t)
+    let steps = int(size / width)
+    # the value of the minimum in a given interval
+    var int_min = 0.0
+
+    # we define the cut value (which determines skip_non_outliers) as values, which are
+    # smaller than one sigma smaller than the mean value
+    var cut_value: float
+    if skip_non_outliers == true:
+      cut_value = mean(t) - std(t)
+
+    var
+      ind, u, min_ind, min_range, max_range, min_from_min: int = 0
+
+    for i in 0..<steps:
+      ind = i * width
+      u   = ind + width - 1
+      let view = t[ind..u]
+      min_ind = findArgOfLocalMin(view, ind)
+      # given the current minimum, check whether we skip this element
+      # since it is outside our bounds of interest anyway
+      if skip_non_outliers == true:
+        int_min = t[min_ind]
+        if int_min > cut_value:
+          continue
+
+      min_range = getNewBound(min_ind, width, size, false)
+      max_range = getNewBound(min_ind, width, size, true)
+
+      min_from_min = findArgOfLocalMin(t[min_range..max_range], min_range)
+      if min_ind == min_from_min:
+        result.add(min_ind)
+
 
 when isMainModule:
   # unit test for a regex to check for

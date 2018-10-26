@@ -3,8 +3,8 @@ from scipy.optimize import curve_fit
 import numpy as np
 import matplotlib as mpl
 import sys
-sys.path.append("/home/basti/CastData/ExternCode/TimepixAnalysis/Analysis/ingrid/")
-from polyaForPython import polyaPython
+sys.path.append("./")
+from procsForPython import polyaPython
 from scipy.special import gamma
 import math
 

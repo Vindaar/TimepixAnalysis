@@ -3,7 +3,7 @@ from scipy.optimize import curve_fit
 import numpy as np
 import matplotlib as mpl
 import sys
-sys.path.append("/home/basti/CastData/ExternCode/TimepixAnalysis/Analysis/ingrid/")
+sys.path.append("./")
 import procsForPython
 
 # this whole fit is probably going to be pretty slow.

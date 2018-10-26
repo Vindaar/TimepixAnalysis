@@ -602,6 +602,12 @@ proc applyChargeCalibration*(h5f: var H5FileObj, runNumber: int)
 proc calcGasGain*(h5f: var H5FileObj, runNumber: int) =
   ## fits the polya distribution to the charge values and writes the
   ## fit parameters (including the gas gain) to the H5 file
+
+  const
+    hitLow = 1.5
+    hitHigh = 101.5
+    binCount = 100
+
   var chipBase = recoDataChipBase(runNumber)
   # get the group from file
   echo "Calcing gas gain for run: ", chipBase
@@ -626,28 +632,45 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int) =
       # get bin edges by calculating charge values for all TOT values at TOT's bin edges
       #let bin_edges = mapIt(linspace(-0.5, 249.5, 251), calibrateCharge(it, a, b, c, t))
       # skip range from 0 - 1.5 to leave out noisy pixels w/ very low ToT
-      let bin_edges = mapIt(linspace(1.5, 101.5, 100), calibrateCharge(it, a, b, c, t))
+      let bin_edges = mapIt(linspace(hitLow, hitHigh, binCount + 1), calibrateCharge(it, a, b, c, t))
       # the histogram counts are the same for ToT values as well as for charge values,
       # so calculate for ToT
-      let binned = tots.histogram(bins = 101, range = (2.0, 102.0))
+      let binned = tots.histogram(bins = binCount, range = (hitLow + 0.5, hitHigh + 0.5))
       # given binned histogram, fit polya
       let fitResult = fitPolyaPython(bin_edges,
                                      binned.asType(float64),
                                      chipNumber, runNumber,
                                      createPlots = false)
+      # create dataset for polya histogram
+      var polyaDset = h5f.create_dataset(group.name / "polya", (binCount + 1, 2), dtype = float64)
+      var polyaFitDset = h5f.create_dataset(group.name / "polyaFit", (binCount, 2), dtype = float64)
+      let polyaData = block:
+        # convert and append one element to bin content array to fill up with 0
+        var mbin = binned.asType(float64)
+        mbin.add 0.0
+        zip(bin_edges, mbin) --> map(@[it[0], it[1]])
+      let polyaFitData = zip(fitResult.x, fitResult.y) --> map(@[it[0], it[1]])
+      polyaDset[polyaDset.all] = polyaData
+      polyaFitDset[polyaFitDset.all] = polyaFitData
+
       # now write resulting fit parameters as attributes
-      chargeDset.attrs["N"] = fitResult.pRes[0]
-      chargeDset.attrs["G"] = fitResult.pRes[1]
-      # TODO: Christoph takes the "mean gas gain" by calculating the mean
-      # of the `chargePerPixelAssymBin` histogram instead of `G` into
-      # account. Why?
-      #chargeDset.attrs["G_mean"] = mean(binned.asType(float64))
-      chargeDset.attrs["theta"] = fitResult.pRes[2]
-      # TODO: get some errors from NLopt?
-      #chargeDset.attrs["N_err"] = fitResult.pErr[0]
-      #chargeDset.attrs["G_err"] = fitResult.pErr[1]
-      #chargeDset.attrs["theta_err"] = fitResutl.pErr[2]
-      chargeDset.attrs["redChiSq"] = fitResult.redChiSq
+      template writeAttrs(d: var H5DataSet, fitResult: typed): untyped =
+        d.attrs["N"] = fitResult.pRes[0]
+        d.attrs["G"] = fitResult.pRes[1]
+        # TODO: Christoph takes the "mean gas gain" by calculating the mean
+        # of the `chargePerPixelAssymBin` histogram instead of `G` into
+        # account. Why?
+        #d.attrs["G_mean"] = mean(binned.asType(float64))
+        d.attrs["theta"] = fitResult.pRes[2]
+        # TODO: get some errors from NLopt?
+        #d.attrs["N_err"] = fitResult.pErr[0]
+        #d.attrs["G_err"] = fitResult.pErr[1]
+        #d.attrs["theta_err"] = fitResutl.pErr[2]
+        d.attrs["redChiSq"] = fitResult.redChiSq
+      writeAttrs(chargeDset, fitResult)
+      writeAttrs(polyaDset, fitResult)
+      writeAttrs(polyaFitDset, fitResult)
+
 
 proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int) =
   ## (currently) calls Python functions from `ingrid` Python module to

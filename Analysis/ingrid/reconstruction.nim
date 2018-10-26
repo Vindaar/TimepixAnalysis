@@ -24,6 +24,7 @@ import macros
 import nlopt
 import seqmath
 import nimhdf5
+import parsetoml
 
 # custom modules
 import tos_helpers
@@ -43,6 +44,9 @@ type
     rfNone, rfCreateFe, rfCalibEnergy, rfOnlyEnergy, rfOnlyCharge,
     rfOnlyFadc, rfReadAllRuns, rfOnlyGasGain, rfOnlyGainFit,
     rfOnlyEnergyElectrons
+
+  ConfigFlagKind = enum
+    cfNone, cfShowPlots
 
 when defined(linux):
   const commitHash = staticExec("git rev-parse --short HEAD")
@@ -667,6 +671,7 @@ proc reconstructSingleChip(data: seq[Pixels], run, chip: int): seq[FlowVar[ref R
 proc reconstructRunsInFile(h5f: var H5FileObj,
                            h5fout: var H5FileObj,
                            flags: set[RecoFlagKind],
+                           cfgFlags: set[ConfigFlagKind],
                            runNumberArg: int = -1,
                            calib_factor: float = 1.0) =
   ## proc which performs reconstruction of runs in a given file (all by default)
@@ -780,7 +785,8 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
             # TODO: does not belong here
             #h5fout.fitToFeSpectrum(runNumber, centerChip)
           if rfOnlyGasGain in flags:
-            h5fout.calcGasGain(runNumber)
+            let showPlots = if cfShowPlots in cfgFlags: true else: false
+            h5fout.calcGasGain(runNumber, showPlots)
           if rfOnlyFadc in flags:
             h5fout.calcRiseAndFallTimes(runNumber)
         else:
@@ -799,6 +805,7 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
 
 proc reconstructRunsInFile(h5f: var H5FileObj,
                            flags: set[RecoFlagKind],
+                           cfgFlags: set[ConfigFlagKind],
                            runNumberArg: int = -1,
                            calib_factor: float = 1.0) =
   ## this proc is a wrapper around the one above, which is called in case
@@ -808,7 +815,7 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
   # simply set h5fout to h5f. This creates a copy of h5f, but we don't care
   # since it points to the same file and the important group / dset tables
   # are stored as references anyways
-  reconstructRunsInFile(h5f, h5f, flags, runNumberArg, calib_factor)
+  reconstructRunsInFile(h5f, h5f, flags, cfgFlags, runNumberArg, calib_factor)
 
 proc reconstructSingleRunFolder(folder: string)
     {.deprecated: "This proc is deprecated! Run raw_data_manipulation before!".} =
@@ -846,6 +853,15 @@ proc reconstructSingleRunFolder(folder: string)
           min_val = ob.geometry.rotationAngle
         min_seq[num].add ob.geometry.rotationAngle
   dumpRotAngle(min_seq)
+
+proc parseTomlConfig(): set[ConfigFlagKind] =
+  ## parses our config.toml file and (for now) just returns a set of flags
+  ## corresponding to different settings
+  # TODO: concat together from `TpxDir`
+  let config = parseToml.parseFile("config.toml")
+  let showPlot = config["Calibration"]["showPlots"].getBool
+  if showPlot:
+    result.incl cfShowPlots
 
 proc main() =
 
@@ -893,6 +909,10 @@ proc main() =
   if $args["--only_energy_from_e"] == "true":
     flags.incl rfOnlyEnergyElectrons
 
+
+  # parse config toml file
+  let cfgFlags = parseTomlConfig()
+
   var h5f = H5file(h5f_name, "rw")
   # visit the whole file to read which groups exist
   h5f.visitFile
@@ -903,13 +923,13 @@ proc main() =
 
   let raw_data_basename = rawDataBase()
   if rfReadAllRuns in flags and outfile == "None":
-    reconstructRunsInFile(h5f, flags, calib_factor = calib_factor)
+    reconstructRunsInFile(h5f, flags, cfgFlags, calib_factor = calib_factor)
   elif rfReadAllRuns notin flags and outfile == "None":
-    reconstructRunsInFile(h5f, flags, parseInt(runNumber), calib_factor)
+    reconstructRunsInFile(h5f, flags, cfgFlags, parseInt(runNumber), calib_factor)
   elif rfReadAllRuns in flags and outfile != "None":
-    reconstructRunsInFile(h5f, h5fout, flags, calib_factor = calib_factor)
+    reconstructRunsInFile(h5f, h5fout, flags, cfgFlags, calib_factor = calib_factor)
   elif rfReadAllRuns notin flags and outfile != "None":
-    reconstructRunsInFile(h5f, h5fout, flags, parseInt(runNumber), calib_factor = calib_factor)
+    reconstructRunsInFile(h5f, h5fout, flags, cfgFlags, parseInt(runNumber), calib_factor = calib_factor)
 
   var err: herr_t
   err = h5f.close()

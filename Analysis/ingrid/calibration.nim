@@ -599,7 +599,7 @@ proc applyChargeCalibration*(h5f: var H5FileObj, runNumber: int)
       chargeDset.writeDset(charge)
       totalChargeDset.writeDset(totalCharge)
 
-proc calcGasGain*(h5f: var H5FileObj, runNumber: int) =
+proc calcGasGain*(h5f: var H5FileObj, runNumber: int, createPlots = false) =
   ## fits the polya distribution to the charge values and writes the
   ## fit parameters (including the gas gain) to the H5 file
 
@@ -640,7 +640,7 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int) =
       let fitResult = fitPolyaPython(bin_edges,
                                      binned.asType(float64),
                                      chipNumber, runNumber,
-                                     createPlots = false)
+                                     createPlots = createPlots)
       # create dataset for polya histogram
       var polyaDset = h5f.create_dataset(group.name / "polya", (binCount + 1, 2), dtype = float64)
       var polyaFitDset = h5f.create_dataset(group.name / "polyaFit", (binCount, 2), dtype = float64)

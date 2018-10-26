@@ -1,0 +1,5 @@
+# this TOML document is used to configure the raw data manipulation, reconstruction and likelihood
+# tools
+
+[Calibration]
+        showPlots = true

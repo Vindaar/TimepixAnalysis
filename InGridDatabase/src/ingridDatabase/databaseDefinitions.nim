@@ -74,13 +74,5 @@ type
     TotCalibrate = "tot"
     SCurveCalibrate = "scurve"
 
-  # type to store results of fitting with mpfit
-  FitResult* = object
-    x*: seq[float]
-    y*: seq[float]
-    pRes*: seq[float]
-    pErr*: seq[float]
-    redChiSq*: float
-
 proc `$`*(chip: ChipName): string =
   result = $chip.col & $chip.row & " W" & $chip.wafer

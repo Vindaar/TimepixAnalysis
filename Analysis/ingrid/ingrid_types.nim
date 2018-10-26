@@ -195,6 +195,14 @@ type
     yMax*: float
     radius*: float
 
+  # type to store results of fitting with mpfit / NLopt / Python
+  FitResult* = object
+    x*: seq[float]
+    y*: seq[float]
+    pRes*: seq[float]
+    pErr*: seq[float]
+    redChiSq*: float
+
 # and some general InGrid related constants
 const NPIX* = 256
 const PITCH* = 0.055

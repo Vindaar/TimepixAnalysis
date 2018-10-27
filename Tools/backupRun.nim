@@ -141,7 +141,13 @@ proc recordRun(runInfo: RunInfo) =
     lenStr = getDaysHoursMinutes(runInfo.timeInfo.t_length)
     ratio = runInfo.nFadcEvents.float / runInfo.nEvents.float
 
-  var f = open(runFile, fmAppend)
+  template createOrAppend(f, runFile: untyped): untyped =
+    if existsFile(runFile):
+      f = open(runFile, fmAppend)
+    else:
+      f = open(runFile, fmWrite)
+  var f: File
+  createOrAppend(f, runFile)
   let entry = &"| {runInfo.runNumber} | {runInfo.runType} | {runInfo.rfKind} " &
       &"| <{parsed_first}> | <{parsed_last}> | {lenStr} " &
       &"| {runInfo.nEvents} | {runInfo.nFadcEvents} | y |\n"
@@ -150,7 +156,7 @@ proc recordRun(runInfo: RunInfo) =
   f.close()
 
   # now append to run file
-  f = open(runSetFile, fmAppend)
+  createOrAppend(f, runSetFile)
   f.write(&"{runInfo.runNumber}\t{runInfo.runType}\n")
   f.close()
 

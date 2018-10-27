@@ -33,7 +33,7 @@ Version: $# built on: $#
 The InGrid database management tool.
 
 Usage:
-  ingridDatabase (--add=FOLDER | --calibrate=TYPE | --modify | --delete=CHIPNAME) [options]
+  databaseTool (--add=FOLDER | --calibrate=TYPE | --modify | --delete=CHIPNAME) [options]
 
 Options:
   --add=FOLDER        Add the chip contained in the given FOLDER

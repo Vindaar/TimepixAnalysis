@@ -1,0 +1,49 @@
+* InGrid database tool
+This is a tool to build and read from a database, which stores
+information about different InGrids.
+
+** Compilation
+In order to compile the main =databaseTool=, just run
+#+BEGIN_SRC sh
+nimble koch
+#+END_SRC
+from this folder.
+This will create the =databaseTool= in the =src= directory.
+
+** Usage
+In order to add a chip to the InGrid database, you need to provide a
+director, which follows a certain structure and call the
+=databaseTool= as follows:
+#+BEGIN_SRC sh
+./databaseTool --add=<path-to-folder>
+#+END_SRC
+where the directory needs to look as follows:
+#+BEGIN_SRC sh
+chipTest
+├── chipInfo.txt
+├── fsr3.txt
+├── SCurve
+│   ├── voltage_0.txt
+│   ├── voltage_100.txt
+│   ├── voltage_20.txt
+│   ├── voltage_25.txt
+│   ├── voltage_30.txt
+│   ├── voltage_35.txt
+│   ├── voltage_40.txt
+│   ├── voltage_50.txt
+│   └── voltage_60.txt
+├── threshold3.txt
+├── thresholdMeans3.txt
+└── TOTCalib3.txt
+#+END_SRC
+The name of the directory does not matter. Important however, is the
+content of the =chipInfo.txt=:
+#+BEGIN_SRC sh
+chipName: E4 W66
+test: This is a test note!
+board: SeptemH
+chipNumber: 2
+Another test comment!
+#+END_SRC
+The fields =chipName= and =chipNumber= are required. All others (as
+many as desired) will be read as =(key, value)= pairs and added to the database.

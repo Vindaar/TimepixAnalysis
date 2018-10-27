@@ -9,3 +9,6 @@ srcDir        = "src"
 # Dependencies
 
 requires "nim >= 0.18.1"
+
+task koch, "build the binary":
+  exec "nim c -d:release --threads:on --out:src/databaseTool src/ingridDatabase.nim"

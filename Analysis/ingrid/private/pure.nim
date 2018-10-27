@@ -265,32 +265,6 @@ proc initIntervalOld*(milliseconds, seconds, minutes, hours, days, months,
   carryO = `div`(months, 12)
   result.years = carryO + years
 
-
-proc getRunTimeInfo*(run_files: seq[string]): RunTimeInfo =
-  ## this procdure creates a RunTimeInfo object from a given list of files
-  ## in a run folder (not sorted). The list is sorted and then the first and
-  ## last event are read, converted to Time objects and the length of the run
-  ## is calculated from the difference between both events
-  ## sort list of files
-  result = RunTimeInfo()
-
-  let
-    sorted_files = sorted(run_files, system.cmp[string])
-    first_file = sorted_files[0]
-    last_file  = sorted_files[^1]
-    # and times
-    time_first = getTimeFromEvent(first_file)
-    time_last  = getTimeFromEvent(last_file)
-    # calc run length
-    run_length = time_last - time_first
-  echo "Time first is $# and time last is $#" % [$time_first, $time_last]
-  echo "Time difference in seconds $#" % $((time_last - time_first).seconds)
-  echo "Time difference start end $#" % $(run_length)
-
-  result.t_start = time_first
-  result.t_end = time_last
-  result.t_length = run_length
-
 proc parseShutterMode*(mode: string): int =
   ## proc to parse the TOS shutter mode selection
   if mode == "verylong" or mode == "vl":
@@ -1385,6 +1359,45 @@ proc parseOldTosRunlist*(path: string, rtKind: RunTypeKind): set[uint16] =
     if csv.row[2] == typeStr:
       result.incl csv.row[0].strip.parseInt.uint16
   csv.close()
+
+proc getRunTimeInfo*(run_files: seq[string]): RunTimeInfo =
+  ## this procdure creates a RunTimeInfo object from a given list of files
+  ## in a run folder (not sorted). The list is sorted and then the first and
+  ## last event are read, converted to Time objects and the length of the run
+  ## is calculated from the difference between both events
+  ## sort list of files
+  result = RunTimeInfo()
+  let
+    sorted_files = sorted(run_files, system.cmp[string])
+    first_file = sorted_files[0]
+    last_file  = sorted_files[^1]
+    # and times
+    time_first = getTimeFromEvent(first_file)
+    time_last  = getTimeFromEvent(last_file)
+    # calc run length
+    run_length = time_last - time_first
+  echo "Time first is $# and time last is $#" % [$time_first, $time_last]
+  echo "Time difference in seconds $#" % $((time_last - time_first).seconds)
+  echo "Time difference start end $#" % $(run_length)
+
+  result.t_start = time_first
+  result.t_end = time_last
+  result.t_length = run_length
+
+proc getRunInfo*(path: string): RunInfo =
+  ## wrapper around the above proc if only the path to the run is known
+  let regex = r"^/([\w-_]+/)*data\d{6}\.txt$"
+  let fadcRegex = r"^/([\w-_]+/)*data\d{6}\.txt-fadc$"
+  let (is_run_folder, runNumber, rfKind, contains_run_folder) = isTosRunFolder(path)
+  let files = getListOfFiles(path, regex)
+  let fadcFiles = getListOfFiles(path, fadcRegex)
+  result.timeInfo = getRunTimeInfo(files)
+  result.runNumber = runNumber
+  result.rfKind = rfKind
+  result.runType = rtNone
+  result.path = path
+  result.nEvents = files.len
+  result.nFadcEvents = fadcFiles.len
 
 proc extractRunNumber*(runFolder: string): int =
   ## given a valid TOS run folder, extract its run Number

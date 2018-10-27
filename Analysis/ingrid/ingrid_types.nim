@@ -3,12 +3,6 @@ import times
 import tables
 
 type
-  # an object, which stores information about a run's start, end and length
-  RunTimeInfo* = object
-    t_start*: Time
-    t_end*: Time
-    t_length*: Duration
-
   EventHeader* = Table[string, string]
   ChipHeader*  = Table[string, string]
   Pix*         = tuple[x, y: uint8, ch: uint16]
@@ -73,7 +67,6 @@ type
     files*: seq[string]
     curves*: seq[SCurve]
 
-type
   FSR* = Table[string, int]
 
   ######################
@@ -91,6 +84,21 @@ type
 
   RunFolderKind* = enum
     rfNewTos, rfOldTos, rfSrsTos, rfUnknown
+
+  # an object, which stores information about a run's start, end and length
+  RunTimeInfo* = object
+    t_start*: Time
+    t_end*: Time
+    t_length*: Duration
+  # an object which stores general information about a run
+  RunInfo* = object
+    timeInfo*: RunTimeInfo
+    runNumber*: int
+    rfKind*: RunFolderKind
+    runType*: RunTypeKind
+    path*: string
+    nEvents*: int
+    nFadcEvents*: int
 
   ################################
   # Reconstruction related types #

@@ -19,15 +19,10 @@ Version: $# built on: $#
 InGrid run backup tool
 
 Usage:
-  backupRun <folder> --runType=<type> [options]
+  backupRun <folder> [options]
 
 Options:
   <folder>            Name of the run folder we should backup
-  --runType=<type>    Select run type (Calib | Back | Xray)
-                      The following are parsed case insensetive:
-                      Calib = {"calib", "calibration", "c"}
-                      Back = {"back", "background", "b"}
-                      Xray = {"xray", "xrayfinger", "x"}
   -h --help           Show this help
   --version           Show version.
 
@@ -37,10 +32,14 @@ const doc = docTmpl % [commitHash, currentDate]
 const
   # define constants needed for backup
   tosCAST = "/home/ingrid/TOS/data/runs"
-  dataCAST = "/home/ingrid/Data/AutoBackup/"
+  autoBackup = "AutoBackup"
+  dataCAST = "/home/ingrid/Data/" / autoBackup
+  dataHome = "/mnt/4TB/Test/" / autoBackup
+  tpc18Path = "/data/schmidt/data/" / autoBackup
+  tpc00Path = "/volume1/cast/data/2018_CAST-Run/" / autoBackup
   krb5 = "kinit basti90"
-  baf = "basti90@baf.physik.uni-bonn.de:~/AutoBackup"
-  
+  baf = "basti90@baf.physik.uni-bonn.de:~/" / autoBackup
+
   runFile = expandTilde("~/org/auto_run_list.org")
   # a set that stores all backed up run numbers
   runSetFile = expandTilde("~/org/auto_run_set.org")
@@ -61,7 +60,7 @@ func findLastRun(runFolder: string, runSet: set[uint16]): set[uint16] =
     dummy: string
     runNumber: string
     runs: set[uint16]
-  
+
   for pcKind, path in walkDir(runFolder):
     case pcKind
     of pcDir:
@@ -155,8 +154,12 @@ proc recordRun(runInfo: RunInfo) =
   f.write(&"{runInfo.runNumber}\t{runInfo.runType}\n")
   f.close()
 
-proc castPC(runFolder: string, runType: RunTypeKind) =
+proc castPC(folder: string, runInfo: RunInfo) =
   ## commands to run on the InGrid CAST PC
+  let runType = runInfo.runType
+  let runPathTup = runInfo.path.splitPath
+  let runPath = runPathTup[1]
+  let outfile = &"{runPath}_{runType}.tar.gz"
   shell:
     # first get Kerberos ticket
     # `$krb5`
@@ -164,9 +167,9 @@ proc castPC(runFolder: string, runType: RunTypeKind) =
     # bash
     one:
       cd `$tosCAST`
-      tar -czf `$runFolder`_`$runType`.tar.gz `$runFolder`
-    mv `$tosCAST`/`$runFolder`.tar.gz `$dataCAST`
-    scp `$dataCAST`/`$runFolder`.tar.gz `$baf`
+      tar -czf `$outfile` `$runPath`
+    mv `$tosCAST`/`$outfile` `$dataCAST`
+    scp `$dataCAST`/`$outfile` `$baf`
 
   # then depending on whether this is a calibration or background run
   # put it into the appropriate folder
@@ -182,24 +185,77 @@ proc castPC(runFolder: string, runType: RunTypeKind) =
   shell:
     one:
       cd `$dataCAST`
-      mv `$runFolder` "2018_2"/`$dir`
+      mv `$runPath` `$autoBackup`/`$dir`
 
-proc bafNode(runFolder: string, runType: RunTypeKind) =
+proc homePC(folder: string, runInfo: RunInfo) =
+  ## commands to run on the InGrid CAST PC
+  let runType = runInfo.runType
+  let runPathTup = runInfo.path.splitPath
+  let runPath = runPathTup[1]
+  let outfile = &"{runPath}_{runType}.tar.gz"
+  shell:
+    # first get Kerberos ticket
+    # `$krb5`
+    # start bash first...
+    # bash
+    one:
+      cd `$folder`
+      tar -czf `$outfile` `$runPath`
+    mv `$folder`/`$outfile` `$dataHome`
+    scp `$dataHome`/`$outfile` `$baf`
+
+  # then depending on whether this is a calibration or background run
+  # put it into the appropriate folder
+  var dir = ""
+  case runType
+  of rtBackground:
+    dir = "DataRuns"
+  of rtCalibration:
+    dir = "CalibrationRuns"
+  else:
+    echo "Unsupported run type: ", runType
+    return
+  shell:
+    one:
+      cd `$dataHome`
+      mv `$runPath` `$autoBackup`/`$dir`
+
+proc bafNode =
   ## commands to run on the BAF to backup the run(s) created by
   ## `castPC` to copy them over to `tpc18` and `tpc00`
-  # on the baf we first need to 
-  #shell:
-  discard
+  # on the baf we first need to walk the `autoBackup` directory
+  # and check for existence of runs. If any, copy them over to
+  # `tpc18` and `tpc00`
+  var
+    runTypeStr: string
+    dummy: string
+    runType: RunTypeKind
+
+  for pcKind, file in walkDir(autoBackup):
+    case pcKind
+    of pcFile:
+      if scanf(file, "$*Run$*rt$*.tar.gz", dummy, dummy, runTypeStr):
+        runType = parseEnum[RunTypeKind](&"rt{runTypeStr}", rtNone)
+        echo "Run type ", runType
+        var outDir: string
+        case runType
+        of rtCalibration:
+          outDir = "CalibrationRuns"
+        of rtBackground:
+          outDir = "DataRuns"
+        else:
+          raise newException(IOError, "Unsupported Run kind : " & file)
+        let filePath = autoBackup / file
+        shell:
+          scp `$filePath` `$tpc18Path`/`$outDir`
+          scp `$filePath` `$tpc00Path`/`$outDir`
+          rm `$filePath`
+    else: discard
 
 proc main =
   let
     args = docopt(doc)
     runFolder = $args["<folder>"]
-    runTypeStr = $args["--runType"]
-
-  var runType: RunTypeKind
-  if runTypeStr != "nil":
-    runType = parseRunType(runTypeStr)
 
   var hostname = ""
   shellAssign:
@@ -212,10 +268,11 @@ proc main =
   for run in runs:
     var runInfo = getRunInfo(getRunPath(run.int, runFolder))
     runInfo.runType = runInfo.determineType
-    
+
     case hnKind
     of hnCast:
-      castPC(runFolder, runType)
+      recordRun(runInfo)
+      castPC(runFolder, runInfo)
     of hnTpc18:
       recordRun(runInfo)
     of hnTpc00:
@@ -223,9 +280,10 @@ proc main =
     of hnVoid:
       discard
     of hnBaf:
-      bafNode(runFolder, runType)
+      bafNode()
     of hnHome:
       recordRun(runInfo)
+      homePC(runFolder, runInfo)
 
 when isMainModule:
   main()

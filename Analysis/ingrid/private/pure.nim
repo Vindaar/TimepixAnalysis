@@ -1391,7 +1391,8 @@ proc getRunInfo*(path: string): RunInfo =
   let (is_run_folder, runNumber, rfKind, contains_run_folder) = isTosRunFolder(path)
   let files = getListOfFiles(path, regex)
   let fadcFiles = getListOfFiles(path, fadcRegex)
-  result.timeInfo = getRunTimeInfo(files)
+  if files.len > 0:
+    result.timeInfo = getRunTimeInfo(files)
   result.runNumber = runNumber
   result.rfKind = rfKind
   result.runType = rtNone

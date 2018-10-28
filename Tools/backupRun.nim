@@ -160,7 +160,7 @@ proc recordRun(runInfo: RunInfo) =
   f.write(&"{runInfo.runNumber}\t{runInfo.runType}\n")
   f.close()
 
-proc castPC(folder: string, runInfo: RunInfo) =
+proc castPC(runInfo: RunInfo) =
   ## commands to run on the InGrid CAST PC
   let runType = runInfo.runType
   let runPathTup = runInfo.path.splitPath
@@ -191,7 +191,7 @@ proc castPC(folder: string, runInfo: RunInfo) =
   shell:
     one:
       cd `$dataCAST`
-      mv `$runPath` `$autoBackup`/`$dir`
+      mv `$outfile` /home/ingrid/`$autoBackup`/`$dir`
 
 proc homePC(folder: string, runInfo: RunInfo) =
   ## commands to run on the InGrid CAST PC
@@ -224,7 +224,7 @@ proc homePC(folder: string, runInfo: RunInfo) =
   shell:
     one:
       cd `$dataHome`
-      mv `$runPath` `$autoBackup`/`$dir`
+      mv `$runPath` /home/basti/`$autoBackup`/`$dir`
 
 proc bafNode =
   ## commands to run on the BAF to backup the run(s) created by
@@ -278,7 +278,7 @@ proc main =
     case hnKind
     of hnCast:
       recordRun(runInfo)
-      castPC(runFolder, runInfo)
+      castPC(runInfo)
     of hnTpc18:
       recordRun(runInfo)
     of hnTpc00:

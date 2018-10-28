@@ -33,13 +33,13 @@ const
   # define constants needed for backup
   tosCAST = "/home/ingrid/TOS/data/runs"
   autoBackup = "AutoBackup"
-  dataCAST = "/home/ingrid/Data/" / autoBackup
+  dataCAST = "/home/ingrid/" / autoBackup
   dataHome = "/mnt/4TB/Test/" / autoBackup
   tpc18Path = "/data/schmidt/data/" / autoBackup
   tpc00Path = "/volume1/cast/data/2018_CAST-Run/" / autoBackup
   krb5 = "kinit basti90"
   baf = "basti90@baf.physik.uni-bonn.de:~/" / autoBackup
-
+let
   runFile = expandTilde("~/org/auto_run_list.org")
   # a set that stores all backed up run numbers
   runSetFile = expandTilde("~/org/auto_run_set.org")

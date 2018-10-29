@@ -661,8 +661,8 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int, createPlots = false) =
 
   const
     hitLow = 1.5
-    hitHigh = 101.5
-    binCount = 100
+    hitHigh = 180.5
+    binCount = 181
 
   var chipBase = recoDataChipBase(runNumber)
   # get the group from file

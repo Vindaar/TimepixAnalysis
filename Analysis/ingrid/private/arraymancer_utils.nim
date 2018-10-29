@@ -34,4 +34,3 @@ proc createTensorFromZeroSuppressed*[T](pixels: Pixels): Tensor[T] =
   result = zeros[T](256, 256)
   for p in pixels:
     result[p.x, p.y] = p.ch
-

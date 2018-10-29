@@ -316,7 +316,7 @@ proc plotOccupancies(h5f: var H5FileObj,
   let occ = calcOccupancy(x, y)
   # calculate 3 clamp values based on occ
   let quant = occ.toRawSeq.percentile(quantile)
-  let clamps = [int.high, quant.int, clamp3]
+  let clamps = [int.high, quant.round.int, clamp3]
   for cl in clamps:
     var title = &"Occupancy of chip {chipNum} for run {runNumber}"
     if cl == int.high:

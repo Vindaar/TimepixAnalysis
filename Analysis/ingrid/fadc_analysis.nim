@@ -129,7 +129,9 @@ proc noiseAnalysis(h5f: var H5FileObj): tuple[f50, f100: Table[string, float64]]
       let
         tr_start = attrs[&"tracking_start_{i}", string].parse(date_syntax)
         tr_stop  = attrs[&"tracking_stop_{i}", string].parse(date_syntax)
-        tr_mean  = tr_start + initDuration(seconds = ((tr_stop - tr_start).seconds.float / 2).int)
+        tr_mean  = tr_start + initDuration(
+          seconds = ((tr_stop - tr_start).seconds.float / 2).round.int
+        )
       let
         durations = h5f[(group / "eventDuration").dset_str][float64]
         # get tracking indices of this tracking number

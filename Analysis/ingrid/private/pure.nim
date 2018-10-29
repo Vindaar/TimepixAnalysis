@@ -98,7 +98,7 @@ proc readToTFile*(filename: string,
   # filter out elements with std == 0.0
   let nonZero = zip(std, pulses, mean) --> filter(it[0] > 0.0)
   # see zips above for indices
-  result[1].pulses = nonZero.mapIt(it[1].int)
+  result[1].pulses = nonZero.mapIt(it[1].round.int)
   result[1].mean = nonZero.mapIt(it[2])
   result[1].std = nonZero.mapIt(it[0])
 

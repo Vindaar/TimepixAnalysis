@@ -437,24 +437,23 @@ proc readMemFilesIntoBuffer*(list_of_files: seq[string]): seq[seq[string]] =
   result = newSeqOfCap[seq[string]](len(list_of_files))
 
   var
-    ff: MemFile
     # reserver enough space for most events, only for large events do we have to reserve
     # more space
-    dat: seq[string] = @[] #newSeqOfCap[string](100)
-
+    dat: seq[string] = newSeqOfCap[string](400)
   echo "free memory ", getFreeMem()
   echo "occ memory ", getOccupiedMem()
-
   # TODO: is it the smartest way to open and read the memfiles directly?
   # I guess there's a reason why we do not return a seq of memory mapped files
   # anymore
   var lineBuf = newStringOfCap(80)
+  var sliceData: ptr UncheckedArray[char]
   for f in list_of_files:
-    ff = memfiles.open(f, mode = fmRead, mappedSize = -1)
+    # add filename to result
     dat.add f
-    for _ in lines(ff, lineBuf):
+    for slice in memSlices(memfiles.open(f)):
+      lineBuf.setLen(slice.size)
+      copyMem(addr lineBuf[0], slice.data, slice.size)
       dat.add lineBuf
-    ff.close()
     result.add dat
     dat.setLen(0)
   echo "free memory ", getFreeMem()

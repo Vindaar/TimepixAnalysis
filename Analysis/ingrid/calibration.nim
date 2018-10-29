@@ -428,6 +428,62 @@ proc cutOnDsets[T](eventNumbers: seq[SomeInteger],
       result[0].add ev
       result[1].add nPix[i]
       result[2].add i.int64
+
+proc cutOnProperties*(h5f: var H5FileObj,
+                      group: H5Group,
+                      region: ChipRegion,
+                      cuts: varargs[tuple[dset: string,
+                                         lower, upper: float]]): seq[int] =
+  ## applies the cuts from `cuts` and returns a sequence of indices, which pass
+  ## the cut.
+  ## Any datasets given will be converted to float after reading.
+  ## For usage with FADC data, be careful to extract the event numbers using the
+  ## indices first, before applying the indices on InGrid data.
+  # first get data
+  var dsets = newSeqOfCap[seq[float]](cuts.len)
+  for c in cuts:
+    let dset = h5f[(group.name / c.dset).dset_str]
+    # use `convertType` proc from nimhdf5
+    let convert = dset.convertType(float)
+    dsets.add dset.convert
+  # take any sequence for number of events, since all need to be of the same
+  # type regardless
+  let nEvents = dsets[0].len
+  # if chip region not all, get `posX` and `posY`
+  var
+    posX: seq[float]
+    posY: seq[float]
+  case region
+  of crAll:
+    discard
+  else:
+    posX = h5f[group.name / "centerX", float]
+    posY = h5f[group.name / "centerY", float]
+
+  for i in 0 ..< nEvents:
+    # cut on region if applicable
+    if region != crAll and not inRegion(posX[i], posY[i], region):
+      continue
+    var skipThis = false
+    for j in 0 ..< cuts.len:
+      let
+        el = cuts[j]
+      let
+        d = dsets[j][i]
+      if d < el.lower or d > el.upper:
+        skipThis = true
+        break
+    if not skipThis:
+      # else add this index
+      result.add i
+
+proc cutOnProperties*(h5f: var H5FileObj,
+                      group: H5Group,
+                      cuts: varargs[tuple[dset: string,
+                                         lower, upper: float]]): seq[int] {.inline.} =
+  ## wrapper around the above for the case of the whole chip as region
+  result = h5f.cutOnProperties(group, crAll, cuts)
+
 proc cutFeSpectrum(data: array[4, seq[float64]], eventNum, hits: seq[int64]):
                     (seq[int64], seq[int64], seq[int64]) =
   ## proc which receives the data for the cut, performs the cut and returns tuples of

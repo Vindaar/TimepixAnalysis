@@ -1298,10 +1298,9 @@ proc isTosRunFolder*(folder: string):
   of rfSrsTos:
     eventRegex = re(eventRegexSrs)
   else:
-    # return early
+    # in this case `eventRegex` will stay unknown, because we are probably
+    # not in a run folder
     result.is_rf = false
-    result.contains_rf = false
-    return result
   for kind, path in walkDir(folder):
     if kind == pcFile:
       if match(path, eventRegex) == true and matches_rf_name == true:

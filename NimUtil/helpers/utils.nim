@@ -9,6 +9,7 @@ import osproc
 import re
 import times
 import seqmath
+import memfiles
 
 macro `+`*[N, M: int](a: array[N, string], b: array[M, string]): untyped =
   ## macro to concat two const arrays `a`, `b` at compile time to return a new
@@ -30,6 +31,34 @@ template asType*[T](s: seq[T], dtype: typedesc): untyped =
   ## convenience template to convert type of a `seq` to a different type,
   ## if possible
   mapIt(s, dtype(it))
+
+proc readNumLinesMemFile*(ff: var MemFile, buf: var seq[string], stop: int) {.inline.} =
+  ## reads memory mapped slices from file `ff`, adds to buffer and
+  ## stops at line `stop`
+  ## NOTE: for performance make sure thatt `buf` is a sequence of cap `stop`
+  buf.setLen(stop)
+  var count = 0
+  var lineBuf = newStringOfCap(80)
+  for slice in memSlices(ff):
+    lineBuf.setLen(slice.size)
+    copyMem(addr lineBuf[0], slice.data, slice.size)
+    buf[count] = lineBuf
+    inc count
+    if count == stop:
+      break
+
+iterator memLines*(ff: var MemFile, buf: var string, start = 0, stop = -1): string {.inline.} =
+  var count = 0
+  for slice in memSlices(ff):
+    inc count
+    if count < start:
+      continue
+    elif count == stop:
+      break
+    buf.setLen(slice.size)
+    copyMem(addr buf[0], slice.data, slice.size)
+    yield buf
+
 
 proc getNewBound*(ind, width, size: int, up_flag: bool = true): int {.inline.} =
   # procedure to select a new bound, either upper or lower for

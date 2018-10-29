@@ -1,55 +1,58 @@
-Detektorplots:
-  1.) Equalisierungsbitsverteilungen, sowohl die 2D Verteilungen als auch die rot-schwarz-blauen Verteilungen
-  2.) TOT Ladungskalibrationen der 7 Chips,
-  3.) S-Kurven (die Geraden aus denen man die Schwelle bestimmt)
+* Plots to create
+** Detektorplots:
+1. Equalisierungsbitsverteilungen, sowohl die 2D Verteilungen als auch die rot-schwarz-blauen Verteilungen
+2. TOT Ladungskalibrationen der 7 Chips,
+3. S-Kurven (die Geraden aus denen man die Schwelle bestimmt)
 
-Kalibration:
-  1. Occupancy (gerne auch als 3D?)- in mehreren sinnvollen z-Höhen: a) volle Statistik
-    b) mittlere Statistik, (d.h. Rauschpixel wegschneiden)
-    c) niedere Statistik, (max ~10)
-  2.) Ladung pro Pixel ('Polya'): Für 7 Chips in einem Plot und in 7 Plots (ein 'typischer' Run)
-  3.) Fe-Spektrum mit Fits (welche Schnitte? keine Schnitte?)
-  4.) Photopeak (Anzahl der pixel/Ladung) in Abhängigkeit der Zeit
-  5.) Energiekalibration
-  6.) Lage der Zentren (ohne Schnitte)
-  7.) +höhere Momente (Skewness, Eccentrizität, Kurtosis,.....)+
-  8.) +Länge+, +Breite der Ereignisse+
-  9.) +Winkelverteilung+
-  10.) +die drei Größen für die Likelihood: (getrennt für Photopeak und für Escapepeak)+
-    a) +eccentricity (s.o.)+
-    b) +F1σtrans of pixels within 1 rms around the reconstructed center+
-    c) +length l divided by transverse rms σtrans+
-  11.) Wieviele benachbarte Pixel sehen wir - wieviele erwarten wir (toy MC)
-  12.) +FADC Spektrum+
-  13.) +Risetime-Verteilung+ 
-       +auch getrennt mit Energieschnitt nur auf Photopeak und einen Plot+
-       +nur mit Escape peak+
+** Kalibration:
+1. +Occupancy (gerne auch als 3D?)- in mehreren sinnvollen z-Höhen: a) volle Statistik+
+   +b) mittlere Statistik, (d.h. Rauschpixel wegschneiden)+
+   +c) niedere Statistik, (max ~10)+
+2. Ladung pro Pixel ('Polya'): Für 7 Chips in einem Plot und in 7 Plots (ein 'typischer' Run)
+3. Fe-Spektrum mit Fits (welche Schnitte? keine Schnitte?)
+4. Photopeak (Anzahl der pixel/Ladung) in Abhängigkeit der Zeit
+5. Energiekalibration
+6. Lage der Zentren (ohne Schnitte)
+7. +höhere Momente (Skewness, Eccentrizität, Kurtosis,.....+
+8. +Länge+, +Breite der Ereignisse+
+9. +Winkelverteilung+
+10. +die drei Größen für die Likelihood: (getrennt für Photopeak und für Escapepeak)+
+  a. +eccentricity (s.o.+
+  b. +F1σtrans of pixels within 1 rms around the reconstructed center+
+  c. +length l divided by transverse rms σtrans+
+11. Wieviele benachbarte Pixel sehen wir - wieviele erwarten wir (toy MC)
+12. +FADC Spektrum+
+13. +Risetime-Verteilung+ 
+     +auch getrennt mit Energieschnitt nur auf Photopeak und einen Plot+
+     +nur mit Escape peak+
 
-Untergrundmessungen:
-  1.) Occupancy (gerne auch als 3D?)- in mehreren sinnvollen z-Höhen: a) volle Statistik
-    b) mittlere Statistik, (d.h. Rauschpixel wegschneiden)
-    c) niedere Statistik, (max ~10)
-  2.) Ladung pro Pixel ('Polya'): Für 7 Chips in einem Plot und in 7 Plots (ein 'typischer' Run)
-  3.) Spektrum ohne Schnitte (in keV/cm²/s .....) für jeden Chip im Zentralen Chip auch für gold und silver region getrennt
-  4.) Lage der Zentren (ohne Schnitte)
-  5.) höhere Momente (Skewness, Eccentrizität, Kurtosis,.....)
-  6.) Länge, Breite der Ereignisse
-  7.) die drei Größen für die Likelihood:
-    a) eccentricity (s.o.)
-    b) F1σtrans of pixels within 1 rms around the reconstructed center
-    c) length l divided by transverse rms σtrans ,
+** Untergrundmessungen:
+  1. Occupancy (gerne auch als 3D?)- in mehreren sinnvollen z-Höhen: 
+    a. volle Statistik
+    b. mittlere Statistik, (d.h. Rauschpixel wegschneiden)
+    c. niedere Statistik, (max ~10)
+  2. Ladung pro Pixel ('Polya'): Für 7 Chips in einem Plot und in 7 Plots (ein 'typischer' Run)
+  3. Spektrum ohne Schnitte (in keV/cm²/s ..... für jeden Chip im Zentralen Chip auch für gold und silver region getrennt
+  4. Lage der Zentren (ohne Schnitte)
+  5. höhere Momente (Skewness, Eccentrizität, Kurtosis,.....
+  6. Länge, Breite der Ereignisse
+  7. die drei Größen für die Likelihood:
+    a. eccentricity (s.o.
+    b. F1σtrans of pixels within 1 rms around the reconstructed center
+    c. length l divided by transverse rms σtrans ,
 
-Messungen Bonn:
-  1.) Occupancy in mehreren sinnvollen z-Höhen: a) volle Statistik
-    b) mittlere Statistik, (d.h. Rauschpixel wegschneiden)
-  2.) Ladung pro Pixel ('Polya'): Für 7 Chips in einem Plot und in 7 Plots (ein 'typischer' Run)
-  3.) Spektrum ohne Schnitte (in keV/cm²/s .....) für jeden Chip im zentralen Chip auch für gold und silver region getrennt
-  4.) Lage der Zentren (ohne Schnitte)
-  5.) Statistik von Veto-Signalen (Piggyback - hatten wir da noch einen zweiten Szinti??)
-  6.) FADC Spektrum (mit und ohne Veto-Signal)
-  7.) Risetime-Verteilung (mit und ohne Veto-Signal)
+** Messungen Bonn:
+  1. Occupancy in mehreren sinnvollen z-Höhen: 
+    a. volle Statistik
+    b. mittlere Statistik, (d.h. Rauschpixel wegschneiden)
+  2. Ladung pro Pixel ('Polya'): Für 7 Chips in einem Plot und in 7 Plots (ein 'typischer' Run)
+  3. Spektrum ohne Schnitte (in keV/cm²/s ..... für jeden Chip im zentralen Chip auch für gold und silver region getrennt
+  4. Lage der Zentren (ohne Schnitte)
+  5. Statistik von Veto-Signalen (Piggyback - hatten wir da noch einen zweiten Szinti??)
+  6. FADC Spektrum (mit und ohne Veto-Signal)
+  7. Risetime-Verteilung (mit und ohne Veto-Signal)
   auch getrennt mit Energieschnitt nur auf Photopeak und einen Plot nur mit Escapepeak
   Mit Veto-Signal
-  8.) Lage der Zentren (ohne Schnitte)
-  9.) höhere Momente (Skewness, Eccentrizität, Kurtosis,.....)
-  10.) Länge, Breite der Ereignisse
+  8. Lage der Zentren (ohne Schnitte)
+  9. höhere Momente (Skewness, Eccentrizität, Kurtosis,.....
+  10. Länge, Breite der Ereignisse

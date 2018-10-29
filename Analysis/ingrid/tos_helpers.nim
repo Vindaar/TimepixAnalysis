@@ -292,15 +292,15 @@ func getRegionCut*(region: ChipRegion): CutsRegion =
                         yMax: 0.0,
                         radius: 0.0)
 
-func inRegion*(centerX, centerY: float, region: ChipRegion): bool =
+func inRegion*(centerX, centerY: float, region: ChipRegion): bool {.inline.} =
   ## returns the result of a cut on a certain chip `region`. Inputs the
   ## `centerX` and `centerY` position of a cluster and returns true if
   ## the cluster is within the region
   const centerChip = 7.0
-  # make sure this is only initialized once somehow...
-  let regCut = getRegionCut(region)
   case region
   of crGold:
+    # make sure this is only initialized once somehow...
+    let regCut = getRegionCut(region)
     result = if centerX >= regCut.xMin and
                 centerX <= regCut.xMax and
                 centerY >= regCut.yMin and
@@ -312,6 +312,8 @@ func inRegion*(centerX, centerY: float, region: ChipRegion): bool =
     # simply always return good
     result = true
   else:
+    # make sure this is only initialized once somehow...
+    let regCut = getRegionCut(region)
     # silver and bronze region only different by radius
     let
       xdiff = (centerX - centerChip)

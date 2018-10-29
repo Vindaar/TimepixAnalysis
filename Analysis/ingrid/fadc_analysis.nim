@@ -215,21 +215,6 @@ proc findThresholdValue[T](data: seq[seq[T]], x_min: seq[int], threshold: seq[T]
       # in case of a good result..
       result[i] = x
 
-
-proc reshapeFadc[T](s: seq[T], shape = int): seq[seq[T]] =
-  ## unfinished proc which reshapes the given sequence to a
-  ## higher order nested sequence. Currently hardcoded for FADC
-  let dim2 = s.len
-  var tmp: seq[T] = @[]
-  echo dim2
-  for i in 0 ..< dim2:
-    if i == 0:
-      result = @[]
-    elif i mod 2560 == 0:
-      result.add(tmp)
-      tmp.setLen(0)
-    tmp.add s[i]
-
 proc diffUnderModulo[T](a, b: T, modulo: int): T {.inline.} =
   ## returns the difference between two values taking into account
   ## modulo a certain value
@@ -244,15 +229,14 @@ proc calcRiseAndFallTimes*(h5f: var H5FileObj, run_number: int) =
   ## starting from the index of the minimum
 
   let
-    minvals_group = minvalsBasename(run_number)
     fadc_group = fadcDataBasename(run_number)
   var
-    minvals = h5f[minvals_group.dset_str]
     fadc = h5f[fadc_group.dset_str]
 
   let t0 = epochTime()
-  var f_data = fadc[float64].reshapeFadc
-  let nevents = f_data.len
+  let fadcShape = fadc.shape
+  let nEvents = fadcShape[0]
+  var f_data = fadc[float64].reshape2D(fadcShape)
 
   # given the reshaped array, we can now compute the
   # fall and rise times
@@ -281,12 +265,12 @@ proc calcRiseAndFallTimes*(h5f: var H5FileObj, run_number: int) =
 
   # now write data back to h5file
   var
-    base_dset = h5f.create_dataset(fadcBaselineBasename(run_number), nevents, float)
-    x_min_dset = h5f.create_dataset(argMinvalBasename(run_number), nevents, uint16)
-    rise_s_dset = h5f.create_dataset(riseStartBasename(run_number), nevents, uint16)
-    fall_s_dset = h5f.create_dataset(fallStopBasename(run_number), nevents, uint16)
-    rise_t_dset = h5f.create_dataset(riseTimeBasename(run_number), nevents, uint16)
-    fall_t_dset = h5f.create_dataset(fallTimeBasename(run_number), nevents, uint16)
+    base_dset = h5f.create_dataset(fadcBaselineBasename(run_number), nEvents, float)
+    x_min_dset = h5f.create_dataset(argMinvalBasename(run_number), nEvents, uint16)
+    rise_s_dset = h5f.create_dataset(riseStartBasename(run_number), nEvents, uint16)
+    fall_s_dset = h5f.create_dataset(fallStopBasename(run_number), nEvents, uint16)
+    rise_t_dset = h5f.create_dataset(riseTimeBasename(run_number), nEvents, uint16)
+    fall_t_dset = h5f.create_dataset(fallTimeBasename(run_number), nEvents, uint16)
 
   # convert data to uint16
   let

@@ -747,6 +747,7 @@ proc processEventWithScanf*(data: seq[string]): ref Event =
   result.chips = chips
   result.nChips = chips.len
 
+
 proc addOldHeaderKeys(e_header, c_header: var Table[string, string],
                       eventNumber, chipNumber, pix_counter: int,
                       filepath: string) {.inline.} =
@@ -1198,6 +1199,8 @@ proc getSortedListOfFiles*(run_folder: string,
   of inode:
     result = sortByInode(getListOfFiles(run_folder, eventRegex))
 
+# set experimental pragma to enable parallel: block
+{.experimental.}
 proc readListOfFiles*[T](list_of_files: seq[string],
                          rfKind: RunFolderKind = rfUnknown):
                            seq[FlowVar[ref T]] = #{.inline.} =
@@ -1228,8 +1231,6 @@ proc readListOfFiles*[T](list_of_files: seq[string],
       echoFilesCounted(f_count)
   sync()
 
-# set experimental pragma to enable parallel: block
-{.experimental.}
 proc readListOfInGridFiles*(list_of_files: seq[string], rfKind: RunFolderKind):
                           seq[FlowVar[ref Event]] =
   ## this procedure receives a list of files, reads them into memory (as a buffer)

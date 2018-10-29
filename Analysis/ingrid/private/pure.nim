@@ -1206,30 +1206,42 @@ proc readListOfFiles*[T](list_of_files: seq[string],
                            seq[FlowVar[ref T]] = #{.inline.} =
   ## As this is to be called from a function specifying the datatype, see the calling functions
   ## for descriptions of input and output
+  # backward compatible flag to disable reading FADC files straight
+  # from memory mapping
+  const fadcMemFiles = true
+
   let nfiles = len(list_of_files)
   echo "Reading files into buffer from " & $0 & " to " & $(nfiles - 1)
   # seq of lines from memmapped files
-  let mmfiles = readMemFilesIntoBuffer(list_of_files)
-  echo "...done reading"
 
-  # create a buffer sequence, into which we store the results processed
-  # in parallel (cannot add to the result seq with arbitrary indexes)
-  # need ind_high + 1, since newSeq creates a seq with as many elements, while
-  # the slicing syntax a[0..10] includes (!) the last element, thus this slice
-  # has 11 elements
+  when T is Event or not fadcMemFiles:
+    let mmfiles = readMemFilesIntoBuffer(list_of_files)
+    echo "...done reading"
+
   result = newSeq[FlowVar[ref T]](nfiles)
 
-  parallel:
-    var f_count = 0
-    for i, s in mmfiles:
-      # loop over each file and call work on data function
-      if i < len(result):
-        when T is Event:
-          result[i] = spawn processEventWrapper(s, rfKind)
-        elif T is FadcFile:
-          result[i] = spawn readFadcFile(s)
-      echoFilesCounted(f_count)
-  sync()
+  when T is Event or not fadcMemFiles:
+    parallel:
+      var f_count = 0
+      for i, s in mmfiles:
+        # loop over each file and call work on data function
+        if i < len(result):
+          when T is Event:
+            result[i] = spawn processEventWrapper(s, rfKind)
+          elif T is FadcFile:
+            result[i] = spawn readFadcFile(s)
+        echoFilesCounted(f_count)
+    sync()
+  elif T is FadcFile and fadcMemFiles:
+    # should be faster than not using memory mapping
+    parallel:
+      var f_count = 0
+      for i, f in list_of_files:
+        # loop over each file and call work on data function
+        if i < len(result):
+          result[i] = spawn readFadcFileMem(f)
+        echoFilesCounted(f_count)
+    sync()
 
 proc readListOfInGridFiles*(list_of_files: seq[string], rfKind: RunFolderKind):
                           seq[FlowVar[ref Event]] =

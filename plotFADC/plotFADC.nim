@@ -1,22 +1,24 @@
-import nimhdf5, os, ingrid/tos_helpers, sequtils, strutils, math, strformat
+import os, strutils, strformat
+import sequtils
+import nimhdf5
+import math
 import sets
 import plotly
 import tables
 import re
 import docopt
+import ingrid/tos_helpers
 
 let doc = """
 InGrid/FADC reading and cutting.
 
 
 Usage:
-  plotFADC <HDF5file> [options]
   plotFADC <HDF5file> [--runNumber <runnum>] [--chipNumber <chipnum>] [options]
   plotFADC <HDF5file> --evParams  [options]
   plotFADC <HDF5file> [--choose <chparams>] [--cutFADC_low <fadccutlow>] [--cutFADC_high <fadccuthigh>] [options]
   plotFADC <HDF5file> [--choose <chparams>] [--cutFADC_low <fadccutlow>] [--cutFADC_high <fadccuthigh>] [--plot_high <plothigh>] [options]
-  plotFADC <HDF5file>  [--choose <chparams>] [--plot_low <plotlow>] [--plot_high <plothigh>] [options]
-  plotFADC -h | --help
+  plotFADC <HDF5file> [--choose <chparams>] [--plot_low <plotlow>] [--plot_high <plothigh>] [options]
 
 
 Options:
@@ -39,7 +41,6 @@ proc readandcut*[T](h5f: var H5FileObj, runNumber: int, chip: int, chParams: str
   var reco_group_chip = recoDataChipBase(runNumber) & $chip
   var group = h5f[reco_group.grp_str]
   var group_chip = h5f[reco_group_chip.grp_str]
-  let chip_number = group_chip.attrs["chipNumber", int]
   let evNumbers = h5f[group_chip.name / "eventNumber", int64]
   let choosenParams = h5f[group_chip.name / chParams, float64]
   let a = choosenParams.filterIt(it < 1000)
@@ -67,24 +68,21 @@ proc readandcut*[T](h5f: var H5FileObj, runNumber: int, chip: int, chParams: str
   result = cutb
 
 proc plotcuts*[T](cuts: seq[T], chParams: string, mincut:float, maxcut: float) =
-  ##plot the results
+  ##plot the cut results
   let
     d = Trace[float](`type`: PlotType.Histogram,
                      bins: (mincut, maxcut), binSize: 0.1 )
   d.xs = cuts
   let
-
    # font = Font(size: 16)
     layout = Layout(title: "distribution histogram"  ,
-                    width: 800, height: 400,
+                    width: 800, height: 600,
                     xaxis: Axis(title: chParams),
                     yaxis: Axis(title:"counts"),
                     autosize: false)
     p = Plot[float](layout: layout, traces: @[d])
 #  p.show()
-#  p.saveImage("$#.svg" % [$chParams])
   p.saveImage(chParams & ".svg")
-#  p.saveImage(&"{chParams}.svg")
 
 
 proc main() =
@@ -111,7 +109,6 @@ proc main() =
   var cutlow: int
   var cuthigh: int
   var dataBasename = recoBase()
-  var maxcut: int
   var maxcutfloat: float
   var mincutfloat: float
 
@@ -133,7 +130,7 @@ proc main() =
     cuthigh = 1000
     echo "Standard high cut limit is 1000"
 
-  ##get the runNumber and the center chip number
+  ##get the center chip number
 
   let groups = toSeq(keys(h5f.groups))
   var rawG = h5f["runs".grp_str]
@@ -146,6 +143,8 @@ proc main() =
 
   let runRegex = re(data_basename & r"(\d+)$")
   var run: array[1, string]
+
+  ##get all runnumbers in the h5file, all of them will be used if no specific run is set
 
   if runNum == "nil":
     for grp in groups:
@@ -162,7 +161,8 @@ proc main() =
   else:
      mincutfloat = 0.0
 
-  if plothigh_num != "nil":
+  if $args["--plot_high"] != "nil":
+  #plothigh_num != "nil":
      maxcutfloat = plothigh_num.parseFloat
   else:
      maxcutfloat = cuts.max ##find the maximum to define the upper plotting limit
@@ -170,7 +170,7 @@ proc main() =
   if $args["--evParams"] == "true":
     echo getFloatDsetNames()
   else:
-    plotcuts(cuts, chParamstring, mincutfloat,  maxcutfloat)
+    plotcuts(cuts, chParamstring, mincutfloat, maxcutfloat)
 
   discard h5f.close()
 

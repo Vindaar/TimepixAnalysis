@@ -16,6 +16,7 @@ import tos_helpers
 import helpers/utils
 import ingrid_types
 import ingridDatabase / [databaseRead, databaseDefinitions]
+import procsForPython
 from ingridDatabase/databaseWrite import writeCalibVsGasGain
 
 ## need nimpy to call python functions
@@ -284,6 +285,8 @@ template fitPolyaTmpl(charges,
   ## reconstructed run. Called if `reconstruction` ran with --only_charge.
   ## After charge calc from TOT calib, this proc calculates the gas gain
   ## for this run.
+  ## NOTE: charges has 1 element more than counts, due to representing the
+  ## bin edges!
   # determine start parameters
   # estimate of 3000 or gas gain
   # TODO: test again with mpfit. Possible to get it working?
@@ -309,7 +312,7 @@ template fitPolyaTmpl(charges,
   actions
 
   # set ``x``, ``y`` result and use to create plot
-  result.x = linspace(charges[0], charges[^1], 100)
+  result.x = linspace(charges[0], charges[^1], counts.len)
   result.y = result.x.mapIt(polyaImpl(params, it))
 
   if createPlots:
@@ -370,18 +373,14 @@ proc fitPolyaPython*(charges,
     #echo preY
     #plotGasGain(@[trData, preTr], chipNumber, runNumber, false)
     # create NLopt optimizer without parameter bounds
-    let bounds = @[(-Inf, Inf), (-Inf, Inf), (0.5, 15.0)]
-    let toFitInds = toSeq(0 ..< charges.len).filterIt(charges[it] > 1200.0)# and charges[it] < 4500.0)
+    let toFitInds = toSeq(0 ..< counts.len).filterIt(charges[it] > 1200.0)# and charges[it] < 4500.0)
     let chToFit = toFitInds.mapIt(charges[it])
     let countsToFit = toFitInds.mapIt(counts[it])
     # try to fit using scipy.optimize.curve_fit
-    #let scipyOpt = pyImport("scipy.optimize")
-    #let pyRes = scipyOpt.curve_fit(polyaPython, chToFit, countsToFit,
-    #                               p0=p, bounds = bounds, full_output=True)
-    let bPy = (@[-Inf, -Inf, 0.5], @[Inf, Inf, 15.0])
-    let pyPolyaFit = pyImport("ingrid.fitPolya")
-    let pyRes = pyPolyaFit.fitPolyaFunc(chToFit, countsToFit, p, bPy)
-    # echo pyRes
+    let bPy = @[@[-Inf, -Inf, 0.5], @[Inf, Inf, 15.0]]
+    let scipyOpt = pyImport("scipy.optimize")
+    let pyRes = scipyOpt.curve_fit(polyaPython, chToFit, countsToFit,
+                                    p0=p, bounds = bPy)
     var params = newSeq[float](p.len)
     var count = 0
     for resP in pyRes[0]:

@@ -1,6 +1,6 @@
 import nimpy, math
 
-proc polyaPython(xOb: PyObject, p0, p1, p2: float): seq[float] {.exportpy.} =
+proc polyaPython*(xOb: PyObject, p0, p1, p2: float): seq[float] {.exportpy.} =
   ## Polya function to fit to TOT histogram / charge in electrons of a
   ## run. This is the actual implementation of the polya distribution.
   ## Parameters:
@@ -8,9 +8,9 @@ proc polyaPython(xOb: PyObject, p0, p1, p2: float): seq[float] {.exportpy.} =
   ## G     = p[1]    gas gain
   ## theta = p[2]    parameter, which describes distribution (?! I guess it makes sens
   ##                 since we take its power and it enters gamma)
+  # TODO: move this whole proc back to calibration.nim?
   var thetaDash = p2 + 1
-  result = newSeqOfCap[float](150)
-  # TODO: implement this into `nimpy`!
+  result = newSeqOfCap[float](181)
   let coeff1 = (p0 / p1) * pow((thetaDash), thetaDash) / gamma(thetaDash)
   var coeff2: float
   for x in xOb:

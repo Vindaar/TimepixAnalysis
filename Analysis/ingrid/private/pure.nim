@@ -1299,8 +1299,12 @@ proc isTosRunFolder*(folder: string):
     eventRegex = re(eventRegexSrs)
   else:
     # in this case `eventRegex` will stay unknown, because we are probably
-    # not in a run folder
+    # not in a run folder.
     result.is_rf = false
+    # set regex to a "default" regex, which matches any TOS kind
+    eventRegex = re(r".*data.*\.txt")
+    # however, run folder kind is unknown in this case!
+    result.rfKind = rfUnknown
   for kind, path in walkDir(folder):
     if kind == pcFile:
       if match(path, eventRegex) == true and matches_rf_name == true:

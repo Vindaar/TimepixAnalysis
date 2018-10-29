@@ -274,6 +274,9 @@ proc main =
   for run in runs:
     var runInfo = getRunInfo(getRunPath(run.int, runFolder))
     runInfo.runType = runInfo.determineType
+    if runInfo.runType == rtNone:
+      raise newException(IOError, "Unsupported run type : " & $(runInfo.runType) &
+        " for folder " & runInfo.path)
 
     case hnKind
     of hnCast:

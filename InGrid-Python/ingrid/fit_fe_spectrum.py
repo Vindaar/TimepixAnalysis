@@ -102,12 +102,18 @@ def feSpectrumFunc(x, *p_ar):#p_ar):
 
     return value
 
-def getLines(hist):
+def getLines(hist, binning = None):
     # define center, std and amplitude of K_alpha line
     # as well as escape peak
-    mu_kalpha = np.argmax(hist)
+    muIdx = np.argmax(hist)
+    mu_kalpha = 0
+    if binning is not None:
+        mu_kalpha = binning[muIdx]
+        print("Binning mu alpha ", mu_kalpha)
+    else:
+        mu_kalpha = np.argmax(hist)
     sigma_kalpha = mu_kalpha / 10.0
-    n_kalpha = hist[mu_kalpha]
+    n_kalpha = hist[muIdx]
 
     mu_kalpha_esc = mu_kalpha * 2.9/5.75
     sigma_kalpha_esc = mu_kalpha_esc / 10.0
@@ -125,8 +131,12 @@ def getBoundsList(nParams):
 def fitFeSpectrumToCharge(hist, binning, cuts):
     # perform the fit of the Fe spectrum to the charge data instead
     # of the number of hit pixels data
-    mu_kalpha, sigma_kalpha, n_kalpha, mu_kalpha_esc, sigma_kalpha_esc, n_kalpha_esc = getLines(hist)
+    binning = np.asarray(binning)
+    hist = np.asarray(hist)
+    mu_kalpha, sigma_kalpha, n_kalpha, mu_kalpha_esc, sigma_kalpha_esc, n_kalpha_esc = getLines(hist, binning)
+
     params = np.zeros(6, dtype = np.float)
+    print("lines ", n_kalpha, " and mu ", mu_kalpha)
     # parameter names
     # 0 : "N^{esc}_{K_{#alpha}}"
     # 1 : "#mu^{esc}_{K_{#alpha}} [10^{3} e]"
@@ -143,27 +153,28 @@ def fitFeSpectrumToCharge(hist, binning, cuts):
     params[4] = mu_kalpha
     params[5] = sigma_kalpha
     # get lists defining the bounds of the parameters
-    l_bounds, u_bounds = getBoundsList(6)
-    # set the bounds
-    l_bounds[0] = 0
-    u_bounds[0] = 10000
-    l_bounds[3] = 0
-    u_bounds[3] = 10000
 
-    l_bounds[1] = mu_kalpha_esc*0.8
-    u_bounds[1] = mu_kalpha_esc*1.2
-    l_bounds[4] = mu_kalpha*0.8
-    u_bounds[4] = mu_kalpha*1.2
-
-    l_bounds[2] = sigma_kalpha_esc*0.5
-    u_bounds[2] = sigma_kalpha_esc*1.5
-    l_bounds[5] = sigma_kalpha*0.5
-    u_bounds[5] = sigma_kalpha*1.5
-
-    # combine bounds
-    bounds = (l_bounds, u_bounds)
-    #print(len(bounds))
-    print("Bounds for charge fit: ", bounds)
+    # NOTE: Bounds for this fit seem unnecessary. Fit converges just fine
+    # This way we get the Chi^2/dof
+    # l_bounds, u_bounds = getBoundsList(6)
+    # # set the bounds
+    # l_bounds[0] = 0
+    # u_bounds[0] = 10000
+    # l_bounds[3] = 0
+    # u_bounds[3] = 10000
+    #
+    # l_bounds[1] = mu_kalpha_esc*0.8
+    # u_bounds[1] = mu_kalpha_esc*1.2
+    # l_bounds[4] = mu_kalpha*0.8
+    # u_bounds[4] = mu_kalpha*1.2
+    #
+    # l_bounds[2] = sigma_kalpha_esc*0.5
+    # u_bounds[2] = sigma_kalpha_esc*1.5
+    # l_bounds[5] = sigma_kalpha*0.5
+    # u_bounds[5] = sigma_kalpha*1.5
+    #
+    # # combine bounds
+    # bounds = (l_bounds, u_bounds)
     print("N params for charge fit: ", len(params))
     # only fit in range up to 350 hits. Can take index 350 on both, since we
     # created the histogram for a binning with width == 1 pixel per hit
@@ -171,26 +182,25 @@ def fitFeSpectrumToCharge(hist, binning, cuts):
     data_tofit = hist[inds]
     #print("Data to fit: ", data_tofit)
     bins_tofit = binning[inds]
-    print("Binning to fit: ", bins_tofit)
-    print("l bounds : ", l_bounds)
     #lb, ub = [np.asarray(b, dtype=float) for b in bounds]
-    print("Bounds are : ", bounds)
+    #print("Bounds are : ", bounds)
     result = curve_fit(procsForPython.feSpectrumFuncCharge,
                        bins_tofit,
                        data_tofit,
-                       p0=params,
-                       bounds = bounds)#, full_output=True)
+                       p0=params, full_output = True)
+                       #bounds = bounds)#, full_output=True)
     popt = result[0]
     pcov = result[1]
+    infodict = result[2]
     # Calculate the reduced Chi^2:
     # n_dof: # degrees of freedom
-    #n_dof  = (np.size(infodict[0]['fvec']) - np.size(popt))
-    #chi_sq = np.sum(infodict[0]['fvec']**2) / n_dof
+    n_dof  = (np.size(infodict['fvec']) - np.size(popt))
+    chi_sq = np.sum(infodict['fvec']**2) / n_dof
     print('--------------------------------------------------')
     print('Parameters of calibration fit: ')
     for i, p in enumerate(popt):
         print('p_{} ='.format(i), popt[i], '+-', np.sqrt(pcov[i][i]))
-    #print('Chi^2 / dof =', chi_sq)
+    print('Chi^2 / dof =', chi_sq)
 
     print("yay :)")
 
@@ -279,8 +289,9 @@ def fitAndPlotFeSpectrumCharge(data, cuts, outfolder, run_number, fitting_only =
     # bin the data
     # before we bin data, divide it by 1000
     data = np.asarray(data) / 1000
-    hist, binning = binData(data, cuts)
+    hist, binning = binData(data, cuts, binning = 300)
     popt, pcov = fitFeSpectrumToCharge(hist, binning, cuts)
+    print("Max of binning ", np.max(binning))
 
     # now get some nice x / y points from the fit parameters
     # given these values, plot
@@ -329,11 +340,12 @@ def fitAndPlotFeSpectrumCharge(data, cuts, outfolder, run_number, fitting_only =
     if mpl.rcParams["text.usetex"] == True:
         #text  = "$\mu = \SI{" + "{0:.1f}".format(k_alpha) + "}{pix}$"
         text2 = "$\sim\SI{" + "{0:.1f}".format(a_inv) + "}{\electronvolt \per e^{-3}}$"
+        ax.text(120, 135, text2, fontsize = 20)
     else:
         #text  = "mu = " + "{0:.1f}".format(k_alpha) + "pix"
         text2 = "{0:.1f}".format(a_inv) + "ev / pix"
     #ax.text(120, 150, text, fontsize = 20)
-    ax.text(120, 135, text2, fontsize = 20)
+    #ax.text(120, 135, text2, fontsize = 20)
 
 
     plt.savefig(os.path.join(outfolder, "XrayCalib_Fe_Spectrum_{}.pdf".format(run_number)))

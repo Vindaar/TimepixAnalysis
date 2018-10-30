@@ -115,7 +115,12 @@ def recoDataChipBase(run_number):
 def rawDataChipBase(run_number):
     return "/runs/run_{}/chip_".format(run_number)
 
-def binData(data, cuts):
+def binData(data, cuts, binning = None):
+    # Bin the given data after applying potential cuts (NOTE: this feature is not
+    # really supported).
+    # If binning is given, we create the histogram according to that binning.
+    # Used e.g. for `fitFeSpectrumCharge`, because we do not have distinct bins for
+    # each 1000 electrons
     if cuts is not None:
       for cut_str in cuts:
           # careful, this is somewhat dangerous, because we just evaluate any string
@@ -126,7 +131,8 @@ def binData(data, cuts):
 
     # assume binsize of 1 for now
     data = np.concatenate(data).flatten()
-    binning = np.linspace(-0.5, np.max(data) + 0.5, np.max(data) + 2)
+    if binning is None:
+        binning = np.linspace(-0.5, np.max(data) + 0.5, np.max(data) + 2)
 
     hist, bin_edges = np.histogram(data, binning)
     bins = np.arange(np.max(data) + 1)
@@ -177,7 +183,11 @@ def plotData(hist, binning, range, outfile, title, xlabel, ylabel, save_plot = T
             #print(hist)
             raise
     else:
-        ax.bar(binning, hist, 1., align='edge', linewidth=0.2)
+        # for a bar plot with binning given as a list, calculate the widths of the bins
+        widths = [binning[it + 1] - binning[it] for it in np.arange(len(binning) - 1)]
+        # append the last width
+        widths.append(widths[-1])
+        ax.bar(binning, hist, width = widths, align='edge', linewidth=0.2)
     if title is not None:
         ax.set_title(title)
     ax.set_xlabel(xlabel)

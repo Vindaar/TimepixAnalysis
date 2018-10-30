@@ -726,6 +726,32 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int, createPlots = false) =
       writeAttrs(polyaDset, fitResult)
       writeAttrs(polyaFitDset, fitResult)
 
+proc writeFeFitParameters(dset: var H5DataSet,
+                          popt, popt_E: seq[float],
+                          pcov, pcov_E: seq[seq[float]]) =
+  ## writes the fit parameters obtained via a call to `scipy.curve_fit` to
+  ## the attributes of the dataset ``dset``, which should be the corresponding
+  ## FeSpectrum[Charge] dataset
+  proc writeAttrs(dset: var H5DataSet, name: string,
+                  p: seq[float], c: seq[seq[float]]) =
+    for i in 0 .. p.high:
+      dset.attrs[name & $i] = p[i]
+      dset.attrs[name & "Err_" & $i] = sqrt(c[i][i])
+  dset.writeAttrs("p", popt, pcov)
+  dset.writeAttrs("p_E_", popt_E, pcov_E)
+
+proc writeEnergyPerAttrs(dset: var H5DataSet,
+                         key: string,
+                         scaling: float,
+                         popt, pErr: float) =
+  ## writes the fit results as `eV per Pixel` / `keV per Electron` to the
+  ## given dataset as attributtes
+  ## Scaling factor:
+  ##   - `eV per Pixel`: 1000.0
+  ##   - `keV per electron`: 1e-3
+  let aInv = 1 / popt * scaling
+  dset.attrs[key] = aInv
+  dset.attrs["d_" & key] = aInv * pErr / popt
 
 proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
                       fittingOnly = true) =
@@ -735,21 +761,33 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
   ## inefficient!
   let pyFitFe = pyImport("ingrid.fit_fe_spectrum")
   # get the fe spectrum for the run
-  let
-    groupName = recoDataChipBase(runNumber) & $chipNumber
-    feDset = h5f[(groupName / "FeSpectrum").dsetStr]
-    feData = feDset[int64]
+  let groupName = recoDataChipBase(runNumber) & $chipNumber
+  var feDset = h5f[(groupName / "FeSpectrum").dsetStr]
+  let feData = feDset[int64]
   # call python function with data
   let res = pyFitFe.fitAndPlotFeSpectrum([feData], "", ".", runNumber, fittingOnly)
-  # close h5 file so that Python can access it
-  let err = h5f.close()
-  if err == 0:
-    let factor = pyFitFe.writeFitParametersH5(h5f.name, res, groupName, feDset.name)
-    echo "Factor is ", factor
 
-  # reopen the file
-  h5f = H5file(h5f.name, "rw")
-  # now fit charge
+  proc extractAndWriteAttrs(dset: var H5DataSet,
+                            scaling: float,
+                            res: PyObject,
+                            key: string) =
+    let
+      popt = res[0].toNimSeq(float)
+      pcov = res[1].toNimSeq(seq[float])
+      popt_E = res[2].toNimSeq(float)
+      pcov_E = res[3].toNimSeq(seq[float])
+    dset.writeFeFitParameters(popt, popt_E, pcov, pcov_E)
+
+    writeEnergyPerAttrs(dset, key,
+                        scaling,
+                        popt_E[0],
+                        pcov_E[0][0])
+
+  const eVperPixelScaling = 1e3
+  extractAndWriteAttrs(feDset, eVperPixelScaling, res, "eV_per_pix")
+
+  # run might not have ``totalCharge`` dset, if no ToT calibration is available,
+  # but user wishes Fe spectrum fit to # hit pixels
   if h5f.hasTotalChargeDset(runNumber, chipNumber):
     # also fit to the charge spectrum
     let feIdx = h5f[groupName / "FeSpectrumIndices", int64]
@@ -762,10 +800,10 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
                                                        runNumber, fittingOnly)
     # given resCharge, need to write the result of that fit to H5 file, analogous to
     # `writeFitParametersH5` in Python
-    let a = resCharge[2].to(float64)
-    let aInv = 1 / a / 1000.0
-    totChDset.attrs["keV_per_electron"] = aInv
-    totChDset.attrs["d_keV_per_electron"] = aInv * resCharge[3].to(float64) / a
+    const keVPerElectronScaling = 1e-3
+    extractAndWriteAttrs(totChDset, keVPerElectronScaling,
+                         resCharge, "keV_per_electron")
+
   else:
     echo "Warning: `totalCharge` dataset does not exist in file. No fit to " &
       "charge Fe spectrum will be performed!"

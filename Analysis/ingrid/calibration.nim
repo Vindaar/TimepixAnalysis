@@ -754,7 +754,7 @@ proc writeEnergyPerAttrs(dset: var H5DataSet,
   dset.attrs["d_" & key] = aInv * pErr / popt
 
 proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
-                      fittingOnly = true) =
+                      fittingOnly = true, outfiles: seq[string] = @[]) =
   ## (currently) calls Python functions from `ingrid` Python module to
   ## perform fit to the `FeSpectrum` dataset in the given run number
   ## NOTE: due to calling Python functions, this proc is *extremely*
@@ -765,7 +765,19 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
   var feDset = h5f[(groupName / "FeSpectrum").dsetStr]
   let feData = feDset[int64]
   # call python function with data
-  let res = pyFitFe.fitAndPlotFeSpectrum([feData], "", ".", runNumber, fittingOnly)
+  let res = pyFitFe.fitAndPlotFeSpectrum([feData], "", ".", runNumber,
+                                         fittingOnly, outfiles)
+
+  # NOTE: this is a workaround for a weird bug we're seeing. If we don't close the
+  # library here, we get an error in a call to `deleteAttribute` from within
+  # `writeFeFitParameters`, line 738
+  # If we just reopen the file we get an error from `existsAttribute` from line
+  # 739
+  # only if we also revisit the file it works. And this ONLY happens from the
+  # `plotData` script, not from the `reconstruction` program.
+  discard h5f.close()
+  h5f = H5file(h5f.name, "rw")
+  h5f.visit_file()
 
   proc extractAndWriteAttrs(dset: var H5DataSet,
                             scaling: float,
@@ -795,9 +807,11 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
     # extract correct clusters from totChargeData using indices
     let totChSpec = feIdx.mapIt(totChargeData[it.int])
     # create and write as a dataset
+    let outfilesCharge = outfiles.mapIt("charge_" & it)
     var totChDset = h5f.write_dataset(groupName / "FeSpectrumCharge", totChSpec)
     let resCharge = pyFitFe.fitAndPlotFeSpectrumCharge([totChSpec], "", ".",
-                                                       runNumber, fittingOnly)
+                                                       runNumber, fittingOnly,
+                                                       outfilesCharge)
     # given resCharge, need to write the result of that fit to H5 file, analogous to
     # `writeFitParametersH5` in Python
     const keVPerElectronScaling = 1e-3

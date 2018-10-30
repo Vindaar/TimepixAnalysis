@@ -824,8 +824,12 @@ proc writeInGridAttrs(h5f: var H5FileObj, run: ProcessedRun,
   let centerName = run.chips[centerChip].name
   rawG.attrs["centerChip"] = centerChip
   recoG.attrs["centerChip"] = centerChip
+  run_group.attrs["centerChip"] = centerChip
+  reco_group.attrs["centerChip"] = centerChip
   rawG.attrs["centerChipName"] = centerName
   recoG.attrs["centerChipName"] = centerName
+  run_group.attrs["centerChipName"] = centerName
+  reco_group.attrs["centerChipName"] = centerName
 
   # into the reco group name we now write the ToT and Hits information
   # var totDset = h5f.create_dataset(reco_group & "/ToT")

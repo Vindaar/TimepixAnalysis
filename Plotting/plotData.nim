@@ -1,6 +1,8 @@
 import plotly
 import os, strutils, strformat
+import times
 import sequtils
+import shell
 import algorithm, sets
 import typeinfo
 import math
@@ -100,6 +102,34 @@ type
 
 # global variable which stores the backend the user selected
 var BKind: BackendKind = bNone
+# global OrderedSet to store all files we save to later
+# combine to single PDF
+var imageSet = initOrderedSet[string]()
+
+var ShowPlots = false
+
+proc savePlot[T: (Plot | PyObject)](p: T, outfile: string) =
+  when T is Plot:
+    let fname = "figs" / outfile & ".svg"
+    p.saveImage(fname)
+    imageSet.incl(fname)
+  else:
+    let fname = "figs" / outfile & ".svg"
+    echo "fname ", fname
+    discard p.savefig(fname)
+    echo "ok"
+    imageSet.incl(fname)
+    if ShowPlots:
+      discard callMethod(p, "show")
+    else:
+      let fig = p.gcf()
+      discard callMethod(p, "close", "fig")
+      discard callMethod(p, "close")
+
+proc importPyplot(): PyObject =
+  let mpl = pyImport("matplotlib")
+  discard mpl.use("TKagg")
+  result = pyImport("matplotlib.pyplot")
 
 proc getTrace[T](thl, hits: seq[T], voltage: string): Trace[float] =
   result = Trace[float](`type`: PlotType.Scatter)
@@ -135,7 +165,7 @@ proc getLayout(title: string, xlabel: string, ylabel: string, shape = ShapeKind.
                   yaxis: Axis(title: ylabel),
                   autosize: false)
 
-proc plotHist[T](xIn: seq[seq[T]], title, dset: string) =
+proc plotHist[T](xIn: seq[seq[T]], title, dset, outfile: string) =
   ## plots the data in `x` as a histogram
   let xs = xIn.mapIt(it.mapIt(it.float))
   let binRangeO = getBinRangeForDset(dset)
@@ -156,30 +186,31 @@ proc plotHist[T](xIn: seq[seq[T]], title, dset: string) =
     var traces: seq[Trace[float]]
     for x in xs:
       traces.add Trace[float](`type`: PlotType.Histogram,
-                            bins: binRange,
-                            nbins: nbins,
-                            xs: x)
+                              bins: binRange,
+                              nbins: nbins,
+                              xs: x,
+                              name: dset)
     let p = Plot[float](layout: lyout, traces: traces)
-    p.show()
+    #p.show()
+    p.savePlot(outfile)
   of bMpl:
-    let mpl = pyImport("matplotlib")
-    discard mpl.use("TKagg")
-    let plt = pyImport("matplotlib.pyplot")
-    let np = pyImport("numpy")
+    let plt = importPyplot()
     let (fig, ax) = plt.subplots(1, 1).to((PyObject, PyObject))
     for x in xs:
+      echo "bin range ", binRange, " for dset ", dset
       discard ax.hist(x,
                       bins = nbins,
                       range = binRange)
     # we cannot call `show` directly, because the Nim compiler tries to
     # call the Nim `show` procedure and fails
-    discard callMethod(plt, "show")
-
+    discard plt.xlabel(dset)
+    discard plt.title(title)
+    plt.savePlot(outfile)
   else: discard
 
 proc plotBar[T](binsIn, countsIn: seq[seq[T]], title: string,
                 xlabel: string, dsets: seq[string],
-                drawPlots = false): (Plot[float], PyObject) =
+                outfile: string, drawPlots = false): (Plot[float], PyObject) =
   ## plots the data in `x` as a histogram
   let bins = binsIn.mapIt(it.mapIt(it.float))
   let counts = countsIn.mapIt(it.mapIt(it.float))
@@ -201,10 +232,7 @@ proc plotBar[T](binsIn, countsIn: seq[seq[T]], title: string,
     if drawPlots:
       result[0].show()
   of bMpl:
-    let mpl = pyImport("matplotlib")
-    discard mpl.use("TKagg")
-    let plt = pyImport("matplotlib.pyplot")
-    let np = pyImport("numpy")
+    let plt = importPyplot()
     let (fig, ax) = plt.subplots(1, 1).to((PyObject, PyObject))
     for i in 0 .. bins.high:
       let
@@ -219,6 +247,8 @@ proc plotBar[T](binsIn, countsIn: seq[seq[T]], title: string,
                      align = "edge",
                      width = width,
                      label = dset)
+      discard ax.set_xlabel(xlabel)
+      discard ax.set_title(title)
 
     result[1] = ax
     # we cannot call `show` directly, because the Nim compiler tries to
@@ -248,6 +278,7 @@ iterator chips(group: var H5Group): (int, H5Group) =
 proc plotHistsFeSpec(h5f: var H5FileObj,
                      group: H5Group,
                      dsetName: string,
+                     runNumber: string,
                      dKind: DataKind,
                      chipNum = 0) =
   ## creates 3 plots for the given dataset.
@@ -265,7 +296,8 @@ proc plotHistsFeSpec(h5f: var H5FileObj,
       # extract indices corresponding to peak
       ldata = idx.mapIt(ldata[it])
       let title = &"Dataset: {dsetName} for chip {chipNum} in range: {r[2]}"
-      plotHist(@[ldata], title, dsetName)
+      let outfile = &"{dsetName}_run{runNumber}_chip{chipNum}_range{r[2]}"
+      plotHist(@[ldata], title, dsetName, outfile)
     of dkFadc:
       # get the center chip group
       let centerChip = h5f[recoGroupGrpStr()].attrs["centerChip", int]
@@ -282,17 +314,17 @@ proc plotHistsFeSpec(h5f: var H5FileObj,
       #let evNumFilter = evNumFadc --> filter(it in inGridSet)
       let idxFadc = (toSeq(0 .. evNumFadc.high)) --> filter(evNumFadc[it] in inGridSet)
       let dset = h5f[(group.name / dsetName).dset_str]
+      let title = &"Dataset: {dsetName} for fadc in range: {r[2]}"
+      let outfile = &"fadc_{dsetName}_run{runNumber}_range{r[2]}"
       case dset.dtypeAnyKind
       of akUint16: # fallTime
         var ldata = dset[uint16]
         ldata = idxFadc --> map(ldata[it])
-        let title = &"Dataset: {dsetName} for fadc in range: {r[2]}"
-        plotHist(@[ldata], title, dsetName)
+        plotHist(@[ldata], title, dsetName, outfile)
       of akFloat64: # minVals
         var ldata = dset[float]
         ldata = idxFadc --> map(ldata[it])
-        let title = &"Dataset: {dsetName} for fadc in range: {r[2]}"
-        plotHist(@[ldata], title, dsetName)
+        plotHist(@[ldata], title, dsetName, outfile)
       else:
         echo "Unsupported type ", dset.dtypeAnyKind
         discard
@@ -315,13 +347,13 @@ proc histograms(h5f: var H5FileObj, flags: set[ConfigFlagKind]) =
     if cfNoIngrid notin flags:
       for chipNum, chpgrp in chips(group):
         for dset in dsets:
-          plotHistsFeSpec(h5f, chpgrp, dset, dkInGrid, chipNum)
+          plotHistsFeSpec(h5f, chpgrp, dset, runNumber, dkInGrid, chipNum)
 
     # fadc plots
     if cfNoFadc notin flags:
       var fadcGrp = h5f[(group.name / "fadc").grp_str]
       for dsetName in fadcDsets:
-        plotHistsFeSpec(h5f, fadcGrp, dsetName, dkFadc)
+        plotHistsFeSpec(h5f, fadcGrp, dsetName, runNumber, dkFadc)
 
 proc calcOccupancy[T](x, y: seq[T]): Tensor[int] =
   ## calculates the occupancy of the given x and y datasets
@@ -340,7 +372,7 @@ proc calcOccupancy[T](x, y: seq[T]): Tensor[int] =
     elif T is SomeFloat:
       result[xEv.round.int, yEv.round.int] += 1
 
-proc plotHist2D[T](data: Tensor[T], title, descr: string) =
+proc plotHist2D[T](data: Tensor[T], title, outfile: string) = #descr: string) =
   ## creates a 2D histogram plot (basically an image) of the given 2D
   ## Tensor
   doAssert data.rank == 2
@@ -351,9 +383,15 @@ proc plotHist2D[T](data: Tensor[T], title, descr: string) =
                       colormap: ColorMap.Viridis,
                       zs: data.toRawSeq.reshape2D([256, 256]))
     let p = Plot[T](layout: lyout, traces: @[tr])
-    p.show()
+    # p.show()
+    p.savePlot(outfile)
   of bMpl:
-    discard
+    let plt = importPyplot()
+    discard plt.imshow(data.toRawSeq.reshape([256, 256]),
+                       cmap = "viridis")
+    discard plt.colorbar()
+    discard plt.title(title)
+    plt.savePlot(outfile)
   else:
     discard
 
@@ -382,12 +420,14 @@ proc plotOccupancies(h5f: var H5FileObj,
   for cl in clamps:
     var title = &"Occupancy of chip {chipNum} for run {runNumber}"
     if cl == int.high:
+      let outfile = &"occupancy_run{runNumber}_chip{chipNum}_full_range"
       title = title & " in full range"
-      plotHist2D(occ, title, "Occupancy")
+      plotHist2D(occ, title, outfile)
     else:
+      let outfile = &"occupancy_run{runNumber}_chip{chipNum}_clamp{cl}"
       let occClamped = occ.clamp(0, cl)
       title = title & &" clamped to: {cl}"
-      plotHist2D(occClamped, title, "Occupancy")
+      plotHist2D(occClamped, title, outfile)
 
   # plot center positions
   let
@@ -395,7 +435,8 @@ proc plotOccupancies(h5f: var H5FileObj,
     centerY = h5f[(group.name / "centerX"), float]
   let occCenter = calcOccupancy(centerX, centerY)
   let titleCenter = &"Occupancy cluster centers of chip {chipNum}, run {runNumber}"
-  plotHist2D(occ, titleCenter, "Occupancy of cluster centers")
+  let clOutfile = &"occupancy_clusters_run{runNumber}_chip{chipNum}"
+  plotHist2D(occ, titleCenter, clOutfile)
 
   # TODO: also plot clusters in clamped mode as well?
   # TODO: also plot occupancies without full frames (>4095 hits)?
@@ -434,7 +475,8 @@ proc plotPolyas(h5f: var H5FileObj, group: H5Group,
   let names = @[&"Polya of chip {chipNum} for run {runNumber}"]
   let title = &"Polya distribution of chip {chipNum} for run {runNumber}"
   let xlabel = "Number of electrons"
-  var (plot, axPy) = plotBar(@[bins], @[counts], title, xlabel, names)
+  let outfile = &"polya_run{runNumber}_chip{chipNum}"
+  var (plot, axPy) = plotBar(@[bins], @[counts], title, xlabel, names, outfile)
   # now add scatter plot for fit result
   let nameFit = &"Polya fit of chip {chipNum} for run {runNumber}"
   case BKind
@@ -445,22 +487,23 @@ proc plotPolyas(h5f: var H5FileObj, group: H5Group,
                              ys: countsFit,
                              name: nameFit)
     plot.traces.add trFit
-    plot.show()
+    plot.savePlot(outfile)
+
     # return traces
     result = plot.traces
   of bMpl:
     # in this case `ax` is defined
-    let plt = pyImport("matplotlib.pyplot")
+    let plt = importPyplot()
     discard axPy.plot(binCenterFit,
                       countsFit,
                       label = nameFit,
                       color = "r")
-    discard callMethod(plt, "show")
+    plt.savePlot(outfile)
   else:
     echo "Unsupported backend kind: ", BKind
 
 
-proc polya(h5f: var H5FileObj, flags: set[ConfigFlagKind]) =
+proc polya(h5f: var H5FileObj, runType: RunTypeKind, flags: set[ConfigFlagKind]) =
   ## creates the plots for the polya distribution of the datasets
   # for now try to read polya datasets?!
   for runNumber, grpName in runs(h5f):
@@ -475,22 +518,116 @@ proc polya(h5f: var H5FileObj, flags: set[ConfigFlagKind]) =
       let lyout = getLayout(title = title, xlabel = xlabel, ylabel = "#")
       let p = Plot[float](layout: lyout,
                           traces: traces)
-      p.show()
+      let outfile = &"combined_polya_{runType}_run{runNumber}"
+      p.savePlot(outfile)
     else:
       echo "Combined polya only available for Plotly backend!"
 
+proc plotDates[T, U](x: seq[U], y: seq[T],
+                  title, xlabel, dsets, outfile: string,
+                  ylabel = "",
+                  drawPlots = false) =
+  case BKind
+  of bPlotly:
+    let lyout = getLayout(title, xlabel, ylabel, ShapeKind.Rectangle)
+    let tr = Trace[T](mode: PlotMode.LinesMarkers,
+                      `type`: PlotType.Scatter,
+                      xs: x,
+                      ys: y,
+                      marker: Marker[float](size: @[12.0]))
+    let p = Plot[T](layout: lyout, traces: @[tr])
+    p.savePlot(outfile)
+  of bMpl:
+    let plt = importPyplot()
+    let dtm = pyImport("datetime")
+    let xP = x.mapIt(dtm.datetime.utcfromtimestamp(int(it)))
+    discard plt.plot_date(xP, y, label = title)
+    discard plt.xlabel(xlabel)
+    discard plt.ylabel(ylabel)
+    plt.savePlot(outfile)
+  else:
+    discard
+
 proc feSpectrum(h5f: var H5FileObj, flags: set[ConfigFlagKind]) =
   ## creates the plot of the Fe spectrum
+  const kalphaPix = 10
+  const kalphaCharge = 4
+  const parPrefix = "p"
+  const dateStr = "yyyy-MM-dd'.'HH:mm:ss" # example: 2017-12-04.13:39:45
+  var
+    pixSeq: seq[float]
+    chSeq: seq[float]
+    dates: seq[float] #string]#Time]
   for runNumber, grpName in runs(h5f):
     var group = h5f[grpName.grp_str]
     let centerChip = h5f[group.parent.grp_str].attrs["centerChip", int]
     # import matplotlib to set backend
     let mpl = pyImport("matplotlib")
     discard mpl.use("TKagg")
+    let path = "figs/"
+    var outfiles = @[&"fe_spectrum_run{runNumber}.svg",
+                     &"fe_energy_calib_run{runNumber}.svg"]
+    let outfilesCh = outfiles.mapIt(path / ("charge_" & it))
+    outfiles = outfiles.mapIt(path / it)
+    for o in outfiles:
+      imageSet.incl o
+    for o in outfilesCh:
+      imageSet.incl o
     h5f.fitToFeSpectrum(runNumber.parseInt, centerChip,
-                        fittingOnly = false)
+                        fittingOnly = not ShowPlots,
+                        outfiles = outfiles)
+    # extract fit parameters from center chip group
+    let chpGrpName = group.name / "chip_" & $centerChip
+    #let feSpec =
+    pixSeq.add h5f[(chpGrpName / "FeSpectrum").dset_str].attrs[
+      parPrefix & $kalphaPix, float
+    ]
+    chSeq.add h5f[(chpGrpName / "FeSpectrumCharge").dset_str].attrs[
+      parPrefix & $kalphaCharge, float
+    ]
+    dates.add parseTime(group.attrs["dateTime", string],
+                        dateStr,
+                        utc()).toUnix.float
 
-proc createCalibrationPlots(h5file: string, bKind: BackendKind,
+  # now plot
+  # calculate ratio and convert to string to workaround plotly limitation of
+  # only one type for Trace
+  let ratio = zip(pixSeq, chSeq) --> map(it[0] / it[1])
+  plotDates(dates, ratio,
+            title = "Photopeak pix / charge vs time",
+            xlabel = "Date",
+            dsets = "a",
+            outfile = "photopeak_vs_time")
+            #ylabel = "# pix / charge in e^-")
+
+proc createOrg(outfile: string) =
+  ## creates a simple org file consisting of headings and images
+  ## SVGs are implemented using raw inline SVG
+  const tmpl = """
+* $1
+
+#+BEGIN_EXPORT html
+$2
+#+END_EXPORT
+
+"""
+  # now build pdf
+  var orgStr = ""
+  for im in imageSet:
+    echo "Adding image ", im
+    let (dir, name, ext) = im.splitFile()
+    let data = readFile(im)
+    orgStr = orgStr & tmpl % [name, data]
+  var f = open(outfile, fmWrite)
+  f.write(orgStr)
+  f.close()
+
+  shell:
+    emacs `$outfile` "--batch -f org-html-export-to-html --kill"
+
+proc createCalibrationPlots(h5file: string,
+                            bKind: BackendKind,
+                            runType: RunTypeKind,
                             flags: set[ConfigFlagKind]) =
   ## creates QA plots for calibration runs
   var h5f = H5file(h5file, "r")
@@ -498,7 +635,7 @@ proc createCalibrationPlots(h5file: string, bKind: BackendKind,
   if cfNoOccupancy notin flags:
     occupancies(h5f, flags) # plus center only
   if cfNoPolya notin flags:
-    polya(h5f, flags)
+    polya(h5f, runType, flags)
   if cfNoFeSpectrum notin flags:
     feSpectrum(h5f, flags)
   # NOTE: to implement centerFePerTime do:
@@ -516,7 +653,7 @@ proc createCalibrationPlots(h5file: string, bKind: BackendKind,
   # neighborPixels(h5f)
 
   discard h5f.close()
-
+  createOrg("calibration.org")
 
 proc createBackgroundPlots(bKind: BackendKind, flags: set[ConfigFlagKind]) =
   discard
@@ -551,7 +688,7 @@ proc main() =
     flags.incl cfNoPolya
   if $args["--no_fe_spec"] == "true":
     flags.incl cfNoFeSpectrum
-
+  echo flags
 
   var runType: RunTypeKind
   var bKind: BackendKind
@@ -562,7 +699,7 @@ proc main() =
 
   case runType
   of rtCalibration:
-    createCalibrationPlots(h5file, bKind, flags)
+    createCalibrationPlots(h5file, bKind, runType, flags)
   of rtBackground:
     createBackgroundPlots(bKind, flags)
   of rtXrayFinger:

@@ -508,8 +508,8 @@ proc createCalibrationPlots(h5file: string, bKind: BackendKind,
   # - add all centers (hits as well as charge) to seq and plot
   #   after running through all runs in file
   # this way, if file is CalibrationRuns.h5, we get the correct plot
-
   # centerFePerTime(h5f)
+
   # energyCalib(h5f) # ???? plot of gas gain vs charge?!
   histograms(h5f, flags) # including fadc
   # likelihoodHistograms(h5f) # need to cut on photo peak and esc peak

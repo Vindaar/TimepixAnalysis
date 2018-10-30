@@ -347,7 +347,6 @@ def fitAndPlotFeSpectrumCharge(data, cuts, outfolder, run_number, fitting_only =
     #ax.text(120, 150, text, fontsize = 20)
     #ax.text(120, 135, text2, fontsize = 20)
 
-
     plt.savefig(os.path.join(outfolder, "XrayCalib_Fe_Spectrum_{}.pdf".format(run_number)))
     if fitting_only == False:
         plt.show()
@@ -453,8 +452,6 @@ def fitAndPlotFeSpectrum(data, cuts, outfolder, run_number, fitting_only = False
 
     # return fit results so that we can write them to the H5 file
     return (popt, pcov, popt_E, pcov_E)
-
-
 
 
 

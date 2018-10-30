@@ -30,8 +30,8 @@ export pure, geometry
 when not defined(pure):
   import nimhdf5
   import arraymancer
-  import private / [hdf5_utils, arraymancer_utils]
-  export hdf5_utils, arraymancer_utils
+  import private / [hdf5_utils, arraymancer_utils, python_utils]
+  export hdf5_utils, arraymancer_utils, python_utils
 
 
 {.deadCodeElim: on.}

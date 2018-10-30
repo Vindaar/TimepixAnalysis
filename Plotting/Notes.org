@@ -8,11 +8,11 @@
 1. +Occupancy (gerne auch als 3D?)- in mehreren sinnvollen z-Höhen: a) volle Statistik+
    +b) mittlere Statistik, (d.h. Rauschpixel wegschneiden)+
    +c) niedere Statistik, (max ~10)+
-2. Ladung pro Pixel ('Polya'): Für 7 Chips in einem Plot und in 7 Plots (ein 'typischer' Run)
-3. Fe-Spektrum mit Fits (welche Schnitte? keine Schnitte?)
+2. +Ladung pro Pixel ('Polya'):+ +Für 7 Chips in einem Plot +und in 7 Plots (ein 'typischer' Run)+
+3. +Fe-Spektrum mit Fits (welche Schnitte? keine Schnitte?)+
 4. Photopeak (Anzahl der pixel/Ladung) in Abhängigkeit der Zeit
-5. Energiekalibration
-6. Lage der Zentren (ohne Schnitte)
+5. ?? Energiekalibration ??
+6. +Lage der Zentren (ohne Schnitte)+
 7. +höhere Momente (Skewness, Eccentrizität, Kurtosis,.....+
 8. +Länge+, +Breite der Ereignisse+
 9. +Winkelverteilung+

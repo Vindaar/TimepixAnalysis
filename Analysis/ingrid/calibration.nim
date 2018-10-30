@@ -727,7 +727,8 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int, createPlots = false) =
       writeAttrs(polyaFitDset, fitResult)
 
 
-proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int) =
+proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
+                      fittingOnly = true) =
   ## (currently) calls Python functions from `ingrid` Python module to
   ## perform fit to the `FeSpectrum` dataset in the given run number
   ## NOTE: due to calling Python functions, this proc is *extremely*
@@ -739,7 +740,7 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int) =
     feDset = h5f[(groupName / "FeSpectrum").dsetStr]
     feData = feDset[int64]
   # call python function with data
-  let res = pyFitFe.fitAndPlotFeSpectrum([feData], "", ".", runNumber, true)
+  let res = pyFitFe.fitAndPlotFeSpectrum([feData], "", ".", runNumber, fittingOnly)
   # close h5 file so that Python can access it
   let err = h5f.close()
   if err == 0:
@@ -757,7 +758,8 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int) =
     let totChSpec = feIdx.mapIt(totChargeData[it.int])
     # create and write as a dataset
     var totChDset = h5f.write_dataset(groupName / "FeSpectrumCharge", totChSpec)
-    let resCharge = pyFitFe.fitAndPlotFeSpectrumCharge([totChSpec], "", ".", runNumber, true)
+    let resCharge = pyFitFe.fitAndPlotFeSpectrumCharge([totChSpec], "", ".",
+                                                       runNumber, fittingOnly)
     # given resCharge, need to write the result of that fit to H5 file, analogous to
     # `writeFitParametersH5` in Python
     let a = resCharge[2].to(float64)

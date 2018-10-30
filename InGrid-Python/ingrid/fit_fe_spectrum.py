@@ -2,6 +2,7 @@ from ingrid.ingrid_helper_functions import *
 from scipy.optimize import curve_fit
 import numpy as np
 import matplotlib as mpl
+mpl.use("TKagg")
 import sys
 sys.path.append("./")
 import procsForPython
@@ -285,7 +286,8 @@ def fitFeSpectrum(hist, binning, cuts):
 def linear_func(x, a):
     return a * x
 
-def fitAndPlotFeSpectrumCharge(data, cuts, outfolder, run_number, fitting_only = False):
+def fitAndPlotFeSpectrumCharge(data, cuts, outfolder, run_number,
+                               fitting_only = False, outfiles = []):
     # bin the data
     # before we bin data, divide it by 1000
     data = np.asarray(data) / 1000
@@ -347,7 +349,11 @@ def fitAndPlotFeSpectrumCharge(data, cuts, outfolder, run_number, fitting_only =
     #ax.text(120, 150, text, fontsize = 20)
     #ax.text(120, 135, text2, fontsize = 20)
 
-    plt.savefig(os.path.join(outfolder, "XrayCalib_Fe_Spectrum_{}.pdf".format(run_number)))
+    if len(outfiles) == 0:
+        outfile = os.path.join(outfolder, "XrayCalib_Fe_Spectrum_{}.pdf".format(run_number))
+        plt.savefig(outfile)
+    else:
+        plt.savefig(outfiles[0])
     if fitting_only == False:
         plt.show()
     else:
@@ -363,14 +369,19 @@ def fitAndPlotFeSpectrumCharge(data, cuts, outfolder, run_number, fitting_only =
     plt.ylabel("Total charge / 10^3 e-")
     plt.title("Energy calibration function based on \# e^- in Fe55 spectrum")
     plt.grid()
-    plt.savefig(os.path.join(outfolder, "XrayCalib_fe_calib_charge_{}.pdf".format(run_number)))
+    if len(outfiles) == 0:
+        outfile = os.path.join(outfolder, "XrayCalib_fe_calib_charge_{}.pdf".format(run_number))
+        plt.savefig(outfile)
+    else:
+        plt.savefig(outfiles[1])
     if fitting_only == False:
         plt.show()
 
     # return fit results so that we can write them to the H5 file
     return (popt, pcov, popt_E, pcov_E)
 
-def fitAndPlotFeSpectrum(data, cuts, outfolder, run_number, fitting_only = False):
+def fitAndPlotFeSpectrum(data, cuts, outfolder, run_number,
+                         fitting_only = False, outfiles = []):
     # bin the data
     hist, binning = binData(data, cuts)
     popt, pcov = fitFeSpectrum(hist, binning, cuts)
@@ -429,8 +440,11 @@ def fitAndPlotFeSpectrum(data, cuts, outfolder, run_number, fitting_only = False
     ax.text(120, 150, text, fontsize = 20)
     ax.text(120, 135, text2, fontsize = 20)
 
-
-    plt.savefig(os.path.join(outfolder, "fe_spectrum_{}.pdf".format(run_number)))
+    if len(outfiles) == 0:
+        outfile = os.path.join(outfolder, "fe_spectrum_{}.pdf".format(run_number))
+        plt.savefig(outfile)
+    else:
+        plt.savefig(outfiles[0])
     if fitting_only == False:
         plt.show()
     else:
@@ -444,7 +458,11 @@ def fitAndPlotFeSpectrum(data, cuts, outfolder, run_number, fitting_only = False
     plt.ylabel("# pixels hit")
     plt.title("Energy calibration function based on \# pix in Fe55 spectrum")
     plt.grid()
-    plt.savefig(os.path.join(outfolder, "fe_energy_calibration_{}.pdf".format(run_number)))
+    if len(outfiles) == 0:
+        outfile = os.path.join(outfolder, "fe_energy_calibration_{}.pdf".format(run_number))
+        plt.savefig(outfile)
+    else:
+        plt.savefig(outfiles[1])
     if fitting_only == False:
         plt.show()
     else:

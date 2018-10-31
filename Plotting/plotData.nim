@@ -338,13 +338,11 @@ proc histograms(h5f: var H5FileObj, flags: set[ConfigFlagKind]) =
   const dsets = ["length", "width", "skewnessLongitudinal", "skewnessTransverse",
                  "kurtosisLongitudinal", "kurtosisTransverse", "rotationAngle",
                  "eccentricity", "fractionInTransverseRms", "lengthDivRmsTrans"]
-  const fadcDsets = ["minvals", "fallTime"]
+  const fadcDsets = ["minvals", "fallTime", "riseTime"]
   # TODO: perform cut on photo peak and escape peak, done by getting the energy
   # and performing a cut around peak +- 300 eV maybe
   # NOTE: need photo peak and escape peak plenty of times here. Just write wrapper
   # which takes energy and performs cuts, *then* creates plots
-
-
   for runNumber, group in runs(h5f):
     var group = h5f[group.grp_str]
     if cfNoIngrid notin flags:
@@ -578,7 +576,8 @@ proc feSpectrum(h5f: var H5FileObj, flags: set[ConfigFlagKind]) =
       imageSet.incl o
     h5f.fitToFeSpectrum(runNumber.parseInt, centerChip,
                         fittingOnly = not ShowPlots,
-                        outfiles = outfiles)
+                        outfiles = outfiles,
+                        writeToFile = false)
     # extract fit parameters from center chip group
     let chpGrpName = group.name / "chip_" & $centerChip
     #let feSpec =

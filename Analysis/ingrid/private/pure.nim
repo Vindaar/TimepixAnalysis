@@ -447,15 +447,18 @@ proc readMemFilesIntoBuffer*(list_of_files: seq[string]): seq[seq[string]] =
   # anymore
   var lineBuf = newStringOfCap(80)
   var sliceData: ptr UncheckedArray[char]
+  var ff: MemFile
   for f in list_of_files:
     # add filename to result
     dat.add f
-    for slice in memSlices(memfiles.open(f)):
+    ff = memfiles.open(f)
+    for slice in memSlices(ff):
       lineBuf.setLen(slice.size)
       copyMem(addr lineBuf[0], slice.data, slice.size)
       dat.add lineBuf
     result.add dat
     dat.setLen(0)
+    ff.close()
   echo "free memory ", getFreeMem()
   echo "occ memory ", getOccupiedMem()
 

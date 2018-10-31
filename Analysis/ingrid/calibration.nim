@@ -754,11 +754,16 @@ proc writeEnergyPerAttrs(dset: var H5DataSet,
   dset.attrs["d_" & key] = aInv * pErr / popt
 
 proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
-                      fittingOnly = true, outfiles: seq[string] = @[]) =
+                      fittingOnly = true, outfiles: seq[string] = @[],
+                      writeToFile = true) =
   ## (currently) calls Python functions from `ingrid` Python module to
   ## perform fit to the `FeSpectrum` dataset in the given run number
   ## NOTE: due to calling Python functions, this proc is *extremely*
   ## inefficient!
+  ## The optional `writeToFile` flag can be set to `false` if this proc
+  ## is to be called if the H5 file is opened read only to reproduce
+  ## the results, but not rewrite them to the file (used in `plotData`)
+
   let pyFitFe = pyImport("ingrid.fit_fe_spectrum")
   # get the fe spectrum for the run
   let groupName = recoDataChipBase(runNumber) & $chipNumber
@@ -767,7 +772,6 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
   # call python function with data
   let res = pyFitFe.fitAndPlotFeSpectrum([feData], "", ".", runNumber,
                                          fittingOnly, outfiles)
-
   # NOTE: this is a workaround for a weird bug we're seeing. If we don't close the
   # library here, we get an error in a call to `deleteAttribute` from within
   # `writeFeFitParameters`, line 738
@@ -775,9 +779,13 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
   # 739
   # only if we also revisit the file it works. And this ONLY happens from the
   # `plotData` script, not from the `reconstruction` program.
-  discard h5f.close()
-  h5f = H5file(h5f.name, "rw")
-  h5f.visit_file()
+  # discard h5f.close()
+  # h5f = H5file(h5f.name, "rw")
+  # h5f.visit_file()
+
+  proc removePref(s: string, pref: string): string =
+    result = s
+    result.removePrefix(pref)
 
   proc extractAndWriteAttrs(dset: var H5DataSet,
                             scaling: float,
@@ -796,7 +804,8 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
                         pcov_E[0][0])
 
   const eVperPixelScaling = 1e3
-  extractAndWriteAttrs(feDset, eVperPixelScaling, res, "eV_per_pix")
+  if writeToFile:
+    extractAndWriteAttrs(feDset, eVperPixelScaling, res, "eV_per_pix")
 
   # run might not have ``totalCharge`` dset, if no ToT calibration is available,
   # but user wishes Fe spectrum fit to # hit pixels
@@ -807,16 +816,20 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
     # extract correct clusters from totChargeData using indices
     let totChSpec = feIdx.mapIt(totChargeData[it.int])
     # create and write as a dataset
-    let outfilesCharge = outfiles.mapIt("charge_" & it)
-    var totChDset = h5f.write_dataset(groupName / "FeSpectrumCharge", totChSpec)
+    let parent = outfiles[0].parentDir
+    let outfilesCharge = outfiles.mapIt(parent / ("charge_" & it.removePref(parent & "/")))
+    var totChDset: H5DataSet
+    if writeToFile:
+      totChDset = h5f.write_dataset(groupName / "FeSpectrumCharge", totChSpec)
     let resCharge = pyFitFe.fitAndPlotFeSpectrumCharge([totChSpec], "", ".",
                                                        runNumber, fittingOnly,
                                                        outfilesCharge)
     # given resCharge, need to write the result of that fit to H5 file, analogous to
     # `writeFitParametersH5` in Python
     const keVPerElectronScaling = 1e-3
-    extractAndWriteAttrs(totChDset, keVPerElectronScaling,
-                         resCharge, "keV_per_electron")
+    if writeToFile:
+      extractAndWriteAttrs(totChDset, keVPerElectronScaling,
+                           resCharge, "keV_per_electron")
 
   else:
     echo "Warning: `totalCharge` dataset does not exist in file. No fit to " &

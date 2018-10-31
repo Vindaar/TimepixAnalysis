@@ -606,8 +606,12 @@ proc feSpectrum(h5f: var H5FileObj, flags: set[ConfigFlagKind]) =
 proc createOrg(outfile: string) =
   ## creates a simple org file consisting of headings and images
   ## SVGs are implemented using raw inline SVG
-  const tmpl = """
+  const header = """
 * $1
+
+"""
+  const tmpl = """
+** $1
 
 #+BEGIN_EXPORT html
 $2
@@ -615,7 +619,7 @@ $2
 
 """
   # now build pdf
-  var orgStr = ""
+  var orgStr = header % [outfile]
   for im in imageSet:
     echo "Adding image ", im
     let (dir, name, ext) = im.splitFile()
@@ -641,25 +645,38 @@ proc createCalibrationPlots(h5file: string,
     polya(h5f, runType, flags)
   if cfNoFeSpectrum notin flags:
     feSpectrum(h5f, flags)
-  # NOTE: to implement centerFePerTime do:
-  # - proc like others iterate over all runs,
-  # - add fit parameter of center position of Fe spectra to
-  #   calibration.nim
-  # - add all centers (hits as well as charge) to seq and plot
-  #   after running through all runs in file
-  # this way, if file is CalibrationRuns.h5, we get the correct plot
-  # centerFePerTime(h5f)
-
   # energyCalib(h5f) # ???? plot of gas gain vs charge?!
   histograms(h5f, flags) # including fadc
   # likelihoodHistograms(h5f) # need to cut on photo peak and esc peak
   # neighborPixels(h5f)
-
   discard h5f.close()
-  createOrg("calibration.org")
+  var outfile = "calibration"
+  for fl in flags:
+    outfile &= "_" & $fl
+  outfile &= ".org"
+  createOrg(outfile)
 
-proc createBackgroundPlots(bKind: BackendKind, flags: set[ConfigFlagKind]) =
-  discard
+proc createBackgroundPlots(h5file: string,
+                            bKind: BackendKind,
+                            runType: RunTypeKind,
+                            flags: set[ConfigFlagKind]) =
+  ## creates QA plots for calibration runs
+  var h5f = H5file(h5file, "r")
+  const length = "length"
+  if cfNoOccupancy notin flags:
+    occupancies(h5f, flags) # plus center only
+  if cfNoPolya notin flags:
+    polya(h5f, runType, flags)
+  # energyCalib(h5f) # ???? plot of gas gain vs charge?!
+  histograms(h5f, flags) # including fadc
+  # likelihoodHistograms(h5f) # need to cut on photo peak and esc peak
+  # neighborPixels(h5f)
+  discard h5f.close()
+  var outfile = "background"
+  for fl in flags:
+    outfile &= "_" & $fl
+  outfile &= ".org"
+  createOrg(outfile)
 
 proc createXrayFingerPlots(bKind: BackendKind, flags: set[ConfigFlagKind]) =
   discard
@@ -700,11 +717,12 @@ proc main() =
   if backendStr != "nil":
     BKind = parseBackendType(backendStr)
 
+  echo "Run type ", runType
   case runType
   of rtCalibration:
     createCalibrationPlots(h5file, bKind, runType, flags)
   of rtBackground:
-    createBackgroundPlots(bKind, flags)
+    createBackgroundPlots(h5file, bKind, runType, flags)
   of rtXrayFinger:
     createXrayFingerPlots(bKind, flags)
   else:

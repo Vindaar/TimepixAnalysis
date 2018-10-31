@@ -175,19 +175,22 @@ proc plotHist[T](xIn: seq[seq[T]], title, dset, outfile: string) =
   if binRangeO.isSome:
     binRange = get(binRangeO)
   else:
-    binRange = (0.0, xs[0].max.float)
+    binRange = (xs[0].percentile(5), xs[0].percentile(95))
   if nBinsO.isSome:
     nBins = get(nbinsO)
   else:
-    nBins = 50
+    nBins = 100
+  echo "Bin range ", binRange
   case BKind
   of bPlotly:
     let lyout = getLayout(title, dset, "#")
     var traces: seq[Trace[float]]
     for x in xs:
+      let binSize = (binRange[1] - binRange[0]) / nbins.float
       traces.add Trace[float](`type`: PlotType.Histogram,
                               bins: binRange,
-                              nbins: nbins,
+                              binSize: binSize,
+                              #nbins: nBins,
                               xs: x,
                               name: dset)
     let p = Plot[float](layout: lyout, traces: traces)

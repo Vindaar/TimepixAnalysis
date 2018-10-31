@@ -31,7 +31,7 @@ proc getBinRangeForDset*(dset: string): Option[(float, float)] =
   else:
     result = none((float, float))
 
-proc getNumBinsForDset*(dset: string): Option[int] = 
+proc getNumBinsForDset*(dset: string): Option[int] =
   if dset == "hits":
     result = some(500)
   elif dset == "energyFromPixel":
@@ -40,24 +40,24 @@ proc getNumBinsForDset*(dset: string): Option[int] =
     # TODO: check
     result = some(100)
   elif dset == "kurtosisLongitudinal":
-    result = some(30)
+    result = some(100)
   elif dset == "kurtosisTransverse":
-    result = some(30)
+    result = some(100)
   elif dset == "eccentricity":
-    result = some(30)
+    result = some(100)
   elif dset == "ToT":
     result = some(250)
   elif dset == "length_rmsTransverse":
-    result = some(30)
+    result = some(100)
   elif dset == "energyCut":
-    result = some(20)
+    result = some(100)
   elif dset == "length":
     result = some(300)
   elif "minvals" in dset:
-    result = some(30)
+    result = some(100)
   elif "riseTime" in dset:
-    result = some(30)
+    result = some(100)
   elif "fallTime" in dset:
-    result = some(30)
+    result = some(50)
   else:
     result = none(int)

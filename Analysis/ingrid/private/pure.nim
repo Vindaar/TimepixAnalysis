@@ -978,16 +978,11 @@ proc processSrsEventScanf*(data: seq[string]): ref SrsEvent =
     incLine(line, lineCnt)
     cnt = parseVal(line, "Board", 0, valMatch, c_header)
     incLine(line, lineCnt)
-    # echo "Line is ", line
     cnt = parseVal(line, "chipNumber", 0, valMatch, c_header)
-    # echo "Cnt is ", cnt
     # start from cnt + 1 to skip space after chip number to get to `,Hits`
     cnt = parseVal(line, "numHits", cnt + 2, valMatch, c_header)
-    # echo "And now Cnt is ", cnt
-    # echo "Line is ", line
     let nPix = parseInt(c_header["numHits"])
-    let pixToRead = if nPix > 4095: 4095 else: nPix
-
+    let pixToRead = if nPix > 4096: 4096 else: nPix
     # now iterate over all hits
     for i in 0 ..< pixToRead:
       incLine(line, lineCnt)

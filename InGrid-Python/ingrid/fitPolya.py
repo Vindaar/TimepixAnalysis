@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib as mpl
 import sys
 sys.path.append("./")
-from procsForPython import polyaPython
+from ingrid.procsForPython import polyaPython
 from scipy.special import gamma
 import math
 

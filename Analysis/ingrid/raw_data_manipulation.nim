@@ -138,9 +138,12 @@ let filter = H5Filter(kind: fkZlib, zlibLevel: 4) # on run 146 took: 0.598701584
 
 # set up the logger
 var L = newConsoleLogger()
+if not dirExists("logs"):
+  createDir("logs")
 var fL = newFileLogger("logs/raw_data_manipulation.log", fmtStr = verboseFmtStr)
 addHandler(L)
 addHandler(fL)
+
 
 ################################################################################
 

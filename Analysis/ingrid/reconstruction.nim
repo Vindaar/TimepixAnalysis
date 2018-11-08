@@ -105,6 +105,8 @@ const Chunksize = 10000
 
 # set up the logger
 var L = newConsoleLogger()
+if not dirExists("logs"):
+  createDir("logs")
 var fL = newFileLogger("logs/reconstruction.log", fmtStr = verboseFmtStr)
 addHandler(L)
 addHandler(fL)

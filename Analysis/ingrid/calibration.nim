@@ -816,8 +816,10 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
     # extract correct clusters from totChargeData using indices
     let totChSpec = feIdx.mapIt(totChargeData[it.int])
     # create and write as a dataset
-    let parent = outfiles[0].parentDir
-    let outfilesCharge = outfiles.mapIt(parent / ("charge_" & it.removePref(parent & "/")))
+    var outfilesCharge: seq[string] = @[]
+    if outfiles.len > 0:
+      let parent = outfiles[0].parentDir
+      outfilesCharge = outfiles.mapIt(parent / ("charge_" & it.removePref(parent & "/")))
     var totChDset: H5DataSet
     if writeToFile:
       totChDset = h5f.write_dataset(groupName / "FeSpectrumCharge", totChSpec)

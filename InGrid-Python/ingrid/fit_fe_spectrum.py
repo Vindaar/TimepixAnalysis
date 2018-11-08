@@ -5,7 +5,7 @@ import matplotlib as mpl
 mpl.use("TKagg")
 import sys
 sys.path.append("./")
-import ingrid.procsForPython
+import ingrid.procsForPython as procsForPython
 
 # this whole fit is probably going to be pretty slow.
 # convert to Nim functions, which we compile to lib and call

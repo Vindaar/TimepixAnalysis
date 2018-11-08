@@ -4,6 +4,7 @@ import times
 import sequtils
 import shell
 import algorithm, sets
+import logging
 import typeinfo
 import math
 import nimpy
@@ -122,7 +123,14 @@ var imageSet = initOrderedSet[string]()
 
 var ShowPlots = false
 
+# set up the logger
+var L = newConsoleLogger()
+var fL = newFileLogger("logs/plotData.log", fmtStr = verboseFmtStr)
+addHandler(L)
+addHandler(fL)
+
 proc savePlot(p: PlotV, outfile: string) =
+  info &"Saving file: {fname}"
   case BKind
   of bPlotly:
     let fname = "figs" / outfile & ".svg"
@@ -130,9 +138,7 @@ proc savePlot(p: PlotV, outfile: string) =
     imageSet.incl(fname)
   of bMpl:
     let fname = "figs" / outfile & ".svg"
-    echo "fname ", fname
     discard p.plt.savefig(fname)
-    echo "ok"
     imageSet.incl(fname)
     if ShowPlots:
       discard callMethod(p.plt, "show")
@@ -212,7 +218,7 @@ proc plotHist[T](xIn: seq[seq[T]], title, dset, outfile: string) =
     nBins = get(nbinsO)
   else:
     nBins = 100
-  echo "Bin range ", binRange
+  info &"Bin range {binRange} for dset: {dset}"
   var pltV = initPlotV(title, dset, "#")
   case BKind
   of bPlotly:
@@ -229,7 +235,6 @@ proc plotHist[T](xIn: seq[seq[T]], title, dset, outfile: string) =
     pltV.savePlot(outfile)
   of bMpl:
     for x in xs:
-      echo "bin range ", binRange, " for dset ", dset
       discard pltV.ax.hist(x,
                             bins = nbins,
                             range = binRange)
@@ -339,10 +344,10 @@ proc plotHistsFeSpec(h5f: var H5FileObj,
         ldata = idxFadc --> map(ldata[it])
         plotHist(@[ldata], title, dsetName, outfile)
       else:
-        echo "Unsupported type ", dset.dtypeAnyKind
+        warn &"Unsupported type {dset.dtypeAnyKind}"
         discard
     else:
-      echo "No data kind selected: ", dKind
+      warn &"No data kind selected: {dKind}"
 
 proc histograms(h5f: var H5FileObj, flags: set[ConfigFlagKind]) =
   const dsets = ["length", "width", "skewnessLongitudinal", "skewnessTransverse",
@@ -507,7 +512,7 @@ proc plotPolyas(h5f: var H5FileObj, group: H5Group,
                          color = "r")
     pltV.savePlot(outfile)
   else:
-    echo "Unsupported backend kind: ", BKind
+    warn &"Unsupported backend kind: {BKind}"
 
 
 proc polya(h5f: var H5FileObj, runType: RunTypeKind, flags: set[ConfigFlagKind]) =
@@ -528,7 +533,7 @@ proc polya(h5f: var H5FileObj, runType: RunTypeKind, flags: set[ConfigFlagKind])
       let outfile = &"combined_polya_{runType}_run{runNumber}"
       pltV.savePlot(outfile)
     else:
-      echo "Combined polya only available for Plotly backend!"
+      warn "Combined polya only available for Plotly backend!"
 
 proc plotDates[T, U](x: seq[U], y: seq[T],
                   title, xlabel, dsets, outfile: string,
@@ -622,7 +627,7 @@ $2
   # now build pdf
   var orgStr = header % [outfile]
   for im in imageSet:
-    echo "Adding image ", im
+    info &"Adding image {im}"
     let (dir, name, ext) = im.splitFile()
     let data = readFile(im)
     orgStr = orgStr & tmpl % [name, data]
@@ -694,7 +699,7 @@ proc parseBackendType(backend: string): BackendKind =
 
 proc main() =
   let args = docopt(doc)
-  echo args
+  info &"Received arguments:\n  {args}"
   let h5file = $args["<H5file>"]
   let runTypeStr = $args["--runType"]
   let backendStr = $args["--backend"]
@@ -709,7 +714,7 @@ proc main() =
     flags.incl cfNoPolya
   if $args["--no_fe_spec"] == "true":
     flags.incl cfNoFeSpectrum
-  echo flags
+  info "Flags are:\n  {flags}"
 
   var runType: RunTypeKind
   var bKind: BackendKind
@@ -718,7 +723,6 @@ proc main() =
   if backendStr != "nil":
     BKind = parseBackendType(backendStr)
 
-  echo "Run type ", runType
   case runType
   of rtCalibration:
     createCalibrationPlots(h5file, bKind, runType, flags)

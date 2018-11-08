@@ -94,6 +94,20 @@ type
       tr: Trace[T]
     else: discard
 
+  # variant object for the layout combining both
+  # TODO: make generic or always use float?
+  PlotV = object
+    case kind: BackendKind
+    of bMpl:
+      # what needs to go here?
+      plt: PyObject
+      fig: PyObject
+      ax: PyObject
+    of bPlotly:
+      plLayout: Layout
+      plPlot: Plot[float]
+    else: discard
+
   DataKind = enum
     dkInGrid, dkFadc
 
@@ -108,23 +122,23 @@ var imageSet = initOrderedSet[string]()
 
 var ShowPlots = false
 
-proc savePlot[T: (Plot | PyObject)](p: T, outfile: string) =
-  when T is Plot:
+proc savePlot(p: PlotV, outfile: string) =
+  case BKind
+  of bPlotly:
     let fname = "figs" / outfile & ".svg"
-    p.saveImage(fname)
+    p.plPlot.saveImage(fname)
     imageSet.incl(fname)
-  else:
+  of bMpl:
     let fname = "figs" / outfile & ".svg"
     echo "fname ", fname
-    discard p.savefig(fname)
+    discard p.plt.savefig(fname)
     echo "ok"
     imageSet.incl(fname)
     if ShowPlots:
-      discard callMethod(p, "show")
+      discard callMethod(p.plt, "show")
     else:
-      let fig = p.gcf()
-      discard callMethod(p, "close", "fig")
-      discard callMethod(p, "close")
+      discard callMethod(p.plt, "close", "all")
+  else: discard
 
 proc importPyplot(): PyObject =
   let mpl = pyImport("matplotlib")
@@ -150,7 +164,7 @@ proc plotHist*[T](traces: seq[Trace[T]], voltages: set[int16], chip = "") =
   let filename = &"out/scurves_{chip}.svg"
   p.saveImage(filename)
 
-proc getLayout(title: string, xlabel: string, ylabel: string, shape = ShapeKind.Rectangle): Layout =
+proc initPlotV(title: string, xlabel: string, ylabel: string, shape = ShapeKind.Rectangle): PlotV =
   ## returns the plotly layout of the given shape
   var width: int
   case shape
@@ -159,11 +173,29 @@ proc getLayout(title: string, xlabel: string, ylabel: string, shape = ShapeKind.
   of ShapeKind.Square:
     # for square take height as width
     width = FigHeight.int
-  result = Layout(title: title,
-                  width: width, height: FigHeight.int,
-                  xaxis: Axis(title: xlabel),
-                  yaxis: Axis(title: ylabel),
-                  autosize: false)
+  case BKind
+  of bPlotly:
+    let plLayout = Layout(title: title,
+                          width: width, height: FigHeight.int,
+                          xaxis: Axis(title: xlabel),
+                          yaxis: Axis(title: ylabel),
+                          autosize: false)
+    result = PlotV(kind: bPlotly,
+                   plLayout: plLayout)
+  of bMpl:
+    let plt = importPyplot()
+    let (fig, ax) = plt.subplots(1, 1).to((PyObject, PyObject))
+    let dpi = fig.get_dpi()
+    discard fig.set_size_inches(width.float / dpi.to(float), FigHeight.float / dpi.to(float))
+    discard ax.set_title(title)
+    discard ax.set_xlabel(xlabel)
+    discard ax.set_ylabel(ylabel)
+    result = PlotV(kind: bMpl,
+                   plt: plt,
+                   fig: fig,
+                   ax: ax)
+  else: discard
+
 
 proc plotHist[T](xIn: seq[seq[T]], title, dset, outfile: string) =
   ## plots the data in `x` as a histogram
@@ -181,9 +213,9 @@ proc plotHist[T](xIn: seq[seq[T]], title, dset, outfile: string) =
   else:
     nBins = 100
   echo "Bin range ", binRange
+  var pltV = initPlotV(title, dset, "#")
   case BKind
   of bPlotly:
-    let lyout = getLayout(title, dset, "#")
     var traces: seq[Trace[float]]
     for x in xs:
       let binSize = (binRange[1] - binRange[0]) / nbins.float
@@ -193,34 +225,26 @@ proc plotHist[T](xIn: seq[seq[T]], title, dset, outfile: string) =
                               #nbins: nBins,
                               xs: x,
                               name: dset)
-    let p = Plot[float](layout: lyout, traces: traces)
-    #p.show()
-    p.savePlot(outfile)
+    pltV.plPlot = Plot[float](layout: pltV.plLayout, traces: traces)
+    pltV.savePlot(outfile)
   of bMpl:
-    let plt = importPyplot()
-    let (fig, ax) = plt.subplots(1, 1).to((PyObject, PyObject))
     for x in xs:
       echo "bin range ", binRange, " for dset ", dset
-      discard ax.hist(x,
-                      bins = nbins,
-                      range = binRange)
-    # we cannot call `show` directly, because the Nim compiler tries to
-    # call the Nim `show` procedure and fails
-    discard plt.xlabel(dset)
-    discard plt.title(title)
-    plt.savePlot(outfile)
+      discard pltV.ax.hist(x,
+                            bins = nbins,
+                            range = binRange)
+    pltV.savePlot(outfile)
   else: discard
 
 proc plotBar[T](binsIn, countsIn: seq[seq[T]], title: string,
                 xlabel: string, dsets: seq[string],
-                outfile: string, drawPlots = false): (Plot[float], PyObject) =
+                outfile: string, drawPlots = false): PlotV =
   ## plots the data in `x` as a histogram
   let bins = binsIn.mapIt(it.mapIt(it.float))
   let counts = countsIn.mapIt(it.mapIt(it.float))
-
+  result = initPlotV(title, xlabel, "#")
   case BKind
   of bPlotly:
-    let lyout = getLayout(title, xlabel, "#")
     var traces: seq[Trace[float]]
     for i in 0 .. bins.high:
       let
@@ -231,12 +255,10 @@ proc plotBar[T](binsIn, countsIn: seq[seq[T]], title: string,
                               xs: bin,
                               ys: count,
                               name: dset)
-    result[0] = Plot[float](layout: lyout, traces: traces)
+    result.plPlot = Plot[float](layout: result.plLayout, traces: traces)
     if drawPlots:
-      result[0].show()
+      result.plPlot.show()
   of bMpl:
-    let plt = importPyplot()
-    let (fig, ax) = plt.subplots(1, 1).to((PyObject, PyObject))
     for i in 0 .. bins.high:
       let
         # cut of last bin edge in matplotlib case. Expects same shape for edges
@@ -245,29 +267,17 @@ proc plotBar[T](binsIn, countsIn: seq[seq[T]], title: string,
         count = counts[i]
         dset = dsets[i]
       let width = toSeq(0 ..< bins[i].high).mapIt(bins[i][it + 1] - bins[i][it])
-      discard ax.bar(bin,
+      discard result.ax.bar(bin,
                      count,
                      align = "edge",
                      width = width,
                      label = dset)
-      discard ax.set_xlabel(xlabel)
-      discard ax.set_title(title)
-
-    result[1] = ax
     # we cannot call `show` directly, because the Nim compiler tries to
     # call the Nim `show` procedure and fails
     if drawPlots:
-      discard callMethod(plt, "show")
+      discard callMethod(result.plt, "show")
 
   else: discard
-
-
-#plotData(data, nbins, range,
-#         "plots/{0}_run_{1}_chip_{2}".format(dset, run_number, chip),
-#         "{0} of run {1} for chip {2}".format(dset, run_number, chip),
-#         dset,
-#         "# hits",
-#         fitting_only = True)
 
 iterator chips(group: var H5Group): (int, H5Group) =
   ## returns all chip groups within the given Run group
@@ -356,12 +366,12 @@ proc histograms(h5f: var H5FileObj, flags: set[ConfigFlagKind]) =
       for dsetName in fadcDsets:
         plotHistsFeSpec(h5f, fadcGrp, dsetName, runNumber, dkFadc)
 
-proc calcOccupancy[T](x, y: seq[T]): Tensor[int] =
+proc calcOccupancy[T](x, y: seq[T]): Tensor[float] =
   ## calculates the occupancy of the given x and y datasets
   ## Either for a `seq[seq[T: SomeInteger]]` in which case we're calculating
   ## the occupancy of a raw clusters or `seq[T: SomeFloat]` in which case
   ## we're dealing with center positions of clusters
-  result = newTensor[int]([256, 256])
+  result = newTensor[float]([256, 256])
   # iterate over events
   for i in 0 .. x.high:
     let
@@ -369,30 +379,27 @@ proc calcOccupancy[T](x, y: seq[T]): Tensor[int] =
       yEv = y[i]
     when T is seq:
       for j in 0 .. xEv.high:
-        result[xEv[j].int, yEv[j].int] += 1
+        result[xEv[j].int, yEv[j].int] += 1.0
     elif T is SomeFloat:
-      result[xEv.round.int, yEv.round.int] += 1
+      result[xEv.round.int, yEv.round.int] += 1.0
 
-proc plotHist2D[T](data: Tensor[T], title, outfile: string) = #descr: string) =
+proc plotHist2D(data: Tensor[float], title, outfile: string) = #descr: string) =
   ## creates a 2D histogram plot (basically an image) of the given 2D
   ## Tensor
   doAssert data.rank == 2
+  var pltV = initPlotV(title, "pixel x", "pixel y", ShapeKind.Square)
   case BKind
   of bPlotly:
-    let lyout = getLayout(title, "pixel x", "pixel y", ShapeKind.Square)
-    let tr = Trace[T](`type`: PlotType.HeatMap,
+    let tr = Trace[float](`type`: PlotType.HeatMap,
                       colormap: ColorMap.Viridis,
                       zs: data.toRawSeq.reshape2D([256, 256]))
-    let p = Plot[T](layout: lyout, traces: @[tr])
-    # p.show()
-    p.savePlot(outfile)
+    pltV.plPlot = Plot[float](layout: pltV.plLayout, traces: @[tr])
+    pltV.savePlot(outfile)
   of bMpl:
-    let plt = importPyplot()
-    discard plt.imshow(data.toRawSeq.reshape([256, 256]),
+    discard pltV.plt.imshow(data.toRawSeq.reshape([256, 256]),
                        cmap = "viridis")
-    discard plt.colorbar()
-    discard plt.title(title)
-    plt.savePlot(outfile)
+    discard pltV.plt.colorbar()
+    pltV.savePlot(outfile)
   else:
     discard
 
@@ -406,7 +413,7 @@ proc plotOccupancies(h5f: var H5FileObj,
   ## - 1 clamped to 10 hits
   const
     quantile = 95
-    clamp3 = 10
+    clamp3 = 10.0
   # get x and y datasets, stack and get occupancies
   let vlenDtype = special_type(uint8)
   let
@@ -417,16 +424,16 @@ proc plotOccupancies(h5f: var H5FileObj,
   let occ = calcOccupancy(x, y)
   # calculate 3 clamp values based on occ
   let quant = occ.toRawSeq.percentile(quantile)
-  let clamps = [int.high, quant.round.int, clamp3]
+  let clamps = [Inf, quant.round, clamp3]
   for cl in clamps:
     var title = &"Occupancy of chip {chipNum} for run {runNumber}"
-    if cl == int.high:
+    if cl.classify == fcInf:
       let outfile = &"occupancy_run{runNumber}_chip{chipNum}_full_range"
       title = title & " in full range"
       plotHist2D(occ, title, outfile)
     else:
       let outfile = &"occupancy_run{runNumber}_chip{chipNum}_clamp{cl}"
-      let occClamped = occ.clamp(0, cl)
+      let occClamped = occ.clamp(0.0, cl)
       title = title & &" clamped to: {cl}"
       plotHist2D(occClamped, title, outfile)
 
@@ -477,7 +484,7 @@ proc plotPolyas(h5f: var H5FileObj, group: H5Group,
   let title = &"Polya distribution of chip {chipNum} for run {runNumber}"
   let xlabel = "Number of electrons"
   let outfile = &"polya_run{runNumber}_chip{chipNum}"
-  var (plot, axPy) = plotBar(@[bins], @[counts], title, xlabel, names, outfile)
+  var pltV = plotBar(@[bins], @[counts], title, xlabel, names, outfile)
   # now add scatter plot for fit result
   let nameFit = &"Polya fit of chip {chipNum} for run {runNumber}"
   case BKind
@@ -487,19 +494,18 @@ proc plotPolyas(h5f: var H5FileObj, group: H5Group,
                              xs: binCenterFit,
                              ys: countsFit,
                              name: nameFit)
-    plot.traces.add trFit
-    plot.savePlot(outfile)
+    pltV.plPlot.traces.add trFit
+    pltV.savePlot(outfile)
 
     # return traces
-    result = plot.traces
+    result = pltV.plPlot.traces
   of bMpl:
     # in this case `ax` is defined
-    let plt = importPyplot()
-    discard axPy.plot(binCenterFit,
-                      countsFit,
-                      label = nameFit,
-                      color = "r")
-    plt.savePlot(outfile)
+    discard pltV.ax.plot(binCenterFit,
+                         countsFit,
+                         label = nameFit,
+                         color = "r")
+    pltV.savePlot(outfile)
   else:
     echo "Unsupported backend kind: ", BKind
 
@@ -516,11 +522,11 @@ proc polya(h5f: var H5FileObj, runType: RunTypeKind, flags: set[ConfigFlagKind])
     of bPlotly:
       let title = &"Polyas for all chips of run {runNumber}"
       let xlabel = "Number of electrons"
-      let lyout = getLayout(title = title, xlabel = xlabel, ylabel = "#")
-      let p = Plot[float](layout: lyout,
-                          traces: traces)
+      var pltV = initPlotV(title = title, xlabel = xlabel, ylabel = "#")
+      pltV.plPlot = Plot[float](layout: pltV.plLayout,
+                                traces: traces)
       let outfile = &"combined_polya_{runType}_run{runNumber}"
-      p.savePlot(outfile)
+      pltV.savePlot(outfile)
     else:
       echo "Combined polya only available for Plotly backend!"
 
@@ -528,24 +534,21 @@ proc plotDates[T, U](x: seq[U], y: seq[T],
                   title, xlabel, dsets, outfile: string,
                   ylabel = "",
                   drawPlots = false) =
+  var pltV = initPlotV(title, xlabel, ylabel, ShapeKind.Rectangle)
   case BKind
   of bPlotly:
-    let lyout = getLayout(title, xlabel, ylabel, ShapeKind.Rectangle)
     let tr = Trace[T](mode: PlotMode.LinesMarkers,
                       `type`: PlotType.Scatter,
                       xs: x,
                       ys: y,
                       marker: Marker[float](size: @[12.0]))
-    let p = Plot[T](layout: lyout, traces: @[tr])
-    p.savePlot(outfile)
+    pltV.plPlot = Plot[T](layout: pltV.plLayout, traces: @[tr])
+    pltV.savePlot(outfile)
   of bMpl:
-    let plt = importPyplot()
     let dtm = pyImport("datetime")
     let xP = x.mapIt(dtm.datetime.utcfromtimestamp(int(it)))
-    discard plt.plot_date(xP, y, label = title)
-    discard plt.xlabel(xlabel)
-    discard plt.ylabel(ylabel)
-    plt.savePlot(outfile)
+    discard pltV.ax.plot_date(xP, y, label = title)
+    pltV.savePlot(outfile)
   else:
     discard
 
@@ -562,9 +565,8 @@ proc feSpectrum(h5f: var H5FileObj, flags: set[ConfigFlagKind]) =
   for runNumber, grpName in runs(h5f):
     var group = h5f[grpName.grp_str]
     let centerChip = h5f[group.parent.grp_str].attrs["centerChip", int]
-    # import matplotlib to set backend
-    let mpl = pyImport("matplotlib")
-    discard mpl.use("TKagg")
+    # call `importPyplot` because it sets the appropriate backend for us
+    discard importPyplot()
     let path = "figs/"
     var outfiles = @[&"fe_spectrum_run{runNumber}.svg",
                      &"fe_energy_calib_run{runNumber}.svg"]

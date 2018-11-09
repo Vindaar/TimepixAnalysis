@@ -48,6 +48,8 @@ type
   ConfigFlagKind = enum
     cfNone, cfShowPlots
 
+  DocoptTab = Table[string, Value]
+
 when defined(linux):
   const commitHash = staticExec("git rev-parse --short HEAD")
 else:
@@ -874,6 +876,20 @@ proc parseTomlConfig(): set[ConfigFlagKind] =
   if showPlot:
     result.incl cfShowPlots
 
+proc parseOnlyFlags(args: DocoptTab): set[RecoFlagKind] =
+  if $args["--only_charge"] == "true":
+    result.incl rfOnlyCharge
+  if $args["--only_fadc"] == "true":
+    result.incl rfOnlyFadc
+  if $args["--only_fe_spec"] == "true":
+    result.incl rfOnlyFeSpec
+  if $args["--only_gas_gain"] == "true":
+    result.incl rfOnlyGasGain
+  if $args["--only_gain_fit"] == "true":
+    result.incl rfOnlyGainFit
+  if $args["--only_energy_from_e"] == "true":
+    result.incl rfOnlyEnergyElectrons
+
 proc main() =
 
   # create command line arguments using docopt
@@ -891,8 +907,6 @@ proc main() =
     outfile = $args["--out"]
     calib_factor_str = $args["--only_energy"]
     calib_factor: float = Inf
-  if $args["--only_charge"] == "true":
-    flags.incl rfOnlyCharge
   if runNumber == "nil":
     flags.incl rfReadAllRuns
   if outfile == "nil":
@@ -911,15 +925,9 @@ proc main() =
   if calib_factor_str != "nil":
     flags.incl rfOnlyEnergy
     calib_factor = parseFloat(calib_factor_str)
-  if $args["--only_fadc"] == "true":
-    flags.incl rfOnlyFadc
-  if $args["--only_gas_gain"] == "true":
-    flags.incl rfOnlyGasGain
-  if $args["--only_gain_fit"] == "true":
-    flags.incl rfOnlyGainFit
-  if $args["--only_energy_from_e"] == "true":
-    flags.incl rfOnlyEnergyElectrons
 
+  # parse the explicit `--only_...` flags
+  flags = flags + parseOnlyFlags(args)
 
   # parse config toml file
   let cfgFlags = parseTomlConfig()

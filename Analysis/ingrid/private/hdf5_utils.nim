@@ -68,6 +68,9 @@ proc getGroupNameForRun*(run_number: int): string =
 template recoBase*(): string =
   "/reconstruction/run_"
 
+proc recoRunGrpStr*(runNumber: int): grp_str {.inline.} =
+  result = (recoBase() & $runNumber).grp_str
+
 template likelihoodBase*(): string =
   "/likelihood/run_"
 
@@ -119,6 +122,11 @@ proc runFinished*(h5f: var H5FileObj, runNumber: int) =
   let path = rawDataBase & $runNumber
   var grp = h5f[path.grp_str]
   grp.attrs["rawDataFinished"] = "true"
+
+proc getCenterChip*(h5f: var H5FileObj, runNumber: int): int =
+  ## reads the `centerChip` attribute from the run group corresponding to
+  ## `runNumber`
+  result = h5f[recoRunGrpStr(runNumber)].attrs["centerChip", int]
 
 macro createCombineTemplates(name, datatype: string): typed =
   ## creates a template, which returns a basename of the type

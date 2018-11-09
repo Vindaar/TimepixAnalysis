@@ -99,3 +99,10 @@ proc getCalibVsGasGainFactors*(chipName: string): (float, float) =
       discard h5f.close()
       raise newException(Exception, "Charge calibration vs gas gain dataset " &
                          &"does not exist for chip {parseChipName(chipName)}")
+
+proc inDatabase*(chipName: string): bool =
+  ## used to check whether a chip is contained in the InGridDatabase
+  withDatabase:
+    h5f.visitFile()
+    result = chipNameToGroup(chipName) in h5f
+    discard h5f.close()

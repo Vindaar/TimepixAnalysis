@@ -41,9 +41,9 @@ type
     xy: tuple[x, y: float64]
 
   RecoFlagKind = enum
-    rfNone, rfCreateFe, rfCalibEnergy, rfOnlyEnergy, rfOnlyCharge,
-    rfOnlyFadc, rfReadAllRuns, rfOnlyGasGain, rfOnlyGainFit,
-    rfOnlyEnergyElectrons
+    rfNone, rfCreateFe, rfCalibEnergy, rfOnlyEnergy, rfOnlyEnergyElectrons,
+    rfOnlyCharge, rfOnlyFeSpec, rfOnlyFadc, rfOnlyGasGain, rfOnlyGainFit,
+    rfReadAllRuns
 
   ConfigFlagKind = enum
     cfNone, cfShowPlots
@@ -64,6 +64,7 @@ Usage:
   reconstruction <HDF5file> [--out <name>] [--runNumber <number>] [--create_fe_spec] [options]
   reconstruction <HDF5file> [--runNumber <number>] --only_energy <factor> [options]
   reconstruction <HDF5file> [--runNumber <number>] --only_energy_from_e [options]
+  reconstruction <HDF5file> [--runNumber <number>] --only_fe_spec [options]
   reconstruction <HDF5file> [--runNumber <number>] --only_charge [options]
   reconstruction <HDF5file> [--runNumber <number>] --only_fadc [options]
   reconstruction <HDF5file> [--runNumber <number>] --only_gas_gain [options]
@@ -84,6 +85,8 @@ Options:
                           in the HDF5 file.
   --only_energy_from_e    Toggle to /only/ calculate the energy for each cluster based on
                           the Fe charge spectrum vs gas gain calibration
+  --only_fe_spec          Toggle to /only/ create the Fe spectrum for this run and perform the
+                          fit of it. Will try to perform a charge calibration, if possible.
   --only_charge           Toggle to /only/ calculate the charge for each TOT value based on
                           the TOT calibration. The `ingridDatabase.h5` needs to be present.
   --only_fadc             If this flag is set, the reconstructed FADC data is used to calculate
@@ -719,11 +722,8 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
     runNumbersIterated.incl runNumber.uint16
     # check whether all runs are read, if not if this run is correct run number
     if rfReadAllRuns in flags or runNumber == runNumberArg:
-      if rfOnlyEnergy notin flags and
-         rfOnlyFadc notin flags and
-         rfOnlyCharge notin flags and
-         rfOnlyGasGain notin flags and
-         rfOnlyEnergyElectrons notin flags:
+      # check if intersection of `flags` with all `"only flags"` is empty
+      if (flags * {rfOnlyEnergy .. rfOnlyGainFit}).card == 0:
         var runGroupForAttrs = h5f[grp.grp_str]
         let nChips = runGroupForAttrs.attrs["numChips", int]
         # TODO: we can in principle perform energy calibration in one go

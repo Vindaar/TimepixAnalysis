@@ -133,14 +133,13 @@ addHandler(L)
 addHandler(fL)
 
 proc savePlot(p: PlotV, outfile: string) =
+  let fname = "figs" / outfile & ".svg"
   info &"Saving file: {fname}"
   case BKind
   of bPlotly:
-    let fname = "figs" / outfile & ".svg"
     p.plPlot.saveImage(fname)
     imageSet.incl(fname)
   of bMpl:
-    let fname = "figs" / outfile & ".svg"
     discard p.plt.savefig(fname)
     imageSet.incl(fname)
     if ShowPlots:

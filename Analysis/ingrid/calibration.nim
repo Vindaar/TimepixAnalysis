@@ -602,11 +602,9 @@ func calibrateCharge*(totValue: float, a, b, c, t: float): float =
   let q = 4 * (a * b * t  +  a * c  -  a * t * totValue)
   result = (50 / (2 * a)) * (p + sqrt(p * p + q))
 
-proc applyChargeCalibration*(h5f: var H5FileObj, runNumber: int)
-  {.raises: [HDF5LibraryError, ref ValueError, Exception]} =
+proc applyChargeCalibration*(h5f: var H5FileObj, runNumber: int) =
   ## applies the charge calibration to the TOT values of all events of the
   ## given run
-
   # what we need:
   # TOT values of each run. Run them through calibration function with the TOT calibrated
   # values taken from the `InGridDatabase`
@@ -619,6 +617,10 @@ proc applyChargeCalibration*(h5f: var H5FileObj, runNumber: int)
       # get the chip number from the attributes of the group
       let chipNumber = group.attrs["chipNumber", int]
       let chipName = group.attrs["chipName", string]
+      if not inDatabase(chipName):
+        raise newException(KeyError, &"No entry for chip {chipName} in InGrid " &
+          "database!")
+
       # get dataset of hits
       let
         totDset = h5f[(grp / "ToT").dset_str]

@@ -250,10 +250,10 @@ proc plotBar[T](binsIn, countsIn: seq[seq[T]], title: string,
   let bins = binsIn.mapIt(it.mapIt(it.float))
   let counts = countsIn.mapIt(it.mapIt(it.float))
   result = initPlotV(title, xlabel, "#")
-  case BKind
-  of bPlotly:
-    var traces: seq[Trace[float]]
-    for i in 0 .. bins.high:
+  var traces: seq[Trace[float]]
+  for i in 0 .. bins.high:
+    case BKind
+    of bPlotly:
       let
         bin = bins[i]
         count = counts[i]
@@ -262,11 +262,10 @@ proc plotBar[T](binsIn, countsIn: seq[seq[T]], title: string,
                               xs: bin,
                               ys: count,
                               name: dset)
-    result.plPlot = Plot[float](layout: result.plLayout, traces: traces)
-    if drawPlots:
-      result.plPlot.show()
-  of bMpl:
-    for i in 0 .. bins.high:
+      result.plPlot = Plot[float](layout: result.plLayout, traces: traces)
+      if drawPlots:
+        result.plPlot.show()
+    of bMpl:
       let
         # cut of last bin edge in matplotlib case. Expects same shape for edges
         # and counts
@@ -275,16 +274,16 @@ proc plotBar[T](binsIn, countsIn: seq[seq[T]], title: string,
         dset = dsets[i]
       let width = toSeq(0 ..< bins[i].high).mapIt(bins[i][it + 1] - bins[i][it])
       discard result.ax.bar(bin,
-                     count,
-                     align = "edge",
-                     width = width,
-                     label = dset)
-    # we cannot call `show` directly, because the Nim compiler tries to
-    # call the Nim `show` procedure and fails
-    if drawPlots:
-      discard callMethod(result.plt, "show")
+                            count,
+                            align = "edge",
+                            width = width,
+                            label = dset)
+      # we cannot call `show` directly, because the Nim compiler tries to
+      # call the Nim `show` procedure and fails
+      if drawPlots:
+        discard callMethod(result.plt, "show")
 
-  else: discard
+    else: discard
 
 iterator chips(group: var H5Group): (int, H5Group) =
   ## returns all chip groups within the given Run group

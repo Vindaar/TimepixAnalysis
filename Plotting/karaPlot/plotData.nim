@@ -698,6 +698,79 @@ proc feSpectrum(h5f: var H5FileObj, flags: set[ConfigFlagKind]) =
             outfile = "photopeak_vs_time")
             #ylabel = "# pix / charge in e^-")
 
+proc buildOutfile(pd: PlotDescriptor): string =
+  var name = ""
+  let runsStr = pd.runs.foldl($a & " " & $b, "").strip(chars = {' '})
+  case pd.plotKind
+  of pkInGridDset:
+    name = InGridFnameTemplate % [pd.name,
+                                  runsStr,
+                                  $pd.chip,
+                                  $pd.range[2]]
+  of pkFadcDset:
+    name = FadcFnameTemplate % [pd.name,
+                                runsStr,
+                                $pd.range[2]]
+  else:
+    discard
+  result = "figs" / (name & ".svg")
+
+proc buildTitle(pd: PlotDescriptor): string =
+  let runsStr = pd.runs.foldl($a & " " & $b, "").strip(chars = {' '})
+  case pd.plotKind
+  of pkInGridDset:
+    result = InGridTitleTemplate % [pd.name,
+                                    runsStr,
+                                    $pd.chip,
+                                    $pd.range[2]]
+  of pkFadcDset:
+    result = FadcTitleTemplate % [pd.name,
+                                  runsStr,
+                                  $pd.range[2]]
+  else:
+    discard
+
+proc createPlot(h5f: var H5FileObj,
+                fileInfo: FileInfo,
+                pd: PlotDescriptor): string =
+  ## creates a plot of kind `plotKind` for the data from all runs in `runs`
+  ## for chip `chip`
+  case pd.plotKind
+  of pkInGridDset:
+    let ranges = @[pd.range]
+    var allData: seq[float]
+    for r in pd.runs:
+      let data = h5f.read(r, pd.name, pd.chip, dtype = float)
+      # perform cut on range
+      let group = h5f[recoPath(r, pd.chip)]
+      let idx = cutOnProperties(h5f, group,
+                      ("energyFromCharge", pd.range[0], pd.range[1]))
+      allData.add idx.mapIt(data[it])
+    result = buildOutfile(pd)
+    let title = buildTitle(pd)
+    plotHist(@[allData], title, pd.name, result)
+  of pkFadcDset:
+    # get the center chip group
+    var allData: seq[float]
+    for r in pd.runs:
+      let group = h5f[recoPath(r, fileInfo.centerChip)]
+      let idx = cutOnProperties(h5f, group,
+                    ("energyFromCharge", pd.range[0], pd.range[1]))
+      let evNumInGrid = h5f.read(r, "eventNumber", fileInfo.centerChip, dtype = int)
+      # filter out correct indices passing cuts
+      var inGridSet = initSet[int]()
+      for i in idx:
+        inGridSet.incl evNumInGrid[i]
+      let evNumFadc = h5f.read(r, "eventNumber", isFadc = true, dtype = int) # [group.name / "eventNumber", int]
+      let idxFadc = (toSeq(0 .. evNumFadc.high)) --> filter(evNumFadc[it] in inGridSet)
+      let data = h5f.read(r, pd.name, pd.chip, isFadc = true, dtype = float)
+      allData.add idxFadc --> map(data[it])
+    result = buildOutfile(pd)
+    let title = buildTitle(pd)
+    plotHist(@[allData], title, pd.name, result)
+  else:
+    discard
+
 proc createOrg(outfile: string) =
   ## creates a simple org file consisting of headings and images
   ## SVGs are implemented using raw inline SVG

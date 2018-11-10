@@ -10,3 +10,4 @@ InGrid-Python/dist/*
 /extractScintiTriggers/scinti_triggers.svg
 /Analysis/ingrid/out/*
 /Plotting/plotCalibration/out/*
+/Plotting/karaPlot/figs/*

@@ -145,6 +145,17 @@ addHandler(fL)
 
 proc savePlot(p: PlotV, outfile: string) =
   let fname = "figs" / outfile & ".svg"
+const InGridFnameTemplate = "$1_run$2_chip$3_$4"
+const InGridTitleTemplate = "Dataset: $1 for run $2, chip $3 in range: $4"
+const FadcFnameTemplate = "fadc_$1_run$2_$3.svg"
+const FadcTitleTemplate = "Dataset: $1 for run $2, fadc in range: $3"
+const PolyaFnameTemplate = "polya_run$runNumber_chip$chipNum"
+const CombPolyaFnameTemplate = "combined_polya_$runType_run$runNumber"
+const OccupancyFullFnameTemplate = "occupancy_run$runNumber_chip$chipNum_full_range"
+const OccupancyClampFnameTemplate = "occupancy_run$runNumber_chip$chipNum_clamp$cl"
+const OccClusterFnameTemplate = "occupancy_clusters_run$runNumber_chip$chipNum"
+const FeSpecFnameTemplate = @["fe_spectrum_run$runNumber.svg",
+                              "fe_energy_calib_run$runNumber.svg"]
   info &"Saving file: {fname}"
   case BKind
   of bPlotly:

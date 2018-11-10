@@ -839,6 +839,7 @@ proc createCalibrationPlots(h5file: string,
   ## creates QA plots for calibration runs
   var h5f = H5file(h5file, "r")
   let fileInfo = getFileInfo(h5f)
+  # var imageSet = initOrderedSet[string]()
   var pds: seq[PlotDescriptor]
 
   const length = "length"
@@ -852,7 +853,13 @@ proc createCalibrationPlots(h5file: string,
   pds.add histograms(h5f, runType, fileInfo, flags) # including fadc
 
   for p in pds:
-    imageSet.incl h5f.createPlot(fileInfo, p)
+    let fileF = h5f.createPlot(fileInfo, p)
+    case BKind
+    of bPlotly:
+      if PlotlySaveSvg:
+        imageSet.incl fileF
+    else: discard
+  echo "Image set is ", imageSet.card
 
   # likelihoodHistograms(h5f) # need to cut on photo peak and esc peak
   # neighborPixels(h5f)
@@ -860,8 +867,10 @@ proc createCalibrationPlots(h5file: string,
   var outfile = "calibration"
   for fl in flags:
     outfile &= "_" & $fl
-  outfile &= ".org"
-  createOrg(outfile)
+  #outfile &= ".org"
+  outfile &= ".json"
+  jsonDump(outfile)
+  #createOrg(outfile)
 
 proc createBackgroundPlots(h5file: string,
                            bKind: BackendKind,
@@ -878,7 +887,7 @@ proc createBackgroundPlots(h5file: string,
     polya(h5f, runType, flags)
   # energyCalib(h5f) # ???? plot of gas gain vs charge?!
   pds.add histograms(h5f, runType, fileInfo, flags) # including fadc
-  echo hst
+  echo pds
   # likelihoodHistograms(h5f) # need to cut on photo peak and esc peak
   # neighborPixels(h5f)
   discard h5f.close()

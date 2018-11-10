@@ -215,6 +215,33 @@ proc initPlotV(title: string, xlabel: string, ylabel: string, shape = ShapeKind.
                    ax: ax)
   else: discard
 
+proc read(h5f: var H5FileObj,
+          runNumber: int,
+          dsetName: string,
+          chipNumber = 0,
+          isFadc = false,
+          dtype: typedesc = float): seq[dtype] =
+  ## reads the given dataset from the H5 file and returns it
+  ## (potentially) converted to ``dtype``
+  var dset: H5DataSet
+  if isFadc:
+    dset = h5f[(fadcRunPath(runNumber) / dsetName).dset_str]
+  else:
+    dset = h5f[(recoPath(runNumber, chipNumber).string / dsetName).dset_str]
+  when dtype is SomeNumber:
+    let convert = dset.convertType(dtype)
+    result = dset.convert
+  else:
+    type subtype = utils.getInnerType(dtype)
+    # NOTE: only support 2D seqs
+    let convert = dset.convertType(subtype)
+    when subType isnot SomeNumber:
+      raise newException(Exception, "Cannot convert N-D sequence to type: " &
+        subtype.name)
+    else:
+      # convert to subtype and reshape to dsets shape
+      result = dset.convert.reshape2D(dset.shape)
+
 proc getFileInfo(h5f: var H5FileObj): FileInfo =
   ## returns a set of all run numbers in the given file
   # virist file

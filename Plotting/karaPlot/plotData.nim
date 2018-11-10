@@ -131,11 +131,14 @@ var imageSet = initOrderedSet[string]()
 
 var ShowPlots = false
 
-# set up the logger
-var L = newConsoleLogger()
+# create directories, if not exist
 if not dirExists("logs"):
   createDir("logs")
+if not dirExists("figs"):
+  createDir("figs")
 
+# set up the logger
+var L = newConsoleLogger()
 var fL = newFileLogger("logs/plotData.log", fmtStr = verboseFmtStr)
 addHandler(L)
 addHandler(fL)

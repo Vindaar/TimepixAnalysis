@@ -177,6 +177,28 @@ type
       range: (float, float, string)
     else:
       discard
+
+
+# PlotDescriptor object
+# storing all needed information to create a specific plot
+
+# karax client
+# - static table of
+#   Table[PlotDescriptor, string]
+#   where the string is an SVG
+#   Karax waits to receive plots via sockets after they're
+#   created as they are now, read and sent
+# - "dynamic" table of
+#   Table[PlotDescriptor, JsonNode]
+#   where the JsonNode is the output of plotly before pasting it
+#   into the HTML template
+# Upon startup server sends Karax client the FileInfo, which should
+# be enough to have basic information to request plots
+# - can provide fields to enter information needed for PlotDescriptor
+#   where all information is not from a text field, but rather a dropdown
+#   menu? With FileInfo we have everything needed (in addition to some
+#   definitions like dataset names, which we will store in a TOML file
+
 proc jsonPlotly(pltV: PlotV): JsonNode =
   ## returns JsonNode from the PlotV
   result = newJObject()

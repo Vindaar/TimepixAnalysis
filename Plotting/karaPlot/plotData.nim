@@ -135,8 +135,11 @@ var BKind: BackendKind = bNone
 # global OrderedSet to store all files we save to later
 # combine to single PDF
 var imageSet = initOrderedSet[string]()
+var plotlyJson = newJObject()
 
 var ShowPlots = false
+const PlotlySaveSvg = false
+
 # let server = newAsyncHttpServer()
 
 # create directories, if not exist
@@ -193,8 +196,11 @@ proc savePlot(p: PlotV, outfile: string, fullPath = false) =
   info &"Saving file: {fname}"
   case BKind
   of bPlotly:
-    p.plPlot.saveImage(fname)
-    imageSet.incl(fname)
+    if not PlotlySaveSvg:
+      plotlyJson[outfile] = jsonPlotly(p)
+    else:
+      p.plPlot.saveImage(fname)
+      imageSet.incl(fname)
   of bMpl:
     discard p.plt.savefig(fname)
     imageSet.incl(fname)

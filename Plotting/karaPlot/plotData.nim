@@ -382,63 +382,9 @@ iterator chips(group: var H5Group): (int, H5Group) =
       let chipNum = grp.attrs["chipNumber", int]
       yield (chipNum, grp)
 
-proc plotHistsFeSpec(h5f: var H5FileObj,
-                     group: H5Group,
-                     dsetName: string,
-                     runNumber: string,
-                     dKind: DataKind,
-                     chipNum = 0) =
-  ## creates 3 plots for the given dataset.
-  ## - 1 around photo peak
-  ## - 1 around escape peak
-  ## - 1 without cut
-  const ranges = [(5.5, 6.2, "Photopeak"), (2.7, 3.2, "Escapepeak"), (-Inf, Inf, "All")]
-  for r in ranges:
-    case dKind
-    of dkInGrid:
-      let idx = cutOnProperties(h5f, group,
-                      ("energyFromCharge", r[0], r[1]))
-      # extract dataset and correct indices
-      var ldata = h5f[group.name / dsetName, float]
-      # extract indices corresponding to peak
-      ldata = idx.mapIt(ldata[it])
-      let title = &"Dataset: {dsetName} for chip {chipNum} in range: {r[2]}"
-      let outfile = &"{dsetName}_run{runNumber}_chip{chipNum}_range{r[2]}"
-      plotHist(@[ldata], title, dsetName, outfile)
-    of dkFadc:
-      # get the center chip group
-      let centerChip = h5f[recoGroupGrpStr()].attrs["centerChip", int]
-      let centerGroup = h5f[(group.name.parentDir / &"chip_{centerChip}").grp_str]
-      let idx = cutOnProperties(h5f, centerGroup,
-                      ("energyFromCharge", r[0], r[1]))
-      # given these idx, get event numbers
-      let evNumInGrid = h5f[centerGroup.name / "eventNumber", int]
-      # filter out correct indices passing cuts
-      var inGridSet = initSet[int]()
-      for i in idx:
-        inGridSet.incl evNumInGrid[i]
-      let evNumFadc = h5f[group.name / "eventNumber", int]
-      #let evNumFilter = evNumFadc --> filter(it in inGridSet)
-      let idxFadc = (toSeq(0 .. evNumFadc.high)) --> filter(evNumFadc[it] in inGridSet)
-      let dset = h5f[(group.name / dsetName).dset_str]
-      let title = &"Dataset: {dsetName} for fadc in range: {r[2]}"
-      let outfile = &"fadc_{dsetName}_run{runNumber}_range{r[2]}"
-      case dset.dtypeAnyKind
-      of akUint16: # fallTime
-        var ldata = dset[uint16]
-        ldata = idxFadc --> map(ldata[it])
-        plotHist(@[ldata], title, dsetName, outfile)
-      of akFloat64: # minVals
-        var ldata = dset[float]
-        ldata = idxFadc --> map(ldata[it])
-        plotHist(@[ldata], title, dsetName, outfile)
-      else:
-        warn &"Unsupported type {dset.dtypeAnyKind}"
-        discard
-    else:
-      warn &"No data kind selected: {dKind}"
-
-proc histograms(h5f: var H5FileObj, flags: set[ConfigFlagKind]) =
+proc histograms(h5f: var H5FileObj, runType: RunTypeKind,
+                fileInfo: FileInfo,
+                flags: set[ConfigFlagKind]): seq[PlotDescriptor] =
   const dsets = ["length", "width", "skewnessLongitudinal", "skewnessTransverse",
                  "kurtosisLongitudinal", "kurtosisTransverse", "rotationAngle",
                  "eccentricity", "fractionInTransverseRms", "lengthDivRmsTrans"]
@@ -447,18 +393,35 @@ proc histograms(h5f: var H5FileObj, flags: set[ConfigFlagKind]) =
   # and performing a cut around peak +- 300 eV maybe
   # NOTE: need photo peak and escape peak plenty of times here. Just write wrapper
   # which takes energy and performs cuts, *then* creates plots
-  for runNumber, group in runs(h5f):
-    var group = h5f[group.grp_str]
-    if cfNoIngrid notin flags:
-      for chipNum, chpgrp in chips(group):
-        for dset in dsets:
-          plotHistsFeSpec(h5f, chpgrp, dset, runNumber, dkInGrid, chipNum)
+  var ranges: seq[(float, float, string)]
+  case runType
+  of rtCalibration:
+    # creates 3 plots for the given dataset.
+    # - 1 around photo peak
+    # - 1 around escape peak
+    # - 1 without cut
+    ranges = @[(5.5, 6.2, "Photopeak"), (2.7, 3.2, "Escapepeak"), (-Inf, Inf, "All")]
+  else:
+    # else just take all
+    ranges = @[(-Inf, Inf, "All")]
 
-    # fadc plots
+  for r in ranges:
+    if cfNoInGrid notin flags:
+      for ch in fileInfo.chips:
+        for dset in dsets:
+          result.add PlotDescriptor(runType: runType,
+                                    name: dset,
+                                    runs: fileInfo.runs,
+                                    plotKind: pkInGridDset,
+                                    chip: ch,
+                                    range: r)
     if cfNoFadc notin flags:
-      var fadcGrp = h5f[(group.name / "fadc").grp_str]
-      for dsetName in fadcDsets:
-        plotHistsFeSpec(h5f, fadcGrp, dsetName, runNumber, dkFadc)
+      for dset in fadcDsets:
+        result.add PlotDescriptor(runType: runType,
+                                  name: dset,
+                                  runs: fileInfo.runs,
+                                  plotKind: pkFadcDset,
+                                  range: r)
 
 proc calcOccupancy[T](x, y: seq[T]): Tensor[float] =
   ## calculates the occupancy of the given x and y datasets
@@ -806,6 +769,9 @@ proc createCalibrationPlots(h5file: string,
                             flags: set[ConfigFlagKind]) =
   ## creates QA plots for calibration runs
   var h5f = H5file(h5file, "r")
+  let fileInfo = getFileInfo(h5f)
+  var pds: seq[PlotDescriptor]
+
   const length = "length"
   if cfNoOccupancy notin flags:
     occupancies(h5f, flags) # plus center only
@@ -814,7 +780,11 @@ proc createCalibrationPlots(h5file: string,
   if cfNoFeSpectrum notin flags:
     feSpectrum(h5f, flags)
   # energyCalib(h5f) # ???? plot of gas gain vs charge?!
-  histograms(h5f, flags) # including fadc
+  pds.add histograms(h5f, runType, fileInfo, flags) # including fadc
+
+  for p in pds:
+    imageSet.incl h5f.createPlot(fileInfo, p)
+
   # likelihoodHistograms(h5f) # need to cut on photo peak and esc peak
   # neighborPixels(h5f)
   discard h5f.close()
@@ -825,18 +795,21 @@ proc createCalibrationPlots(h5file: string,
   createOrg(outfile)
 
 proc createBackgroundPlots(h5file: string,
-                            bKind: BackendKind,
-                            runType: RunTypeKind,
-                            flags: set[ConfigFlagKind]) =
+                           bKind: BackendKind,
+                           runType: RunTypeKind,
+                           flags: set[ConfigFlagKind]) =
   ## creates QA plots for calibration runs
   var h5f = H5file(h5file, "r")
+  let fileInfo = getFileInfo(h5f)
+  var pds: seq[PlotDescriptor]
   const length = "length"
   if cfNoOccupancy notin flags:
     occupancies(h5f, flags) # plus center only
   if cfNoPolya notin flags:
     polya(h5f, runType, flags)
   # energyCalib(h5f) # ???? plot of gas gain vs charge?!
-  histograms(h5f, flags) # including fadc
+  pds.add histograms(h5f, runType, fileInfo, flags) # including fadc
+  echo hst
   # likelihoodHistograms(h5f) # need to cut on photo peak and esc peak
   # neighborPixels(h5f)
   discard h5f.close()

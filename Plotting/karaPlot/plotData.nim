@@ -172,6 +172,10 @@ type
       range: (float, float, string)
     else:
       discard
+proc savePlot(p: PlotV, outfile: string, fullPath = false) =
+  var fname = outfile
+  if not fullPath:
+    fname = "figs" / outfile & ".svg"
   info &"Saving file: {fname}"
   case BKind
   of bPlotly:
@@ -322,13 +326,13 @@ proc plotHist[T](xIn: seq[seq[T]], title, dset, outfile: string) =
                               xs: x,
                               name: dset)
     pltV.plPlot = Plot[float](layout: pltV.plLayout, traces: traces)
-    pltV.savePlot(outfile)
+    pltV.savePlot(outfile, fullPath = true)
   of bMpl:
     for x in xs:
       discard pltV.ax.hist(x,
                             bins = nbins,
                             range = binRange)
-    pltV.savePlot(outfile)
+    pltV.savePlot(outfile, fullPath = true)
   else: discard
 
 proc plotBar[T](binsIn, countsIn: seq[seq[T]], title: string,

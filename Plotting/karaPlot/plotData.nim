@@ -109,6 +109,20 @@ type
   ShapeKind = enum
     Rectangle, Square
 
+  # a simple object storing the runs, chips etc. from a given
+  # H5 file
+  FileInfo = object
+    runs: seq[int]
+    chips: seq[int]
+    runType: RunTypeKind
+    rfKind: RunFolderKind
+    centerChip: int
+    centerChipName: string
+    hasFadc: bool # reads if FADC group available
+    # NOTE: add other flags for other optional plots?
+    # if e.g. FeSpec not available yet, we can just call the
+    # procedure to create it for us
+
 # global variable which stores the backend the user selected
 var BKind: BackendKind = bNone
 # global OrderedSet to store all files we save to later
@@ -198,6 +212,29 @@ proc initPlotV(title: string, xlabel: string, ylabel: string, shape = ShapeKind.
                    ax: ax)
   else: discard
 
+proc getFileInfo(h5f: var H5FileObj): FileInfo =
+  ## returns a set of all run numbers in the given file
+  # virist file
+  h5f.visitFile()
+  var readAux = false
+  # get reconstruction group
+  let reco = h5f[recoGroupGrpStr()]
+  result.runType = parseEnum[RunTypeKind](reco.attrs["runType", string], rtNone)
+  result.rfKind = parseEnum[RunFolderKind](reco.attrs["runFolderKind", string],
+                                           rfUnknown)
+  result.centerChip = reco.attrs["centerChip", int]
+  result.centerChipName = reco.attrs["centerChipName", string]
+
+  for runNumber, group in runs(h5f):
+    result.runs.add runNumber.parseInt
+    if not readAux:
+      let grp = h5f[group.grp_str]
+      let nChips = grp.attrs["numChips", int]
+      result.chips = toSeq(0 ..< nChips)#.mapIt(it)
+      readAux = true
+  # sort the run numbers
+  result.runs.sort
+  echo result
 
 proc plotHist[T](xIn: seq[seq[T]], title, dset, outfile: string) =
   ## plots the data in `x` as a histogram

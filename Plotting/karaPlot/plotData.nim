@@ -1,22 +1,16 @@
 import plotly
-import os, strutils, strformat
-import times
-import sequtils
+import os, strutils, strformat, times, sequtils, math, macros, algorithm, sets
+import options, logging, typeinfo, json
 import shell
-import algorithm, sets
-import logging
-import typeinfo
-import math
-import nimpy
-import macros
-import docopt
-import chroma
-import seqmath
-import options
-import mpfit
 import arraymancer
 import zero_functional
 import nimhdf5
+import seqmath
+
+import nimpy
+import docopt
+import chroma
+
 import dataset_helpers
 import ingrid/ingrid_types
 import ingrid/tos_helpers

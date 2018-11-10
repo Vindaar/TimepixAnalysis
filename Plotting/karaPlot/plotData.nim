@@ -557,11 +557,11 @@ proc plotPolyas(h5f: var H5FileObj, group: H5Group,
   ## perform the plots of the polya distribution again (including the fits)
   ## and return the polya data as to allow a combined plot afterwards
   let
-    polyaGrp =  h5f[(group.name / "polya").dset_str]
-    polyaFitGrp =  h5f[(group.name / "polyaFit").dset_str]
-    polya = polyaGrp[float].reshape2D(polyaGrp.shape)
-    polyaFit = polyaFitGrp[float].reshape2D(polyaFitGrp.shape)
-  let nbins = polyaGrp.shape[0] - 1
+    polya = h5f.read(runNumber.parseInt, "polya", chipNum,
+                     dtype = seq[float])
+    polyaFit = h5f.read(runNumber.parseInt, "polyaFit", chipNum,
+                        dtype = seq[float])
+  let nbins = polya.shape[0] - 1
   var
     bins = newSeq[float](nbins + 1)
     binCenterFit = newSeq[float](nbins)

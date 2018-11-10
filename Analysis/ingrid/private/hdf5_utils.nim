@@ -55,15 +55,18 @@ template likelihoodGroupGrpStr*(): grp_str =
 template rawDataBase*(): string =
   "/runs/run_"
 
-template rawDataChipBase*(run_number: int): string =
-  "/runs/run_$#/chip_" % $run_number # & "$#"
+template rawDataChipBase*(runNumber: int): string =
+  "/runs/run_$#/chip_" % $runNumber # & "$#"
 
-template recoDataChipBase*(run_number: int): string =
-  "/reconstruction/run_$#/chip_" % $run_number # & "$#"
+template recoDataChipBase*(runNumber: int): string =
+  "/reconstruction/run_$#/chip_" % $runNumber # & "$#"
 
-proc getGroupNameForRun*(run_number: int): string =
+proc recoPath*(runNumber, chipNumber: int): grp_str {.inline.} =
+  result = (recoDataChipBase(runNumber) & $chipNumber).grp_str
+
+proc getGroupNameForRun*(runNumber: int): string =
   # generates the group name for a given run number
-  result = rawDataBase() & "$#" % $run_number
+  result = rawDataBase() & "$#" % $runNumber
 
 template recoBase*(): string =
   "/reconstruction/run_"
@@ -74,9 +77,9 @@ proc recoRunGrpStr*(runNumber: int): grp_str {.inline.} =
 template likelihoodBase*(): string =
   "/likelihood/run_"
 
-proc getRecoNameForRun*(run_number: int): string =
+proc getRecoNameForRun*(runNumber: int): string =
   # generates the reconstrution group name for a given run number
-  result = recoBase() & "$#" % $run_number
+  result = recoBase() & "$#" % $runNumber
 
 proc getRawCombineName*(): string =
   # generates the base path for the combine folder
@@ -130,14 +133,14 @@ proc getCenterChip*(h5f: var H5FileObj, runNumber: int): int =
 
 macro createCombineTemplates(name, datatype: string): typed =
   ## creates a template, which returns a basename of the type
-  ## combineBasename`name`(chip_number, run_number): string =
-  ##   "/runs/combined/`name`_$#_$#" % [$chip_number, $run_number]
+  ## combineBasename`name`(chip_number, runNumber): string =
+  ##   "/runs/combined/`name`_$#_$#" % [$chip_number, $runNumber]
   var source = ""
   case datatype.strVal
   of "runs":
-    source &= "template combineRawBasename" & name.strVal & "*(chip_number, run_number: int): string =\n"
+    source &= "template combineRawBasename" & name.strVal & "*(chip_number, runNumber: int): string =\n"
   of "reconstruction":
-    source &= "template combineRecoBasename" & name.strVal & "*(chip_number, run_number: int): string =\n"
+    source &= "template combineRecoBasename" & name.strVal & "*(chip_number, runNumber: int): string =\n"
   else:
     discard
   case name.strVal
@@ -145,7 +148,7 @@ macro createCombineTemplates(name, datatype: string): typed =
     source &= "  \"/" & datatype.strVal & "/combined/" & name.strVal
   else:
     source &= "  \"/" & datatype.strVal.toLowerAscii & "/combined/" & name.strVal.toLowerAscii
-  source &= "_$#_$#\" % [$chip_number, $run_number]"
+  source &= "_$#_$#\" % [$chip_number, $runNumber]"
   result = parseStmt(source)
   echo toStrLit(result)
 
@@ -160,62 +163,65 @@ createCombineTemplates("Hits", "reconstruction")
 #createCombineTemplates("Noisy", "reconstruction")
 
 
-# template combineRawBasenameToT*(chip_number, run_number: int): string =
-#   "/runs/combined/ToT_$#_$#" % [$chip_number, $run_number]
+# template combineRawBasenameToT*(chip_number, runNumber: int): string =
+#   "/runs/combined/ToT_$#_$#" % [$chip_number, $runNumber]
 
-# template combineRawBasenameHits*(chip_number, run_number: int): string =
-#   "/runs/combined/Hits_$#_$#" % [$chip_number, $run_number]
+# template combineRawBasenameHits*(chip_number, runNumber: int): string =
+#   "/runs/combined/Hits_$#_$#" % [$chip_number, $runNumber]
 
-# template combineRecoBasenameToT*(chip_number, run_number: int): string =
-#   "/reconstruction/combined/ToT_$#_$#" % [$chip_number, $run_number]
+# template combineRecoBasenameToT*(chip_number, runNumber: int): string =
+#   "/reconstruction/combined/ToT_$#_$#" % [$chip_number, $runNumber]
 
-# template combineRecoBasenameHits*(chip_number, run_number: int): string =
-#   "/reconstruction/combined/Hits_$#_$#" % [$chip_number, $run_number]
+# template combineRecoBasenameHits*(chip_number, runNumber: int): string =
+#   "/reconstruction/combined/Hits_$#_$#" % [$chip_number, $runNumber]
 
 template combineRecoBasenameFadc*(): string =
   "/reconstruction/combined/fadc/"
 
-template combineRecoBasenameNoisy*(run_number: int): string =
-  "/reconstruction/combined/fadc/noisy_$#" % [$run_number]
+template combineRecoBasenameNoisy*(runNumber: int): string =
+  "/reconstruction/combined/fadc/noisy_$#" % [$runNumber]
 
-template combineRecoBasenameMinvals*(run_number: int): string =
-  "/reconstruction/combined/fadc/minvals_$#" % [$run_number]
+template combineRecoBasenameMinvals*(runNumber: int): string =
+  "/reconstruction/combined/fadc/minvals_$#" % [$runNumber]
 
-template noiseBasename*(run_number: int): string =
-  getRecoNameForRun(run_number) / "fadc/noisy"
+proc fadcRunPath*(runNumber: int): string {.inline.} =
+  result = getRecoNameForRun(runNumber) / "fadc"
 
-template minvalsBasename*(run_number: int): string =
-  getRecoNameForRun(run_number) / "fadc/minvals"
+template noiseBasename*(runNumber: int): string =
+  fadcRunPath(runNumber) / "noisy"
 
-template rawFadcBasename*(run_number: int): string =
-  getGroupNameForRun(run_number) / "fadc/raw_fadc"
+template minvalsBasename*(runNumber: int): string =
+  fadcRunPath(runNumber) / "minvals"
 
-template trigRecBasename*(run_number: int): string =
-  getGroupNameForRun(run_number) / "fadc/trigger_record"
+template rawFadcBasename*(runNumber: int): string =
+  getGroupNameForRun(runNumber) / "fadc/raw_fadc"
 
-template fadcDataBasename*(run_number: int): string =
-  getRecoNameForRun(run_number) / "fadc/fadc_data"
+template trigRecBasename*(runNumber: int): string =
+  getGroupNameForRun(runNumber) / "fadc/trigger_record"
 
-template fadcBaselineBasename*(run_number: int): string =
-  getRecoNameForRun(run_number) / "fadc/baseline"
+template fadcDataBasename*(runNumber: int): string =
+  fadcRunPath(runNumber) / "fadc_data"
 
-template argMinvalBasename*(run_number: int): string =
-  getRecoNameForRun(run_number) / "fadc/argMinval"
+template fadcBaselineBasename*(runNumber: int): string =
+  fadcRunPath(runNumber) / "baseline"
 
-template riseStartBasename*(run_number: int): string =
-  getRecoNameForRun(run_number) / "fadc/riseStart"
+template argMinvalBasename*(runNumber: int): string =
+  fadcRunPath(runNumber) / "argMinval"
 
-template fallStopBasename*(run_number: int): string =
-  getRecoNameForRun(run_number) / "fadc/fallStop"
+template riseStartBasename*(runNumber: int): string =
+  fadcRunPath(runNumber) / "riseStart"
 
-template riseTimeBasename*(run_number: int): string =
-  getRecoNameForRun(run_number) / "fadc/riseTime"
+template fallStopBasename*(runNumber: int): string =
+  fadcRunPath(runNumber) / "fallStop"
 
-template fallTimeBasename*(run_number: int): string =
-  getRecoNameForRun(run_number) / "fadc/fallTime"
+template riseTimeBasename*(runNumber: int): string =
+  fadcRunPath(runNumber) / "riseTime"
 
-template eventNumberBasename*(run_number: int): string =
-  getRecoNameForRun(run_number) / "fadc/eventNumber"
+template fallTimeBasename*(runNumber: int): string =
+  fadcRunPath(runNumber) / "fallTime"
+
+template eventNumberBasename*(runNumber: int): string =
+  fadcRunPath(runNumber) / "eventNumber"
 
 
 ################################################################################

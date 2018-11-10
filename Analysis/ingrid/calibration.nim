@@ -432,7 +432,7 @@ proc cutOnProperties*(h5f: var H5FileObj,
                       group: H5Group,
                       region: ChipRegion,
                       cuts: varargs[tuple[dset: string,
-                                         lower, upper: float]]): seq[int] =
+                                          lower, upper: float]]): seq[int] =
   ## applies the cuts from `cuts` and returns a sequence of indices, which pass
   ## the cut.
   ## Any datasets given will be converted to float after reading.

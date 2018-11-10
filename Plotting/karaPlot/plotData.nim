@@ -809,6 +809,29 @@ $2
   shell:
     emacs `$outfile` "--batch -f org-html-export-to-html --kill"
 
+proc jsonDump(outfile: string) =
+  ## reads either the created images from the `imageSet` and dumps them
+  ## contained in a JsonNode to a file.
+  ## Additionally stores the plotly plots
+
+  var jdump = newJObject()
+  jdump["svg"] = newJObject()
+  var svgJ = newJObject()
+  for im in imageSet:
+    svgJ[im] = % readFile(im)
+
+  jdump["svg"] = svgJ
+  #echo jdump.pretty
+  #echo "\n\n\n\n"
+  #echo "plt ", plotlyJson.pretty
+  jdump["plotly"] = plotlyJson
+  echo jdump.len
+  var f = open(outfile, fmWrite)
+  var outstr = ""
+  outstr.toUgly(jdump)
+  f.write(outstr)
+  f.close()
+
 proc createCalibrationPlots(h5file: string,
                             bKind: BackendKind,
                             runType: RunTypeKind,

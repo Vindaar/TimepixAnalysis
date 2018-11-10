@@ -74,6 +74,11 @@ type
   ConfigFlagKind = enum
     cfNone, cfNoFadc, cfNoInGrid, cfNoOccupancy, cfNoPolya, cfNoFeSpectrum
 
+  # enum listing all available `plot types` we can produce
+  PlotKind = enum
+    pkInGridDset, pkFadcDset, pkPolya, pkCombPolya, pkOccupancy, pkOccCluster,
+    pkFeSpec, pkEnergyCalib, pkFeChargeSpec, pkFeVsTime, pkCalibRandom
+
   BackendKind = enum
     bNone, bMpl, bPlotly
 
@@ -156,6 +161,17 @@ const OccupancyClampFnameTemplate = "occupancy_run$runNumber_chip$chipNum_clamp$
 const OccClusterFnameTemplate = "occupancy_clusters_run$runNumber_chip$chipNum"
 const FeSpecFnameTemplate = @["fe_spectrum_run$runNumber.svg",
                               "fe_energy_calib_run$runNumber.svg"]
+type
+  PlotDescriptor = object
+    runType: RunTypeKind
+    name: string
+    runs: seq[int]
+    chip: int
+    case plotKind: PlotKind
+    of pkInGridDset, pkFadcDset:
+      range: (float, float, string)
+    else:
+      discard
   info &"Saving file: {fname}"
   case BKind
   of bPlotly:

@@ -1,6 +1,8 @@
 import plotly
 import os, strutils, strformat, times, sequtils, math, macros, algorithm, sets
 import options, logging, typeinfo, json
+# import websocket, asynchttpserver, asyncnet, asyncdispatch
+
 import shell
 import arraymancer
 import zero_functional
@@ -135,6 +137,7 @@ var BKind: BackendKind = bNone
 var imageSet = initOrderedSet[string]()
 
 var ShowPlots = false
+# let server = newAsyncHttpServer()
 
 # create directories, if not exist
 if not dirExists("logs"):
@@ -848,7 +851,8 @@ proc parseBackendType(backend: string): BackendKind =
   else:
     result = bNone
 
-proc main() =
+proc plotData*() =
+  ## the main workhorse of the server end
   let args = docopt(doc)
   info &"Received arguments:\n  {args}"
   let h5file = $args["<H5file>"]
@@ -884,6 +888,14 @@ proc main() =
   else:
     discard
 
+# proc cb(req: Request) {.async.} =
+#   echo "cb"
+
+# proc main =
+#   var thr: Thread[void]
+#   thr.createThread(plotData)
+
+#   waitFor server.serve(Port(8080), )
 
 when isMainModule:
-  main()
+  plotData()

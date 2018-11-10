@@ -172,6 +172,18 @@ type
       range: (float, float, string)
     else:
       discard
+proc jsonPlotly(pltV: PlotV): JsonNode =
+  ## returns JsonNode from the PlotV
+  result = newJObject()
+  case pltV.kind
+  of bPlotly:
+    let trSeq = pltV.plPlot.traces.mapIt(% it)
+    result["Traces"] = % trSeq
+    result["Layout"] = % pltV.plPlot.layout
+    #echo result
+  else:
+    warn "Unsuitable type for Json " & $(pltV.kind)
+
 proc savePlot(p: PlotV, outfile: string, fullPath = false) =
   var fname = outfile
   if not fullPath:

@@ -179,9 +179,56 @@ type
     else:
       discard
 
-
 # PlotDescriptor object
 # storing all needed information to create a specific plot
+func `%`*(pd: PlotDescriptor): JsonNode =
+  ## serialize `PlotDescriptor` to Json
+  result = newJObject()
+  result["runType"] = % pd.runType
+  result["name"] = % pd.name
+  result["runs"] = % pd.runs
+  result["chip"] = % pd.chip
+  result["plotKind"] = % pd.plotKind
+  case pd.plotKind
+  of pkInGridDset, pkFadcDset:
+    result["range"] = %* { "low": % pd.range[0],
+                           "high": % pd.range[1],
+                           "name": % pd.range[2] }
+  of pkOccupancy:
+    result["clampKind"] = % pd.clampKind
+    case pd.clampKind
+    of ckAbsolute:
+      result["clampA"] = % pd.clampA
+    of ckQuantile:
+      result["clampQ"] = % pd.clampQ
+    else: discard
+  else: discard
+
+func `$`*(pd: PlotDescriptor): string =
+  ## use JSON representation as string
+  result = (% pd).pretty
+
+func parsePd*(pd: JsonNode): PlotDescriptor =
+  ## parse a PlotDescriptor stored as JsonNode back to an object
+  result.runType = parseEnum[RunTypeKind](pd["runType"].getStr, rtNone)
+  result.name = pd["name"].getStr
+  result.runs = to(pd["runs"], seq[int])
+  result.chip = pd["chip"].getInt
+  result.plotKind = parseEnum[PlotKind](pd["plotKind"].getStr)
+  case result.plotKind
+  of pkInGridDset, pkFadcDset:
+    result.range = (low: pd["range"]["low"].getFloat,
+                    high: pd["range"]["high"].getFloat,
+                    name: pd["range"]["name"].getStr)
+  of pkOccupancy:
+    result.clampKind = parseEnum[ClampKind](pd["clampKind"].getStr)
+    case result.clampKind
+    of ckAbsolute:
+      result.clampA = pd["clampA"].getFloat
+    of ckQuantile:
+      result.clampQ = pd["clampQ"].getFloat
+    else: discard
+  else: discard
 
 # karax client
 # - static table of
@@ -208,7 +255,6 @@ proc jsonPlotly(pltV: PlotV): JsonNode =
     let trSeq = pltV.plPlot.traces.mapIt(% it)
     result["Traces"] = % trSeq
     result["Layout"] = % pltV.plPlot.layout
-    #echo result
   else:
     warn "Unsuitable type for Json " & $(pltV.kind)
 

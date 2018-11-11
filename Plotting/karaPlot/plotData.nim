@@ -168,7 +168,8 @@ const PolyaFnameTemplate = "polya_run$runNumber_chip$chipNum"
 const CombPolyaFnameTemplate = "combined_polya_$runType_run$runNumber"
 const OccupancyFnameTemplate = "occupancy_run$1_chip$2_$3"
 const OccupancyTitleTemplate = "Occupancy of chip $1 for run $2, $3"
-const OccClusterFnameTemplate = "occupancy_clusters_run$runNumber_chip$chipNum"
+const OccClusterFnameTemplate = "occupancy_clusters_run$1_chip$2_$3"
+const OccClusterTitleTemplate = "Occupancy of cluster centers for run $1, chip $2, $3"
 const FeSpecFnameTemplate = @["fe_spectrum_run$runNumber",
                               "fe_energy_calib_run$runNumber"]
 type

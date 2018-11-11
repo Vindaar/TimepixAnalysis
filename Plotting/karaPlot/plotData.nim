@@ -303,25 +303,6 @@ proc importPyplot(): PyObject =
   discard mpl.use("TKagg")
   result = pyImport("matplotlib.pyplot")
 
-proc getTrace[T](thl, hits: seq[T], voltage: string): Trace[float] =
-  result = Trace[float](`type`: PlotType.Scatter)
-  # filter out clock cycles larger 300 and assign to `Trace`
-  result.xs = thl.asType(float)
-  result.ys = hits.asType(float)
-  result.name = &"Voltage {voltage}"
-
-proc plotHist*[T](traces: seq[Trace[T]], voltages: set[int16], chip = "") =
-  ## given a seq of traces (SCurves and their fits), plot
-  let
-    layout = Layout(title: &"SCurve of Chip {chip} for voltage {voltages}",
-                    width: FigWidth.int, height: FigHeight.int,
-                    xaxis: Axis(title: "Threshold value"),
-                    yaxis: Axis(title: "# hits$"),
-                    autosize: false)
-    p = Plot[float](layout: layout, traces: traces)
-  let filename = &"out/scurves_{chip}.svg"
-  p.saveImage(filename)
-
 proc initPlotV(title: string, xlabel: string, ylabel: string, shape = ShapeKind.Rectangle): PlotV =
   ## returns the plotly layout of the given shape
   var width: int

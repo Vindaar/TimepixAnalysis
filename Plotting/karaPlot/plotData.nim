@@ -79,7 +79,8 @@ type
   # enum listing all available `plot types` we can produce
   PlotKind = enum
     pkInGridDset, pkFadcDset, pkPolya, pkCombPolya, pkOccupancy, pkOccCluster,
-    pkFeSpec, pkEnergyCalib, pkFeChargeSpec, pkFeVsTime, pkCalibRandom
+    pkFeSpec, pkEnergyCalib, pkFeChargeSpec, pkFeVsTime, pkCalibRandom,
+    pkAnyScatter, pkMultiDset, pkInGridCluster
 
   BackendKind = enum
     bNone, bMpl, bPlotly

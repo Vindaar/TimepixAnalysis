@@ -118,6 +118,9 @@ type
   ShapeKind = enum
     Rectangle, Square
 
+  ClampKind = enum
+    ckFullRange, ckAbsolute, ckQuantile
+
   # a simple object storing the runs, chips etc. from a given
   # H5 file
   FileInfo = object
@@ -179,6 +182,17 @@ type
     case plotKind: PlotKind
     of pkInGridDset, pkFadcDset:
       range: CutRange
+    of pkOccupancy:
+      case clampKind: ClampKind
+      of ckAbsolute:
+        # absolute clamp tp `clampA`
+        clampA: float
+      of ckQuantile:
+        # clamp to `clampQ` quantile
+        clampQ: float
+      of ckFullRange:
+        # no field for ckFullRange
+        discard
     else:
       discard
 
@@ -558,12 +572,12 @@ proc plotHist2D(data: Tensor[float], title, outfile: string) = #descr: string) =
                       colormap: ColorMap.Viridis,
                       zs: data.toRawSeq.reshape2D([256, 256]))
     pltV.plPlot = Plot[float](layout: pltV.plLayout, traces: @[tr])
-    pltV.savePlot(outfile)
+    pltV.savePlot(outfile, fullPath = true)
   of bMpl:
     discard pltV.plt.imshow(data.toRawSeq.reshape([256, 256]),
                        cmap = "viridis")
     discard pltV.plt.colorbar()
-    pltV.savePlot(outfile)
+    pltV.savePlot(outfile, fullPath = true)
   else:
     discard
 
@@ -613,14 +627,39 @@ proc plotOccupancies(h5f: var H5FileObj,
   # TODO: also plot clusters in clamped mode as well?
   # TODO: also plot occupancies without full frames (>4095 hits)?
 
-proc occupancies(h5f: var H5FileObj, flags: set[ConfigFlagKind]) =
+proc occupancies(h5f: var H5FileObj, runType: RunTypeKind,
+                 fileInfo: FileInfo,
+                 flags: set[ConfigFlagKind]): seq[PlotDescriptor] =
   ## creates occupancy plots for the given HDF5 file, iterating over
   ## all runs and chips
-  for runNumber, grpName in runs(h5f):
-    var group = h5f[grpName.grp_str]
-    # now build occupancy
-    for chipNum, chpgrp in chips(group):
-      plotOccupancies(h5f, chpgrp, chipNum, runNumber)
+  const
+    quantile = 95
+    clamp3 = 10.0
+  for ch in fileInfo.chips:
+    let basePd = PlotDescriptor(runType: runType,
+                                name: "occupancy",
+                                runs: fileInfo.runs,
+                                plotKind: pkOccupancy,
+                                chip: ch)
+    let fullPd = replace(basePd):
+      clampKind = ckFullRange
+    let clampAPd = replace(basePd):
+      clampKind = ckAbsolute
+      clampA = clamp3
+    let clampQPd = replace(basePd):
+      clampKind = ckQuantile
+      clampQ = quantile
+    let clusterPd = replace(basePd):
+      plotKind = pkOccCluster
+    result.add @[fullPd, clampAPd, clampQPd, clusterPd]
+  echo result
+  #for runNumber, grpName in runs(h5f):
+  #  var group = h5f[grpName.grp_str]
+  #  # now build occupancy
+  #  for chipNum, chpgrp in chips(group):
+  #    if chipNum == 3:
+  #
+  #      plotOccupancies(h5f, chpgrp, chipNum, runNumber)
 
 proc plotPolyas(h5f: var H5FileObj, group: H5Group,
                 chipNum: int, runNumber: string): seq[Trace[float]] =
@@ -781,6 +820,18 @@ proc buildOutfile(pd: PlotDescriptor): string =
     name = FadcFnameTemplate % [pd.name,
                                 runsStr,
                                 $pd.range[2]]
+  of pkOccupancy:
+    var clampStr = ""
+    case pd.clampKind
+    of ckAbsolute:
+      clampStr = &"{pd.clampKind}_{pd.clampA}"
+    of ckQuantile:
+      clampStr = &"{pd.clampKind}_{pd.clampQ}"
+    of ckFullRange:
+      clampStr = &"{pd.clampKind}"
+    name = OccupancyFnameTemplate % [runsStr,
+                                     $pd.chip,
+                                     clampStr]
   else:
     discard
   result = "figs" / (name & ".svg")
@@ -797,6 +848,18 @@ proc buildTitle(pd: PlotDescriptor): string =
     result = FadcTitleTemplate % [pd.name,
                                   runsStr,
                                   $pd.range[2]]
+  of pkOccupancy:
+    var clampStr = ""
+    case pd.clampKind
+    of ckAbsolute:
+      clampStr = &"{pd.clampKind}@{pd.clampA}"
+    of ckQuantile:
+      clampStr = &"{pd.clampKind}@{pd.clampQ}"
+    of ckFullRange:
+      clampStr = &"{pd.clampKind}"
+    result = OccupancyTitleTemplate % [runsStr,
+                                       $pd.chip,
+                                       clampStr]
   else:
     discard
 
@@ -838,6 +901,30 @@ proc createPlot(h5f: var H5FileObj,
     result = buildOutfile(pd)
     let title = buildTitle(pd)
     plotHist(@[allData], title, pd.name, result)
+  of pkOccupancy:
+    # get x and y datasets, stack and get occupancies
+    let vlenDtype = special_type(uint8)
+    var occFull = newTensor[float]([256, 256])
+    for r in pd.runs:
+      let
+        group = h5f[recoPath(r, pd.chip)]
+        xGroup = h5f[(group.name / "x").dset_str]
+        yGroup = h5f[(group.name / "y").dset_str]
+        x = xGroup[vlenDtype, uint8]
+        y = yGroup[vlenDtype, uint8]
+      var occ = calcOccupancy(x, y)
+      case pd.clampKind
+      of ckAbsolute:
+        occ = occ.clamp(0.0, pd.clampA)
+      of ckQuantile:
+        let quant = occ.toRawSeq.percentile(pd.clampQ.round.int)
+        occ = occ.clamp(0.0, quant)
+      else: discard
+      # stack this run onto the full data tensor
+      occFull = occFull .+ occ
+    let title = buildTitle(pd)
+    result = buildOutfile(pd)
+    plotHist2D(occFull, title, result)
   else:
     discard
 
@@ -905,7 +992,7 @@ proc createCalibrationPlots(h5file: string,
 
   const length = "length"
   if cfNoOccupancy notin flags:
-    occupancies(h5f, flags) # plus center only
+    pds.add occupancies(h5f, runType, fileInfo, flags) # plus center only
   if cfNoPolya notin flags:
     polya(h5f, runType, flags)
   if cfNoFeSpectrum notin flags:
@@ -943,7 +1030,8 @@ proc createBackgroundPlots(h5file: string,
   var pds: seq[PlotDescriptor]
   const length = "length"
   if cfNoOccupancy notin flags:
-    occupancies(h5f, flags) # plus center only
+    #occupancies(h5f, flags) # plus center only
+    pds.add occupancies(h5f, runType, fileInfo, flags) # plus center only
   if cfNoPolya notin flags:
     polya(h5f, runType, flags)
   # energyCalib(h5f) # ???? plot of gas gain vs charge?!

@@ -162,8 +162,8 @@ const FadcFnameTemplate = "fadc_$1_run$2_$3"
 const FadcTitleTemplate = "Dataset: $1 for run $2, fadc in range: $3"
 const PolyaFnameTemplate = "polya_run$runNumber_chip$chipNum"
 const CombPolyaFnameTemplate = "combined_polya_$runType_run$runNumber"
-const OccupancyFullFnameTemplate = "occupancy_run$runNumber_chip$chipNum_full_range"
-const OccupancyClampFnameTemplate = "occupancy_run$runNumber_chip$chipNum_clamp$cl"
+const OccupancyFnameTemplate = "occupancy_run$1_chip$2_$3"
+const OccupancyTitleTemplate = "Occupancy of chip $1 for run $2, $3"
 const OccClusterFnameTemplate = "occupancy_clusters_run$runNumber_chip$chipNum"
 const FeSpecFnameTemplate = @["fe_spectrum_run$runNumber",
                               "fe_energy_calib_run$runNumber"]

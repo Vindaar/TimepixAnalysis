@@ -184,6 +184,7 @@ type
     of pkInGridDset, pkFadcDset:
       range: CutRange
     of pkOccupancy:
+    of pkOccupancy, pkOccCluster:
       case clampKind: ClampKind
       of ckAbsolute:
         # absolute clamp tp `clampA`
@@ -652,7 +653,14 @@ proc occupancies(h5f: var H5FileObj, runType: RunTypeKind,
       clampQ = quantile
     let clusterPd = replace(basePd):
       plotKind = pkOccCluster
-    result.add @[fullPd, clampAPd, clampQPd, clusterPd]
+      # only consider full range for cluster centers
+      clampKind = ckFullRange
+    let clusterClampPd = replace(basePd):
+      plotKind = pkOccCluster
+      # only consider full range for cluster centers
+      clampKind = ckQuantile
+      clampQ = 80
+    result.add @[fullPd, clampAPd, clampQPd, clusterPd, clusterClampPd]
   echo result
   #for runNumber, grpName in runs(h5f):
   #  var group = h5f[grpName.grp_str]
@@ -808,6 +816,15 @@ proc feSpectrum(h5f: var H5FileObj, flags: set[ConfigFlagKind]) =
             outfile = "photopeak_vs_time")
             #ylabel = "# pix / charge in e^-")
 
+func cKindStr(pd: PlotDescriptor, sep: string): string =
+  case pd.clampKind
+  of ckAbsolute:
+    result = &"{pd.clampKind}{sep}{pd.clampA}"
+  of ckQuantile:
+    result = &"{pd.clampKind}{sep}{pd.clampQ}"
+  of ckFullRange:
+    result = &"{pd.clampKind}"
+
 proc buildOutfile(pd: PlotDescriptor): string =
   var name = ""
   let runsStr = pd.runs.foldl($a & " " & $b, "").strip(chars = {' '})
@@ -822,17 +839,16 @@ proc buildOutfile(pd: PlotDescriptor): string =
                                 runsStr,
                                 $pd.range[2]]
   of pkOccupancy:
-    var clampStr = ""
-    case pd.clampKind
-    of ckAbsolute:
-      clampStr = &"{pd.clampKind}_{pd.clampA}"
-    of ckQuantile:
-      clampStr = &"{pd.clampKind}_{pd.clampQ}"
-    of ckFullRange:
-      clampStr = &"{pd.clampKind}"
+    let clampStr = cKindStr(pd, "_")
     name = OccupancyFnameTemplate % [runsStr,
                                      $pd.chip,
                                      clampStr]
+  of pkOccCluster:
+    let clampStr = cKindStr(pd, "_")
+    name = OccClusterFnameTemplate % [runsStr,
+                                      $pd.chip,
+                                      clampStr]
+
   else:
     discard
   result = "figs" / (name & ".svg")
@@ -850,19 +866,29 @@ proc buildTitle(pd: PlotDescriptor): string =
                                   runsStr,
                                   $pd.range[2]]
   of pkOccupancy:
-    var clampStr = ""
-    case pd.clampKind
-    of ckAbsolute:
-      clampStr = &"{pd.clampKind}@{pd.clampA}"
-    of ckQuantile:
-      clampStr = &"{pd.clampKind}@{pd.clampQ}"
-    of ckFullRange:
-      clampStr = &"{pd.clampKind}"
+    let clampStr = cKindStr(pd, "@")
     result = OccupancyTitleTemplate % [runsStr,
+                                       $pd.chip,
+                                       clampStr]
+  of pkOccCluster:
+    let clampStr = cKindStr(pd, "@")
+    result = OccClusterTitleTemplate % [runsStr,
                                        $pd.chip,
                                        clampStr]
   else:
     discard
+
+func clampedOccupancy[T](x, y: seq[T], pd: PlotDescriptor): Tensor[float] =
+  ## calculates the occupancy given `x`, `y`, which may be seqs of clusters
+  ## or seqs of center positions
+  result = calcOccupancy(x, y)
+  case pd.clampKind
+  of ckAbsolute:
+    result = result.clamp(0.0, pd.clampA)
+  of ckQuantile:
+    let quant = result.toRawSeq.percentile(pd.clampQ.round.int)
+    result = result.clamp(0.0, quant)
+  else: discard
 
 proc createPlot(h5f: var H5FileObj,
                 fileInfo: FileInfo,
@@ -913,14 +939,22 @@ proc createPlot(h5f: var H5FileObj,
         yGroup = h5f[(group.name / "y").dset_str]
         x = xGroup[vlenDtype, uint8]
         y = yGroup[vlenDtype, uint8]
-      var occ = calcOccupancy(x, y)
-      case pd.clampKind
-      of ckAbsolute:
-        occ = occ.clamp(0.0, pd.clampA)
-      of ckQuantile:
-        let quant = occ.toRawSeq.percentile(pd.clampQ.round.int)
-        occ = occ.clamp(0.0, quant)
-      else: discard
+      let occ = clampedOccupancy(x, y, pd)
+      # stack this run onto the full data tensor
+      occFull = occFull .+ occ
+    let title = buildTitle(pd)
+    result = buildOutfile(pd)
+    plotHist2D(occFull, title, result)
+  of pkOccCluster:
+    # plot center positions
+    var occFull = newTensor[float]([256, 256])
+    for r in pd.runs:
+      let
+        group = h5f[recoPath(r, pd.chip)]
+        # get centers and rescale to 256 max value
+        centerX = h5f[(group.name / "centerX"), float].mapIt(it * 256.0 / 14.0)
+        centerY = h5f[(group.name / "centerY"), float].mapIt(it * 256.0 / 14.0)
+      let occ = clampedOccupancy(centerX, centerY, pd)
       # stack this run onto the full data tensor
       occFull = occFull .+ occ
     let title = buildTitle(pd)

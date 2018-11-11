@@ -50,6 +50,24 @@ const
       display: block;
   }
 
+  .svg-wrap {
+      background-color:red;
+      height:0;
+      padding-top:63.63%; /* 350px/550px */
+      position: relative;
+  }
+
+  .plot-style{
+      width: 60%;
+      margin: auto;
+  }
+
+  svg {
+      height: 100%;
+      display:block;
+      width: 100%;
+  }
+
   .dropdown a:hover {background-color: #ddd;}
 
   .show {display: block;}

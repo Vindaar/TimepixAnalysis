@@ -583,52 +583,7 @@ proc plotHist2D(data: Tensor[float], title, outfile: string) = #descr: string) =
   else:
     discard
 
-proc plotOccupancies(h5f: var H5FileObj,
-                     group: H5Group,
-                     chipNum: int,
-                     runNumber: string) =
-  ## creates 3 occupancy plots for the given run & chip for different ranges
-  ## - 1 full range
-  ## - 1 clamped to .75 percentile
-  ## - 1 clamped to 10 hits
-  const
-    quantile = 95
-    clamp3 = 10.0
-  # get x and y datasets, stack and get occupancies
-  let vlenDtype = special_type(uint8)
-  let
-    xGroup = h5f[(group.name / "x").dset_str]
-    yGroup = h5f[(group.name / "y").dset_str]
-    x = xGroup[vlenDtype, uint8]
-    y = yGroup[vlenDtype, uint8]
-  let occ = calcOccupancy(x, y)
-  # calculate 3 clamp values based on occ
-  let quant = occ.toRawSeq.percentile(quantile)
-  let clamps = [Inf, quant.round, clamp3]
-  for cl in clamps:
-    var title = &"Occupancy of chip {chipNum} for run {runNumber}"
-    if cl.classify == fcInf:
-      let outfile = &"occupancy_run{runNumber}_chip{chipNum}_full_range"
-      title = title & " in full range"
-      plotHist2D(occ, title, outfile)
-    else:
-      let outfile = &"occupancy_run{runNumber}_chip{chipNum}_clamp{cl}"
-      let occClamped = occ.clamp(0.0, cl)
-      title = title & &" clamped to: {cl}"
-      plotHist2D(occClamped, title, outfile)
-
-  # plot center positions
-  let
-    centerX = h5f[(group.name / "centerX"), float]
-    centerY = h5f[(group.name / "centerX"), float]
-  let occCenter = calcOccupancy(centerX, centerY)
-  let titleCenter = &"Occupancy cluster centers of chip {chipNum}, run {runNumber}"
-  let clOutfile = &"occupancy_clusters_run{runNumber}_chip{chipNum}"
-  plotHist2D(occ, titleCenter, clOutfile)
-
-  # TODO: also plot clusters in clamped mode as well?
-  # TODO: also plot occupancies without full frames (>4095 hits)?
-
+# TODO: also plot occupancies without full frames (>4095 hits)?
 proc occupancies(h5f: var H5FileObj, runType: RunTypeKind,
                  fileInfo: FileInfo,
                  flags: set[ConfigFlagKind]): seq[PlotDescriptor] =
@@ -662,13 +617,6 @@ proc occupancies(h5f: var H5FileObj, runType: RunTypeKind,
       clampQ = 80
     result.add @[fullPd, clampAPd, clampQPd, clusterPd, clusterClampPd]
   echo result
-  #for runNumber, grpName in runs(h5f):
-  #  var group = h5f[grpName.grp_str]
-  #  # now build occupancy
-  #  for chipNum, chpgrp in chips(group):
-  #    if chipNum == 3:
-  #
-  #      plotOccupancies(h5f, chpgrp, chipNum, runNumber)
 
 proc plotPolyas(h5f: var H5FileObj, group: H5Group,
                 chipNum: int, runNumber: string): seq[Trace[float]] =

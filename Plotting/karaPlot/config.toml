@@ -1,3 +1,6 @@
+[General]
+        allowedChips = [ 3 ]
+
 [InGrid]
         dsets = ["length", "width", "skewnessLongitudinal", "skewnessTransverse",
                  "kurtosisLongitudinal", "kurtosisTransverse", "rotationAngle",
@@ -6,4 +9,3 @@
         dsets = ["minvals", "fallTime", "riseTime"]
 
 [Occupancy]
-        

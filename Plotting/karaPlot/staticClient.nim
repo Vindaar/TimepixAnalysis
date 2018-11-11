@@ -28,6 +28,29 @@ proc main =
   for k in keys(svgPairs):
      echo k
   var i = 0
+  template getNext(idx: int): kstring =
+    if idx + 1 < allKeys.len:
+      kstring(allKeys[idx + 1])
+    else:
+      kstring""
+
+  template getPrev(idx: int): kstring =
+    if idx > 0:
+      kstring(allKeys[idx - 1])
+    else:
+      kstring""
+
+  func decInRange(idx: var int) {.inline.} =
+    if idx > 1:
+      dec idx
+    else:
+      idx = 0
+
+  func incInRange(idx: var int) {.inline.} =
+    if idx < allKeys.high:
+      inc idx
+    else:
+      idx = allKeys.high
   proc render(): VNode =
 
     #var svgPlt = fnamesSvg[0]

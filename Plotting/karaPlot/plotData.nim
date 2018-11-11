@@ -169,6 +169,8 @@ const OccClusterFnameTemplate = "occupancy_clusters_run$runNumber_chip$chipNum"
 const FeSpecFnameTemplate = @["fe_spectrum_run$runNumber",
                               "fe_energy_calib_run$runNumber"]
 type
+  CutRange = tuple[low, high: float, name: string]
+
   PlotDescriptor = object
     runType: RunTypeKind
     name: string
@@ -176,7 +178,7 @@ type
     chip: int
     case plotKind: PlotKind
     of pkInGridDset, pkFadcDset:
-      range: (float, float, string)
+      range: CutRange
     else:
       discard
 
@@ -496,17 +498,19 @@ proc histograms(h5f: var H5FileObj, runType: RunTypeKind,
   # and performing a cut around peak +- 300 eV maybe
   # NOTE: need photo peak and escape peak plenty of times here. Just write wrapper
   # which takes energy and performs cuts, *then* creates plots
-  var ranges: seq[(float, float, string)]
+  var ranges: seq[CutRange]
   case runType
   of rtCalibration:
     # creates 3 plots for the given dataset.
     # - 1 around photo peak
     # - 1 around escape peak
     # - 1 without cut
-    ranges = @[(5.5, 6.2, "Photopeak"), (2.7, 3.2, "Escapepeak"), (-Inf, Inf, "All")]
+    ranges = @[(low: 5.5, high: 6.2, name: "Photopeak"),
+               (low: 2.7, high: 3.2, name: "Escapepeak"),
+               (low: -Inf, high: Inf, name: "All")]
   else:
     # else just take all
-    ranges = @[(-Inf, Inf, "All")]
+    ranges = @[(low: -Inf, high: Inf, name: "All")]
 
   for r in ranges:
     if cfNoInGrid notin flags:

@@ -12,6 +12,7 @@ import seqmath
 import nimpy
 import docopt
 import chroma
+import parsetoml
 
 import dataset_helpers
 import ingrid/ingrid_types
@@ -375,6 +376,13 @@ proc getFileInfo(h5f: var H5FileObj): FileInfo =
   result.centerChip = reco.attrs["centerChip", int]
   result.centerChipName = reco.attrs["centerChipName", string]
 
+  # get allowed chips from toml
+  let tomlConfig = parseToml.parseFile("config.toml")
+  let allowedChips = tomlConfig["General"]["allowedChips"].getElems
+  var chipSet: set[uint16]
+  for el in allowedChips:
+    chipSet.incl el.getInt.uint16
+
   for runNumber, group in runs(h5f):
     result.runs.add runNumber.parseInt
     if not readAux:
@@ -382,6 +390,8 @@ proc getFileInfo(h5f: var H5FileObj): FileInfo =
       let nChips = grp.attrs["numChips", int]
       result.chips = toSeq(0 ..< nChips)#.mapIt(it)
       readAux = true
+
+  result.chips = result.chips.filterIt(it.uint16 in chipSet)
   # sort the run numbers
   result.runs.sort
   echo result

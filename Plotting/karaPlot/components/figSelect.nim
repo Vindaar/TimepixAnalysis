@@ -6,6 +6,6 @@ proc renderFigSelect*(caption: string,
                       onClickProc: (event: Event, node: VNode) -> void): VNode =
   buildHtml:
     button(class = "clear-completed",
-         id = $idx,
-         onClick = onClickProc):
+           id = $idx,
+           onClick = onClickProc):
       text caption

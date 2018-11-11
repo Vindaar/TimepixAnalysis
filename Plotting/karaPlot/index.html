@@ -3,9 +3,70 @@
 <head>
   <title>plotDataClient</title>
   <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <style>
+  .dropbtn {
+      background-color: #3498DB;
+      color: white;
+      padding: 16px;
+      font-size: 16px;
+      border: none;
+      cursor: pointer;
+  }
+
+  .dropbtn:hover, .dropbtn:focus {
+      background-color: #2980B9;
+  }
+
+  .dropdown {
+      position: relative;
+      display: inline-block;
+  }
+
+  .dropdown-content {
+      display: none;
+      position: absolute;
+      background-color: #f1f1f1;
+      min-width: 160px;
+      overflow: auto;
+      box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+      z-index: 1;
+  }
+
+  .dropdown-content a {
+      color: black;
+      padding: 12px 16px;
+      text-decoration: none;
+      display: block;
+  }
+
+  .svg-wrap {
+      background-color:red;
+      height:0;
+      padding-top:63.63%; /* 350px/550px */
+      position: relative;
+  }
+
+  .plot-style{
+      width: 60%;
+      margin: auto;
+  }
+
+  svg {
+      height: 100%;
+      display:block;
+      width: 100%;
+  }
+
+  .dropdown a:hover {background-color: #ddd;}
+
+  .show {display: block;}
+  </style>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bulma/0.5.3/css/bulma.min.css">
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css">
+
 </head>
 <body id="body">
 <div id="ROOT" />
-<script type="text/javascript" src="nimcache/plotDataClient.js"></script>
+<script type="text/javascript" src="staticClient.js"></script>
 </body>
 </html>

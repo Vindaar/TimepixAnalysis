@@ -566,6 +566,31 @@ proc plotHist2D(data: Tensor[float], title, outfile: string) = #descr: string) =
   else:
     discard
 
+proc plotScatter(pltV: PlotV, x, y: seq[float], name, outfile: string) =
+  case BKind
+  of bPlotly:
+    # in this case plot is defined
+    let trFit = Trace[float](`type`: PlotType.Scatter,
+                             xs: x,
+                             ys: y,
+                             name: name)
+    pltV.plPlot.traces.add trFit
+    pltV.savePlot(outfile, fullPath = true)
+  of bMpl:
+    # in this case `ax` is defined
+    discard pltV.ax.plot(x,
+                         y,
+                         label = name,
+                         color = "r")
+    pltV.savePlot(outfile, fullPath = true)
+  else:
+    warn &"Unsupported backend kind: {BKind}"
+
+proc plotScatter(x, y: seq[float], title, name, outfile: string) =
+  ## wrapper around the above if no `PlotV` yet defined
+  var pltV = initPlotV(title, "x", "y", ShapeKind.Rectangle)
+  pltV.plotScatter(x, y, name, outfile)
+
 # TODO: also plot occupancies without full frames (>4095 hits)?
 proc occupancies(h5f: var H5FileObj, runType: RunTypeKind,
                  fileInfo: FileInfo,
@@ -630,27 +655,7 @@ proc plotPolyas(h5f: var H5FileObj, group: H5Group,
   var pltV = plotBar(@[bins], @[counts], title, xlabel, names, outfile)
   # now add scatter plot for fit result
   let nameFit = &"Polya fit of chip {chipNum} for run {runNumber}"
-  case BKind
-  of bPlotly:
-    # in this case plot is defined
-    let trFit = Trace[float](`type`: PlotType.Scatter,
-                             xs: binCenterFit,
-                             ys: countsFit,
-                             name: nameFit)
-    pltV.plPlot.traces.add trFit
-    pltV.savePlot(outfile)
-
-    # return traces
-    result = pltV.plPlot.traces
-  of bMpl:
-    # in this case `ax` is defined
-    discard pltV.ax.plot(binCenterFit,
-                         countsFit,
-                         label = nameFit,
-                         color = "r")
-    pltV.savePlot(outfile)
-  else:
-    warn &"Unsupported backend kind: {BKind}"
+  plotScatter(binCenterFit, countsFit, title, nameFit, outfile)
 
 
 proc polya(h5f: var H5FileObj, runType: RunTypeKind, flags: set[ConfigFlagKind]) =

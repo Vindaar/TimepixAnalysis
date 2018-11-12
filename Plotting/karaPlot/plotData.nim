@@ -763,7 +763,7 @@ func cKindStr(pd: PlotDescriptor, sep: string): string =
 
 proc buildOutfile(pd: PlotDescriptor): string =
   var name = ""
-  let runsStr = pd.runs.foldl($a & " " & $b, "").strip(chars = {' '})
+  let runsStr = pd.runs.foldl($a & "_" & $b, "").strip(chars = {'_'})
   case pd.plotKind
   of pkInGridDset:
     name = InGridFnameTemplate % [pd.name,

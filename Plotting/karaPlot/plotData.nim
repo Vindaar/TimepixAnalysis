@@ -197,6 +197,8 @@ type
       of ckFullRange:
         # no field for ckFullRange
         discard
+    of pkCombPolya:
+      chipsCP: seq[int]
     else:
       discard
 
@@ -223,6 +225,8 @@ func `%`*(pd: PlotDescriptor): JsonNode =
     of ckQuantile:
       result["clampQ"] = % pd.clampQ
     else: discard
+  of pkCombPolya:
+    result["chipsCP"] = % pd.chipsCP
   else: discard
 
 func `$`*(pd: PlotDescriptor): string =
@@ -249,6 +253,8 @@ func parsePd*(pd: JsonNode): PlotDescriptor =
     of ckQuantile:
       result.clampQ = pd["clampQ"].getFloat
     else: discard
+  of pkCombPolya:
+    result.chipsCP = to(pd["chipsCP"], seq[int])
   else: discard
 
 # karax client
@@ -848,6 +854,56 @@ func clampedOccupancy[T](x, y: seq[T], pd: PlotDescriptor): Tensor[float] =
     result = result.clamp(0.0, quant)
   else: discard
 
+proc readPolya(h5f: var H5FileObj, pd: PlotDescriptor):
+     (seq[float], seq[float], seq[float], seq[float]) =
+  ## reads the `polya` and `polyaFit` datasets for all runs in
+  ## `pd`, stacks it and returns bins, counts for both
+  doAssert (pd.plotKind == pkPolya or pd.plotKind == pkCombPolya),
+     &"Only supported for {pkPolya} and {pkCombPolya}. This plotKind " &
+     &"is {pd.plotKind}"
+  var
+    lastBins: seq[float]
+    lastBCFit: seq[float]
+    countsFull: seq[float]
+    countsFitFull: seq[float]
+  for r in pd.runs:
+    # TODO: replace this after rewriting `calcGasGain` in calibration.nim
+    # There: disentangle data reading from the fitting data processing etc.
+    # Then we can read raw data and hand that to the fitting proc here
+    let
+      polya = h5f.read(r, pd.name, pd.chip,
+                       dtype = seq[float])
+      polyaFit = h5f.read(r, pd.name & "Fit", pd.chip,
+                          dtype = seq[float])
+    let nbins = polya.shape[0] - 1
+    var
+      bins = newSeq[float](nbins + 1)
+      binCenterFit = newSeq[float](nbins)
+      counts = newSeq[float](nbins)
+      countsFit = newSeq[float](nbins)
+    for i in 0 .. polya.high:
+      bins[i] = polya[i][0]
+      if i != nbins:
+        # do not take last element of polya datasets, since it's just 0
+        counts[i] = polya[i][1]
+        binCenterFit[i] = polyaFit[i][0]
+        countsFit[i] = polyaFit[i][1]
+    let diffR = zip(lastBins, bins) --> map(it[0] - it[1])
+    if lastBins.len > 0:
+      doAssert lastBins == bins, "The ToT calibration changed between the " &
+        "last two runs!"
+      doAssert lastBCFit == binCenterFit
+    lastBins = bins
+    lastBCFit = binCenterFit
+    if countsFull.len > 0:
+      doAssert countsFull.len == counts.len
+      countsFull = zip(countsFull, counts) --> map(it[0] + it[1])
+      countsFitFull = zip(countsFitFull, countsFit) --> map(it[0] + it[1])
+    else:
+      countsFull = counts
+      countsFitFull = countsFit
+  result = (lastBins, countsFull, lastBCFit, countsFitFull)
+
 proc createPlot(h5f: var H5FileObj,
                 fileInfo: FileInfo,
                 pd: PlotDescriptor): string =
@@ -919,54 +975,35 @@ proc createPlot(h5f: var H5FileObj,
     result = buildOutfile(pd)
     plotHist2D(occFull, title, result)
   of pkPolya:
-    var
-      lastBins: seq[float]
-      lastBCFit: seq[float]
-      countsFull: seq[float]
-      countsFitFull: seq[float]
-    for r in pd.runs:
-      # TODO: replace this after rewriting `calcGasGain` in calibration.nim
-      # There: disentangle data reading from the fitting data processing etc.
-      # Then we can read raw data and hand that to the fitting proc here
-      let
-        polya = h5f.read(r, pd.name, pd.chip,
-                         dtype = seq[float])
-        polyaFit = h5f.read(r, pd.name & "Fit", pd.chip,
-                            dtype = seq[float])
-      let nbins = polya.shape[0] - 1
-      var
-        bins = newSeq[float](nbins + 1)
-        binCenterFit = newSeq[float](nbins)
-        counts = newSeq[float](nbins)
-        countsFit = newSeq[float](nbins)
-      for i in 0 .. polya.high:
-        bins[i] = polya[i][0]
-        if i != nbins:
-          # do not take last element of polya datasets, since it's just 0
-          counts[i] = polya[i][1]
-          binCenterFit[i] = polyaFit[i][0]
-          countsFit[i] = polyaFit[i][1]
-      let diffR = zip(lastBins, bins) --> map(it[0] - it[1])
-      if lastBins.len > 0:
-        doAssert lastBins == bins, "The ToT calibration changed between the " &
-          "last two runs!"
-        doAssert lastBCFit == binCenterFit
-      lastBins = bins
-      lastBCFit = binCenterFit
-      if countsFull.len > 0:
-        doAssert countsFull.len == counts.len
-        countsFull = zip(countsFull, counts) --> map(it[0] + it[1])
-        countsFitFull = zip(countsFitFull, countsFit) --> map(it[0] + it[1])
-      else:
-        countsFull = counts
-        countsFitFull = countsFit
+    let (bins, counts, binsFit, countsFit) = h5f.readPolya(pd)
     let xlabel = "Number of electrons"
     let title = buildTitle(pd)
     result = buildOutfile(pd)
-    var pltV = plotBar(@[lastBins], @[countsFull], title, xlabel, @[title], result)
+    var pltV = plotBar(@[bins], @[counts], title, xlabel, @[title], result)
     # now add fit to the existing plot
     let nameFit = &"Polya fit of chip {pd.chip}"
-    pltV.plotScatter(lastBCFit, countsFitFull, nameFit, result)
+    pltV.plotScatter(binsFit, countsFit, nameFit, result)
+  of pkCombPolya:
+    var
+      binsSeq: seq[seq[float]]
+      countsSeq: seq[seq[float]]
+      dsets: seq[string]
+    let title = buildTitle(pd)
+    result = buildOutfile(pd)
+    for ch in pd.chipsCP:
+      # get a local PlotDescriptor, which has this chip number
+      let localPd = block:
+        var tmp = pd
+        tmp.chip = ch
+        tmp
+      let (bins, counts, binsFit, countsFit) = h5f.readPolya(localPd)
+      binsSeq.add bins
+      countsSeq.add counts
+      dsets.add "Chip " & $ch
+    let xlabel = "Number of electrons"
+    var pltV = plotBar(binsSeq, countsSeq, title, xlabel, dsets, result)
+    # now add fit to the existing plot
+    pltV.savePlot(result, fullPath = true)
   else:
     discard
 

@@ -1,5 +1,6 @@
 [General]
-        allowedChips = [ 3 ]
+        allowedChips = [ 3, 4 ]
+        outputFormat = "json" # <- store either as "json" or "org"
 
 [InGrid]
         dsets = ["length", "width", "skewnessLongitudinal", "skewnessTransverse",

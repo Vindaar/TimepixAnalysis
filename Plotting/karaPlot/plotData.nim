@@ -121,6 +121,11 @@ type
   ClampKind = enum
     ckFullRange, ckAbsolute, ckQuantile
 
+  OutputFiletypeKind = enum
+    ofUnknown,
+    ofJson = "json"
+    ofOrg = "org"
+
   # a simple object storing the runs, chips etc. from a given
   # H5 file
   FileInfo = object
@@ -1058,6 +1063,32 @@ proc jsonDump(outfile: string) =
   f.write(outstr)
   f.close()
 
+proc handleOutput(basename: string, flags: set[ConfigFlagKind]) =
+  ## handles output file creation. Reads the config.toml file
+  ## and uses it to decide whether to store data as Org file or
+  ## dump to Json
+  # TODO: create some kind of Config object, which does this once at
+  # startup of the program
+  # TODO: when Org is used, we need to save all plots as SVG!
+  var outfile = basename
+  let tomlConfig = parseToml.parseFile("config.toml")
+  let outfileKind = parseEnum[OutputFiletypeKind](
+    tomlConfig["General"]["outputFormat"].getStr,
+    ofUnknown
+  )
+  for fl in flags:
+    outfile &= "_" & $fl
+  case outfileKind
+  of ofOrg:
+    outfile &= ".org"
+    createOrg(outfile)
+  of ofJson:
+    outfile &= ".json"
+    jsonDump(outfile)
+  else:
+    warn "Unsupported output file format!"
+
+
 proc createCalibrationPlots(h5file: string,
                             bKind: BackendKind,
                             runType: RunTypeKind,
@@ -1090,13 +1121,9 @@ proc createCalibrationPlots(h5file: string,
   # likelihoodHistograms(h5f) # need to cut on photo peak and esc peak
   # neighborPixels(h5f)
   discard h5f.close()
-  var outfile = "calibration"
-  for fl in flags:
-    outfile &= "_" & $fl
-  #outfile &= ".org"
-  outfile &= ".json"
-  jsonDump(outfile)
-  #createOrg(outfile)
+  let outfile = "calibration"
+  handleOutput(outfile, flags)
+
 
 proc createBackgroundPlots(h5file: string,
                            bKind: BackendKind,
@@ -1118,13 +1145,8 @@ proc createBackgroundPlots(h5file: string,
   # likelihoodHistograms(h5f) # need to cut on photo peak and esc peak
   # neighborPixels(h5f)
   discard h5f.close()
-  var outfile = "background"
-  for fl in flags:
-    outfile &= "_" & $fl
-  #outfile &= ".org"
-  outfile &= ".json"
-  jsonDump(outfile)
-  #createOrg(outfile)
+  let outfile = "background"
+  handleOutput(outfile, flags)
 
 proc createXrayFingerPlots(bKind: BackendKind, flags: set[ConfigFlagKind]) =
   discard

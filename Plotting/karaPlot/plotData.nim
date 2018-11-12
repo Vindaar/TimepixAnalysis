@@ -1121,8 +1121,10 @@ proc createBackgroundPlots(h5file: string,
   var outfile = "background"
   for fl in flags:
     outfile &= "_" & $fl
-  outfile &= ".org"
-  createOrg(outfile)
+  #outfile &= ".org"
+  outfile &= ".json"
+  jsonDump(outfile)
+  #createOrg(outfile)
 
 proc createXrayFingerPlots(bKind: BackendKind, flags: set[ConfigFlagKind]) =
   discard

@@ -185,7 +185,6 @@ type
     case plotKind: PlotKind
     of pkInGridDset, pkFadcDset:
       range: CutRange
-    of pkOccupancy:
     of pkOccupancy, pkOccCluster:
       case clampKind: ClampKind
       of ckAbsolute:

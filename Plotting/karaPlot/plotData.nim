@@ -784,7 +784,11 @@ proc buildOutfile(pd: PlotDescriptor): string =
     name = OccClusterFnameTemplate % [runsStr,
                                       $pd.chip,
                                       clampStr]
-
+  of pkPolya:
+    name = PolyaFnameTemplate % [runsStr,
+                                 $pd.chip]
+  of pkCombPolya:
+    name = CombPolyaFnameTemplate % [runsStr]
   else:
     discard
   result = "figs" / (name & ".svg")
@@ -811,6 +815,11 @@ proc buildTitle(pd: PlotDescriptor): string =
     result = OccClusterTitleTemplate % [runsStr,
                                        $pd.chip,
                                        clampStr]
+  of pkPolya:
+    result = PolyaTitleTemplate % [runsStr,
+                                   $pd.chip]
+  of pkCombPolya:
+    result = CombPolyaTitleTemplate % [runsStr]
   else:
     discard
 

@@ -657,26 +657,39 @@ proc plotPolyas(h5f: var H5FileObj, group: H5Group,
   let nameFit = &"Polya fit of chip {chipNum} for run {runNumber}"
   plotScatter(binCenterFit, countsFit, title, nameFit, outfile)
 
-
-proc polya(h5f: var H5FileObj, runType: RunTypeKind, flags: set[ConfigFlagKind]) =
+proc polya(h5f: var H5FileObj, runType: RunTypeKind,
+           fileInfo: FileInfo,
+           flags: set[ConfigFlagKind]): seq[PlotDescriptor] =
   ## creates the plots for the polya distribution of the datasets
-  # for now try to read polya datasets?!
-  for runNumber, grpName in runs(h5f):
-    var group = h5f[grpName.grp_str]
-    var traces: seq[Trace[float]]
-    for chipNum, chpgrp in chips(group):
-      traces.add plotPolyas(h5f, chpgrp, chipNum, runNumber)
-    case BKind
-    of bPlotly:
-      let title = &"Polyas for all chips of run {runNumber}"
-      let xlabel = "Number of electrons"
-      var pltV = initPlotV(title = title, xlabel = xlabel, ylabel = "#")
-      pltV.plPlot = Plot[float](layout: pltV.plLayout,
-                                traces: traces)
-      let outfile = &"combined_polya_{runType}_run{runNumber}"
-      pltV.savePlot(outfile)
-    else:
-      warn "Combined polya only available for Plotly backend!"
+  for ch in fileInfo.chips:
+    result.add PlotDescriptor(runType: runType,
+                              name: "polya",
+                              runs: fileInfo.runs,
+                              chip: ch,
+                              plotKind: pkPolya)
+  if fileInfo.chips.len > 1:
+    result.add PlotDescriptor(runType: runType,
+                              name: "polya",
+                              runs: fileInfo.runs,
+                              plotKind: pkCombPolya,
+                              chipsCP: fileInfo.chips)
+
+  #for runNumber, grpName in runs(h5f):
+  #  var group = h5f[grpName.grp_str]
+  #  var traces: seq[Trace[float]]
+  #  for chipNum, chpgrp in chips(group):
+  #    traces.add plotPolyas(h5f, chpgrp, chipNum, runNumber)
+  #  case BKind
+  #  of bPlotly:
+  #    let title = &"Polyas for all chips of run {runNumber}"
+  #    let xlabel = "Number of electrons"
+  #    var pltV = initPlotV(title = title, xlabel = xlabel, ylabel = "#")
+  #    pltV.plPlot = Plot[float](layout: pltV.plLayout,
+  #                              traces: traces)
+  #    let outfile = &"combined_polya_{runType}_run{runNumber}"
+  #    pltV.savePlot(outfile)
+  #  else:
+  #    warn "Combined polya only available for Plotly backend!"
 
 proc plotDates[T, U](x: seq[U], y: seq[T],
                   title, xlabel, dsets, outfile: string,
@@ -905,6 +918,55 @@ proc createPlot(h5f: var H5FileObj,
     let title = buildTitle(pd)
     result = buildOutfile(pd)
     plotHist2D(occFull, title, result)
+  of pkPolya:
+    var
+      lastBins: seq[float]
+      lastBCFit: seq[float]
+      countsFull: seq[float]
+      countsFitFull: seq[float]
+    for r in pd.runs:
+      # TODO: replace this after rewriting `calcGasGain` in calibration.nim
+      # There: disentangle data reading from the fitting data processing etc.
+      # Then we can read raw data and hand that to the fitting proc here
+      let
+        polya = h5f.read(r, pd.name, pd.chip,
+                         dtype = seq[float])
+        polyaFit = h5f.read(r, pd.name & "Fit", pd.chip,
+                            dtype = seq[float])
+      let nbins = polya.shape[0] - 1
+      var
+        bins = newSeq[float](nbins + 1)
+        binCenterFit = newSeq[float](nbins)
+        counts = newSeq[float](nbins)
+        countsFit = newSeq[float](nbins)
+      for i in 0 .. polya.high:
+        bins[i] = polya[i][0]
+        if i != nbins:
+          # do not take last element of polya datasets, since it's just 0
+          counts[i] = polya[i][1]
+          binCenterFit[i] = polyaFit[i][0]
+          countsFit[i] = polyaFit[i][1]
+      let diffR = zip(lastBins, bins) --> map(it[0] - it[1])
+      if lastBins.len > 0:
+        doAssert lastBins == bins, "The ToT calibration changed between the " &
+          "last two runs!"
+        doAssert lastBCFit == binCenterFit
+      lastBins = bins
+      lastBCFit = binCenterFit
+      if countsFull.len > 0:
+        doAssert countsFull.len == counts.len
+        countsFull = zip(countsFull, counts) --> map(it[0] + it[1])
+        countsFitFull = zip(countsFitFull, countsFit) --> map(it[0] + it[1])
+      else:
+        countsFull = counts
+        countsFitFull = countsFit
+    let xlabel = "Number of electrons"
+    let title = buildTitle(pd)
+    result = buildOutfile(pd)
+    var pltV = plotBar(@[lastBins], @[countsFull], title, xlabel, @[title], result)
+    # now add fit to the existing plot
+    let nameFit = &"Polya fit of chip {pd.chip}"
+    pltV.plotScatter(lastBCFit, countsFitFull, nameFit, result)
   else:
     discard
 
@@ -974,7 +1036,7 @@ proc createCalibrationPlots(h5file: string,
   if cfNoOccupancy notin flags:
     pds.add occupancies(h5f, runType, fileInfo, flags) # plus center only
   if cfNoPolya notin flags:
-    polya(h5f, runType, flags)
+    pds.add polya(h5f, runType, fileInfo, flags)
   if cfNoFeSpectrum notin flags:
     feSpectrum(h5f, flags)
   # energyCalib(h5f) # ???? plot of gas gain vs charge?!
@@ -1013,7 +1075,7 @@ proc createBackgroundPlots(h5file: string,
     #occupancies(h5f, flags) # plus center only
     pds.add occupancies(h5f, runType, fileInfo, flags) # plus center only
   if cfNoPolya notin flags:
-    polya(h5f, runType, flags)
+    pds.add polya(h5f, runType, fileInfo, flags)
   # energyCalib(h5f) # ???? plot of gas gain vs charge?!
   pds.add histograms(h5f, runType, fileInfo, flags) # including fadc
   echo pds

@@ -215,7 +215,7 @@ func `%`*(pd: PlotDescriptor): JsonNode =
     result["range"] = %* { "low": % pd.range[0],
                            "high": % pd.range[1],
                            "name": % pd.range[2] }
-  of pkOccupancy:
+  of pkOccupancy, pkOccCluster:
     result["clampKind"] = % pd.clampKind
     case pd.clampKind
     of ckAbsolute:
@@ -241,7 +241,7 @@ func parsePd*(pd: JsonNode): PlotDescriptor =
     result.range = (low: pd["range"]["low"].getFloat,
                     high: pd["range"]["high"].getFloat,
                     name: pd["range"]["name"].getStr)
-  of pkOccupancy:
+  of pkOccupancy, pkOccCluster:
     result.clampKind = parseEnum[ClampKind](pd["clampKind"].getStr)
     case result.clampKind
     of ckAbsolute:

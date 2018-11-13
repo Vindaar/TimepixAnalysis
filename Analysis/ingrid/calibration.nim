@@ -312,6 +312,7 @@ template fitPolyaTmpl(charges,
   actions
 
   # set ``x``, ``y`` result and use to create plot
+  # TODO: replace by just using charges directly
   result.x = linspace(charges[0], charges[^1], counts.len)
   result.y = result.x.mapIt(polyaImpl(params, it))
 

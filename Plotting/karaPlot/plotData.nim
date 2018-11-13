@@ -182,6 +182,9 @@ const FeSpecChargeFnameTemplate = "fe_charge_spectrum_run$1"
 const FeSpecTitleTemplate = "Fe pixel spectrum of run $1 for chip $2"
 const FeSpecChargeTitleTemplate = "Fe charge spectrum of run $1 for chip $2"
 const EnergyCalibFnameTemplate = "fe_energy_calib_run$1"
+const PhotoVsTimeFnameTemplate = "photopeak_vs_time_runs$1"
+const PhotoVsTimeTitleTemplate = "Photopeak pix / charge of Fe spectra (runs $1) vs time"
+
 type
   CutRange = tuple[low, high: float, name: string]
 
@@ -715,9 +718,9 @@ proc polya(h5f: var H5FileObj, runType: RunTypeKind,
   #    warn "Combined polya only available for Plotly backend!"
 
 proc plotDates[T, U](x: seq[U], y: seq[T],
-                  title, xlabel, dsets, outfile: string,
-                  ylabel = "",
-                  drawPlots = false) =
+                     title, xlabel, outfile: string,
+                     ylabel = "",
+                     drawPlots = false) =
   var pltV = initPlotV(title, xlabel, ylabel, ShapeKind.Rectangle)
   case BKind
   of bPlotly:
@@ -764,14 +767,13 @@ proc feSpectrum(h5f: var H5FileObj, runType: RunTypeKind,
       plotKind = pkEnergyCalibCharge
     result.add @[basePd, energyPd, feChargePd, energyChargePd]
 
-  #const kalphaPix = 10
-  #const kalphaCharge = 4
-  #const parPrefix = "p"
-  #const dateStr = "yyyy-MM-dd'.'HH:mm:ss" # example: 2017-12-04.13:39:45
-  #var
-  #  pixSeq: seq[float]
-  #  chSeq: seq[float]
-  #  dates: seq[float] #string]#Time]
+  let photoVsTime = PlotDescriptor(runType: runType,
+                                   name: "PhotoPeakVsTime",
+                                   xlabel: "Time / unix",
+                                   runs: fileInfo.runs,
+                                   chip: fileInfo.centerChip,
+                                   plotKind: pkFeVsTime)
+  result.add photoVsTime
   #for runNumber, grpName in runs(h5f):
   #  var group = h5f[grpName.grp_str]
   #  let centerChip = h5f[group.parent.grp_str].attrs["centerChip", int]
@@ -855,6 +857,8 @@ proc buildOutfile(pd: PlotDescriptor): string =
     name = FeSpecFnameTemplate % [runsStr]
   of pkFeSpecCharge:
     name = FeSpecChargeFnameTemplate % [runsStr]
+  of pkFeVsTime:
+    name = PhotoVsTimeFnameTemplate % [runsStr]
   else:
     discard
   result = "figs" / (name & ".svg")
@@ -892,6 +896,8 @@ proc buildTitle(pd: PlotDescriptor): string =
   of pkFeSpecCharge:
     result = FeSpecChargeTitleTemplate % [runsStr,
                                           $pd.chip]
+  of pkFeVsTime:
+    result = PhotoVsTimeTitleTemplate % [runsStr]
   else:
     discard
 
@@ -1050,6 +1056,38 @@ proc createPlot(h5f: var H5FileObj,
     var pltV = plotBar(binsSeq, countsSeq, title, xlabel, dsets, result)
     # now add fit to the existing plot
     pltV.savePlot(result, fullPath = true)
+  of pkFeVsTime:
+    const kalphaPix = 10
+    const kalphaCharge = 4
+    const parPrefix = "p"
+    const dateStr = "yyyy-MM-dd'.'HH:mm:ss" # example: 2017-12-04.13:39:45
+    var
+      pixSeq: seq[float]
+      chSeq: seq[float]
+      dates: seq[float] #string]#Time]
+    let title = buildTitle(pd)
+    result = buildOutfile(pd)
+    for r in pd.runs:
+      let group = h5f[(recoBase & $r).grp_str]
+      let chpGrpName = group.name / "chip_" & $pd.chip
+      pixSeq.add h5f[(chpGrpName / "FeSpectrum").dset_str].attrs[
+        parPrefix & $kalphaPix, float
+      ]
+      chSeq.add h5f[(chpGrpName / "FeSpectrumCharge").dset_str].attrs[
+        parPrefix & $kalphaCharge, float
+      ]
+      dates.add parseTime(group.attrs["dateTime", string],
+                          dateStr,
+                          utc()).toUnix.float
+      # now plot
+      # calculate ratio and convert to string to workaround plotly limitation of
+      # only one type for Trace
+      let ratio = zip(pixSeq, chSeq) --> map(it[0] / it[1])
+      plotDates(dates, ratio,
+                title = title,
+                xlabel = pd.xlabel,
+                outfile = result)
+                #ylabel = "# pix / charge in e^-")
   else:
     discard
 
@@ -1147,7 +1185,7 @@ proc createCalibrationPlots(h5file: string,
   if cfNoPolya notin flags:
     pds.add polya(h5f, runType, fileInfo, flags)
   if cfNoFeSpectrum notin flags:
-    feSpectrum(h5f, flags)
+    pds.add feSpectrum(h5f, runType, fileInfo, flags)
   # energyCalib(h5f) # ???? plot of gas gain vs charge?!
   pds.add histograms(h5f, runType, fileInfo, flags) # including fadc
 

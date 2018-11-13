@@ -317,7 +317,7 @@ def fitFeSpectrum(data, cuts):
     popt, pcov = fitFeSpectrumImpl(hist, binning, cuts)
     # now get some nice x / y points from the fit parameters
     # given these values, plot
-    x_pl = np.linspace(0, 350, 3500)
+    x_pl = np.linspace(0, 350, 300)
     y_pl = feSpectrumFunc(x_pl, *popt)
 
     result = FeSpecData(hist, binning, popt, pcov, 10, 11, x_pl, y_pl)
@@ -334,7 +334,7 @@ def fitFeSpectrumToCharge(data, cuts):
 
     # now get some nice x / y points from the fit parameters
     # given these values, plot
-    x_pl = np.linspace(0, max(binning), 3500)
+    x_pl = np.linspace(0, max(binning), 300)
     y_pl = procsForPython.feSpectrumFuncCharge(x_pl, *popt)
 
     result = FeSpecData(hist, binning, popt, pcov, 4, 5, x_pl, y_pl)

@@ -80,8 +80,8 @@ type
   # enum listing all available `plot types` we can produce
   PlotKind = enum
     pkInGridDset, pkFadcDset, pkPolya, pkCombPolya, pkOccupancy, pkOccCluster,
-    pkFeSpec, pkEnergyCalib, pkFeChargeSpec, pkFeVsTime, pkCalibRandom,
-    pkAnyScatter, pkMultiDset, pkInGridCluster
+    pkFeSpec, pkEnergyCalib, pkFeSpecCharge, pkEnergyCalibCharge, pkFeVsTime,
+    pkCalibRandom, pkAnyScatter, pkMultiDset, pkInGridCluster
 
   BackendKind = enum
     bNone, bMpl, bPlotly
@@ -177,8 +177,11 @@ const OccupancyFnameTemplate = "occupancy_run$1_chip$2_$3"
 const OccupancyTitleTemplate = "Occupancy of chip $1 for run $2, $3"
 const OccClusterFnameTemplate = "occupancy_clusters_run$1_chip$2_$3"
 const OccClusterTitleTemplate = "Occupancy of cluster centers for run $1, chip $2, $3"
-const FeSpecFnameTemplate = @["fe_spectrum_run$runNumber",
-                              "fe_energy_calib_run$runNumber"]
+const FeSpecFnameTemplate = "fe_pixel_spectrum_run$1"
+const FeSpecChargeFnameTemplate = "fe_charge_spectrum_run$1"
+const FeSpecTitleTemplate = "Fe pixel spectrum of run $1 for chip $2"
+const FeSpecChargeTitleTemplate = "Fe charge spectrum of run $1 for chip $2"
+const EnergyCalibFnameTemplate = "fe_energy_calib_run$1"
 type
   CutRange = tuple[low, high: float, name: string]
 
@@ -187,6 +190,9 @@ type
     name: string
     runs: seq[int]
     chip: int
+    xlabel: string
+    ylabel: string
+    title: string
     case plotKind: PlotKind
     of pkInGridDset, pkFadcDset:
       range: CutRange
@@ -674,6 +680,7 @@ proc polya(h5f: var H5FileObj, runType: RunTypeKind,
   for ch in fileInfo.chips:
     result.add PlotDescriptor(runType: runType,
                               name: "polya",
+                              xlabel: "Number of electrons",
                               runs: fileInfo.runs,
                               chip: ch,
                               plotKind: pkPolya)
@@ -723,57 +730,83 @@ proc plotDates[T, U](x: seq[U], y: seq[T],
   else:
     discard
 
-proc feSpectrum(h5f: var H5FileObj, flags: set[ConfigFlagKind]) =
+proc feSpectrum(h5f: var H5FileObj, runType: RunTypeKind,
+                fileInfo: FileInfo,
+                flags: set[ConfigFlagKind]): seq[PlotDescriptor] =
   ## creates the plot of the Fe spectrum
-  const kalphaPix = 10
-  const kalphaCharge = 4
-  const parPrefix = "p"
-  const dateStr = "yyyy-MM-dd'.'HH:mm:ss" # example: 2017-12-04.13:39:45
-  var
-    pixSeq: seq[float]
-    chSeq: seq[float]
-    dates: seq[float] #string]#Time]
-  for runNumber, grpName in runs(h5f):
-    var group = h5f[grpName.grp_str]
-    let centerChip = h5f[group.parent.grp_str].attrs["centerChip", int]
-    # call `importPyplot` because it sets the appropriate backend for us
-    discard importPyplot()
-    let path = "figs/"
-    var outfiles = @[&"fe_spectrum_run{runNumber}.svg",
-                     &"fe_energy_calib_run{runNumber}.svg"]
-    let outfilesCh = outfiles.mapIt(path / ("charge_" & it))
-    outfiles = outfiles.mapIt(path / it)
-    for o in outfiles:
-      imageSet.incl o
-    for o in outfilesCh:
-      imageSet.incl o
-    h5f.fitToFeSpectrum(runNumber.parseInt, centerChip,
-                        fittingOnly = not ShowPlots,
-                        outfiles = outfiles,
-                        writeToFile = false)
-    # extract fit parameters from center chip group
-    let chpGrpName = group.name / "chip_" & $centerChip
-    #let feSpec =
-    pixSeq.add h5f[(chpGrpName / "FeSpectrum").dset_str].attrs[
-      parPrefix & $kalphaPix, float
-    ]
-    chSeq.add h5f[(chpGrpName / "FeSpectrumCharge").dset_str].attrs[
-      parPrefix & $kalphaCharge, float
-    ]
-    dates.add parseTime(group.attrs["dateTime", string],
-                        dateStr,
-                        utc()).toUnix.float
 
-  # now plot
-  # calculate ratio and convert to string to workaround plotly limitation of
-  # only one type for Trace
-  let ratio = zip(pixSeq, chSeq) --> map(it[0] / it[1])
-  plotDates(dates, ratio,
-            title = "Photopeak pix / charge vs time",
-            xlabel = "Date",
-            dsets = "a",
-            outfile = "photopeak_vs_time")
-            #ylabel = "# pix / charge in e^-")
+  for r in fileInfo.runs:
+    let basePd = PlotDescriptor(runType: runType,
+                                name: "FeSpectrumPlot",
+                                xlabel: "# pixels",
+                                runs: @[r],
+                                chip: fileInfo.centerChip,
+                                plotKind: pkFeSpec)
+    let energyPd = replace(basePd):
+      name = "EnergyCalib"
+      xlabel = "# pixels"
+      ylabel = "Energy / keV"
+      plotKind = pkEnergyCalib
+    let feChargePd = replace(basePd):
+      name = "FeSpectrumChargePlot"
+      xlabel = "Charge / 10^3 electrons"
+      plotKind = pkFeSpecCharge
+    let energyChargePd = replace(basePd):
+      name = "EnergyCalibCharge"
+      xlabel = "Charge / 10^3 electrons"
+      ylabel = "Energy / keV"
+      plotKind = pkEnergyCalibCharge
+    result.add @[basePd, energyPd, feChargePd, energyChargePd]
+
+  #const kalphaPix = 10
+  #const kalphaCharge = 4
+  #const parPrefix = "p"
+  #const dateStr = "yyyy-MM-dd'.'HH:mm:ss" # example: 2017-12-04.13:39:45
+  #var
+  #  pixSeq: seq[float]
+  #  chSeq: seq[float]
+  #  dates: seq[float] #string]#Time]
+  #for runNumber, grpName in runs(h5f):
+  #  var group = h5f[grpName.grp_str]
+  #  let centerChip = h5f[group.parent.grp_str].attrs["centerChip", int]
+  #  # call `importPyplot` because it sets the appropriate backend for us
+  #  discard importPyplot()
+  #  let path = "figs/"
+  #  var outfiles = @[&"fe_spectrum_run{runNumber}.svg",
+  #                   &"fe_energy_calib_run{runNumber}.svg"]
+  #  let outfilesCh = outfiles.mapIt(path / ("charge_" & it))
+  #  outfiles = outfiles.mapIt(path / it)
+  #  for o in outfiles:
+  #    imageSet.incl o
+  #  for o in outfilesCh:
+  #    imageSet.incl o
+  #  h5f.fitToFeSpectrum(runNumber.parseInt, centerChip,
+  #                      fittingOnly = not ShowPlots,
+  #                      outfiles = outfiles,
+  #                      writeToFile = false)
+  #  # extract fit parameters from center chip group
+  #  let chpGrpName = group.name / "chip_" & $centerChip
+  #  #let feSpec =
+  #  pixSeq.add h5f[(chpGrpName / "FeSpectrum").dset_str].attrs[
+  #    parPrefix & $kalphaPix, float
+  #  ]
+  #  chSeq.add h5f[(chpGrpName / "FeSpectrumCharge").dset_str].attrs[
+  #    parPrefix & $kalphaCharge, float
+  #  ]
+  #  dates.add parseTime(group.attrs["dateTime", string],
+  #                      dateStr,
+  #                      utc()).toUnix.float
+  #
+  ## now plot
+  ## calculate ratio and convert to string to workaround plotly limitation of
+  ## only one type for Trace
+  #let ratio = zip(pixSeq, chSeq) --> map(it[0] / it[1])
+  #plotDates(dates, ratio,
+  #          title = "Photopeak pix / charge vs time",
+  #          xlabel = "Date",
+  #          dsets = "a",
+  #          outfile = "photopeak_vs_time")
+  #          #ylabel = "# pix / charge in e^-")
 
 func cKindStr(pd: PlotDescriptor, sep: string): string =
   case pd.clampKind
@@ -812,6 +845,10 @@ proc buildOutfile(pd: PlotDescriptor): string =
                                  $pd.chip]
   of pkCombPolya:
     name = CombPolyaFnameTemplate % [runsStr]
+  of pkFeSpec:
+    name = FeSpecFnameTemplate % [runsStr]
+  of pkFeSpecCharge:
+    name = FeSpecChargeFnameTemplate % [runsStr]
   else:
     discard
   result = "figs" / (name & ".svg")
@@ -843,6 +880,12 @@ proc buildTitle(pd: PlotDescriptor): string =
                                    $pd.chip]
   of pkCombPolya:
     result = CombPolyaTitleTemplate % [runsStr]
+  of pkFeSpec:
+    result = FeSpecTitleTemplate % [runsStr,
+                                    $pd.chip]
+  of pkFeSpecCharge:
+    result = FeSpecChargeTitleTemplate % [runsStr,
+                                          $pd.chip]
   else:
     discard
 
@@ -858,16 +901,20 @@ func clampedOccupancy[T](x, y: seq[T], pd: PlotDescriptor): Tensor[float] =
     result = result.clamp(0.0, quant)
   else: discard
 
-proc readPolya(h5f: var H5FileObj, pd: PlotDescriptor):
+proc readPlotFit(h5f: var H5FileObj, pd: PlotDescriptor):
      (seq[float], seq[float], seq[float], seq[float]) =
-  ## reads the `polya` and `polyaFit` datasets for all runs in
+  ## reads the `plot` and `Fit` datasets for all runs in
   ## `pd`, stacks it and returns bins, counts for both
-  doAssert (pd.plotKind == pkPolya or pd.plotKind == pkCombPolya),
-     &"Only supported for {pkPolya} and {pkCombPolya}. This plotKind " &
-     &"is {pd.plotKind}"
+  ## This is currently used for:
+  ## - ploya + polyaFit
+  ## - FeSpectrum + FeSpectrumFit
+  ## - FeSpectrumCharge + FeSpectrumChargeFit
+  let plotSet = {pkPolya, pkCombPolya, pkFeSpec, pkFeSpecCharge}
+  doAssert (pd.plotKind in plotSet),
+     &"Only supported for {plotSet}. This plotKind is {pd.plotKind}"
   var
     lastBins: seq[float]
-    lastBCFit: seq[float]
+    lastBinsFit: seq[float]
     countsFull: seq[float]
     countsFitFull: seq[float]
   for r in pd.runs:
@@ -879,26 +926,15 @@ proc readPolya(h5f: var H5FileObj, pd: PlotDescriptor):
                        dtype = seq[float])
       polyaFit = h5f.read(r, pd.name & "Fit", pd.chip,
                           dtype = seq[float])
-    let nbins = polya.shape[0] - 1
-    var
-      bins = newSeq[float](nbins + 1)
-      binCenterFit = newSeq[float](nbins)
-      counts = newSeq[float](nbins)
-      countsFit = newSeq[float](nbins)
-    for i in 0 .. polya.high:
-      bins[i] = polya[i][0]
-      if i != nbins:
-        # do not take last element of polya datasets, since it's just 0
-        counts[i] = polya[i][1]
-        binCenterFit[i] = polyaFit[i][0]
-        countsFit[i] = polyaFit[i][1]
-    let diffR = zip(lastBins, bins) --> map(it[0] - it[1])
+    let nbins = polya.shape[0]
+    let (bins, counts) = polya.split(SplitSeq.Seq2Col)
+    let (binsFit, countsFit) = polyaFit.split(SplitSeq.Seq2Col)
     if lastBins.len > 0:
       doAssert lastBins == bins, "The ToT calibration changed between the " &
         "last two runs!"
-      doAssert lastBCFit == binCenterFit
+      doAssert lastBinsFit == binsFit
     lastBins = bins
-    lastBCFit = binCenterFit
+    lastBinsFit = binsFit
     if countsFull.len > 0:
       doAssert countsFull.len == counts.len
       countsFull = zip(countsFull, counts) --> map(it[0] + it[1])
@@ -906,7 +942,7 @@ proc readPolya(h5f: var H5FileObj, pd: PlotDescriptor):
     else:
       countsFull = counts
       countsFitFull = countsFit
-  result = (lastBins, countsFull, lastBCFit, countsFitFull)
+  result = (lastBins, countsFull, lastBinsFit, countsFitFull)
 
 proc createPlot(h5f: var H5FileObj,
                 fileInfo: FileInfo,
@@ -978,14 +1014,14 @@ proc createPlot(h5f: var H5FileObj,
     let title = buildTitle(pd)
     result = buildOutfile(pd)
     plotHist2D(occFull, title, result)
-  of pkPolya:
-    let (bins, counts, binsFit, countsFit) = h5f.readPolya(pd)
-    let xlabel = "Number of electrons"
+  of pkPolya, pkFeSpec, pkFeSpecCharge:
+    let (bins, counts, binsFit, countsFit) = h5f.readPlotFit(pd)
+    let xlabel = pd.xlabel
     let title = buildTitle(pd)
     result = buildOutfile(pd)
     var pltV = plotBar(@[bins], @[counts], title, xlabel, @[title], result)
     # now add fit to the existing plot
-    let nameFit = &"Polya fit of chip {pd.chip}"
+    let nameFit = &"Fit of chip {pd.chip}"
     pltV.plotScatter(binsFit, countsFit, nameFit, result)
   of pkCombPolya:
     var
@@ -1000,7 +1036,7 @@ proc createPlot(h5f: var H5FileObj,
         var tmp = pd
         tmp.chip = ch
         tmp
-      let (bins, counts, binsFit, countsFit) = h5f.readPolya(localPd)
+      let (bins, counts, binsFit, countsFit) = h5f.readPlotFit(localPd)
       binsSeq.add bins
       countsSeq.add counts
       dsets.add "Chip " & $ch

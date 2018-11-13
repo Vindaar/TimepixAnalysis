@@ -116,6 +116,9 @@ def rawDataChipBase(run_number):
     return "/runs/run_{}/chip_".format(run_number)
 
 def binData(data, cuts, binning = None):
+    """
+    Returns the bin edges *without* the rightmost bin edge!
+    """
     # Bin the given data after applying potential cuts (NOTE: this feature is not
     # really supported).
     # If binning is given, we create the histogram according to that binning.
@@ -135,7 +138,6 @@ def binData(data, cuts, binning = None):
         binning = np.linspace(-0.5, np.max(data) + 0.5, np.max(data) + 2)
 
     hist, bin_edges = np.histogram(data, binning)
-    bins = np.arange(np.max(data) + 1)
 
     # return data as tuple (bin content / binning)
     # we remove the last element due to the way we create the bins

@@ -1259,7 +1259,7 @@ proc plotData*() =
     flags.incl cfNoPolya
   if $args["--no_fe_spec"] == "true":
     flags.incl cfNoFeSpectrum
-  info "Flags are:\n  {flags}"
+  info &"Flags are:\n  {flags}"
 
   var runType: RunTypeKind
   var bKind: BackendKind

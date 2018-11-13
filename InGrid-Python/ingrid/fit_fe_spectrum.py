@@ -432,9 +432,12 @@ def plotFeSpec(feSpec, ecData, run_number, outfolder,
         text  = "mu = " + "{0:.1f}".format(feSpec.k_alpha) + "pix"
         text2 = "{0:.1f}".format(ecData.a_inv) + "ev / pix"
         text3 = "sigma = {0:.2f}".format(feSpec.sigma_kalpha / feSpec.k_alpha * 100.0) + "%"
-    ax.text(120, 150, text, fontsize = 20)
-    ax.text(120, 135, text2, fontsize = 20)
-    ax.text(120, 110, text3, fontsize = 20)
+    # get peak height to place text
+    nPeak = feSpec.popt[9]
+    muEsc = feSpec.popt[3]
+    ax.text(muEsc, nPeak, text, fontsize = 20)
+    ax.text(muEsc, nPeak - (nPeak * 0.075), text2, fontsize = 20)
+    ax.text(muEsc, nPeak - (nPeak * 0.15), text3, fontsize = 20)
     if len(outfiles) == 0:
         outfile = os.path.join(outfolder, "fe_spectrum_{}.pdf".format(run_number))
         plt.savefig(outfile)
@@ -466,8 +469,10 @@ def plotFeSpecCharge(feSpec, ecData, run_number, outfolder,
         #text  = "mu = " + "{0:.1f}".format(k_alpha) + "pix"
         text2 = "{0:.1f}".format(ecData.a_inv) + "ev / pix"
         text3 = "sigma = {0:.2f}".format(feSpec.sigma_kalpha / feSpec.k_alpha * 100.0) + "%"
-    ax.text(120, 135, text2, fontsize = 20)
-    ax.text(120, 110, text3, fontsize = 20)
+    nPeak = feSpec.popt[3]
+    muEsc = feSpec.popt[1]
+    ax.text(muEsc, nPeak, text2, fontsize = 20)
+    ax.text(muEsc, nPeak - (nPeak * 0.075), text3, fontsize = 20)
 
     if len(outfiles) == 0:
         outfile = os.path.join(outfolder, "XrayCalib_Fe_Spectrum_{}.pdf".format(run_number))

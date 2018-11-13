@@ -221,6 +221,9 @@ func `%`*(pd: PlotDescriptor): JsonNode =
   result["name"] = % pd.name
   result["runs"] = % pd.runs
   result["chip"] = % pd.chip
+  result["xlabel"] = % pd.xlabel
+  result["ylabel"] = % pd.ylabel
+  result["title"] = % pd.title
   result["plotKind"] = % pd.plotKind
   case pd.plotKind
   of pkInGridDset, pkFadcDset:
@@ -249,6 +252,9 @@ func parsePd*(pd: JsonNode): PlotDescriptor =
   result.name = pd["name"].getStr
   result.runs = to(pd["runs"], seq[int])
   result.chip = pd["chip"].getInt
+  result.xlabel = pd["xlabel"].getStr
+  result.ylabel = pd["ylabel"].getStr
+  result.title = pd["title"].getStr
   result.plotKind = parseEnum[PlotKind](pd["plotKind"].getStr)
   case result.plotKind
   of pkInGridDset, pkFadcDset:

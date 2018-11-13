@@ -6,7 +6,7 @@ proc toNimSeq*(xOb: PyObject, dtype: typedesc): seq[dtype] =
   ## Recursively calls itself until the given `dtype` is `SomeNumber`
   result = newSeqOfCap[dtype](100)
   for x in xOb:
-    when dtype is SomeNumber:
+    when dtype is SomeNumber | string:
       let xNim = x.to(dtype)
       result.add xNim
     elif dtype is seq:

@@ -381,7 +381,7 @@ proc fitPolyaPython*(charges,
     let bPy = @[@[-Inf, -Inf, 0.5], @[Inf, Inf, 15.0]]
     let scipyOpt = pyImport("scipy.optimize")
     let pyRes = scipyOpt.curve_fit(polyaPython, chToFit, countsToFit,
-                                    p0=p, bounds = bPy)
+                                   p0=p, bounds = bPy)
     var params = newSeq[float](p.len)
     var count = 0
     for resP in pyRes[0]:

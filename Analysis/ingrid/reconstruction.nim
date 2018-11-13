@@ -686,7 +686,8 @@ proc reconstructSingleChip(data: seq[(Pixels, int)], run, chip: int): seq[FlowVa
 
 proc createAndFitFeSpec(h5f: var H5FileObj,
                         h5fout: var H5FileObj,
-                        runNumber: int) =
+                        runNumber: int,
+                        fittingOnly: bool) =
   ## create the Fe spectrum for the run, apply the charge calibration if possible
   ## and then fit to the Fe spectrum, writing results to `h5fout`
   var centerChip = h5f.getCenterChip(runNumber)
@@ -696,7 +697,7 @@ proc createAndFitFeSpec(h5f: var H5FileObj,
   except KeyError as e:
     warn "No charge calibration possible for current one or " &
          "more chips. Exception message:\n" & e.msg
-  h5fout.fitToFeSpectrum(runNumber, centerChip)
+  h5fout.fitToFeSpectrum(runNumber, centerChip, fittingOnly)
 
 proc reconstructRunsInFile(h5f: var H5FileObj,
                            h5fout: var H5FileObj,
@@ -720,6 +721,7 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
     raw_data_basename = rawDataBase()
     t0 = epochTime()
   var reco_run: seq[FlowVar[ref RecoEvent]] = @[]
+  let showPlots = if cfShowPlots in cfgFlags: true else: false
 
   # iterate over all raw data groups
   var runNumbersIterated: set[uint16]
@@ -779,7 +781,7 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
         # now check whether create iron spectrum flag is set
         # or this is a calibration run, then always create it
         if rfCreateFe in flags or runType == rtCalibration:
-          createAndFitFeSpec(h5f, h5fout, runNumber)
+          createAndFitFeSpec(h5f, h5fout, runNumber, not showPlots)
         if rfCalibEnergy in flags:
           # TODO: assign correct chip for detector
           # could have a center chip attribute or just iterate over all
@@ -805,12 +807,11 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
             # TODO: does not belong here
             #h5fout.fitToFeSpectrum(runNumber, centerChip)
           if rfOnlyGasGain in flags:
-            let showPlots = if cfShowPlots in cfgFlags: true else: false
             h5fout.calcGasGain(runNumber, showPlots)
           if rfOnlyFadc in flags:
             h5fout.calcRiseAndFallTimes(runNumber)
           if rfOnlyFeSpec in flags:
-            createAndFitFeSpec(h5f, h5fout, runNumber)
+            createAndFitFeSpec(h5f, h5fout, runNumber, not showPlots)
         else:
           warn "No reconstructed run found for $#" % $grp
 

@@ -789,10 +789,10 @@ proc writeFeDset(h5f: var H5FileObj,
     dset[dset.all] = data
     dset
   result[0] = createWriteDset(feBins, feCounts, "FeSpectrum" & $suffix & "Plot")
-  result[1] = createWriteDset(feFitX, feFitY, "FeSpectrum" & $suffix & "FitPlot")
+  result[1] = createWriteDset(feFitX, feFitY, "FeSpectrum" & $suffix & "PlotFit")
 
 proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
-                      fittingOnly = true, outfiles: seq[string] = @[],
+                      fittingOnly = false, outfiles: seq[string] = @[],
                       writeToFile = true) =
   ## (currently) calls Python functions from `ingrid` Python module to
   ## perform fit to the `FeSpectrum` dataset in the given run number

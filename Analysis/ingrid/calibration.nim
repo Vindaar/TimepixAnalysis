@@ -760,6 +760,36 @@ proc writeEnergyPerAttrs(dset: var H5DataSet,
   dset.attrs[key] = aInv
   dset.attrs["d_" & key] = aInv * pErr / popt
 
+proc writeTextFields(dset: var H5DataSet,
+                     texts: seq[string]) =
+  ## writes the text fields, which are printed on the related plot
+  ## as attributes
+  echo "texts ", texts, " \n\n\n"
+  for i in 0 .. texts.high:
+    echo "Writing ", texts[i], " to ", dset.name
+    dset.attrs[&"text_{i}"] = texts[i]
+
+proc writeFeDset(h5f: var H5FileObj,
+                 group, suffix: string,
+                 feSpec, ecData: PyObject): (H5DataSet, H5DataSet) =
+  ## writes the dataset for the given FeSpectrum (either FeSpectrum
+  ## or FeSpectrumCharge), i.e. the actual data points for the plots
+  ## created by the Python functions
+  let
+    feCounts = feSpec.hist.toNimSeq(float)
+    feBins = feSpec.binning.toNimSeq(float)
+    feFitX = feSpec.x_pl.toNimSeq(float)
+    feFitY = feSpec.x_pl.toNimSeq(float)
+  template createWriteDset(x, y: seq[float], name: string): untyped =
+    var dset = h5f.create_dataset(group / name,
+                                  (x.len, 2),
+                                  dtype = float)
+    let data = zip(x, y) --> map(@[it[0], it[1]]) --> to(seq[seq[float]])
+    dset[dset.all] = data
+    dset
+  result[0] = createWriteDset(feBins, feCounts, "FeSpectrum" & $suffix & "Plot")
+  result[1] = createWriteDset(feFitX, feFitY, "FeSpectrum" & $suffix & "FitPlot")
+
 proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
                       fittingOnly = true, outfiles: seq[string] = @[],
                       writeToFile = true) =
@@ -779,6 +809,8 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
   # call python function with data
   let res = pyFitFe.fitAndPlotFeSpectrum([feData], "", ".", runNumber,
                                          fittingOnly, outfiles)
+
+
   # NOTE: this is a workaround for a weird bug we're seeing. If we don't close the
   # library here, we get an error in a call to `deleteAttribute` from within
   # `writeFeFitParameters`, line 738
@@ -794,25 +826,33 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
     result = s
     result.removePrefix(pref)
 
-  proc extractAndWriteAttrs(dset: var H5DataSet,
+  proc extractAndWriteAttrs(h5f: var H5FileObj,
+                            dset: var H5DataSet,
                             scaling: float,
                             res: PyObject,
-                            key: string) =
+                            key: string,
+                            suffix = "") =
     let
       popt = res[0].popt.toNimSeq(float)
       pcov = res[0].pcov.toNimSeq(seq[float])
       popt_E = res[1].popt.toNimSeq(float)
       pcov_E = res[1].pcov.toNimSeq(seq[float])
+      texts = res[2].toNimSeq(string)
     dset.writeFeFitParameters(popt, popt_E, pcov, pcov_E)
 
     writeEnergyPerAttrs(dset, key,
                         scaling,
                         popt_E[0],
                         pcov_E[0][0])
+    dset.writeTextFields(texts)
+
+    var (grp1, grp2) = h5f.writeFeDset(dset.parent, suffix, res[0], res[1])
+    grp1.copy_attributes(dset.attrs)
+    grp2.copy_attributes(dset.attrs)
 
   const eVperPixelScaling = 1e3
   if writeToFile:
-    extractAndWriteAttrs(feDset, eVperPixelScaling, res, "eV_per_pix")
+    h5f.extractAndWriteAttrs(feDset, eVperPixelScaling, res, "eV_per_pix")
 
   # run might not have ``totalCharge`` dset, if no ToT calibration is available,
   # but user wishes Fe spectrum fit to # hit pixels
@@ -837,8 +877,9 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
     # `writeFitParametersH5` in Python
     const keVPerElectronScaling = 1e-3
     if writeToFile:
-      extractAndWriteAttrs(totChDset, keVPerElectronScaling,
-                           resCharge, "keV_per_electron")
+      h5f.extractAndWriteAttrs(totChDset, keVPerElectronScaling,
+                               resCharge, "keV_per_electron",
+                               "Charge")
 
   else:
     echo "Warning: `totalCharge` dataset does not exist in file. No fit to " &

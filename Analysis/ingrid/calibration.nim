@@ -799,10 +799,10 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
                             res: PyObject,
                             key: string) =
     let
-      popt = res[0].toNimSeq(float)
-      pcov = res[1].toNimSeq(seq[float])
-      popt_E = res[2].toNimSeq(float)
-      pcov_E = res[3].toNimSeq(seq[float])
+      popt = res[0].popt.toNimSeq(float)
+      pcov = res[0].pcov.toNimSeq(seq[float])
+      popt_E = res[1].popt.toNimSeq(float)
+      pcov_E = res[1].pcov.toNimSeq(seq[float])
     dset.writeFeFitParameters(popt, popt_E, pcov, pcov_E)
 
     writeEnergyPerAttrs(dset, key,

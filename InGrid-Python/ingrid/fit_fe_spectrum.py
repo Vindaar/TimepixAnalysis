@@ -7,6 +7,31 @@ import sys
 sys.path.append("./")
 import ingrid.procsForPython as procsForPython
 
+class FeSpecData():
+    def __init__(self, hist, binning, popt, pcov, idx_kalpha, idx_sigma, x_pl, y_pl):
+        self.hist = hist
+        self.binning = binning
+        self.k_alpha = popt[idx_kalpha]
+        self.sigma_kalpha = popt[idx_sigma]
+        self.popt = popt
+        self.pcov = pcov
+        self.x_pl = x_pl
+        self.y_pl = y_pl
+
+class EnergyCalibData():
+    # TODO: introduce error on energies via width
+    def __init__(self, energies, peak, peak_err, popt, pcov,
+                 x_pl, y_pl):
+        self.energies = energies
+        self.peak = peak
+        self.peak_err = peak_err
+        self.popt = popt
+        self.pcov = pcov
+        self.x_pl = x_pl
+        self.y_pl = y_pl
+        self.a_inv = 1.0 / popt[0] * 1000
+        self.da_inv = self.a_inv * np.sqrt(pcov[0][0]) / popt[0]
+
 # this whole fit is probably going to be pretty slow.
 # convert to Nim functions, which we compile to lib and call
 # in python via ctypes
@@ -129,7 +154,7 @@ def getBoundsList(nParams):
         u_bounds.append(np.inf)
     return l_bounds, u_bounds
 
-def fitFeSpectrumToCharge(hist, binning, cuts):
+def fitFeSpectrumToChargeImpl(hist, binning, cuts):
     # perform the fit of the Fe spectrum to the charge data instead
     # of the number of hit pixels data
     binning = np.asarray(binning)
@@ -207,7 +232,7 @@ def fitFeSpectrumToCharge(hist, binning, cuts):
 
     return popt, pcov
 
-def fitFeSpectrum(hist, binning, cuts):
+def fitFeSpectrumImpl(hist, binning, cuts):
     # given our histogram and binning data
     # for fit := (y / x) data
     # fit a double gaussian to the data
@@ -286,68 +311,161 @@ def fitFeSpectrum(hist, binning, cuts):
 def linear_func(x, a):
     return a * x
 
-def fitAndPlotFeSpectrumCharge(data, cuts, outfolder, run_number,
-                               fitting_only = False, outfiles = []):
+def fitFeSpectrum(data, cuts):
+    # bin the data
+    hist, binning = binData(data, cuts)
+    popt, pcov = fitFeSpectrumImpl(hist, binning, cuts)
+    # now get some nice x / y points from the fit parameters
+    # given these values, plot
+    x_pl = np.linspace(0, 350, 3500)
+    y_pl = feSpectrumFunc(x_pl, *popt)
+
+    result = FeSpecData(hist, binning, popt, pcov, 10, 11, x_pl, y_pl)
+
+    return result
+
+def fitFeSpectrumToCharge(data, cuts):
     # bin the data
     # before we bin data, divide it by 1000
     data = np.asarray(data) / 1000
     hist, binning = binData(data, cuts, binning = 300)
-    popt, pcov = fitFeSpectrumToCharge(hist, binning, cuts)
+    popt, pcov = fitFeSpectrumToChargeImpl(hist, binning, cuts)
     print("Max of binning ", np.max(binning))
 
     # now get some nice x / y points from the fit parameters
     # given these values, plot
     x_pl = np.linspace(0, max(binning), 3500)
     y_pl = procsForPython.feSpectrumFuncCharge(x_pl, *popt)
+
+    result = FeSpecData(hist, binning, popt, pcov, 4, 5, x_pl, y_pl)
+
+    return result
+
+def fitEnergyCalib(feSpec):
     # before we plot the Fe spectrum, perform the calculations and fit of
     # the fit to the spectrum peaks
     # now we can fit the energy calibration function
+    energies = [2.925, 5.755]
+    pixels_peaks = [feSpec.popt[3], feSpec.k_alpha]
+    pixels_err = [np.sqrt(feSpec.pcov[3][3]), np.sqrt(feSpec.pcov[10][10])]
+    #print("Result is ", procsForPython.linearFunc(5.0, 1.1))
+    result = curve_fit(procsForPython.linearFunc,
+                       energies,
+                       pixels_peaks,
+                       sigma = pixels_err,
+                       p0 = 1.0,
+                       full_output=True)
+    popt = result[0]
+    pcov = result[1]
+    infodict = result[2:]
+    # n_dof: # degrees of freedom
+    n_dof  = (np.size(infodict[0]['fvec']) - np.size(popt))
+    chi_sq = np.sum(infodict[0]['fvec']**2) / n_dof
+    print('--------------------------------------------------')
+    print('Parameters of linear fit to peaks: ')
+    for i, p in enumerate(popt):
+        print('p_{} ='.format(i), popt[i], '+-', np.sqrt(pcov[i][i]))
+
+    E_calc = np.linspace(2, 7, 1000)
+    H_calc = procsForPython.linearFunc(E_calc, popt[0])
+
+    ecData = EnergyCalibData(energies, pixels_peaks, pixels_err, popt, pcov,
+                             E_calc, H_calc)
+
+    print("a^-1 = {0} +- {1}".format(ecData.a_inv, ecData.da_inv))
+    print('Chi^2 / dof =', chi_sq)
+
+    return ecData
+
+def fitEnergyCalibCharge(feSpec):
+
+    # now we can fit the energy calibration function
     energies = [2.942, 5.899]
-    chargesPeak = [popt[1], popt[4]]
-    chargesErr = [np.sqrt(pcov[1][1]), np.sqrt(pcov[4][4])]
+    chargesPeak = [feSpec.popt[1], feSpec.k_alpha]
+    chargesErr = [np.sqrt(feSpec.pcov[1][1]), np.sqrt(feSpec.pcov[4][4])]
     result = curve_fit(procsForPython.linearFunc,
                        energies,
                        chargesPeak,
                        sigma = chargesErr,
                        p0 = 1.0,
                        full_output=True)
-    popt_E = result[0]
-    pcov_E = result[1]
+    popt = result[0]
+    pcov = result[1]
     infodict = result[2:]
     # n_dof: # degrees of freedom
-    n_dof  = (np.size(infodict[0]['fvec']) - np.size(popt_E))
+    n_dof  = (np.size(infodict[0]['fvec']) - np.size(popt))
     chi_sq = np.sum(infodict[0]['fvec']**2) / n_dof
     print('--------------------------------------------------')
     print('Parameters of linear fit to peaks: ')
-    for i, p in enumerate(popt_E):
-        print('p_{} ='.format(i), popt_E[i], '+-', np.sqrt(pcov_E[i][i]))
-
-    a_inv = 1.0 / popt_E[0] * 1000
-    da_inv = a_inv * np.sqrt(pcov_E[0][0]) / popt_E[0]
-    print("a^-1 = {0} +- {1}".format(a_inv, da_inv))
-    print('Chi^2 / dof =', chi_sq)
+    for i, p in enumerate(popt):
+        print('p_{} ='.format(i), popt[i], '+-', np.sqrt(pcov[i][i]))
 
     E_calc = np.linspace(0, 10, 1000)
-    H_calc = procsForPython.linearFunc(E_calc, popt_E[0])
+    H_calc = procsForPython.linearFunc(E_calc, popt[0])
 
+    ecData = EnergyCalibData(energies, chargesPeak, chargesErr, popt, pcov,
+                             E_calc, H_calc)
+
+    print("a^-1 = {0} +- {1}".format(ecData.a_inv, ecData.da_inv))
+    print('Chi^2 / dof =', chi_sq)
+
+    return ecData
+
+def plotFeSpec(feSpec, ecData, run_number, outfolder,
+               fitting_only = False, outfiles = []):
     # create both plots
-    # create both plots
-    fig, ax = plotData(hist, binning, None, "", "Calibration run {}".format(run_number),
+    fig, ax = plotData(feSpec.hist, feSpec.binning, None, "",
+                       "Fe spectrum", "\\# pixels hit", "\\# events", False)
+
+    # TODO: add fit parameter results to plots as legend!
+
+    ax.set_xlim(0, 350)
+    ax.plot(feSpec.x_pl, feSpec.y_pl, linewidth = 2, color = "red")
+
+    if mpl.rcParams["text.usetex"] == True:
+        text  = "$\mu = \SI{" + "{0:.1f}".format(feSpec.k_alpha) + "}{pix}$"
+        text2 = "$\sim\SI{" + "{0:.1f}".format(ecData.a_inv) + "}{\electronvolt \per pix}$"
+        text3 = "$\sigma = \SI{0:.2f}".format(feSpec.sigma_kalpha / feSpec.k_alpha * 100.0) + "}{\percent}"
+    else:
+        text  = "mu = " + "{0:.1f}".format(feSpec.k_alpha) + "pix"
+        text2 = "{0:.1f}".format(ecData.a_inv) + "ev / pix"
+        text3 = "sigma = {0:.2f}".format(feSpec.sigma_kalpha / feSpec.k_alpha * 100.0) + "%"
+    ax.text(120, 150, text, fontsize = 20)
+    ax.text(120, 135, text2, fontsize = 20)
+    ax.text(120, 110, text3, fontsize = 20)
+    if len(outfiles) == 0:
+        outfile = os.path.join(outfolder, "fe_spectrum_{}.pdf".format(run_number))
+        plt.savefig(outfile)
+    else:
+        plt.savefig(outfiles[0])
+    if fitting_only == False:
+        plt.show()
+    else:
+        # in that case clear the current figure to not end up with
+        # both plots in one
+        plt.clf()
+
+    return [text, text2, text3]
+
+def plotFeSpecCharge(feSpec, ecData, run_number, outfolder,
+                     fitting_only = False, outfiles = []):
+    fig, ax = plotData(feSpec.hist, feSpec.binning, None, "", "Calibration run {}".format(run_number),
                        "charge / 10^3 e-",
                        "\\# events", False)
     # TODO: add fit parameter results to plots as legend!
     #ax.set_xlim(0, )
-    ax.plot(x_pl, y_pl, linewidth = 2, color = "red", label = "Charge calibration")
+    ax.plot(feSpec.x_pl, feSpec.y_pl, linewidth = 2, color = "red", label = "Charge calibration")
 
     if mpl.rcParams["text.usetex"] == True:
         #text  = "$\mu = \SI{" + "{0:.1f}".format(k_alpha) + "}{pix}$"
-        text2 = "$\sim\SI{" + "{0:.1f}".format(a_inv) + "}{\electronvolt \per e^{-3}}$"
-        ax.text(120, 135, text2, fontsize = 20)
+        text2 = "$\sim\SI{" + "{0:.1f}".format(ecData.a_inv) + "}{\electronvolt \per e^{-3}}$"
+        text3 = "sigma = {0:.2f}".format(feSpec.sigma_kalpha / feSpec.k_alpha * 100.0) + "%"
     else:
         #text  = "mu = " + "{0:.1f}".format(k_alpha) + "pix"
-        text2 = "{0:.1f}".format(a_inv) + "ev / pix"
-    #ax.text(120, 150, text, fontsize = 20)
-    #ax.text(120, 135, text2, fontsize = 20)
+        text2 = "{0:.1f}".format(ecData.a_inv) + "ev / pix"
+        text3 = "sigma = {0:.2f}".format(feSpec.sigma_kalpha / feSpec.k_alpha * 100.0) + "%"
+    ax.text(120, 135, text2, fontsize = 20)
+    ax.text(120, 110, text3, fontsize = 20)
 
     if len(outfiles) == 0:
         outfile = os.path.join(outfolder, "XrayCalib_Fe_Spectrum_{}.pdf".format(run_number))
@@ -361,99 +479,12 @@ def fitAndPlotFeSpectrumCharge(data, cuts, outfolder, run_number,
         # both plots in one
         plt.clf()
 
-    plt.errorbar(energies, chargesPeak, yerr = chargesErr,
-                 marker = ".", markersize = 8,
-                 linestyle = "", color = "red")
-    plt.plot(E_calc, H_calc, marker = "", linestyle = "-")
-    plt.xlabel("Energy / keV")
-    plt.ylabel("Total charge / 10^3 e-")
-    plt.title("Energy calibration function based on \# e^- in Fe55 spectrum")
-    plt.grid()
-    if len(outfiles) == 0:
-        outfile = os.path.join(outfolder, "XrayCalib_fe_calib_charge_{}.pdf".format(run_number))
-        plt.savefig(outfile)
-    else:
-        plt.savefig(outfiles[1])
-    if fitting_only == False:
-        plt.show()
+    return [text2, text3]
 
-    # return fit results so that we can write them to the H5 file
-    return (popt, pcov, popt_E, pcov_E)
-
-def fitAndPlotFeSpectrum(data, cuts, outfolder, run_number,
-                         fitting_only = False, outfiles = []):
-    # bin the data
-    hist, binning = binData(data, cuts)
-    popt, pcov = fitFeSpectrum(hist, binning, cuts)
-    k_alpha = popt[10]
-
-    # now get some nice x / y points from the fit parameters
-    # given these values, plot
-    x_pl = np.linspace(0, 350, 3500)
-    y_pl = feSpectrumFunc(x_pl, *popt)
-    # before we plot the Fe spectrum, perform the calculations and fit of
-    # the fit to the spectrum peaks
-        # now we can fit the energy calibration function
-    energies = [2.925, 5.755]
-    pixels_peaks = [popt[3], k_alpha]
-    pixels_err = [np.sqrt(pcov[3][3]), np.sqrt(pcov[10][10])]
-    #print("Result is ", procsForPython.linearFunc(5.0, 1.1))
-    result = curve_fit(procsForPython.linearFunc,
-                       energies,
-                       pixels_peaks,
-                       sigma = pixels_err,
-                       p0 = 1.0,
-                       full_output=True)
-    popt_E = result[0]
-    pcov_E = result[1]
-    infodict = result[2:]
-    # n_dof: # degrees of freedom
-    n_dof  = (np.size(infodict[0]['fvec']) - np.size(popt_E))
-    chi_sq = np.sum(infodict[0]['fvec']**2) / n_dof
-    print('--------------------------------------------------')
-    print('Parameters of linear fit to peaks: ')
-    for i, p in enumerate(popt_E):
-        print('p_{} ='.format(i), popt_E[i], '+-', np.sqrt(pcov_E[i][i]))
-
-    a_inv = 1.0 / popt_E[0] * 1000
-    da_inv = a_inv * np.sqrt(pcov_E[0][0]) / popt_E[0]
-    print("a^-1 = {0} +- {1}".format(a_inv, da_inv))
-    print('Chi^2 / dof =', chi_sq)
-
-    E_calc = np.linspace(2, 7, 1000)
-    H_calc = procsForPython.linearFunc(E_calc, popt_E[0])
-
-    # create both plots
-    fig, ax = plotData(hist, binning, None, "", "Fe spectrum", "\\# pixels hit", "\\# events", False)
-
-    # TODO: add fit parameter results to plots as legend!
-
-    ax.set_xlim(0, 350)
-    ax.plot(x_pl, y_pl, linewidth = 2, color = "red")
-
-    if mpl.rcParams["text.usetex"] == True:
-        text  = "$\mu = \SI{" + "{0:.1f}".format(k_alpha) + "}{pix}$"
-        text2 = "$\sim\SI{" + "{0:.1f}".format(a_inv) + "}{\electronvolt \per pix}$"
-    else:
-        text  = "mu = " + "{0:.1f}".format(k_alpha) + "pix"
-        text2 = "{0:.1f}".format(a_inv) + "ev / pix"
-    ax.text(120, 150, text, fontsize = 20)
-    ax.text(120, 135, text2, fontsize = 20)
-
-    if len(outfiles) == 0:
-        outfile = os.path.join(outfolder, "fe_spectrum_{}.pdf".format(run_number))
-        plt.savefig(outfile)
-    else:
-        plt.savefig(outfiles[0])
-    if fitting_only == False:
-        plt.show()
-    else:
-        # in that case clear the current figure to not end up with
-        # both plots in one
-        plt.clf()
-
-    plt.errorbar(energies, pixels_peaks, yerr = pixels_err, marker = ".", markersize = 8, linestyle = "", color = "red")
-    plt.plot(E_calc, H_calc, marker = "", linestyle = "-")
+def plotEnergyCalib(ecData, run_number, outfolder, fitting_only = False, outfiles = []):
+    plt.errorbar(ecData.energies, ecData.peak, yerr = ecData.peak_err,
+                 marker = ".", markersize = 8, linestyle = "", color = "red")
+    plt.plot(ecData.x_pl, ecData.y_pl, marker = "", linestyle = "-")
     plt.xlabel("Energy / keV")
     plt.ylabel("# pixels hit")
     plt.title("Energy calibration function based on \# pix in Fe55 spectrum")
@@ -468,11 +499,47 @@ def fitAndPlotFeSpectrum(data, cuts, outfolder, run_number,
     else:
         plt.close()
 
+def plotEnergyCalibCharge(ecData, run_number, outfolder, fitting_only = False, outfiles = []):
+    plt.errorbar(ecData.energies, ecData.peak, yerr = ecData.peak_err,
+                 marker = ".", markersize = 8,
+                 linestyle = "", color = "red")
+    plt.plot(ecData.x_pl, ecData.y_pl, marker = "", linestyle = "-")
+    plt.xlabel("Energy / keV")
+    plt.ylabel("Total charge / 10^3 e-")
+    plt.title("Energy calibration function based on \# e^- in Fe55 spectrum")
+    plt.grid()
+    if len(outfiles) == 0:
+        outfile = os.path.join(outfolder, "XrayCalib_fe_calib_charge_{}.pdf".format(run_number))
+        plt.savefig(outfile)
+    else:
+        plt.savefig(outfiles[1])
+    if fitting_only == False:
+        plt.show()
+
+def fitAndPlotFeSpectrumCharge(data, cuts, outfolder, run_number,
+                               fitting_only = False, outfiles = []):
+    feSpec = fitFeSpectrumToCharge(data, cuts)
+
+    ecData = fitEnergyCalibCharge(feSpec)
+
+    texts = plotFeSpecCharge(feSpec, ecData, run_number, outfolder,
+                             fitting_only, outfiles)
+    plotEnergyCalibCharge(ecData, run_number, outfolder, fitting_only, outfiles)
+
     # return fit results so that we can write them to the H5 file
-    return (popt, pcov, popt_E, pcov_E)
+    return (feSpec, ecData, texts)
 
+def fitAndPlotFeSpectrum(data, cuts, outfolder, run_number,
+                         fitting_only = False, outfiles = []):
+    feSpec = fitFeSpectrum(data, cuts)
 
+    ecData = fitEnergyCalib(feSpec)
 
+    texts = plotFeSpec(feSpec, ecData, run_number, outfolder,
+                       fitting_only, outfiles)
+    plotEnergyCalib(ecData, run_number, outfolder, fitting_only, outfiles)
+    # return fit results so that we can write them to the H5 file
+    return (feSpec, ecData, texts)
 
 
 def feSpectrumFuncPixels(x, *p_ar):

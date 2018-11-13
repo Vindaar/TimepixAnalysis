@@ -695,23 +695,23 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int, createPlots = false) =
       # get bin edges by calculating charge values for all TOT values at TOT's bin edges
       #let bin_edges = mapIt(linspace(-0.5, 249.5, 251), calibrateCharge(it, a, b, c, t))
       # skip range from 0 - 1.5 to leave out noisy pixels w/ very low ToT
-      let bin_edges = mapIt(linspace(hitLow, hitHigh, binCount + 1), calibrateCharge(it, a, b, c, t))
+      var bin_edges = mapIt(linspace(hitLow, hitHigh, binCount + 1), calibrateCharge(it, a, b, c, t))
       # the histogram counts are the same for ToT values as well as for charge values,
       # so calculate for ToT
       let binned = tots.histogram(bins = binCount, range = (hitLow + 0.5, hitHigh + 0.5))
+
+      # ``NOTE: remove last element from bin_edges to have``
+      # ``bin_edges.len == binned.len``
+      bin_edges = bin_edges[0 .. ^2]
       # given binned histogram, fit polya
       let fitResult = fitPolyaPython(bin_edges,
                                      binned.asType(float64),
                                      chipNumber, runNumber,
                                      createPlots = createPlots)
       # create dataset for polya histogram
-      var polyaDset = h5f.create_dataset(group.name / "polya", (binCount + 1, 2), dtype = float64)
+      var polyaDset = h5f.create_dataset(group.name / "polya", (binCount, 2), dtype = float64)
       var polyaFitDset = h5f.create_dataset(group.name / "polyaFit", (binCount, 2), dtype = float64)
-      let polyaData = block:
-        # convert and append one element to bin content array to fill up with 0
-        var mbin = binned.asType(float64)
-        mbin.add 0.0
-        zip(bin_edges, mbin) --> map(@[it[0], it[1]])
+      let polyaData = zip(bin_edges, binned) --> map(@[it[0], it[1].float])
       let polyaFitData = zip(fitResult.x, fitResult.y) --> map(@[it[0], it[1]])
       polyaDset[polyaDset.all] = polyaData
       polyaFitDset[polyaFitDset.all] = polyaFitData
@@ -780,7 +780,7 @@ proc writeFeDset(h5f: var H5FileObj,
     feCounts = feSpec.hist.toNimSeq(float)
     feBins = feSpec.binning.toNimSeq(float)
     feFitX = feSpec.x_pl.toNimSeq(float)
-    feFitY = feSpec.x_pl.toNimSeq(float)
+    feFitY = feSpec.y_pl.toNimSeq(float)
   template createWriteDset(x, y: seq[float], name: string): untyped =
     var dset = h5f.create_dataset(group / name,
                                   (x.len, 2),

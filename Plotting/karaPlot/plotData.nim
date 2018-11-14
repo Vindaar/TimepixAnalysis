@@ -411,10 +411,12 @@ proc getFileInfo(h5f: var H5FileObj): FileInfo =
 
   # get allowed chips from toml
   let tomlConfig = parseToml.parseFile("config.toml")
-  let allowedChips = tomlConfig["General"]["allowedChips"].getElems
   var chipSet: set[uint16]
-  for el in allowedChips:
-    chipSet.incl el.getInt.uint16
+  if tomlConfig["General"].hasKey("allowedChips"):
+    let allowedChips = tomlConfig["General"]["allowedChips"].getElems
+    for el in allowedChips:
+      chipSet.incl el.getInt.uint16
+  # TODO: move elsewhere
   result.plotlySaveSvg = tomlConfig["General"]["plotlySaveSvg"].getBool
 
   for runNumber, group in runs(h5f):
@@ -425,7 +427,8 @@ proc getFileInfo(h5f: var H5FileObj): FileInfo =
       result.chips = toSeq(0 ..< nChips)#.mapIt(it)
       readAux = true
 
-  result.chips = result.chips.filterIt(it.uint16 in chipSet)
+  if chipSet.card > 0:
+    result.chips = result.chips.filterIt(it.uint16 in chipSet)
   # sort the run numbers
   result.runs.sort
   echo result

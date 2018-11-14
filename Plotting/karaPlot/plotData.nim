@@ -737,18 +737,18 @@ proc plotDates[T, U](x: seq[U], y: seq[T],
   var pltV = initPlotV(title, xlabel, ylabel, ShapeKind.Rectangle)
   case BKind
   of bPlotly:
-    let tr = Trace[T](mode: PlotMode.LinesMarkers,
+    let tr = Trace[T](mode: PlotMode.Markers,
                       `type`: PlotType.Scatter,
                       xs: x,
                       ys: y,
                       marker: Marker[float](size: @[12.0]))
     pltV.plPlot = Plot[T](layout: pltV.plLayout, traces: @[tr])
-    pltV.savePlot(outfile)
+    pltV.savePlot(outfile, fullPath = true)
   of bMpl:
     let dtm = pyImport("datetime")
     let xP = x.mapIt(dtm.datetime.utcfromtimestamp(int(it)))
     discard pltV.ax.plot_date(xP, y, label = title)
-    pltV.savePlot(outfile)
+    pltV.savePlot(outfile, fullPath = true)
   else:
     discard
 

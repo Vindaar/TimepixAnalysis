@@ -1189,11 +1189,12 @@ proc jsonDump(outfile: string) =
     svgJ[im] = % readFile(im)
 
   jdump["svg"] = svgJ
-  #echo jdump.pretty
-  #echo "\n\n\n\n"
-  #echo "plt ", plotlyJson.pretty
   jdump["plotly"] = plotlyJson
-  echo jdump.len
+
+  info "Num SVG plots: ", imageSet.card
+  info "Num Json plots: ", plotlyJson.len
+
+  info "Writing JSON file: ", outfile
   var f = open(outfile, fmWrite)
   var outstr = ""
   outstr.toUgly(jdump)

@@ -81,7 +81,7 @@ type
   PlotKind = enum
     pkInGridDset, pkFadcDset, pkPolya, pkCombPolya, pkOccupancy, pkOccCluster,
     pkFeSpec, pkEnergyCalib, pkFeSpecCharge, pkEnergyCalibCharge, pkFeVsTime,
-    pkCalibRandom, pkAnyScatter, pkMultiDset, pkInGridCluster
+    pkFePixDivChVsTime, pkCalibRandom, pkAnyScatter, pkMultiDset, pkInGridCluster
 
   BackendKind = enum
     bNone, bMpl, bPlotly
@@ -183,7 +183,10 @@ const FeSpecTitleTemplate = "Fe pixel spectrum of run $1 for chip $2"
 const FeSpecChargeTitleTemplate = "Fe charge spectrum of run $1 for chip $2"
 const EnergyCalibFnameTemplate = "fe_energy_calib_run$1"
 const PhotoVsTimeFnameTemplate = "photopeak_vs_time_runs$1"
-const PhotoVsTimeTitleTemplate = "Photopeak pix / charge of Fe spectra (runs $1) vs time"
+const PhotoVsTimeTitleTemplate = "Photopeak pixel peak position of Fe spectra (runs $1) vs time"
+const PhotoPixDivChVsTimeFnameTemplate = "photopeak_pix_div_charge_pos_vs_time_runs$1"
+const PhotoPixDivChVsTimeTitleTemplate = "Photopeak pix / charge of Fe spectra (runs $1) vs time"
+
 
 type
   CutRange = tuple[low, high: float, name: string]
@@ -773,7 +776,13 @@ proc feSpectrum(h5f: var H5FileObj, runType: RunTypeKind,
                                    runs: fileInfo.runs,
                                    chip: fileInfo.centerChip,
                                    plotKind: pkFeVsTime)
-  result.add photoVsTime
+  let phPixDivChVsTime = PlotDescriptor(runType: runType,
+                                   name: "PhotoPixDivChVsTime",
+                                   xlabel: "Time / unix",
+                                   runs: fileInfo.runs,
+                                   chip: fileInfo.centerChip,
+                                   plotKind: pkFePixDivChVsTime)
+  result.add @[photoVsTime, phPixDivChVsTime]
   #for runNumber, grpName in runs(h5f):
   #  var group = h5f[grpName.grp_str]
   #  let centerChip = h5f[group.parent.grp_str].attrs["centerChip", int]
@@ -859,6 +868,8 @@ proc buildOutfile(pd: PlotDescriptor): string =
     name = FeSpecChargeFnameTemplate % [runsStr]
   of pkFeVsTime:
     name = PhotoVsTimeFnameTemplate % [runsStr]
+  of pkFePixDivChVsTime:
+    name = PhotoPixDivChVsTimeFnameTemplate % [runsStr]
   else:
     discard
   result = "figs" / (name & ".svg")
@@ -898,6 +909,8 @@ proc buildTitle(pd: PlotDescriptor): string =
                                           $pd.chip]
   of pkFeVsTime:
     result = PhotoVsTimeTitleTemplate % [runsStr]
+  of pkFePixDivChVsTime:
+    result = PhotoPixDivChVsTimeTitleTemplate % [runsStr]
   else:
     discard
 
@@ -1057,6 +1070,31 @@ proc createPlot(h5f: var H5FileObj,
     # now add fit to the existing plot
     pltV.savePlot(result, fullPath = true)
   of pkFeVsTime:
+    const kalphaPix = 10
+    const parPrefix = "p"
+    const dateStr = "yyyy-MM-dd'.'HH:mm:ss" # example: 2017-12-04.13:39:45
+    var
+      pixSeq: seq[float]
+      dates: seq[float] #string]#Time]
+    let title = buildTitle(pd)
+    result = buildOutfile(pd)
+    for r in pd.runs:
+      let group = h5f[(recoBase & $r).grp_str]
+      let chpGrpName = group.name / "chip_" & $pd.chip
+      pixSeq.add h5f[(chpGrpName / "FeSpectrum").dset_str].attrs[
+        parPrefix & $kalphaPix, float
+      ]
+      dates.add parseTime(group.attrs["dateTime", string],
+                          dateStr,
+                          utc()).toUnix.float
+    # now plot
+    # calculate ratio and convert to string to workaround plotly limitation of
+    # only one type for Trace
+    plotDates(dates, pixSeq,
+              title = title,
+              xlabel = pd.xlabel,
+              outfile = result)
+  of pkFePixDivChVsTime:
     const kalphaPix = 10
     const kalphaCharge = 4
     const parPrefix = "p"

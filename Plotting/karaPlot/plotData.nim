@@ -1135,15 +1135,15 @@ proc createPlot(h5f: var H5FileObj,
       dates.add parseTime(group.attrs["dateTime", string],
                           dateStr,
                           utc()).toUnix.float
-      # now plot
-      # calculate ratio and convert to string to workaround plotly limitation of
-      # only one type for Trace
-      let ratio = zip(pixSeq, chSeq) --> map(it[0] / it[1])
-      plotDates(dates, ratio,
-                title = title,
-                xlabel = pd.xlabel,
-                outfile = result)
-                #ylabel = "# pix / charge in e^-")
+    # now plot
+    # calculate ratio and convert to string to workaround plotly limitation of
+    # only one type for Trace
+    let ratio = zip(pixSeq, chSeq) --> map(it[0] / it[1])
+    plotDates(dates, ratio,
+              title = title,
+              xlabel = pd.xlabel,
+              outfile = result)
+              #ylabel = "# pix / charge in e^-")
   else:
     discard
 

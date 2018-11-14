@@ -1278,7 +1278,16 @@ proc createBackgroundPlots(h5file: string,
     pds.add polya(h5f, runType, fileInfo, flags)
   # energyCalib(h5f) # ???? plot of gas gain vs charge?!
   pds.add histograms(h5f, runType, fileInfo, flags) # including fadc
-  echo pds
+
+  for p in pds:
+    let fileF = h5f.createPlot(fileInfo, p)
+    case BKind
+    of bPlotly:
+      if fileInfo.plotlySaveSvg:
+        imageSet.incl fileF
+    else: discard
+  echo "Image set is ", imageSet.card
+
   # likelihoodHistograms(h5f) # need to cut on photo peak and esc peak
   # neighborPixels(h5f)
   discard h5f.close()

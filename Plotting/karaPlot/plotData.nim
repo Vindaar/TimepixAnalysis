@@ -1165,10 +1165,11 @@ $2
   # now build pdf
   var orgStr = header % [outfile]
   for im in imageSet:
-    info &"Adding image {im}"
-    let (dir, name, ext) = im.splitFile()
-    let data = readFile(im)
-    orgStr = orgStr & tmpl % [name, data]
+    if im.len > 0:
+      info &"Adding image {im} and {im.repr}"
+      let (dir, name, ext) = im.splitFile()
+      let data = readFile(im)
+      orgStr = orgStr & tmpl % [name, data]
   var f = open(outfile, fmWrite)
   f.write(orgStr)
   f.close()

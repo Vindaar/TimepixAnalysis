@@ -844,7 +844,11 @@ func cKindStr(pd: PlotDescriptor, sep: string): string =
 
 proc buildOutfile(pd: PlotDescriptor): string =
   var name = ""
-  let runsStr = pd.runs.foldl($a & "_" & $b, "").strip(chars = {'_'})
+  var runsStr = ""
+  if pd.runs.len > 3:
+    runsStr = &"{pd.runs.min}_{pd.runs.max}"
+  else:
+    runsStr = pd.runs.foldl($a & " " & $b, "").strip(chars = {' '})
   case pd.plotKind
   of pkInGridDset:
     name = InGridFnameTemplate % [pd.name,
@@ -883,7 +887,11 @@ proc buildOutfile(pd: PlotDescriptor): string =
   result = "figs" / (name & ".svg")
 
 proc buildTitle(pd: PlotDescriptor): string =
-  let runsStr = pd.runs.foldl($a & " " & $b, "").strip(chars = {' '})
+  var runsStr = ""
+  if pd.runs.len > 3:
+    runsStr = &"{pd.runs.min}..{pd.runs.max}"
+  else:
+    runsStr = pd.runs.foldl($a & " " & $b, "").strip(chars = {' '})
   case pd.plotKind
   of pkInGridDset:
     result = InGridTitleTemplate % [pd.name,

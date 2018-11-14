@@ -580,7 +580,9 @@ proc calcOccupancy[T](x, y: seq[T]): Tensor[float] =
       for j in 0 .. xEv.high:
         result[xEv[j].int, yEv[j].int] += 1.0
     elif T is SomeFloat:
-      result[xEv.round.int, yEv.round.int] += 1.0
+      let xIdx = min(xEv.round.int, 255)
+      let yIdx = min(yEv.round.int, 255)
+      result[xIdx, yIdx] += 1.0
 
 proc plotHist2D(data: Tensor[float], title, outfile: string) = #descr: string) =
   ## creates a 2D histogram plot (basically an image) of the given 2D

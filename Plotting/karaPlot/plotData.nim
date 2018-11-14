@@ -136,6 +136,8 @@ type
     centerChip: int
     centerChipName: string
     hasFadc: bool # reads if FADC group available
+    # TODO: move the following to a CONFIG object
+    plotlySaveSvg: bool
     # NOTE: add other flags for other optional plots?
     # if e.g. FeSpec not available yet, we can just call the
     # procedure to create it for us
@@ -148,7 +150,6 @@ var imageSet = initOrderedSet[string]()
 var plotlyJson = newJObject()
 
 var ShowPlots = false
-const PlotlySaveSvg = false
 
 # let server = newAsyncHttpServer()
 
@@ -308,13 +309,16 @@ proc jsonPlotly(pltV: PlotV): JsonNode =
     warn "Unsuitable type for Json " & $(pltV.kind)
 
 proc savePlot(p: PlotV, outfile: string, fullPath = false) =
+  # TODO: move elsewhere!!!
+  let tomlConfig = parseToml.parseFile("config.toml")
+  let plotlySaveSvg = tomlConfig["General"]["plotlySaveSvg"].getBool
   var fname = outfile
   if not fullPath:
     fname = "figs" / outfile & ".svg"
   info &"Saving file: {fname}"
   case BKind
   of bPlotly:
-    if not PlotlySaveSvg:
+    if not plotlySaveSvg:
       plotlyJson[outfile] = jsonPlotly(p)
     else:
       p.plPlot.saveImage(fname)
@@ -411,6 +415,7 @@ proc getFileInfo(h5f: var H5FileObj): FileInfo =
   var chipSet: set[uint16]
   for el in allowedChips:
     chipSet.incl el.getInt.uint16
+  result.plotlySaveSvg = tomlConfig["General"]["plotlySaveSvg"].getBool
 
   for runNumber, group in runs(h5f):
     result.runs.add runNumber.parseInt
@@ -1231,7 +1236,7 @@ proc createCalibrationPlots(h5file: string,
     let fileF = h5f.createPlot(fileInfo, p)
     case BKind
     of bPlotly:
-      if PlotlySaveSvg:
+      if fileInfo.plotlySaveSvg:
         imageSet.incl fileF
     else: discard
   echo "Image set is ", imageSet.card

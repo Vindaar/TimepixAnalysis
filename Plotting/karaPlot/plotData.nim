@@ -1308,29 +1308,45 @@ $2
   shell:
     emacs `$outfile` "--batch -f org-html-export-to-html --kill"
 
-proc jsonDump(outfile: string) =
+proc clearPlots() =
+  ## clears the imageSet as well as the JsonNode for plotly
+  imageSet = initOrderedSet[string]()
+  plotlyJson = newJObject()
+
+proc jsonDump(imSet: OrderedSet[string], plotly: JsonNode): JsonNode=
+  ## combines the image set for SVGs and the Plotly JsonNode to a combined
+  ## JsonNode, which can either be sent via socket or dumped to a file
+  result = newJObject()
+  result["svg"] = newJObject()
+  var svgJ = newJObject()
+  for im in imSet:
+    svgJ[im] = % readFile(im)
+
+  result["svg"] = svgJ
+  result["plotly"] = plotly
+
+proc jsonDump(outfile = "", clear = false): string =
   ## reads either the created images from the `imageSet` and dumps them
   ## contained in a JsonNode to a file.
   ## Additionally stores the plotly plots
 
-  var jdump = newJObject()
-  jdump["svg"] = newJObject()
-  var svgJ = newJObject()
-  for im in imageSet:
-    svgJ[im] = % readFile(im)
+  let jDump = jsonDump(imageSet, plotlyJson)
 
-  jdump["svg"] = svgJ
-  jdump["plotly"] = plotlyJson
+  if outfile.len > 0:
+    info "Num SVG plots: ", imageSet.card
+    info "Num Json plots: ", plotlyJson.len
 
-  info "Num SVG plots: ", imageSet.card
-  info "Num Json plots: ", plotlyJson.len
+    info "Writing JSON file: ", outfile
+    var f = open(outfile, fmWrite)
+    var outstr = ""
+    outstr.toUgly(jdump)
+    f.write(outstr)
+    f.close()
+  else:
+    result = jdump.pretty
 
-  info "Writing JSON file: ", outfile
-  var f = open(outfile, fmWrite)
-  var outstr = ""
-  outstr.toUgly(jdump)
-  f.write(outstr)
-  f.close()
+  if clear:
+    clearPlots()
 
 proc handleOutput(basename: string, flags: set[ConfigFlagKind]) =
   ## handles output file creation. Reads the config.toml file
@@ -1353,7 +1369,7 @@ proc handleOutput(basename: string, flags: set[ConfigFlagKind]) =
     createOrg(outfile)
   of ofJson:
     outfile &= ".json"
-    jsonDump(outfile)
+    discard jsonDump(outfile)
   else:
     warn "Unsupported output file format!"
 

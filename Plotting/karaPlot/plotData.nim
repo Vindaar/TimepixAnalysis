@@ -79,9 +79,25 @@ type
 
   # enum listing all available `plot types` we can produce
   PlotKind = enum
-    pkInGridDset, pkFadcDset, pkPolya, pkCombPolya, pkOccupancy, pkOccCluster,
-    pkFeSpec, pkEnergyCalib, pkFeSpecCharge, pkEnergyCalibCharge, pkFeVsTime,
-    pkFePixDivChVsTime, pkCalibRandom, pkAnyScatter, pkMultiDset, pkInGridCluster
+    pkInGridDset           # histogram InGrid property
+    pkFadcDset             # histogram FADC property
+    pkPolya                # InGrid polya distribution
+    pkCombPolya            # combined polya of all chips
+    pkOccupancy            # Occupancy of InGrid chip
+    pkOccCluster           # Occupancy of clusters of InGrid chip
+    pkFeSpec               # Fe pixel (or different) spectrum
+    pkEnergyCalib          # Energy calibration from Fe pixel spectrum
+    pkFeSpecCharge         # Fe charge (or different) spectrum
+    pkEnergyCalibCharge    # Energy calibration from Fe charge spectrum
+    pkFeVsTime             # Evolution of Fe pix peak location vs tim
+    pkFePixDivChVsTime     # Evolution of Fe (pix peak / charge peak) location vs tim
+    pkInGridEvent          # Individual InGrid event
+    pkFadcEvent            # Individual FADC event
+    pkCalibRandom          # ? to be filled for different calibration plots
+    pkAnyScatter           # Scatter plot of some x vs. some y
+    pkMultiDset            # Plot of multiple histograms. Will be removed and replaced
+                           # by redesign of `createPlot`
+    pkInGridCluster        # superseeded by pkInGridEvent?
 
   BackendKind = enum
     bNone, bMpl, bPlotly
@@ -187,7 +203,8 @@ const PhotoVsTimeFnameTemplate = "photopeak_vs_time_runs$1"
 const PhotoVsTimeTitleTemplate = "Photopeak pixel peak position of Fe spectra (runs $1) vs time"
 const PhotoPixDivChVsTimeFnameTemplate = "photopeak_pix_div_charge_pos_vs_time_runs$1"
 const PhotoPixDivChVsTimeTitleTemplate = "Photopeak pix / charge of Fe spectra (runs $1) vs time"
-
+const InGridEventTitleTemplate = "InGrid event for run $1, chip $2, event index $3"
+const InGridEventFnameTemplate = "ingrid_event_run$1_chip$2_event$3"
 
 type
   CutRange = tuple[low, high: float, name: string]
@@ -216,6 +233,9 @@ type
         discard
     of pkCombPolya:
       chipsCP: seq[int]
+    of pkInGridEvent:
+      events: OrderedSet[int] # events to plot (indices at the moment, not event numbers)
+      event: int # the current event being plotted
     else:
       discard
 
@@ -395,6 +415,17 @@ proc read(h5f: var H5FileObj,
     else:
       # convert to subtype and reshape to dsets shape
       result = dset.convert.reshape2D(dset.shape)
+
+proc readVlen(h5f: var H5FileObj,
+              runNumber: int,
+              dsetName: string,
+              chipNumber = 0,
+              dtype: typedesc = float): seq[seq[dtype]] =
+  ## reads variable length data `dsetName` and returns it
+  ## In contrast to `read` this proc does *not* convert the data.
+  let vlenDtype = special_type(dtype)
+  let dset = h5f[(recoPath(runNumber, chipNumber).string / dsetName).dset_str]
+  result = dset[vlenDtype, dtype]
 
 proc getFileInfo(h5f: var H5FileObj): FileInfo =
   ## returns a set of all run numbers in the given file
@@ -835,6 +866,37 @@ proc feSpectrum(h5f: var H5FileObj, runType: RunTypeKind,
   #          outfile = "photopeak_vs_time")
   #          #ylabel = "# pix / charge in e^-")
 
+proc buildEvents[T, U](x, y: seq[seq[T]], ch: seq[seq[U]],
+                       events: OrderedSet[int]): Tensor[float] =
+  ## takes all events via their *indices* (not real event numbers) and returns
+  ## a (256, 256) tensor for each event
+  let nEvents = events.card
+  result = newTensor[float]([nEvents, 256, 256])
+  # TODO: add option to use real event number instead of indices
+  for i in 0 ..< nEvents:
+    if i in events:
+      let
+        xi = x[i]
+        yi = y[i]
+        chi = ch[i]
+      forZip ix in xi, iy in yi, ich in chi:
+        result[i, ix.int, iy.int] = ich.float
+
+proc createEventDisplayPlots(h5f: var H5FileObj,
+                             run: int,
+                             runType: RunTypeKind,
+                             fileInfo: FileInfo): seq[PlotDescriptor] =
+  for ch in fileInfo.chips:
+    let basePd = PlotDescriptor(runType: runType,
+                                name: "EventDisplay",
+                                xlabel: "x",
+                                ylabel: "y",
+                                runs: @[run],
+                                chip: ch,
+                                plotKind: pkInGridEvent,
+                                events: toOrderedSet(toSeq(0 .. 50)))#initOrderedSet[int]())
+    result.add basePd
+
 func cKindStr(pd: PlotDescriptor, sep: string): string =
   case pd.clampKind
   of ckAbsolute:
@@ -884,6 +946,10 @@ proc buildOutfile(pd: PlotDescriptor): string =
     name = PhotoVsTimeFnameTemplate % [runsStr]
   of pkFePixDivChVsTime:
     name = PhotoPixDivChVsTimeFnameTemplate % [runsStr]
+  of pkInGridEvent:
+    name = InGridEventFnameTemplate % [runsStr,
+                                       $pd.chip,
+                                       $pd.event]
   else:
     discard
   result = "figs" / (name & ".svg")
@@ -929,6 +995,10 @@ proc buildTitle(pd: PlotDescriptor): string =
     result = PhotoVsTimeTitleTemplate % [runsStr]
   of pkFePixDivChVsTime:
     result = PhotoPixDivChVsTimeTitleTemplate % [runsStr]
+  of pkInGridEvent:
+    result = InGridEventTitleTemplate % [runsStr,
+                                         $pd.chip,
+                                         $pd.event]
   else:
     discard
 

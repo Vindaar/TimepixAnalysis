@@ -61,3 +61,11 @@ proc getNumBinsForDset*(dset: string): Option[int] =
     result = some(50)
   else:
     result = none(int)
+
+proc getBinSizeForDset*(dset: string): Option[float] =
+  ## returns a bin size from which we can calculate the number of bins
+  ## (given a bin range) for a dataset
+  ## This can be used for more meaningful calculation of bin numbers based
+  ## on physically motivated bin widhts, e.g. a bin width of 5 pixels for
+  ## the Fe pix spectrum, 5000 electrons for Fe charge spectrum etc.
+  discard

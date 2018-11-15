@@ -45,6 +45,21 @@ proc main =
   echo "Start parsing..."
   let jData = parseJsonToJs(data) #parseJson(data)
 
+  var socket: WebSocket
+
+  if UseWS:
+    # start websocket connection
+    socket = newWebSocket("ws://localhost:8080")
+    socket.onOpen = proc (e: dom.Event) =
+      echo("sent: test")
+      socket.send("Connected!")
+    socket.onmessage = proc (e: MessageEvent) =
+      echo("received: ",e.data)
+    #  socket.close(StatusCode(1000),"received msg")
+    #socket.onclose = proc (e:CloseEvent) =
+    #  echo("closing: ",e.reason)
+
+
   for k in keys(jData):
     echo "k is ", k
 
@@ -90,19 +105,36 @@ proc main =
     else:
       idx = allKeys.high
 
+  proc fromServer(idx: int) =
+    ## request next plot from server
+    socket.send("request")
+
+  func fromServerPrev(idx: var int) {.inline.} =
+    decInRange i
+    fromServer(i)
+
+  func fromServerNext(idx: var int) {.inline.} =
+    incInRange i
+    fromServer(i)
+
   proc renderPlotly() =
     # make a plotly plot
     if i >= nSvg:
       let dd = pltPairs[pltKeys[i - nSvg]]
+      # TODO: implement a case, store last plot kind. If last plot kind is the same
+      # use react, else use newPlot
       plt.newPlot("plotly", dd["Traces"], dd["Layout"])
       let plotlyPlot = kdom.document.getElementById("plotly")
       plotlyPlot.style.visibility = "visible"
-
     else:
       # hide plot
       let plotlyPlot = kdom.document.getElementById("plotly")
       plotlyPlot.style.visibility = "hidden"
 
+  proc postRender() =
+    ## this is called after rendering via karax. First render the plotly plot
+    ## then, handle websocket
+    renderPlotly()
 
   #echo pltPairs[pltKeys[0]]
   proc render(): VNode =
@@ -163,7 +195,7 @@ proc main =
         #      #      dd["Traces"], dd["Layout"], output_type = "div")
         #      renderPlotly(plt, pltPairs[pltKeys[i - nSvg]])
 
-  setRenderer render, "ROOT", renderPlotly
+  setRenderer render, "ROOT", postRender
   setForeignNodeId "plotly"
 
 when isMainModule:

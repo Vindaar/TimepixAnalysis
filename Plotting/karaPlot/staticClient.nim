@@ -14,7 +14,8 @@ import components / [button, plotWindow, figSelect, utils]
 
 let plt = newPlotly()
 
-const data = staticRead("/home/basti/CastData/ExternCode/TimepixAnalysis/Plotting/karaPlot/calibration_cfNoFadc_cfNoPolya.json")
+const fname = "eventDisplay.json" #"calibration_cfNoInGrid_cfNoOccupancy_cfNoPolya_cfNoFeSpectrum.json" #"calibration_cfNoFadc_cfNoPolya.json"
+const data = staticRead("/home/schmidt/CastData/ExternCode/TimepixAnalysis/Plotting/karaPlot/" & $fname)
 
 #type
 #  Dropdown = object

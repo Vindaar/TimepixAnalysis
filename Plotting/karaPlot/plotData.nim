@@ -1373,6 +1373,18 @@ proc handleOutput(basename: string, flags: set[ConfigFlagKind]) =
   else:
     warn "Unsupported output file format!"
 
+proc plotsFromPds(h5f: var H5FileObj,
+                  fileInfo: FileInfo,
+                  pds: seq[PlotDescriptor]) =
+  ## calls `createPlot` for each PD and saves filename to
+  ## `imageSet` if necessary
+  for p in pds:
+    let fileF = h5f.createPlot(fileInfo, p)
+    case BKind
+    of bPlotly:
+      if fileInfo.plotlySaveSvg:
+        imageSet.incl fileF
+    else: discard
 
 proc createCalibrationPlots(h5file: string,
                             bKind: BackendKind,
@@ -1394,13 +1406,7 @@ proc createCalibrationPlots(h5file: string,
   # energyCalib(h5f) # ???? plot of gas gain vs charge?!
   pds.add histograms(h5f, runType, fileInfo, flags) # including fadc
 
-  for p in pds:
-    let fileF = h5f.createPlot(fileInfo, p)
-    case BKind
-    of bPlotly:
-      if fileInfo.plotlySaveSvg:
-        imageSet.incl fileF
-    else: discard
+  plotsFromPds(h5f, fileInfo, pds)
   echo "Image set is ", imageSet.card
 
   # likelihoodHistograms(h5f) # need to cut on photo peak and esc peak
@@ -1427,13 +1433,7 @@ proc createBackgroundPlots(h5file: string,
   # energyCalib(h5f) # ???? plot of gas gain vs charge?!
   pds.add histograms(h5f, runType, fileInfo, flags) # including fadc
 
-  for p in pds:
-    let fileF = h5f.createPlot(fileInfo, p)
-    case BKind
-    of bPlotly:
-      if fileInfo.plotlySaveSvg:
-        imageSet.incl fileF
-    else: discard
+  plotsFromPds(h5f, fileInfo, pds)
   echo "Image set is ", imageSet.card
 
   # likelihoodHistograms(h5f) # need to cut on photo peak and esc peak

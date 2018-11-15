@@ -143,11 +143,24 @@ proc main =
     #for x in jData["svg"]:
     result = buildHtml(tdiv):
       h1(text "Static karaPlot")
+      tdiv(id = "grid"):
+        tdiv:
+          renderButton("Previous",
+                       onClickProc = () => decInRange i)
+        tdiv:
+          renderButton("Next",
+                       onClickProc = () => incInRange i)
+        tdiv:
+          renderButton("EventDisplay",
+                       onClickProc = () => echo "")
+        tdiv:
+          renderButton("Previous from server",
+                       onClickProc = () => fromServerPrev(i))
+        tdiv:
+          renderButton("Next from server",
+                       onClickProc = () => fromServerNext(i))
+
       p:
-        renderButton("Previous",
-                     onClickProc = () => decInRange i)
-        renderButton("Next",
-                     onClickProc = () => incInRange i)
         br()
         text "Next: " & $i & " " & getNext(i)
         br()

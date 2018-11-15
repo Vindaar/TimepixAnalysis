@@ -31,6 +31,15 @@ const data = staticRead("/home/schmidt/CastData/ExternCode/TimepixAnalysis/Plott
 
 var i = 0
 
+when defined(client):
+  const UseWS = true
+  static:
+    echo "USING"
+else:
+  const UseWs = false
+  static:
+    echo "NOT USING"
+
 proc main =
 
   echo "Start parsing..."

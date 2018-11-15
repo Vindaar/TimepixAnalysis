@@ -1,10 +1,11 @@
 import plotly
 import os, strutils, strformat, times, sequtils, math, macros, algorithm, sets
 import options, logging, typeinfo, json
-# import websocket, asynchttpserver, asyncnet, asyncdispatch
+import websocket, asynchttpserver, asyncnet, asyncdispatch
 
 import shell
 import arraymancer
+import loopfusion
 import zero_functional
 import nimhdf5
 import seqmath
@@ -46,25 +47,28 @@ Version: $# built on: $#
 A tool to plot data from H5 files
 
 Usage:
-  plotData <H5file> [--runType=<type>] [--backend=<val>] [--no_fadc] [--no_ingrid] [options]
+  plotData <H5file> [--runType=<type>] [--eventDisplay=<run>] [--server] [--backend=<val>] [options]
 
 Options:
-  --runType=<type>    Select run type (Calib | Back | Xray)
-                      The following are parsed case insensetive:
-                      Calib = {"calib", "calibration", "c"}
-                      Back = {"back", "background", "b"}
-                      Xray = {"xray", "xrayfinger", "x"}
-  --backend=<val>     Select the plotting backend to be chosen.
-                      The followoing backends are available:
-                      Python / Matplotlib: {"python", "py", "matplotlib", "mpl"}
-                      Nim / Plotly: {"nim", "plotly"}
-  --no_fadc           If set no FADC plots will be created.
-  --no_ingrid         If set no InGrid plots will be created.
-  --no_occupancy      If set no occupancy plots will be created.
-  --no_polya          If set no polya plots will be created.
-  --no_fe_spec        If set no Fe spectrum will be created.
-  -h, --help          Show this help
-  --version           Show the version number
+  --runType=<type>       Select run type (Calib | Back | Xray)
+                         The following are parsed case insensetive:
+                         Calib = {"calib", "calibration", "c"}
+                         Back = {"back", "background", "b"}
+                         Xray = {"xray", "xrayfinger", "x"}
+  --backend=<val>        Select the plotting backend to be chosen.
+                         The followoing backends are available:
+                         Python / Matplotlib: {"python", "py", "matplotlib", "mpl"}
+                         Nim / Plotly: {"nim", "plotly"}
+  --eventDisplay=<run>   If given will show event displays of the given run.
+  --server               If flag given, will launch client and send plots individually,
+                         instead of creating all plots and dumping them.
+  --no_fadc              If set no FADC plots will be created.
+  --no_ingrid            If set no InGrid plots will be created.
+  --no_occupancy         If set no occupancy plots will be created.
+  --no_polya             If set no polya plots will be created.
+  --no_fe_spec           If set no Fe spectrum will be created.
+  -h, --help             Show this help
+  --version              Show the version number
 """
 const doc = docTmpl % [commitHash, currentDate]
 
@@ -75,7 +79,7 @@ const
 
 type
   ConfigFlagKind = enum
-    cfNone, cfNoFadc, cfNoInGrid, cfNoOccupancy, cfNoPolya, cfNoFeSpectrum
+    cfNone, cfNoFadc, cfNoInGrid, cfNoOccupancy, cfNoPolya, cfNoFeSpectrum, cfProvideServer
 
   # enum listing all available `plot types` we can produce
   PlotKind = enum
@@ -167,7 +171,8 @@ var plotlyJson = newJObject()
 
 var ShowPlots = false
 
-# let server = newAsyncHttpServer()
+var server: AsyncHttpServer
+var channel: Channel[JsonNode]
 
 # create directories, if not exist
 if not dirExists("logs"):
@@ -693,7 +698,6 @@ proc occupancies(h5f: var H5FileObj, runType: RunTypeKind,
       clampKind = ckQuantile
       clampQ = 80
     result.add @[fullPd, clampAPd, clampQPd, clusterPd, clusterClampPd]
-  echo result
 
 proc plotPolyas(h5f: var H5FileObj, group: H5Group,
                 chipNum: int, runNumber: string): seq[Trace[float]] =
@@ -1386,6 +1390,37 @@ proc plotsFromPds(h5f: var H5FileObj,
         imageSet.incl fileF
     else: discard
 
+proc serve(h5f: var H5FileObj,
+           fileInfo: FileInfo,
+           pds: seq[PlotDescriptor],
+           flags: set[ConfigFlagKind] = {}) =
+  ## serves the client
+  for p in pds:
+    for sp in createPlotIter(h5f, fileInfo, p):
+      let jData = jsonDump(imageSet, plotlyJson)
+      while not trySend(channel, jData):
+        poll(1000)
+      clearPlots()
+
+proc eventDisplay(h5file: string,
+                  run: int,
+                  runType: RunTypeKind,
+                  bKind: BackendKind,
+                  flags: set[ConfigFlagKind]) =
+  ## use as event display tool
+  var h5f = H5file(h5file, "r")
+  let fileInfo = getFileInfo(h5f)
+  let pds = createEventDisplayPlots(h5f, run, runType, fileInfo)
+
+  if cfProvideServer in flags:
+    serve(h5f, fileInfo, pds, flags)
+  else:
+    plotsFromPds(h5f, fileInfo, pds)
+    let outfile = "eventDisplay"
+    handleOutput(outfile, flags)
+
+  discard h5f.close()
+
 proc createCalibrationPlots(h5file: string,
                             bKind: BackendKind,
                             runType: RunTypeKind,
@@ -1455,6 +1490,55 @@ proc parseBackendType(backend: string): BackendKind =
   else:
     result = bNone
 
+proc cb(req: Request) {.async.} =
+  echo "Will await"
+  let (ws, error) = await verifyWebsocketRequest(req)
+  echo "Awaited"
+  if ws.isNil:
+    echo "WS negotiation failed: ", error
+    await req.respond(Http400, "Websocket negotiation failed: " & error)
+    req.client.close()
+    return
+  else:
+    # receive connection successful package
+    let (opcodeConnect, dataConnect) = await ws.readData()
+    #if dataConnect != :
+    #  echo "Received wrong packet, quit early"
+    #  return
+
+    echo "New websocket customer arrived! ", dataConnect
+  var i = 0
+
+  # send command to ANN training to start w/ training
+  #let (opcodeStart, dataStart) = await ws.readData()
+  #if dataStart == $Messages.Train:
+  #  startChannel.send(true)
+  #else:
+  # else return early
+  #echo "data received is ", dataStart
+  #return
+  #echo "Received ", dataStart
+
+  var sendData = ""
+  while true:
+    let (opcode, data) = await ws.readData()
+    # first await the packet from the connected socket, don't start training before hand
+    echo "(opcode: ", opcode, ", data length: ", data.len, ", data: ", data, ")"
+    # now given prediction and accuracy data, send it to client
+    case opcode
+    of Opcode.Text:
+      let jData = channel.recv()
+      toUgly(sendData, jData)
+      waitFor ws.sendText(sendData)
+    of Opcode.Close:
+      asyncCheck ws.close()
+      let (closeCode, reason) = extractCloseData(data)
+      echo "Socket went away, close code: ", closeCode, ", reason: ", reason
+      break
+    else:
+      echo "Unkown error: ", opcode
+
+
 proc plotData*() =
   ## the main workhorse of the server end
   let args = docopt(doc)
@@ -1462,6 +1546,7 @@ proc plotData*() =
   let h5file = $args["<H5file>"]
   let runTypeStr = $args["--runType"]
   let backendStr = $args["--backend"]
+  let evDisplayStr = $args["--eventDisplay"]
   var flags: set[ConfigFlagKind]
   if $args["--no_fadc"] == "true":
     flags.incl cfNoFadc
@@ -1473,24 +1558,39 @@ proc plotData*() =
     flags.incl cfNoPolya
   if $args["--no_fe_spec"] == "true":
     flags.incl cfNoFeSpectrum
+  if $args["--server"] == "true":
+    flags.incl cfProvideServer
+
   info &"Flags are:\n  {flags}"
+
+  if cfProvideServer in flags:
+    # set up the server and launch the client
+    server = newAsyncHttpServer()
+    channel.open(1)
+    shell:
+      ./karaRun "-r --css --d:client staticClient.nim"
+    asyncCheck server.serve(Port(8080), cb)
 
   var runType: RunTypeKind
   var bKind: BackendKind
+  var evDisplayRun: int
   if runTypeStr != "nil":
     runType = parseRunType(runTypeStr)
   if backendStr != "nil":
     BKind = parseBackendType(backendStr)
-
-  case runType
-  of rtCalibration:
-    createCalibrationPlots(h5file, bKind, runType, flags)
-  of rtBackground:
-    createBackgroundPlots(h5file, bKind, runType, flags)
-  of rtXrayFinger:
-    createXrayFingerPlots(bKind, flags)
+  if evDisplayStr != "nil":
+    evDisplayRun = parseInt(evDisplayStr)
+    eventDisplay(h5file, evDisplayRun, runType, BKind, flags)
   else:
-    discard
+    case runType
+    of rtCalibration:
+      createCalibrationPlots(h5file, bKind, runType, flags)
+    of rtBackground:
+      createBackgroundPlots(h5file, bKind, runType, flags)
+    of rtXrayFinger:
+      createXrayFingerPlots(bKind, flags)
+    else:
+      discard
 
 # proc cb(req: Request) {.async.} =
 #   echo "cb"

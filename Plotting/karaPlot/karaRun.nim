@@ -68,6 +68,17 @@ const
       width: 100%;
   }
 
+  #grid {
+      grid-column-gap: 20px;
+  }
+  #grid {
+      display: grid;
+      height: 100px;
+      grid-template-columns: repeat(10, 1fr);
+      grid-template-rows: 100px;
+      column-gap: 20px;
+  }
+
   .dropdown a:hover {background-color: #ddd;}
 
   .show {display: block;}
@@ -102,6 +113,9 @@ proc main =
       of "css":
         selectedCss = css
         rest = rest.replace("--css ")
+      of "file":
+        # set the file to be loaded
+        rest = rest.replace("--file ")
       else: discard
     of cmdShortOption:
       if op.key == "r":

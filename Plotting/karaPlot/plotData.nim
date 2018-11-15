@@ -1057,165 +1057,226 @@ proc readPlotFit(h5f: var H5FileObj, pd: PlotDescriptor):
       countsFitFull = countsFit
   result = (lastBins, countsFull, lastBinsFit, countsFitFull)
 
-proc createPlot(h5f: var H5FileObj,
-                fileInfo: FileInfo,
-                pd: PlotDescriptor): string =
+proc handleInGridDset(h5f: var H5FileObj,
+                      fileInfo: FileInfo,
+                      pd: PlotDescriptor): string =
+  let ranges = @[pd.range]
+  var allData: seq[float]
+  for r in pd.runs:
+    let data = h5f.read(r, pd.name, pd.chip, dtype = float)
+    # perform cut on range
+    let group = h5f[recoPath(r, pd.chip)]
+    let idx = cutOnProperties(h5f, group,
+                    ("energyFromCharge", pd.range[0], pd.range[1]))
+    allData.add idx.mapIt(data[it])
+  result = buildOutfile(pd)
+  let title = buildTitle(pd)
+  plotHist(@[allData], title, pd.name, result)
+
+proc handleFadcDset(h5f: var H5FileObj,
+                    fileInfo: FileInfo,
+                    pd: PlotDescriptor): string =
+  # get the center chip group
+  var allData: seq[float]
+  for r in pd.runs:
+    let group = h5f[recoPath(r, fileInfo.centerChip)]
+    let idx = cutOnProperties(h5f, group,
+                  ("energyFromCharge", pd.range[0], pd.range[1]))
+    let evNumInGrid = h5f.read(r, "eventNumber", fileInfo.centerChip, dtype = int)
+    # filter out correct indices passing cuts
+    var inGridSet = initSet[int]()
+    for i in idx:
+      inGridSet.incl evNumInGrid[i]
+    let evNumFadc = h5f.read(r, "eventNumber", isFadc = true, dtype = int) # [group.name / "eventNumber", int]
+    let idxFadc = (toSeq(0 .. evNumFadc.high)) --> filter(evNumFadc[it] in inGridSet)
+    let data = h5f.read(r, pd.name, pd.chip, isFadc = true, dtype = float)
+    allData.add idxFadc --> map(data[it])
+  result = buildOutfile(pd)
+  let title = buildTitle(pd)
+  plotHist(@[allData], title, pd.name, result)
+
+proc handleOccupancy(h5f: var H5FileObj,
+                     fileInfo: FileInfo,
+                     pd: PlotDescriptor): string =
+  # get x and y datasets, stack and get occupancies
+  let vlenDtype = special_type(uint8)
+  var occFull = newTensor[float]([256, 256])
+  for r in pd.runs:
+    let
+      x = h5f.readVlen(r, "x", dtype = uint8)
+      y = h5f.readVlen(r, "y", dtype = uint8)
+    let occ = clampedOccupancy(x, y, pd)
+    # stack this run onto the full data tensor
+    occFull = occFull .+ occ
+  let title = buildTitle(pd)
+  result= buildOutfile(pd)
+  plotHist2D(occFull, title, result)
+
+proc handleOccCluster(h5f: var H5FileObj,
+                      fileInfo: FileInfo,
+                      pd: PlotDescriptor): string =
+  # plot center positions
+  var occFull = newTensor[float]([256, 256])
+  for r in pd.runs:
+    let
+      group = h5f[recoPath(r, pd.chip)]
+      # get centers and rescale to 256 max value
+      centerX = h5f[(group.name / "centerX"), float].mapIt(it * 256.0 / 14.0)
+      centerY = h5f[(group.name / "centerY"), float].mapIt(it * 256.0 / 14.0)
+    let occ = clampedOccupancy(centerX, centerY, pd)
+    # stack this run onto the full data tensor
+    occFull = occFull .+ occ
+  let title = buildTitle(pd)
+  result = buildOutfile(pd)
+  plotHist2D(occFull, title, result)
+
+proc handleBarScatter(h5f: var H5FileObj,
+                      fileInfo: FileInfo,
+                      pd: PlotDescriptor): string =
+  let (bins, counts, binsFit, countsFit) = h5f.readPlotFit(pd)
+  let xlabel = pd.xlabel
+  let title = buildTitle(pd)
+  result = buildOutfile(pd)
+  var pltV = plotBar(@[bins], @[counts], title, xlabel, @[title], result)
+  # now add fit to the existing plot
+  let nameFit = &"Fit of chip {pd.chip}"
+  pltV.plotScatter(binsFit, countsFit, nameFit, result)
+
+proc handleCombPolya(h5f: var H5FileObj,
+                     fileInfo: FileInfo,
+                     pd: PlotDescriptor): string =
+  var
+    binsSeq: seq[seq[float]]
+    countsSeq: seq[seq[float]]
+    dsets: seq[string]
+  let title = buildTitle(pd)
+  result = buildOutfile(pd)
+  for ch in pd.chipsCP:
+    # get a local PlotDescriptor, which has this chip number
+    let localPd = block:
+      var tmp = pd
+      tmp.chip = ch
+      tmp
+    let (bins, counts, binsFit, countsFit) = h5f.readPlotFit(localPd)
+    binsSeq.add bins
+    countsSeq.add counts
+    dsets.add "Chip " & $ch
+  let xlabel = "Number of electrons"
+  var pltV = plotBar(binsSeq, countsSeq, title, xlabel, dsets, result)
+  # now add fit to the existing plot
+  pltV.savePlot(result, fullPath = true)
+
+proc handleFeVsTime(h5f: var H5FileObj,
+                    fileInfo: FileInfo,
+                    pd: PlotDescriptor): string =
+  const kalphaPix = 10
+  const parPrefix = "p"
+  const dateStr = "yyyy-MM-dd'.'HH:mm:ss" # example: 2017-12-04.13:39:45
+  var
+    pixSeq: seq[float]
+    dates: seq[float] #string]#Time]
+  let title = buildTitle(pd)
+  result = buildOutfile(pd)
+  for r in pd.runs:
+    let group = h5f[(recoBase & $r).grp_str]
+    let chpGrpName = group.name / "chip_" & $pd.chip
+    pixSeq.add h5f[(chpGrpName / "FeSpectrum").dset_str].attrs[
+      parPrefix & $kalphaPix, float
+    ]
+    dates.add parseTime(group.attrs["dateTime", string],
+                        dateStr,
+                        utc()).toUnix.float
+  # now plot
+  # calculate ratio and convert to string to workaround plotly limitation of
+  # only one type for Trace
+  plotDates(dates, pixSeq,
+            title = title,
+            xlabel = pd.xlabel,
+            outfile = result)
+
+proc handleFePixDivChVsTime(h5f: var H5FileObj,
+                            fileInfo: FileInfo,
+                            pd: PlotDescriptor): string =
+  const kalphaPix = 10
+  const kalphaCharge = 4
+  const parPrefix = "p"
+  const dateStr = "yyyy-MM-dd'.'HH:mm:ss" # example: 2017-12-04.13:39:45
+  var
+    pixSeq: seq[float]
+    chSeq: seq[float]
+    dates: seq[float] #string]#Time]
+  let title = buildTitle(pd)
+  result = buildOutfile(pd)
+  for r in pd.runs:
+    let group = h5f[(recoBase & $r).grp_str]
+    let chpGrpName = group.name / "chip_" & $pd.chip
+    pixSeq.add h5f[(chpGrpName / "FeSpectrum").dset_str].attrs[
+      parPrefix & $kalphaPix, float
+    ]
+    chSeq.add h5f[(chpGrpName / "FeSpectrumCharge").dset_str].attrs[
+      parPrefix & $kalphaCharge, float
+    ]
+    dates.add parseTime(group.attrs["dateTime", string],
+                        dateStr,
+                        utc()).toUnix.float
+  # now plot
+  # calculate ratio and convert to string to workaround plotly limitation of
+  # only one type for Trace
+  let ratio = zip(pixSeq, chSeq) --> map(it[0] / it[1])
+  plotDates(dates, ratio,
+            title = title,
+            xlabel = pd.xlabel,
+            outfile = result)
+            #ylabel = "# pix / charge in e^-")
+
+iterator createPlotIter(h5f: var H5FileObj,
+                        fileInfo: FileInfo,
+                        pd: PlotDescriptor): string =
   ## creates a plot of kind `plotKind` for the data from all runs in `runs`
   ## for chip `chip`
   case pd.plotKind
   of pkInGridDset:
-    let ranges = @[pd.range]
-    var allData: seq[float]
-    for r in pd.runs:
-      let data = h5f.read(r, pd.name, pd.chip, dtype = float)
-      # perform cut on range
-      let group = h5f[recoPath(r, pd.chip)]
-      let idx = cutOnProperties(h5f, group,
-                      ("energyFromCharge", pd.range[0], pd.range[1]))
-      allData.add idx.mapIt(data[it])
-    result = buildOutfile(pd)
-    let title = buildTitle(pd)
-    plotHist(@[allData], title, pd.name, result)
+    yield handleInGridDset(h5f, fileInfo, pd)
   of pkFadcDset:
-    # get the center chip group
-    var allData: seq[float]
-    for r in pd.runs:
-      let group = h5f[recoPath(r, fileInfo.centerChip)]
-      let idx = cutOnProperties(h5f, group,
-                    ("energyFromCharge", pd.range[0], pd.range[1]))
-      let evNumInGrid = h5f.read(r, "eventNumber", fileInfo.centerChip, dtype = int)
-      # filter out correct indices passing cuts
-      var inGridSet = initSet[int]()
-      for i in idx:
-        inGridSet.incl evNumInGrid[i]
-      let evNumFadc = h5f.read(r, "eventNumber", isFadc = true, dtype = int) # [group.name / "eventNumber", int]
-      let idxFadc = (toSeq(0 .. evNumFadc.high)) --> filter(evNumFadc[it] in inGridSet)
-      let data = h5f.read(r, pd.name, pd.chip, isFadc = true, dtype = float)
-      allData.add idxFadc --> map(data[it])
-    result = buildOutfile(pd)
-    let title = buildTitle(pd)
-    plotHist(@[allData], title, pd.name, result)
+    yield handleFadcDset(h5f, fileInfo, pd)
   of pkOccupancy:
-    # get x and y datasets, stack and get occupancies
-    let vlenDtype = special_type(uint8)
-    var occFull = newTensor[float]([256, 256])
-    for r in pd.runs:
-      let
-        group = h5f[recoPath(r, pd.chip)]
-        xGroup = h5f[(group.name / "x").dset_str]
-        yGroup = h5f[(group.name / "y").dset_str]
-        x = xGroup[vlenDtype, uint8]
-        y = yGroup[vlenDtype, uint8]
-      let occ = clampedOccupancy(x, y, pd)
-      # stack this run onto the full data tensor
-      occFull = occFull .+ occ
-    let title = buildTitle(pd)
-    result = buildOutfile(pd)
-    plotHist2D(occFull, title, result)
+    yield handleOccupancy(h5f, fileInfo, pd)
   of pkOccCluster:
-    # plot center positions
-    var occFull = newTensor[float]([256, 256])
+    yield handleOccCluster(h5f, fileInfo, pd)
+  of pkPolya, pkFeSpec, pkFeSpecCharge:
+    yield handleBarScatter(h5f, fileInfo, pd)
+  of pkCombPolya:
+    yield handleCombPolya(h5f, fileInfo, pd)
+  of pkFeVsTime:
+    yield handleFeVsTime(h5f, fileInfo, pd)
+  of pkFePixDivChVsTime:
+    yield handleFePixDivChVsTime(h5f, fileInfo, pd)
+  of pkInGridEvent:
+    # TODO: make this into a call to an `InGridEventIterator`
     for r in pd.runs:
       let
-        group = h5f[recoPath(r, pd.chip)]
-        # get centers and rescale to 256 max value
-        centerX = h5f[(group.name / "centerX"), float].mapIt(it * 256.0 / 14.0)
-        centerY = h5f[(group.name / "centerY"), float].mapIt(it * 256.0 / 14.0)
-      let occ = clampedOccupancy(centerX, centerY, pd)
-      # stack this run onto the full data tensor
-      occFull = occFull .+ occ
-    let title = buildTitle(pd)
-    result = buildOutfile(pd)
-    plotHist2D(occFull, title, result)
-  of pkPolya, pkFeSpec, pkFeSpecCharge:
-    let (bins, counts, binsFit, countsFit) = h5f.readPlotFit(pd)
-    let xlabel = pd.xlabel
-    let title = buildTitle(pd)
-    result = buildOutfile(pd)
-    var pltV = plotBar(@[bins], @[counts], title, xlabel, @[title], result)
-    # now add fit to the existing plot
-    let nameFit = &"Fit of chip {pd.chip}"
-    pltV.plotScatter(binsFit, countsFit, nameFit, result)
-  of pkCombPolya:
-    var
-      binsSeq: seq[seq[float]]
-      countsSeq: seq[seq[float]]
-      dsets: seq[string]
-    let title = buildTitle(pd)
-    result = buildOutfile(pd)
-    for ch in pd.chipsCP:
-      # get a local PlotDescriptor, which has this chip number
-      let localPd = block:
-        var tmp = pd
-        tmp.chip = ch
-        tmp
-      let (bins, counts, binsFit, countsFit) = h5f.readPlotFit(localPd)
-      binsSeq.add bins
-      countsSeq.add counts
-      dsets.add "Chip " & $ch
-    let xlabel = "Number of electrons"
-    var pltV = plotBar(binsSeq, countsSeq, title, xlabel, dsets, result)
-    # now add fit to the existing plot
-    pltV.savePlot(result, fullPath = true)
-  of pkFeVsTime:
-    const kalphaPix = 10
-    const parPrefix = "p"
-    const dateStr = "yyyy-MM-dd'.'HH:mm:ss" # example: 2017-12-04.13:39:45
-    var
-      pixSeq: seq[float]
-      dates: seq[float] #string]#Time]
-    let title = buildTitle(pd)
-    result = buildOutfile(pd)
-    for r in pd.runs:
-      let group = h5f[(recoBase & $r).grp_str]
-      let chpGrpName = group.name / "chip_" & $pd.chip
-      pixSeq.add h5f[(chpGrpName / "FeSpectrum").dset_str].attrs[
-        parPrefix & $kalphaPix, float
-      ]
-      dates.add parseTime(group.attrs["dateTime", string],
-                          dateStr,
-                          utc()).toUnix.float
-    # now plot
-    # calculate ratio and convert to string to workaround plotly limitation of
-    # only one type for Trace
-    plotDates(dates, pixSeq,
-              title = title,
-              xlabel = pd.xlabel,
-              outfile = result)
-  of pkFePixDivChVsTime:
-    const kalphaPix = 10
-    const kalphaCharge = 4
-    const parPrefix = "p"
-    const dateStr = "yyyy-MM-dd'.'HH:mm:ss" # example: 2017-12-04.13:39:45
-    var
-      pixSeq: seq[float]
-      chSeq: seq[float]
-      dates: seq[float] #string]#Time]
-    let title = buildTitle(pd)
-    result = buildOutfile(pd)
-    for r in pd.runs:
-      let group = h5f[(recoBase & $r).grp_str]
-      let chpGrpName = group.name / "chip_" & $pd.chip
-      pixSeq.add h5f[(chpGrpName / "FeSpectrum").dset_str].attrs[
-        parPrefix & $kalphaPix, float
-      ]
-      chSeq.add h5f[(chpGrpName / "FeSpectrumCharge").dset_str].attrs[
-        parPrefix & $kalphaCharge, float
-      ]
-      dates.add parseTime(group.attrs["dateTime", string],
-                          dateStr,
-                          utc()).toUnix.float
-    # now plot
-    # calculate ratio and convert to string to workaround plotly limitation of
-    # only one type for Trace
-    let ratio = zip(pixSeq, chSeq) --> map(it[0] / it[1])
-    plotDates(dates, ratio,
-              title = title,
-              xlabel = pd.xlabel,
-              outfile = result)
-              #ylabel = "# pix / charge in e^-")
+        x = h5f.readVlen(r, "x", dtype = uint8)
+        y = h5f.readVlen(r, "y", dtype = uint8)
+        ch = h5f.readVlen(r, "ToT", dtype = uint16)
+      var pdCurrent = pd
+      if pdCurrent.events.card == 0:
+        pdCurrent.events = toOrderedSet(toSeq(0 .. x.high))
+      let ev = buildEvents(x, y, ch, pdCurrent.events)
+      for i in pdCurrent.events.items:
+        pdCurrent.event = i
+        let title = buildTitle(pdCurrent)
+        var outfile = buildOutfile(pdCurrent)
+        plotHist2D(ev[i,_,_].squeeze.clone, title, outfile)
+        yield outfile
   else:
     discard
+
+proc createPlot(h5f: var H5FileObj,
+                fileInfo: FileInfo,
+                pd: PlotDescriptor): string =
+  ## wrapper around the iterator, which simply returns the strings
+  for p in createPlotIter(h5f, fileInfo, pd):
+    result = p
 
 proc createOrg(outfile: string) =
   ## creates a simple org file consisting of headings and images

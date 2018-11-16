@@ -11,11 +11,15 @@ include karax / prelude
 import karax / [kdom, vstyles]
 
 import components / [button, plotWindow, figSelect, utils]
+import protocol
 
 let plt = newPlotly()
 
-const fname = "eventDisplay.json" #"calibration_cfNoInGrid_cfNoOccupancy_cfNoPolya_cfNoFeSpectrum.json" #"calibration_cfNoFadc_cfNoPolya.json"
-const data = staticRead("/home/schmidt/CastData/ExternCode/TimepixAnalysis/Plotting/karaPlot/" & $fname)
+# include the following containing the path of the file we wish
+# to read
+include resources/data_input
+#const fname = "eventDisplay.json" #"calibration_cfNoInGrid_cfNoOccupancy_cfNoPolya_cfNoFeSpectrum.json" #"calibration_cfNoFadc_cfNoPolya.json"
+const data = staticRead(fname)
 
 #type
 #  Dropdown = object

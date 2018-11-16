@@ -102,6 +102,8 @@ proc getCalibVsGasGainFactors*(chipName: string): (float, float) =
 
 proc inDatabase*(chipName: string): bool =
   ## used to check whether a chip is contained in the InGridDatabase
+  if chipName == SrsDefaultChipName:
+    return false
   withDatabase:
     h5f.visitFile()
     result = chipNameToGroup(chipName) in h5f

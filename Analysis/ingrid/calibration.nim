@@ -617,9 +617,14 @@ proc applyChargeCalibration*(h5f: var H5FileObj, runNumber: int) =
       # get the chip number from the attributes of the group
       let chipNumber = group.attrs["chipNumber", int]
       let chipName = group.attrs["chipName", string]
-      if not inDatabase(chipName):
-        raise newException(KeyError, &"No entry for chip {chipName} in InGrid " &
-          "database!")
+      try:
+        # `contains` calls `parseChipName`, which might throw a ValueError
+        if not inDatabase(chipName):
+          raise newException(KeyError, &"No entry for chip {chipName} in InGrid " &
+            "database!")
+      except ValueError as e:
+          raise newException(KeyError, &"No entry for chip {chipName} in InGrid " &
+            "database!")
 
       # get dataset of hits
       let

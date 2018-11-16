@@ -997,7 +997,7 @@ proc processSrsEventScanf*(data: seq[string]): ref SrsEvent =
     # once we're done with all pixels, add chip header
     # now we are reading the last hit, process chip header and pixels
     var ch_event = ChipEvent()
-    ch_event.chip = ("SRS Chip", parseInt(c_header["chipNumber"]))
+    ch_event.chip = (SrsDefaultChipName, parseInt(c_header["chipNumber"]))
     ch_event.pixels = pixels
     # add  the chip event object to the sequence
     chips.add(ch_event)

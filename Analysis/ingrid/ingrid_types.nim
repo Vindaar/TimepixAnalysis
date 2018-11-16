@@ -220,7 +220,7 @@ const SrsRunIncompleteMsg* = "This run does not contain a run.txt and so " &
   "is incomplete!"
 const SrsNoChipId* = "ChipIDMissing"
 const SrsNoChipIdMsg* = "The chip IDs are missing from the run.txt. Old format!"
-
+const SrsDefaultChipName* = "SRS Chip"
 
 # the following will not be available, if the `-d:pure` flag is set,
 # to allow importing the rest of the types, without a `arraymancer`

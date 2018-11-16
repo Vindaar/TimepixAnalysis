@@ -55,17 +55,10 @@ proc main =
     # start websocket connection
     socket = newWebSocket("ws://localhost:8080")
     socket.onOpen = proc (e: dom.Event) =
-      echo("sent: test")
-      socket.send("Connected!")
-    socket.onmessage = proc (e: MessageEvent) =
-      echo("received: ",e.data)
-    #  socket.close(StatusCode(1000),"received msg")
+      echo("sent: Connected!")
+      socket.send($Messages.Connected)
     #socket.onclose = proc (e:CloseEvent) =
     #  echo("closing: ",e.reason)
-
-
-  for k in keys(jData):
-    echo "k is ", k
 
   echo toString(jData)
   echo "...parsed"
@@ -76,14 +69,13 @@ proc main =
   let allKeys = concat(svgKeys, pltKeys)
   let nSvg = svgKeys.len
   let nPlots = svgKeys.len + pltKeys.len
+  var packet = initDataPacket()
   for k in keys(svgPairs):
      echo k
 
   for k in keys(pltPairs):
      echo k
   var i = 0
-  #plt.plot("plot0", pltPairs[pltKeys[0]]["Traces"],
-  #         pltPairs[pltKeys[0]]["Layout"])
 
   template getNext(idx: int): kstring =
     if idx + 1 < allKeys.len:
@@ -109,9 +101,17 @@ proc main =
     else:
       idx = allKeys.high
 
+  #func recv() =
+
+
   proc fromServer(idx: int) =
     ## request next plot from server
-    socket.send("request")
+    debugecho "Sent: request"
+    socket.send($Messages.Request)
+    #socket.onMessage = proc (e: MessageEvent) =
+    #  echo "receving"
+    #  echo("received: ",e.data)
+
 
   func fromServerPrev(idx: var int) {.inline.} =
     decInRange i
@@ -135,10 +135,35 @@ proc main =
       let plotlyPlot = kdom.document.getElementById("plotly")
       plotlyPlot.style.visibility = "hidden"
 
+  proc finished(packet: DataPacket): bool =
+    result = not packet.recvData and packet.done
+
+  proc handleData(packet: var DataPacket, s: kstring) =
+    if s == $Messages.DataStart:
+      packet.recvData = true
+      echo "Receving data now!"
+    else:
+      if packet.recvData:
+        if s == $Messages.DataStop:
+          echo "Data done! ", packet.data.len
+          packet.done = true
+          packet.recvData = false
+        else:
+          packet.data &= s
+          echo "Got ", s.len, " bytes, now total ", packet.data.len
+
+    if packet.finished:
+      echo "Is ", packet.data
+
   proc postRender() =
     ## this is called after rendering via karax. First render the plotly plot
     ## then, handle websocket
     renderPlotly()
+    var din {.global.}: string = ""
+    socket.onMessage = proc (e: MessageEvent) =
+      packet.handleData(e.data)
+    if packet.finished:
+      packet = initDataPacket()
 
   #echo pltPairs[pltKeys[0]]
   proc render(): VNode =
@@ -178,14 +203,12 @@ proc main =
              class = "dropdown-content"):
           var idx = 0
           for k in keys(svgPairs):
-            echo "K is ", k, " idx " , idx
             p:
               renderFigSelect($k,
                               idx,
                               onClickProc = (event: kdom.Event, node: VNode) => (i = node.id.parseInt))
             inc idx
           for k in keys(pltPairs):
-            echo "K is ", k, " idx " , idx
             p:
               renderFigSelect($k,
                               idx,
@@ -200,17 +223,6 @@ proc main =
         # create `div` for the plotly Plot
         tdiv(id = "plotly",
              class = "plot-style")
-        #style = style(StyleAttr.width, kstring"60%"))
-        #else:
-        #  iframe:
-        #    #let el = kdom.document.getElementById("plot0")
-        #    let dd = pltPairs[pltKeys[i - nSvg]]
-        #    # echo el.repr
-        #    # verbatim("<div id='plot0'></div>")
-        #      #tdiv(id = "plot0")
-        #      #react(plt, "plot0",
-        #      #      dd["Traces"], dd["Layout"], output_type = "div")
-        #      renderPlotly(plt, pltPairs[pltKeys[i - nSvg]])
 
   setRenderer render, "ROOT", postRender
   setForeignNodeId "plotly"

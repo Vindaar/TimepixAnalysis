@@ -21,6 +21,7 @@ import ingrid/tos_helpers
 import ingrid/calibration
 import helpers/utils
 import ingridDatabase / [databaseDefinitions, databaseRead]
+import protocol
 
 type
   # for clarity define a type for the Docopt argument table
@@ -171,7 +172,6 @@ var plotlyJson = newJObject()
 
 var ShowPlots = false
 
-var server: AsyncHttpServer
 var channel: Channel[JsonNode]
 
 # create directories, if not exist
@@ -1399,7 +1399,9 @@ proc serve(h5f: var H5FileObj,
     for sp in createPlotIter(h5f, fileInfo, p):
       let jData = jsonDump(imageSet, plotlyJson)
       while not trySend(channel, jData):
-        poll(1000)
+        echo "DataThread: sleep..."
+        sleep(500)
+      info "Clear plots"
       clearPlots()
 
 proc eventDisplay(h5file: string,
@@ -1490,7 +1492,21 @@ proc parseBackendType(backend: string): BackendKind =
   else:
     result = bNone
 
-proc cb(req: Request) {.async.} =
+proc sendDataPacket(ws: AsyncWebSocket, data: JsonNode) =
+  var sendData = ""
+  toUgly(sendData, data)
+  echo "Sending data of len: ", sendData.len
+  waitFor ws.sendText($Messages.DataStart)
+  # split into several parts (potentially)
+  let nParts = ceil(sendData.len.float / FakeFrameSize.float).int
+  for i in 0 ..< nParts:
+    let i_start = i * FakeFrameSize
+    let i_stop = min((i + 1) * FakeFrameSize, sendData.len)
+    let dPart = sendData[i_start ..< i_stop]
+    waitFor ws.sendText(dPart)
+  waitFor ws.sendText($Messages.DataStop)
+
+proc processClient(req: Request) {.async.} =
   echo "Will await"
   let (ws, error) = await verifyWebsocketRequest(req)
   echo "Awaited"
@@ -1501,43 +1517,44 @@ proc cb(req: Request) {.async.} =
     return
   else:
     # receive connection successful package
+    echo "reading"
     let (opcodeConnect, dataConnect) = await ws.readData()
-    #if dataConnect != :
-    #  echo "Received wrong packet, quit early"
-    #  return
-
+    if dataConnect != $Messages.Connected:
+      echo "Received wrong packet, quit early"
+      return
     echo "New websocket customer arrived! ", dataConnect
   var i = 0
 
-  # send command to ANN training to start w/ training
-  #let (opcodeStart, dataStart) = await ws.readData()
-  #if dataStart == $Messages.Train:
-  #  startChannel.send(true)
-  #else:
-  # else return early
-  #echo "data received is ", dataStart
-  #return
-  #echo "Received ", dataStart
-
-  var sendData = ""
   while true:
     let (opcode, data) = await ws.readData()
     # first await the packet from the connected socket, don't start training before hand
-    echo "(opcode: ", opcode, ", data length: ", data.len, ", data: ", data, ")"
+    echo "(opcode: ", opcode, ", data length: ", data.len
     # now given prediction and accuracy data, send it to client
+    if data != $Messages.Request:
+      warn "Client sent wrong request! Msg: " & data
+
     case opcode
-    of Opcode.Text:
+    of Opcode.Text, Opcode.Cont:
+      echo "Receiving channel"
       let jData = channel.recv()
-      toUgly(sendData, jData)
-      waitFor ws.sendText(sendData)
+      ws.sendDataPacket(jData)
     of Opcode.Close:
       asyncCheck ws.close()
       let (closeCode, reason) = extractCloseData(data)
       echo "Socket went away, close code: ", closeCode, ", reason: ", reason
+      req.client.close()
       break
     else:
       echo "Unkown error: ", opcode
 
+proc serve() =
+  var server: AsyncHttpServer
+  server = newAsyncHttpServer()
+  channel.open(1)
+  shell:
+    ./karaRun "--d:client staticClient.nim"
+  while true:
+    waitFor server.serve(Port(8080), processClient)
 
 proc plotData*() =
   ## the main workhorse of the server end
@@ -1565,11 +1582,9 @@ proc plotData*() =
 
   if cfProvideServer in flags:
     # set up the server and launch the client
-    server = newAsyncHttpServer()
-    channel.open(1)
-    shell:
-      ./karaRun "-r --css --d:client staticClient.nim"
-    asyncCheck server.serve(Port(8080), cb)
+    # create and run the websocket server
+    var thr: Thread[void]
+    thr.createThread(serve)
 
   var runType: RunTypeKind
   var bKind: BackendKind
@@ -1591,6 +1606,8 @@ proc plotData*() =
       createXrayFingerPlots(bKind, flags)
     else:
       discard
+
+  runForever()
 
 # proc cb(req: Request) {.async.} =
 #   echo "cb"

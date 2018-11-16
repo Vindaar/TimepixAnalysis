@@ -170,6 +170,8 @@ var BKind: BackendKind = bNone
 var imageSet = initOrderedSet[string]()
 var plotlyJson = newJObject()
 
+const NPix = 256
+
 var ShowPlots = false
 
 var channel: Channel[JsonNode]
@@ -606,7 +608,7 @@ proc calcOccupancy[T](x, y: seq[T]): Tensor[float] =
   ## Either for a `seq[seq[T: SomeInteger]]` in which case we're calculating
   ## the occupancy of a raw clusters or `seq[T: SomeFloat]` in which case
   ## we're dealing with center positions of clusters
-  result = newTensor[float]([256, 256])
+  result = newTensor[float]([NPix, NPix])
   # iterate over events
   for i in 0 .. x.high:
     let
@@ -629,11 +631,11 @@ proc plotHist2D(data: Tensor[float], title, outfile: string) = #descr: string) =
   of bPlotly:
     let tr = Trace[float](`type`: PlotType.HeatMap,
                       colormap: ColorMap.Viridis,
-                      zs: data.toRawSeq.reshape2D([256, 256]))
+                      zs: data.toRawSeq.reshape2D([NPix, NPix]))
     pltV.plPlot = Plot[float](layout: pltV.plLayout, traces: @[tr])
     pltV.savePlot(outfile, fullPath = true)
   of bMpl:
-    discard pltV.plt.imshow(data.toRawSeq.reshape([256, 256]),
+    discard pltV.plt.imshow(data.toRawSeq.reshape2D([NPix, NPix]),
                        cmap = "viridis")
     discard pltV.plt.colorbar()
     pltV.savePlot(outfile, fullPath = true)
@@ -875,7 +877,7 @@ proc buildEvents[T, U](x, y: seq[seq[T]], ch: seq[seq[U]],
   ## takes all events via their *indices* (not real event numbers) and returns
   ## a (256, 256) tensor for each event
   let nEvents = events.card
-  result = newTensor[float]([nEvents, 256, 256])
+  result = newTensor[float]([nEvents, NPi, NPix])
   # TODO: add option to use real event number instead of indices
   for i in 0 ..< nEvents:
     if i in events:
@@ -1104,7 +1106,7 @@ proc handleOccupancy(h5f: var H5FileObj,
                      pd: PlotDescriptor): string =
   # get x and y datasets, stack and get occupancies
   let vlenDtype = special_type(uint8)
-  var occFull = newTensor[float]([256, 256])
+  var occFull = newTensor[float]([NPix, NPix])
   for r in pd.runs:
     let
       x = h5f.readVlen(r, "x", dtype = uint8)
@@ -1120,13 +1122,13 @@ proc handleOccCluster(h5f: var H5FileObj,
                       fileInfo: FileInfo,
                       pd: PlotDescriptor): string =
   # plot center positions
-  var occFull = newTensor[float]([256, 256])
+  var occFull = newTensor[float]([NPix, NPix])
   for r in pd.runs:
     let
       group = h5f[recoPath(r, pd.chip)]
       # get centers and rescale to 256 max value
-      centerX = h5f[(group.name / "centerX"), float].mapIt(it * 256.0 / 14.0)
-      centerY = h5f[(group.name / "centerY"), float].mapIt(it * 256.0 / 14.0)
+      centerX = h5f[(group.name / "centerX"), float].mapIt(it * NPix.float / 14.0)
+      centerY = h5f[(group.name / "centerY"), float].mapIt(it * NPix.float / 14.0)
     let occ = clampedOccupancy(centerX, centerY, pd)
     # stack this run onto the full data tensor
     occFull = occFull .+ occ

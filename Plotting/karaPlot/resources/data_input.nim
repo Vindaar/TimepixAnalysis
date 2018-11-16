@@ -1,0 +1,1 @@
+const fname = "/home/basti/CastData/ExternCode/TimepixAnalysis/Plotting/karaPlot/eventDisplay.json"

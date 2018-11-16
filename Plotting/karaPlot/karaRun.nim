@@ -1,7 +1,7 @@
 ## Simple tool to quickly run Karax applications. Generates the HTML
 ## required to run a Karax app and opens it in a browser.
 
-import os, strutils, parseopt, browsers
+import os, strutils, parseopt, browsers, strformat, shell
 
 const
   css = """
@@ -96,14 +96,24 @@ proc exec(cmd: string) =
   if os.execShellCmd(cmd) != 0:
     quit "External command failed: " & cmd
 
+proc writeDataPath(name: string) =
+  ## write the data file to file being included by `staticClient.nim`
+  var outfile = open("resources/data_input.nim", fmWrite)
+  let content = getAppDir() / name
+  outfile.write(&"const fname = \"{content}\"")
+  outfile.close()
+
 proc main =
   var op = initOptParser()
   var rest = op.cmdLineRest
   var file = ""
-  var run = false
-  var selectedCss = ""
+  # set run and css as defaults
+  var run = true
+  var selectedCss = css
   while true:
     op.next()
+    echo op.key, " of kind ", op.kind
+
     case op.kind
     of cmdLongOption:
       case op.key
@@ -115,7 +125,9 @@ proc main =
         rest = rest.replace("--css ")
       of "file":
         # set the file to be loaded
-        rest = rest.replace("--file ")
+        rest = rest.replace("--file:")
+        rest = rest.replace(op.val)
+        writeDataPath(op.val)
       else: discard
     of cmdShortOption:
       if op.key == "r":

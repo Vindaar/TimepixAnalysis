@@ -877,7 +877,7 @@ proc buildEvents[T, U](x, y: seq[seq[T]], ch: seq[seq[U]],
   ## takes all events via their *indices* (not real event numbers) and returns
   ## a (256, 256) tensor for each event
   let nEvents = events.card
-  result = newTensor[float]([nEvents, NPi, NPix])
+  result = newTensor[float]([nEvents, NPix, NPix])
   # TODO: add option to use real event number instead of indices
   for i in 0 ..< nEvents:
     if i in events:
@@ -1505,7 +1505,7 @@ proc sendDataPacket(ws: AsyncWebSocket, data: JsonNode) =
     let i_start = i * FakeFrameSize
     let i_stop = min((i + 1) * FakeFrameSize, sendData.len)
     let dPart = sendData[i_start ..< i_stop]
-    waitFor ws.sendText(dPart)
+    asyncCheck ws.sendText(dPart)
   waitFor ws.sendText($Messages.DataStop)
 
 proc processClient(req: Request) {.async.} =
@@ -1608,8 +1608,6 @@ proc plotData*() =
       createXrayFingerPlots(bKind, flags)
     else:
       discard
-
-  runForever()
 
 # proc cb(req: Request) {.async.} =
 #   echo "cb"

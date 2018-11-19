@@ -109,6 +109,7 @@ proc main =
   var file = ""
   # set run and css as defaults
   var run = true
+  var buildRelease = false
   var selectedCss = css
   while true:
     op.next()
@@ -130,16 +131,25 @@ proc main =
         writeDataPath(op.val)
       else: discard
     of cmdShortOption:
-      if op.key == "r":
+      case op.key
+      of "r":
         run = true
         rest = rest.replace("-r ")
+      of "d":
+        if op.val == "release":
+          buildRelease = true
+        rest = rest.replace("-d:")
+        rest = rest.replace(op.val)
     of cmdArgument: file = op.key
     of cmdEnd: break
 
   if file.len == 0: quit "filename expected"
   let name = file.splitFile.name
   createDir("nimcache")
-  exec("nim js --out:nimcache/" & name & ".js " & rest)
+  if buildRelease:
+    exec("nim js -d:release --out:nimcache/" & name & ".js " & rest)
+  else:
+    exec("nim js --out:nimcache/" & name & ".js " & rest)
   let dest = "nimcache" / name & ".html"
   writeFile(dest, html % [name, selectedCss])
   if run: openDefaultBrowser(dest)

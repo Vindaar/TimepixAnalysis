@@ -3,8 +3,7 @@ import jswebsockets
 import sugar
 import ../components / [plot_types, button, utils, serverComm]
 
-proc renderMenu*(socket: WebSocket, pState: var PlotState,
-                 conf: var Config): VNode =
+proc renderMenu*(pState: var PlotState, conf: var Config): VNode =
   result = buildHtml:
     tdiv(id = "grid"):
       tdiv:

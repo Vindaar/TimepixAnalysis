@@ -11,7 +11,7 @@ include karax / prelude
 import karax / [kdom, vstyles]
 
 import components / [button, plotWindow, figSelect, utils, plot_types]
-import frontend / menu
+import frontend / [menu, figDropdown]
 import protocol
 
 let plt = newPlotly()
@@ -194,29 +194,13 @@ proc main =
 
     result = buildHtml(tdiv):
       h1(text "Static karaPlot")
-      renderMenu(socket, plotState, conf)
+      renderMenu(plotState, conf)
       p:
         br()
         text "Next: " & $plotState.staticP.idx & " " & plotState.getNextStatic
         br()
         text "Previous: " & $plotState.staticP.idx & " " & plotState.getPrevStatic
-      p:
-        tdiv(class = "dropdown")
-        renderButton("Dropdown",
-                     class = "dropbtn",
-                     onClickProc = () => kdom.document.getElementById("myDropdown").classList.toggle("show"))
-        tdiv(id = "myDropdown",
-             class = "dropdown-content"):
-          var idx = 0
-          for k in plotState.staticP.keys:
-            p:
-              renderFigSelect(
-                $k,
-                idx,
-                onClickProc = (event: kdom.Event, node: VNode) => (
-                  plotState.staticP.idx = node.id.parseInt)
-              )
-            inc idx
+      renderFigDropdown(plotState)
       p:
         span(text "Number of static plots available: " & $plotState.staticP.keys.len)
       p:

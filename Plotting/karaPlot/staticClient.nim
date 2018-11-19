@@ -94,7 +94,7 @@ proc main =
   proc getData(pState: PlotState): JsObject =
     ## gets the appropriate data to plot given the current state
     when not UseWS:
-      result = pState.serverP.plt[pState.serverP.idx]
+      result = pState.staticP.plt[pState.staticP.idx]
     else:
       if conf.plotViaServer and pState.serverP.nObj > 0:
         # TODO: need to be able to selet whether SVG or plotly

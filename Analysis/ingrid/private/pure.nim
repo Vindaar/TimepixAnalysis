@@ -28,9 +28,9 @@ const
   # some helper constants
   StartTot* = 20.0
   # constant regex for InGrid type events for the Virtex TOS
-  eventRegexVirtex = r".*data\d{4,6}(_1_[0-9]+)?.*\.txt$"
+  eventRegexVirtex = r".*data\d{4,9}(_1_[0-9]+)?.*\.txt$"
   # constant regex for InGrid type events for the SRS TOS
-  eventRegexSrs = r".*run_(\d{6})_data_(\d{6})_(\d{6})_(\d{2})-(\d{2})-(\d{2}).txt"
+  eventRegexSrs = r".*run_(\d{6})_data_(\d{6,9})_(\d{6})_(\d{2})-(\d{2})-(\d{2}).txt"
 
   newVirtexRunRegex = r".*Run_(\d+)_\d{6}-\d{2}-\d{2}.*"
   oldVirtexRunRegex = r".*Run\d{6}_\d{2}-\d{2}-\d{2}.*"
@@ -818,7 +818,7 @@ proc processOldEventWithRegex*(data: seq[string],
 
   # in that case we're reading an ``old event files (!)``. Get the event number
   # from the filename
-  let evNumberRegex = re".*data(\d{4,6})_(\d)_.*"
+  let evNumberRegex = re".*data(\d{4,9})_(\d)_.*"
   var evNumChipNumStr: array[2, string]
   if match(filepath, evNumberRegex, evNumChipNumStr) == true:
     addOldHeaderKeys(e_header,
@@ -1188,7 +1188,7 @@ proc getSortedListOfFiles*(run_folder: string,
       raise newException(IOError, "Unknown run folder kind. Unclear what files " &
         "are events!")
   of EventType.FadcType:
-    eventRegex = r".*data\d{4,6}\.txt-fadc$"
+    eventRegex = r".*data\d{4,9}\.txt-fadc$"
   # get the list of files from this run folder and sort it
   case sort_type
   of fname:
@@ -1399,8 +1399,8 @@ proc getRunTimeInfo*(run_files: seq[string]): RunTimeInfo =
 
 proc getRunInfo*(path: string): RunInfo =
   ## wrapper around the above proc if only the path to the run is known
-  let regex = r"^/([\w-_]+/)*data\d{6}\.txt$"
-  let fadcRegex = r"^/([\w-_]+/)*data\d{6}\.txt-fadc$"
+  let regex = r"^/([\w-_]+/)*data\d{6,9}\.txt$"
+  let fadcRegex = r"^/([\w-_]+/)*data\d{6,9}\.txt-fadc$"
   let (is_run_folder, runNumber, rfKind, contains_run_folder) = isTosRunFolder(path)
   let files = getListOfFiles(path, regex)
   let fadcFiles = getListOfFiles(path, fadcRegex)

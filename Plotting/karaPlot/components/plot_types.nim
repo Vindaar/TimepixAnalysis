@@ -38,3 +38,4 @@ type
     staticP*: StaticPlot
     serverP*: ServerPlot
     pds*: seq[(kstring, PlotDescriptor)]
+    activePd*: PlotDescriptor

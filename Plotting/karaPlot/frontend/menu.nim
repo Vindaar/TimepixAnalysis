@@ -33,7 +33,8 @@ proc renderMenu*(pState: var PlotState, conf: var Config): VNode =
         br()
         tdiv:
           if conf.receiving:
-            text("Receiving plots from server... " & $pState.serverP.nObj & "/" & "?")
+            text("Receiving plots from server... " & $pState.serverP.nObj &
+              "/" & $pState.pds.len)
           else:
             text("no data receiving")
           if conf.doneReceiving:

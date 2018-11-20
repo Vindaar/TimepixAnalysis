@@ -13,6 +13,7 @@ import karax / [kdom, vstyles]
 import components / [button, plotWindow, figSelect, utils, plot_types]
 import frontend / [menu, figDropdown]
 import protocol
+import common_types
 
 let plt = newPlotly()
 

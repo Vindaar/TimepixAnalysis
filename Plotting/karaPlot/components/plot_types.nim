@@ -1,5 +1,6 @@
 import jsffi
 include karax / prelude
+import ../common_types
 
 type
   Config* = object

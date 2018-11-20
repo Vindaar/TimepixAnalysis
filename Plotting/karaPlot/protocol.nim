@@ -16,79 +16,39 @@ type
     done*: bool
     data*: kstring
 
-  # enum listing all available `plot types` we can produce
-  PlotKind* = enum
-    pkInGridDset           # histogram InGrid property
-    pkFadcDset             # histogram FADC property
-    pkPolya                # InGrid polya distribution
-    pkCombPolya            # combined polya of all chips
-    pkOccupancy            # Occupancy of InGrid chip
-    pkOccCluster           # Occupancy of clusters of InGrid chip
-    pkFeSpec               # Fe pixel (or different) spectrum
-    pkEnergyCalib          # Energy calibration from Fe pixel spectrum
-    pkFeSpecCharge         # Fe charge (or different) spectrum
-    pkEnergyCalibCharge    # Energy calibration from Fe charge spectrum
-    pkFeVsTime             # Evolution of Fe pix peak location vs tim
-    pkFePixDivChVsTime     # Evolution of Fe (pix peak / charge peak) location vs tim
-    pkInGridEvent          # Individual InGrid event
-    pkFadcEvent            # Individual FADC event
-    pkCalibRandom          # ? to be filled for different calibration plots
-    pkAnyScatter           # Scatter plot of some x vs. some y
-    pkMultiDset            # Plot of multiple histograms. Will be removed and replaced
-                           # by redesign of `createPlot`
-    pkInGridCluster        # superseeded by pkInGridEvent?
-
-  ClampKind* = enum
-    ckFullRange, ckAbsolute, ckQuantile
-
-  DataKind* = enum
-    dkInGrid, dkFadc
-
-  CutRange* = tuple[low, high: float, name: string]
-
-  PlotDescriptor* = object
-    runType*: RunTypeKind
-    name*: string
-    runs*: seq[int]
-    chip*: int
-    xlabel*: string
-    ylabel*: string
-    title*: string
-    # bKind: BackendKind <- to know which backend to use for interactive plot creation
-    case plotKind*: PlotKind
-    of pkInGridDset, pkFadcDset:
-      range*: CutRange
-    of pkAnyScatter:
-      # read any dataset as X and plot it against Y
-      x*: string
-      y*: string
-    of pkMultiDset:
-      # histogram of all these datasets in one
-      names*: seq[string]
-    of pkInGridCluster:
-      eventNum*: int
-    of pkOccupancy, pkOccCluster:
-      case clampKind*: ClampKind
-      of ckAbsolute:
-        # absolute clamp tp `clampA`
-        clampA*: float
-      of ckQuantile:
-        # clamp to `clampQ` quantile
-        clampQ*: float
-      of ckFullRange:
-        # no field for ckFullRange
-        discard
-    of pkCombPolya:
-      chipsCP*: seq[int]
-    of pkInGridEvent:
-      events*: OrderedSet[int] # events to plot (indices at the moment, not event numbers)
-      event*: int # the current event being plotted
-    else:
-      discard
 
 
+  DataPacket* = object
+    header*: PacketHeader
+    payload*: kstring
 
-const FakeFrameSize* = 32760
+# payload size of the data packets. A header is added to this, which
+# is why it's not close to 32768
+const FakeFrameSize* = 32000
+
+const InGridFnameTemplate* = "$1_run$2_chip$3_$4"
+const InGridTitleTemplate* = "Dataset: $1 for run $2, chip $3 in range: $4"
+const FadcFnameTemplate* = "fadc_$1_run$2_$3"
+const FadcTitleTemplate* = "Dataset: $1 for run $2, fadc in range: $3"
+const PolyaFnameTemplate* = "polya_run$1_chip$2"
+const PolyaTitleTemplate* = "Polya for run $1 of chip $2"
+const CombPolyaFnameTemplate* = "combined_polya_run$1"
+const CombPolyaTitleTemplate* = "Polyas for all chips of run $1"
+const OccupancyFnameTemplate* = "occupancy_run$1_chip$2_$3"
+const OccupancyTitleTemplate* = "Occupancy of chip $1 for run $2, $3"
+const OccClusterFnameTemplate* = "occupancy_clusters_run$1_chip$2_$3"
+const OccClusterTitleTemplate* = "Occupancy of cluster centers for run $1, chip $2, $3"
+const FeSpecFnameTemplate* = "fe_pixel_spectrum_run$1"
+const FeSpecChargeFnameTemplate* = "fe_charge_spectrum_run$1"
+const FeSpecTitleTemplate* = "Fe pixel spectrum of run $1 for chip $2"
+const FeSpecChargeTitleTemplate* = "Fe charge spectrum of run $1 for chip $2"
+const EnergyCalibFnameTemplate* = "fe_energy_calib_run$1"
+const PhotoVsTimeFnameTemplate* = "photopeak_vs_time_runs$1"
+const PhotoVsTimeTitleTemplate* = "Photopeak pixel peak position of Fe spectra (runs $1) vs time"
+const PhotoPixDivChVsTimeFnameTemplate* = "photopeak_pix_div_charge_pos_vs_time_runs$1"
+const PhotoPixDivChVsTimeTitleTemplate* = "Photopeak pix / charge of Fe spectra (runs $1) vs time"
+const InGridEventTitleTemplate* = "InGrid event for run $1, chip $2, event index $3"
+const InGridEventFnameTemplate* = "ingrid_event_run$1_chip$2_event$3"
 
 proc initDataPacket*(): DataPacket =
   result.recvData = false
@@ -155,3 +115,114 @@ func parsePd*(pd: JsonNode): PlotDescriptor =
   of pkCombPolya:
     result.chipsCP = to(pd["chipsCP"], seq[int])
   else: discard
+func cKindStr(pd: PlotDescriptor, sep: string): string =
+  case pd.clampKind
+  of ckAbsolute:
+    result = &"{pd.clampKind}{sep}{pd.clampA}"
+  of ckQuantile:
+    result = &"{pd.clampKind}{sep}{pd.clampQ}"
+  of ckFullRange:
+    result = &"{pd.clampKind}"
+
+func `%%`[T](formatstr: string, a: openArray[T]): string =
+  var b: seq[string]
+  for x in a:
+    b.add $x
+  result = formatstr % b
+
+proc buildOutfile*(pd: PlotDescriptor): kstring =
+  var name = ""
+  var runsStr = ""
+  if pd.runs.len > 3:
+    runsStr = &"{pd.runs.min}_{pd.runs.max}"
+  else:
+    runsStr = pd.runs.foldl($a & " " & $b, "").strip(chars = {' '})
+  case pd.plotKind
+  of pkInGridDset:
+    name = InGridFnameTemplate %% [pd.name,
+                                   runsStr,
+                                   $pd.chip,
+                                   $pd.range[2]]
+  of pkFadcDset:
+    name = FadcFnameTemplate %% [pd.name,
+                                 runsStr,
+                                 $pd.range[2]]
+  of pkOccupancy:
+    let clampStr = cKindStr(pd, "_")
+    name = OccupancyFnameTemplate %% [runsStr,
+                                      $pd.chip,
+                                      clampStr]
+  of pkOccCluster:
+    let clampStr = cKindStr(pd, "_")
+    name = OccClusterFnameTemplate %% [runsStr,
+                                      $pd.chip,
+                                      clampStr]
+  of pkPolya:
+    name = PolyaFnameTemplate %% [runsStr,
+                                 $pd.chip]
+  of pkCombPolya:
+    name = CombPolyaFnameTemplate %% [runsStr]
+  of pkFeSpec:
+    name = FeSpecFnameTemplate %% [runsStr]
+  of pkFeSpecCharge:
+    name = FeSpecChargeFnameTemplate %% [runsStr]
+  of pkFeVsTime:
+    name = PhotoVsTimeFnameTemplate %% [runsStr]
+  of pkFePixDivChVsTime:
+    name = PhotoPixDivChVsTimeFnameTemplate %% [runsStr]
+  of pkInGridEvent:
+    name = InGridEventFnameTemplate %% [runsStr,
+                                       $pd.chip,
+                                       $pd.event]
+  else:
+    discard
+  echo "Result ", $name
+  result = &"figs/{name}.svg"
+
+proc buildTitle*(pd: PlotDescriptor): kstring =
+  var runsStr = ""
+  if pd.runs.len > 3:
+    runsStr = &"{pd.runs.min}..{pd.runs.max}"
+  else:
+    runsStr = pd.runs.foldl($a & " " & $b, "").strip(chars = {' '})
+  case pd.plotKind
+  of pkInGridDset:
+    result = InGridTitleTemplate %% [pd.name,
+                                    runsStr,
+                                    $pd.chip,
+                                    $pd.range[2]]
+  of pkFadcDset:
+    result = FadcTitleTemplate %% [pd.name,
+                                  runsStr,
+                                  $pd.range[2]]
+  of pkOccupancy:
+    let clampStr = cKindStr(pd, "@")
+    result = OccupancyTitleTemplate %% [runsStr,
+                                       $pd.chip,
+                                       clampStr]
+  of pkOccCluster:
+    let clampStr = cKindStr(pd, "@")
+    result = OccClusterTitleTemplate %% [runsStr,
+                                       $pd.chip,
+                                       clampStr]
+  of pkPolya:
+    result = PolyaTitleTemplate %% [runsStr,
+                                   $pd.chip]
+  of pkCombPolya:
+    result = CombPolyaTitleTemplate %% [runsStr]
+  of pkFeSpec:
+    result = FeSpecTitleTemplate %% [runsStr,
+                                    $pd.chip]
+  of pkFeSpecCharge:
+    result = FeSpecChargeTitleTemplate %% [runsStr,
+                                          $pd.chip]
+  of pkFeVsTime:
+    result = PhotoVsTimeTitleTemplate %% [runsStr]
+  of pkFePixDivChVsTime:
+    result = PhotoPixDivChVsTimeTitleTemplate %% [runsStr]
+  of pkInGridEvent:
+    result = InGridEventTitleTemplate %% [runsStr,
+                                         $pd.chip,
+                                         $pd.event]
+  else:
+    discard

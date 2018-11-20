@@ -1,5 +1,6 @@
-import jsffi, jsbind
+import jsffi, jsbind, macros, strutils
 include karax / prelude
+import karax / jjson
 import plot_types
 
 when defined(client):
@@ -8,7 +9,63 @@ else:
   const UseWs* = false
 
 # allows to convert `JsObject` to string
-proc toString*(x: JsObject): cstring {.jsimportgWithName: "String".}
+#proc toString*(x: JsObject): cstring {.jsimportgWithName: "String".}
+
+proc parseJsonToJs(json: cstring): JsObject {.jsimportgWithName: "JSON.parse".}
+proc stringify*(value: JsObject | JsonNode,
+                replacer: JsObject,
+                space: JsObject): cstring {.jsimportgWithName: "JSON.stringify".}
+proc toString*(x: JsObject | JsonNode): cstring =
+  result = x.stringify(nil, toJs(2))
+
+proc pretty*(x: JsonNode): cstring =
+  result = x.stringify(nil, toJs(2))
+
+proc parseJson*(s: kstring): JsonNode =
+  result = % parseJsonToJs(s)
+
+proc parseEnum*[T: enum](s: cstring, default: T): T =
+  result = strutils.parseEnum[T]($s, default)
+
+proc parseFloat*(s: kstring): float =
+  result = ($s).parseFloat
+
+proc traverseTree(input: NimNode): NimNode =
+  # iterate children
+  for i in 0 ..< input.len:
+    case input[i].kind
+    of nnkSym:
+      # if we found a symbol, take it
+      result = input[i]
+    of nnkBracketExpr:
+      # has more children, traverse
+      result = traverseTree(input[i])
+    else:
+      error("Unsupported type: " & $input.kind)
+
+macro getInnerType*(TT: typed): untyped =
+  ## macro to get the subtype of a nested type by iterating
+  ## the AST
+  # traverse the AST
+  let res = traverseTree(TT.getTypeInst)
+  # assign symbol to result
+  result = quote do:
+    `res`
+
+proc to*(node: JsonNode, dtype: typedesc): dtype =
+  ## simplified version to convert JS JsonNode to dtype
+  ## currently only supports sequence types!
+  type innerType = getInnerType(dtype)
+  for x in node:
+    when innerType is int:
+      result.add x.getInt
+    elif innerType is float:
+      result.add $(x.getFNum).parseFloat
+    else:
+      result.add x.getStr
+
+proc getFloat*(x: JsonNode): float =
+  result = ($(x.getFNum)).parseFloat
 
 proc getNextStatic*(pState: PlotState): kstring =
   if pState.staticP.idx + 1 < pState.staticP.keys.len:

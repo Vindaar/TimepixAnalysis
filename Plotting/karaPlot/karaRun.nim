@@ -111,10 +111,9 @@ proc main =
   var run = true
   var buildRelease = false
   var selectedCss = css
+
   while true:
     op.next()
-    echo op.key, " of kind ", op.kind
-
     case op.kind
     of cmdLongOption:
       case op.key
@@ -138,8 +137,8 @@ proc main =
       of "d":
         if op.val == "release":
           buildRelease = true
-        rest = rest.replace("-d:")
-        rest = rest.replace(op.val)
+          rest = rest.replace("-d:")
+          rest = rest.replace(op.val)
     of cmdArgument: file = op.key
     of cmdEnd: break
 

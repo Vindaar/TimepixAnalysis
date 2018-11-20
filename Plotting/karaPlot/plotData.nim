@@ -21,7 +21,7 @@ import ingrid/tos_helpers
 import ingrid/calibration
 import helpers/utils
 import ingridDatabase / [databaseDefinitions, databaseRead]
-import protocol
+import protocol, common_types
 
 type
   # for clarity define a type for the Docopt argument table
@@ -1243,19 +1243,47 @@ proc parseBackendType(backend: string): BackendKind =
   else:
     result = bNone
 
-proc sendDataPacket(ws: AsyncWebSocket, data: JsonNode) =
+proc sendDataPacket(ws: AsyncWebSocket, data: JsonNode, kind: PacketKind) =
+  # convert payload to a string
   var sendData = ""
   toUgly(sendData, data)
-  echo "Sending data of len: ", sendData.len
-  waitFor ws.sendText($Messages.DataStart)
   # split into several parts (potentially)
   let nParts = ceil(sendData.len.float / FakeFrameSize.float).int
-  for i in 0 ..< nParts:
-    let i_start = i * FakeFrameSize
-    let i_stop = min((i + 1) * FakeFrameSize, sendData.len)
-    let dPart = sendData[i_start ..< i_stop]
-    asyncCheck ws.sendText(dPart)
-  waitFor ws.sendText($Messages.DataStop)
+  if nParts > 1:
+    for i in 0 ..< nParts:
+      let i_start = i * FakeFrameSize
+      let i_stop = min((i + 1) * FakeFrameSize, sendData.len)
+      let dPart = sendData[i_start ..< i_stop]
+      var packet: DataPacket
+      if i == 0:
+        packet = initDataPacket(kind,
+                                Messages.DataStart,
+                                dPart,
+                                recvData = true)
+        asyncCheck ws.sendText(packet.asData)
+      elif i < nParts - 1:
+        packet = initDataPacket(kind,
+                                Messages.Data,
+                                dPart,
+                                recvData = true)
+        asyncCheck ws.sendText(packet.asData)
+      else:
+        doAssert i == nParts - 1
+        packet = initDataPacket(kind,
+                                Messages.DataStop,
+                                dPart,
+                                recvData = false,
+                                done = true)
+        waitFor ws.sendText(packet.asData)
+  else:
+    # handle the single packet case differently
+    let packet = initDataPacket(kind,
+                                Messages.DataSingle,
+                                sendData,
+                                recvData = false,
+                                done = true)
+    waitFor ws.sendText(packet.asData)
+
 
 proc processClient(req: Request) {.async.} =
   echo "Will await"

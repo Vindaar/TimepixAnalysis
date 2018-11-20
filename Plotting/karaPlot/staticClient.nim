@@ -1,4 +1,4 @@
-import json
+#import json
 import plotly
 import strutils, strformat, tables, sugar, sequtils
 import chroma
@@ -9,6 +9,7 @@ from dom import getElementById
 import jswebsockets# except Event
 include karax / prelude
 import karax / [kdom, vstyles]
+import karax / jjson
 
 import components / [button, plotWindow, figSelect, utils, plot_types]
 import frontend / [menu, figDropdown]
@@ -124,27 +125,28 @@ proc main =
 
   when UseWS:
     proc finished(packet: DataPacket): bool =
-      result = not packet.recvData and packet.done
+      result = not packet.header.recvData and packet.header.done
 
     proc handleData(packet: var DataPacket, s: kstring) =
-      if s == $Messages.DataStart:
-        packet.recvData = true
+      let singlePacket = parseDataPacket(s)
+      # copy the header
+      packet.header = singlePacket.header
+      echo "Packet header! ", packet.header
+      case packet.header.msg
+      of Messages.DataStart:
         echo "Receving data now!"
+        packet.payload = singlePacket.payload
+      of Messages.Data, Messages.DataStop:
+        packet.payload &= singlePacket.payload
+      of Messages.DataSingle:
+        echo "Single packet received!"
+        packet.payload &= singlePacket.payload
       else:
-        if packet.recvData:
-          if s == $Messages.DataStop:
-            echo "Data done! ", packet.data.len
-            packet.done = true
-            packet.recvData = false
-          else:
-            packet.data &= s
-            echo "Got ", s.len, " bytes, now total ", packet.data.len
+        echo "WARNING: couldn't parse message kind! " & $packet.header.msg
 
-      if packet.finished:
-        echo "packet done "
-
-    proc parsePacket(pState: var PlotState, data: kstring) =
-      pState.serverP.data[pState.serverP.nObj] = parseJsonToJs(packet.data)
+    proc assignPlotPacket(pState: var PlotState, packet: DataPacket) =
+      doAssert packet.header.kind == PacketKind.Plots
+      pState.serverP.data[pState.serverP.nObj] = parseJsonToJs(packet.payload)
       # parse that packet, add to svg / plotly
       template getPairsKeys(data, nObj: untyped, name: kstring): untyped =
         let pPairs = data[nObj][name]
@@ -156,8 +158,6 @@ proc main =
       let (pltPairs, pltKeys) = getPairsKeys(pState.serverP.data,
                                              pState.serverP.nObj,
                                              "plotly")
-      # increase object count
-      inc pState.serverP.nObj
       template addPlt(pPlot, pKeys, idx, pPairs, keys: untyped): untyped =
         if keys.len > 0:
           for i, k in keys:
@@ -167,6 +167,28 @@ proc main =
             inc idx
       addPlt(pState.serverP.svg, pState.serverP.keys, pState.serverP.nSvg, svgPairs, svgKeys)
       addPlt(pState.serverP.plt, pState.serverP.keys, pState.serverP.nPlt, pltPairs, pltKeys)
+      # increase object count
+      inc pState.serverP.nObj
+
+    proc assignDescriptorPacket(pState: var PlotState, packet: DataPacket) =
+      doAssert packet.header.kind == PacketKind.Descriptors
+      let pJson = parseJson(packet.payload)
+      for x in pJson:
+        let pd = parsePd(x)
+        let outf = buildOutfile(pd)
+        pState.pds.add (outf, pd)
+      echo "PDs are ", $pState.pds
+
+    proc parsePacket(pState: var PlotState, packet: DataPacket) =
+      case packet.header.kind
+      of PacketKind.Plots:
+        echo "Is a plot packet!"
+        assignPlotPacket(pState, packet)
+      of PacketKind.Descriptors:
+        echo "Is a descriptors packet!"
+        assignDescriptorPacket(pState, packet)
+      else:
+        echo "WARNING: couldn't parse packet kind! " & $packet.header.kind
 
   proc postRender() =
     ## this is called after rendering via karax. First render the plotly plot
@@ -177,7 +199,7 @@ proc main =
         socket.fromServer()
       if not conf.plotViaServer or conf.doneReceiving:
         renderPlotly(plotState, conf)
-      var din {.global.}: string = ""
+
       socket.onMessage = proc (e: MessageEvent) =
         packet.handleData(e.data)
         if packet.finished:

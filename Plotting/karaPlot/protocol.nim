@@ -1,22 +1,34 @@
 import karax / kbase
 export kbase
-import sets, json, strutils
+import sets, strutils, strformat, sequtils, sugar
 
+when defined(js):
+  import karax / jjson
+  import components / utils
+else:
+  import json
+
+import common_types
 import ingrid / ingrid_types
 
 type
   Messages* = enum
+    MessageUnknown = "Error"
     Connected = "Connected"
     DataStart = "DataStart"
     DataStop = "DataStop"
+    DataSingle = "DataSingle"
+    Data = "Data"
     Request = "Request"
 
-  DataPacket* = object
+  PacketKind* = enum
+    PacketKindUnknown, Descriptors, Plots
+
+  PacketHeader* = object
+    msg*: Messages
+    kind*: PacketKind
     recvData*: bool
     done*: bool
-    data*: kstring
-
-
 
   DataPacket* = object
     header*: PacketHeader
@@ -50,71 +62,155 @@ const PhotoPixDivChVsTimeTitleTemplate* = "Photopeak pix / charge of Fe spectra 
 const InGridEventTitleTemplate* = "InGrid event for run $1, chip $2, event index $3"
 const InGridEventFnameTemplate* = "ingrid_event_run$1_chip$2_event$3"
 
+#proc initDataPacket*(): DataPacket =
+#  result.recvData = false
+#  result.done = false
+#  result.data = kstring""
+
 proc initDataPacket*(): DataPacket =
-  result.recvData = false
-  result.done = false
-  result.data = kstring""
+  result.header = PacketHeader(msg: MessageUnknown,
+                               kind: PacketKindUnknown,
+                               recvData: false,
+                               done: false)
+  result.payload = ""
+
+proc initDataPacket*(kind: PacketKind,
+                     header: Messages,
+                     payload: kstring = "",
+                     recvData: bool = false,
+                     done: bool = false): DataPacket =
+  result.header = PacketHeader(kind: kind,
+                               msg: header,
+                               recvData: recvData,
+                               done: done)
+  result.payload = payload
+
+#proc getStartPacket*(kind: PacketKind): JsonNode =
+#  ## returns the data start packet
+#  result = initDataPacket(kind,
+#                          header = Messages.DataStart)
+#
+#proc getStopPacket*(kind: PacketKind): JsonNode =
+#  ## returns the data start packet
+#  result = initDataPacket(kind,
+#                          header = Messages.DataStop)
+
+func `%`*(header: PacketHeader): JsonNode =
+  ## serializes a `PacketHeader`
+  result = newJObject()
+  result[kstring"kind"] = % header.kind
+  result[kstring"msg"] = % header.msg
+  # bools need to be stored as strings for JS interop
+  result[kstring"recvData"] = % $(header.recvData)
+  result[kstring"done"] = % $(header.done)
+
+func `%`*(packet: DataPacket): JsonNode =
+  ## serialize `packet` to send via websocket
+  result = newJObject()
+  result[kstring"header"] = % packet.header
+  result[kstring"payload"] = % packet.payload
+
+proc `$`*(packet: DataPacket): kstring =
+  result = (% packet).pretty
+
+when not defined(js):
+  proc asData*(packet: DataPacket): kstring =
+    let node = % packet
+    toUgly(result, node)
+
+proc parsePacketHeader(header: JsonNode): PacketHeader =
+  ## unmarshals a header as a JsonNode to a `PacketHeader`
+  result.msg = parseEnum[Messages](header["msg"].getStr,
+                                   Messages.MessageUnknown)
+  result.kind = parseEnum[PacketKind](header["kind"].getStr,
+                                      PacketKind.PacketKindUnknown)
+  result.recvData = parseBool($(header["recvData"].getStr))
+  result.done = parseBool($(header["done"].getStr))
+
+proc parseDataPacket*(packet: kstring): DataPacket =
+  ## unmarshals the data packet string
+  # first create a JsonNode from the packet
+  let pJson = parseJson(packet)
+  result.header = parsePacketHeader(pJson[kstring"header"])
+  result.payload = pJson[kstring"payload"].getStr
+
+#proc parseHeaderPacket*(packet: kstring): (Messages, PacketKind) =
+#  ## parses the header packet and returns the tuple of `Messages`
+#  ## and `PacketKind` to tell whether data follows or is finished
+#  ## and how to interpret it
+#  echo "Parsing packet"
+#  let pJson = parseJson(packet)
+#  echo "Done ", pJson.pretty
+#  echo pJson[kstring"MessageKind"].getStr
+#  result[0] = parseEnum[Messages](pJson[kstring"MessageKind"].getStr,
+#                                  Messages.MessageUnknown)
+#  result[1] = parseEnum[PacketKind](pJson[kstring"PacketKind"].getStr,
+#                                    PacketKind.PacketKindUnknown)
 
 # PlotDescriptor object
 # storing all needed information to create a specific plot
+
 func `%`*(pd: PlotDescriptor): JsonNode =
   ## serialize `PlotDescriptor` to Json
   result = newJObject()
-  result["runType"] = % pd.runType
-  result["name"] = % pd.name
-  result["runs"] = % pd.runs
-  result["chip"] = % pd.chip
-  result["xlabel"] = % pd.xlabel
-  result["ylabel"] = % pd.ylabel
-  result["title"] = % pd.title
-  result["plotKind"] = % pd.plotKind
+  result[kstring"runType"] = % $pd.runType
+  result[kstring"name"] = % pd.name
+  result[kstring"runs"] = % pd.runs
+  result[kstring"chip"] = % pd.chip
+  result[kstring"xlabel"] = % pd.xlabel
+  result[kstring"ylabel"] = % pd.ylabel
+  result[kstring"title"] = % pd.title
+  result[kstring"plotKind"] = % $pd.plotKind
   case pd.plotKind
   of pkInGridDset, pkFadcDset:
-    result["range"] = %* { "low": % pd.range[0],
-                           "high": % pd.range[1],
-                           "name": % pd.range[2] }
+    result[kstring"range"] = %* { kstring"low": % ($pd.range[0]),
+                                  kstring"high": % ($pd.range[1]),
+                                  kstring"name": % pd.range[2] }
   of pkOccupancy, pkOccCluster:
-    result["clampKind"] = % pd.clampKind
+    result[kstring"clampKind"] = % $pd.clampKind
     case pd.clampKind
     of ckAbsolute:
-      result["clampA"] = % pd.clampA
+      result[kstring"clampA"] = % ($pd.clampA)
     of ckQuantile:
-      result["clampQ"] = % pd.clampQ
+      result[kstring"clampQ"] = % ($pd.clampQ)
     else: discard
   of pkCombPolya:
-    result["chipsCP"] = % pd.chipsCP
+    result[kstring"chipsCP"] = % pd.chipsCP
   else: discard
 
-func `$`*(pd: PlotDescriptor): string =
+func `$`*(pd: PlotDescriptor): kstring =
   ## use JSON representation as string
   result = (% pd).pretty
 
 func parsePd*(pd: JsonNode): PlotDescriptor =
   ## parse a PlotDescriptor stored as JsonNode back to an object
   result.runType = parseEnum[RunTypeKind](pd["runType"].getStr, rtNone)
-  result.name = pd["name"].getStr
-  result.runs = to(pd["runs"], seq[int])
-  result.chip = pd["chip"].getInt
-  result.xlabel = pd["xlabel"].getStr
-  result.ylabel = pd["ylabel"].getStr
-  result.title = pd["title"].getStr
-  result.plotKind = parseEnum[PlotKind](pd["plotKind"].getStr)
+  result.name = pd[kstring"name"].getStr
+  result.runs = to(pd[kstring"runs"], seq[int])
+  result.chip = pd[kstring"chip"].getInt
+  result.xlabel = pd[kstring"xlabel"].getStr
+  result.ylabel = pd[kstring"ylabel"].getStr
+  result.title = pd[kstring"title"].getStr
+  result.plotKind = parseEnum[PlotKind](pd[kstring"plotKind"].getStr,
+                                        pkInGridDset)
   case result.plotKind
   of pkInGridDset, pkFadcDset:
-    result.range = (low: pd["range"]["low"].getFloat,
-                    high: pd["range"]["high"].getFloat,
-                    name: pd["range"]["name"].getStr)
+    result.range = (low: pd[kstring"range"][kstring"low"].getStr.parseFloat,
+                    high: pd[kstring"range"][kstring"high"].getStr.parseFloat,
+                    name: pd[kstring"range"][kstring"name"].getStr)
   of pkOccupancy, pkOccCluster:
-    result.clampKind = parseEnum[ClampKind](pd["clampKind"].getStr)
+    result.clampKind = parseEnum[ClampKind](pd[kstring"clampKind"].getStr,
+                                            ckFullRange)
     case result.clampKind
     of ckAbsolute:
-      result.clampA = pd["clampA"].getFloat
+      result.clampA = pd[kstring"clampA"].getStr.parseFloat
     of ckQuantile:
-      result.clampQ = pd["clampQ"].getFloat
+      result.clampQ = pd[kstring"clampQ"].getStr.parseFloat
     else: discard
   of pkCombPolya:
-    result.chipsCP = to(pd["chipsCP"], seq[int])
+    result.chipsCP = to(pd[kstring"chipsCP"], seq[int])
   else: discard
+
 func cKindStr(pd: PlotDescriptor, sep: string): string =
   case pd.clampKind
   of ckAbsolute:

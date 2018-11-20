@@ -332,17 +332,26 @@ proc plotHist[T](xIn: seq[seq[T]], title, dset, outfile: string) =
   ## plots the data in `x` as a histogram
   let xs = xIn.mapIt(it.mapIt(it.float))
   let binRangeO = getBinRangeForDset(dset)
-  let nbinsO = getNumBinsForDset(dset)
+  let binSizeO = getBinSizeForDset(dset)
   var binRange: tuple[start, stop: float]
   var nbins: int
   if binRangeO.isSome:
     binRange = get(binRangeO)
   else:
     binRange = (xs[0].percentile(5), xs[0].percentile(95))
-  if nBinsO.isSome:
-    nBins = get(nbinsO)
+  if binSizeO.isSome:
+    # all good
+    let binSize = get(binSizeO)
+    nBins = ((binRange[1] - binRange[0]) / binSize).round.int
   else:
-    nBins = 100
+    # else use number of bins for this dataset
+    let nbinsO = getNumBinsForDset(dset)
+    if nBinsO.isSome:
+      nBins = get(nbinsO)
+    else:
+      nBins = 100
+
+
   info &"Bin range {binRange} for dset: {dset}"
   var pltV = initPlotV(title, dset, "#")
   case BKind

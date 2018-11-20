@@ -37,3 +37,4 @@ type
   PlotState* = object
     staticP*: StaticPlot
     serverP*: ServerPlot
+    pds*: seq[(kstring, PlotDescriptor)]

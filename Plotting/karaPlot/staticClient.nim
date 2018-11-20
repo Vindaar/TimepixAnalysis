@@ -11,8 +11,8 @@ include karax / prelude
 import karax / [kdom, vstyles]
 import karax / jjson
 
-import components / [button, plotWindow, figSelect, utils, plot_types]
-import frontend / [menu, figDropdown]
+import components / [button, plotWindow, figSelect, utils, plot_types, dropdownList]
+import frontend / [menu, figDropdown, plotSelect, plotDescriptorSelect]
 import protocol
 import common_types
 
@@ -21,7 +21,7 @@ let plt = newPlotly()
 # include the following containing the path of the file we wish
 # to read
 include resources/data_input
-const data = staticRead(fname)
+const data = staticRead(fname).kstring
 
 #type
 #  Dropdown = object
@@ -69,9 +69,16 @@ proc initPlotState(jData: JsObject): PlotState =
 proc main =
 
   echo "Start parsing..."
+  #let jData = parseJson(data)
+  echo "done"
   let jData = parseJsonToJs(data) #parseJson(data)
   var plotState = initPlotState(jData)
   var conf = Config(plotViaServer: false, useWs: false)
+
+  var fields: seq[kstring]
+  for f in PlotKind:
+    fields.add $f
+
   when UseWs:
     conf.useWs = UseWs
 
@@ -88,6 +95,7 @@ proc main =
       conf.connected = false
       conf.receiving = false
       conf.doneReceiving = true
+      echo "Done receving all data!"
       redraw()
 
   echo "...parsed"
@@ -102,7 +110,6 @@ proc main =
         # TODO: need to be able to selet whether SVG or plotly
         result = pState.serverP.plt[pState.serverP.idx]
       else:
-        echo "nooo"
         result = pState.staticP.plt[pState.staticP.idx]
 
   proc renderPlotly(pState: PlotState, conf: Config) =
@@ -112,8 +119,7 @@ proc main =
       # TODO: implement a case, store last plot kind. If last plot kind is the same
       # use react, else use newPlot
       if conf.plotViaServer:
-        echo "Ddd ", toSeq(keys(pltData))
-        echo "Ddd2 ", toSeq(keys(pltData["Layout"]))
+        echo "data keys ", toSeq(keys(pltData))
       plt.newPlot("plotly", pltData["Traces"], pltData["Layout"])
       let plotlyPlot = kdom.document.getElementById("plotly")
       plotlyPlot.style.visibility = "visible"
@@ -204,26 +210,32 @@ proc main =
         packet.handleData(e.data)
         if packet.finished:
           # parse new object
-          plotState.parsePacket(packet.data)
+          plotState.parsePacket(packet)
           # reset packet
           packet = initDataPacket()
           echo "Obj count now ", plotState.serverP.nObj
-          echo "Packet reset"
           renderPlotly(plotState, conf)
     else:
       renderPlotly(plotState, conf)
 
+  var chips: seq[kstring] = toSeq(0 .. 6).mapIt(kstring($it))
+  var runs: seq[kstring] = @[124, 108].mapIt(kstring($it))
   proc render(): VNode =
 
     result = buildHtml(tdiv):
       h1(text "Static karaPlot")
       renderMenu(plotState, conf)
+
+      renderPlotSelect(fields, runs, chips)
       p:
         br()
         text "Next: " & $plotState.staticP.idx & " " & plotState.getNextStatic
         br()
         text "Previous: " & $plotState.staticP.idx & " " & plotState.getPrevStatic
       renderFigDropdown(plotState)
+
+      renderPlotDescriptorSelect(plotState)
+
       p:
         span(text "Number of static plots available: " & $plotState.staticP.keys.len)
       p:

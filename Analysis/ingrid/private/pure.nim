@@ -36,6 +36,13 @@ const
   oldVirtexRunRegex = r".*Run\d{6}_\d{2}-\d{2}-\d{2}.*"
   srsRunRegex       = r".*Run_(\d{6})_\d{6}_\d{2}-\d{2}-\d{2}.*"
 
+  OldVirtexEventScanf = r"$*data$*_$*_" # needs: dummy, evNumber, chipNumber
+  SrsEventScanf = r"$*run_$*_data_$*_${parseSrsTosDate}" # needs: dummy, runNumber, evNumber, date
+  OldVirtexEventScanfNoPath = r"data$*_$*_" # needs: dummy, evNumber, chipNumber
+  NewVirtexEventScanfNoPath = r"data$*.txt$." # needs: evNumber
+  FadcEventScanfNoPath = r"data$*.txt-fadc" # needs: evNumber
+  SrsEventScanfNoPath = r"run_$*_data_$*_${parseSrsTosDate}" # needs: dummy, runNumber, evNumber, date
+
   # default chip names, shutter modes and shutter times
   OldShutterMode = "verylong"
   OldShutterTime = "13"
@@ -894,11 +901,11 @@ proc processOldEventScanf*(data: seq[string]): ref OldEvent =
   var
     evNumber: string
     chipNumber: string
-    dummy: string
   # need to use `$*` to parse, because if we use $i for integers, we end up
   # parsing the `_` tokens as well, making scanf fail
   # TODO: implement custom parser proc
-  if scanf(filepath, r"$*data$*_$*_", dummy, evNumber, chipNumber):
+  let fname = filepath.extractFilename
+  if scanf(fname, OldVirtexEventScanfNoPath, evNumber, chipNumber):
     addOldHeaderKeys(e_header,
                      c_header,
                      evNumber.parseInt,
@@ -916,6 +923,19 @@ proc processOldEventScanf*(data: seq[string]): ref OldEvent =
   result.evHeader = e_header
   result.chips = chips
   result.nChips = chips.len
+
+proc parseSrsTosDate(input: string, date: var Time, start: int): int =
+  ## proc for `scanf` macro to parse an SRS TOS date string from a filename
+  ## example filename:
+  ## run_004001_data_079135_181009_23-19-28.txt
+  ## we parse from:         ^ here         ^ to here (excl.)
+  # length of parsing range is 15
+  result = 15 # 6 from year / month / day, 6 from hour / min / sec, 3 '_','-'
+  var stop = start + result
+  let dateStr = input[start ..< stop]
+  const SrsTosDateSyntax = "yyMMdd'_'HH-mm-ss"
+  date = dateStr.parse(SrsTosDateSyntax).toTime
+  assert input[stop] == '.', "Assertion failed. Token was: " & $input[stop]
 
 proc processSrsEventScanf*(data: seq[string]): ref SrsEvent =
   ## Reads an SRS TOS zero suppressed data file using the strscans.scanf
@@ -1010,28 +1030,16 @@ proc processSrsEventScanf*(data: seq[string]): ref SrsEvent =
     evNumber: string
     chipNumber: string
     runNumber: string
-    dummy: string
   # need to use `$*` to parse, because if we use $i for integers, we end up
   # parsing the `_` tokens as well, making scanf fail
-  proc parseSrsTosDate(input: string, date: var Time, start: int): int =
-    ## proc for `scanf` macro to parse an SRS TOS date string from a filename
-    ## example filename:
-    ## run_004001_data_079135_181009_23-19-28.txt
-    ## we parse from:         ^ here         ^ to here (excl.)
-    # length of parsing range is 15
-    result = 15 # 6 from year / month / day, 6 from hour / min / sec, 3 '_','-'
-    var stop = start + result
-    let dateStr = input[start ..< stop]
-    const SrsTosDateSyntax = "yyMMdd'_'HH-mm-ss"
-    date = dateStr.parse(SrsTosDateSyntax).toTime
-    assert input[stop] == '.', "Assertion failed. Token was: " & $input[stop]
 
   # assign chips and nChips to store in event header
   result.chips = chips
   result.nChips = chips.len
 
   var date: Time
-  if scanf(filepath, r"$*run_$*_data_$*_${parseSrsTosDate}", dummy, runNumber, evNumber, date):
+  let fname = filepath.extractFilename
+  if scanf(fname, SrsEventScanfNoPath, runNumber, evNumber, date):
     e_header["dateTime"] = $date
     e_header["timestamp"] = $(int(date.toSeconds))
     e_header["eventNumber"] = evNumber.strip(trailing = false, chars = {'0'})
@@ -1162,6 +1170,35 @@ proc sortByInode*(listOfFiles: seq[string]): seq[string] =
     (i: int, name: string) -> string => name
   )
 
+proc getListOfEventFiles*(folder: string, eventType: EventType,
+                          rfKind: RunFolderKind): seq[(int, string)] =
+  if existsDir(folder) == false:
+    return result
+  var
+    dummy: string
+    evNumber: string
+  for file in walkDirRec(folder):
+    let fname = file.extractFilename
+    case event_type:
+    of EventType.InGridType:
+      case rfKind
+      of rfNewTos:
+        if scanf(fname, NewVirtexEventScanfNoPath, evNumber, dummy):
+          result.add (evNumber.parseInt, file)
+      of rfOldTos:
+        if scanf(fname, OldVirtexEventScanfNoPath, evNumber, dummy):
+          result.add (evNumber.parseInt, file)
+      of rfSrsTos:
+        var t: Time
+        if scanf(fname, SrsEventScanfNoPath, dummy, evNumber, t):
+          result.add (evNumber.parseInt, file)
+      else:
+        raise newException(IOError, "Unknown run folder kind. Unclear what files " &
+          "are events!")
+    of EventType.FadcType:
+      if scanf(fname, FadcEventScanfNoPath, evNumber, dummy, dummy):
+        result.add (evNumber.parseInt, file)
+
 proc getSortedListOfFiles*(run_folder: string,
                            sort_type: EventSortType,
                            event_type: EventType,
@@ -1176,26 +1213,18 @@ proc getSortedListOfFiles*(run_folder: string,
   ## outputs:
   ##    seq[string] = sequence containing event filnames, index 0 corresponds
   ##                  to event data000000.txt
-  var eventRegex = ""
-  case event_type:
-  of EventType.InGridType:
-    case rfKind
-    of rfOldTos, rfNewTos:
-      eventRegex = eventRegexVirtex
-    of rfSrsTos:
-      eventRegex = eventRegexSrs
-    else:
-      raise newException(IOError, "Unknown run folder kind. Unclear what files " &
-        "are events!")
-  of EventType.FadcType:
-    eventRegex = r".*data\d{4,9}\.txt-fadc$"
   # get the list of files from this run folder and sort it
   case sort_type
   of fname:
-    result = sorted(getListOfFiles(run_folder, eventRegex),
-                    (x: string, y: string) -> int => system.cmp[string](x, y))
+    # sort by parsed event number from the above proc
+    let evNumFiles = sortedByIt(getListOfEventFiles(run_folder, event_type, rfKind),
+                        it[0])
+    # no need for the event numbers anymore
+    result = evNumFiles --> map(it[1])
   of inode:
-    result = sortByInode(getListOfFiles(run_folder, eventRegex))
+    let evNumFiles = getListOfEventFiles(run_folder, event_type, rfKind)
+    let files = evNumFiles --> map(it[1])
+    result = sortByInode(files)
 
 # set experimental pragma to enable parallel: block
 {.experimental.}

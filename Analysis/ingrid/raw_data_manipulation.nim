@@ -1144,6 +1144,7 @@ proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string,
                                    EventType.InGridType,
                                    rfKind)
 
+
   batchFiles(files, batchsize - 1):
     let r = readAndProcessInGrid(files[0 .. ind_high], runNumber, rfKind)
     nChips = r.nChips

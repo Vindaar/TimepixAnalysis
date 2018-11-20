@@ -146,7 +146,10 @@ const NPix = 256
 
 var ShowPlots = false
 
-var channel: Channel[JsonNode]
+var channel: Channel[(JsonNode, PacketKind)]
+var stopChannel: Channel[bool]
+var expectedStopEvent: AsyncEvent = newAsyncEvent()
+var unExpectedStopEvent: AsyncEvent = newAsyncEvent()
 
 # create directories, if not exist
 if not dirExists("logs"):
@@ -1146,14 +1149,26 @@ proc serve(h5f: var H5FileObj,
            pds: seq[PlotDescriptor],
            flags: set[ConfigFlagKind] = {}) =
   ## serves the client
+  # before we do anything, send all PDs to the client
+  let pdJson = % pds
+  while not trySend(channel, (pdJson, PacketKind.Descriptors)):
+    echo "DataThread: sleep..."
+    sleep(500)
+
   for p in pds:
     for sp in createPlotIter(h5f, fileInfo, p):
+      echo "Number of pds ", pds.len
+      echo "Current plot ", sp
       let jData = jsonDump(imageSet, plotlyJson)
-      while not trySend(channel, jData):
+      echo "Jdata corresponding: ", jData
+      while not trySend(channel, (jData, PacketKind.Plots)):
         echo "DataThread: sleep..."
-        sleep(500)
+        sleep(100)
       info "Clear plots"
       clearPlots()
+
+  echo "Done with all plots!, sending stop!"
+  stopChannel.send(true)
 
 proc eventDisplay(h5file: string,
                   run: int,
@@ -1194,15 +1209,17 @@ proc createCalibrationPlots(h5file: string,
   # energyCalib(h5f) # ???? plot of gas gain vs charge?!
   pds.add histograms(h5f, runType, fileInfo, flags) # including fadc
 
-  plotsFromPds(h5f, fileInfo, pds)
-  echo "Image set is ", imageSet.card
+  if cfProvideServer in flags:
+    serve(h5f, fileInfo, pds, flags)
+  else:
+    plotsFromPds(h5f, fileInfo, pds)
+    echo "Image set is ", imageSet.card
 
-  # likelihoodHistograms(h5f) # need to cut on photo peak and esc peak
-  # neighborPixels(h5f)
-  discard h5f.close()
-  let outfile = "calibration"
-  handleOutput(outfile, flags)
-
+    # likelihoodHistograms(h5f) # need to cut on photo peak and esc peak
+    # neighborPixels(h5f)
+    discard h5f.close()
+    let outfile = "calibration"
+    handleOutput(outfile, flags)
 
 proc createBackgroundPlots(h5file: string,
                            bKind: BackendKind,
@@ -1221,14 +1238,17 @@ proc createBackgroundPlots(h5file: string,
   # energyCalib(h5f) # ???? plot of gas gain vs charge?!
   pds.add histograms(h5f, runType, fileInfo, flags) # including fadc
 
-  plotsFromPds(h5f, fileInfo, pds)
-  echo "Image set is ", imageSet.card
+  if cfProvideServer in flags:
+    serve(h5f, fileInfo, pds, flags)
+  else:
+    plotsFromPds(h5f, fileInfo, pds)
+    echo "Image set is ", imageSet.card
 
-  # likelihoodHistograms(h5f) # need to cut on photo peak and esc peak
-  # neighborPixels(h5f)
-  discard h5f.close()
-  let outfile = "background"
-  handleOutput(outfile, flags)
+    # likelihoodHistograms(h5f) # need to cut on photo peak and esc peak
+    # neighborPixels(h5f)
+    discard h5f.close()
+    let outfile = "background"
+    handleOutput(outfile, flags)
 
 proc createXrayFingerPlots(bKind: BackendKind, flags: set[ConfigFlagKind]) =
   discard
@@ -1286,9 +1306,8 @@ proc sendDataPacket(ws: AsyncWebSocket, data: JsonNode, kind: PacketKind) =
 
 
 proc processClient(req: Request) {.async.} =
-  echo "Will await"
+  ## handle a single client
   let (ws, error) = await verifyWebsocketRequest(req)
-  echo "Awaited"
   if ws.isNil:
     echo "WS negotiation failed: ", error
     await req.respond(Http400, "Websocket negotiation failed: " & error)
@@ -1296,7 +1315,6 @@ proc processClient(req: Request) {.async.} =
     return
   else:
     # receive connection successful package
-    echo "reading"
     let (opcodeConnect, dataConnect) = await ws.readData()
     if dataConnect != $Messages.Connected:
       echo "Received wrong packet, quit early"
@@ -1304,36 +1322,67 @@ proc processClient(req: Request) {.async.} =
     echo "New websocket customer arrived! ", dataConnect
   var i = 0
 
+  # TODO: send PlotDescriptors first and then go into the loop
+  # Include a channel to tell the main thread to restart plots, if
+  # already underway
+
   while true:
     let (opcode, data) = await ws.readData()
     # first await the packet from the connected socket, don't start training before hand
-    echo "(opcode: ", opcode, ", data length: ", data.len
+    echo "(opcode: ", opcode, ", data length: ", data
     # now given prediction and accuracy data, send it to client
     if data != $Messages.Request:
       warn "Client sent wrong request! Msg: " & data
-
     case opcode
     of Opcode.Text, Opcode.Cont:
-      echo "Receiving channel"
-      let jData = channel.recv()
-      ws.sendDataPacket(jData)
+      # first check whether main process is done
+      let (stopAvailable, toStop) = stopChannel.tryRecv()
+      let (hasData, dataTup) = channel.tryRecv()
+      if hasData:
+        let (jData, packetKind) = dataTup
+        ws.sendDataPacket(jData, packetKind)
+      if toStop:
+        break
     of Opcode.Close:
       asyncCheck ws.close()
       let (closeCode, reason) = extractCloseData(data)
       echo "Socket went away, close code: ", closeCode, ", reason: ", reason
       req.client.close()
-      break
+      return
     else:
       echo "Unkown error: ", opcode
+
+  echo "This client dies now!"
+  asyncCheck ws.close()
+  req.client.close()
+  stopChannel.send(true)
+
+proc serveClient(server: AsyncHttpServer) {.async.} =
+  var
+    stopAvailable = false
+    stop = false
+  var clientFut = server.serve(Port(8080), processClient)
+  while not stopAvailable:
+    (stopAvailable, stop) = stopChannel.tryRecv()
+    if stop:
+      server.close()
+      break
+    if not clientFut.finished:
+      # client still connected, continue
+      poll(500)
+    else:
+      # this client disconnected early, so accept another one
+      clientFut = server.serve(Port(8080), processClient)
 
 proc serve() =
   var server: AsyncHttpServer
   server = newAsyncHttpServer()
   channel.open(1)
+  stopChannel.open(1)
   shell:
-    ./karaRun "--d:client staticClient.nim"
-  while true:
-    waitFor server.serve(Port(8080), processClient)
+    ./karaRun "-d:client staticClient.nim"
+
+  asyncCheck server.serveClient()
 
 proc plotData*() =
   ## the main workhorse of the server end
@@ -1359,10 +1408,10 @@ proc plotData*() =
 
   info &"Flags are:\n  {flags}"
 
+  var thr: Thread[void]
   if cfProvideServer in flags:
     # set up the server and launch the client
     # create and run the websocket server
-    var thr: Thread[void]
     thr.createThread(serve)
 
   var runType: RunTypeKind
@@ -1385,6 +1434,9 @@ proc plotData*() =
       createXrayFingerPlots(bKind, flags)
     else:
       discard
+
+  if cfProvideServer in flags:
+    joinThread(thr)
 
 # proc cb(req: Request) {.async.} =
 #   echo "cb"

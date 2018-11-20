@@ -25,6 +25,8 @@ import nlopt
 import seqmath
 import nimhdf5
 import parsetoml
+import loopfusion
+import zero_functional
 
 # custom modules
 import tos_helpers
@@ -324,12 +326,17 @@ proc writeRecoRunToH5(h5f: var H5FileObj,
     chip_groups[ch_numb].attrs["chipNumber"] = ch_numb
     chip_groups[ch_numb].attrs["chipName"] = ch_name
 
-iterator readDataFromH5(h5f: var H5FileObj, group: string, runNumber: int): (int, seq[Pixels]) =
+iterator readDataFromH5(h5f: var H5FileObj, group: string, runNumber: int):
+         (int, seq[(Pixels, int)]) =
   ## proc to read data from the HDF5 file from `group`
+  ## returns the chip number and a sequence containing the pixel data for this
+  ## event and its event number
   var chip_base = rawDataChipBase(runNumber)
   let raw_data_basename = rawDataBase()
   for grp in keys(h5f.groups):
+    # get the event numbers for this run
     if chip_base in grp:
+      let evNumbers = h5f[grp.parentDir / "eventNumber", int]
       # now can start reading, get the group containing the data for this chip
       var group = h5f[grp.grp_str]
       # get the chip number from the attributes of the group
@@ -345,9 +352,11 @@ iterator readDataFromH5(h5f: var H5FileObj, group: string, runNumber: int): (int
         raw_x  = raw_x_dset[vlen_xy, uint8]
         raw_y  = raw_y_dset[vlen_xy, uint8]
         raw_ch = raw_ch_dset[vlen_ch, uint16]
-      # combine the raw data into a sequence of pixels
-      let run_pix = map(toSeq(0..raw_x.high), (i: int) -> seq[(uint8, uint8, uint16)] =>
-                        mapIt(toSeq(0..raw_x[i].high), (raw_x[i][it], raw_y[i][it], raw_ch[i][it])))
+
+      var runPix = newSeq[(Pixels, int)](raw_x.len)
+      forEach i, x in raw_x, y in raw_y, ch in raw_ch, ev in evNumbers:
+        let rpix = zip(x, y, ch) --> to(seq[(uint8, uint8, uint16)])
+        runPix[i] = (rpix, ev)
       # and yield them
       yield (chip_number, run_pix)
 
@@ -642,19 +651,20 @@ proc recoCluster(c: Cluster): ClusterObject =
   # properties, i.e. RMS, skewness and kurtosis along the long axis of the cluster
   result.geometry = calcGeometry(c, result.centerX, result.centerY, rot_angle)
 
-proc recoEvent(data: Pixels, event, chip: int): ref RecoEvent =
+proc recoEvent(data: (Pixels, int), chip: int): ref RecoEvent =
   result = new RecoEvent
-  result.event_number = event
+  result.event_number = data[1]
   result.chip_number = chip
-  if data.len > 0:
-    let cluster = findSimpleCluster(data)
+  if data[0].len > 0:
+    let cluster = findSimpleCluster(data[0])
     result.cluster = newSeq[ClusterObject](cluster.len)
     for i, cl in cluster:
       result.cluster[i] = recoCluster(cl)
 
 {.experimental.}
 #proc reconstructSingleChip(data: seq[Pixels], run, chip: int): seq[ref RecoEvent] =
-proc reconstructSingleChip(data: seq[Pixels], run, chip: int): seq[FlowVar[ref RecoEvent]] =
+proc reconstructSingleChip(data: seq[(Pixels, int)], run, chip: int): seq[FlowVar[ref RecoEvent]] =
+                           #evNumbers: seq[int]): seq[FlowVar[ref RecoEvent]] =
   ## procedure which receives pixel data for a given chip and run number
   ## and performs the reconstruction on it
   ## inputs:
@@ -665,11 +675,10 @@ proc reconstructSingleChip(data: seq[Pixels], run, chip: int): seq[FlowVar[ref R
   info &"We have {data.len} events to reconstruct"
   var count = 0
   result = newSeq[FlowVar[ref RecoEvent]](data.len)
-  #result = newSeq[ref RecoEvent](data.len)
   parallel:
     for event in 0..data.high:
       if event < result.len:
-        result[event] = spawn recoEvent(data[event], event, chip)
+        result[event] = spawn recoEvent(data[event], chip)
       echoFilesCounted(count, 2500)
   sync()
 

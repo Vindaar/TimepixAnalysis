@@ -1390,13 +1390,14 @@ proc processClient(req: Request) {.async.} =
     case opcode
     of Opcode.Text, Opcode.Cont:
       # first check whether main process is done
-      let (stopAvailable, toStop) = stopChannel.tryRecv()
+      #let (stopAvailable, toStop) = stopChannel.tryRecv()
       let (hasData, dataTup) = channel.tryRecv()
       if hasData:
         let (jData, packetKind) = dataTup
         ws.sendDataPacket(jData, packetKind)
-      if toStop:
-        break
+      sleep(50)
+      #if toStop:
+      #  break
     of Opcode.Close:
       asyncCheck ws.close()
       let (closeCode, reason) = extractCloseData(data)
@@ -1417,10 +1418,13 @@ proc serveClient(server: AsyncHttpServer) {.async.} =
     stop = false
   var clientFut = server.serve(Port(8080), processClient)
   while not stopAvailable:
-    (stopAvailable, stop) = stopChannel.tryRecv()
-    if stop:
-      server.close()
-      break
+    # NOTE: this causes the puzzling stops of the program! `serve` sends stop via the
+    # `stopChannel`, which in reality is just being catched here! That just force stops
+    # the server itself...
+    #(stopAvailable, stop) = stopChannel.tryRecv()
+    #if stop:
+    #  server.close()
+    #  break
     if not clientFut.finished:
       # client still connected, continue
       poll(500)
@@ -1436,7 +1440,7 @@ proc serve() =
   shell:
     ./karaRun "-d:client staticClient.nim"
 
-  asyncCheck server.serveClient()
+  waitFor server.serveClient()
 
 proc plotData*() =
   ## the main workhorse of the server end

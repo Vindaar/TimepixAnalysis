@@ -27,7 +27,7 @@ proc getBinRangeForDset*(dset: string): Option[(float, float)] =
   elif "riseTime" in dset:
     result = some((2.0, 502.0))
   elif "fallTime" in dset:
-    result = some((7.0, 702.0))
+    result = some((7.0, 707.0))
   else:
     result = none((float, float))
 

@@ -38,9 +38,9 @@ type
 # is why it's not close to 32768
 const FakeFrameSize* = 32000
 
-const InGridFnameTemplate* = "$1_run$2_chip$3_$4"
+const InGridFnameTemplate* = "$1_run$2_chip$3_$4_binSize$5_binRange$6_$7"
 const InGridTitleTemplate* = "Dataset: $1 for run $2, chip $3 in range: $4"
-const FadcFnameTemplate* = "fadc_$1_run$2_$3"
+const FadcFnameTemplate* = "fadc_$1_run$2_$3_binSize$4_binRange$5_$6"
 const FadcTitleTemplate* = "Dataset: $1 for run $2, fadc in range: $3"
 const PolyaFnameTemplate* = "polya_run$1_chip$2"
 const PolyaTitleTemplate* = "Polya for run $1 of chip $2"
@@ -166,6 +166,10 @@ func `%`*(pd: PlotDescriptor): JsonNode =
     result[kstring"range"] = %* { kstring"low": % ($pd.range[0]),
                                   kstring"high": % ($pd.range[1]),
                                   kstring"name": % pd.range[2] }
+    result[kstring"binSize"] = % ($pd.binSize)
+    # binRange is a float, but we should never encounter `Inf`, thus keep as float
+    result[kstring"binRange"] = %* { kstring"low": % ($pd.binRange[0]),
+                                     kstring"high": % ($pd.binRange[1]) }
   of pkOccupancy, pkOccCluster:
     result[kstring"clampKind"] = % $pd.clampKind
     case pd.clampKind
@@ -198,6 +202,9 @@ func parsePd*(pd: JsonNode): PlotDescriptor =
     result.range = (low: pd[kstring"range"][kstring"low"].getStr.parseFloat,
                     high: pd[kstring"range"][kstring"high"].getStr.parseFloat,
                     name: pd[kstring"range"][kstring"name"].getStr)
+    result.binSize = pd[kstring"binSize"].getStr.parseFloat
+    result.binRange = (low: pd[kstring"binRange"]["low"].getStr.parseFloat,
+                       high: pd[kstring"binRange"]["high"].getStr.parseFloat)
   of pkOccupancy, pkOccCluster:
     result.clampKind = parseEnum[ClampKind](pd[kstring"clampKind"].getStr,
                                             ckFullRange)
@@ -238,11 +245,17 @@ proc buildOutfile*(pd: PlotDescriptor): kstring =
     name = InGridFnameTemplate %% [pd.name,
                                    runsStr,
                                    $pd.chip,
-                                   $pd.range[2]]
+                                   $pd.range[2],
+                                   $pd.binSize,
+                                   $pd.binRange[0],
+                                   $pd.binRange[1]]
   of pkFadcDset:
     name = FadcFnameTemplate %% [pd.name,
                                  runsStr,
-                                 $pd.range[2]]
+                                 $pd.range[2],
+                                 $pd.binSize,
+                                 $pd.binRange[0],
+                                 $pd.binRange[1]]
   of pkOccupancy:
     let clampStr = cKindStr(pd, "_")
     name = OccupancyFnameTemplate %% [runsStr,

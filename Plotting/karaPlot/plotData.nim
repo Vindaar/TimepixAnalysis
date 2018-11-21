@@ -328,50 +328,37 @@ proc getFileInfo(h5f: var H5FileObj): FileInfo =
   result.runs.sort
   echo result
 
-proc plotHist[T](xIn: seq[seq[T]], title, dset, outfile: string) =
+proc plotHist[T](xIn: seq[T], title, dset, outfile: string,
+                 binS: float, binR: (float, float)) =
   ## plots the data in `x` as a histogram
-  let xs = xIn.mapIt(it.mapIt(it.float))
-  let binRangeO = getBinRangeForDset(dset)
-  let binSizeO = getBinSizeForDset(dset)
-  var binRange: tuple[start, stop: float]
-  var nbins: int
-  if binRangeO.isSome:
-    binRange = get(binRangeO)
-  else:
-    binRange = (xs[0].percentile(5), xs[0].percentile(95))
-  if binSizeO.isSome:
-    # all good
-    let binSize = get(binSizeO)
-    nBins = ((binRange[1] - binRange[0]) / binSize).round.int
-  else:
-    # else use number of bins for this dataset
-    let nbinsO = getNumBinsForDset(dset)
-    if nBinsO.isSome:
-      nBins = get(nbinsO)
-    else:
-      nBins = 100
+  let xs = xIn.mapIt(it.float)
 
+  var binRange = binR
+  var binSize = binS
+  if binRange[0] == binRange[1]:
+    binRange = (xs.percentile(3), xs.percentile(97))
+  if binSize == 0.0:
+    # use 100 bins as a backup
+    binSize = (binRange[1] - binRange[0]) / 100
 
   info &"Bin range {binRange} for dset: {dset}"
   var pltV = initPlotV(title, dset, "#")
   case BKind
   of bPlotly:
     var traces: seq[Trace[float]]
-    for x in xs:
-      let binSize = (binRange[1] - binRange[0]) / nbins.float
-      traces.add Trace[float](`type`: PlotType.Histogram,
-                              bins: binRange,
-                              binSize: binSize,
-                              #nbins: nBins,
-                              xs: x,
-                              name: dset)
+    traces.add Trace[float](`type`: PlotType.Histogram,
+                            bins: binRange,
+                            binSize: binSize,
+                            #nbins: nBins,
+                            xs: xs,
+                            name: dset)
     pltV.plPlot = Plot[float](layout: pltV.plLayout, traces: traces)
     pltV.savePlot(outfile, fullPath = true)
   of bMpl:
-    for x in xs:
-      discard pltV.ax.hist(x,
-                           bins = nbins,
-                           range = binRange)
+    let nbins = ((binRange[1] - binRange[0]) / binSize).round.int
+    discard pltV.ax.hist(xs,
+                         bins = nbins,
+                         range = binRange)
     pltV.savePlot(outfile, fullPath = true)
   else: discard
 
@@ -455,19 +442,25 @@ proc histograms(h5f: var H5FileObj, runType: RunTypeKind,
     if cfNoInGrid notin flags:
       for ch in fileInfo.chips:
         for dset in dsets:
+          let (binSize, binRange) = getBinSizeAndBinRange(dset)
           result.add PlotDescriptor(runType: runType,
                                     name: dset,
                                     runs: fileInfo.runs,
                                     plotKind: pkInGridDset,
                                     chip: ch,
-                                    range: r)
+                                    range: r,
+                                    binSize: binSize,
+                                    binRange: binRange)
     if cfNoFadc notin flags:
       for dset in fadcDsets:
+        let (binSize, binRange) = getBinSizeAndBinRange(dset)
         result.add PlotDescriptor(runType: runType,
                                   name: dset,
                                   runs: fileInfo.runs,
                                   plotKind: pkFadcDset,
-                                  range: r)
+                                  range: r,
+                                  binSize: binSize,
+                                  binRange: binRange)
 
 proc calcOccupancy[T](x, y: seq[T]): Tensor[float] =
   ## calculates the occupancy of the given x and y datasets
@@ -838,7 +831,7 @@ proc handleInGridDset(h5f: var H5FileObj,
     allData.add idx.mapIt(data[it])
   result = buildOutfile(pd)
   let title = buildTitle(pd)
-  plotHist(@[allData], title, pd.name, result)
+  plotHist(allData, title, pd.name, result, pd.binSize, pd.binRange)
 
 proc handleFadcDset(h5f: var H5FileObj,
                     fileInfo: FileInfo,
@@ -860,7 +853,7 @@ proc handleFadcDset(h5f: var H5FileObj,
     allData.add idxFadc --> map(data[it])
   result = buildOutfile(pd)
   let title = buildTitle(pd)
-  plotHist(@[allData], title, pd.name, result)
+  plotHist(allData, title, pd.name, result, pd.binSize, pd.binRange)
 
 proc handleOccupancy(h5f: var H5FileObj,
                      fileInfo: FileInfo,

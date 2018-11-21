@@ -46,6 +46,9 @@ type
     case plotKind*: PlotKind
     of pkInGridDset, pkFadcDset:
       range*: CutRange
+      # optional fields for bin size and range
+      binSize*: float
+      binRange*: tuple[low, high: float]
     of pkAnyScatter:
       # read any dataset as X and plot it against Y
       x*: kstring

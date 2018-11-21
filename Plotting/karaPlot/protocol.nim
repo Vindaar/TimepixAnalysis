@@ -34,6 +34,24 @@ type
     header*: PacketHeader
     payload*: kstring
 
+  # a simple object storing the runs, chips etc. from a given
+  # H5 file
+  FileInfo* = object
+    runs*: seq[int]
+    chips*: seq[int]
+    runType*: RunTypeKind
+    rfKind*: RunFolderKind
+    centerChip*: int
+    centerChipName*: string
+    hasFadc*: bool # reads if FADC group available
+    # TODO: move the following to a CONFIG object
+    plotlySaveSvg*: bool
+    # NOTE: add other flags for other optional plots?
+    # if e.g. FeSpec not available yet, we can just call the
+    # procedure to create it for us
+
+
+
 # payload size of the data packets. A header is added to this, which
 # is why it's not close to 32768
 const FakeFrameSize* = 32000

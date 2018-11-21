@@ -413,6 +413,55 @@ iterator chips(group: var H5Group): (int, H5Group) =
       let chipNum = grp.attrs["chipNumber", int]
       yield (chipNum, grp)
 
+proc createCustomPlots(fileInfo: FileInfo): seq[PlotDescriptor] =
+  ## define any plot that doesn't fit any of the other descriptions here
+  block:
+    let range = (low: -Inf, high: Inf, name: "All")
+    result.add PlotDescriptor(runType: fileInfo.runType,
+                              name: "riseTime",
+                              runs: fileInfo.runs,
+                              plotKind: pkFadcDset,
+                              range: range,
+                              binSize: 1.0,
+                              binRange: (2.0, 502.0))
+  block:
+    let range = (low: -Inf, high: Inf, name: "All")
+    result.add PlotDescriptor(runType: fileInfo.runType,
+                              name: "fallTime",
+                              runs: fileInfo.runs,
+                              plotKind: pkFadcDset,
+                              range: range,
+                              binSize: 1.0,
+                              binRange: (7.0, 707.0))
+
+
+proc getBinSizeAndBinRange(dset: string): (float, (float, float)) =
+  ## accesses the helper procs to unwrap the options from the `dataset_helper`
+  ## procs to return bin size and a bin range
+  let binRangeO = getBinRangeForDset(dset)
+  let binSizeO = getBinSizeForDset(dset)
+  var binRange: tuple[low, high: float]
+  var binSize: float
+  var nbins: int
+  if binRangeO.isSome:
+    binRange = get(binRangeO)
+  else:
+    binRange = (0.0, 0.0)
+  if binSizeO.isSome:
+    # all good
+    binSize = get(binSizeO)
+  else:
+    # else use number of bins for this dataset
+    let nbinsO = getNumBinsForDset(dset)
+    if nBinsO.isSome:
+      nBins = get(nbinsO)
+    else:
+      nBins = 100
+    # then calculate bin size
+    if binRange[1] != binRange[0]:
+      binSize = (binRange[1] - binRange[0]) / nBins.float
+  result = (binSize, binRange)
+
 proc histograms(h5f: var H5FileObj, runType: RunTypeKind,
                 fileInfo: FileInfo,
                 flags: set[ConfigFlagKind]): seq[PlotDescriptor] =
@@ -1240,6 +1289,8 @@ proc createBackgroundPlots(h5file: string,
   # energyCalib(h5f) # ???? plot of gas gain vs charge?!
   pds.add histograms(h5f, runType, fileInfo, flags) # including fadc
 
+  pds.add createCustomPlots(fileInfo)
+
   if cfProvideServer in flags:
     serve(h5f, fileInfo, pds, flags)
   else:
@@ -1270,6 +1321,7 @@ proc sendDataPacket(ws: AsyncWebSocket, data: JsonNode, kind: PacketKind) =
   var sendData = ""
   toUgly(sendData, data)
   # split into several parts (potentially)
+  echo "Now sending ", sendData[0 .. 150]
   let nParts = ceil(sendData.len.float / FakeFrameSize.float).int
   if nParts > 1:
     for i in 0 ..< nParts:

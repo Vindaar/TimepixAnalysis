@@ -121,6 +121,13 @@ when UseWs:
     conf.plotViaServer = not conf.plotViaServer
     echo "Plot now ", conf.plotViaServer
 
+  proc toggleWebsocketConnection*(conf: var Config) =
+    ## TODO: clarify with above proc!!!
+    echo "websocket active: ", conf.websocketActive
+    conf.websocketActive = not conf.websocketActive
+    echo "Plot now ", conf.websocketActive
+
+
   proc toggleEventDisplay*(conf: var Config) =
     conf.plotEventDisplay = not conf.plotEventDisplay
 

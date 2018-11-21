@@ -17,6 +17,14 @@ proc renderMenu*(pState: var PlotState, conf: var Config): VNode =
           renderButton("EventDisplay",
                        onClickProc = () => conf.toggleServer())
         tdiv:
+          if conf.websocketActive:
+            renderButton("Close websocket",
+                         onClickProc = () => conf.toggleWebsocketConnection())
+          if not conf.websocketActive:
+            renderButton("Activate websocket",
+                         onClickProc = () => conf.toggleWebsocketConnection())
+
+        tdiv:
           renderButton("Interactive Plotting",
                        onClickProc = () => conf.toggleServer())
         text("Plotting via server: " & $(conf.plotViaServer))

@@ -11,6 +11,7 @@ type
     plotViaServer*: bool
     plotEventDisplay*: bool
     interactivePlot*: bool
+    websocketActive*: bool
 
   #PlotState = object
   #  staticIdx: int    # index for static data from JSON file

@@ -73,7 +73,8 @@ proc main =
   echo "done"
   let jData = parseJsonToJs(data) #parseJson(data)
   var plotState = initPlotState(jData)
-  var conf = Config(plotViaServer: false, useWs: false)
+  var conf = Config(plotViaServer: false, useWs: false,
+                    websocketActive: true)
 
   var fields: seq[kstring]
   for f in PlotKind:
@@ -201,6 +202,8 @@ proc main =
     ## then, handle websocket
     when UseWS:
       # request a new frame from server
+      if not conf.websocketActive:
+        socket.close()
       if conf.connected:
         socket.fromServer()
       if not conf.plotViaServer or conf.doneReceiving:
@@ -217,6 +220,7 @@ proc main =
           renderPlotly(plotState, conf)
     else:
       renderPlotly(plotState, conf)
+
 
   var chips: seq[kstring] = toSeq(0 .. 6).mapIt(kstring($it))
   var runs: seq[kstring] = @[124, 108].mapIt(kstring($it))

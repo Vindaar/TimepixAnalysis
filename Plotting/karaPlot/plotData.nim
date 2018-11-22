@@ -1,5 +1,6 @@
 import plotly
-import os, strutils, strformat, times, sequtils, math, macros, algorithm, sets
+import os except FileInfo
+import strutils, strformat, times, sequtils, math, macros, algorithm, sets
 import options, logging, typeinfo, json
 import websocket, asynchttpserver, asyncnet, asyncdispatch
 
@@ -1328,20 +1329,20 @@ proc sendDataPacket(ws: AsyncWebSocket, data: JsonNode, kind: PacketKind) =
       if i == 0:
         packet = initDataPacket(kind,
                                 Messages.DataStart,
-                                dPart,
+                                payload = dPart,
                                 recvData = true)
         asyncCheck ws.sendText(packet.asData)
       elif i < nParts - 1:
         packet = initDataPacket(kind,
                                 Messages.Data,
-                                dPart,
+                                payload = dPart,
                                 recvData = true)
         asyncCheck ws.sendText(packet.asData)
       else:
         doAssert i == nParts - 1
         packet = initDataPacket(kind,
                                 Messages.DataStop,
-                                dPart,
+                                payload = dPart,
                                 recvData = false,
                                 done = true)
         waitFor ws.sendText(packet.asData)
@@ -1349,7 +1350,7 @@ proc sendDataPacket(ws: AsyncWebSocket, data: JsonNode, kind: PacketKind) =
     # handle the single packet case differently
     let packet = initDataPacket(kind,
                                 Messages.DataSingle,
-                                sendData,
+                                payload = sendData,
                                 recvData = false,
                                 done = true)
     waitFor ws.sendText(packet.asData)

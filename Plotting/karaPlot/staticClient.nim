@@ -100,7 +100,7 @@ proc main =
       redraw()
 
   echo "...parsed"
-  var packet = initDataPacket()
+  var packetStore = initDataPacketStorage()
 
   proc getData(pState: PlotState): JsObject =
     ## gets the appropriate data to plot given the current state
@@ -134,25 +134,62 @@ proc main =
     proc finished(packet: DataPacket): bool =
       result = not packet.header.recvData and packet.header.done
 
-    proc handleData(packet: var DataPacket, s: kstring) =
+    proc getPacket(packets: DataPacketStorage,
+                   pKind: PacketKind): DataPacket =
+      case pKind
+      of Descriptors: result = packets.descPacket
+      of Plots: result = packets.pltPacket
+      of Request: result = packets.reqPacket
+      else: result = initDataPacket()
+
+    proc getPacket(packets: DataPacketStorage,
+                   sPacket: DataPacket): DataPacket =
+      result = packets.getPacket(sPacket.kind)
+
+    proc assignPacket(packets: var DataPacketStorage,
+                      sPacket: DataPacket) =
+      case sPacket.kind
+      of Descriptors: packets.descPacket = sPacket
+      of Plots: packets.pltPacket = sPacket
+      of Request: packets.reqPacket = sPacket
+      else: discard
+
+    proc handleData(packets: var DataPacketStorage, s: kstring): PacketKind =
+      ## handles a single data packet received and returns the `PacketKind`
+      ## to know what packet arrived in the calling scope
       let singlePacket = parseDataPacket(s)
+      var packet = packets.getPacket(singlePacket)
       # copy the header
-      packet.header = singlePacket.header
-      echo "Packet header! ", packet.header
-      case packet.header.msg
-      of Messages.DataStart:
-        echo "Receving data now!"
-        packet.payload = singlePacket.payload
-      of Messages.Data, Messages.DataStop:
-        packet.payload &= singlePacket.payload
-      of Messages.DataSingle:
-        echo "Single packet received!"
-        packet.payload &= singlePacket.payload
+
+      case singlePacket.kind
+      of Descriptors, Plots:
+        packet.header = singlePacket.header
+        echo "Yes"
+        echo "Packet header! ", packet.header
+        echo "no"
+        case packet.header.msg
+        of Messages.DataStart:
+          echo "Receving data now!"
+          packet.payload = singlePacket.payload
+        of Messages.Data, Messages.DataStop:
+          packet.payload &= singlePacket.payload
+        of Messages.DataSingle:
+          echo "Single packet received!"
+          packet.payload &= singlePacket.payload
+        else:
+          echo "WARNING: couldn't parse message kind! " & $packet.header.msg
+      of Request: discard
       else:
-        echo "WARNING: couldn't parse message kind! " & $packet.header.msg
+        echo "WARNING: Unknown data packet!"
+
+      # re assign the variable packet to the parent
+      # TODO: achieve by using ref type instead?
+      packets.assignPacket(packet)
+
+      result = singlePacket.kind
 
     proc assignPlotPacket(pState: var PlotState, packet: DataPacket) =
-      doAssert packet.header.kind == PacketKind.Plots
+      doAssert packet.kind == PacketKind.Plots
       pState.serverP.data[pState.serverP.nObj] = parseJsonToJs(packet.payload)
       # parse that packet, add to svg / plotly
       template getPairsKeys(data, nObj: untyped, name: kstring): untyped =
@@ -178,7 +215,7 @@ proc main =
       inc pState.serverP.nObj
 
     proc assignDescriptorPacket(pState: var PlotState, packet: DataPacket) =
-      doAssert packet.header.kind == PacketKind.Descriptors
+      doAssert packet.kind == PacketKind.Descriptors
       let pJson = parseJson(packet.payload)
       for x in pJson:
         let pd = parsePd(x)
@@ -187,15 +224,21 @@ proc main =
       echo "PDs are ", $pState.pds
 
     proc parsePacket(pState: var PlotState, packet: DataPacket) =
-      case packet.header.kind
+      case packet.kind
       of PacketKind.Plots:
         echo "Is a plot packet!"
         assignPlotPacket(pState, packet)
       of PacketKind.Descriptors:
         echo "Is a descriptors packet!"
         assignDescriptorPacket(pState, packet)
+      of PacketKind.Request:
+        if packet.reqKind == rqPing:
+          # send a pong
+          socket.send($(initDataPacket(kind = Request)))
+        else:
+          echo "WARNING: Requests from server to client only valid if ping!"
       else:
-        echo "WARNING: couldn't parse packet kind! " & $packet.header.kind
+        echo "WARNING: couldn't parse packet kind! " & $packet.kind
 
   proc postRender() =
     ## this is called after rendering via karax. First render the plotly plot
@@ -210,12 +253,21 @@ proc main =
         renderPlotly(plotState, conf)
 
       socket.onMessage = proc (e: MessageEvent) =
-        packet.handleData(e.data)
-        if packet.finished:
+        let pKind = packetStore.handleData(e.data)
+        var sPacket = packetStore.getPacket(pKind)
+        if sPacket.finished:
           # parse new object
-          plotState.parsePacket(packet)
+          plotState.parsePacket(sPacket)
           # reset packet
-          packet = initDataPacket()
+          case pKind
+          of PacketKind.Descriptors:
+            sPacket = initDataPacket(kind = PacketKind.Descriptors)
+          of PacketKind.Plots:
+            sPacket = initDataPacket(kind = PacketKind.Plots)
+          of PacketKind.Request:
+            sPacket = initDataPacket(kind = PacketKind.Request)
+          else: discard
+          packetStore.assignPacket(sPacket)
           echo "Obj count now ", plotState.serverP.nObj
           renderPlotly(plotState, conf)
     else:

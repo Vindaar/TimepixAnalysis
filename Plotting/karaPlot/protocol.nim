@@ -12,7 +12,7 @@ import common_types
 import ingrid / ingrid_types
 
 type
-  Messages* = enum
+  Messages* {.pure.} = enum
     MessageUnknown = "Error"
     Connected = "Connected"
     DataStart = "DataStart"
@@ -20,19 +20,38 @@ type
     DataSingle = "DataSingle"
     Data = "Data"
     Request = "Request"
+    # TODO: add message for "close nominally?"
+
+  RequestKind* = enum
+    rqPing     # just a ping, server/client will return pong
+    rqFileInfo # request FileInfo of current file
+    rqPlotDescriptors # request all PlotDescriptors the server believes
+                      # available. Note: this might not be every possible
+                      # plot, because the config.toml might limit the
+                      # created PDs
+    rqPlot # request a specific plot. Payload needs to be a
+           # serialized PlotDescriptor
 
   PacketKind* = enum
-    PacketKindUnknown, Descriptors, Plots
+    # answer packet server -> after a request
+    PacketKindUnknown, Descriptors, Plots, Request
 
   PacketHeader* = object
+    # A real Data packet typically server -> client
     msg*: Messages
-    kind*: PacketKind
     recvData*: bool
     done*: bool
 
   DataPacket* = object
-    header*: PacketHeader
     payload*: kstring
+    case kind*: PacketKind
+    of PacketKind.Request:
+      # a Request packet typically client -> server
+      reqKind*: RequestKind
+    of PacketKind.Descriptors, PacketKind.Plots:
+      # A real Data packet typically server -> client
+      header*: PacketHeader
+    else: discard
 
   # a simple object storing the runs, chips etc. from a given
   # H5 file
@@ -85,38 +104,52 @@ const InGridEventFnameTemplate* = "ingrid_event_run$1_chip$2_event$3"
 #  result.done = false
 #  result.data = kstring""
 
-proc initDataPacket*(): DataPacket =
-  result.header = PacketHeader(msg: MessageUnknown,
-                               kind: PacketKindUnknown,
-                               recvData: false,
-                               done: false)
+proc initDataPacket*(kind: PacketKind = PacketKindUnknown): DataPacket =
+  result.kind = kind
+  case result.kind
+  of Descriptors, Plots:
+    result.header = PacketHeader(msg: MessageUnknown,
+                                 recvData: false,
+                                 done: false)
+  of Request:
+    result.reqKind = rqPing
+  else: discard
   result.payload = ""
 
 proc initDataPacket*(kind: PacketKind,
                      header: Messages,
+                     reqKind: RequestKind = rqPing,
                      payload: kstring = "",
                      recvData: bool = false,
                      done: bool = false): DataPacket =
-  result.header = PacketHeader(kind: kind,
-                               msg: header,
-                               recvData: recvData,
-                               done: done)
+  result.kind = kind
+  case result.kind
+  of Descriptors, Plots:
+    result.header = PacketHeader(msg: header,
+                                 recvData: recvData,
+                                 done: done)
+  of Request:
+    result.reqKind = reqKind
+  else: discard
   result.payload = payload
 
-#proc getStartPacket*(kind: PacketKind): JsonNode =
-#  ## returns the data start packet
-#  result = initDataPacket(kind,
-#                          header = Messages.DataStart)
-#
-#proc getStopPacket*(kind: PacketKind): JsonNode =
-#  ## returns the data start packet
-#  result = initDataPacket(kind,
-#                          header = Messages.DataStop)
+# only needed for static client. Located here to avoid circular dependency
+type
+  DataPacketStorage* = object
+    # object to store one DataPacket of each kind
+    # differentiate Descriptors and Plots?
+    pltPacket*: DataPacket
+    descPacket*: DataPacket
+    reqPacket*: DataPacket
+
+proc initDataPacketStorage*(): DataPacketStorage =
+  result.pltPacket = initDataPacket(kind = PacketKind.Plots)
+  result.descPacket = initDataPacket(kind = PacketKind.Descriptors)
+  result.reqPacket = initDataPacket(kind = PacketKind.Request)
 
 func `%`*(header: PacketHeader): JsonNode =
   ## serializes a `PacketHeader`
   result = newJObject()
-  result[kstring"kind"] = % header.kind
   result[kstring"msg"] = % header.msg
   # bools need to be stored as strings for JS interop
   result[kstring"recvData"] = % $(header.recvData)
@@ -125,7 +158,13 @@ func `%`*(header: PacketHeader): JsonNode =
 func `%`*(packet: DataPacket): JsonNode =
   ## serialize `packet` to send via websocket
   result = newJObject()
-  result[kstring"header"] = % packet.header
+  result[kstring"kind"] = % $packet.kind
+  case packet.kind
+  of PacketKind.Descriptors, PacketKind.Plots:
+    result[kstring"header"] = % packet.header
+  of PacketKind.Request:
+    result[kstring"reqKind"] = % $packet.reqKind
+  else: discard
   result[kstring"payload"] = % packet.payload
 
 proc `$`*(packet: DataPacket): kstring =
@@ -140,16 +179,23 @@ proc parsePacketHeader(header: JsonNode): PacketHeader =
   ## unmarshals a header as a JsonNode to a `PacketHeader`
   result.msg = parseEnum[Messages](header["msg"].getStr,
                                    Messages.MessageUnknown)
-  result.kind = parseEnum[PacketKind](header["kind"].getStr,
-                                      PacketKind.PacketKindUnknown)
   result.recvData = parseBool($(header["recvData"].getStr))
   result.done = parseBool($(header["done"].getStr))
 
 proc parseDataPacket*(packet: kstring): DataPacket =
   ## unmarshals the data packet string
   # first create a JsonNode from the packet
+  echo "Parsing packet ", packet
   let pJson = parseJson(packet)
-  result.header = parsePacketHeader(pJson[kstring"header"])
+  result.kind = parseEnum[PacketKind](pJson["kind"].getStr,
+                                      PacketKind.PacketKindUnknown)
+  case result.kind
+  of Descriptors, Plots:
+    result.header = parsePacketHeader(pJson[kstring"header"])
+  of Request:
+    result.reqKind = parseEnum[RequestKind](pJson["reqKind"].getStr,
+                                            rqPing)
+  else: discard
   result.payload = pJson[kstring"payload"].getStr
 
 #proc parseHeaderPacket*(packet: kstring): (Messages, PacketKind) =

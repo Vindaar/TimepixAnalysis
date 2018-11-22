@@ -154,6 +154,17 @@ proc main =
       of Request: packets.reqPacket = sPacket
       else: discard
 
+    proc resetPacket(packets: var DataPacketStorage,
+                     pKind: PacketKind) =
+      case pKind
+      of PacketKind.Descriptors:
+        packets.descPacket = initDataPacket(kind = PacketKind.Descriptors)
+      of PacketKind.Plots:
+        packets.pltPacket = initDataPacket(kind = PacketKind.Plots)
+      of PacketKind.Request:
+        packets.reqPacket = initDataPacket(kind = PacketKind.Request)
+      else: discard
+
     proc handleData(packets: var DataPacketStorage, s: kstring): PacketKind =
       ## handles a single data packet received and returns the `PacketKind`
       ## to know what packet arrived in the calling scope
@@ -259,15 +270,7 @@ proc main =
           # parse new object
           plotState.parsePacket(sPacket)
           # reset packet
-          case pKind
-          of PacketKind.Descriptors:
-            sPacket = initDataPacket(kind = PacketKind.Descriptors)
-          of PacketKind.Plots:
-            sPacket = initDataPacket(kind = PacketKind.Plots)
-          of PacketKind.Request:
-            sPacket = initDataPacket(kind = PacketKind.Request)
-          else: discard
-          packetStore.assignPacket(sPacket)
+          packetStore.resetPacket(pKind)
           echo "Obj count now ", plotState.serverP.nObj
           renderPlotly(plotState, conf)
     else:

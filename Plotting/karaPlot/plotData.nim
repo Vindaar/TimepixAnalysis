@@ -318,7 +318,8 @@ proc applyConfig(fileInfo: var FileInfo) =
   if chipSet.card > 0:
     fileInfo.chips = fileInfo.chips.filterIt(it.uint16 in chipSet)
 
-proc applyConfig(fileInfo: FileInfo): FileInfo =
+proc appliedConfig(fileInfo: FileInfo): FileInfo =
+  ## returns a copy of the given `FileInfo` with the config.toml applied
   result = fileInfo
   result.applyConfig()
 
@@ -1223,7 +1224,7 @@ proc eventDisplay(h5file: string,
   ## use as event display tool
   var h5f = H5file(h5file, "r")
   let fileInfo = getFileInfo(h5f)
-  let fInfoConfig = fileInfo.applyConfig()
+  let fInfoConfig = fileInfo.appliedConfig()
   let pds = createEventDisplayPlots(h5f, run, runType, fInfoConfig)
 
   if cfProvideServer in flags:
@@ -1242,7 +1243,7 @@ proc createCalibrationPlots(h5file: string,
   ## creates QA plots for calibration runs
   var h5f = H5file(h5file, "r")
   var fileInfo = getFileInfo(h5f)
-  let fInfoConfig = fileInfo.applyConfig()
+  let fInfoConfig = fileInfo.appliedConfig()
   # var imageSet = initOrderedSet[string]()
   var pds: seq[PlotDescriptor]
 
@@ -1275,7 +1276,7 @@ proc createBackgroundPlots(h5file: string,
   ## creates QA plots for calibration runs
   var h5f = H5file(h5file, "r")
   var fileInfo = getFileInfo(h5f)
-  let fInfoConfig = fileInfo.applyConfig()
+  let fInfoConfig = fileInfo.appliedConfig()
   var pds: seq[PlotDescriptor]
   const length = "length"
   if cfNoOccupancy notin flags:

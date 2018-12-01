@@ -4,7 +4,7 @@ import sets, tables
 import ingrid / ingrid_types
 
 type
-# enum listing all available `plot types` we can produce
+  # enum listing all available `plot types` we can produce
   PlotKind* = enum
     pkInGridDset           # histogram InGrid property
     pkFadcDset             # histogram FADC property
@@ -17,7 +17,7 @@ type
     pkFeSpecCharge         # Fe charge (or different) spectrum
     pkEnergyCalibCharge    # Energy calibration from Fe charge spectrum
     pkFeVsTime             # Evolution of Fe pix peak location vs tim
-    pkFePixDivChVsTime     # Evolution of Fe (pix peak / charge peak) location vs tim
+    pkFePixDivChVsTime     # Evolution of Fe (pix peak / charge peak) location vs time"
     pkInGridEvent          # Individual InGrid event
     pkFadcEvent            # Individual FADC event
     pkCalibRandom          # ? to be filled for different calibration plots
@@ -74,5 +74,14 @@ type
     of pkInGridEvent:
       events*: OrderedSet[int] # events to plot (indices at the moment, not event numbers)
       event*: int # the current event being plotted
+    of pkFeVsTime, pkFePixDivChVsTime:
+      # If unequal to 0 will create the plot not just split by runs, but rather split the
+      # calib data for each run in pieces of `splitBySec` seconds of time slices.
+      splitBySec*: int
+      # allowed divergence of last slice's length in percent
+      lastSliceError*: float
+      # if splitBySec doesn't fit into splitBySec within `lastSliceError` decide if to drop
+      # that slice or keep it
+      dropLastSlice*: bool
     else:
       discard

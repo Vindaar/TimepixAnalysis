@@ -732,7 +732,26 @@ proc feSpectrum(h5f: var H5FileObj, runType: RunTypeKind,
                                    runs: fileInfo.runs,
                                    chip: fileInfo.centerChip,
                                    plotKind: pkFePixDivChVsTime)
-  result.add @[photoVsTime, phPixDivChVsTime]
+  let photoVsTimeHalfH = PlotDescriptor(runType: runType,
+                                        name: "PhotoPeakVsTime",
+                                        xlabel: "Time / unix",
+                                        runs: fileInfo.runs,
+                                        chip: fileInfo.centerChip,
+                                        plotKind: pkFeVsTime,
+                                        splitBySec: 1800,
+                                        lastSliceError: 0.2,
+                                        dropLastSlice: false)
+  let phPixDivChVsTimeHalfH = PlotDescriptor(runType: runType,
+                                             name: "PhotoPixDivChVsTime",
+                                             xlabel: "Time / unix",
+                                             runs: fileInfo.runs,
+                                             chip: fileInfo.centerChip,
+                                             plotKind: pkFePixDivChVsTime,
+                                             splitBySec: 1800,
+                                             lastSliceError: 0.2,
+                                             dropLastSlice: false)
+  result.add @[photoVsTime, phPixDivChVsTime,
+               photVsTimeHalfH, phPixDivChVsTimeHalfH]
   #for runNumber, grpName in runs(h5f):
   #  var group = h5f[grpName.grp_str]
   #  let centerChip = h5f[group.parent.grp_str].attrs["centerChip", int]
@@ -984,12 +1003,20 @@ proc handleFeVsTime(h5f: var H5FileObj,
   for r in pd.runs:
     let group = h5f[(recoBase & $r).grp_str]
     let chpGrpName = group.name / "chip_" & $pd.chip
-    pixSeq.add h5f[(chpGrpName / "FeSpectrum").dset_str].attrs[
-      parPrefix & $kalphaPix, float
-    ]
-    dates.add parseTime(group.attrs["dateTime", string],
-                        dateStr,
-                        utc()).toUnix.float
+    if pd.splitBySec == 0:
+      pixSeq.add h5f[(chpGrpName / "FeSpectrum").dset_str].attrs[
+        parPrefix & $kalphaPix, float
+      ]
+      dates.add parseTime(group.attrs["dateTime", string],
+                          dateStr,
+                          utc()).toUnix.float
+    #else:
+    #  # split `FeSpectrum` hits by `splitBySec` and perform fit
+    #  h5f.fitToFeSpectrum(r, centerChip,
+    #                      fittingOnly = false,
+    #                      outfiles = outfiles,
+    #                      writeToFile = false)      
+      
   # now plot
   # calculate ratio and convert to string to workaround plotly limitation of
   # only one type for Trace

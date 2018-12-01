@@ -105,7 +105,7 @@ func determineType(runInfo: RunInfo): RunTypeKind =
   const
     evRatio = 0.5
     calibShort = 1800 # min length of calibration run 1/2 h
-    calibLong = 12 * 3600 # max length of calibration run 12 h
+    calibLong = 24 * 3600 # max length of calibration run 12 h
     backShort = 7200 # min length of background run 2 h
 
   let ratio = runInfo.nFadcEvents.float / runInfo.nEvents.float

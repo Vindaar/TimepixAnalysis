@@ -1402,29 +1402,52 @@ proc parseOldTosRunlist*(path: string, rtKind: RunTypeKind): set[uint16] =
       result.incl csv.row[0].strip.parseInt.uint16
   csv.close()
 
+proc findLastEvent(files: seq[string]): (string, Time) =
+  var
+    lastFile: string
+    timeLast: Time
+  for i in countdown(files.high, 0):
+    lastFile = files[i]
+    try:
+      echo "Trying file: ", lastFile, " at index ", i
+      # determine last event and get time from it.
+      timeLast = getTimeFromEvent(last_file)
+      echo "File ", lastFile, " is valid!"
+      break
+    except ValueError:
+      # value error might be raised, if the file is empty and thus parsing the
+      # date time string fails. In this case just continue with the next file
+      continue
+  result = (lastFile, timeLast)
+
 proc getRunTimeInfo*(run_files: seq[string]): RunTimeInfo =
   ## this procdure creates a RunTimeInfo object from a given list of files
   ## in a run folder (not sorted). The list is sorted and then the first and
   ## last event are read, converted to Time objects and the length of the run
   ## is calculated from the difference between both events
   ## sort list of files
+  ## NOTE: If for some reason the very last event does not contain information,
+  ## because e.g. the file is broken etc., we try to event before that until
+  ## we find a suitable file, which will be considered the end of the run
   result = RunTimeInfo()
   let
-    sorted_files = sorted(run_files, system.cmp[string])
-    first_file = sorted_files[0]
-    last_file  = sorted_files[^1]
+    sortedFiles = sorted(run_files, system.cmp[string])
+    firstFile = sortedFiles[0]
     # and times
-    time_first = getTimeFromEvent(first_file)
-    time_last  = getTimeFromEvent(last_file)
-    # calc run length
-    run_length = time_last - time_first
-  echo "Time first is $# and time last is $#" % [$time_first, $time_last]
-  echo "Time difference in seconds $#" % $((time_last - time_first).seconds)
-  echo "Time difference start end $#" % $(run_length)
+    timeFirst = getTimeFromEvent(firstFile)
 
-  result.t_start = time_first
-  result.t_end = time_last
-  result.t_length = run_length
+  let (lastFile, timeLast) = findLastEvent(sortedFiles)
+
+  # calc run length
+  let runLength = timeLast - timeFirst
+
+  echo "Time first is $# and time last is $#" % [$timeFirst, $timeLast]
+  echo "Time difference in seconds $#" % $((timeLast - timeFirst).seconds)
+  echo "Time difference start end $#" % $(runLength)
+
+  result.t_start = timeFirst
+  result.t_end = timeLast
+  result.t_length = runLength
 
 proc getRunInfo*(path: string): RunInfo =
   ## wrapper around the above proc if only the path to the run is known

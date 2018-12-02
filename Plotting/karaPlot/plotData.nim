@@ -135,8 +135,10 @@ var ShowPlots = false
 
 var channel: Channel[(JsonNode, PacketKind)]
 var stopChannel: Channel[bool]
-var expectedStopEvent: AsyncEvent = newAsyncEvent()
-var unExpectedStopEvent: AsyncEvent = newAsyncEvent()
+
+# channel to send DataPackets received from client to work thread
+var dpChannel: Channel[DataPacket]
+var serveNewClientCh: Channel[bool]
 
 # create directories, if not exist
 if not dirExists("logs"):
@@ -1330,31 +1332,43 @@ proc plotsFromPds(h5f: var H5FileObj,
         imageSet.incl fileF
     else: discard
 
+proc serveNewClient(): bool =
+  let (newClient, _)  = serveNewClientCh.tryRecv()
+  result = newClient
+
 proc serve(h5f: var H5FileObj,
            fileInfo: FileInfo,
            pds: seq[PlotDescriptor],
            flags: set[ConfigFlagKind] = {}) =
   ## serves the client
   # before we do anything, send all PDs to the client
-  let pdJson = % pds
-  while not trySend(channel, (pdJson, PacketKind.Descriptors)):
-    echo "DataThread: sleep..."
-    sleep(500)
 
-  for p in pds:
-    for sp in createPlotIter(h5f, fileInfo, p):
-      echo "Number of pds ", pds.len
-      echo "Current plot ", sp
-      let jData = jsonDump(imageSet, plotlyJson)
-      echo "Jdata corresponding: ", jData
-      while not trySend(channel, (jData, PacketKind.Plots)):
-        echo "DataThread: sleep..."
-        sleep(100)
-      info "Clear plots"
-      clearPlots()
+  while true:
+    while not serveNewClient():
+      sleep(100)
 
-  echo "Done with all plots!, sending stop!"
-  stopChannel.send(true)
+    let pdJson = % pds
+    while not trySend(channel, (pdJson, PacketKind.Descriptors)):
+      echo "DataThread: sleep..."
+      sleep(500)
+
+    if serveNewClient():
+      continue
+
+    for p in pds:
+      for sp in createPlotIter(h5f, fileInfo, p):
+        echo "Number of pds ", pds.len
+        echo "Current plot ", sp
+        let jData = jsonDump(imageSet, plotlyJson)
+        # echo "Jdata corresponding: ", jData
+        while not trySend(channel, (jData, PacketKind.Plots)):
+          echo "DataThread: sleep..."
+          sleep(100)
+        info "Clear plots"
+        clearPlots()
+
+    echo "Done with all plots!, sending stop!"
+    stopChannel.send(true)
 
 proc eventDisplay(h5file: string,
                   run: int,
@@ -1512,21 +1526,33 @@ proc processClient(req: Request) {.async.} =
       echo "Received wrong packet, quit early"
       return
     echo "New websocket customer arrived! ", dataConnect
-  var i = 0
+  # let worker know that new client connected
+  serveNewClientCh.send(true)
+
 
   # TODO: send PlotDescriptors first and then go into the loop
   # Include a channel to tell the main thread to restart plots, if
   # already underway
 
+  var dp: DataPacket
   while true:
     let (opcode, data) = await ws.readData()
-    # first await the packet from the connected socket, don't start training before hand
     echo "(opcode: ", opcode, ", data length: ", data
-    # now given prediction and accuracy data, send it to client
-    if data != $Messages.Request:
-      warn "Client sent wrong request! Msg: " & data
+
     case opcode
     of Opcode.Text, Opcode.Cont:
+      # parse the `DataPacket` we just received
+      dp = parseDataPacket(data)
+      # now just send this DataPacket and await response from worker
+      case dp.kind
+      of PacketKind.Request:
+        case dp.reqKind
+        of rqPlot, rqPlotDescriptors:
+          echo "Sending via dpChannel!"
+          dpChannel.send(dp)
+          echo "Sent"
+        else: discard
+      else: discard
       # first check whether main process is done
       #let (stopAvailable, toStop) = stopChannel.tryRecv()
       let (hasData, dataTup) = channel.tryRecv()
@@ -1575,6 +1601,8 @@ proc serve() =
   server = newAsyncHttpServer()
   channel.open(1)
   stopChannel.open(1)
+  serveNewClientCh.open(1)
+  dpChannel.open(1)
   shell:
     ./karaRun "-d:client staticClient.nim"
 

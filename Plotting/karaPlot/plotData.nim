@@ -378,7 +378,8 @@ proc plotBar[T](binsIn, countsIn: seq[seq[T]], title: string,
       traces.add Trace[float](`type`: PlotType.Bar,
                               xs: bin,
                               ys: count,
-                              name: dset)
+                              name: dset,
+                              autoWidth: true)
       result.plPlot = Plot[float](layout: result.plLayout, traces: traces)
       if drawPlots:
         result.plPlot.show()

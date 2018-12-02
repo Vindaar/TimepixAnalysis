@@ -26,7 +26,7 @@ proc renderMenu*(pState: var PlotState, conf: var Config): VNode =
 
         tdiv:
           renderButton("Interactive Plotting",
-                       onClickProc = () => conf.toggleServer())
+                       onClickProc = () => conf.toggleInteractivePlot())
         text("Plotting via server: " & $(conf.plotViaServer))
 
         if conf.plotViaServer:

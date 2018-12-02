@@ -134,6 +134,181 @@ proc thlCalibFunc(p: seq[float], x: float): float =
   ## of the SCurves
   linearFunc(p, x)
 
+proc expGauss(p: seq[float], x: float): float =
+  # exponential * times (?!) from Christoph's expogaus.c
+  if len(p) != 5:
+    return Inf
+  let p_val = 2.0 * (p[1] * pow(p[4], 2.0) - p[3])
+  let q_val = 2.0 * pow(p[4], 2.0) * p[0] + pow(p[3], 2.0) - log(p[2], 10) * 2.0 * pow(p[4], 2.0)
+
+  let threshold = - p_val / 2.0 - sqrt( pow(p_val, 2.0) / 4.0 - q_val )
+
+  if x < threshold:
+    result = exp(p[0] + p[1] * x)
+  else:
+    result = p[2] * gauss(x, p[3], p[4])
+
+proc feSpectrumFunc*(p_ar: seq[float], x: float): float =
+  # NOTE: should we init with 0? or 1?
+
+  var parAll = newSeq[float](20)
+  if len(p_ar) != 15:
+    echo("Length of params is ", len(p_ar))
+    raise newException(ValueError, "Bad argument to `feSpectrumFunc`")
+
+  # while this is the actual fitting function, it is in fact only
+  # a wrapper around 4 Gaussians * exponential decay
+  # It's a mixture of the K_alpha, K_beta lines as well as
+  # the escape peaks
+  # see fitFeSpectrum() (where bounds are set) for discussion of different
+  # parameters
+  parAll[0] = p_ar[0]
+  parAll[1] = p_ar[1]
+  parAll[2] = p_ar[2]
+  parAll[3] = p_ar[3]
+  parAll[4] = p_ar[4]
+
+  parAll[5] = p_ar[5]
+  parAll[6] = p_ar[6]
+  parAll[7] = p_ar[14]*p_ar[2]
+  parAll[8] = 3.5/2.9*p_ar[3]
+  parAll[9] = p_ar[4]
+
+  parAll[10] = p_ar[7]
+  parAll[11] = p_ar[8]
+  parAll[12] = p_ar[9]
+  parAll[13] = p_ar[10]
+  parAll[14] = p_ar[11]
+
+  parAll[15] = p_ar[12]
+  parAll[16] = p_ar[13]
+  parAll[17] = p_ar[14]*p_ar[9]
+  parAll[18] = 6.35/5.75*p_ar[10]
+  parAll[19] = p_ar[11]
+
+  result = 0
+  result += expGauss(parAll[0 .. 4], x)
+  result += expGauss(parAll[5 .. 9], x)
+  result += expGauss(parAll[10 .. 14], x)
+  result += expGauss(parAll[15 .. 19], x)
+
+proc getLines(hist, binning: seq[float]): (float, float, float, float, float, float) =
+  # define center, std and amplitude of K_alpha line
+  # as well as escape peak
+  let muIdx = argmax(hist)
+  var mu_kalpha = 0.0
+  if binning.len > 0:
+    mu_kalpha = binning[muIdx]
+    echo "Binning mu alpha ", mu_kalpha
+  else:
+    mu_kalpha = argmax(hist).float
+  let sigma_kalpha = mu_kalpha / 10.0
+  let n_kalpha = hist[muIdx]
+
+  let mu_kalpha_esc = mu_kalpha * 2.9/5.75
+  let sigma_kalpha_esc = mu_kalpha_esc / 10.0
+  let n_kalpha_esc = n_kalpha / 10.0
+  result = (mu_kalpha, sigma_kalpha, n_kalpha, mu_kalpha_esc, sigma_kalpha_esc, n_kalpha_esc)
+
+proc getBoundsList(n: int): seq[tuple[l, u: float]] =
+  for i in 0 ..< n:
+    result.add (l: -Inf, u: Inf)
+
+proc fitFeSpectrumImpl(hist, binning: seq[float]): seq[float] =
+  # given our histogram and binning data
+  # for fit := (y / x) data
+  # fit a double gaussian to the data
+  let (mu_kalpha, sigma_kalpha, n_kalpha, mu_kalpha_esc,
+       sigma_kalpha_esc, n_kalpha_esc) = getLines(hist, binning)
+
+  var params = newSeq[float](15)
+  params[2] = n_kalpha_esc
+  params[3] = mu_kalpha_esc
+  params[4] = sigma_kalpha_esc
+
+  params[9] = n_kalpha
+  params[10] = mu_kalpha
+  params[11] = sigma_kalpha
+
+  params[14] = 17.0 / 150.0
+
+  var bounds = getBoundsList(15)
+  # set bound on paramerters
+  # constrain amplitude of K_beta to some positive value
+  bounds[2].l = 0
+  bounds[2].u = 10000
+  # constrain amplitude of K_alpha to some positive value
+  bounds[9].l = 0
+  bounds[9].u = 10000
+
+  # location of K_alpha escape peak, little more than half of K_alpha location
+  bounds[3].l = mu_kalpha_esc * 0.8
+  bounds[3].u = mu_kalpha_esc * 1.2
+
+  # bounds for center of K_alpha peak (should be at around 220 electrons, hits)
+  bounds[10].l = mu_kalpha*0.8
+  bounds[10].u = mu_kalpha*1.2
+
+  # some useful bounds for K_alpha escape peak width
+  bounds[4].l = sigma_kalpha_esc*0.5
+  bounds[4].u = sigma_kalpha_esc*1.5
+
+  # some useful bounds for K_alpha width
+  bounds[11].l = sigma_kalpha*0.5
+  bounds[11].u = sigma_kalpha*1.5
+  # param 14: "N_{K_{#beta}}/N_{K_{#alpha}}"
+  # known ratio of two K_alpha and K_beta, should be in some range
+  bounds[14].l = 0.01
+  bounds[14].u = 0.3
+
+  # this leaves parameter 7 and 8, as well as 12 and 13 without bounds
+  # these describe the exponential factors contributing, since they will
+  # be small anyways...
+  echo "Len of bounds: ", bounds
+  echo "Bounds for pixel fit: ", bounds
+  echo "N params for pixel fit: ", len(params)
+
+  # only fit in range up to 350 hits. Can take index 350 on both, since we
+  # created the histogram for a binning with width == 1 pixel per hit
+  let idx_tofit = toSeq(0 .. binning.high).filterIt(binning[it] >= 0 and binning[it] < 350)
+  let data_tofit = idx_tofit.mapIt(hist[it])
+  let bins_tofit = idx_tofit.mapIt(binning[it])
+  let err = data_tofit.mapIt(1.0)
+
+  let (pRes, res) = fit(feSpectrumfunc,
+                        params,
+                        bins_tofit,
+                        data_tofit,
+                        err)
+
+  #result = curve_fit(feSpectrumFunc, bins_tofit, data_tofit, p0=params, bounds = bounds)#, full_output=True)
+  #popt = result[0]
+  #pcov = result[1]
+  echoResult(pRes, res = res)
+  result = pRes
+
+proc fitFeSpectrum*(data: seq[int]): (seq[float], seq[int], seq[float]) =
+  ##
+  const binSize = 3.0
+  let low = -0.5
+  var high = max(data).float + 0.5
+  let nbins = (ceil((high - low) / binSize)).int
+  # using correct nBins, determine actual high
+  high = low + binSize * nbins.float
+  let bin_edges = linspace(low, high, nbins + 1)
+  let hist = data.histogram(bins = nbins + 1, range = (low, high))
+
+  echo bin_edges.len
+  echo hist.len
+  echo bin_edges
+
+  #let hist = histogram(data, binning)
+  # return data as tuple (bin content / binning)
+  # we remove the last element due to the way we create the bins
+  result[2] = fitFeSpectrumImpl(hist.mapIt(it.float), bin_edges[0 .. ^1])
+  result[0] = bin_edges[0 .. ^1]
+  result[1] = hist
+
 func totCalibFunc(p: seq[float], x: float): float =
   ## we fit a combination of a linear and a 1 / x function
   ## The function is:

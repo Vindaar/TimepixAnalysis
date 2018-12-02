@@ -1,10 +1,12 @@
 include karax / prelude
 import sequtils
 import ../components/dropdownList
+import ../protocol
 
 proc renderPlotSelect*(fields: seq[kstring],
-                       runs: seq[kstring],
-                       chips: seq[kstring]): VNode =
+                       fileInfo: FileInfo): VNode =
+  let runs = fileInfo.runs.mapIt(kstring($it))
+  let chips = fileInfo.chips.mapIt(kstring($it))
   result = buildHtml:
     tdiv(id = "grid"):
       renderNamedList("RunNumber", renderDropdownList(runs, runs))

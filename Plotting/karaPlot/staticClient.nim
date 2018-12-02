@@ -279,13 +279,15 @@ proc main =
 
   var chips: seq[kstring] = toSeq(0 .. 6).mapIt(kstring($it))
   var runs: seq[kstring] = @[124, 108].mapIt(kstring($it))
+  var fileInfo = FileInfo()
   proc render(): VNode =
 
     result = buildHtml(tdiv):
       h1(text "Static karaPlot")
       renderMenu(plotState, conf)
 
-      renderPlotSelect(fields, runs, chips)
+      if conf.interactivePlot:
+        renderPlotSelect(fields, fileInfo)
       p:
         br()
         text "Next: " & $plotState.staticP.idx & " " & plotState.getNextStatic

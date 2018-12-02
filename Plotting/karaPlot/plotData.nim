@@ -15,6 +15,7 @@ import nimpy
 import docopt
 import chroma
 import parsetoml
+import nimdata
 
 import dataset_helpers
 import ingrid/ingrid_types
@@ -751,7 +752,7 @@ proc feSpectrum(h5f: var H5FileObj, runType: RunTypeKind,
                                              lastSliceError: 0.2,
                                              dropLastSlice: false)
   result.add @[photoVsTime, phPixDivChVsTime,
-               photVsTimeHalfH, phPixDivChVsTimeHalfH]
+               photoVsTimeHalfH, phPixDivChVsTimeHalfH]
   #for runNumber, grpName in runs(h5f):
   #  var group = h5f[grpName.grp_str]
   #  let centerChip = h5f[group.parent.grp_str].attrs["centerChip", int]
@@ -879,6 +880,75 @@ proc readPlotFit(h5f: var H5FileObj, pd: PlotDescriptor):
       countsFull = counts
       countsFitFull = countsFit
   result = (lastBins, countsFull, lastBinsFit, countsFitFull)
+
+template createFeVsTimeDataFrame(h5f: var H5FileObj,
+                                 group: H5Group,
+                                 pd: PlotDescriptor): untyped {.dirty.} =
+  ## template to create the HDF5 data frame to read FeVsTime data
+  ## This can neither be a proc, because of the static type defined by
+  ## feSchema, evSchema as well as the joined data frame
+  ## Nor can it be a normal template due to a `cannot instantiate DynamicStackArray`
+  ## from the joinTheta call for the 3rd argument.
+  ## Put everything in a block to manually create some hygiene
+  block:
+    const feSchema = [
+      intCol("FeSpectrum"),
+      intCol("FeSpectrumEvents")
+    ]
+    const evSchema = [
+      intCol("eventNumber"),
+      intCol("timestamp")
+    ]
+    type feType = schemaType(feSchema)
+    type evType = schemaType(evSchema)
+    let dfFe = fromHDF5[feType](DF, h5f, h5f.name,
+                                group.name / "chip_" & $pd.chip).cache()
+    let dfFeRenamed = dfFe.map(x => (
+      FeSpectrum: x.FeSpectrum,
+      eventNumber: x.FeSpectrumEvents
+    ))
+    let dfEv = fromHDF5[evType](DF, h5f, h5f.name,
+                                group.name).cache()
+    let joined = joinTheta(
+      dfFeRenamed,
+      dfEv,
+      (a, b) => a.eventNumber == b.eventNumber,
+      (a, b) => mergeTuple(a, b, ["eventNumber"])
+    )
+    joined
+
+proc determineStartStopFeVsTime[T](df: DataFrame[T]): (BiggestInt, BiggestInt) =
+  ## returns the start and stop times of a dataframe with timestamps
+  # now get timeslice from dataframe
+  when false:
+    let tStopDf = joined.sort(x => x.timestamp, SortOrder.Descending)
+      .take(1)
+      .collect()
+    let tStop = tStopDf[0].timestamp
+
+    let tStartDf = joined.sort(x => x.timestamp, SortOrder.Ascending)
+      .take(1)
+      .collect()
+    let tStart = tStartDf[0].timestamp
+  else:
+    let cc = df.collect()
+    let tStart = cc[0].timestamp
+    let tStop = cc[^1].timestamp
+  result = (tStart, tStop)
+
+proc determineNumBatchesFeVsTime(length: int, pd: PlotDescriptor): int =
+  result = length div pd.splitBySec
+  var useLastBatch = false
+  if not pd.dropLastSlice:
+    inc result
+    useLastBatch = true
+  else:
+    # get size of last batch
+    let lastBatch = length mod pd.splitBySec
+    if lastBatch > (length.float * (1.0 - pd.lastSliceError)).round.int:
+      # then also take it
+      inc result
+      useLastBatch = true
 
 proc handleInGridDset(h5f: var H5FileObj,
                       fileInfo: FileInfo,
@@ -1010,13 +1080,56 @@ proc handleFeVsTime(h5f: var H5FileObj,
       dates.add parseTime(group.attrs["dateTime", string],
                           dateStr,
                           utc()).toUnix.float
-    #else:
-    #  # split `FeSpectrum` hits by `splitBySec` and perform fit
-    #  h5f.fitToFeSpectrum(r, centerChip,
-    #                      fittingOnly = false,
-    #                      outfiles = outfiles,
-    #                      writeToFile = false)      
-      
+    else:
+      # split `FeSpectrum` hits by `splitBySec` and perform fit
+      let pyFitFe = pyImport("ingrid.fit_fe_spectrum")
+      let joined = createFeVsTimeDataFrame(h5f, group, pd)
+
+      let (tStart, tStop) = determineStartStopFeVsTime(joined)
+      let length = (tStop - tStart).int
+      let nBatches = determineNumBatchesFeVsTime(length, pd)
+
+      for i in 0 ..< nBatches:
+        # extract the correct data
+        let slStart = i * pd.splitBySec + tStart
+        let slStop = if (i + 1) == nBatches:
+                       i * pd.splitBySec + length mod pd.splitBySec + tStart
+                     else:
+                       (i + 1) * pd.splitBySec + tStart
+        echo "Run: ", r, " in batch ", i
+        echo "Starting from ", slStart
+        echo "Stopping at ", slStop
+
+        let hits = joined.filter(x => (x.timestamp >= slStart and x.timestamp < slStop))
+          .map(x => x.projectTo(FeSpectrum))
+          .map(x => x.FeSpectrum.int)
+          .collect()
+
+        let res = fitFeSpectrum(hits)
+        #let res0 = res[0].mapIt(it.float)
+        #let res1 = res[1].mapIt(it.float)
+
+        #let kalphaLoc = res[0].popt.toNimSeq(float)[kalphaPix]
+
+        #let ppp = barPlot(res0, res1)
+        #ppp.traces[0].autowidth = true
+        #
+        ## now create fit from fit results, add to plot
+        #let popt = res[2]
+        #let countFit = res0.mapIt(feSpectrumFunc(popt, it))
+        #let p2 = scatterPlot(res0, countFit).mode(PlotMode.Lines)
+        #ppp.traces.add p2.traces[0]
+        #ppp.show()
+
+        #let pyRes = pyFitFe.fitAndPlotFeSpectrum([hits], "", ".", r,
+        #                                         true)
+        let kalphaLoc = res[2][kalphaPix]
+        let tstamp = (slStop + slStart).float / 2.0
+        pixSeq.add kalphaLoc
+        dates.add tstamp
+
+
+
   # now plot
   # calculate ratio and convert to string to workaround plotly limitation of
   # only one type for Trace

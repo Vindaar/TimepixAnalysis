@@ -238,6 +238,12 @@ proc main =
         pState.pds.add (outf, pd)
       echo "PDs are ", $pState.pds
 
+    proc assignFileInfoPacket(pState: var PlotState, packet: DataPacket) =
+      doAssert packet.kind == PacketKind.FileInfo
+      let fiJson = parseJson(packet.payload).parseFileInfo
+      echo "received fileInfo: ", $fiJson
+      pState.fileInfo = fiJson
+
     proc parsePacket(pState: var PlotState, packet: DataPacket) =
       case packet.kind
       of PacketKind.Plots:

@@ -40,3 +40,4 @@ type
     serverP*: ServerPlot
     pds*: seq[(kstring, PlotDescriptor)]
     activePd*: PlotDescriptor
+    fileInfo*: FileInfo

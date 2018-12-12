@@ -116,19 +116,19 @@ proc initDataPacket*(kind: PacketKind,
   of PacketKind.PacketKindUnknown: discard
   result.payload = payload
 
-# only needed for static client. Located here to avoid circular dependency
 type
   DataPacketStorage* = object
     # object to store one DataPacket of each kind
-    # differentiate Descriptors and Plots?
     pltPacket*: DataPacket
     descPacket*: DataPacket
     reqPacket*: DataPacket
+    fiPacket*: DataPacket
 
 proc initDataPacketStorage*(): DataPacketStorage =
   result.pltPacket = initDataPacket(kind = PacketKind.Plots)
   result.descPacket = initDataPacket(kind = PacketKind.Descriptors)
   result.reqPacket = initDataPacket(kind = PacketKind.Request)
+  result.fiPacket = initDataPacket(kind = PacketKind.FileInfo)
 
 func `%`*(header: PacketHeader): JsonNode =
   ## serializes a `PacketHeader`

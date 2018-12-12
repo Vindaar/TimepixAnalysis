@@ -76,9 +76,9 @@ proc main =
   var conf = Config(plotViaServer: false, useWs: false,
                     websocketActive: true)
 
-  var fields: seq[kstring]
+  var fields: seq[(kstring, PlotKind)]
   for f in PlotKind:
-    fields.add $f
+    fields.add (kstring($f), f)
 
   when UseWs:
     conf.useWs = UseWs
@@ -295,18 +295,13 @@ proc main =
     else:
       renderPlotly(plotState, conf)
 
-
-  var chips: seq[kstring] = toSeq(0 .. 6).mapIt(kstring($it))
-  var runs: seq[kstring] = @[124, 108].mapIt(kstring($it))
-  var fileInfo = FileInfo()
   proc render(): VNode =
-
     result = buildHtml(tdiv):
       h1(text "Static karaPlot")
       renderMenu(plotState, conf)
 
       if conf.interactivePlot:
-        renderPlotSelect(fields, fileInfo)
+        renderPlotSelect(plotState, socket, fields)
       p:
         br()
         text "Next: " & $plotState.staticP.idx & " " & plotState.getNextStatic

@@ -1505,7 +1505,7 @@ proc sendDataPacket(ws: AsyncWebSocket, data: JsonNode, kind: PacketKind) =
   var sendData = ""
   toUgly(sendData, data)
   # split into several parts (potentially)
-  echo "Now sending ", sendData[0 .. 150]
+  echo "Now sending ", sendData[0 .. (min(150, sendData.high))]
   let nParts = ceil(sendData.len.float / FakeFrameSize.float).int
   if nParts > 1:
     for i in 0 ..< nParts:

@@ -133,7 +133,7 @@ proc initDataPacketStorage*(): DataPacketStorage =
 func `%`*(header: PacketHeader): JsonNode =
   ## serializes a `PacketHeader`
   result = newJObject()
-  result[kstring"msg"] = % header.msg
+  result[kstring"msg"] = % $(header.msg)
   # bools need to be stored as strings for JS interop
   result[kstring"recvData"] = % $(header.recvData)
   result[kstring"done"] = % $(header.done)

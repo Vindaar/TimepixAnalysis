@@ -8,7 +8,7 @@ proc fromServer*(socket: WebSocket) =
   ## request next plot from server
   debugecho "Sent: request"
   # TODO: replace by proper DataPacket
-  socket.send($initDataPacket(kind = Request))
+  socket.send($initDataPacket(kind = PacketKind.Request))
   #socket.onMessage = proc (e: MessageEvent) =
   #  echo "receving"
   #  echo("received: ",e.data)

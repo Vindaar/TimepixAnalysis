@@ -32,9 +32,9 @@ type
     rqPlot # request a specific plot. Payload needs to be a
            # serialized PlotDescriptor
 
-  PacketKind* = enum
+  PacketKind* {.pure.} = enum
     # answer packet server -> after a request
-    PacketKindUnknown, Descriptors, Plots, Request
+    PacketKindUnknown, Descriptors, FileInfo, Plots, Request
 
   PacketHeader* = object
     # A real Data packet typically server -> client
@@ -48,10 +48,10 @@ type
     of PacketKind.Request:
       # a Request packet typically client -> server
       reqKind*: RequestKind
-    of PacketKind.Descriptors, PacketKind.Plots:
+    of PacketKind.Descriptors, PacketKind.Plots, PacketKind.FileInfo:
       # A real Data packet typically server -> client
       header*: PacketHeader
-    else: discard
+    of PacketKind.PacketKindUnknown: discard
 
 # payload size of the data packets. A header is added to this, which
 # is why it's not close to 32768
@@ -86,16 +86,17 @@ const InGridEventFnameTemplate* = "ingrid_event_run$1_chip$2_event$3"
 #  result.done = false
 #  result.data = kstring""
 
-proc initDataPacket*(kind: PacketKind = PacketKindUnknown): DataPacket =
+proc initDataPacket*(kind: PacketKind = PacketKindUnknown,
+                     rqKind: RequestKind = rqPing): DataPacket =
   result.kind = kind
   case result.kind
-  of Descriptors, Plots:
+  of PacketKind.Descriptors, PacketKind.Plots, PacketKind.FileInfo:
     result.header = PacketHeader(msg: MessageUnknown,
                                  recvData: false,
                                  done: false)
-  of Request:
-    result.reqKind = rqPing
-  else: discard
+  of PacketKind.Request:
+    result.reqKind = rqKind
+  of PacketKind.PacketKindUnknown: discard
   result.payload = ""
 
 proc initDataPacket*(kind: PacketKind,
@@ -106,13 +107,13 @@ proc initDataPacket*(kind: PacketKind,
                      done: bool = false): DataPacket =
   result.kind = kind
   case result.kind
-  of Descriptors, Plots:
+  of PacketKind.Descriptors, PacketKind.Plots, PacketKind.FileInfo:
     result.header = PacketHeader(msg: header,
                                  recvData: recvData,
                                  done: done)
-  of Request:
+  of PacketKind.Request:
     result.reqKind = reqKind
-  else: discard
+  of PacketKind.PacketKindUnknown: discard
   result.payload = payload
 
 # only needed for static client. Located here to avoid circular dependency
@@ -142,11 +143,11 @@ func `%`*(packet: DataPacket): JsonNode =
   result = newJObject()
   result[kstring"kind"] = % $packet.kind
   case packet.kind
-  of PacketKind.Descriptors, PacketKind.Plots:
+  of PacketKind.Descriptors, PacketKind.Plots, PacketKind.FileInfo:
     result[kstring"header"] = % packet.header
   of PacketKind.Request:
     result[kstring"reqKind"] = % $packet.reqKind
-  else: discard
+  of PacketKind.PacketKindUnknown: discard
   result[kstring"payload"] = % packet.payload
 
 proc `$`*(packet: DataPacket): kstring =
@@ -172,12 +173,12 @@ proc parseDataPacket*(packet: kstring): DataPacket =
   result.kind = parseEnum[PacketKind](pJson["kind"].getStr,
                                       PacketKind.PacketKindUnknown)
   case result.kind
-  of Descriptors, Plots:
+  of PacketKind.Descriptors, PacketKind.Plots, PacketKind.FileInfo:
     result.header = parsePacketHeader(pJson[kstring"header"])
-  of Request:
+  of PacketKind.Request:
     result.reqKind = parseEnum[RequestKind](pJson["reqKind"].getStr,
                                             rqPing)
-  else: discard
+  of PacketKind.PacketKindUnknown: discard
   result.payload = pJson[kstring"payload"].getStr
 
 #proc parseHeaderPacket*(packet: kstring): (Messages, PacketKind) =

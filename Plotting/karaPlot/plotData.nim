@@ -1548,7 +1548,7 @@ proc processClient(req: Request) {.async.} =
       case dp.kind
       of PacketKind.Request:
         case dp.reqKind
-        of rqPlot, rqPlotDescriptors:
+        of rqPlot, rqPlotDescriptors, rqFileInfo:
           echo "Sending via dpChannel!"
           dpChannel.send(dp)
           echo "Sent"

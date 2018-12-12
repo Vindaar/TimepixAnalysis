@@ -137,10 +137,11 @@ proc main =
     proc getPacket(packets: DataPacketStorage,
                    pKind: PacketKind): DataPacket =
       case pKind
-      of Descriptors: result = packets.descPacket
-      of Plots: result = packets.pltPacket
-      of Request: result = packets.reqPacket
-      else: result = initDataPacket()
+      of PacketKind.Descriptors: result = packets.descPacket
+      of PacketKind.Plots: result = packets.pltPacket
+      of PacketKind.FileInfo: result = packets.fiPacket
+      of PacketKind.Request: result = packets.reqPacket
+      else: echo "WARNING! Cannot get packet for kind: ", pKind
 
     proc getPacket(packets: DataPacketStorage,
                    sPacket: DataPacket): DataPacket =
@@ -149,10 +150,11 @@ proc main =
     proc assignPacket(packets: var DataPacketStorage,
                       sPacket: DataPacket) =
       case sPacket.kind
-      of Descriptors: packets.descPacket = sPacket
-      of Plots: packets.pltPacket = sPacket
-      of Request: packets.reqPacket = sPacket
-      else: discard
+      of PacketKind.Descriptors: packets.descPacket = sPacket
+      of PacketKind.Plots: packets.pltPacket = sPacket
+      of PacketKind.FileInfo: packets.fiPacket = sPacket
+      of PacketKind.Request: packets.reqPacket = sPacket
+      else: echo "WARNING! Cannot assign packet for kind: ", sPacket.kind
 
     proc resetPacket(packets: var DataPacketStorage,
                      pKind: PacketKind) =
@@ -161,9 +163,11 @@ proc main =
         packets.descPacket = initDataPacket(kind = PacketKind.Descriptors)
       of PacketKind.Plots:
         packets.pltPacket = initDataPacket(kind = PacketKind.Plots)
+      of PacketKind.FileInfo:
+        packets.fiPacket = initDataPacket(kind = PacketKind.FileInfo)
       of PacketKind.Request:
         packets.reqPacket = initDataPacket(kind = PacketKind.Request)
-      else: discard
+      else: echo "WARNING! Cannot reset packet for kind: ", pKind
 
     proc handleData(packets: var DataPacketStorage, s: kstring): PacketKind =
       ## handles a single data packet received and returns the `PacketKind`
@@ -173,7 +177,7 @@ proc main =
       # copy the header
 
       case singlePacket.kind
-      of Descriptors, Plots:
+      of PacketKind.Descriptors, PacketKind.Plots, PacketKind.FileInfo:
         packet.header = singlePacket.header
         echo "Yes"
         echo "Packet header! ", packet.header
@@ -189,7 +193,7 @@ proc main =
           packet.payload &= singlePacket.payload
         else:
           echo "WARNING: couldn't parse message kind! " & $packet.header.msg
-      of Request: discard
+      of PacketKind.Request: discard
       else:
         echo "WARNING: Unknown data packet!"
 
@@ -242,10 +246,13 @@ proc main =
       of PacketKind.Descriptors:
         echo "Is a descriptors packet!"
         assignDescriptorPacket(pState, packet)
+      of PacketKind.FileInfo:
+        echo "Is a file info packet!"
+        assignFileInfoPacket(pState, packet)
       of PacketKind.Request:
         if packet.reqKind == rqPing:
           # send a pong
-          socket.send($(initDataPacket(kind = Request)))
+          socket.send($(initDataPacket(kind = PacketKind.Request)))
         else:
           echo "WARNING: Requests from server to client only valid if ping!"
       else:

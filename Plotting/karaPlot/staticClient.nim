@@ -23,9 +23,6 @@ let plt = newPlotly()
 include resources/data_input
 const data = staticRead(fname).kstring
 
-#type
-#  Dropdown = object
-
 # for dynamic client:
 # add fields for
 # - bins  <- to change binning of an existing plot. Entering that will request

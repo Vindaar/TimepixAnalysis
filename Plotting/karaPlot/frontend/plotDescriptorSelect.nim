@@ -1,13 +1,14 @@
 include karax / prelude
 import sequtils
 import karax / kdom
-import ../components/dropdownList
-import ../components/plot_types
+import ../components / [dropdownList, plot_types, utils]
 import ../protocol
 
-proc selectedIndex*(n: Node): cint {.importcpp: "#.selectedIndex".}
-
 proc renderPlotDescriptorSelect*(pState: var PlotState): VNode =
+  ## TODO: selected element from dropdown list first check whether
+  ## the corresponding PD is already part of the table of our
+  ## PDs. If yes, show the corresponding plot, if not, send
+  ## request to server to show it
   proc onChangeHandler(ev: Event, n: VNode) =
     echo "N val ", n.value
     echo "N index ", n.index

@@ -53,24 +53,6 @@ type
       header*: PacketHeader
     else: discard
 
-  # a simple object storing the runs, chips etc. from a given
-  # H5 file
-  FileInfo* = object
-    runs*: seq[int]
-    chips*: seq[int]
-    runType*: RunTypeKind
-    rfKind*: RunFolderKind
-    centerChip*: int
-    centerChipName*: string
-    hasFadc*: bool # reads if FADC group available
-    # TODO: move the following to a CONFIG object
-    plotlySaveSvg*: bool
-    # NOTE: add other flags for other optional plots?
-    # if e.g. FeSpec not available yet, we can just call the
-    # procedure to create it for us
-
-
-
 # payload size of the data packets. A header is added to this, which
 # is why it's not close to 32768
 const FakeFrameSize* = 32000
@@ -281,6 +263,30 @@ func parsePd*(pd: JsonNode): PlotDescriptor =
   of pkCombPolya:
     result.chipsCP = to(pd[kstring"chipsCP"], seq[int])
   else: discard
+
+func `%`*(fileInfo: FileInfo): JsonNode =
+  ## serializes a `FileInfo` object to a `JsonNode`
+  result = newJObject()
+  result["runs"] = % fileInfo.runs
+  result["chips"] = % fileInfo.chips
+  result["runType"] = % $fileInfo.runType
+  result["rfKind"] = % $fileInfo.rfKind
+  result["centerChip"] = % fileInfo.centerChip
+  result["centerChipName"] = % fileInfo.centerChipName
+  result["hasFadc"] = % $fileInfo.hasFadc
+
+func `$`*(fileInfo: FileInfo): kstring =
+  result = (% fileInfo).pretty
+
+func parseFileInfo*(fi: JsonNode): FileInfo =
+  ## parse a FileInfo stored as JsonNode back to an object
+  result.runs = to(fi[kstring"runs"], seq[int])
+  result.chips = to(fi[kstring"chips"], seq[int])
+  result.runType = parseEnum[RunTypeKind](fi["runType"].getStr, rtNone)
+  result.rfKind = parseEnum[RunFolderKind](fi["rfKind"].getStr, rfUnknown)
+  result.centerChip = fi["centerChip"].getInt
+  result.centerChipName = fi["centerChipName"].getStr
+  result.hasFadc = parseBool($(fi["hasFadc"].getStr))
 
 func cKindStr(pd: PlotDescriptor, sep: string): string =
   case pd.clampKind

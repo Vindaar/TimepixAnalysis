@@ -85,3 +85,19 @@ type
       dropLastSlice*: bool
     else:
       discard
+
+  # a simple object storing the runs, chips etc. from a given
+  # H5 file
+  FileInfo* = object
+    runs*: seq[int]
+    chips*: seq[int]
+    runType*: RunTypeKind
+    rfKind*: RunFolderKind
+    centerChip*: int
+    centerChipName*: kstring
+    hasFadc*: bool # reads if FADC group available
+    # TODO: move the following to a CONFIG object
+    plotlySaveSvg*: bool
+    # NOTE: add other flags for other optional plots?
+    # if e.g. FeSpec not available yet, we can just call the
+    # procedure to create it for us

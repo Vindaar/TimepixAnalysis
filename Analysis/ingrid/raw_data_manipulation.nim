@@ -1227,12 +1227,18 @@ proc main() =
       of rtCalibration:
         if rfIgnoreRunList in flags or runNumber.uint16 in oldTosCalibRuns:
           processAndWriteSingleRun(h5f, folder, flags, runType)
+        else:
+          info &"Run {runNumber} with path {folder} is an invalid run for type {runType}!"
       of rtBackground:
         if rfIgnoreRunList in flags or runNumber.uint16 in oldTosBackRuns:
           processAndWriteSingleRun(h5f, folder, flags, runType)
+        else:
+          info &"Run {runNumber} with path {folder} is an invalid run for type {runType}!"
       of rtXrayFinger:
         if rfIgnoreRunList in flags or runNumber.uint16 in oldTosXrayRuns:
           processAndWriteSingleRun(h5f, folder, flags, runType)
+        else:
+          info &"Run {runNumber} with path {folder} is an invalid run for type {runType}!"
       else:
         info &"Run {runNumber} with path {folder} is invalid for type {runType}"
     of rfNewTos, rfSrsTos:

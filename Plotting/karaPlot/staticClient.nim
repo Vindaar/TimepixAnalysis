@@ -91,6 +91,12 @@ proc main =
       socket.send($Messages.Connected)
       conf.connected = true
       conf.receiving = true
+
+      # first request FileInfo
+      socket.send($initDataPacket(PacketKind.Request, rqFileInfo))
+      # then PlotDescriptors
+      socket.send($initDataPacket(PacketKind.Request, rqPlotDescriptors))
+
     socket.onClose = proc (e: CloseEvent) =
       # TODO: check if proper close!
       conf.connected = false

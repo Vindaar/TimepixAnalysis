@@ -1,5 +1,6 @@
 import jsffi, jsbind, macros, strutils
 include karax / prelude
+import karax / kdom
 import karax / jjson
 import plot_types
 
@@ -17,6 +18,8 @@ proc stringify*(value: JsObject | JsonNode,
                 space: JsObject): cstring {.jsimportgWithName: "JSON.stringify".}
 proc toString*(x: JsObject | JsonNode): cstring =
   result = x.stringify(nil, toJs(2))
+
+proc selectedIndex*(n: Node): cint {.importcpp: "#.selectedIndex".}
 
 proc pretty*(x: JsonNode): cstring =
   result = x.stringify(nil, toJs(2))

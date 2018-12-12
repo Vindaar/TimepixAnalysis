@@ -1337,6 +1337,40 @@ proc serveNewClient(): bool =
   let (newClient, _)  = serveNewClientCh.tryRecv()
   result = newClient
 
+proc awareSend[T](ch: var Channel[T], data: JsonNode, pKind: PacketKind) =
+  while not trySend(ch, (data, pKind)):
+    echo "DataThread: sleeping to send ", pKind
+    sleep(100)
+
+proc serveRequests(h5f: var H5FileObj,
+                   fileInfo: FileInfo,
+                   pds: seq[PlotDescriptor]) =
+  while true:
+    # receive data packet
+    # TODO: replace by a `reqChannel`?
+    echo "Serving client requests!"
+
+    let dp = dpChannel.recv()
+    echo "Received kind ", dp.reqKind
+    case dp.reqKind
+    of rqPlot:
+      let pd = dp.payload.parseJson.parsePd
+      for sp in createPlotIter(h5f, fileInfo, pd):
+        let jData = jsonDump(imageSet, plotlyJson)
+        # echo "Jdata corresponding: ", jData
+        awareSend(channel, jData, PacketKind.Plots)
+        info "Clear plots"
+        clearPlots()
+    of rqPlotDescriptors:
+      let pdJson = % pds
+      awareSend(channel, pdJson, PacketKind.Descriptors)
+    of rqFileInfo:
+      let fiJson = % fileInfo
+      awareSend(channel, fiJson, PacketKind.FileInfo)
+    else:
+      echo "Unknown req kind in context: ", dp.reqKind
+      discard
+
 proc serve(h5f: var H5FileObj,
            fileInfo: FileInfo,
            pds: seq[PlotDescriptor],
@@ -1347,11 +1381,6 @@ proc serve(h5f: var H5FileObj,
   while true:
     while not serveNewClient():
       sleep(100)
-
-    let pdJson = % pds
-    while not trySend(channel, (pdJson, PacketKind.Descriptors)):
-      echo "DataThread: sleep..."
-      sleep(500)
 
     if serveNewClient():
       continue
@@ -1413,7 +1442,8 @@ proc createCalibrationPlots(h5file: string,
   pds.add histograms(h5f, runType, fInfoConfig, flags) # including fadc
 
   if cfProvideServer in flags:
-    serve(h5f, fileInfo, pds, flags)
+    serveRequests(h5f, fileInfo, pds)
+    #serve(h5f, fileInfo, pds, flags)
   else:
     plotsFromPds(h5f, fInfoConfig, pds)
     echo "Image set is ", imageSet.card
@@ -1445,7 +1475,8 @@ proc createBackgroundPlots(h5file: string,
   pds.add createCustomPlots(fInfoConfig)
 
   if cfProvideServer in flags:
-    serve(h5f, fileInfo, pds, flags)
+    serveRequests(h5f, fileInfo, pds)
+    #serve(h5f, fileInfo, pds, flags)
   else:
     plotsFromPds(h5f, fInfoConfig, pds)
     echo "Image set is ", imageSet.card
@@ -1528,8 +1559,7 @@ proc processClient(req: Request) {.async.} =
       return
     echo "New websocket customer arrived! ", dataConnect
   # let worker know that new client connected
-  serveNewClientCh.send(true)
-
+  #serveNewClientCh.send(true)
 
   # TODO: send PlotDescriptors first and then go into the loop
   # Include a channel to tell the main thread to restart plots, if

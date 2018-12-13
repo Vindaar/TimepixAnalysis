@@ -529,7 +529,7 @@ proc calcOccupancy[T](x, y: seq[T]): Tensor[float] =
       let yIdx = min(yEv.round.int, 255)
       result[xIdx, yIdx] += 1.0
 
-proc plotHist2D(data: Tensor[float], title, outfile: string) = #descr: string) =
+proc plotHist2D(data: Tensor[float], title, outfile: string) =
   ## creates a 2D histogram plot (basically an image) of the given 2D
   ## Tensor
   doAssert data.rank == 2
@@ -700,7 +700,6 @@ proc feSpectrum(h5f: var H5FileObj, runType: RunTypeKind,
                 fileInfo: FileInfo,
                 flags: set[ConfigFlagKind]): seq[PlotDescriptor] =
   ## creates the plot of the Fe spectrum
-
   for r in fileInfo.runs:
     let basePd = PlotDescriptor(runType: runType,
                                 name: "FeSpectrumPlot",
@@ -723,6 +722,8 @@ proc feSpectrum(h5f: var H5FileObj, runType: RunTypeKind,
       ylabel = "Energy / keV"
       plotKind = pkEnergyCalibCharge
     result.add @[basePd, energyPd, feChargePd, energyChargePd]
+
+
 
   let photoVsTime = PlotDescriptor(runType: runType,
                                    name: "PhotoPeakVsTime",
@@ -1130,8 +1131,6 @@ proc handleFeVsTime(h5f: var H5FileObj,
         let tstamp = (slStop + slStart).float / 2.0
         pixSeq.add kalphaLoc
         dates.add tstamp
-
-
 
   # now plot
   # calculate ratio and convert to string to workaround plotly limitation of

@@ -340,7 +340,7 @@ proc appliedConfig(fileInfo: FileInfo): FileInfo =
   result.applyConfig()
 
 proc plotHist[T](xIn: seq[T], title, dset, outfile: string,
-                 binS: float, binR: (float, float)) =
+                 binS: float, binR: (float, float)): PlotV =
   ## plots the data in `x` as a histogram
   let xs = xIn.mapIt(it.float)
 
@@ -353,7 +353,7 @@ proc plotHist[T](xIn: seq[T], title, dset, outfile: string,
     binSize = (binRange[1] - binRange[0]) / 100
 
   info &"Bin range {binRange} for dset: {dset}"
-  var pltV = initPlotV(title, dset, "#")
+  result = initPlotV(title, dset, "#")
   case BKind
   of bPlotly:
     var traces: seq[Trace[float]]
@@ -363,14 +363,14 @@ proc plotHist[T](xIn: seq[T], title, dset, outfile: string,
                             #nbins: nBins,
                             xs: xs,
                             name: dset)
-    pltV.plPlot = Plot[float](layout: pltV.plLayout, traces: traces)
-    pltV.savePlot(outfile, fullPath = true)
+    result.plPlot = Plot[float](layout: result.plLayout, traces: traces)
+    result.savePlot(outfile, fullPath = true)
   of bMpl:
     let nbins = ((binRange[1] - binRange[0]) / binSize).round.int
-    discard pltV.ax.hist(xs,
+    discard result.ax.hist(xs,
                          bins = nbins,
                          range = binRange)
-    pltV.savePlot(outfile, fullPath = true)
+    result.savePlot(outfile, fullPath = true)
   else: discard
 
 proc plotBar[T](binsIn, countsIn: seq[seq[T]], title: string,
@@ -445,7 +445,6 @@ proc createCustomPlots(fileInfo: FileInfo): seq[PlotDescriptor] =
                               range: range,
                               binSize: 1.0,
                               binRange: (7.0, 707.0))
-
 
 proc getBinSizeAndBinRange(dset: string): (float, (float, float)) =
   ## accesses the helper procs to unwrap the options from the `dataset_helper`
@@ -542,23 +541,23 @@ proc calcOccupancy[T](x, y: seq[T]): Tensor[float] =
       let yIdx = min(yEv.round.int, 255)
       result[xIdx, yIdx] += 1.0
 
-proc plotHist2D(data: Tensor[float], title, outfile: string) =
+proc plotHist2D(data: Tensor[float], title, outfile: string): PlotV =
   ## creates a 2D histogram plot (basically an image) of the given 2D
   ## Tensor
   doAssert data.rank == 2
-  var pltV = initPlotV(title, "pixel x", "pixel y", ShapeKind.Square)
+  result = initPlotV(title, "pixel x", "pixel y", ShapeKind.Square)
   case BKind
   of bPlotly:
     let tr = Trace[float](`type`: PlotType.HeatMap,
                       colormap: ColorMap.Viridis,
                       zs: data.toRawSeq.reshape2D([NPix, NPix]))
-    pltV.plPlot = Plot[float](layout: pltV.plLayout, traces: @[tr])
-    pltV.savePlot(outfile, fullPath = true)
+    result.plPlot = Plot[float](layout: result.plLayout, traces: @[tr])
+    result.savePlot(outfile, fullPath = true)
   of bMpl:
-    discard pltV.plt.imshow(data.toRawSeq.reshape2D([NPix, NPix]),
+    discard result.plt.imshow(data.toRawSeq.reshape2D([NPix, NPix]),
                        cmap = "viridis")
-    discard pltV.plt.colorbar()
-    pltV.savePlot(outfile, fullPath = true)
+    discard result.plt.colorbar()
+    result.savePlot(outfile, fullPath = true)
   else:
     discard
 
@@ -570,7 +569,7 @@ proc plotScatter(pltV: PlotV, x, y: seq[float], name, outfile: string) =
                              xs: x,
                              ys: y,
                              name: name)
-    pltV.plPlot.traces.add trFit
+    pltV.plPlot.traces.add @[trFit]
     pltV.savePlot(outfile, fullPath = true)
   of bMpl:
     # in this case `ax` is defined
@@ -582,10 +581,11 @@ proc plotScatter(pltV: PlotV, x, y: seq[float], name, outfile: string) =
   else:
     warn &"Unsupported backend kind: {BKind}"
 
-proc plotScatter(x, y: seq[float], title, name, outfile: string) =
+proc plotScatter(x, y: seq[float], title, name, outfile: string): PlotV =
   ## wrapper around the above if no `PlotV` yet defined
-  var pltV = initPlotV(title, "x", "y", ShapeKind.Rectangle)
-  pltV.plotScatter(x, y, name, outfile)
+  result = initPlotV(title, "x", "y", ShapeKind.Rectangle)
+  result.plPlot = Plot[float](layout: result.plLayout, traces: @[])
+  result.plotScatter(x, y, name, outfile)
 
 # TODO: also plot occupancies without full frames (>4095 hits)?
 proc occupancies(h5f: var H5FileObj, runType: RunTypeKind,
@@ -690,8 +690,8 @@ proc polya(h5f: var H5FileObj, runType: RunTypeKind,
 proc plotDates[T, U](x: seq[U], y: seq[T],
                      title, xlabel, outfile: string,
                      ylabel = "",
-                     drawPlots = false) =
-  var pltV = initPlotV(title, xlabel, ylabel, ShapeKind.Rectangle)
+                     drawPlots = false): PlotV =
+  result = initPlotV(title, xlabel, ylabel, ShapeKind.Rectangle)
   case BKind
   of bPlotly:
     let tr = Trace[T](mode: PlotMode.Markers,
@@ -699,13 +699,13 @@ proc plotDates[T, U](x: seq[U], y: seq[T],
                       xs: x,
                       ys: y,
                       marker: Marker[float](size: @[12.0]))
-    pltV.plPlot = Plot[T](layout: pltV.plLayout, traces: @[tr])
-    pltV.savePlot(outfile, fullPath = true)
+    result.plPlot = Plot[T](layout: result.plLayout, traces: @[tr])
+    result.savePlot(outfile, fullPath = true)
   of bMpl:
     let dtm = pyImport("datetime")
     let xP = x.mapIt(dtm.datetime.utcfromtimestamp(int(it)))
-    discard pltV.ax.plot_date(xP, y, label = title)
-    pltV.savePlot(outfile, fullPath = true)
+    discard result.ax.plot_date(xP, y, label = title)
+    result.savePlot(outfile, fullPath = true)
   else:
     discard
 
@@ -969,7 +969,7 @@ proc determineNumBatchesFeVsTime(length: int, pd: PlotDescriptor): int =
 
 proc handleInGridDset(h5f: var H5FileObj,
                       fileInfo: FileInfo,
-                      pd: PlotDescriptor): string =
+                      pd: PlotDescriptor): (string, PlotV) =
   let ranges = @[pd.range]
   var allData: seq[float]
   for r in pd.runs:
@@ -979,13 +979,13 @@ proc handleInGridDset(h5f: var H5FileObj,
     let idx = cutOnProperties(h5f, group,
                     ("energyFromCharge", pd.range[0], pd.range[1]))
     allData.add idx.mapIt(data[it])
-  result = buildOutfile(pd)
+  result[0] = buildOutfile(pd)
   let title = buildTitle(pd)
-  plotHist(allData, title, pd.name, result, pd.binSize, pd.binRange)
+  result[1] = plotHist(allData, title, pd.name, result[0], pd.binSize, pd.binRange)
 
 proc handleFadcDset(h5f: var H5FileObj,
                     fileInfo: FileInfo,
-                    pd: PlotDescriptor): string =
+                    pd: PlotDescriptor): (string, PlotV) =
   # get the center chip group
   var allData: seq[float]
   for r in pd.runs:
@@ -1001,13 +1001,13 @@ proc handleFadcDset(h5f: var H5FileObj,
     let idxFadc = (toSeq(0 .. evNumFadc.high)) --> filter(evNumFadc[it] in inGridSet)
     let data = h5f.read(r, pd.name, pd.chip, isFadc = true, dtype = float)
     allData.add idxFadc --> map(data[it])
-  result = buildOutfile(pd)
+  result[0] = buildOutfile(pd)
   let title = buildTitle(pd)
-  plotHist(allData, title, pd.name, result, pd.binSize, pd.binRange)
+  result[1] = plotHist(allData, title, pd.name, result[0], pd.binSize, pd.binRange)
 
 proc handleOccupancy(h5f: var H5FileObj,
                      fileInfo: FileInfo,
-                     pd: PlotDescriptor): string =
+                     pd: PlotDescriptor): (string, PlotV) =
   # get x and y datasets, stack and get occupancies
   let vlenDtype = special_type(uint8)
   var occFull = newTensor[float]([NPix, NPix])
@@ -1019,12 +1019,12 @@ proc handleOccupancy(h5f: var H5FileObj,
     # stack this run onto the full data tensor
     occFull = occFull .+ occ
   let title = buildTitle(pd)
-  result= buildOutfile(pd)
-  plotHist2D(occFull, title, result)
+  result[0] = buildOutfile(pd)
+  result[1] = plotHist2D(occFull, title, result[0])
 
 proc handleOccCluster(h5f: var H5FileObj,
                       fileInfo: FileInfo,
-                      pd: PlotDescriptor): string =
+                      pd: PlotDescriptor): (string, PlotV) =
   # plot center positions
   var occFull = newTensor[float]([NPix, NPix])
   for r in pd.runs:
@@ -1037,30 +1037,30 @@ proc handleOccCluster(h5f: var H5FileObj,
     # stack this run onto the full data tensor
     occFull = occFull .+ occ
   let title = buildTitle(pd)
-  result = buildOutfile(pd)
-  plotHist2D(occFull, title, result)
+  result[0] = buildOutfile(pd)
+  result[1] = plotHist2D(occFull, title, result[0])
 
 proc handleBarScatter(h5f: var H5FileObj,
                       fileInfo: FileInfo,
-                      pd: PlotDescriptor): string =
-  let (bins, counts, binsFit, countsFit) = h5f.readPlotFit(pd)
+                      pd: PlotDescriptor): (string, PlotV) =
+  result[0] = buildOutfile(pd)
   let xlabel = pd.xlabel
   let title = buildTitle(pd)
-  result = buildOutfile(pd)
-  var pltV = plotBar(@[bins], @[counts], title, xlabel, @[title], result)
+  let (bins, counts, binsFit, countsFit) = h5f.readPlotFit(pd)
+  result[1] = plotBar(@[bins], @[counts], title, xlabel, @[title], result[0])
   # now add fit to the existing plot
   let nameFit = &"Fit of chip {pd.chip}"
-  pltV.plotScatter(binsFit, countsFit, nameFit, result)
+  result[1].plotScatter(binsFit, countsFit, nameFit, result[0])
 
 proc handleCombPolya(h5f: var H5FileObj,
                      fileInfo: FileInfo,
-                     pd: PlotDescriptor): string =
+                     pd: PlotDescriptor): (string, PlotV) =
   var
     binsSeq: seq[seq[float]]
     countsSeq: seq[seq[float]]
     dsets: seq[string]
   let title = buildTitle(pd)
-  result = buildOutfile(pd)
+  result[0] = buildOutfile(pd)
   for ch in pd.chipsCP:
     # get a local PlotDescriptor, which has this chip number
     let localPd = block:
@@ -1072,13 +1072,13 @@ proc handleCombPolya(h5f: var H5FileObj,
     countsSeq.add counts
     dsets.add "Chip " & $ch
   let xlabel = "Number of electrons"
-  var pltV = plotBar(binsSeq, countsSeq, title, xlabel, dsets, result)
+  result[1] = plotBar(binsSeq, countsSeq, title, xlabel, dsets, result[0])
   # now add fit to the existing plot
-  pltV.savePlot(result, fullPath = true)
+  result[1].savePlot(result[0], fullPath = true)
 
 proc handleFeVsTime(h5f: var H5FileObj,
                     fileInfo: FileInfo,
-                    pd: PlotDescriptor): string =
+                    pd: PlotDescriptor): (string, PlotV) =
   const kalphaPix = 10
   const parPrefix = "p"
   const dateStr = "yyyy-MM-dd'.'HH:mm:ss" # example: 2017-12-04.13:39:45
@@ -1086,7 +1086,7 @@ proc handleFeVsTime(h5f: var H5FileObj,
     pixSeq: seq[float]
     dates: seq[float] #string]#Time]
   let title = buildTitle(pd)
-  result = buildOutfile(pd)
+  result[0] = buildOutfile(pd)
   for r in pd.runs:
     let group = h5f[(recoBase & $r).grp_str]
     let chpGrpName = group.name / "chip_" & $pd.chip
@@ -1148,14 +1148,14 @@ proc handleFeVsTime(h5f: var H5FileObj,
   # now plot
   # calculate ratio and convert to string to workaround plotly limitation of
   # only one type for Trace
-  plotDates(dates, pixSeq,
-            title = title,
-            xlabel = pd.xlabel,
-            outfile = result)
+  result[1] = plotDates(dates, pixSeq,
+                        title = title,
+                        xlabel = pd.xlabel,
+                        outfile = result[0])
 
 proc handleFePixDivChVsTime(h5f: var H5FileObj,
                             fileInfo: FileInfo,
-                            pd: PlotDescriptor): string =
+                            pd: PlotDescriptor): (string, PlotV) =
   const kalphaPix = 10
   const kalphaCharge = 4
   const parPrefix = "p"
@@ -1165,7 +1165,7 @@ proc handleFePixDivChVsTime(h5f: var H5FileObj,
     chSeq: seq[float]
     dates: seq[float] #string]#Time]
   let title = buildTitle(pd)
-  result = buildOutfile(pd)
+  result[0] = buildOutfile(pd)
   for r in pd.runs:
     let group = h5f[(recoBase & $r).grp_str]
     let chpGrpName = group.name / "chip_" & $pd.chip
@@ -1182,60 +1182,58 @@ proc handleFePixDivChVsTime(h5f: var H5FileObj,
   # calculate ratio and convert to string to workaround plotly limitation of
   # only one type for Trace
   let ratio = zip(pixSeq, chSeq) --> map(it[0] / it[1])
-  plotDates(dates, ratio,
-            title = title,
-            xlabel = pd.xlabel,
-            outfile = result)
-            #ylabel = "# pix / charge in e^-")
-
-iterator createPlotIter(h5f: var H5FileObj,
-                        fileInfo: FileInfo,
-                        pd: PlotDescriptor): string =
-  ## creates a plot of kind `plotKind` for the data from all runs in `runs`
-  ## for chip `chip`
-  case pd.plotKind
-  of pkInGridDset:
-    yield handleInGridDset(h5f, fileInfo, pd)
-  of pkFadcDset:
-    yield handleFadcDset(h5f, fileInfo, pd)
-  of pkOccupancy:
-    yield handleOccupancy(h5f, fileInfo, pd)
-  of pkOccCluster:
-    yield handleOccCluster(h5f, fileInfo, pd)
-  of pkPolya, pkFeSpec, pkFeSpecCharge:
-    yield handleBarScatter(h5f, fileInfo, pd)
-  of pkCombPolya:
-    yield handleCombPolya(h5f, fileInfo, pd)
-  of pkFeVsTime:
-    yield handleFeVsTime(h5f, fileInfo, pd)
-  of pkFePixDivChVsTime:
-    yield handleFePixDivChVsTime(h5f, fileInfo, pd)
-  of pkInGridEvent:
-    # TODO: make this into a call to an `InGridEventIterator`
-    for r in pd.runs:
-      let
-        x = h5f.readVlen(r, "x", dtype = uint8)
-        y = h5f.readVlen(r, "y", dtype = uint8)
-        ch = h5f.readVlen(r, "ToT", dtype = uint16)
-      var pdCurrent = pd
-      if pdCurrent.events.card == 0:
-        pdCurrent.events = toOrderedSet(toSeq(0 .. x.high))
-      let ev = buildEvents(x, y, ch, pdCurrent.events)
-      for i in pdCurrent.events.items:
-        pdCurrent.event = i
-        let title = buildTitle(pdCurrent)
-        var outfile = buildOutfile(pdCurrent)
-        plotHist2D(ev[i,_,_].squeeze.clone, title, outfile)
-        yield outfile
-  else:
-    discard
+  result[1] = plotDates(dates, ratio,
+                        title = title,
+                        xlabel = pd.xlabel,
+                        outfile = result[0])
+                        #ylabel = "# pix / charge in e^-")
 
 proc createPlot(h5f: var H5FileObj,
                 fileInfo: FileInfo,
-                pd: PlotDescriptor): string =
-  ## wrapper around the iterator, which simply returns the strings
-  for p in createPlotIter(h5f, fileInfo, pd):
-    result = p
+                pd: PlotDescriptor): (string, PlotV) =
+  ## creates a plot of kind `plotKind` for the data from all runs in `runs`
+  ## for chip `chip`
+  # TODO: think: have createPlot return the `PlotV` object. Then we could
+  # call this proc recursively and add other plots to the existing figure
+  let test = % pd
+  echo "Test is ", test.pretty
+  # test reverse
+  #let test2 = parsePd(test)
+  #doAssert test2 == pd
+
+  case pd.plotKind
+  of pkInGridDset:
+    result = handleInGridDset(h5f, fileInfo, pd)
+  of pkFadcDset:
+    result = handleFadcDset(h5f, fileInfo, pd)
+  of pkOccupancy:
+    result = handleOccupancy(h5f, fileInfo, pd)
+  of pkOccCluster:
+    result = handleOccCluster(h5f, fileInfo, pd)
+  of pkPolya, pkFeSpec, pkFeSpecCharge:
+    result = handleBarScatter(h5f, fileInfo, pd)
+  of pkCombPolya:
+    result = handleCombPolya(h5f, fileInfo, pd)
+  of pkFeVsTime:
+    result = handleFeVsTime(h5f, fileInfo, pd)
+  of pkFePixDivChVsTime:
+    result = handleFePixDivChVsTime(h5f, fileInfo, pd)
+  of pkInGridEvent:
+    # TODO: make this into a call to an `InGridEventIterator`
+    result = handleIngridEvent(h5f, fileInfo, pd)
+    #for outfile, pltV in ingridEventIter(h5f, fileInfo, pd):
+    #  yield (outfile, pltV)
+  of pkFadcEvent:
+    result = handleFadcEvent(h5f, fileInfo, pd)
+    #for outfile, pltV in fadcEventIter(h5f, fileInfo, pd):
+    #  yield (outfile, pltV)
+  of pkSubPlots:
+    result = handleSubPlots(h5f, fileInfo, pd)
+    #for outfile, pltV in subPlotsIter(h5f, fileInfo, pd):
+    #  yield (outfile, pltV)
+  else:
+    discard
+
 
 proc createOrg(outfile: string) =
   ## creates a simple org file consisting of headings and images
@@ -1338,7 +1336,7 @@ proc plotsFromPds(h5f: var H5FileObj,
   ## calls `createPlot` for each PD and saves filename to
   ## `imageSet` if necessary
   for p in pds:
-    let fileF = h5f.createPlot(fileInfo, p)
+    let (fileF, pltV) = h5f.createPlot(fileInfo, p)
     case BKind
     of bPlotly:
       if fileInfo.plotlySaveSvg:
@@ -1367,12 +1365,13 @@ proc serveRequests(h5f: var H5FileObj,
     case dp.reqKind
     of rqPlot:
       let pd = dp.payload.parseJson.parsePd
-      for sp in createPlotIter(h5f, fileInfo, pd):
-        let jData = jsonDump(imageSet, plotlyJson)
-        # echo "Jdata corresponding: ", jData
-        awareSend(channel, jData, PacketKind.Plots)
-        info "Clear plots"
-        clearPlots()
+      #for sp in createPlotIter(h5f, fileInfo, pd):
+      discard createPlot(h5f, fileInfo, pd)
+      let jData = jsonDump(imageSet, plotlyJson)
+      # echo "Jdata corresponding: ", jData
+      awareSend(channel, jData, PacketKind.Plots)
+      info "Clear plots"
+      clearPlots()
     of rqPlotDescriptors:
       let pdJson = % pds
       awareSend(channel, pdJson, PacketKind.Descriptors)
@@ -1398,16 +1397,17 @@ proc serve(h5f: var H5FileObj,
       continue
 
     for p in pds:
-      for sp in createPlotIter(h5f, fileInfo, p):
-        echo "Number of pds ", pds.len
-        echo "Current plot ", sp
-        let jData = jsonDump(imageSet, plotlyJson)
-        # echo "Jdata corresponding: ", jData
-        while not trySend(channel, (jData, PacketKind.Plots)):
-          echo "DataThread: sleep..."
-          sleep(100)
-        info "Clear plots"
-        clearPlots()
+      #for sp in createPlotIter(h5f, fileInfo, p):
+      discard createPlot(h5f,fileInfo, p)
+      echo "Number of pds ", pds.len
+      echo "Current plot ", p
+      let jData = jsonDump(imageSet, plotlyJson)
+      # echo "Jdata corresponding: ", jData
+      while not trySend(channel, (jData, PacketKind.Plots)):
+        echo "DataThread: sleep..."
+        sleep(100)
+      info "Clear plots"
+      clearPlots()
 
     echo "Done with all plots!, sending stop!"
     stopChannel.send(true)

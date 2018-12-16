@@ -80,6 +80,9 @@ const PhotoPixDivChVsTimeFnameTemplate* = "photopeak_pix_div_charge_pos_vs_time_
 const PhotoPixDivChVsTimeTitleTemplate* = "Photopeak pix / charge of Fe spectra (runs $1) vs time"
 const InGridEventTitleTemplate* = "InGrid event for run $1, chip $2, event index $3"
 const InGridEventFnameTemplate* = "ingrid_event_run$1_chip$2_event$3"
+const FadcEventTitleTemplate* = "FADC event for run $1, event index $2"
+const FadcEventFnameTemplate* = "fadc_event_run$1_event$2"
+
 
 #proc initDataPacket*(): DataPacket =
 #  result.recvData = false
@@ -352,8 +355,15 @@ proc buildOutfile*(pd: PlotDescriptor): kstring =
     name = PhotoPixDivChVsTimeFnameTemplate %% [runsStr]
   of pkInGridEvent:
     name = InGridEventFnameTemplate %% [runsStr,
-                                       $pd.chip,
-                                       $pd.event]
+                                        $pd.chip,
+                                        $pd.event]
+  of pkFadcEvent:
+    name = FadcEventFnameTemplate %% [runsStr,
+                                      $pd.event]
+
+  of pkSubPlots:
+    for p in pd.plots:
+      name &= pd.buildOutfile()
   else:
     discard
   echo "Result ", $name
@@ -402,7 +412,15 @@ proc buildTitle*(pd: PlotDescriptor): kstring =
     result = PhotoPixDivChVsTimeTitleTemplate %% [runsStr]
   of pkInGridEvent:
     result = InGridEventTitleTemplate %% [runsStr,
-                                         $pd.chip,
-                                         $pd.event]
+                                          $pd.chip,
+                                          $pd.event]
+  of pkFadcEvent:
+    result = FadcEventTitleTemplate %% [runsStr,
+                                      $pd.event]
+
+  of pkSubPlots:
+    result = ""
+    for p in pd.plots:
+      result &= pd.buildTitle()
   else:
     discard

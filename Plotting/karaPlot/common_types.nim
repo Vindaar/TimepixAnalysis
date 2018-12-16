@@ -24,6 +24,7 @@ type
     pkAnyScatter           # Scatter plot of some x vs. some y
     pkMultiDset            # Plot of multiple histograms. Will be removed and replaced
                            # by redesign of `createPlot`
+    pkSubPlots             # several subplots in one plot
     pkInGridCluster        # superseeded by pkInGridEvent?
 
   ClampKind* = enum
@@ -71,8 +72,8 @@ type
         discard
     of pkCombPolya:
       chipsCP*: seq[int]
-    of pkInGridEvent:
-      events*: OrderedSet[int] # events to plot (indices at the moment, not event numbers)
+    of pkInGridEvent, pkFadcEvent:
+      # events*: OrderedSet[int] # events to plot (indices at the moment, not event numbers)
       event*: int # the current event being plotted
     of pkFeVsTime, pkFePixDivChVsTime:
       # If unequal to 0 will create the plot not just split by runs, but rather split the

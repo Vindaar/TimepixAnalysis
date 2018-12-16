@@ -84,6 +84,12 @@ type
       # if splitBySec doesn't fit into splitBySec within `lastSliceError` decide if to drop
       # that slice or keep it
       dropLastSlice*: bool
+    of pkSubPlots:
+      # a way to combine several plots into a single plot of subplots
+      plots*: seq[PlotDescriptor]
+      domain*: seq[tuple[x, y, width, height: float]] # relative location
+                                                      # within [0, 1] of the
+                                                      # plot canvas for each subplot
     else:
       discard
 

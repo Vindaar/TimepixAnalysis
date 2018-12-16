@@ -298,7 +298,9 @@ proc main =
       renderMenu(plotState, conf)
 
       if conf.interactivePlot:
-        renderPlotSelect(plotState, socket, fields)
+        when UseWs:
+          renderPlotSelect(plotState, socket, fields)
+        else: discard
       p:
         br()
         text "Next: " & $plotState.staticP.idx & " " & plotState.getNextStatic

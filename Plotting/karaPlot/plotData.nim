@@ -247,7 +247,8 @@ proc read(h5f: var H5FileObj,
           dsetName: string,
           chipNumber = 0,
           isFadc = false,
-          dtype: typedesc = float): seq[dtype] =
+          dtype: typedesc = float,
+          idx: seq[int] = @[]): seq[dtype] =
   ## reads the given dataset from the H5 file and returns it
   ## (potentially) converted to ``dtype``
   var dset: H5DataSet
@@ -256,8 +257,12 @@ proc read(h5f: var H5FileObj,
   else:
     dset = h5f[(recoPath(runNumber, chipNumber).string / dsetName).dset_str]
   when dtype is SomeNumber:
-    let convert = dset.convertType(dtype)
-    result = dset.convert
+    if idx.len == 0:
+      let convert = dset.convertType(dtype)
+      result = dset.convert
+    else:
+      # manual conversion required
+      result = dset[idx, dtype]
   else:
     type subtype = utils.getInnerType(dtype)
     # NOTE: only support 2D seqs
@@ -266,19 +271,27 @@ proc read(h5f: var H5FileObj,
       raise newException(Exception, "Cannot convert N-D sequence to type: " &
         subtype.name)
     else:
-      # convert to subtype and reshape to dsets shape
-      result = dset.convert.reshape2D(dset.shape)
+      if idx.len == 0:
+        # convert to subtype and reshape to dsets shape
+        result = dset.convert.reshape2D(dset.shape)
+      else:
+        # manual conversion required
+        result = dset[idx, subtype].reshape2D(dset.shape)
 
 proc readVlen(h5f: var H5FileObj,
               runNumber: int,
               dsetName: string,
               chipNumber = 0,
-              dtype: typedesc = float): seq[seq[dtype]] =
+              dtype: typedesc = float,
+              idx: seq[int] = @[]): seq[seq[dtype]] =
   ## reads variable length data `dsetName` and returns it
   ## In contrast to `read` this proc does *not* convert the data.
   let vlenDtype = special_type(dtype)
   let dset = h5f[(recoPath(runNumber, chipNumber).string / dsetName).dset_str]
-  result = dset[vlenDtype, dtype]
+  if idx.len > 0:
+    result = dset[vlenDType, dtype, idx]
+  else:
+    result = dset[vlenDtype, dtype]
 
 proc getFileInfo(h5f: var H5FileObj): FileInfo =
   ## returns a set of all run numbers in the given file

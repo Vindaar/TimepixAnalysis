@@ -831,17 +831,56 @@ proc buildEvents[T, U](x, y: seq[seq[T]], ch: seq[seq[U]],
 proc createEventDisplayPlots(h5f: var H5FileObj,
                              run: int,
                              runType: RunTypeKind,
-                             fileInfo: FileInfo): seq[PlotDescriptor] =
+                             fileInfo: FileInfo,
+                             events: OrderedSet[int]): seq[PlotDescriptor] =
   for ch in fileInfo.chips:
-    let basePd = PlotDescriptor(runType: runType,
+    for ev in events:
+      result.add PlotDescriptor(runType: runType,
                                 name: "EventDisplay",
                                 xlabel: "x",
                                 ylabel: "y",
                                 runs: @[run],
                                 chip: ch,
                                 plotKind: pkInGridEvent,
-                                events: toOrderedSet(toSeq(0 .. 50)))#initOrderedSet[int]())
-    result.add basePd
+                                event: ev)
+
+proc createFadcPlots(h5f: var H5FileObj,
+                     run: int,
+                     runType: RunTypeKind,
+                     fileInfo: FileInfo,
+                     events: OrderedSet[int]): seq[PlotDescriptor] =
+  for ev in events:
+    result.add PlotDescriptor(runType: runType,
+                              name: "EventDisplay FADC",
+                              xlabel: "Clock cycles FADC",
+                              ylabel: "U / V",
+                              runs: @[run],
+                              chip: fileInfo.centerChip,
+                              plotKind: pkFadcEvent,
+                              event: ev)
+
+proc createInGridFadcEvDisplay(h5f: var H5FileObj,
+                               run: int,
+                               runType: RunTypeKind,
+                               fileInfo: FileInfo,
+                               events: OrderedSet[int]): seq[PlotDescriptor] =
+  var finfo = fileInfo
+  finfo.chips = @[finfo.centerChip]
+  let ingridPds = createEventDisplayPlots(h5f, run, runType, fileInfo, events)
+  let ingridDomain = (x: 0.0, y: 0.0, width: 0.4, height: 1.0)
+  let fadcPds = createFadcPlots(h5f, run, runType, fileInfo, events)
+  let fadcDomain = (x: 0.525, y: 0.0, width: 0.575, height: 1.0)
+  for tup in zip(ingridPds, fadcPds):
+    let
+      ingrid = tup[0]
+      fadc = tup[1]
+    result.add PlotDescriptor(runType: runType,
+                              name: "Event display InGrid + FADC",
+                              runs: @[run],
+                              chip: fileInfo.centerChip,
+                              plotKind: pkSubPlots,
+                              plots: @[ingrid, fadc],
+                              domain: @[ingridDomain, fadcDomain])
 
 func clampedOccupancy[T](x, y: seq[T], pd: PlotDescriptor): Tensor[float] =
   ## calculates the occupancy given `x`, `y`, which may be seqs of clusters
@@ -1188,6 +1227,93 @@ proc handleFePixDivChVsTime(h5f: var H5FileObj,
                         outfile = result[0])
                         #ylabel = "# pix / charge in e^-")
 
+iterator ingridEventIter(h5f: var H5FileObj,
+                         fileInfo: FileInfo,
+                         pds: seq[PlotDescriptor]): (string, PlotV) =
+  var events: seq[int]
+  # all PDs are guaranteed to be from  the same run!
+  let run = pds[0].runs[0]
+  for pd in pds:
+    events.add pd.event
+
+  let
+    x = h5f.readVlen(run, "x", dtype = uint8, idx = events)
+    y = h5f.readVlen(run, "y", dtype = uint8, idx = events)
+    ch = h5f.readVlen(run, "ToT", dtype = uint16, idx = events)
+    ev = buildEvents(x, y, ch, toOrderedSet(@[0]))
+  for i, pd in pds:
+    let title = buildTitle(pd)
+    var outfile = buildOutfile(pd)
+    let pltV = plotHist2D(ev[i,_,_].squeeze.clone, title, outfile)
+    yield (outfile, pltV)
+
+iterator fadcEventIter(h5f: var H5FileObj,
+                       fileInfo: FileInfo,
+                       pds: seq[PlotDescriptor]): (string, PlotV) =
+  var events: seq[int]
+  # all PDs are guaranteed to be from  the same run!
+  let run = pds[0].runs[0]
+  for pd in pds:
+    events.add pd.event
+  let
+    dset = h5f[(fadcRunPath(run) / "fadc_data").dset_str]
+    fadc = dset.read_hyperslab(float64, @[events[0], 0], @[events.len, 2560])
+    fShape = [fadc.len div 2560, 2560]
+    fTensor = fadc.toTensor.reshape(fShape)
+
+  for i, pd in pds:
+    let xFadc = toSeq(0 ..< 2560).mapIt(it.float)
+    let title = buildTitle(pd)
+    var outfile = buildOutfile(pd)
+    let yFadc = fTensor[i,_].squeeze.clone.toRawSeq
+    var pltV = plotScatter(xFadc, yFadc, title, title, outfile)
+    case BKind
+    of bPlotly:
+      pltV.plPlot = pltV.plPlot.mode(PlotMode.Lines)
+    else: discard
+    yield (outfile, pltV)
+
+proc handleIngridEvent(h5f: var H5FileObj,
+                       fileInfo: FileInfo,
+                       pd: PlotDescriptor): (string, PlotV) =
+  doAssert pd.plotKind == pkInGridEvent
+  for outfile, pltV in ingridEventIter(h5f, fileInfo, @[pd]):
+    # only a single pd
+    result = (outfile, pltV)
+
+proc handleFadcEvent(h5f: var H5FileObj,
+                     fileInfo: FileInfo,
+                     pd: PlotDescriptor): (string, PlotV) =
+  doAssert pd.plotKind == pkFadcEvent
+  for outfile, pltV in fadcEventIter(h5f, fileInfo, @[pd]):
+    # only a single pd
+    result = (outfile, pltV)
+
+proc createPlot(h5f: var H5FileObj, fileInfo: FileInfo,
+                pd: PlotDescriptor): (string, PlotV)
+
+proc handleSubPlots(h5f: var H5FileObj,
+                    fileInfo: FileInfo,
+                    pd: PlotDescriptor): (string, PlotV) =
+#    result.add PlotDescriptor(runType: runType,
+#                              name: "Event display InGrid + FADC",
+#                              runs: @[run],
+#                              chip: fileInfo.centerChip,
+#                              plotKind: pkSubPlots,
+#                              plots: @[ingrid, fadc],
+#                              domain: @[ingridDomain, fadcDomain])
+  var fnames: seq[string]
+  var plts: seq[PlotV]
+  for p in pd.plots:
+    let (outfile, pltV) = createPlot(h5f, fileInfo, p)
+    fnames.add outfile
+    plts.add pltV
+
+  # now combine plots
+  let plt = combine(plts)
+  plt.show()
+
+
 proc createPlot(h5f: var H5FileObj,
                 fileInfo: FileInfo,
                 pd: PlotDescriptor): (string, PlotV) =
@@ -1421,7 +1547,8 @@ proc eventDisplay(h5file: string,
   var h5f = H5file(h5file, "r")
   let fileInfo = getFileInfo(h5f)
   let fInfoConfig = fileInfo.appliedConfig()
-  let pds = createEventDisplayPlots(h5f, run, runType, fInfoConfig)
+  let events = toOrderedSet(toSeq(0 .. 50))#initOrderedSet[int]())
+  let pds = createEventDisplayPlots(h5f, run, runType, fInfoConfig, events)
 
   if cfProvideServer in flags:
     serve(h5f, fileInfo, pds, flags)

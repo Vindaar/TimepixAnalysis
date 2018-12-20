@@ -109,6 +109,7 @@ type
   # variant object for the layout combining both
   # TODO: make generic or always use float?
   PlotV = object
+    annotations: seq[string]
     case kind: BackendKind
     of bMpl:
       # what needs to go here?
@@ -118,6 +119,7 @@ type
     of bPlotly:
       plLayout: Layout
       plPlot: Plot[float]
+      plPlotJson: PlotJson
     else: discard
 
   ShapeKind = enum
@@ -590,6 +592,26 @@ proc plotScatter(x, y: seq[float], title, name, outfile: string): PlotV =
   result.plPlot = Plot[float](layout: result.plLayout, traces: @[])
   result.plotScatter(x, y, name, outfile)
 
+proc makeSubplot(pd: PlotDescriptor, plts: seq[PlotV]): PlotV =
+  result = initPlotV(pd.title, pd.xlabel, pd.ylabel)
+  let baseLayout = plts[0].plLayout
+  baseLayout.width = 1600
+  baseLayout.height = 800
+  # move all potential annotations from plts[> 0] to baseLayout
+  for i in 1 .. plts.high:
+    baseLayout.annotations.add plts[i].plPlot.layout.annotations
+  case plts.len
+  of 2:
+    result.plPlotJson = subplots:
+      baseLayout: baseLayout
+      plot:
+        plts[0].plPlot
+        pd.domain[0]
+      plot:
+        plts[1].plPlot
+        pd.domain[1]
+  else: echo "Subplots currently only supported for 2 plots!"
+
 # TODO: also plot occupancies without full frames (>4095 hits)?
 proc occupancies(h5f: var H5FileObj, runType: RunTypeKind,
                  fileInfo: FileInfo,
@@ -870,9 +892,9 @@ proc createInGridFadcEvDisplay(h5f: var H5FileObj,
   var finfo = fileInfo
   finfo.chips = @[finfo.centerChip]
   let ingridPds = createEventDisplayPlots(h5f, run, runType, fileInfo, events)
-  let ingridDomain = (x: 0.0, y: 0.0, width: 0.4, height: 1.0)
+  let ingridDomain = (left: 0.0, bottom: 0.0, width: 0.45, height: 1.0)
   let fadcPds = createFadcPlots(h5f, run, runType, fileInfo, events)
-  let fadcDomain = (x: 0.525, y: 0.0, width: 0.575, height: 1.0)
+  let fadcDomain = (left: 0.525, bottom: 0.05, width: 0.575, height: 0.6)
   for tup in zip(ingridPds, fadcPds):
     let
       ingrid = tup[0]
@@ -1245,9 +1267,27 @@ iterator ingridEventIter(h5f: var H5FileObj,
     ch = h5f.readVlen(run, "ToT", dtype = uint16, idx = events)
     ev = buildEvents(x, y, ch, toOrderedSet(@[0]))
   for i, pd in pds:
+    var texts: seq[string]
+    for d in InGridDsets:
+      let val = h5f.read(run, d, dtype = float, idx = @[pd.event])[0]
+      let s = &"{d:>20}: {val:6.4f}"
+      texts.add s
+
     let title = buildTitle(pd)
     var outfile = buildOutfile(pd)
-    let pltV = plotHist2D(ev[i,_,_].squeeze.clone, title, outfile)
+    var pltV = plotHist2D(ev[i,_,_].squeeze.clone, title, outfile)
+    case BKind
+    of bPlotly:
+      for i, a in texts:
+        pltV.plPlot.layout.annotations.add Annotation(x: 0.0,
+                                                      y: 0.0,
+                                                      xshift: 800.0,
+                                                      yshift: 600.0 - (i.float * 20.0),
+                                                      text: texts[i])
+    else:
+      echo "InGrid Event property annotations not supported on " &
+        "Matplotlib backend yet!"
+    pltV.annotations = texts
     yield (outfile, pltV)
 
 iterator fadcEventIter(h5f: var H5FileObj,
@@ -1265,6 +1305,13 @@ iterator fadcEventIter(h5f: var H5FileObj,
     fTensor = fadc.toTensor.reshape(fShape)
 
   for i, pd in pds:
+    var texts: seq[string]
+    for d in AllFadcDsets:
+      let val = h5f.read(run, d, isFadc = true,
+                         dtype = float, idx = @[pd.event])[0]
+      let s = &"{d:15}: {val:6.4f}"
+      texts.add s
+
     let xFadc = toSeq(0 ..< 2560).mapIt(it.float)
     let title = buildTitle(pd)
     var outfile = buildOutfile(pd)
@@ -1272,8 +1319,16 @@ iterator fadcEventIter(h5f: var H5FileObj,
     var pltV = plotScatter(xFadc, yFadc, title, title, outfile)
     case BKind
     of bPlotly:
-      pltV.plPlot = pltV.plPlot.mode(PlotMode.Lines)
-    else: discard
+      pltV.plPlot = pltV.plPlot.mode(PlotMode.Lines).lineWidth(1)
+      for i, a in texts:
+        pltV.plPlot.layout.annotations.add Annotation(x: 0.0,
+                                                      y: 0.0,
+                                                      xshift: 1100.0,
+                                                      yshift: 600.0 - (i.float * 20.0),
+                                                      text: texts[i])
+      pltV.annotations = texts
+    else:
+      echo "FADC property annotations not supported on Matplotlib backend yet!"
     yield (outfile, pltV)
 
 proc handleIngridEvent(h5f: var H5FileObj,
@@ -1313,9 +1368,8 @@ proc handleSubPlots(h5f: var H5FileObj,
     plts.add pltV
 
   # now combine plots
-  let plt = combine(plts)
-  plt.show()
-
+  let plt = makeSubplot(pd, plts)
+  plt.plPlotJson.show()
 
 proc createPlot(h5f: var H5FileObj,
                 fileInfo: FileInfo,
@@ -1583,6 +1637,9 @@ proc createCalibrationPlots(h5file: string,
   # energyCalib(h5f) # ???? plot of gas gain vs charge?!
   pds.add histograms(h5f, runType, fInfoConfig, flags) # including fadc
 
+  pds.add createInGridFadcEvDisplay(h5f, 187, runType, fileInfo,
+                                    events = toOrderedSet(toSeq(0 .. 10)))
+
   if cfProvideServer in flags:
     serveRequests(h5f, fileInfo, pds)
     #serve(h5f, fileInfo, pds, flags)
@@ -1777,7 +1834,7 @@ proc serve() =
   serveNewClientCh.open(1)
   dpChannel.open(1)
   shell:
-    ./karaRun "-d:client staticClient.nim"
+    ./karaRun "-d:client -r staticClient.nim"
 
   waitFor server.serveClient()
 

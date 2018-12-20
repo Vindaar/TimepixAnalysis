@@ -35,6 +35,9 @@ type
 
   CutRange* = tuple[low, high: float, name: kstring]
 
+  Domain* = tuple
+    left, bottom, width, height: float
+
   PlotDescriptor* = object
     runType*: RunTypeKind
     name*: kstring
@@ -87,9 +90,8 @@ type
     of pkSubPlots:
       # a way to combine several plots into a single plot of subplots
       plots*: seq[PlotDescriptor]
-      domain*: seq[tuple[x, y, width, height: float]] # relative location
-                                                      # within [0, 1] of the
-                                                      # plot canvas for each subplot
+      domain*: seq[Domain] # relative location within [0, 1] of the
+                           # plot canvas for each subplot
     else:
       discard
 

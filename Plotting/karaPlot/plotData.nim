@@ -269,7 +269,7 @@ proc read(h5f: var H5FileObj,
       result = dset.convert
     else:
       # manual conversion required
-      result = dset[idx, dtype]
+      result = dset.readConvert(idx, dtype)
   else:
     type subtype = utils.getInnerType(dtype)
     # NOTE: only support 2D seqs

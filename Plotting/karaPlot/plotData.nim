@@ -829,7 +829,7 @@ proc buildEvents[T, U](x, y: seq[seq[T]], ch: seq[seq[U]],
         yi = y[i]
         chi = ch[i]
       forZip ix in xi, iy in yi, ich in chi:
-        result[i, ix.int, iy.int] = ich.float
+        result[i, iy.int, ix.int] = ich.float
 
 proc createEventDisplayPlots(h5f: var H5FileObj,
                              run: int,

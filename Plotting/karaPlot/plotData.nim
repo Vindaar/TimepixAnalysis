@@ -80,6 +80,13 @@ const
   FigWidth = 1200.0                     # width in inches
   FigHeight = FigWidth * GoldenMean     # height in inches
 
+  InGridDsets = ["length", "width", "skewnessLongitudinal", "skewnessTransverse",
+           "kurtosisLongitudinal", "kurtosisTransverse", "rotationAngle",
+           "eccentricity", "fractionInTransverseRms", "lengthDivRmsTrans"]
+  FadcDsets = ["minvals", "fallTime", "riseTime"]
+  AllFadcDsets = ["argMinval", "baseline", "eventNumber", "fallStop", "fallTime",
+                  "minvals", "noisy", "riseStart", "riseTime"]
+
 type
   ConfigFlagKind = enum
     cfNone, cfNoFadc, cfNoInGrid, cfNoOccupancy, cfNoPolya, cfNoFeSpectrum, cfProvideServer
@@ -476,10 +483,6 @@ proc getBinSizeAndBinRange(dset: string): (float, (float, float)) =
 proc histograms(h5f: var H5FileObj, runType: RunTypeKind,
                 fileInfo: FileInfo,
                 flags: set[ConfigFlagKind]): seq[PlotDescriptor] =
-  const dsets = ["length", "width", "skewnessLongitudinal", "skewnessTransverse",
-                 "kurtosisLongitudinal", "kurtosisTransverse", "rotationAngle",
-                 "eccentricity", "fractionInTransverseRms", "lengthDivRmsTrans"]
-  const fadcDsets = ["minvals", "fallTime", "riseTime"]
   # TODO: perform cut on photo peak and escape peak, done by getting the energy
   # and performing a cut around peak +- 300 eV maybe
   # NOTE: need photo peak and escape peak plenty of times here. Just write wrapper
@@ -501,7 +504,7 @@ proc histograms(h5f: var H5FileObj, runType: RunTypeKind,
   for r in ranges:
     if cfNoInGrid notin flags:
       for ch in fileInfo.chips:
-        for dset in dsets:
+        for dset in InGridDsets:
           let (binSize, binRange) = getBinSizeAndBinRange(dset)
           result.add PlotDescriptor(runType: runType,
                                     name: dset,
@@ -512,7 +515,7 @@ proc histograms(h5f: var H5FileObj, runType: RunTypeKind,
                                     binSize: binSize,
                                     binRange: binRange)
     if cfNoFadc notin flags:
-      for dset in fadcDsets:
+      for dset in FadcDsets:
         let (binSize, binRange) = getBinSizeAndBinRange(dset)
         result.add PlotDescriptor(runType: runType,
                                   name: dset,

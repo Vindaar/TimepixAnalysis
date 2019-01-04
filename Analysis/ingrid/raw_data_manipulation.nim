@@ -780,6 +780,7 @@ proc writeInGridAttrs(h5f: var H5FileObj, run: ProcessedRun,
   let asInt = ["runNumber", "runTime", "runTimeFrames", "numChips", "shutterTime",
                "runMode", "fastClock", "externalTrigger"]
   let asString = ["pathName", "dateTime", "shutterMode"]
+
   # write run header
   # Note: need to check for existence of the keys, because for old TOS data,
   # not all keys are set!
@@ -1097,6 +1098,31 @@ proc createRun(runHeader: Table[string, string],
     raise newException(Exception, "Creation of a `Run` is impossible for an " &
       "unknown run folder kind at the moment!")
 
+proc fixOldTosTimestamps(runHeader: Table[string, string],
+                         events: var seq[Event]) =
+  ## applies the correct time stamp to the events in `events` for old TOS
+  ## data, since each event only has the 24h time associated to it.
+  let
+    runTime = runHeader["runTime"].parseInt
+    totalEvents = runHeader["totalEvents"].parseInt
+    evDuration = runTime.float / totalEvents.float
+    runStart = runHeader["dateTime"].parse(TosDateString)
+  for ev in mitems(events):
+    # walk over all events and replace the `timestamp` field with a corrected value
+    let
+      tstamp = ev.evHeader["timestamp"]
+        .align(count = 9, padding = '0')
+        .parse("HHmmssfff")
+      evNumber = ev.evHeader["eventNumber"].parseInt
+      tdiff = (evDuration * evNumber.float).round(places = 3)
+    var evDate = runStart + initDuration(seconds = tdiff.round.int,
+                                         milliseconds = (tdiff - tdiff.trunc).round.int)
+    # replace time of evDate
+    evDate.second = tstamp.second
+    evDate.minute = tstamp.minute
+    evDate.hour = tstamp.hour
+    ev.evHeader["timestamp"] = $evDate.toTime.toUnix
+
 proc readAndProcessInGrid(listOfFiles: seq[string],
                           runNumber: int,
                           rfKind: RunFolderKind): ProcessedRun =
@@ -1108,12 +1134,15 @@ proc readAndProcessInGrid(listOfFiles: seq[string],
   # read the raw event data into a seq of FlowVars
   info "list of files ", listOfFiles.len
   let ingrid = readRawInGridData(listOfFiles, rfKind)
-  let sortedIngrid = sortReadInGridData(ingrid, rfKind)
+  var sortedIngrid = sortReadInGridData(ingrid, rfKind)
 
   # to extract the run header, we only need any element of
   # the data. For `rfNewTos` and `rfOldTos` the run header is
   # equivalent to the event header. For `rfSrsTos` it's different
-  let runHeader = getRunHeader(sortedIngrid[0], rfKind)
+  let runHeader = getRunHeader(sortedIngrid[0], runNumber, rfKind)
+  case rfKind
+  of rfOldTos: fixOldTosTimestamps(runHeader, sortedIngrid)
+  else: discard
   # process the data read into seq of FlowVars, save as result
   let run = createRun(runHeader, runNumber, sortedIngrid, rfKind)
   result = processRawInGridData(run)

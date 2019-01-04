@@ -38,7 +38,7 @@ const
 
   OldVirtexEventScanf = r"$*data$*_$*_" # needs: dummy, evNumber, chipNumber
   SrsEventScanf = r"$*run_$*_data_$*_${parseSrsTosDate}" # needs: dummy, runNumber, evNumber, date
-  OldVirtexEventScanfNoPath = r"data$*_$*_" # needs: dummy, evNumber, chipNumber
+  OldVirtexEventScanfNoPath = r"data$*_$*_$i." # needs: dummy, evNumber, chipNumber, timestamp
   NewVirtexEventScanfNoPath = r"data$*.txt$." # needs: evNumber
   FadcEventScanfNoPath = r"data$*.txt-fadc" # needs: evNumber
   SrsEventScanfNoPath = r"run_$*_data_$*_${parseSrsTosDate}" # needs: dummy, runNumber, evNumber, date
@@ -155,7 +155,7 @@ proc sum2*(c: seq[Pix]): Pix {.inline, deprecated.} =
 proc parseTOSDateString*(date_str: string): Time =
   ## function receives a string from a date time from TOS and creates
   ## a Time object from it
-  let date = toTime(parse(date_str, "yyyy-MM-dd'.'hh:mm:ss"))
+  let date = toTime(parse(date_str, TosDateString))
   return date
 
 proc parseRunType*(runType: string): RunTypeKind =
@@ -662,15 +662,22 @@ proc processEventWithScanf*(data: seq[string]): ref Event =
 
 
 proc addOldHeaderKeys(e_header, c_header: var Table[string, string],
-                      eventNumber, chipNumber, pix_counter: int,
+                      eventNumber, chipNumber, timestamp, pix_counter: int,
                       filepath: string) {.inline.} =
   ## inline adds the keys to tables of event header and chip header
+  ## NOTE: timestamp is an int, but it's still in the format, e.g.:
+  ## 103647153 == "HHmmssfff", where fff is milliseconds
+  ## and we STORE IT AS SUCH A STRING!
+  ## Conversion to the proper timestamp can only be done, after the
+  ## start time of the whole run is considered! Done after call to `getRunHeader`
+  ## in `raw_data_manipulation`
   e_header["eventNumber"] = $eventNumber
   # TODO: in this case simply use the "old default constants"
   e_header["shutterMode"] = OldShutterMode
   e_header["shutterTime"] = OldShutterTime
   # only support 1 chip for old storage format anyways
   e_header["numChips"] = $1
+  e_header["timestamp"] = $timestamp
   c_header["numHits"] = $pix_counter
   c_header["chipName"] = OldChipName
   # subtract 1, because in the past TOS was 1 indexed
@@ -733,15 +740,15 @@ proc processOldEventScanf*(data: seq[string]): ref OldEvent =
   var
     evNumber: string
     chipNumber: string
-  # need to use `$*` to parse, because if we use $i for integers, we end up
-  # parsing the `_` tokens as well, making scanf fail
-  # TODO: implement custom parser proc
+    timestamp: int # timestamp as integer, although it actually is a
+                   # time in 24h format!
   let fname = filepath.extractFilename
-  if scanf(fname, OldVirtexEventScanfNoPath, evNumber, chipNumber):
+  if scanf(fname, OldVirtexEventScanfNoPath, evNumber, chipNumber, timestamp):
     addOldHeaderKeys(e_header,
                      c_header,
                      evNumber.parseInt,
                      chipNumber.parseInt,
+                     timestamp,
                      pix_counter,
                      filepath)
 
@@ -992,6 +999,7 @@ proc getListOfEventFiles*(folder: string, eventType: EventType,
     return result
   var
     dummy: string
+    dummyInt: int
     evNumber: string
   for file in walkDirRec(folder):
     let fname = file.extractFilename
@@ -1002,7 +1010,7 @@ proc getListOfEventFiles*(folder: string, eventType: EventType,
         if scanf(fname, NewVirtexEventScanfNoPath, evNumber, dummy):
           result.add (evNumber.parseInt, file)
       of rfOldTos:
-        if scanf(fname, OldVirtexEventScanfNoPath, evNumber, dummy):
+        if scanf(fname, OldVirtexEventScanfNoPath, evNumber, dummy, dummyInt):
           result.add (evNumber.parseInt, file)
       of rfSrsTos:
         var t: Time

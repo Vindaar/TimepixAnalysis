@@ -877,8 +877,8 @@ proc fillDataForH5(x, y: var seq[seq[seq[uint8]]],
       try:
         evHeaders[key][i] = parseInt(event.evHeader[key])
       except KeyError:
-        discard
         #echo "Event $# with evHeaders does not contain key $#" % [$event, $key]
+        discard
       except IndexError:
         logging.error "Event $# with evHeaders does not contain key $#" % [$event, $key]
     # add raw chip pixel information

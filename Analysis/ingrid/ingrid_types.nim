@@ -215,6 +215,8 @@ type
     pErr*: seq[float]
     redChiSq*: float
 
+const TosDateString* = "yyyy-MM-dd'.'hh:mm:ss"
+
 # and some general InGrid related constants
 const NPIX* = 256
 const PITCH* = 0.055

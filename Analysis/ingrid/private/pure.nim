@@ -469,103 +469,6 @@ proc readMemFilesIntoBuffer*(list_of_files: seq[string]): seq[seq[string]] =
   echo "free memory ", getFreeMem()
   echo "occ memory ", getOccupiedMem()
 
-proc processEventWithRegex*(data: seq[string],
-                            regex: tuple[header, chips, pixels: Regex]):
-                              ref Event {.deprecated.}=
-  ## This proc is deprecated, use `processEventWithScanf` instead,
-  ## it's a lot faster!
-  ## this template is used to create the needed functions to
-  ## - read the event header
-  ## - read the chip information for an event
-  ## - read the pixel data in an event
-  ## either as single functions or as a combination of
-  ## all
-  ## when type(regex) == string:
-  ##   # in this case we deal with a single regex string
-  ##   result = newTable[string, string]()
-  ##   for line in lines filepath:
-  ##     if line.match(re(regex), matches):
-  ##       # get rid of whitespace and add to result
-  ##       let key = matches[0]
-  ##       let val = matches[1]
-  ##       result[key] = val
-  ## regex[0] == header
-  ## regex[1] == chips
-  ## regex[2] == pixels
-  ## in this case we have a sequence of strings
-  var
-    # variable to count already read pixels
-    pix_counter = 0
-    # variables to read data into
-    e_header = initTable[string, string]()
-    c_header = initTable[string, string]()
-    # create a sequence large enough to hold most events, so that only for very large
-    # events we need to resize the sequence
-    pixels: Pixels = newSeqOfCap[Pix](400)
-    # variable to store resulting chip events
-    chips: seq[ChipEvent] = newSeqOfCap[ChipEvent](7)
-    # variable to determine, when we are reading the last pixel of one chip
-    # important, because we cannot trust numHits in chip header, due to zero
-    # suppression!
-    pix_to_read: int = 0
-  result = new Event
-
-  for line in data[1 .. ^1]:
-    # NOTE: match using matching template
-    if line =~ regex.header:
-      # Event header
-      e_header[matches[0]] = matches[1]
-    elif line =~ regex.chips:
-      # Chip header
-      # set pix_counter to 0, need to make sure it is 0,
-      # once we reach the first
-      # hit pixel
-      pix_counter = 0
-      c_header[matches[0]] = matches[1]
-      if matches[0] == "numHits":
-        let nhits = parseInt(matches[1])
-        pix_to_read = if nhits < 4096: nhits else: 4095
-        if pix_to_read == 0:
-          var ch_event = ChipEvent()
-          ch_event.chip = (c_header["chipName"], parseInt(c_header["chipNumber"]))
-          ch_event.pixels = pixels
-          # add the chip event object to the sequence
-          chips.add(ch_event)
-    elif line =~ regex.pixels:
-      # in this case we have matched a pixel hit line
-      # get number of hits to process
-      let
-        x: uint8  = parseInt(matches[0]).uint8
-        y: uint8  = parseInt(matches[1]).uint8
-        ch: uint16 = parseInt(matches[2]).uint16
-      # if the compiler flag (-d:REMOVE_FULL_PIX) is set, we cut all pixels, which have
-      # ToT values == 11810, the max ToT value
-      when defined(REMOVE_FULL_PIX):
-        if ch != 11810:
-          pixels.add((x, y, ch))
-      else:
-        pixels.add((x, y, ch))
-      # after adding pixel, increase pixel counter so that we know when we're
-      # reading the last hit of a given chip
-      inc pix_counter
-      if pix_counter == pix_to_read:
-        # now we are reading the last hit, process chip header and pixels
-        var ch_event = ChipEvent()
-        ch_event.chip = (c_header["chipName"], parseInt(c_header["chipNumber"]))
-        ch_event.pixels = pixels
-        # add  the chip event object to the sequence
-        chips.add(ch_event)
-        # reset the pixels sequence
-        pixels = newSeqOfCap[Pix](400)
-        pix_to_read = 0
-
-  # finally add the timestamp from the dateTime to the table as well
-  e_header["timestamp"] = $(int(parseTOSDateString(e_header["dateTime"]).toSeconds))
-
-  result.evHeader = e_header
-  result.chips = chips
-  result.nChips = chips.len
-
 proc processEventWithScanf*(data: seq[string]): ref Event =
   ## Reads a current TOS event file using the strscans.scanf
   ## macro. It
@@ -774,77 +677,6 @@ proc addOldHeaderKeys(e_header, c_header: var Table[string, string],
   c_header["chipNumber"] = $(chipNumber - 1)
   let (head, tail) = filepath.splitPath
   e_header["pathName"] = head
-
-proc processOldEventWithRegex*(data: seq[string],
-                               regPixels: Regex):
-                                 ref OldEvent {.deprecated.} =
-  ## This proc is deprecated, use `processEventWithScanf` instead,
-  ## it's a lot faster!  ## TODO: update doc!
-  # in this case we have a sequence of strings
-  var
-    # variable to count already read pixels
-    pix_counter = 0
-    # variables to read data into
-    e_header = initTable[string, string]()
-    c_header = initTable[string, string]()
-    # create a sequence large enough to hold most events, so that only for very large
-    # events we need to resize the sequence
-    pixels: Pixels = newSeqOfCap[Pix](400)
-    # variable to store resulting chip events
-    chips: seq[ChipEvent] = newSeqOfCap[ChipEvent](1)
-    # variable to determine, when we are reading the last pixel of one chip
-    # important, because we cannot trust numHits in chip header, due to zero
-    # suppression! We init by `-1` to deal with old TOS format, in which there
-    # is no header
-    pix_to_read: int = 0
-  result = new OldEvent
-
-  let filepath = data[0]
-  # check for run folder kind by looking at first line of file
-  assert data[1][0] != '#', "This is not a valid rfOldTos file (old storage format)!" & data[1]
-
-  for line in data[1 .. ^1]:
-    # match with template
-    if line =~ regPixels:
-      # in this case we have matched a pixel hit line
-      # get number of hits to process
-      let
-        x  = parseInt(matches[0]).uint8
-        y  = parseInt(matches[1]).uint8
-        ch = parseInt(matches[2]).uint16
-      # if the compiler flag (-d:REMOVE_FULL_PIX) is set, we cut all pixels, which have
-      # ToT values == 11810, the max ToT value
-      when defined(REMOVE_FULL_PIX):
-        if ch != 11810:
-          pixels.add((x, y, ch))
-      else:
-        pixels.add((x, y, ch))
-      # after adding pixel, increase pixel counter so that we know when we're
-      # reading the last hit of a given chip
-      inc pix_counter
-
-  # in that case we're reading an ``old event files (!)``. Get the event number
-  # from the filename
-  let evNumberRegex = re".*data(\d{4,9})_(\d)_.*"
-  var evNumChipNumStr: array[2, string]
-  if match(filepath, evNumberRegex, evNumChipNumStr) == true:
-    addOldHeaderKeys(e_header,
-                     c_header,
-                     evNumChipNumStr[0].parseInt,
-                     evNumChipNumStr[1].parseInt,
-                     pix_counter,
-                     filepath)
-
-  # now we are reading the last hit, process chip header and pixels
-  var ch_event = ChipEvent()
-  ch_event.chip = (c_header["chipName"], c_header["chipNumber"].parseInt)
-  ch_event.pixels = pixels
-  # add  the chip event object to the sequence
-  chips.add(ch_event)
-
-  result.evHeader = e_header
-  result.chips = chips
-  result.nChips = chips.len
 
 proc processOldEventScanf*(data: seq[string]): ref OldEvent =
 # proc processOldEventScanf*(tup: tuple[fname: string, dataStream: MemMapFileStream]): ref OldEvent =
@@ -1077,22 +909,6 @@ proc processEventWrapper(data: seq[string],
   of rfUnknown:
     raise newException(IOError, "Unknown run folder kind. Unclear what files " &
       "are events!")
-
-
-#template readEventWithRegex(filepath, regex: string): typed =
-proc readEventWithRegex*(filepath: string, regex: tuple[header, chips, pixels: Regex]): ref Event =
-  ## this procedure reads the lines from a given event and then calls processEventWithRegex
-  ## to process the file. Returns a ref to an Event object
-  ## inputs:
-  ##    filepath: string = the path to the file to be read
-  ##    regex: tuple[...] = tuple of 3 regex's, one for each part of an event file
-  ## outputs:
-  ##    ref Event: reference to an event object
-  var f = memfiles.open(filepath, mode = fmRead, mappedSize = -1)
-  var data: seq[string] = @[]
-  for line in lines(f):
-    data.add(line)
-  result = processEventWithRegex(data, regex)
 
 proc pixelsToTOT*(pixels: Pixels): seq[uint16] {.inline.} =
   ## extracts all charge values (ToT values) of a given pixels object (all hits

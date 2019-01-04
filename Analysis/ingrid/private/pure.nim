@@ -413,11 +413,74 @@ proc parseSrsRunInfo(path: string): Table[string, string] =
     result["shutterMode"] = "0"
     result["shutterTime"] = "0"
 
-proc getRunHeader*(ev: Event, rfKind: RunFolderKind): Table[string, string] =
+proc getOldRunInformation*(folder: string, runNumber: int, rfKind: RunFolderKind):
+  (int, int, int, int, int) =
+  ## given a TOS raw data run folder of kind `rfOldTos`, parse information based
+  ## on the `*.dat` file contained in it
+  case rfKind
+  of rfOldTos:
+    const oldTosRunDescriptorPrefix = OldTosRunDescriptorPrefix
+    let
+      (head, tail) = folder.splitPath
+      datFile = joinPath(folder, tail & ".dat")
+      lines = readFile(datFile).splitLines
+      # now just parse the files correctly. Everything in last column, except
+      # runTime
+      totalEvents = lines[0].splitWhitespace[^1].parseInt
+      numEvents = lines[1].splitWhitespace[^1].parseInt
+      startTime = lines[2].splitWhitespace[^1].parseInt
+      stopTime = lines[3].splitWhitespace[^1].parseInt
+      runTime = lines[4].splitWhitespace[^2].parseInt
+    result = (totalEvents, numEvents, startTime, stopTime, runTime)
+  else: discard
+
+proc parseOldTosRunlist*(path: string, rtKind: RunTypeKind): set[uint16] =
+  ## parses the run list and returns a set of integers, corresponding to
+  ## the valid run numbers of the `RunTypeKind` given
+  var s = newFileStream(path, fmRead)
+  defer: s.close()
+  var typeStr: string
+  case rtKind
+  of rtCalibration:
+    typeStr = "C"
+  of rtBackground:
+    typeStr = "B"
+  of rtXrayFinger:
+    typeStr = "X"
+  else:
+    return {}
+
+  var csv: CsvParser
+  open(csv, s, path)
+  while readRow(csv):
+    if csv.row[2] == typeStr:
+      result.incl csv.row[0].strip.parseInt.uint16
+  csv.close()
+
+proc getRunHeader*(ev: Event,
+                   runNumber: int,
+                   rfKind: RunFolderKind): Table[string, string] =
   ## returns the correct run header based on the `RunFolderKind`
   case rfKind
-  of rfOldTos, rfNewTos:
+  of rfNewTos:
     result = ev.evHeader
+  of rfOldTos:
+    result = ev.evHeader
+    # combine evHeader data and data stored (potentially) in
+    # the `*.dat` file
+    let
+      runPath = result["pathName"]
+      runInfo = getOldRunInformation(runPath, runNumber, rfOldTos)
+      (totalEvents, numEvents, startTime, stopTime, runTime) = runInfo
+      start = fromUnix(startTime)
+      stop = fromUnix(stopTime)
+      mid = ((stop - start).seconds div 2 + start.toUnix).fromUnix
+    result["numEvents"] = $numEvents
+    result["totalEvents"] = $totalEvents
+    result["dateTime"] = start.format("yyyy-MM-dd'.'hh:mm:ss")
+    result["dateMid"] = mid.format("yyyy-MM-dd'.'hh:mm:ss")
+    result["dateStop"] = stop.format("yyyy-MM-dd'.'hh:mm:ss")
+    result["runTime"] = $runTime
   of rfSrsTos:
     # here we need to combine evHeader data and data stored in
     # `run.txt`
@@ -428,7 +491,6 @@ proc getRunHeader*(ev: Event, rfKind: RunFolderKind): Table[string, string] =
     # echo write (potentially replace) keys read from run.txt in result
     for key, val in pairs(runInfo):
       result[key] = val
-
   else:
     discard
 
@@ -1181,50 +1243,6 @@ proc isTosRunFolder*(folder: string):
       # contains a run folder
       if is_rf == true:
         result.contains_rf = true
-
-proc getOldRunInformation*(folder: string, runNumber: int, rfKind: RunFolderKind):
-  (int, int, int, int, int) =
-  ## given a TOS raw data run folder of kind `rfOldTos`, parse information based
-  ## on the `*.dat` file contained in it
-  case rfKind
-  of rfOldTos:
-    const oldTosRunDescriptorPrefix = OldTosRunDescriptorPrefix
-    let
-      (head, tail) = folder.splitPath
-      datFile = joinPath(folder, $runNumber & "-" & tail & ".dat")
-      lines = readFile(datFile).splitLines
-      # now just parse the files correctly. Everything in last column, except
-      # runTime
-      totalEvents = lines[0].splitWhitespace[^1].parseInt
-      numEvents = lines[1].splitWhitespace[^1].parseInt
-      startTime = lines[2].splitWhitespace[^1].parseInt
-      stopTime = lines[3].splitWhitespace[^1].parseInt
-      runTime = lines[4].splitWhitespace[^2].parseInt
-    result = (totalEvents, numEvents, startTime, stopTime, runTime)
-  else: discard
-
-proc parseOldTosRunlist*(path: string, rtKind: RunTypeKind): set[uint16] =
-  ## parses the run list and returns a set of integers, corresponding to
-  ## the valid run numbers of the `RunTypeKind` given
-  var s = newFileStream(path, fmRead)
-  defer: s.close()
-  var typeStr: string
-  case rtKind
-  of rtCalibration:
-    typeStr = "C"
-  of rtBackground:
-    typeStr = "B"
-  of rtXrayFinger:
-    typeStr = "X"
-  else:
-    return {}
-
-  var csv: CsvParser
-  open(csv, s, path)
-  while readRow(csv):
-    if csv.row[2] == typeStr:
-      result.incl csv.row[0].strip.parseInt.uint16
-  csv.close()
 
 proc findLastEvent(files: seq[string]): (string, Time) =
   var

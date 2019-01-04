@@ -12,6 +12,10 @@ proc getBinRangeForDset*(dset: string): Option[(float, float)] =
     result = some((-5.0, 10.0))
   elif dset == "kurtosisTransverse":
     result = some((-2.0, 8.0))
+  elif dset == "rmsLongitudinal":
+    result = some((0.0, 3.0))
+  elif dset == "rmsTransverse":
+    result = some((0.0, 3.0))
   elif dset == "eccentricity":
     result = some((1.0, 3.5))
   elif dset == "ToT":
@@ -42,6 +46,10 @@ proc getNumBinsForDset*(dset: string): Option[int] =
   elif dset == "kurtosisLongitudinal":
     result = some(100)
   elif dset == "kurtosisTransverse":
+    result = some(100)
+  elif dset == "rmsLongitudinal":
+    result = some(100)
+  elif dset == "rmsTransverse":
     result = some(100)
   elif dset == "eccentricity":
     result = some(100)

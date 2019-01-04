@@ -307,6 +307,21 @@ func `%%`[T](formatstr: string, a: openArray[T]): string =
     b.add $x
   result = formatstr % b
 
+proc getXlabel*(pKind: PlotKind): string =
+  ## returns the correct xlabel for a given plot kind
+  discard
+
+proc getYlabel*(pKind: PlotKind): string =
+  ## returns the correct ylabel for a given plot kind
+  discard
+
+proc getPlotName*(pKind: PlotKind): string =
+  ## returns the correct name for a given plot kind, if possible
+  ## For pkInGrid or pkFadc this is not a unique name, because in those
+  ## plots it's the name of the dataset we display.
+  discard
+
+
 proc buildOutfile*(pd: PlotDescriptor): kstring =
   var name = ""
   var runsStr = ""

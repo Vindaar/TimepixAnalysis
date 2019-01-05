@@ -1098,6 +1098,28 @@ proc createRun(runHeader: Table[string, string],
     raise newException(Exception, "Creation of a `Run` is impossible for an " &
       "unknown run folder kind at the moment!")
 
+proc calcTimeOfEvent(evDuration: float,
+                     eventNumber: int,
+                     timestamp: string,
+                     runStart: DateTime): DateTime =
+  let
+    tstamp = timestamp
+      .align(count = 9, padding = '0')
+      .parse("HHmmssfff")
+    tdiff = (evDuration * eventNumber.float).round(places = 3)
+  result = runStart + initDuration(seconds = tdiff.round.int,
+                                   milliseconds = (tdiff - tdiff.trunc).round.int)
+  # replace time of evDate
+  result.second = tstamp.second
+  result.minute = tstamp.minute
+  result.hour = tstamp.hour
+
+proc calcTimeOfEvent(runTime, totalEvents, eventNumber: int,
+                     timestamp: string,
+                     runStart: DateTime): DateTime =
+  let evDuration = runTime.float / totalEvents.float
+  result = calcTimeOfEvent(evDuration, eventNumber, timestamp, runStart)
+
 proc fixOldTosTimestamps(runHeader: Table[string, string],
                          events: var seq[Event]) =
   ## applies the correct time stamp to the events in `events` for old TOS
@@ -1110,17 +1132,9 @@ proc fixOldTosTimestamps(runHeader: Table[string, string],
   for ev in mitems(events):
     # walk over all events and replace the `timestamp` field with a corrected value
     let
-      tstamp = ev.evHeader["timestamp"]
-        .align(count = 9, padding = '0')
-        .parse("HHmmssfff")
       evNumber = ev.evHeader["eventNumber"].parseInt
-      tdiff = (evDuration * evNumber.float).round(places = 3)
-    var evDate = runStart + initDuration(seconds = tdiff.round.int,
-                                         milliseconds = (tdiff - tdiff.trunc).round.int)
-    # replace time of evDate
-    evDate.second = tstamp.second
-    evDate.minute = tstamp.minute
-    evDate.hour = tstamp.hour
+      evDate = calcTimeOfEvent(evDuration, evNumber, ev.evHeader["timestamp"],
+                               runStart)
     ev.evHeader["timestamp"] = $evDate.toTime.toUnix
 
 proc readAndProcessInGrid(listOfFiles: seq[string],

@@ -33,7 +33,7 @@ const
   eventRegexSrs = r".*run_(\d{6})_data_(\d{6,9})_(\d{6})_(\d{2})-(\d{2})-(\d{2}).txt"
 
   newVirtexRunRegex = r".*Run_(\d+)_\d{6}-\d{2}-\d{2}.*"
-  oldVirtexRunRegex = r".*Run\d{6}_\d{2}-\d{2}-\d{2}.*"
+  oldVirtexRunRegex = r".*Run(\d{6})_(\d{2})-(\d{2})-(\d{2}).*"
   srsRunRegex       = r".*Run_(\d{6})_\d{6}_\d{2}-\d{2}-\d{2}.*"
 
   OldVirtexEventScanf = r"$*data$*_$*_" # needs: dummy, evNumber, chipNumber
@@ -413,8 +413,48 @@ proc parseSrsRunInfo(path: string): Table[string, string] =
     result["shutterMode"] = "0"
     result["shutterTime"] = "0"
 
+# forward declaration
+proc getListOfEventFiles*(folder: string, eventType: EventType,
+                          rfKind: RunFolderKind): seq[(int, string)]
+
+proc estimateRunTime(files: seq[(int, string)],
+                     runStart: DateTime): (DateTime, int64) =
+  ## estimates the total run time of the given run by walking over all files
+  ## (to make sure we do not miss a whole day) and returns the stop time of
+  ## the run as well as the run time as an integer of seconds
+  ## NOTE: the list of files needs to be sorted!
+  var
+    days = 0
+    lastEvNum = -1
+    lastHour = -1
+    dummy: string
+    timestamp: int
+  for tup in files:
+    let (evNum, evName) = tup
+    doAssert lastEvNum < evNum, " List of files MUST be sorted!"
+    let (head, tail) = evName.splitPath
+    discard scanf(tail, OldVirtexEventScanfNoPath, dummy, dummy, timestamp)
+    let tstamp = ($timestamp).align(9, padding = '0')
+    let hour = tstamp[0 .. 1].parseInt
+    if lastHour == 23 and hour == 0:
+      inc days
+    lastHour = hour
+    lastEvNum = evNum
+  # timestamp still points to last event of
+  let tstamp = ($timestamp)
+    .align(9, padding = '0')
+    .parse("HHmmssfff")
+  var runStop = runStart
+  let daysDur = initDuration(days = days)
+  runStop = runStop + daysDur
+  runStop.hour = tstamp.hour
+  runStop.minute = tstamp.minute
+  runStop.second = tstamp.second
+  let runTime = (runStop - runStart).seconds
+  result = (runStop, runTime)
+
 proc getOldRunInformation*(folder: string, runNumber: int, rfKind: RunFolderKind):
-  (int, int, int, int, int) =
+  (int, int, int64, int64, int64) =
   ## given a TOS raw data run folder of kind `rfOldTos`, parse information based
   ## on the `*.dat` file contained in it
   case rfKind
@@ -423,15 +463,39 @@ proc getOldRunInformation*(folder: string, runNumber: int, rfKind: RunFolderKind
     let
       (head, tail) = folder.splitPath
       datFile = joinPath(folder, tail & ".dat")
-      lines = readFile(datFile).splitLines
-      # now just parse the files correctly. Everything in last column, except
-      # runTime
-      totalEvents = lines[0].splitWhitespace[^1].parseInt
-      numEvents = lines[1].splitWhitespace[^1].parseInt
-      startTime = lines[2].splitWhitespace[^1].parseInt
-      stopTime = lines[3].splitWhitespace[^1].parseInt
-      runTime = lines[4].splitWhitespace[^2].parseInt
-    result = (totalEvents, numEvents, startTime, stopTime, runTime)
+    try:
+      let
+        lines = readFile(datFile).splitLines
+        # now just parse the files correctly. Everything in last column, except
+        # runTime
+        totalEvents = lines[0].splitWhitespace[^1].parseInt
+        numEvents = lines[1].splitWhitespace[^1].parseInt
+        startTime = lines[2].splitWhitespace[^1].parseInt
+        stopTime = lines[3].splitWhitespace[^1].parseInt
+        runTime = lines[4].splitWhitespace[^2].parseInt
+      result = (totalEvents, numEvents,
+                startTime.int64, stopTime.int64, runTime.int64)
+    except IOError:
+      # `*.dat` file does not exist for current run. Instead derive some rough
+      # guesses
+      let files = sortedByIt(getListOfEventFiles(folder, EventType.InGridType, rfOldTos),
+                             it[0])
+      let numEvents = files.len
+      # get upper limit of number of events based on last event number
+      let totalEvents = files[^1][0]
+      let oldTosRunDescriptor = re(oldTosRunDescriptorPrefix & oldVirtexRunRegex)
+      var runStart: DateTime
+      if folder =~ oldTosRunDescriptor:
+        runStart = matches[1].parse("yyMMdd")
+        runStart.hour = matches[2].parseInt
+        runStart.minute = matches[3].parseInt
+        runStart.second = matches[3].parseInt
+      let (runStop, runTime) = estimateRunTime(files, runStart)
+      result = (totalEvents, numEvents,
+                runStart.toTime.toUnix,
+                runStop.toTime.toUnix,
+                runTime)
+
   else: discard
 
 proc parseOldTosRunlist*(path: string, rtKind: RunTypeKind): set[uint16] =

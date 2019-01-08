@@ -646,36 +646,36 @@ proc occupancies(h5f: var H5FileObj, runType: RunTypeKind,
       clampQ = 80
     result.add @[fullPd, clampAPd, clampQPd, clusterPd, clusterClampPd]
 
-proc plotPolyas(h5f: var H5FileObj, group: H5Group,
-                chipNum: int, runNumber: string): seq[Trace[float]] =
-  ## perform the plots of the polya distribution again (including the fits)
-  ## and return the polya data as to allow a combined plot afterwards
-  let
-    polya = h5f.read(runNumber.parseInt, "polya", chipNum,
-                     dtype = seq[float])
-    polyaFit = h5f.read(runNumber.parseInt, "polyaFit", chipNum,
-                        dtype = seq[float])
-  let nbins = polya.shape[0] - 1
-  var
-    bins = newSeq[float](nbins + 1)
-    binCenterFit = newSeq[float](nbins)
-    counts = newSeq[float](nbins)
-    countsFit = newSeq[float](nbins)
-  for i in 0 .. polya.high:
-    bins[i] = polya[i][0]
-    if i != nbins:
-      # do not take last element of polya datasets, since it's just 0
-      counts[i] = polya[i][1]
-      binCenterFit[i] = polyaFit[i][0]
-      countsFit[i] = polyaFit[i][1]
-  let names = @[&"Polya of chip {chipNum} for run {runNumber}"]
-  let title = &"Polya distribution of chip {chipNum} for run {runNumber}"
-  let xlabel = "Number of electrons"
-  let outfile = &"polya_run{runNumber}_chip{chipNum}"
-  var pltV = plotBar(@[bins], @[counts], title, xlabel, names, outfile)
-  # now add scatter plot for fit result
-  let nameFit = &"Polya fit of chip {chipNum} for run {runNumber}"
-  plotScatter(binCenterFit, countsFit, title, nameFit, outfile)
+#proc plotPolyas(h5f: var H5FileObj, group: H5Group,
+#                chipNum: int, runNumber: string): seq[Trace[float]] =
+#  ## perform the plots of the polya distribution again (including the fits)
+#  ## and return the polya data as to allow a combined plot afterwards
+#  let
+#    polya = h5f.read(runNumber.parseInt, "polya", chipNum,
+#                     dtype = seq[float])
+#    polyaFit = h5f.read(runNumber.parseInt, "polyaFit", chipNum,
+#                        dtype = seq[float])
+#  let nbins = polya.shape[0] - 1
+#  var
+#    bins = newSeq[float](nbins + 1)
+#    binCenterFit = newSeq[float](nbins)
+#    counts = newSeq[float](nbins)
+#    countsFit = newSeq[float](nbins)
+#  for i in 0 .. polya.high:
+#    bins[i] = polya[i][0]
+#    if i != nbins:
+#      # do not take last element of polya datasets, since it's just 0
+#      counts[i] = polya[i][1]
+#      binCenterFit[i] = polyaFit[i][0]
+#      countsFit[i] = polyaFit[i][1]
+#  let names = @[&"Polya of chip {chipNum} for run {runNumber}"]
+#  let title = &"Polya distribution of chip {chipNum} for run {runNumber}"
+#  let xlabel = "Number of electrons"
+#  let outfile = &"polya_run{runNumber}_chip{chipNum}"
+#  var pltV = plotBar(@[bins], @[counts], title, xlabel, names, outfile)
+#  # now add scatter plot for fit result
+#  let nameFit = &"Polya fit of chip {chipNum} for run {runNumber}"
+#  plotScatter(binCenterFit, countsFit, title, nameFit, outfile)
 
 proc polya(h5f: var H5FileObj, runType: RunTypeKind,
            fileInfo: FileInfo,

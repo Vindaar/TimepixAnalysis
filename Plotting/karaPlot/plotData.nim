@@ -891,9 +891,9 @@ proc createInGridFadcEvDisplay(h5f: var H5FileObj,
                                events: OrderedSet[int]): seq[PlotDescriptor] =
   var finfo = fileInfo
   finfo.chips = @[finfo.centerChip]
-  let ingridPds = createEventDisplayPlots(h5f, run, runType, fileInfo, events)
+  let ingridPds = createEventDisplayPlots(h5f, run, runType, fInfo, events)
   let ingridDomain = (left: 0.0, bottom: 0.0, width: 0.45, height: 1.0)
-  let fadcPds = createFadcPlots(h5f, run, runType, fileInfo, events)
+  let fadcPds = createFadcPlots(h5f, run, runType, fInfo, events)
   let fadcDomain = (left: 0.525, bottom: 0.05, width: 0.575, height: 0.6)
   for tup in zip(ingridPds, fadcPds):
     let

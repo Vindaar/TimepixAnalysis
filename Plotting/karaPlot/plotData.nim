@@ -1255,11 +1255,27 @@ proc handleFePixDivChVsTime(h5f: var H5FileObj,
 iterator ingridEventIter(h5f: var H5FileObj,
                          fileInfo: FileInfo,
                          pds: seq[PlotDescriptor]): (string, PlotV) =
-  var events: seq[int]
+  var events {.global.}: seq[int]
   # all PDs are guaranteed to be from  the same run!
   let run = pds[0].runs[0]
+  # TODO: check if all PDs necessarily have same chip. Will be the case for
+  # InGrid = FADC, but not necessarily only chip?
+  let chip = pds[0].chip
+
+  var lastRun {.global.} = 0
+  var evNums {.global.}: seq[int]
+  var evTab {.global.}: Table[int, int]
+  if run != lastRun:
+    evNums = h5f.read(run, "eventNumber", dtype = int,
+                      chipNumber = chip)
+    evTab = initTable[int, int]()
+    for i, ev in evNums:
+      evTab[ev] = i
+    lastRun = run
+
+  events.setLen(0)
   for pd in pds:
-    events.add pd.event
+    events.add evTab[pd.event]
 
   let
     x = h5f.readVlen(run, "x", dtype = uint8, idx = events)
@@ -1268,8 +1284,9 @@ iterator ingridEventIter(h5f: var H5FileObj,
     ev = buildEvents(x, y, ch, toOrderedSet(@[0]))
   for i, pd in pds:
     var texts: seq[string]
+    let event = evTab[pd.event]
     for d in InGridDsets:
-      let val = h5f.read(run, d, dtype = float, idx = @[pd.event])[0]
+      let val = h5f.read(run, d, dtype = float, idx = @[event])[0]
       let s = &"{d:>20}: {val:6.4f}"
       texts.add s
 
@@ -1293,22 +1310,36 @@ iterator ingridEventIter(h5f: var H5FileObj,
 iterator fadcEventIter(h5f: var H5FileObj,
                        fileInfo: FileInfo,
                        pds: seq[PlotDescriptor]): (string, PlotV) =
-  var events: seq[int]
+  var events {.global.}: seq[int]
   # all PDs are guaranteed to be from  the same run!
   let run = pds[0].runs[0]
+
+  var lastRun {.global.} = 0
+  var evNums {.global.}: seq[int]
+  var evTab {.global.}: Table[int, int]
+  if run != lastRun:
+    evNums = h5f.read(run, "eventNumber", dtype = int,
+                                 isFadc = true)
+    evTab = initTable[int, int]()
+    for i, ev in evNums:
+      evTab[ev] = i
+    lastRun = run
+  events.setLen(0)
   for pd in pds:
-    events.add pd.event
+    events.add evTab[pd.event]
+
   let
     dset = h5f[(fadcRunPath(run) / "fadc_data").dset_str]
-    fadc = dset.read_hyperslab(float64, @[events[0], 0], @[events.len, 2560])
+    fadc = dset.read_hyperslab(float64, @[evTab[events[0]], 0], @[events.len, 2560])
     fShape = [fadc.len div 2560, 2560]
     fTensor = fadc.toTensor.reshape(fShape)
 
   for i, pd in pds:
     var texts: seq[string]
+    let event = evTab[pd.event]
     for d in AllFadcDsets:
       let val = h5f.read(run, d, isFadc = true,
-                         dtype = float, idx = @[pd.event])[0]
+                         dtype = float, idx = @[event])[0]
       let s = &"{d:15}: {val:6.4f}"
       texts.add s
 

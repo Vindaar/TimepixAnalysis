@@ -1330,7 +1330,7 @@ iterator fadcEventIter(h5f: var H5FileObj,
 
   let
     dset = h5f[(fadcRunPath(run) / "fadc_data").dset_str]
-    fadc = dset.read_hyperslab(float64, @[evTab[events[0]], 0], @[events.len, 2560])
+    fadc = dset.read_hyperslab(float64, @[events[0], 0], @[events.len, 2560])
     fShape = [fadc.len div 2560, 2560]
     fTensor = fadc.toTensor.reshape(fShape)
 

@@ -4,9 +4,6 @@ version       = "0.1.0"
 author        = "Sebastian Schmidt"
 description   = "Interactive plotting tool for Timepix HDF5 files"
 license       = "MIT"
-srcDir        = "src"
-bin           = @["karaPlot"]
-
 
 # Dependencies
 

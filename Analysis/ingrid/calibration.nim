@@ -893,8 +893,10 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int, createPlots = false) =
                                      chipNumber, runNumber,
                                      createPlots = createPlots)
       # create dataset for polya histogram
-      var polyaDset = h5f.create_dataset(group.name / "polya", (binCount, 2), dtype = float64)
-      var polyaFitDset = h5f.create_dataset(group.name / "polyaFit", (binCount, 2), dtype = float64)
+      var polyaDset = h5f.create_dataset(group.name / "polya", (binCount, 2), dtype = float64,
+                                         overwrite = true)
+      var polyaFitDset = h5f.create_dataset(group.name / "polyaFit", (binCount, 2), dtype = float64,
+                                            overwrite = true)
       let polyaData = zip(bin_edges, binned) --> map(@[it[0], it[1].float])
       let polyaFitData = zip(fitResult.x, fitResult.y) --> map(@[it[0], it[1]])
       polyaDset[polyaDset.all] = polyaData

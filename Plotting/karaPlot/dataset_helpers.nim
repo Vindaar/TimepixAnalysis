@@ -12,6 +12,10 @@ proc getBinRangeForDset*(dset: string): Option[(float, float)] =
     result = some((-5.0, 10.0))
   elif dset == "kurtosisTransverse":
     result = some((-2.0, 8.0))
+  elif dset == "rmsLongitudinal":
+    result = some((0.0, 3.0))
+  elif dset == "rmsTransverse":
+    result = some((0.0, 3.0))
   elif dset == "eccentricity":
     result = some((1.0, 3.5))
   elif dset == "ToT":
@@ -25,9 +29,9 @@ proc getBinRangeForDset*(dset: string): Option[(float, float)] =
   elif "minvals" in dset:
     result = some((-0.6, 0.0))
   elif "riseTime" in dset:
-    result = some((50.0, 120.0))
+    result = some((2.0, 502.0))
   elif "fallTime" in dset:
-    result = some((100.0, 700.0))
+    result = some((7.0, 707.0))
   else:
     result = none((float, float))
 
@@ -42,6 +46,10 @@ proc getNumBinsForDset*(dset: string): Option[int] =
   elif dset == "kurtosisLongitudinal":
     result = some(100)
   elif dset == "kurtosisTransverse":
+    result = some(100)
+  elif dset == "rmsLongitudinal":
+    result = some(100)
+  elif dset == "rmsTransverse":
     result = some(100)
   elif dset == "eccentricity":
     result = some(100)
@@ -61,3 +69,21 @@ proc getNumBinsForDset*(dset: string): Option[int] =
     result = some(50)
   else:
     result = none(int)
+
+proc getBinSizeForDset*(dset: string): Option[float] =
+  ## returns a bin size from which we can calculate the number of bins
+  ## (given a bin range) for a dataset
+  ## This can be used for more meaningful calculation of bin numbers based
+  ## on physically motivated bin widhts, e.g. a bin width of 5 pixels for
+  ## the Fe pix spectrum, 5000 electrons for Fe charge spectrum etc.
+  if dset == "riseTime":
+    # 20 from 2.0 -> for no bad binning
+    result = some(20.0)
+  elif dset == "fallTime":
+    result = some(20.0)#some(10.0)
+  elif dset == "FeSpectrum":
+    result = some(1.0)
+  elif dset == "FeSpectrumCharge":
+    result = some(100.0)
+  else:
+    result = none(float)

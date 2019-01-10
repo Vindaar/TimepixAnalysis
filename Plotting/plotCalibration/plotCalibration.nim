@@ -126,7 +126,7 @@ proc plotThlCalib*(thlCalib: FitResult, charge, thl, thlErr: seq[float], chip = 
   let filename = &"out/thl_calib_{chip}.svg"
   p.saveImage(filename)
 
-proc plotToTCalib*(totCalib: FitResult, tot: Tot, chip = 0) =
+proc plotToTCalib*(totCalib: FitResult, tot: Tot, chip = 0, chipName = "") =
   let
     data = Trace[float](mode: PlotMode.Markers, `type`: PlotType.Scatter)
     fit = Trace[float](mode: PlotMode.Lines, `type`: PlotType.Scatter)
@@ -144,8 +144,13 @@ proc plotToTCalib*(totCalib: FitResult, tot: Tot, chip = 0) =
   fit.ys = totCalib.y
   fit.name = "ToT calibration fit"
 
+  var title = ""
+  if chipName.len > 0:
+    title = &"ToT calibration of Chip {chipName}"
+  else:
+    title = &"ToT calibration of Chip {chip}"
   let
-    layout = Layout(title: &"ToT calibration of Chip {chip}",
+    layout = Layout(title: title,
                     width: FigWidth.int, height: FigHeight.int,
                     xaxis: Axis(title: "U_inj / mV"),
                     yaxis: Axis(title: "ToT / Clock cycles"),
@@ -228,17 +233,18 @@ proc sCurve(args: DocoptTab, chip: string) =
     let thlCalib = fitThlCalib(chSort, thlSort, thlErrSort)
     plotThlCalib(thlCalib, chSort, thlSort, thlErrSort, chip)
 
-proc parseTotInput(args: DocoptTab, startTot = 0.0): (int, Tot) =
+proc parseTotInput(args: DocoptTab, startTot = 0.0): (int, string, Tot) =
   let file = $args["--file"]
   let folder = $args["--folder"]
   let db = $args["--db"]
 
   var chip = 0
   var tot: Tot
+  var chipName = ""
 
   if db != "nil":
     when declared(ingridDatabase):
-      let chipName = parseDbChipArg(db)
+      chipName = parseDbChipArg(db)
       tot = getTotCalib(chipName)
   elif file != "nil":
     (chip, tot) = readToTFile(file, startTot)
@@ -248,7 +254,7 @@ proc parseTotInput(args: DocoptTab, startTot = 0.0): (int, Tot) =
       # TODO: implement multiple in same plot?
       (chip, tot) = readToTFile(f, startTot)
 
-  result = (chip, tot)
+  result = (chip, chipName, tot)
 
 proc totCalib(args: DocoptTab, startFit = 0.0, startTot = 0.0) =
   ## perform plotting and analysis of ToT calibration
@@ -256,9 +262,9 @@ proc totCalib(args: DocoptTab, startFit = 0.0, startTot = 0.0) =
     bins: seq[float]
     hist: seq[float]
 
-  let (chip, tot) = parseTotInput(args, startTot)
+  let (chip, chipName, tot) = parseTotInput(args, startTot)
   let totCalib = fitToTCalib(tot, startFit)
-  plotToTCalib(totCalib, tot, chip)
+  plotToTCalib(totCalib, tot, chip, chipName)
 
 proc main() =
 

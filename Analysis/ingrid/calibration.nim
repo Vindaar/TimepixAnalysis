@@ -134,6 +134,181 @@ proc thlCalibFunc(p: seq[float], x: float): float =
   ## of the SCurves
   linearFunc(p, x)
 
+proc expGauss(p: seq[float], x: float): float =
+  # exponential * times (?!) from Christoph's expogaus.c
+  if len(p) != 5:
+    return Inf
+  let p_val = 2.0 * (p[1] * pow(p[4], 2.0) - p[3])
+  let q_val = 2.0 * pow(p[4], 2.0) * p[0] + pow(p[3], 2.0) - log(p[2], 10) * 2.0 * pow(p[4], 2.0)
+
+  let threshold = - p_val / 2.0 - sqrt( pow(p_val, 2.0) / 4.0 - q_val )
+
+  if x < threshold:
+    result = exp(p[0] + p[1] * x)
+  else:
+    result = p[2] * gauss(x, p[3], p[4])
+
+proc feSpectrumFunc*(p_ar: seq[float], x: float): float =
+  # NOTE: should we init with 0? or 1?
+
+  var parAll = newSeq[float](20)
+  if len(p_ar) != 15:
+    echo("Length of params is ", len(p_ar))
+    raise newException(ValueError, "Bad argument to `feSpectrumFunc`")
+
+  # while this is the actual fitting function, it is in fact only
+  # a wrapper around 4 Gaussians * exponential decay
+  # It's a mixture of the K_alpha, K_beta lines as well as
+  # the escape peaks
+  # see fitFeSpectrum() (where bounds are set) for discussion of different
+  # parameters
+  parAll[0] = p_ar[0]
+  parAll[1] = p_ar[1]
+  parAll[2] = p_ar[2]
+  parAll[3] = p_ar[3]
+  parAll[4] = p_ar[4]
+
+  parAll[5] = p_ar[5]
+  parAll[6] = p_ar[6]
+  parAll[7] = p_ar[14]*p_ar[2]
+  parAll[8] = 3.5/2.9*p_ar[3]
+  parAll[9] = p_ar[4]
+
+  parAll[10] = p_ar[7]
+  parAll[11] = p_ar[8]
+  parAll[12] = p_ar[9]
+  parAll[13] = p_ar[10]
+  parAll[14] = p_ar[11]
+
+  parAll[15] = p_ar[12]
+  parAll[16] = p_ar[13]
+  parAll[17] = p_ar[14]*p_ar[9]
+  parAll[18] = 6.35/5.75*p_ar[10]
+  parAll[19] = p_ar[11]
+
+  result = 0
+  result += expGauss(parAll[0 .. 4], x)
+  result += expGauss(parAll[5 .. 9], x)
+  result += expGauss(parAll[10 .. 14], x)
+  result += expGauss(parAll[15 .. 19], x)
+
+proc getLines(hist, binning: seq[float]): (float, float, float, float, float, float) =
+  # define center, std and amplitude of K_alpha line
+  # as well as escape peak
+  let muIdx = argmax(hist)
+  var mu_kalpha = 0.0
+  if binning.len > 0:
+    mu_kalpha = binning[muIdx]
+    echo "Binning mu alpha ", mu_kalpha
+  else:
+    mu_kalpha = argmax(hist).float
+  let sigma_kalpha = mu_kalpha / 10.0
+  let n_kalpha = hist[muIdx]
+
+  let mu_kalpha_esc = mu_kalpha * 2.9/5.75
+  let sigma_kalpha_esc = mu_kalpha_esc / 10.0
+  let n_kalpha_esc = n_kalpha / 10.0
+  result = (mu_kalpha, sigma_kalpha, n_kalpha, mu_kalpha_esc, sigma_kalpha_esc, n_kalpha_esc)
+
+proc getBoundsList(n: int): seq[tuple[l, u: float]] =
+  for i in 0 ..< n:
+    result.add (l: -Inf, u: Inf)
+
+proc fitFeSpectrumImpl(hist, binning: seq[float]): seq[float] =
+  # given our histogram and binning data
+  # for fit := (y / x) data
+  # fit a double gaussian to the data
+  let (mu_kalpha, sigma_kalpha, n_kalpha, mu_kalpha_esc,
+       sigma_kalpha_esc, n_kalpha_esc) = getLines(hist, binning)
+
+  var params = newSeq[float](15)
+  params[2] = n_kalpha_esc
+  params[3] = mu_kalpha_esc
+  params[4] = sigma_kalpha_esc
+
+  params[9] = n_kalpha
+  params[10] = mu_kalpha
+  params[11] = sigma_kalpha
+
+  params[14] = 17.0 / 150.0
+
+  var bounds = getBoundsList(15)
+  # set bound on paramerters
+  # constrain amplitude of K_beta to some positive value
+  bounds[2].l = 0
+  bounds[2].u = 10000
+  # constrain amplitude of K_alpha to some positive value
+  bounds[9].l = 0
+  bounds[9].u = 10000
+
+  # location of K_alpha escape peak, little more than half of K_alpha location
+  bounds[3].l = mu_kalpha_esc * 0.8
+  bounds[3].u = mu_kalpha_esc * 1.2
+
+  # bounds for center of K_alpha peak (should be at around 220 electrons, hits)
+  bounds[10].l = mu_kalpha*0.8
+  bounds[10].u = mu_kalpha*1.2
+
+  # some useful bounds for K_alpha escape peak width
+  bounds[4].l = sigma_kalpha_esc*0.5
+  bounds[4].u = sigma_kalpha_esc*1.5
+
+  # some useful bounds for K_alpha width
+  bounds[11].l = sigma_kalpha*0.5
+  bounds[11].u = sigma_kalpha*1.5
+  # param 14: "N_{K_{#beta}}/N_{K_{#alpha}}"
+  # known ratio of two K_alpha and K_beta, should be in some range
+  bounds[14].l = 0.01
+  bounds[14].u = 0.3
+
+  # this leaves parameter 7 and 8, as well as 12 and 13 without bounds
+  # these describe the exponential factors contributing, since they will
+  # be small anyways...
+  echo "Len of bounds: ", bounds
+  echo "Bounds for pixel fit: ", bounds
+  echo "N params for pixel fit: ", len(params)
+
+  # only fit in range up to 350 hits. Can take index 350 on both, since we
+  # created the histogram for a binning with width == 1 pixel per hit
+  let idx_tofit = toSeq(0 .. binning.high).filterIt(binning[it] >= 0 and binning[it] < 350)
+  let data_tofit = idx_tofit.mapIt(hist[it])
+  let bins_tofit = idx_tofit.mapIt(binning[it])
+  let err = data_tofit.mapIt(1.0)
+
+  let (pRes, res) = fit(feSpectrumfunc,
+                        params,
+                        bins_tofit,
+                        data_tofit,
+                        err)
+
+  #result = curve_fit(feSpectrumFunc, bins_tofit, data_tofit, p0=params, bounds = bounds)#, full_output=True)
+  #popt = result[0]
+  #pcov = result[1]
+  echoResult(pRes, res = res)
+  result = pRes
+
+proc fitFeSpectrum*(data: seq[int]): (seq[float], seq[int], seq[float]) =
+  ##
+  const binSize = 3.0
+  let low = -0.5
+  var high = max(data).float + 0.5
+  let nbins = (ceil((high - low) / binSize)).int
+  # using correct nBins, determine actual high
+  high = low + binSize * nbins.float
+  let bin_edges = linspace(low, high, nbins + 1)
+  let hist = data.histogram(bins = nbins + 1, range = (low, high))
+
+  echo bin_edges.len
+  echo hist.len
+  echo bin_edges
+
+  #let hist = histogram(data, binning)
+  # return data as tuple (bin content / binning)
+  # we remove the last element due to the way we create the bins
+  result[2] = fitFeSpectrumImpl(hist.mapIt(it.float), bin_edges[0 .. ^1])
+  result[0] = bin_edges[0 .. ^1]
+  result[1] = hist
+
 func totCalibFunc(p: seq[float], x: float): float =
   ## we fit a combination of a linear and a 1 / x function
   ## The function is:
@@ -218,11 +393,12 @@ proc fitToTCalib*(tot: Tot, startFit = 0.0): FitResult =
     mStd = tot.std
 
   # define the start parameters. Use a good guess...
-  let p = [0.149194, 23.5359, 205.735, -100.0]
-  var pLimitBare: mp_par
-  var pLimit: mp_par
-  pLimit.limited = [1.cint, 1]
-  pLimit.limits = [-100.0, 0.0]
+  let p = [0.4, 64.0, 1000.0, -20.0] # [0.149194, 23.5359, 205.735, -100.0]
+  #var pLimitBare: mp_par
+  var pLimits = @[(l: -Inf, u: Inf),
+                 (l: -Inf, u: Inf),
+                 (l: -Inf, u: Inf),
+                 (l: -100.0, u: 0.0)]
 
   if startFit > 0:
     # in this case cut away the undesired parameters
@@ -238,7 +414,7 @@ proc fitToTCalib*(tot: Tot, startFit = 0.0): FitResult =
                         mPulses,
                         mMean,
                         mStd,
-                        bounds = @[pLimitBare, pLimitBare, pLimitBare, pLimit])
+                        bounds = pLimits) #@[pLimitBare, pLimitBare, pLimitBare, pLimit])
   echoResult(pRes, res = res)
 
   # the plot of the fit is performed to the whole pulses range anyways, even if
@@ -312,6 +488,7 @@ template fitPolyaTmpl(charges,
   actions
 
   # set ``x``, ``y`` result and use to create plot
+  # TODO: replace by just using charges directly
   result.x = linspace(charges[0], charges[^1], counts.len)
   result.y = result.x.mapIt(polyaImpl(params, it))
 
@@ -380,7 +557,7 @@ proc fitPolyaPython*(charges,
     let bPy = @[@[-Inf, -Inf, 0.5], @[Inf, Inf, 15.0]]
     let scipyOpt = pyImport("scipy.optimize")
     let pyRes = scipyOpt.curve_fit(polyaPython, chToFit, countsToFit,
-                                    p0=p, bounds = bPy)
+                                   p0=p, bounds = bPy)
     var params = newSeq[float](p.len)
     var count = 0
     for resP in pyRes[0]:
@@ -685,32 +862,42 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int, createPlots = false) =
       # get dataset of hits
       var chargeDset = h5f[(grp / "charge").dset_str]
       var totDset = h5f[(grp / "ToT").dset_str]
-      let vlenFloat = special_type(float64)
+
+      const cut_rms_trans_low = 0.1
+      const cut_rms_trans_high = 1.5
+      let passIdx = cutOnProperties(h5f,
+                                    group,
+                                    crSilver,
+                                    ("rmsTransverse", cut_rms_trans_low, cut_rms_trans_high))
       let vlenInt = special_type(uint16)
       # get all charge values as seq[seq[float]] flatten
-      let tots = totDset[vlenInt, uint16].flatten
+      let totsFull = totDset[vlenInt, uint16].flatten
+      let tots = passIdx.mapIt(totsFull[it])
+
       # bin the data according to ToT values
       let (a, b, c, t) = getTotCalibParameters(chipName)
       # get bin edges by calculating charge values for all TOT values at TOT's bin edges
       #let bin_edges = mapIt(linspace(-0.5, 249.5, 251), calibrateCharge(it, a, b, c, t))
       # skip range from 0 - 1.5 to leave out noisy pixels w/ very low ToT
-      let bin_edges = mapIt(linspace(hitLow, hitHigh, binCount + 1), calibrateCharge(it, a, b, c, t))
+      var bin_edges = mapIt(linspace(hitLow, hitHigh, binCount + 1), calibrateCharge(it, a, b, c, t))
       # the histogram counts are the same for ToT values as well as for charge values,
       # so calculate for ToT
       let binned = tots.histogram(bins = binCount, range = (hitLow + 0.5, hitHigh + 0.5))
+
+      # ``NOTE: remove last element from bin_edges to have``
+      # ``bin_edges.len == binned.len``
+      bin_edges = bin_edges[0 .. ^2]
       # given binned histogram, fit polya
       let fitResult = fitPolyaPython(bin_edges,
                                      binned.asType(float64),
                                      chipNumber, runNumber,
                                      createPlots = createPlots)
       # create dataset for polya histogram
-      var polyaDset = h5f.create_dataset(group.name / "polya", (binCount + 1, 2), dtype = float64)
-      var polyaFitDset = h5f.create_dataset(group.name / "polyaFit", (binCount, 2), dtype = float64)
-      let polyaData = block:
-        # convert and append one element to bin content array to fill up with 0
-        var mbin = binned.asType(float64)
-        mbin.add 0.0
-        zip(bin_edges, mbin) --> map(@[it[0], it[1]])
+      var polyaDset = h5f.create_dataset(group.name / "polya", (binCount, 2), dtype = float64,
+                                         overwrite = true)
+      var polyaFitDset = h5f.create_dataset(group.name / "polyaFit", (binCount, 2), dtype = float64,
+                                            overwrite = true)
+      let polyaData = zip(bin_edges, binned) --> map(@[it[0], it[1].float])
       let polyaFitData = zip(fitResult.x, fitResult.y) --> map(@[it[0], it[1]])
       polyaDset[polyaDset.all] = polyaData
       polyaFitDset[polyaFitDset.all] = polyaFitData
@@ -718,11 +905,14 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int, createPlots = false) =
       # now write resulting fit parameters as attributes
       template writeAttrs(d: var H5DataSet, fitResult: typed): untyped =
         d.attrs["N"] = fitResult.pRes[0]
-        d.attrs["G"] = fitResult.pRes[1]
+        d.attrs["G_fit"] = fitResult.pRes[1]
         # TODO: Christoph takes the "mean gas gain" by calculating the mean
         # of the `chargePerPixelAssymBin` histogram instead of `G` into
         # account. Why?
-        #d.attrs["G_mean"] = mean(binned.asType(float64))
+        let meanGain = (zip(fitResult.x, fitResult.y) -->>
+                        map(it[0] * it[1]) -->
+                        fold(0.0, a + it)) / fitResult.y.sum.float
+        d.attrs["G"] = meanGain
         d.attrs["theta"] = fitResult.pRes[2]
         # TODO: get some errors from NLopt?
         #d.attrs["N_err"] = fitResult.pErr[0]
@@ -760,8 +950,38 @@ proc writeEnergyPerAttrs(dset: var H5DataSet,
   dset.attrs[key] = aInv
   dset.attrs["d_" & key] = aInv * pErr / popt
 
+proc writeTextFields(dset: var H5DataSet,
+                     texts: seq[string]) =
+  ## writes the text fields, which are printed on the related plot
+  ## as attributes
+  echo "texts ", texts, " \n\n\n"
+  for i in 0 .. texts.high:
+    echo "Writing ", texts[i], " to ", dset.name
+    dset.attrs[&"text_{i}"] = texts[i]
+
+proc writeFeDset(h5f: var H5FileObj,
+                 group, suffix: string,
+                 feSpec, ecData: PyObject): (H5DataSet, H5DataSet) =
+  ## writes the dataset for the given FeSpectrum (either FeSpectrum
+  ## or FeSpectrumCharge), i.e. the actual data points for the plots
+  ## created by the Python functions
+  let
+    feCounts = feSpec.hist.toNimSeq(float)
+    feBins = feSpec.binning.toNimSeq(float)
+    feFitX = feSpec.x_pl.toNimSeq(float)
+    feFitY = feSpec.y_pl.toNimSeq(float)
+  template createWriteDset(x, y: seq[float], name: string): untyped =
+    var dset = h5f.create_dataset(group / name,
+                                  (x.len, 2),
+                                  dtype = float)
+    let data = zip(x, y) --> map(@[it[0], it[1]]) --> to(seq[seq[float]])
+    dset[dset.all] = data
+    dset
+  result[0] = createWriteDset(feBins, feCounts, "FeSpectrum" & $suffix & "Plot")
+  result[1] = createWriteDset(feFitX, feFitY, "FeSpectrum" & $suffix & "PlotFit")
+
 proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
-                      fittingOnly = true, outfiles: seq[string] = @[],
+                      fittingOnly = false, outfiles: seq[string] = @[],
                       writeToFile = true) =
   ## (currently) calls Python functions from `ingrid` Python module to
   ## perform fit to the `FeSpectrum` dataset in the given run number
@@ -779,6 +999,7 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
   # call python function with data
   let res = pyFitFe.fitAndPlotFeSpectrum([feData], "", ".", runNumber,
                                          fittingOnly, outfiles)
+
   # NOTE: this is a workaround for a weird bug we're seeing. If we don't close the
   # library here, we get an error in a call to `deleteAttribute` from within
   # `writeFeFitParameters`, line 738
@@ -794,25 +1015,33 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
     result = s
     result.removePrefix(pref)
 
-  proc extractAndWriteAttrs(dset: var H5DataSet,
+  proc extractAndWriteAttrs(h5f: var H5FileObj,
+                            dset: var H5DataSet,
                             scaling: float,
                             res: PyObject,
-                            key: string) =
+                            key: string,
+                            suffix = "") =
     let
-      popt = res[0].toNimSeq(float)
-      pcov = res[1].toNimSeq(seq[float])
-      popt_E = res[2].toNimSeq(float)
-      pcov_E = res[3].toNimSeq(seq[float])
+      popt = res[0].popt.toNimSeq(float)
+      pcov = res[0].pcov.toNimSeq(seq[float])
+      popt_E = res[1].popt.toNimSeq(float)
+      pcov_E = res[1].pcov.toNimSeq(seq[float])
+      texts = res[2].toNimSeq(string)
     dset.writeFeFitParameters(popt, popt_E, pcov, pcov_E)
 
     writeEnergyPerAttrs(dset, key,
                         scaling,
                         popt_E[0],
                         pcov_E[0][0])
+    dset.writeTextFields(texts)
+
+    var (grp1, grp2) = h5f.writeFeDset(dset.parent, suffix, res[0], res[1])
+    grp1.copy_attributes(dset.attrs)
+    grp2.copy_attributes(dset.attrs)
 
   const eVperPixelScaling = 1e3
   if writeToFile:
-    extractAndWriteAttrs(feDset, eVperPixelScaling, res, "eV_per_pix")
+    h5f.extractAndWriteAttrs(feDset, eVperPixelScaling, res, "eV_per_pix")
 
   # run might not have ``totalCharge`` dset, if no ToT calibration is available,
   # but user wishes Fe spectrum fit to # hit pixels
@@ -837,8 +1066,9 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
     # `writeFitParametersH5` in Python
     const keVPerElectronScaling = 1e-3
     if writeToFile:
-      extractAndWriteAttrs(totChDset, keVPerElectronScaling,
-                           resCharge, "keV_per_electron")
+      h5f.extractAndWriteAttrs(totChDset, keVPerElectronScaling,
+                               resCharge, "keV_per_electron",
+                               "Charge")
 
   else:
     echo "Warning: `totalCharge` dataset does not exist in file. No fit to " &
@@ -901,6 +1131,15 @@ proc performChargeCalibGasGainFit*(h5f: var H5FileObj) =
       calib.add keVPerE * 1e6
       calibErr.add dkeVPerE * 1e6
       gainVals.add gain
+
+
+  # increase smallest errors to lower 10 percentile errors
+  let perc10 = calibErr.percentile(10)
+  doAssert perc10 < mean(calibErr)
+  for x in mitems(calibErr):
+    if x < perc10:
+      x = perc10
+  doAssert calibErr.allIt(it >= perc10)
 
   # now that we have all, plot them first
   let chGainTrace = Trace[float64](mode: PlotMode.Markers, `type`: PlotType.Scatter)

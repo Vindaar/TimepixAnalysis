@@ -1,5 +1,6 @@
 # module which contains the used type definitions in the InGrid module
-import times
+when not defined(js):
+  import times
 import tables
 
 type
@@ -85,25 +86,28 @@ type
   RunFolderKind* = enum
     rfNewTos, rfOldTos, rfSrsTos, rfUnknown
 
-  # an object, which stores information about a run's start, end and length
-  RunTimeInfo* = object
-    t_start*: Time
-    t_end*: Time
-    t_length*: Duration
-  # an object which stores general information about a run
-  RunInfo* = object
-    timeInfo*: RunTimeInfo
-    runNumber*: int
-    rfKind*: RunFolderKind
-    runType*: RunTypeKind
-    path*: string
-    nEvents*: int
-    nFadcEvents*: int
+when not defined(js):
+  type
+    # an object, which stores information about a run's start, end and length
+    RunTimeInfo* = object
+      t_start*: Time
+      t_end*: Time
+      t_length*: Duration
+
+    # an object which stores general information about a run
+    RunInfo* = object
+      timeInfo*: RunTimeInfo
+      runNumber*: int
+      rfKind*: RunFolderKind
+      runType*: RunTypeKind
+      path*: string
+      nEvents*: int
+      nFadcEvents*: int
 
   ################################
   # Reconstruction related types #
   ################################
-
+type
   # object which stores the geometry information of a single
   # `ClusterObject`
   ClusterGeometry* = object
@@ -211,6 +215,8 @@ type
     pErr*: seq[float]
     redChiSq*: float
 
+const TosDateString* = "yyyy-MM-dd'.'hh:mm:ss"
+
 # and some general InGrid related constants
 const NPIX* = 256
 const PITCH* = 0.055
@@ -225,7 +231,7 @@ const SrsDefaultChipName* = "SRS Chip"
 # the following will not be available, if the `-d:pure` flag is set,
 # to allow importing the rest of the types, without a `arraymancer`
 # dependency
-when not defined(pure):
+when not defined(pure) and not defined(js):
   import arraymancer
   type
     Threshold* = Tensor[int]

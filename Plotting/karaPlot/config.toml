@@ -1,0 +1,13 @@
+[General]
+        allowedChips = [0, 1, 2, 3, 4, 5, 6]
+        outputFormat = "org" # <- store either as "json" or "org"
+        plotlySaveSvg = true
+
+[InGrid]
+        dsets = ["length", "width", "skewnessLongitudinal", "skewnessTransverse",
+                 "kurtosisLongitudinal", "kurtosisTransverse", "rotationAngle",
+                 "eccentricity", "fractionInTransverseRms", "lengthDivRmsTrans"]
+[Fadc]
+        dsets = ["minvals", "fallTime", "riseTime"]
+
+[Occupancy]

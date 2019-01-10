@@ -33,12 +33,12 @@ const
   eventRegexSrs = r".*run_(\d{6})_data_(\d{6,9})_(\d{6})_(\d{2})-(\d{2})-(\d{2}).txt"
 
   newVirtexRunRegex = r".*Run_(\d+)_\d{6}-\d{2}-\d{2}.*"
-  oldVirtexRunRegex = r".*Run\d{6}_\d{2}-\d{2}-\d{2}.*"
+  oldVirtexRunRegex = r".*Run(\d{6})_(\d{2})-(\d{2})-(\d{2}).*"
   srsRunRegex       = r".*Run_(\d{6})_\d{6}_\d{2}-\d{2}-\d{2}.*"
 
   OldVirtexEventScanf = r"$*data$*_$*_" # needs: dummy, evNumber, chipNumber
   SrsEventScanf = r"$*run_$*_data_$*_${parseSrsTosDate}" # needs: dummy, runNumber, evNumber, date
-  OldVirtexEventScanfNoPath = r"data$*_$*_" # needs: dummy, evNumber, chipNumber
+  OldVirtexEventScanfNoPath = r"data$*_$*_$i." # needs: dummy, evNumber, chipNumber, timestamp
   NewVirtexEventScanfNoPath = r"data$*.txt$." # needs: evNumber
   FadcEventScanfNoPath = r"data$*.txt-fadc" # needs: evNumber
   SrsEventScanfNoPath = r"run_$*_data_$*_${parseSrsTosDate}" # needs: dummy, runNumber, evNumber, date
@@ -155,7 +155,7 @@ proc sum2*(c: seq[Pix]): Pix {.inline, deprecated.} =
 proc parseTOSDateString*(date_str: string): Time =
   ## function receives a string from a date time from TOS and creates
   ## a Time object from it
-  let date = toTime(parse(date_str, "yyyy-MM-dd'.'hh:mm:ss"))
+  let date = toTime(parse(date_str, TosDateString))
   return date
 
 proc parseRunType*(runType: string): RunTypeKind =
@@ -413,11 +413,138 @@ proc parseSrsRunInfo(path: string): Table[string, string] =
     result["shutterMode"] = "0"
     result["shutterTime"] = "0"
 
-proc getRunHeader*(ev: Event, rfKind: RunFolderKind): Table[string, string] =
+# forward declaration
+proc getListOfEventFiles*(folder: string, eventType: EventType,
+                          rfKind: RunFolderKind): seq[(int, string)]
+
+proc estimateRunTime(files: seq[(int, string)],
+                     runStart: DateTime): (DateTime, int64) =
+  ## estimates the total run time of the given run by walking over all files
+  ## (to make sure we do not miss a whole day) and returns the stop time of
+  ## the run as well as the run time as an integer of seconds
+  ## NOTE: the list of files needs to be sorted!
+  var
+    days = 0
+    lastEvNum = -1
+    lastHour = -1
+    dummy: string
+    timestamp: int
+  for tup in files:
+    let (evNum, evName) = tup
+    doAssert lastEvNum < evNum, " List of files MUST be sorted!"
+    let (head, tail) = evName.splitPath
+    discard scanf(tail, OldVirtexEventScanfNoPath, dummy, dummy, timestamp)
+    let tstamp = ($timestamp).align(9, padding = '0')
+    let hour = tstamp[0 .. 1].parseInt
+    if lastHour == 23 and hour == 0:
+      inc days
+    lastHour = hour
+    lastEvNum = evNum
+  # timestamp still points to last event of
+  let tstamp = ($timestamp)
+    .align(9, padding = '0')
+    .parse("HHmmssfff")
+  var runStop = runStart
+  let daysDur = initDuration(days = days)
+  runStop = runStop + daysDur
+  runStop.hour = tstamp.hour
+  runStop.minute = tstamp.minute
+  runStop.second = tstamp.second
+  let runTime = (runStop - runStart).seconds
+  result = (runStop, runTime)
+
+proc getOldRunInformation*(folder: string, runNumber: int, rfKind: RunFolderKind):
+  (int, int, int64, int64, int64) =
+  ## given a TOS raw data run folder of kind `rfOldTos`, parse information based
+  ## on the `*.dat` file contained in it
+  case rfKind
+  of rfOldTos:
+    const oldTosRunDescriptorPrefix = OldTosRunDescriptorPrefix
+    let
+      (head, tail) = folder.splitPath
+      datFile = joinPath(folder, tail & ".dat")
+    try:
+      let
+        lines = readFile(datFile).splitLines
+        # now just parse the files correctly. Everything in last column, except
+        # runTime
+        totalEvents = lines[0].splitWhitespace[^1].parseInt
+        numEvents = lines[1].splitWhitespace[^1].parseInt
+        startTime = lines[2].splitWhitespace[^1].parseInt
+        stopTime = lines[3].splitWhitespace[^1].parseInt
+        runTime = lines[4].splitWhitespace[^2].parseInt
+      result = (totalEvents, numEvents,
+                startTime.int64, stopTime.int64, runTime.int64)
+    except IOError:
+      # `*.dat` file does not exist for current run. Instead derive some rough
+      # guesses
+      let files = sortedByIt(getListOfEventFiles(folder, EventType.InGridType, rfOldTos),
+                             it[0])
+      let numEvents = files.len
+      # get upper limit of number of events based on last event number
+      let totalEvents = files[^1][0]
+      let oldTosRunDescriptor = re(oldTosRunDescriptorPrefix & oldVirtexRunRegex)
+      var runStart: DateTime
+      if folder =~ oldTosRunDescriptor:
+        runStart = matches[1].parse("yyMMdd")
+        runStart.hour = matches[2].parseInt
+        runStart.minute = matches[3].parseInt
+        runStart.second = matches[3].parseInt
+      let (runStop, runTime) = estimateRunTime(files, runStart)
+      result = (totalEvents, numEvents,
+                runStart.toTime.toUnix,
+                runStop.toTime.toUnix,
+                runTime)
+
+  else: discard
+
+proc parseOldTosRunlist*(path: string, rtKind: RunTypeKind): set[uint16] =
+  ## parses the run list and returns a set of integers, corresponding to
+  ## the valid run numbers of the `RunTypeKind` given
+  var s = newFileStream(path, fmRead)
+  defer: s.close()
+  var typeStr: string
+  case rtKind
+  of rtCalibration:
+    typeStr = "C"
+  of rtBackground:
+    typeStr = "B"
+  of rtXrayFinger:
+    typeStr = "X"
+  else:
+    return {}
+
+  var csv: CsvParser
+  open(csv, s, path)
+  while readRow(csv):
+    if csv.row[2] == typeStr:
+      result.incl csv.row[0].strip.parseInt.uint16
+  csv.close()
+
+proc getRunHeader*(ev: Event,
+                   runNumber: int,
+                   rfKind: RunFolderKind): Table[string, string] =
   ## returns the correct run header based on the `RunFolderKind`
   case rfKind
-  of rfOldTos, rfNewTos:
+  of rfNewTos:
     result = ev.evHeader
+  of rfOldTos:
+    result = ev.evHeader
+    # combine evHeader data and data stored (potentially) in
+    # the `*.dat` file
+    let
+      runPath = result["pathName"]
+      runInfo = getOldRunInformation(runPath, runNumber, rfOldTos)
+      (totalEvents, numEvents, startTime, stopTime, runTime) = runInfo
+      start = fromUnix(startTime)
+      stop = fromUnix(stopTime)
+      mid = ((stop - start).seconds div 2 + start.toUnix).fromUnix
+    result["numEvents"] = $numEvents
+    result["totalEvents"] = $totalEvents
+    result["dateTime"] = start.format("yyyy-MM-dd'.'hh:mm:ss")
+    result["dateMid"] = mid.format("yyyy-MM-dd'.'hh:mm:ss")
+    result["dateStop"] = stop.format("yyyy-MM-dd'.'hh:mm:ss")
+    result["runTime"] = $runTime
   of rfSrsTos:
     # here we need to combine evHeader data and data stored in
     # `run.txt`
@@ -428,7 +555,6 @@ proc getRunHeader*(ev: Event, rfKind: RunFolderKind): Table[string, string] =
     # echo write (potentially replace) keys read from run.txt in result
     for key, val in pairs(runInfo):
       result[key] = val
-
   else:
     discard
 
@@ -468,103 +594,6 @@ proc readMemFilesIntoBuffer*(list_of_files: seq[string]): seq[seq[string]] =
     ff.close()
   echo "free memory ", getFreeMem()
   echo "occ memory ", getOccupiedMem()
-
-proc processEventWithRegex*(data: seq[string],
-                            regex: tuple[header, chips, pixels: Regex]):
-                              ref Event {.deprecated.}=
-  ## This proc is deprecated, use `processEventWithScanf` instead,
-  ## it's a lot faster!
-  ## this template is used to create the needed functions to
-  ## - read the event header
-  ## - read the chip information for an event
-  ## - read the pixel data in an event
-  ## either as single functions or as a combination of
-  ## all
-  ## when type(regex) == string:
-  ##   # in this case we deal with a single regex string
-  ##   result = newTable[string, string]()
-  ##   for line in lines filepath:
-  ##     if line.match(re(regex), matches):
-  ##       # get rid of whitespace and add to result
-  ##       let key = matches[0]
-  ##       let val = matches[1]
-  ##       result[key] = val
-  ## regex[0] == header
-  ## regex[1] == chips
-  ## regex[2] == pixels
-  ## in this case we have a sequence of strings
-  var
-    # variable to count already read pixels
-    pix_counter = 0
-    # variables to read data into
-    e_header = initTable[string, string]()
-    c_header = initTable[string, string]()
-    # create a sequence large enough to hold most events, so that only for very large
-    # events we need to resize the sequence
-    pixels: Pixels = newSeqOfCap[Pix](400)
-    # variable to store resulting chip events
-    chips: seq[ChipEvent] = newSeqOfCap[ChipEvent](7)
-    # variable to determine, when we are reading the last pixel of one chip
-    # important, because we cannot trust numHits in chip header, due to zero
-    # suppression!
-    pix_to_read: int = 0
-  result = new Event
-
-  for line in data[1 .. ^1]:
-    # NOTE: match using matching template
-    if line =~ regex.header:
-      # Event header
-      e_header[matches[0]] = matches[1]
-    elif line =~ regex.chips:
-      # Chip header
-      # set pix_counter to 0, need to make sure it is 0,
-      # once we reach the first
-      # hit pixel
-      pix_counter = 0
-      c_header[matches[0]] = matches[1]
-      if matches[0] == "numHits":
-        let nhits = parseInt(matches[1])
-        pix_to_read = if nhits < 4096: nhits else: 4095
-        if pix_to_read == 0:
-          var ch_event = ChipEvent()
-          ch_event.chip = (c_header["chipName"], parseInt(c_header["chipNumber"]))
-          ch_event.pixels = pixels
-          # add the chip event object to the sequence
-          chips.add(ch_event)
-    elif line =~ regex.pixels:
-      # in this case we have matched a pixel hit line
-      # get number of hits to process
-      let
-        x: uint8  = parseInt(matches[0]).uint8
-        y: uint8  = parseInt(matches[1]).uint8
-        ch: uint16 = parseInt(matches[2]).uint16
-      # if the compiler flag (-d:REMOVE_FULL_PIX) is set, we cut all pixels, which have
-      # ToT values == 11810, the max ToT value
-      when defined(REMOVE_FULL_PIX):
-        if ch != 11810:
-          pixels.add((x, y, ch))
-      else:
-        pixels.add((x, y, ch))
-      # after adding pixel, increase pixel counter so that we know when we're
-      # reading the last hit of a given chip
-      inc pix_counter
-      if pix_counter == pix_to_read:
-        # now we are reading the last hit, process chip header and pixels
-        var ch_event = ChipEvent()
-        ch_event.chip = (c_header["chipName"], parseInt(c_header["chipNumber"]))
-        ch_event.pixels = pixels
-        # add  the chip event object to the sequence
-        chips.add(ch_event)
-        # reset the pixels sequence
-        pixels = newSeqOfCap[Pix](400)
-        pix_to_read = 0
-
-  # finally add the timestamp from the dateTime to the table as well
-  e_header["timestamp"] = $(int(parseTOSDateString(e_header["dateTime"]).toSeconds))
-
-  result.evHeader = e_header
-  result.chips = chips
-  result.nChips = chips.len
 
 proc processEventWithScanf*(data: seq[string]): ref Event =
   ## Reads a current TOS event file using the strscans.scanf
@@ -759,92 +788,28 @@ proc processEventWithScanf*(data: seq[string]): ref Event =
 
 
 proc addOldHeaderKeys(e_header, c_header: var Table[string, string],
-                      eventNumber, chipNumber, pix_counter: int,
+                      eventNumber, chipNumber, timestamp, pix_counter: int,
                       filepath: string) {.inline.} =
   ## inline adds the keys to tables of event header and chip header
+  ## NOTE: timestamp is an int, but it's still in the format, e.g.:
+  ## 103647153 == "HHmmssfff", where fff is milliseconds
+  ## and we STORE IT AS SUCH A STRING!
+  ## Conversion to the proper timestamp can only be done, after the
+  ## start time of the whole run is considered! Done after call to `getRunHeader`
+  ## in `raw_data_manipulation`
   e_header["eventNumber"] = $eventNumber
   # TODO: in this case simply use the "old default constants"
   e_header["shutterMode"] = OldShutterMode
   e_header["shutterTime"] = OldShutterTime
   # only support 1 chip for old storage format anyways
   e_header["numChips"] = $1
+  e_header["timestamp"] = $timestamp
   c_header["numHits"] = $pix_counter
   c_header["chipName"] = OldChipName
   # subtract 1, because in the past TOS was 1 indexed
   c_header["chipNumber"] = $(chipNumber - 1)
   let (head, tail) = filepath.splitPath
   e_header["pathName"] = head
-
-proc processOldEventWithRegex*(data: seq[string],
-                               regPixels: Regex):
-                                 ref OldEvent {.deprecated.} =
-  ## This proc is deprecated, use `processEventWithScanf` instead,
-  ## it's a lot faster!  ## TODO: update doc!
-  # in this case we have a sequence of strings
-  var
-    # variable to count already read pixels
-    pix_counter = 0
-    # variables to read data into
-    e_header = initTable[string, string]()
-    c_header = initTable[string, string]()
-    # create a sequence large enough to hold most events, so that only for very large
-    # events we need to resize the sequence
-    pixels: Pixels = newSeqOfCap[Pix](400)
-    # variable to store resulting chip events
-    chips: seq[ChipEvent] = newSeqOfCap[ChipEvent](1)
-    # variable to determine, when we are reading the last pixel of one chip
-    # important, because we cannot trust numHits in chip header, due to zero
-    # suppression! We init by `-1` to deal with old TOS format, in which there
-    # is no header
-    pix_to_read: int = 0
-  result = new OldEvent
-
-  let filepath = data[0]
-  # check for run folder kind by looking at first line of file
-  assert data[1][0] != '#', "This is not a valid rfOldTos file (old storage format)!" & data[1]
-
-  for line in data[1 .. ^1]:
-    # match with template
-    if line =~ regPixels:
-      # in this case we have matched a pixel hit line
-      # get number of hits to process
-      let
-        x  = parseInt(matches[0]).uint8
-        y  = parseInt(matches[1]).uint8
-        ch = parseInt(matches[2]).uint16
-      # if the compiler flag (-d:REMOVE_FULL_PIX) is set, we cut all pixels, which have
-      # ToT values == 11810, the max ToT value
-      when defined(REMOVE_FULL_PIX):
-        if ch != 11810:
-          pixels.add((x, y, ch))
-      else:
-        pixels.add((x, y, ch))
-      # after adding pixel, increase pixel counter so that we know when we're
-      # reading the last hit of a given chip
-      inc pix_counter
-
-  # in that case we're reading an ``old event files (!)``. Get the event number
-  # from the filename
-  let evNumberRegex = re".*data(\d{4,9})_(\d)_.*"
-  var evNumChipNumStr: array[2, string]
-  if match(filepath, evNumberRegex, evNumChipNumStr) == true:
-    addOldHeaderKeys(e_header,
-                     c_header,
-                     evNumChipNumStr[0].parseInt,
-                     evNumChipNumStr[1].parseInt,
-                     pix_counter,
-                     filepath)
-
-  # now we are reading the last hit, process chip header and pixels
-  var ch_event = ChipEvent()
-  ch_event.chip = (c_header["chipName"], c_header["chipNumber"].parseInt)
-  ch_event.pixels = pixels
-  # add  the chip event object to the sequence
-  chips.add(ch_event)
-
-  result.evHeader = e_header
-  result.chips = chips
-  result.nChips = chips.len
 
 proc processOldEventScanf*(data: seq[string]): ref OldEvent =
 # proc processOldEventScanf*(tup: tuple[fname: string, dataStream: MemMapFileStream]): ref OldEvent =
@@ -901,15 +866,15 @@ proc processOldEventScanf*(data: seq[string]): ref OldEvent =
   var
     evNumber: string
     chipNumber: string
-  # need to use `$*` to parse, because if we use $i for integers, we end up
-  # parsing the `_` tokens as well, making scanf fail
-  # TODO: implement custom parser proc
+    timestamp: int # timestamp as integer, although it actually is a
+                   # time in 24h format!
   let fname = filepath.extractFilename
-  if scanf(fname, OldVirtexEventScanfNoPath, evNumber, chipNumber):
+  if scanf(fname, OldVirtexEventScanfNoPath, evNumber, chipNumber, timestamp):
     addOldHeaderKeys(e_header,
                      c_header,
                      evNumber.parseInt,
                      chipNumber.parseInt,
+                     timestamp,
                      pix_counter,
                      filepath)
 
@@ -1078,22 +1043,6 @@ proc processEventWrapper(data: seq[string],
     raise newException(IOError, "Unknown run folder kind. Unclear what files " &
       "are events!")
 
-
-#template readEventWithRegex(filepath, regex: string): typed =
-proc readEventWithRegex*(filepath: string, regex: tuple[header, chips, pixels: Regex]): ref Event =
-  ## this procedure reads the lines from a given event and then calls processEventWithRegex
-  ## to process the file. Returns a ref to an Event object
-  ## inputs:
-  ##    filepath: string = the path to the file to be read
-  ##    regex: tuple[...] = tuple of 3 regex's, one for each part of an event file
-  ## outputs:
-  ##    ref Event: reference to an event object
-  var f = memfiles.open(filepath, mode = fmRead, mappedSize = -1)
-  var data: seq[string] = @[]
-  for line in lines(f):
-    data.add(line)
-  result = processEventWithRegex(data, regex)
-
 proc pixelsToTOT*(pixels: Pixels): seq[uint16] {.inline.} =
   ## extracts all charge values (ToT values) of a given pixels object (all hits
   ## of a single chip in a given event, filters the full values of 11810
@@ -1176,6 +1125,7 @@ proc getListOfEventFiles*(folder: string, eventType: EventType,
     return result
   var
     dummy: string
+    dummyInt: int
     evNumber: string
   for file in walkDirRec(folder):
     let fname = file.extractFilename
@@ -1186,7 +1136,7 @@ proc getListOfEventFiles*(folder: string, eventType: EventType,
         if scanf(fname, NewVirtexEventScanfNoPath, evNumber, dummy):
           result.add (evNumber.parseInt, file)
       of rfOldTos:
-        if scanf(fname, OldVirtexEventScanfNoPath, evNumber, dummy):
+        if scanf(fname, OldVirtexEventScanfNoPath, evNumber, dummy, dummyInt):
           result.add (evNumber.parseInt, file)
       of rfSrsTos:
         var t: Time
@@ -1357,50 +1307,6 @@ proc isTosRunFolder*(folder: string):
       # contains a run folder
       if is_rf == true:
         result.contains_rf = true
-
-proc getOldRunInformation*(folder: string, runNumber: int, rfKind: RunFolderKind):
-  (int, int, int, int, int) =
-  ## given a TOS raw data run folder of kind `rfOldTos`, parse information based
-  ## on the `*.dat` file contained in it
-  case rfKind
-  of rfOldTos:
-    const oldTosRunDescriptorPrefix = OldTosRunDescriptorPrefix
-    let
-      (head, tail) = folder.splitPath
-      datFile = joinPath(folder, $runNumber & "-" & tail & ".dat")
-      lines = readFile(datFile).splitLines
-      # now just parse the files correctly. Everything in last column, except
-      # runTime
-      totalEvents = lines[0].splitWhitespace[^1].parseInt
-      numEvents = lines[1].splitWhitespace[^1].parseInt
-      startTime = lines[2].splitWhitespace[^1].parseInt
-      stopTime = lines[3].splitWhitespace[^1].parseInt
-      runTime = lines[4].splitWhitespace[^2].parseInt
-    result = (totalEvents, numEvents, startTime, stopTime, runTime)
-  else: discard
-
-proc parseOldTosRunlist*(path: string, rtKind: RunTypeKind): set[uint16] =
-  ## parses the run list and returns a set of integers, corresponding to
-  ## the valid run numbers of the `RunTypeKind` given
-  var s = newFileStream(path, fmRead)
-  defer: s.close()
-  var typeStr: string
-  case rtKind
-  of rtCalibration:
-    typeStr = "C"
-  of rtBackground:
-    typeStr = "B"
-  of rtXrayFinger:
-    typeStr = "X"
-  else:
-    return {}
-
-  var csv: CsvParser
-  open(csv, s, path)
-  while readRow(csv):
-    if csv.row[2] == typeStr:
-      result.incl csv.row[0].strip.parseInt.uint16
-  csv.close()
 
 proc findLastEvent(files: seq[string]): (string, Time) =
   var

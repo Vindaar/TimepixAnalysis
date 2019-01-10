@@ -995,7 +995,6 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
   let res = pyFitFe.fitAndPlotFeSpectrum([feData], "", ".", runNumber,
                                          fittingOnly, outfiles)
 
-
   # NOTE: this is a workaround for a weird bug we're seeing. If we don't close the
   # library here, we get an error in a call to `deleteAttribute` from within
   # `writeFeFitParameters`, line 738
@@ -1127,6 +1126,15 @@ proc performChargeCalibGasGainFit*(h5f: var H5FileObj) =
       calib.add keVPerE * 1e6
       calibErr.add dkeVPerE * 1e6
       gainVals.add gain
+
+
+  # increase smallest errors to lower 10 percentile errors
+  let perc10 = calibErr.percentile(10)
+  doAssert perc10 < mean(calibErr)
+  for x in mitems(calibErr):
+    if x < perc10:
+      x = perc10
+  doAssert calibErr.allIt(it >= perc10)
 
   # now that we have all, plot them first
   let chGainTrace = Trace[float64](mode: PlotMode.Markers, `type`: PlotType.Scatter)

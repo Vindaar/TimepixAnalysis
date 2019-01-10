@@ -91,7 +91,7 @@ type
   ConfigFlagKind = enum
     cfNone, cfNoFadc, cfNoInGrid, cfNoOccupancy, cfNoPolya, cfNoFeSpectrum, cfProvideServer
 
-  BackendKind = enum
+  BackendKind* = enum
     bNone, bMpl, bPlotly
 
   Scatter[T] = object
@@ -108,18 +108,18 @@ type
 
   # variant object for the layout combining both
   # TODO: make generic or always use float?
-  PlotV = object
-    annotations: seq[string]
-    case kind: BackendKind
+  PlotV* = object
+    annotations*: seq[string]
+    case kind*: BackendKind
     of bMpl:
       # what needs to go here?
-      plt: PyObject
-      fig: PyObject
-      ax: PyObject
+      plt*: PyObject
+      fig*: PyObject
+      ax*: PyObject
     of bPlotly:
-      plLayout: Layout
-      plPlot: Plot[float]
-      plPlotJson: PlotJson
+      plLayout*: Layout
+      plPlot*: Plot[float]
+      plPlotJson*: PlotJson
     else: discard
 
   ShapeKind = enum
@@ -132,7 +132,7 @@ type
 
 
 # global variable which stores the backend the user selected
-var BKind: BackendKind = bNone
+var BKind*: BackendKind = bNone
 # global OrderedSet to store all files we save to later
 # combine to single PDF
 var imageSet = initOrderedSet[string]()
@@ -302,10 +302,10 @@ proc readVlen(h5f: var H5FileObj,
   else:
     result = dset[vlenDtype, dtype]
 
-proc getFileInfo(h5f: var H5FileObj): FileInfo =
+proc getFileInfo*(h5f: var H5FileObj): FileInfo =
   ## returns a set of all run numbers in the given file
   # virist file
-  h5f.visitFile()
+  #h5f.visitFile()
   var readAux = false
   # get reconstruction group
   let reco = h5f[recoGroupGrpStr()]
@@ -1432,8 +1432,8 @@ proc handleFadcEvent(h5f: var H5FileObj,
     # only a single pd
     result = (outfile, pltV)
 
-proc createPlot(h5f: var H5FileObj, fileInfo: FileInfo,
-                pd: PlotDescriptor): (string, PlotV)
+proc createPlot*(h5f: var H5FileObj, fileInfo: FileInfo,
+                 pd: PlotDescriptor): (string, PlotV)
 
 proc handleSubPlots(h5f: var H5FileObj,
                     fileInfo: FileInfo,
@@ -1456,9 +1456,9 @@ proc handleSubPlots(h5f: var H5FileObj,
   let plt = makeSubplot(pd, plts)
   plt.plPlotJson.show()
 
-proc createPlot(h5f: var H5FileObj,
-                fileInfo: FileInfo,
-                pd: PlotDescriptor): (string, PlotV) =
+proc createPlot*(h5f: var H5FileObj,
+                 fileInfo: FileInfo,
+                 pd: PlotDescriptor): (string, PlotV) =
   ## creates a plot of kind `plotKind` for the data from all runs in `runs`
   ## for chip `chip`
   # TODO: think: have createPlot return the `PlotV` object. Then we could

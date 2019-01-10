@@ -1181,8 +1181,8 @@ proc handleFeVsTime(h5f: var H5FileObj,
         echo "Starting from ", slStart
         echo "Stopping at ", slStop
 
-        let hits = joined.filter(x => (x.timestamp >= slStart and x.timestamp < slStop))
-          .map(x => x.projectTo(FeSpectrum))
+        let hits = joined.map(x => x.projectTo(FeSpectrum, timestamp))
+          .filter(x => (x.timestamp >= slStart and x.timestamp < slStop))
           .map(x => x.FeSpectrum.int)
           .collect()
 

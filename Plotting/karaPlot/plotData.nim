@@ -81,8 +81,9 @@ const
   FigHeight = FigWidth * GoldenMean     # height in inches
 
   InGridDsets = ["length", "width", "skewnessLongitudinal", "skewnessTransverse",
-           "kurtosisLongitudinal", "kurtosisTransverse", "rotationAngle",
-           "eccentricity", "fractionInTransverseRms", "lengthDivRmsTrans"]
+                 "kurtosisLongitudinal", "kurtosisTransverse", "rotationAngle",
+                 "eccentricity", "fractionInTransverseRms", "lengthDivRmsTrans",
+                 "rmsLongitudinal", "rmsTransverse"]
   FadcDsets = ["minvals", "fallTime", "riseTime"]
   AllFadcDsets = ["argMinval", "baseline", "eventNumber", "fallStop", "fallTime",
                   "minvals", "noisy", "riseStart", "riseTime"]

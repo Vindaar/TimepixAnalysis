@@ -393,9 +393,12 @@ proc fitToTCalib*(tot: Tot, startFit = 0.0): FitResult =
     mStd = tot.std
 
   # define the start parameters. Use a good guess...
-  let p = [0.149194, 23.5359, 205.735, -100.0]
+  let p = [0.4, 64.0, 1000.0, -20.0] # [0.149194, 23.5359, 205.735, -100.0]
   #var pLimitBare: mp_par
-  var pLimit = @[(l: -100.0, u: 0.0)]
+  var pLimits = @[(l: -Inf, u: Inf),
+                 (l: -Inf, u: Inf),
+                 (l: -Inf, u: Inf),
+                 (l: -100.0, u: 0.0)]
 
   if startFit > 0:
     # in this case cut away the undesired parameters
@@ -410,8 +413,8 @@ proc fitToTCalib*(tot: Tot, startFit = 0.0): FitResult =
                         p,
                         mPulses,
                         mMean,
-                        mStd)
-                        #bounds = @[pLimitBare, pLimitBare, pLimitBare, pLimit])
+                        mStd,
+                        bounds = pLimits) #@[pLimitBare, pLimitBare, pLimitBare, pLimit])
   echoResult(pRes, res = res)
 
   # the plot of the fit is performed to the whole pulses range anyways, even if

@@ -884,6 +884,21 @@ proc createFadcPlots(h5f: var H5FileObj,
                               plotKind: pkFadcEvent,
                               event: ev)
 
+proc createOuterChipHistograms*(h5f: var H5FileObj,
+                               runType: RunTypeKind,
+                               fileInfo: FileInfo): seq[PlotDescriptor] =
+  var chips = fileInfo.chips
+  let oldLen = chips.len
+  chips.delete(chips.find(fileInfo.centerChip))
+  doAssert chips.len + 1 == oldLen
+  result.add PlotDescriptor(runType: runType,
+                            name: &"Outer chips # pix hit {runType}",
+                            xlabel: "# pixels on outer chips",
+                            ylabel: "#",
+                            runs: fileInfo.runs,
+                            outerChips: chips,
+                            plotKind: pkOuterChips)
+
 proc createInGridFadcEvDisplay(h5f: var H5FileObj,
                                run: int,
                                runType: RunTypeKind,
@@ -1252,6 +1267,37 @@ proc handleFePixDivChVsTime(h5f: var H5FileObj,
                         outfile = result[0])
                         #ylabel = "# pix / charge in e^-")
 
+proc handleOuterChips(h5f: var H5FileObj,
+                      fileInfo: FileInfo,
+                      pd: PlotDescriptor): (string, PlotV) =
+  var data: seq[int]
+  const
+    rmsTransHigh = 1.2
+    eccHigh = 1.3
+
+  for r in pd.runs:
+    # cut on `centerChip` for rms and eccentricity
+    let
+      grp = h5f[recoPath(r, fileInfo.centerChip)]
+      idx = cutOnProperties(h5f, grp,
+                            ("eccentricity", -Inf, eccHigh),
+                            ("rmsTransverse", -Inf, rmsTransHigh))
+      evNumCenterAll = h5f.read(r, "eventNumber", fileInfo.centerChip, dtype = int)
+      evNumCenter = toSet(idx.mapIt(evNumCenterAll[it]))
+    for c in pd.outerChips:
+      let
+        hitsAll = h5f.read(r, "hits", c, dtype = int)
+        evNumAll = h5f.read(r, "eventNumber", c, dtype = int)
+      # now add all hits passing
+      for i, ev in evNumAll:
+        if ev in evNumCenter and hitsAll[i] > 3:
+          data.add hitsAll[i]
+  result[0] = pd.title
+  const binSize = 3.0
+  const binRange = (0.0, 400.0)
+  let outfile = buildOutfile(pd)
+  result[1] = plotHist(data, pd.title, pd.name, pd.title, binSize, binRange)
+
 iterator ingridEventIter(h5f: var H5FileObj,
                          fileInfo: FileInfo,
                          pds: seq[PlotDescriptor]): (string, PlotV) =
@@ -1453,6 +1499,8 @@ proc createPlot(h5f: var H5FileObj,
     result = handleSubPlots(h5f, fileInfo, pd)
     #for outfile, pltV in subPlotsIter(h5f, fileInfo, pd):
     #  yield (outfile, pltV)
+  of pkOuterChips:
+    result = handleOuterChips(h5f, fileInfo, pd)
   else:
     discard
 

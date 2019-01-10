@@ -82,6 +82,7 @@ const InGridEventTitleTemplate* = "InGrid event for run $1, chip $2, event index
 const InGridEventFnameTemplate* = "ingrid_event_run$1_chip$2_event$3"
 const FadcEventTitleTemplate* = "FADC event for run $1, event index $2"
 const FadcEventFnameTemplate* = "fadc_event_run$1_event$2"
+const OuterChipFnameTemplate* = "outer_chip_$1"
 
 
 #proc initDataPacket*(): DataPacket =
@@ -379,6 +380,8 @@ proc buildOutfile*(pd: PlotDescriptor): kstring =
   of pkSubPlots:
     for p in pd.plots:
       name &= pd.buildOutfile()
+  of pkOuterChips:
+    name &= OuterChipFnameTemplate %% [$pd.runType]
   else:
     discard
   echo "Result ", $name

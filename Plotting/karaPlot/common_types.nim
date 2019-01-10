@@ -26,6 +26,7 @@ type
                            # by redesign of `createPlot`
     pkSubPlots             # several subplots in one plot
     pkInGridCluster        # superseeded by pkInGridEvent?
+    pkOuterChips           # histogram of # hits of outer chips
 
   ClampKind* = enum
     ckFullRange, ckAbsolute, ckQuantile
@@ -92,6 +93,8 @@ type
       plots*: seq[PlotDescriptor]
       domain*: seq[Domain] # relative location within [0, 1] of the
                            # plot canvas for each subplot
+    of pkOuterChips:
+      outerChips*: seq[int] # seq of all chips considered "outer"
     else:
       discard
 

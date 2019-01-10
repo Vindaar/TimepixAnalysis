@@ -1724,9 +1724,6 @@ proc createCalibrationPlots(h5file: string,
   # energyCalib(h5f) # ???? plot of gas gain vs charge?!
   pds.add histograms(h5f, runType, fInfoConfig, flags) # including fadc
 
-  pds.add createInGridFadcEvDisplay(h5f, 187, runType, fileInfo,
-                                    events = toOrderedSet(toSeq(0 .. 10)))
-
   if cfProvideServer in flags:
     serveRequests(h5f, fileInfo, pds)
     #serve(h5f, fileInfo, pds, flags)

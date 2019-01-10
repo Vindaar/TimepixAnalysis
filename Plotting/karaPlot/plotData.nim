@@ -1077,8 +1077,8 @@ proc handleOccupancy(h5f: var H5FileObj,
   var occFull = newTensor[float]([NPix, NPix])
   for r in pd.runs:
     let
-      x = h5f.readVlen(r, "x", dtype = uint8)
-      y = h5f.readVlen(r, "y", dtype = uint8)
+      x = h5f.readVlen(r, "x", pd.chip, dtype = uint8)
+      y = h5f.readVlen(r, "y", pd.chip, dtype = uint8)
     let occ = clampedOccupancy(x, y, pd)
     # stack this run onto the full data tensor
     occFull = occFull .+ occ
@@ -1278,15 +1278,23 @@ iterator ingridEventIter(h5f: var H5FileObj,
     events.add evTab[pd.event]
 
   let
-    x = h5f.readVlen(run, "x", dtype = uint8, idx = events)
-    y = h5f.readVlen(run, "y", dtype = uint8, idx = events)
-    ch = h5f.readVlen(run, "ToT", dtype = uint16, idx = events)
+    x = h5f.readVlen(run, "x",
+                     chipNumber = chip,
+                     dtype = uint8, idx = events)
+    y = h5f.readVlen(run, "y",
+                     chipNumber = chip,
+                     dtype = uint8, idx = events)
+    ch = h5f.readVlen(run, "ToT",
+                      chipNumber = chip,
+                      dtype = uint16, idx = events)
     ev = buildEvents(x, y, ch, toOrderedSet(@[0]))
   for i, pd in pds:
     var texts: seq[string]
     let event = evTab[pd.event]
     for d in InGridDsets:
-      let val = h5f.read(run, d, dtype = float, idx = @[event])[0]
+      let val = h5f.read(run, d,
+                         chipNumber = chip,
+                         dtype = float, idx = @[event])[0]
       let s = &"{d:>20}: {val:6.4f}"
       texts.add s
 
@@ -1319,7 +1327,7 @@ iterator fadcEventIter(h5f: var H5FileObj,
   var evTab {.global.}: Table[int, int]
   if run != lastRun:
     evNums = h5f.read(run, "eventNumber", dtype = int,
-                                 isFadc = true)
+                      isFadc = true)
     evTab = initTable[int, int]()
     for i, ev in evNums:
       evTab[ev] = i

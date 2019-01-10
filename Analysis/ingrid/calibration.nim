@@ -903,11 +903,14 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int, createPlots = false) =
       # now write resulting fit parameters as attributes
       template writeAttrs(d: var H5DataSet, fitResult: typed): untyped =
         d.attrs["N"] = fitResult.pRes[0]
-        d.attrs["G"] = fitResult.pRes[1]
+        d.attrs["G_fit"] = fitResult.pRes[1]
         # TODO: Christoph takes the "mean gas gain" by calculating the mean
         # of the `chargePerPixelAssymBin` histogram instead of `G` into
         # account. Why?
-        #d.attrs["G_mean"] = mean(binned.asType(float64))
+        let meanGain = (zip(fitResult.x, fitResult.y) -->>
+                        map(it[0] * it[1]) -->
+                        fold(0.0, a + it)) / fitResult.y.sum.float
+        d.attrs["G"] = meanGain
         d.attrs["theta"] = fitResult.pRes[2]
         # TODO: get some errors from NLopt?
         #d.attrs["N_err"] = fitResult.pErr[0]

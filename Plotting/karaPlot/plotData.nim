@@ -1178,7 +1178,7 @@ proc handleFeVsTime(h5f: var H5FileObj,
                           utc()).toUnix.float
     else:
       # split `FeSpectrum` hits by `splitBySec` and perform fit
-      let pyFitFe = pyImport("ingrid.fit_fe_spectrum")
+      #let pyFitFe = pyImport("ingrid.fit_fe_spectrum")
       let joined = createFeVsTimeDataFrame(h5f, group, pd)
 
       let (tStart, tStop) = determineStartStopFeVsTime(joined)

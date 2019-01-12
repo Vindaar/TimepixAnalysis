@@ -204,7 +204,7 @@ def fitFeSpectrumToChargeImpl(hist, binning, cuts):
     print("N params for charge fit: ", len(params))
     # only fit in range up to 350 hits. Can take index 350 on both, since we
     # created the histogram for a binning with width == 1 pixel per hit
-    inds = np.where(np.logical_and(binning > 200, binning < 2000))[0]
+    inds = np.where(np.logical_and(binning > 200, binning < 4000))[0]
     data_tofit = hist[inds]
     #print("Data to fit: ", data_tofit)
     bins_tofit = binning[inds]
@@ -213,7 +213,8 @@ def fitFeSpectrumToChargeImpl(hist, binning, cuts):
     result = curve_fit(procsForPython.feSpectrumFuncCharge,
                        bins_tofit,
                        data_tofit,
-                       p0=params, full_output = True)
+                       p0=params, full_output = True,
+                       maxfev = 10000)
                        #bounds = bounds)#, full_output=True)
     popt = result[0]
     pcov = result[1]

@@ -105,9 +105,15 @@ def preparePlot(h5file, chip, logY, CK_binning):
         #time_back = 1123 * 3600
         #shutter_open = 0.88
         color = color2017
+    elif "2018" in h5file:
+        # 2017
+        year = "2018"
+        #time_back = 1123 * 3600
+        #shutter_open = 0.88
+        color = color2017
     else:
         import sys
-        sys.exit("File needs to state if 2014 or 2017 data!")
+        sys.exit("File needs to state if 2014, 2017 or 2018 data!")
 
     if year == "2014/15":
         chip = 0

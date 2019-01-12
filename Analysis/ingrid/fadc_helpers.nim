@@ -279,7 +279,7 @@ proc calcMinOfPulse*(ar: Tensor[float], percentile: float): float =
     ind_max_r = arg_min + n_elements
     ind_max = if ind_max_r < ar.size: ind_max_r else: ar.size
 
-  result = mean(ar[ind_min..ind_max])
+  result = mean(ar[ind_min ..< ind_max])
 
 proc calcMinOfPulseAlt*(array: Tensor[float], percentile: float): float =
   # calculates the minimum of the input array (an FADC pulse) based on

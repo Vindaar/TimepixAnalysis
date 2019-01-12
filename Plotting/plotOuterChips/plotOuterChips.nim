@@ -30,7 +30,7 @@ proc makeOuterChipPlot(fname: string, runType: RunTypeKind): PlotV =
   let pds = createOuterChipHistograms(h5f,
                                       runType = runType,
                                       fileInfo = fInfo)
-  let (name, plt) = createPlot(h5f, fInfo, pd)
+  let (name, plt) = createPlot(h5f, fInfo, pds[0])
   result = plt
 
 proc main =
@@ -61,13 +61,13 @@ proc main =
 
   plt.traces[0].histNorm = HistNorm.None
   plt.traces[1].histNorm = HistNorm.None
-  plt.show()
+  plt.show("outerHits_blobCenter.svg")
 
   plt.traces[0].histNorm = HistNorm.ProbabilityDensity
   plt.traces[1].histNorm = HistNorm.ProbabilityDensity
   plt.layout.yaxis.title = "Probability density"
 
-  plt.show()
+  plt.show("outerHits_blobCenter_normalizedPDF.svg")
 
 when isMainModule:
   main()

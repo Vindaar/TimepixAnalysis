@@ -109,9 +109,12 @@ proc hasRawRun*(h5f: var H5FileObj, runNumber: int): bool =
   if path in h5f:
     # check if attribute `done` on run
     var grp = h5f[path.grp_str]
-    let isDone = grp.attrs["rawDataFinished", string]
-    if isDone == "true":
-      result = true
+    if "rawDataFinished" in grp.attrs:
+      let isDone = grp.attrs["rawDataFinished", string]
+      if isDone == "true":
+        result = true
+      else:
+        result = false
     else:
       result = false
   else:

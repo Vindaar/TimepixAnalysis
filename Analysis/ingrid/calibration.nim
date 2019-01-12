@@ -1129,12 +1129,12 @@ proc performChargeCalibGasGainFit*(h5f: var H5FileObj) =
         dkeVPerE = feChargeSpec.attrs["d_keV_per_electron", float64]
         gain = chargeDset.attrs["G", float64]
       calib.add keVPerE * 1e6
-      calibErr.add dkeVPerE * 1e6
+      calibErr.add dkeVPerE * 1e8 # increase errors by factor 100 for better visibility
       gainVals.add gain
 
 
   # increase smallest errors to lower 10 percentile errors
-  let perc10 = calibErr.percentile(10)
+  let perc10 = calibErr.percentile(1)
   doAssert perc10 < mean(calibErr)
   for x in mitems(calibErr):
     if x < perc10:
@@ -1162,7 +1162,7 @@ proc performChargeCalibGasGainFit*(h5f: var H5FileObj) =
   writeCalibVsGasGain(gainVals, calib, calibErr, fitResult, centerChipName)
 
   let
-    lo = Layout(title: "Charge calibration factors vs gas gain",
+    lo = Layout(title: "Charge calibration factors vs gas gain. y errors magnified * 100",
                 width: 1200, height: 800,
                 xaxis: Axis(title: "Gas gain `G`"),
                 yaxis: Axis(title: "Calibration factor `a^{-1}` [1e-6 keV / e]"))

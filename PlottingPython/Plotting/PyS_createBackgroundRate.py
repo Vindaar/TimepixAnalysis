@@ -87,7 +87,7 @@ def prepareChristophFrameworkPlot(logY):
     )
     return year, 0
 
-def preparePlot(h5file, chip, logY):
+def preparePlot(h5file, chip, logY, CK_binning):
     year = ""
     h5f = h5py.File(h5file, "r")
     lhGrp = h5f["/likelihood"]
@@ -115,7 +115,13 @@ def preparePlot(h5file, chip, logY):
     energy = readXrayData(h5file, chip) # / 1000.0 division needed for E from P since in eV
     print(np.shape(energy))
     #print energy
-    hist, bin_edges = np.histogram(energy, bins=25, range=(0.2, 10))
+    hist = None
+    bin_edges = None
+    if CK_binning:
+        hist, bin_edges = np.histogram(energy, bins=50, range=(0.2, 10.2))
+    else:
+        hist, bin_edges = np.histogram(energy, bins=25, range=(0.2, 10))
+    print("Bin edges are ", bin_edges)
     hist_err = np.sqrt(hist)
 
     # scale hist
@@ -125,7 +131,11 @@ def preparePlot(h5file, chip, logY):
         factor = 1.0
 
     area = (0.95 - 0.45)**2
-    bin_width = 0.392
+    bin_width = None
+    if CK_binning:
+        bin_width = 0.2
+    else:
+        bin_width = 0.392
     scale = factor / (time_back * shutter_open * area * bin_width)
     print("Total duration is {} h".format(time_back / 3600.0))
     print("Scale is ", scale)
@@ -170,6 +180,10 @@ def main(args):
                         default = False,
                         action = 'store_true',
                         help = "Flag to plot data in semi log y")
+    parser.add_argument('--ck_binning',
+                        default = False,
+                        action = 'store_true',
+                        help = "Flag to plot data same binning as Marlin2014 data")
     parser.add_argument('--fancy',
                         default = False,
                         action = 'store_true',
@@ -183,13 +197,14 @@ def main(args):
     region = args_dict["region"]
     chip = args_dict["chip"]
     logY = args_dict["log"]
+    CK_binning = args_dict["ck_binning"]
     h5file2 = args_dict["file2"]
     if fancy == True:
         fancy_plotting()
 
-    year1, chip1 = preparePlot(h5file, chip, logY)
+    year1, chip1 = preparePlot(h5file, chip, logY, CK_binning)
     if h5file2 is not None:
-        year2, chip2 = preparePlot(h5file2, chip, logY)
+        year2, chip2 = preparePlot(h5file2, chip, logY, CK_binning)
         year = year1 + " and " + year2
         chip = str(chip1) + " and " + str(chip2)
     year3, chip3 = prepareChristophFrameworkPlot(logY)

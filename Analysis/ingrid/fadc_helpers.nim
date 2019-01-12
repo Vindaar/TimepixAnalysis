@@ -175,7 +175,12 @@ proc readFadcFileMem*(filepath: string): ref FadcFile = #seq[float] =
     line_spl: seq[string]
 
   var file: seq[string]
-  var ff = memfiles.open(filepath, mode = fmRead, mappedSize = -1)
+  var ff: MemFile
+  try:
+    ff = memfiles.open(filepath, mode = fmRead, mappedSize = -1)
+  except OSError:
+    # broken file, return nil
+    return nil
   readNumLinesMemFile(ff, file, 9)
 
   # variable we use to match value in header line
@@ -214,10 +219,14 @@ proc readFadcFileMem*(filepath: string): ref FadcFile = #seq[float] =
 
   # parsing for first 6 lines
   var dummy: string
-  writeMatchHeader(file[1 .. 6],
-                   fadcHeaderFields,
-                   matchHeader, dummy,
-                   valMatch, result)
+  try:
+    writeMatchHeader(file[1 .. 6],
+                     fadcHeaderFields,
+                     matchHeader, dummy,
+                     valMatch, result)
+  except Exception:
+    # broken file
+    return nil
   # line 7: sampling mode
   if scanf(file[7], matchHeader, dummy, valMatch):
     let mode_register = valMatch
@@ -235,6 +244,10 @@ proc readFadcFileMem*(filepath: string): ref FadcFile = #seq[float] =
   for _ in memLines(ff, lineBuf, start = 22, stop = 10262):
     data.add uint16(lineBuf.parseInt)
   ff.close()
+
+  if data.len != 10240:
+    # broken file
+    return nil
 
   const evNumberMatch = "data$i.txt-fadc"
   # TODO: replace `extractFilename` call by something simpler!

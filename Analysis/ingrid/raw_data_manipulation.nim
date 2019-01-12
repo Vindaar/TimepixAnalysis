@@ -322,22 +322,35 @@ proc readRawInGridData*(listOfFiles: seq[string],
   # split the sorted files into batches, and sort each batch by inode
   result = batchFileReading[Event](files, rfKind)
 
-proc sortReadInGridData(rawIngrid: seq[FlowVar[ref Event]],
+proc sortReadInGridData(rawIngridNil: seq[FlowVar[ref Event]],
                         rfKind: RunFolderKind): seq[Event] =
   ## sorts the seq of FlowVars according to event numbers again, otherwise
   ## h5 file is all mangled
   info "Sorting data..."
   # case on the old TOS' data storage and new TOS' version
   let t0 = epochTime()
+
+  # first filter out all nil references (which can happen due to
+  # broken files)
+  var rawIngrid = newSeqOfCap[Event](rawInGridNil.len)
+  for evFut in rawInGridNil:
+    if not evFut.isNil:
+      let ev = ^evFut
+      if not ev.isNil:
+        rawIngrid.add ev[]
+  if rawInGridNil.len != rawInGrid.len:
+    warn &"Removed {rawInGridNil.len - rawInGrid.len} broken InGrid files!"
+
+
   # TODO: compare speed of sorting for both cases. Merge?
   case rfKind
-  of rfNewTos:
-    var numList = mapIt(raw_ingrid, (^it)[].evHeader["eventNumber"].parseInt)
-    result = newSeq[Event](raw_ingrid.len)
-    let minIndex = numList.min
-    for i, ind in numList:
-      result[ind - minIndex] = (^raw_ingrid[i])[]
-  of rfOldTos, rfSrsTos:
+  #of rfNewTos:
+    #var numList = mapIt(raw_ingrid, (^it)[].evHeader["eventNumber"].parseInt)
+    #result = newSeq[Event](raw_ingrid.len)
+    #let minIndex = numList.min
+    #for i, ind in numList:
+    #  result[ind - minIndex] = (^raw_ingrid[i])[]
+  of rfNewTos, rfOldTos, rfSrsTos:
     # in this case there may be missing events, so we simply sort by the indices themselves
     # sorting is done the following way:
     # - extract list of eventNumbers from `Events`
@@ -347,7 +360,7 @@ proc sortReadInGridData(rawIngrid: seq[FlowVar[ref Event]],
     let
       numEvents = raw_ingrid.len
       # get event numbers
-      numList = mapIt(raw_ingrid, (^it)[].evHeader["eventNumber"].parseInt)
+      numList = mapIt(raw_ingrid, it.evHeader["eventNumber"].parseInt)
       # zip event numbers with indices in raw_ingrid (unsorted!)
       zipped = zip(numList, toSeq(0 ..< numEvents))
       # sort tuples by event numbers (indices thus mangled, but in "correct" order
@@ -357,7 +370,7 @@ proc sortReadInGridData(rawIngrid: seq[FlowVar[ref Event]],
     # insert elements into result
     result = newSeqOfCap[Event](raw_ingrid.len)
     for i in sortedNums:
-      result.add (^raw_ingrid[i[1]])[]
+      result.add raw_ingrid[i[1]]
   else:
     # we'll never end up here with rfUnknown, unless something bad happens
     logging.fatal("Unkown error. Ended up with unknown run folder kind " &
@@ -461,16 +474,28 @@ proc processRawInGridData(run: Run): ProcessedRun =
   result.occupancies = occ
 
 {.experimental.}
-proc processFadcData(fadc_files: seq[FlowVar[ref FadcFile]]): ProcessedFadcData {.inline.} =
+proc processFadcData(fadcFilesNil: seq[FlowVar[ref FadcFile]]): ProcessedFadcData {.inline.} =
   ## proc which performs all processing needed to be done on the raw FADC
   ## data. Starting from conversion of FadcFiles -> FadcData, but includes
   ## calculation of minimum and check for noisy events
   # sequence to store the indices needed to extract the 0 channel
+
+  # filter out possible nil refs, due to broken files
+  var fadcFiles = newSeqOfCap[FadcFile](fadcFilesNil.len)
+  for evFut in fadcFilesNil:
+    if not evFut.isNil:
+      let ev = ^evFut
+      if not ev.isNil:
+        fadcFiles.add ev[]
+
+  if fadcFilesNil.len != fadcFiles.len:
+    warn &"Removed {fadcFilesNil.len - fadcFiles.len} broken FADC files!"
+
   let
     fadc_ch0_indices = getCh0Indices()
     ch_len = ch_len()
     pedestal_run = getPedestalRun()
-    nEvents = fadc_files.len
+    nEvents = fadcFiles.len
     # we demand at least 4 dips, before we can consider an event as noisy
     n_dips = 4
     # the percentile considered for the calculation of the minimum
@@ -485,8 +510,7 @@ proc processFadcData(fadc_files: seq[FlowVar[ref FadcFile]]): ProcessedFadcData 
   result.eventNumber = newSeq[int](nEvents)
   let t0 = epochTime()
   # TODO: parallelize this somehow so that it's faster!
-  for i, event in fadc_files:
-    let ev = (^event)[]
+  for i, ev in fadcFiles:
     result.raw_fadc_data[i] = ev.data
     result.trigRecs[i]      = ev.trigRec
     result.eventNumber[i]   = ev.eventNumber
@@ -499,7 +523,7 @@ proc processFadcData(fadc_files: seq[FlowVar[ref FadcFile]]): ProcessedFadcData 
   # because we only have these two spawns and one of these functions is much slower
   # than the other
   # parallel:
-  #   for i, event in fadc_files:
+  #   for i, event in fadcFiles:
   #     let ev = (^event)[]
   #     if i < result.raw_fadc_data.len:
   #       result.raw_fadc_data[i] = ev.data

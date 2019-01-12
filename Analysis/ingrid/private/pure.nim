@@ -584,14 +584,22 @@ proc readMemFilesIntoBuffer*(list_of_files: seq[string]): seq[seq[string]] =
   for f in list_of_files:
     # add filename to result
     dat.add f
-    ff = memfiles.open(f)
-    for slice in memSlices(ff):
-      lineBuf.setLen(slice.size)
-      copyMem(addr lineBuf[0], slice.data, slice.size)
-      dat.add lineBuf
-    result.add dat
-    dat.setLen(0)
-    ff.close()
+    let fname = f
+    try:
+      ff = memfiles.open(f)
+      for slice in memSlices(ff):
+        lineBuf.setLen(slice.size)
+        copyMem(addr lineBuf[0], slice.data, slice.size)
+        dat.add lineBuf
+      result.add dat
+      dat.setLen(0)
+      ff.close()
+    except OSError:
+      # file exists, but is completely empty. Probably HDD ran full!
+      # in this case remove the filename from the `dat` seq again
+      when not defined(release):
+        echo "Warning: Discarding ", dat.pop, " since it cannot be opened!"
+      continue
   echo "free memory ", getFreeMem()
   echo "occ memory ", getOccupiedMem()
 
@@ -680,7 +688,9 @@ proc processEventWithScanf*(data: seq[string]): ref Event =
         # we're in the 3rd line of chip header containing numHits
         # reset cHeaderCount
         cHeaderCount = 0
-        assert keyMatch == "numHits", "File seems broken: " & filepath
+        if keyMatch != "numHits":
+          raise newException(IOError, "ChipHeader: This shouldn't happen. File is broken!" &
+            " filename: " & filepath)
         let nhits = valMatch.parseInt
         pix_to_read = if nhits < 4096: nhits else: 4095
         if pix_to_read == 0:
@@ -758,26 +768,34 @@ proc processEventWithScanf*(data: seq[string]): ref Event =
       # set pix_counter to 0, need to make sure it is 0,
       # once we reach the first
       # hit pixel
-      line[2 .. line.high].matchChipHeader(c_header,
-                                           pixels,
-                                           keyMatch,
-                                           valMatch,
-                                           pix_counter,
-                                           cHeaderCount,
-                                           pix_to_read,
-                                           chips,
-                                           filename)
+      try:
+        line[2 .. line.high].matchChipHeader(c_header,
+                                             pixels,
+                                             keyMatch,
+                                             valMatch,
+                                             pix_counter,
+                                             cHeaderCount,
+                                             pix_to_read,
+                                             chips,
+                                             filename)
+      except IOError:
+        # broken file
+        return nil
     else:
       # in this case we have matched a pixel hit line
       # get number of hits to process
       # match the line with scanf
-      line.matchPixels(c_header,
-                       pixels,
-                       x, y, ch,
-                       pix_counter,
-                       pix_to_read,
-                       chips,
-                       filename)
+      try:
+        line.matchPixels(c_header,
+                         pixels,
+                         x, y, ch,
+                         pix_counter,
+                         pix_to_read,
+                         chips,
+                         filename)
+      except IOError:
+        # broken file
+        return nil
 
   # finally add the timestamp from the dateTime to the table as well
   e_header["timestamp"] = $(int(parseTOSDateString(e_header["dateTime"]).toSeconds))

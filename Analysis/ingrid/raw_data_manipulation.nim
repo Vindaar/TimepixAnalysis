@@ -341,15 +341,7 @@ proc sortReadInGridData(rawIngridNil: seq[FlowVar[ref Event]],
   if rawInGridNil.len != rawInGrid.len:
     warn &"Removed {rawInGridNil.len - rawInGrid.len} broken InGrid files!"
 
-
-  # TODO: compare speed of sorting for both cases. Merge?
   case rfKind
-  #of rfNewTos:
-    #var numList = mapIt(raw_ingrid, (^it)[].evHeader["eventNumber"].parseInt)
-    #result = newSeq[Event](raw_ingrid.len)
-    #let minIndex = numList.min
-    #for i, ind in numList:
-    #  result[ind - minIndex] = (^raw_ingrid[i])[]
   of rfNewTos, rfOldTos, rfSrsTos:
     # in this case there may be missing events, so we simply sort by the indices themselves
     # sorting is done the following way:

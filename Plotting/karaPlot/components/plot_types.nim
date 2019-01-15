@@ -1,6 +1,7 @@
 import jsffi
 include karax / prelude
 import ../common_types
+import ingrid / ingrid_types
 
 type
   Config* = object

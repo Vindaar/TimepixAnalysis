@@ -33,7 +33,6 @@ when not defined(pure):
   import private / [hdf5_utils, arraymancer_utils, python_utils]
   export hdf5_utils, arraymancer_utils, python_utils
 
-
 {.deadCodeElim: on.}
 
 const

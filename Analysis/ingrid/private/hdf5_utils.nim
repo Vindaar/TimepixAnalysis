@@ -1,8 +1,9 @@
 import ../ingrid_types
 import helpers/utils
-import strutils, ospaths, times, strformat, sequtils, tables, re
+import strutils, ospaths, times, strformat, sequtils, tables, re, algorithm
 import nimhdf5
 import macros
+import pure
 
 #####################################################
 # Procs describing the data layout in the HDF5 file #
@@ -369,3 +370,31 @@ iterator dsets*(h5f: var H5FileObj,
       var mdset = h5f[dsetPath.dset_str]
       echo mdset.name
       yield (runNumber[0].parseInt, mdset[dtype])
+proc getFileInfo*(h5f: var H5FileObj, baseGroup = recoGroupGrpStr()): FileInfo =
+  ## returns a set of all run numbers in the given file
+  # visit file
+  #h5f.visitFile()
+  var readAux = false
+  # get reconstruction group
+  let group = h5f[baseGroup]
+  if "runType" in group.attrs:
+    result.runType = parseEnum[RunTypeKind](group.attrs["runType", string], rtNone)
+  if "runFolderKind" in group.attrs:
+    result.rfKind = parseEnum[RunFolderKind](group.attrs["runFolderKind", string],
+                                             rfUnknown)
+  if "centerChip" in group.attrs:
+    result.centerChip = group.attrs["centerChip", int]
+  if "centerChipName" in group.attrs:
+    result.centerChipName = group.attrs["centerChipName", string]
+
+  for runNumber, group in runs(h5f, data_basename = baseGroup.string / "run_"):
+    result.runs.add runNumber.parseInt
+    if not readAux:
+      let grp = h5f[group.grp_str]
+      let nChips = grp.attrs["numChips", int]
+      result.chips = toSeq(0 ..< nChips)#.mapIt(it)
+      readAux = true
+  # sort the run numbers
+  result.runs.sort
+  echo result
+

@@ -303,30 +303,6 @@ proc readVlen(h5f: var H5FileObj,
   else:
     result = dset[vlenDtype, dtype]
 
-proc getFileInfo*(h5f: var H5FileObj): FileInfo =
-  ## returns a set of all run numbers in the given file
-  # virist file
-  #h5f.visitFile()
-  var readAux = false
-  # get reconstruction group
-  let reco = h5f[recoGroupGrpStr()]
-  result.runType = parseEnum[RunTypeKind](reco.attrs["runType", string], rtNone)
-  result.rfKind = parseEnum[RunFolderKind](reco.attrs["runFolderKind", string],
-                                           rfUnknown)
-  result.centerChip = reco.attrs["centerChip", int]
-  result.centerChipName = reco.attrs["centerChipName", string]
-
-  for runNumber, group in runs(h5f):
-    result.runs.add runNumber.parseInt
-    if not readAux:
-      let grp = h5f[group.grp_str]
-      let nChips = grp.attrs["numChips", int]
-      result.chips = toSeq(0 ..< nChips)#.mapIt(it)
-      readAux = true
-  # sort the run numbers
-  result.runs.sort
-  echo result
-
 proc applyConfig(fileInfo: var FileInfo) =
   ## reads the  `config.toml` of the project and applies certain
   ## filters / settings to the fileInfo object. This allows us to

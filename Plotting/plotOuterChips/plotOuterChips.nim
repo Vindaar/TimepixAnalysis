@@ -1,7 +1,7 @@
 import .. / karaPlot / plotData
-import docopt, strutils
+import docopt, strutils, os, sets
 import nimhdf5, plotly, chroma
-import ingrid / ingrid_types
+import ingrid / [ingrid_types, tos_helpers]
 
 when defined(linux):
   const commitHash = staticExec("git rev-parse --short HEAD")
@@ -16,13 +16,20 @@ Version: $# built on: $#
 A tool to plot a histogram of events on outer chips
 
 Usage:
-  plotOuterChips <H5file> <H5file2> [options]
+  plotOuterChips <H5file> (<H5file2> | --lhood <file>) [options]
 
 Options:
+  --lhood <file>         If given uses the file to extract events, which pass
+                         the likelihood cuts instead of all events.
   -h, --help             Show this help
   --version              Show the version number
 """
 const doc = docTmpl % [commitHash, currentDate]
+const GridColor = color(0.8, 0.8, 0.8, 0.8)
+const LegendBg = color(1.0, 1.0, 1.0, 0.5)
+const LegendBorder = color(0.6, 0.6, 0.6, 0.6)
+const Color1 = color(1.0, 0.0, 102.0 / 256.0)
+const Color2 = color(0.0, 153.0 / 256.0, 204 / 256.0)
 
 proc makeOuterChipPlot(fname: string, runType: RunTypeKind): PlotV =
   var h5f = H5file(fname, "r")
@@ -33,41 +40,95 @@ proc makeOuterChipPlot(fname: string, runType: RunTypeKind): PlotV =
   let (name, plt) = createPlot(h5f, fInfo, pds[0])
   result = plt
 
-proc main =
+proc makeOuterChipPlotLhood(fname, lhoodFname: string) =
+  ## creates a similar plot to the one in `makeOuterChipPlot`, but performs
+  ## a cut on the events passing the likelihood cut
+  var h5f = H5file(fname, "r")
+  let fInfo = getFileInfo(h5f)
+  var h5L = H5file(lhoodFname, "r")
+  let fLhoodInfo = getFileInfo(h5L, likelihoodGroupGrpStr())
+  var data: seq[int]
+  for r in fLhoodInfo.runs:
+    # iterate all runs, extract events and
+    let centerChip = fInfo.centerChip
+    let dsetName = (likelihoodBase() & $r) / "chip_" &
+      $centerChip / "eventNumber"
+    if dsetName notin h5L:
+      # this run has no events left, continue
+      continue
+    let evNumLhood = toSet(h5L[dsetName, int])
+    for c in fInfo.chips:
+      if c != centerChip:
+        let
+          evNum = h5f[recoDataChipBase(r) & $c / "eventNumber", int]
+          hits = h5f[recoDataChipBase(r) & $c / "hits", int]
+        for i, ev in evNum:
+          if ev in evNumLhood:
+            data.add hits[i]
 
+  histPlot(data)
+    .binRange(0.0, 400.0)
+    .binSize(10.0)
+    .title("# pixels on outer chips for events passing LogL cut")
+    .name("Non tracking data, outer chips # pix") # "Outer chips # pix hit")
+    .xlabel("Hits / #")
+    .ylabel("#")
+    .gridColor(GridColor)
+    .markerColor(@[Color1], idx = 0)
+    .legendLocation(0.55, 0.95)
+    .legendBgColor(LegendBg)
+    .legendBorderColor(LegendBorder)
+    .legendBorderWidth(1)
+    .width(800)
+    .height(500)
+    .show("outerHits_passingLogLCuts.svg")
+
+proc main =
   # somewhat ugly hack
   plotData.BKind = bPlotly
 
   let args = docopt(doc)
   let backFname = $args["<H5file>"]
   let calibFname = $args["<H5file2>"]
+  let lHoodFname = $args["--lhood"]
 
-  let pltBack = makeOuterChipPlot(backFname, rtBackground)
-  let pltCalib = makeOuterChipPlot(calibFname, rtCalibration)
 
-  let gridColor = color(0.8, 0.8, 0.8, 0.8)
+  if calibFname != "nil":
+    let pltBack = makeOuterChipPlot(backFname, rtBackground)
+    let pltCalib = makeOuterChipPlot(calibFname, rtCalibration)
 
-  var plt = pltBack.plPlot
-  plt = plt.addTrace(pltCalib.plPlot.traces[0])
-    .title("# pixels on outer chips for blob on center")
-    .xlabel("Outer chips # pixels hit")
-    .gridColor(gridColor)
-    .markerColor(@[color(1.0, 0.0, 102.0 / 256.0)], idx = 0)
-    .markerColor(@[color(0.0, 153.0 / 256.0, 204 / 256.0)], idx = 1)
+    var plt = pltBack.plPlot
+    plt = plt.addTrace(pltCalib.plPlot.traces[0])
+      .title("# pixels on outer chips for 'X-ray like' on center")
+      .xlabel("Hits / #")
+      .ylabel("#")
+      .name("Non tracking data, outer chips # pix", idx = 0)
+      .name("Calibration data, outer chips # pix", idx = 1)
+      .gridColor(GridColor)
+      .legendLocation(0.55, 0.95)
+      .legendBgColor(LegendBg)
+      .legendBorderColor(LegendBorder)
+      .legendBorderWidth(1)
+      .markerColor(@[Color1], idx = 0)
+      .markerColor(@[Color2], idx = 1)
+      .width(800)
+      .height(500)
 
-  plt.traces[0].opacity = 1.0
-  plt.traces[1].opacity = 0.5
-  plt.layout.barMode = BarMode.Overlay
+    plt.traces[0].opacity = 1.0
+    plt.traces[1].opacity = 0.5
+    plt.layout.barMode = BarMode.Overlay
 
-  plt.traces[0].histNorm = HistNorm.None
-  plt.traces[1].histNorm = HistNorm.None
-  plt.show("outerHits_blobCenter.svg")
+    plt.traces[0].histNorm = HistNorm.None
+    plt.traces[1].histNorm = HistNorm.None
+    plt.show("outerHits_blobCenter.svg")
 
-  plt.traces[0].histNorm = HistNorm.ProbabilityDensity
-  plt.traces[1].histNorm = HistNorm.ProbabilityDensity
-  plt.layout.yaxis.title = "Probability density"
+    plt.traces[0].histNorm = HistNorm.ProbabilityDensity
+    plt.traces[1].histNorm = HistNorm.ProbabilityDensity
+    plt.layout.yaxis.title = "Probability density"
 
-  plt.show("outerHits_blobCenter_normalizedPDF.svg")
+    plt.show("outerHits_blobCenter_normalizedPDF.svg")
+  else:
+    makeOuterChipPlotLhood(backFname, lHoodFname)
 
 when isMainModule:
   main()

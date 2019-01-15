@@ -213,6 +213,8 @@ def main(args):
         year2, chip2 = preparePlot(h5file2, chip, logY, CK_binning)
         year = year1 + " and " + year2
         chip = str(chip1) + " and " + str(chip2)
+    else:
+        year = year1
     year3, chip3 = prepareChristophFrameworkPlot(logY)
     year = year + " and " + year3
     chip = chip + " and " + str(chip3)
@@ -233,6 +235,13 @@ def main(args):
         plt.semilogy()
     plt.grid()
     plt.legend()
+    fname = "background_rate"
+    if h5file2 is not None:
+        fname = fname + year1 + "_" + year2 + "_" + year3
+    else:
+        fname = fname + year1 + "_" + year3
+    fname = fname.replace("/", "_")
+    plt.savefig(fname + ".pdf")
     plt.show()
 
 if __name__=="__main__":

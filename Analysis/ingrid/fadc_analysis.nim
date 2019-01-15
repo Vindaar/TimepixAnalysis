@@ -230,6 +230,10 @@ proc calcRiseAndFallTimes*(h5f: var H5FileObj, run_number: int) =
   ## then performs the calculation of fall and rise time
   ## starting from the index of the minimum
 
+  if fadcDataBasename(runNumber) notin h5f:
+    # if no FADC data available, do nothing
+    return
+
   let
     fadc_group = fadcDataBasename(run_number)
   var

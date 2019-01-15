@@ -123,15 +123,15 @@ proc buildLogLHist(h5file, dset: string, region: ChipRegion = crGold): seq[float
   withH5(h5file, "r"):
     # open h5 file using template
     let
-      energy = h5f[(grp_name / "EnergyFromCharge").dset_str][float32]
-      logL = h5f[(grp_name / "LikelihoodMarlin").dset_str][float32]
-      centerX = h5f[(grp_name / "PositionX").dset_str][float32]
-      centerY = h5f[(grp_name / "PositionY").dset_str][float32]
-      ecc = h5f[(grp_name / "Excentricity").dset_str][float32]
-      length = h5f[(grp_name / "Length").dset_str][float32]
-      charge = h5f[(grp_name / "TotalCharge").dset_str][float32]
-      rmsTrans = h5f[(grp_name / "RmsTransverse").dset_str][float32]
-      npix = h5f[(grp_name / "NumberOfPixels").dset_str][float32]
+      energy = h5f[(grp_name / "EnergyFromCharge"), float32]
+      logL = h5f[(grp_name / "LikelihoodMarlin"), float32]
+      centerX = h5f[(grp_name / "PositionX"), float32]
+      centerY = h5f[(grp_name / "PositionY"), float32]
+      ecc = h5f[(grp_name / "Excentricity"), float32]
+      length = h5f[(grp_name / "Length"), float32]
+      charge = h5f[(grp_name / "TotalCharge"), float32]
+      rmsTrans = h5f[(grp_name / "RmsTransverse"), float32]
+      npix = h5f[(grp_name / "NumberOfPixels"), float32]
       # get the cut values for this dataset
       cuts = cutsTab[dset]
       xrayCuts = xrayCutsTab[dset]
@@ -266,11 +266,11 @@ proc calcLogLikelihood*(h5f: var H5FileObj, ref_file: string) =
         # get chip specific dsets
         chip_number = attrs["chipNumber", int]
         # get the datasets needed for LogL
-        ecc = h5f[(grp.name / "eccentricity").dset_str][float64]
-        lengthDivRmsTrans = h5f[(grp.name / "lengthDivRmsTrans").dset_str][float64]
-        fracRmsTrans = h5f[(grp.name / "fractionInTransverseRms").dset_str][float64]
+        ecc = h5f[(grp.name / "eccentricity"), float64]
+        lengthDivRmsTrans = h5f[(grp.name / "lengthDivRmsTrans"), float64]
+        fracRmsTrans = h5f[(grp.name / "fractionInTransverseRms"), float64]
         # energy to choose correct bin
-        energies = h5f[(grp.name / "energyFromCharge").dset_str][float64]
+        energies = h5f[(grp.name / "energyFromCharge"), float64]
 
       # create seq to store data logL data for this chip
       var logL_s = newSeq[float64](ecc.len)
@@ -335,10 +335,10 @@ proc writeLikelihoodData(h5f: var H5FileObj,
   var chpGrpIn = h5f[chpGrpName.grp_str]
   # fill table of float data sets
   for dset in float_dset_names:
-    float_data_tab[dset] = h5f[(chpGrpName / dset).dset_str][float64]
+    float_data_tab[dset] = h5f[(chpGrpName / dset), float64]
 
   # now get the event numbers to compare against the indices
-  let evNumbers = h5f[(chpGrpName / "eventNumber").dset_str][int64]
+  let evNumbers = h5f[(chpGrpName / "eventNumber"), int64]
   var float_data_passed = initTable[string, seq[float]]()
   # create new seqs of correct size in float_data_passed
   for dset in keys(float_data_tab):
@@ -422,7 +422,7 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, tracking = 
     var run_attrs = mgrp.attrs
     let nChips = run_attrs["numChips", int]
     # get timestamp for run
-    let tstamp = h5f[(group / "timestamp").dset_str][int64]
+    let tstamp = h5f[(group / "timestamp"), int64]
     let evDurations = h5f[group / "eventDuration", float64]
     # add sum of event durations
     totalDuration += evDurations.foldl(a + b, 0.0)
@@ -446,12 +446,12 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, tracking = 
           totalDurationRunPassed = 0.0
       let
         # get the datasets needed for LogL
-        energy = h5f[(chpGrp.name / "energyFromCharge").dset_str][float64]
-        logL = h5f[(chpGrp.name / "likelihood").dset_str][float64]
-        centerX = h5f[(chpGrp.name / "centerX").dset_str][float64]
-        centerY = h5f[(chpGrp.name / "centerY").dset_str][float64]
-        rmsTrans = h5f[(chpGrp.name / "rmsTransverse").dset_str][float64]
-        evNumbers = h5f[(chpGrp.name / "eventNumber").dset_str][int64].asType(int)
+        energy = h5f[(chpGrp.name / "energyFromCharge"), float64]
+        logL = h5f[(chpGrp.name / "likelihood"), float64]
+        centerX = h5f[(chpGrp.name / "centerX"), float64]
+        centerY = h5f[(chpGrp.name / "centerY"), float64]
+        rmsTrans = h5f[(chpGrp.name / "rmsTransverse"), float64]
+        evNumbers = h5f[(chpGrp.name / "eventNumber"), int64].asType(int)
         # get indices (= event numbers) corresponding to no tracking
         tracking_inds = h5f.getTrackingEvents(mgrp, tracking = tracking)
         # get all events part of tracking

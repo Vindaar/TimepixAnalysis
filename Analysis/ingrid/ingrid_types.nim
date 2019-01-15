@@ -105,6 +105,21 @@ when not defined(js):
       nEvents*: int
       nFadcEvents*: int
 
+    # extension of the above read from H5 file, including effective
+    # run times, possible trackings etc
+    ExtendedRunInfo* = object
+      timeInfo*: RunTimeInfo
+      runNumber*: int
+      rfKind*: RunFolderKind
+      runType*: RunTypeKind
+      nEvents*: int
+      nFadcEvents*: int
+      activeTime*: Duration # total time shutter was open
+      # reuse `RunTimeInfo` to store possible tracking starts / ends
+      trackings*: seq[RunTimeInfo]
+      nonTrackingDuration*: Duration
+      trackingDuration*: Duration
+
   ################################
   # Reconstruction related types #
   ################################

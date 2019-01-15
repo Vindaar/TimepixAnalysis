@@ -370,6 +370,23 @@ iterator dsets*(h5f: var H5FileObj,
       var mdset = h5f[dsetPath.dset_str]
       echo mdset.name
       yield (runNumber[0].parseInt, mdset[dtype])
+
+proc getRunInfo*(path: string): RunInfo =
+  ## wrapper around the above proc if only the path to the run is known
+  let regex = r"^/([\w-_]+/)*data\d{6,9}\.txt$"
+  let fadcRegex = r"^/([\w-_]+/)*data\d{6,9}\.txt-fadc$"
+  let (is_run_folder, runNumber, rfKind, contains_run_folder) = isTosRunFolder(path)
+  let files = getListOfFiles(path, regex)
+  let fadcFiles = getListOfFiles(path, fadcRegex)
+  if files.len > 0:
+    result.timeInfo = getRunTimeInfo(files)
+  result.runNumber = runNumber
+  result.rfKind = rfKind
+  result.runType = rtNone
+  result.path = path
+  result.nEvents = files.len
+  result.nFadcEvents = fadcFiles.len
+
 proc getFileInfo*(h5f: var H5FileObj, baseGroup = recoGroupGrpStr()): FileInfo =
   ## returns a set of all run numbers in the given file
   # visit file
@@ -398,3 +415,49 @@ proc getFileInfo*(h5f: var H5FileObj, baseGroup = recoGroupGrpStr()): FileInfo =
   result.runs.sort
   echo result
 
+proc parseTracking(grp: H5Group, idx: int): RunTimeInfo =
+  let
+    start = grp.attrs[&"tracking_start_{idx}", string]
+    stop = grp.attrs[&"tracking_stop_{idx}", string]
+  result = RunTimeInfo(t_start: start.parseTime("yyyy-MM-dd\'T\'HH:mm:sszzz", utc()),
+                       t_end: stop.parseTime("yyyy-MM-dd\'T\'HH:mm:sszzz", utc()))
+  result.t_length = result.t_end - result.t_start
+
+proc getExtendedRunInfo*(h5f: var H5FileObj, runNumber: int,
+                         runType: RunTypeKind,
+                         rfKind: RunFolderKind = rfNewTos): ExtendedRunInfo =
+  ## reads the extended run info from a H5 file for `runNumber`
+  result.runNumber = runNumber
+  let
+    grp = h5f[(recoBase() & $runNumber).grp_str]
+    tstamp = h5f[grp.name / "timestamp", int64]
+    evDuration = h5f[grp.name / "eventDuration", float64]
+    nEvents = h5f[(grp.name / "eventNumber").dset_str].shape[0]
+  var nFadcEvents = 0
+  if minvalsBasename(runNumber) in h5f:
+    nFadcEvents = h5f[minvalsBasename(runNumber).dset_str].shape[0]
+
+  result.activeTime = initDuration(seconds = evDuration.foldl(a + b).round.int)
+  result.nEvents = nEvents
+  result.nFadcEvents = nFadcEvents
+  var tInfo = RunTimeInfo(t_start: tstamp[0].fromUnix,
+                          t_end: tstamp[^1].fromUnix)
+  tInfo.t_length = tInfo.t_end - tInfo.t_start
+  result.timeInfo = tInfo
+
+  # calculate background time from trackings
+  var trackingDuration = initDuration()
+
+  var numTracking = 0
+  if "num_trackings" in grp.attrs:
+    numTracking = grp.attrs["num_trackings", int]
+  for i in 0 ..< numTracking:
+    let tracking = parseTracking(grp, i)
+    result.trackings.add tracking
+    trackingDuration = trackingDuration + tracking.t_length
+
+  result.trackingDuration = trackingDuration
+  result.nonTrackingDuration = result.timeInfo.t_length - trackingDuration
+
+  result.rfKind = rfKind
+  result.runType = runType

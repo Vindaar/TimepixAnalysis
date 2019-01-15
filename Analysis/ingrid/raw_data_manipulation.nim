@@ -263,8 +263,8 @@ template batchFiles(files: var seq[string], bufsize, actions: untyped): untyped 
   while len(files) > 0:
     # variable to set last index to read to
     var ind_high {.inject.} = bufsize
-    if len(files) < bufsize:
-      ind_high = len(files) - 1
+    if files.high < bufsize:
+      ind_high = files.high
 
     # perform actions as desired
     actions

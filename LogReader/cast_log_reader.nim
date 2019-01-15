@@ -12,7 +12,7 @@ import sequtils, future
 import strutils
 import hashes
 
-import ingrid/tos_helper_functions
+import ingrid/tos_helpers
 
 import nimhdf5
 
@@ -34,10 +34,10 @@ Usage:
 Options:
   --sc <sc_log>               Path to slow control log file
   --tracking <tracking_log>   Path to tracking log file
-  --h5out <h5file>            Path to a H5 file, which contains InGrid 
+  --h5out <h5file>            Path to a H5 file, which contains InGrid
                               data for the tracking logs currently being
                               read. Used to store run start / end times.
-  --delete                    Deletes all tracking related attributes in 
+  --delete                    Deletes all tracking related attributes in
                               given H5 file
   -h, --help                  Show this help
   --version                   Show version
@@ -55,7 +55,7 @@ Description:
   the start and end date of a contained tracking (if any). For the slow
   control log currently no useful output is produced.
 
-  If a path to tracking log files is given, a H5 file is needed, which 
+  If a path to tracking log files is given, a H5 file is needed, which
   contains InGrid data for the (some of) the times covered by the log
   files being read. The start and end times of a run will be added to
   the attributes to the TOS runs contained within.
@@ -70,7 +70,7 @@ type
     # store date of log file as string or Time?
     date: Time
     # time of day, stored as time interval starting from date
-    # each log starts at 12am 
+    # each log starts at 12am
     times: seq[TimeInterval]
     # pressures relevant for InGrid
     pmm, p3, p3_ba: seq[float]
@@ -79,7 +79,7 @@ type
     # I_magnet: seq[float]
     # environmental ambient temperature
     T_env: seq[float]
-    # pointing positions as angles 
+    # pointing positions as angles
     h_angle, v_angle: seq[float]
     # and encoder values
     h_encoder, v_encoder: seq[uint16]
@@ -116,7 +116,7 @@ proc hash(x: TrackingLog): Hash =
   h = h !& hash(x.date.toSeconds)
   case x.kind
   of rkTracking:
-    h = h !& hash(x.tracking_start.toSeconds) 
+    h = h !& hash(x.tracking_start.toSeconds)
     h = h !& hash(x.tracking_stop.toSeconds)
   else: discard
   result = !$h
@@ -172,7 +172,7 @@ proc map_log_to_run(logs: seq[TrackingLog], h5file: string): Table[TrackingLog, 
       let run_num = attrs["runNumber", int]
       # add start and end time to table of run times
       run_times[run_num] = (t_start, t_stop)
-      
+
   # now iterate over tracking logs and for each log determine in which run
   # it fits
   for log in logs:
@@ -230,8 +230,15 @@ proc write_tracking_h5(trck_tab: Table[TrackingLog, int], h5file: string) =
   ## throws:
   ##   HDF5LibraryError = if a call to the H5 library fails
 
+
+  var runTab = initCountTable[int]()
+
   withH5(h5file, "rw"):
     for log, run_number in trck_tab:
+      # increment run table of current run number
+      inc(runTab, runNumber)
+      let num = runTab[runNumber]
+
       # take run number, build group name and add attributes
       let
         raw_name = rawDataBase() & $run_number
@@ -240,22 +247,22 @@ proc write_tracking_h5(trck_tab: Table[TrackingLog, int], h5file: string) =
         raw_grp = h5f[raw_name.grp_str]
         reco_grp = h5f[reco_name.grp_str]
       # check if there is a number of trackings already
-      var num = 0
-      try:
-        num = raw_grp.attrs["num_trackings", int]
-        raw_grp.attrs["num_trackings"] = num + 1
-        reco_grp.attrs["num_trackings"] = num + 1
-      except KeyError:
-        #if run_number == 124:
-        #  echo "HOW DID we end up here again???"
-        # in this case create key with num == 1
+
+      if "num_trackings" notin raw_grp.attrs:
         raw_grp.attrs["num_trackings"] = 1
         reco_grp.attrs["num_trackings"] = 1
+      else:
+        raw_grp.attrs["num_trackings"] = num
+        reco_grp.attrs["num_trackings"] = num
+
+      # store trackings zero indexed
+      let numIdx = num - 1
+
       # add tracking. Trackings will be zero indexed
-      raw_grp.attrs["tracking_start_$#" % $num] = $log.tracking_start
-      raw_grp.attrs["tracking_stop_$#" % $num] = $log.tracking_stop
-      reco_grp.attrs["tracking_start_$#" % $num] = $log.tracking_start
-      reco_grp.attrs["tracking_stop_$#" % $num] = $log.tracking_stop
+      raw_grp.attrs["tracking_start_$#" % $numIdx] = $log.tracking_start
+      raw_grp.attrs["tracking_stop_$#" % $numIdx] = $log.tracking_stop
+      reco_grp.attrs["tracking_start_$#" % $numIdx] = $log.tracking_start
+      reco_grp.attrs["tracking_stop_$#" % $numIdx] = $log.tracking_stop
 
 proc sortTrackingLogs(tr_logs: seq[TrackingLog], order = SortOrder.Ascending): seq[TrackingLog] =
   ## proc to sort a sequence of tracking logs by date
@@ -282,7 +289,7 @@ proc read_sc_logfile(filename: string): SlowControlLog =
   ## outputs:
   ##    SlowControlLog = an object storing the data from a slow control
   ##    log file.
-  
+
   let file = readFile filename
 
   # define the indices for each data column. See the ./sc_log_understand.org file
@@ -302,7 +309,7 @@ proc read_sc_logfile(filename: string): SlowControlLog =
     vme_i = 107
 
   result = newSlowControlLog()
-    
+
   var count = 0
   for line in splitLines(file):
     if count == 0:
@@ -346,7 +353,7 @@ proc read_tracking_logfile(filename: string): TrackingLog =
     time_i = 7
     h_me = 9
     v_me = 10
-  
+
   var
     count = 0
     h_me_p = 0
@@ -357,7 +364,7 @@ proc read_tracking_logfile(filename: string): TrackingLog =
     # helper bool, needed because some tracking logs start
     # before midnight
     date_set = false
-    
+
   for line in splitLines(file):
     if count < 2:
       # skip header
@@ -401,7 +408,6 @@ proc read_tracking_logfile(filename: string): TrackingLog =
     result.tracking_start = tracking_start
     result.tracking_stop = tracking_stop
 
-
 proc single_file() =
   ## proc called, if a single file is being worked on
   let args = docopt(doc)
@@ -434,7 +440,7 @@ proc split_tracking_logs(logs: seq[TrackingLog]): (seq[TrackingLog], seq[Trackin
   result[1] = @[]
   for log in logs:
     case log.kind
-    of rkTracking: result[0].add log 
+    of rkTracking: result[0].add log
     of rkNoTracking: result[1].add log
 
 proc print_tracking_logs(logs: seq[TrackingLog], print_type: TrackingKind, sorted = true) =
@@ -450,14 +456,14 @@ proc print_tracking_logs(logs: seq[TrackingLog], print_type: TrackingKind, sorte
   var s_logs = logs
   if sorted == false:
     s_logs = sortTrackingLogs(s_logs)
-  
+
   for log in s_logs:
     case log.kind
     of rkTracking:
       echo "<$#>    <$#>" % [formatAsOrgDate(log.tracking_start), formatAsOrgDate(log.tracking_stop)]
     of rkNoTracking:
       echo "<$#>" % formatAsOrgDate(log.date)
-    
+
   case print_type
   of rkTracking:
     echo &"There are {s_logs.len} solar trackings found in the log file directory"
@@ -491,7 +497,7 @@ proc read_log_folder(log_folder: string): seq[TrackingLog] =
         continue
     else: discard
 
-  result = sortTrackingLogs(tracking_logs)    
+  result = sortTrackingLogs(tracking_logs)
 
 proc process_log_folder() =
 

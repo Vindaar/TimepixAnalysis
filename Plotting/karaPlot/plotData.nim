@@ -863,7 +863,8 @@ proc createFadcPlots(h5f: var H5FileObj,
 
 proc createOuterChipHistograms*(h5f: var H5FileObj,
                                runType: RunTypeKind,
-                               fileInfo: FileInfo): seq[PlotDescriptor] =
+                               fileInfo: FileInfo,
+                               cutRange: CutRange): seq[PlotDescriptor] =
   var chips = fileInfo.chips
   let oldLen = chips.len
   chips.delete(chips.find(fileInfo.centerChip))
@@ -874,6 +875,7 @@ proc createOuterChipHistograms*(h5f: var H5FileObj,
                             ylabel: "#",
                             runs: fileInfo.runs,
                             outerChips: chips,
+                            rangeCenter: cutRange,
                             plotKind: pkOuterChips)
 
 proc createInGridFadcEvDisplay(h5f: var H5FileObj,
@@ -1258,7 +1260,8 @@ proc handleOuterChips(h5f: var H5FileObj,
       grp = h5f[recoPath(r, fileInfo.centerChip)]
       idx = cutOnProperties(h5f, grp,
                             ("eccentricity", -Inf, eccHigh),
-                            ("rmsTransverse", -Inf, rmsTransHigh))
+                            ("rmsTransverse", -Inf, rmsTransHigh),
+                            ("energyFromCharge", pd.rangeCenter.low, pd.rangeCenter.high),
       evNumCenterAll = h5f.read(r, "eventNumber", fileInfo.centerChip, dtype = int)
       evNumCenter = toSet(idx.mapIt(evNumCenterAll[it]))
     for c in pd.outerChips:

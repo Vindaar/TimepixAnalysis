@@ -1,7 +1,8 @@
-import .. / karaPlot / plotData
-import docopt, strutils, os, sets
+import .. / karaPlot / [plotData, common_types]
+import docopt, strutils, os, sets, json
 import nimhdf5, plotly, chroma
 import ingrid / [ingrid_types, tos_helpers]
+
 
 when defined(linux):
   const commitHash = staticExec("git rev-parse --short HEAD")
@@ -31,12 +32,14 @@ const LegendBorder = color(0.6, 0.6, 0.6, 0.6)
 const Color1 = color(1.0, 0.0, 102.0 / 256.0)
 const Color2 = color(0.0, 153.0 / 256.0, 204 / 256.0)
 
-proc makeOuterChipPlot(fname: string, runType: RunTypeKind): PlotV =
+proc makeOuterChipPlot(fname: string, runType: RunTypeKind,
+                       cutRange: CutRange): PlotV =
   var h5f = H5file(fname, "r")
   let fInfo = getFileInfo(h5f)
   let pds = createOuterChipHistograms(h5f,
                                       runType = runType,
-                                      fileInfo = fInfo)
+                                      fileInfo = fInfo,
+                                      cutRange = cutRange)
   let (name, plt) = createPlot(h5f, fInfo, pds[0])
   result = plt
 
@@ -69,12 +72,13 @@ proc makeOuterChipPlotLhood(fname, lhoodFname: string) =
   histPlot(data)
     .binRange(0.0, 400.0)
     .binSize(10.0)
-    .title("# pixels on outer chips for events passing LogL cut")
-    .name("Non tracking data, outer chips # pix") # "Outer chips # pix hit")
+    #.title("# pixels on outer chips for events passing LogL cut for Run 2 (2017/18)")
+    .title("# pixels on outer chips for events passing LogL cut for Run 3 (Oct-Dec 2018)")
+    .name("Background data, outer chips # pix") # "Outer chips # pix hit")
     .xlabel("Hits / #")
     .ylabel("#")
     .gridColor(GridColor)
-    .markerColor(@[Color1], idx = 0)
+    .markerColor(@[Color2], idx = 0)
     .legendLocation(0.55, 0.95)
     .legendBgColor(LegendBg)
     .legendBorderColor(LegendBorder)
@@ -92,20 +96,23 @@ proc main =
   let calibFname = $args["<H5file2>"]
   let lHoodFname = $args["--lhood"]
 
-
   if calibFname != "nil":
-    let pltBack = makeOuterChipPlot(backFname, rtBackground)
-    let pltCalib = makeOuterChipPlot(calibFname, rtCalibration)
+    let cutRangeNil = (low: 0.0, high: Inf, name: "noCut")
+    let cutRangePhoto = (low: 5.5, high: 6.3, name: "photoPeak")
+    let pltBack = makeOuterChipPlot(backFname, rtBackground, cutRangeNil)
+    let pltCalib = makeOuterChipPlot(calibFname, rtCalibration, cutRangePhoto)
 
-    var plt = pltBack.plPlot
-    plt = plt.addTrace(pltCalib.plPlot.traces[0])
-      .title("# pixels on outer chips for 'X-ray like' on center")
+    var plt = pltCalib.plPlot
+    plt = plt.addTrace(pltBack.plPlot.traces[0])
+      .title("# pixels on outer chips for 'X-ray like' on center for Run 2 (2017/18)")
+      #.title("# pixels on outer chips for 'X-ray like' on center for Run 3 (Oct-Dec 2018)")
       .xlabel("Hits / #")
       .ylabel("#")
-      .name("Non tracking data, outer chips # pix", idx = 0)
-      .name("Calibration data, outer chips # pix", idx = 1)
+      .name("Calibration data, outer chips # pix", idx = 0)
+      .name("Background data, outer chips # pix", idx = 1)
       .gridColor(GridColor)
       .legendLocation(0.55, 0.95)
+      .markerSize(10)
       .legendBgColor(LegendBg)
       .legendBorderColor(LegendBorder)
       .legendBorderWidth(1)
@@ -125,7 +132,6 @@ proc main =
     plt.traces[0].histNorm = HistNorm.ProbabilityDensity
     plt.traces[1].histNorm = HistNorm.ProbabilityDensity
     plt.layout.yaxis.title = "Probability density"
-
     plt.show("outerHits_blobCenter_normalizedPDF.svg")
   else:
     makeOuterChipPlotLhood(backFname, lHoodFname)

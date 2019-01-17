@@ -95,5 +95,6 @@ type
                            # plot canvas for each subplot
     of pkOuterChips:
       outerChips*: seq[int] # seq of all chips considered "outer"
+      rangeCenter*: CutRange
     else:
       discard

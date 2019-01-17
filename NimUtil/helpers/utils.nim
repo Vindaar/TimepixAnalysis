@@ -70,7 +70,7 @@ proc findReplace(cImpl: NimNode, assgn: NimNode): NimNode =
         # return now
         return result
     else:
-      let msg = "No, shouldn't be here: " & curNode.repr
+      let msg = "No, shouldn't be here: " & $curNode.kind & " with repr " & curNode.treeRepr
       error(msg)
   # if we end up here we didn't find the identifier
   let newExpr = nnkExprColonExpr.newTree(

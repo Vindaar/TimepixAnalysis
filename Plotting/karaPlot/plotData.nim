@@ -1261,7 +1261,7 @@ proc handleOuterChips(h5f: var H5FileObj,
       idx = cutOnProperties(h5f, grp,
                             ("eccentricity", -Inf, eccHigh),
                             ("rmsTransverse", -Inf, rmsTransHigh),
-                            ("energyFromCharge", pd.rangeCenter.low, pd.rangeCenter.high),
+                            ("energyFromCharge", pd.rangeCenter.low, pd.rangeCenter.high))
       evNumCenterAll = h5f.read(r, "eventNumber", fileInfo.centerChip, dtype = int)
       evNumCenter = toSet(idx.mapIt(evNumCenterAll[it]))
     for c in pd.outerChips:

@@ -99,17 +99,24 @@ proc main =
   if calibFname != "nil":
     let cutRangeNil = (low: 0.0, high: Inf, name: "noCut")
     let cutRangePhoto = (low: 5.5, high: 6.3, name: "photoPeak")
+    let cutRangeEscape = (low: 2.7, high: 3.2, name: "escapePeak")
     let pltBack = makeOuterChipPlot(backFname, rtBackground, cutRangeNil)
     let pltCalib = makeOuterChipPlot(calibFname, rtCalibration, cutRangePhoto)
+    let pltEscape = makeOuterChipPlot(calibFname, rtCalibration, cutRangeEscape)
+    let pltCalibAll = makeOuterChipPlot(calibFname, rtCalibration, cutRangeNil)
 
     var plt = pltCalib.plPlot
     plt = plt.addTrace(pltBack.plPlot.traces[0])
-      .title("# pixels on outer chips for 'X-ray like' on center for Run 2 (2017/18)")
-      #.title("# pixels on outer chips for 'X-ray like' on center for Run 3 (Oct-Dec 2018)")
+      .addTrace(pltEscape.plPlot.traces[0])
+      .addTrace(pltCalibAll.plPlot.traces[0])
+      #.title("# pixels on outer chips for 'X-ray like' on center for Run 2 (2017/18)")
+      .title("# pixels on outer chips for 'X-ray like' on center for Run 3 (Oct-Dec 2018)")
       .xlabel("Hits / #")
       .ylabel("#")
-      .name("Calibration data, outer chips # pix", idx = 0)
+      .name("Calibration data, outer chips # pix, Photopeak", idx = 0)
       .name("Background data, outer chips # pix", idx = 1)
+      .name("Background data, outer chips # pix, Escapepeak", idx = 2)
+      .name("Background data, outer chips # pix, All", idx = 3)
       .gridColor(GridColor)
       .legendLocation(0.55, 0.95)
       .markerSize(10)
@@ -123,16 +130,24 @@ proc main =
 
     plt.traces[0].opacity = 1.0
     plt.traces[1].opacity = 0.5
+    plt.traces[2].opacity = 0.5
+    plt.traces[3].opacity = 0.5
     plt.layout.barMode = BarMode.Overlay
 
     plt.traces[0].histNorm = HistNorm.None
     plt.traces[1].histNorm = HistNorm.None
-    plt.show("outerHits_blobCenter.svg")
+    plt.traces[2].histNorm = HistNorm.None
+    plt.traces[3].histNorm = HistNorm.None
+    #plt.show("outerHits_blobCenter_run2.svg")
+    plt.show("outerHits_blobCenter_run3.svg")
 
     plt.traces[0].histNorm = HistNorm.ProbabilityDensity
     plt.traces[1].histNorm = HistNorm.ProbabilityDensity
+    plt.traces[2].histNorm = HistNorm.ProbabilityDensity
+    plt.traces[3].histNorm = HistNorm.ProbabilityDensity
     plt.layout.yaxis.title = "Probability density"
-    plt.show("outerHits_blobCenter_normalizedPDF.svg")
+    #plt.show("outerHits_blobCenter_normalizedPDF_run2.svg")
+    plt.show("outerHits_blobCenter_normalizedPDF_run3.svg")
   else:
     makeOuterChipPlotLhood(backFname, lHoodFname)
 

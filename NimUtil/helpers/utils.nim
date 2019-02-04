@@ -11,6 +11,25 @@ import times
 import seqmath
 import memfiles
 
+template withDocopt*(doc: string): untyped =
+  ## a helper template to build a commit hash and build time
+  ## aware docopt string called `doc`
+
+  when defined(linux):
+    const commitHash = staticExec("git rev-parse --short HEAD")
+  else:
+    const commitHash = ""
+
+  # get date using `CompileDate` magic
+  const currentDate = CompileDate & " at " & CompileTime
+
+  const docTmplPrefix = """
+  Version: $# built on: $#
+  """
+  # concat the user given doc to it
+  const doc = docTmplPrefix % [commitHash, currentDate] & doc
+  doc
+
 macro `+`*[N, M: int](a: array[N, string], b: array[M, string]): untyped =
   ## macro to concat two const arrays `a`, `b` at compile time to return a new
   ## array

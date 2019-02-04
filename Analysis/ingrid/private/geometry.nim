@@ -71,4 +71,4 @@ template distance*(x, y): float = sqrt(x * x + y * y)
 template applyPitchConversion*[T: (float | SomeInteger)](x, y: T): (float, float) =
   ## template which returns the converted positions on a Timepix
   ## pixel position --> position from center in mm
-  ((float(NPIX) - float(x) - 0.5) * PITCH, (float(y) + 0.5) * PITCH)
+  ((float(NPIX) - float(x) + 0.5) * PITCH, (float(y) + 0.5) * PITCH)

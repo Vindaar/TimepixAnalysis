@@ -524,9 +524,14 @@ proc findSimpleCluster*(pixels: Pixels): seq[Cluster] =
     i = 0
   result = @[] #new seq[Cluster]
 
-  let
-    search_r = 50
-    cutoff_size = 5
+  when defined(onlySingleCluster):
+    let
+      search_r = 128
+      cutoff_size = 1
+  else:
+    let
+      search_r = 50
+      cutoff_size = 5
 
   # add the first pixel of the given sequence to have a starting pixel, from which we
   # look for other pixels in the cluster

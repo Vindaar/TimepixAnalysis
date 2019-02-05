@@ -1,7 +1,7 @@
 import nimhdf5, zero_functional
 import helpers / utils
 import ingrid / [tos_helpers, ingrid_types]
-import sequtils, strutils, plotly, strformat, os, sets, typetraits
+import sequtils, strutils, plotly, strformat, os, sets, typetraits, stats
 import docopt
 
 const docStr = """
@@ -101,24 +101,25 @@ proc extractFromGroup(h5f: var H5FileObj, groupName: string) =
       readWrite(groupName / initial, chipGroup.name.parentDir / final, float32, int64)
   discard h5out.close()
 
+let tab = { # "NumberOfPixels"              : "hits",
+            "Width"                       : "width",
+            "SkewnessTransverse"          : "skewnessTransverse",
+            "KurtosisLongitudinal"        : "kurtosisLongitudinal",
+            "Length"                      : "length",
+            "FractionWithinRmsTransverse" : "fractionInTransverseRms",
+            "PositionX"                   : "centerX",
+            "RmsLongitudinal"             : "rmsLongitudinal",
+            "KurtosisTransverse"          : "kurtosisTransverse",
+            #"EnergyFromCharge"            : "energyFromCharge",
+            "RotationAngle"               : "rotationAngle",
+            "SkewnessLongitudinal"        : "skewnessLongitudinal",
+            "RmsTransverse"               : "rmsTransverse",
+            "PositionY"                   : "centerY",
+            #"TotalCharge"                 : "totalCharge",
+            "Excentricity"                : "eccentricity" }.toTable()
+
 proc compareRun(h5M, h5Tp: var H5FileObj, grpM, grpTp: string) =
   ## creates all plots for the given run
-  let tab = { # "NumberOfPixels"              : "hits",
-              "Width"                       : "width",
-              "SkewnessTransverse"          : "skewnessTransverse",
-              "KurtosisLongitudinal"        : "kurtosisLongitudinal",
-              "Length"                      : "length",
-              "FractionWithinRmsTransverse" : "fractionInTransverseRms",
-              "PositionX"                   : "centerX",
-              "RmsLongitudinal"             : "rmsLongitudinal",
-              "KurtosisTransverse"          : "kurtosisTransverse",
-              #"EnergyFromCharge"            : "energyFromCharge",
-              "RotationAngle"               : "rotationAngle",
-              "SkewnessLongitudinal"        : "skewnessLongitudinal",
-              "RmsTransverse"               : "rmsTransverse",
-              "PositionY"                   : "centerY",
-              "Excentricity"                : "eccentricity" }.toTable()
-               # "TotalCharge"                 : "totalCharge"
   let
     mEvNum = h5M[grpM / "EventNumber", float32].mapIt(it.round.int)
     mEvSet = mEvNum.toSet
@@ -151,7 +152,40 @@ proc compareRun(h5M, h5Tp: var H5FileObj, grpM, grpTp: string) =
       tpData = h5Tp[grpTp / tpKey, float64]
       tpFilter = zip(tpEvNum, tpData) --> filter(it[0] in mEvSet) --> map(it[1])
     doAssert tpFilter.len == mFilter.len, " smaller " & $tpFilter.len & " while M " & $mFilter.len
-    let diff = zip(mFilter, tpFilter) --> map(it[1] - it[0]) --> filter(abs(it) > 0.01 and abs(it) < 1e5)
+    #if tpKey == "rotationAngle":
+    #  let diff = zip(mEvNum, mFilter, tpFilter) -->
+    #    map((it[2] - it[1], it[1], it[2])) -->
+    #    filter(abs(it[0]) > 3.0) -->
+    #    map((it[1], it[2]))
+    #  echo "Diffs are: "
+    #  echo diff
+    #  let x = diff --> map(it[0])
+    #  let y = diff --> map(it[1])
+    #  scatterPlot(x, y).show()
+
+    let cutVal = percentile(tpData, 95) * 0.01
+    var passesCut: proc(x: float): bool
+    if tpKey == "totalCharge":
+      echo (zip(mFilter, tpFilter) --> map(it[1] - it[0]))[0 .. 200]
+      echo percentile(tpData, 95)
+      passesCut = (
+        proc(x: float): bool =
+          abs(x) > cutVal and abs(x) < 1e4
+      )
+    elif tpKey == "eccentricity":
+      passesCut = (
+        proc(x: float): bool =
+          abs(x) > cutVal and abs(x) < 1e4
+      )
+    else:
+      passesCut = (
+        proc(x: float): bool =
+          abs(x) > cutVal and abs(x) < 1e9
+      )
+    let diff = zip(mFilter, tpFilter) -->
+      map(it[1] - it[0]) -->
+      filter(it.passesCut)
+
     let plt = scatterPlot(x = (0 .. diff.high).toSeq.mapIt(it.float), y = diff)
       .width(1920)
       .height(1400)
@@ -159,9 +193,9 @@ proc compareRun(h5M, h5Tp: var H5FileObj, grpM, grpTp: string) =
     echo type(plt).name
     grid[i] = plt
     inc i
-  grid.show()
+  grid.show(grpM.strip(chars = {'/'}) & ".svg")
 
-proc compare(h5Marlin, h5TpAnalysis: string) =
+proc compareToFile(h5Marlin, h5TpAnalysis: string) =
   ## compares the Marlin analysis with the TimepixAnalysis by creating
   ## plots of the difference between the Marlin properties and the TP
   ## properties
@@ -171,14 +205,52 @@ proc compare(h5Marlin, h5TpAnalysis: string) =
     h5Tp = H5file(h5TpAnalysis, "r")
 
   for run, grp in runs(h5Tp):
-    echo "!"
     let tpGroupRun = h5Tp[grp.grp_str]
     let mGroupName = tpGroupRun.attrs["CDL_name", string]
-    echo "Cm ", mGroupName, " and ", grp
     compareRun(h5M, h5Tp, mGroupName, grp / "chip_0")
-    #compareRun((file: h5M, grp: mGroupName),
-    #           (file: h5M, grp: mGroupName))
-    echo "?"
+
+proc readAllRuns(h5f: var H5FileObj,
+                 dset: string,
+                 evNums: OrderedSet[int64],
+                 runs: OrderedSet[int]): (seq[int64], seq[float]) =
+  ## reads all runs given by the `HashSet` contained in the file for the
+  ## given dataset, filtered to the event numbers given by `evNums`
+  ## `evNums` should thus be from the other file (calibration-cdl.h5)
+  var retData: seq[float]
+  var retEvs: seq[int64]
+  for r in runs:
+    echo "Reading ", (recoPath(r, 0).string / dset)
+    let dset = h5f[(recoPath(r, 0).string / dset).dset_str]
+    let convert = dset.convertType(float64)
+    let data = dset.convert
+    let evNumsTarget = h5f[recoPath(r, 0).string / "eventNumber", int64]
+    let filtered = zip(data, evNumsTarget) -->
+      filter(it[1] in evNums)
+    # add events filtered by event number
+    retData.add (filtered --> map(it[0]))
+    retEvs.add (filtered --> map(it[1]) --> to(seq[int64]))
+  result = (retEvs, retData)
+
+proc compareToPath(h5Marlin, tpAnaPath: string) =
+  ## create comparison plots for ``calibration-cdl.h5`` vs reconstructed
+  ## data from raw data
+  var h5M = H5File(h5Marlin, "r")
+  for grp in h5M:
+    var h5Tp = H5file(tpAnaPath / grp.name & ".h5", "r")
+    let
+      # filter out run 8 because it doesn't exist in raw data
+      runNumberAll = h5M[grp.name / "RunNumber", float32]
+      evNumberAll = h5M[grp.name / "EventNumber", float32]
+      filteredEvRun = zip(evNumberAll, runNumberAll) -->
+        filter(it[1] != 8) -->
+        map((it[0].round.int64, it[1].round.int))
+      runNumber = filteredEvRun --> map(it[1])
+      evNumber = filteredEvRun --> map(it[0])
+      runNumSet = runNumber.toOrderedSet
+    for mKey, tpKey in tab:
+      let (tpEvs, tpData) = readAllRuns(h5Tp, tpKey, evNumber.toOrderedSet, runNumSet)
+      doAssert tpEvs == evNumber, "Not the same event numbers! " & $tpEvs[0 .. 100] & "\n" &
+        $evNumber[0 .. 100]
 
 
 proc main =
@@ -196,7 +268,10 @@ proc main =
     discard h5f.close()
   else:
     doAssert compareTo != "nil"
-    compare(h5file, compareTo)
+    if compareTo.endsWith(".h5"):
+      compareToFile(h5file, compareTo)
+    else:
+      compareToPath(h5file, compareTo)
 
 
 when isMainModule:

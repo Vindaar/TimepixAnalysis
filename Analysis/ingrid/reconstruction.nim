@@ -6,7 +6,8 @@
 # nim stdlib
 import os
 import sequtils, future
-import threadpool
+#import threadpool
+import threadpool_simple
 import logging
 import math
 import tables
@@ -680,12 +681,13 @@ proc reconstructSingleChip*(data: seq[(Pixels, int)], run, chip: int): seq[FlowV
   info &"We have {data.len} events to reconstruct"
   var count = 0
   result = newSeq[FlowVar[ref RecoEvent]](data.len)
-  parallel:
-    for event in 0..data.high:
-      if event < result.len:
-        result[event] = spawn recoEvent(data[event], chip)
-      echoFilesCounted(count, 2500)
-  sync()
+  #parallel:
+  let p = newThreadPool()
+  for event in 0..data.high:
+    if event < result.len:
+      result[event] = p.spawn recoEvent(data[event], chip)
+    echoFilesCounted(count, 2500)
+  p.sync()
 
 #iterator matchingGroup(h5f: var H5FileObj,
 

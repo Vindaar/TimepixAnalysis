@@ -15,7 +15,8 @@ import sequtils, sugar
 import algorithm
 import tables
 import times
-import threadpool
+#import threadpool
+import threadpool_simple
 import memfiles
 import strutils, strformat, parseutils
 import docopt

@@ -7,7 +7,8 @@ import re
 import tables
 import memfiles
 import sequtils, future
-import threadpool
+#import threadpool
+import threadpool_simple
 import math
 import streams, parsecsv
 import sets
@@ -1216,27 +1217,30 @@ proc readListOfFiles*[T](list_of_files: seq[string],
   result = newSeq[FlowVar[ref T]](nfiles)
 
   when T is Event or not fadcMemFiles:
-    parallel:
-      var f_count = 0
-      for i, s in mmfiles:
-        # loop over each file and call work on data function
-        if i < len(result):
-          when T is Event:
-            result[i] = spawn processEventWrapper(s, rfKind)
-          elif T is FadcFile:
-            result[i] = spawn readFadcFile(s)
-        echoFilesCounted(f_count)
-    sync()
+    #parallel:
+    let p = newThreadPool()
+    var f_count = 0
+    for i, s in mmfiles:
+      # loop over each file and call work on data function
+      if i < len(result):
+        when T is Event:
+          result[i] = p.spawn processEventWrapper(s, rfKind)
+        elif T is FadcFile:
+          result[i] = p.spawn readFadcFile(s)
+      echoFilesCounted(f_count)
+    p.sync()
   elif T is FadcFile and fadcMemFiles:
     # should be faster than not using memory mapping
-    parallel:
-      var f_count = 0
-      for i, f in list_of_files:
-        # loop over each file and call work on data function
-        if i < len(result):
-          result[i] = spawn readFadcFileMem(f)
-        echoFilesCounted(f_count)
-    sync()
+    let p = newThreadPool()
+    var f_count = 0
+    for i, f in list_of_files:
+      # loop over each file and call work on data function
+      if i < len(result):
+        result[i] = p.spawn readFadcFileMem(f)
+      echoFilesCounted(f_count)
+    echo "Now sync"
+    p.sync()
+    echo "Done syncing"
 
 proc readListOfInGridFiles*(list_of_files: seq[string], rfKind: RunFolderKind):
                           seq[FlowVar[ref Event]] =

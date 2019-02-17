@@ -730,7 +730,7 @@ proc readProcessWriteFadcData(run_folder: string, runNumber: int, h5f: var H5Fil
   # finally finish writing to the HDF5 file
   finishFadcWriteToH5(h5f, runNumber)
 
-proc initInGridInH5(h5f: var H5FileObj, runNumber, nChips, batchsize: int) =
+proc initInGridInH5*(h5f: var H5FileObj, runNumber, nChips, batchsize: int) =
   ## This proc creates the groups and dataset for the InGrid data in the H5 file
   ## inputs:
   ##   h5f: H5file = the H5 file object of the writeable HDF5 file
@@ -780,9 +780,9 @@ proc initInGridInH5(h5f: var H5FileObj, runNumber, nChips, batchsize: int) =
     # use normal dataset creation proc, due to static size of occupancies
     occDset = mapIt(names, h5f.create_dataset(it & "/Occupancy", (256, 256), int))
 
-proc writeInGridAttrs(h5f: var H5FileObj, run: ProcessedRun,
-                      rfKind: RunFolderKind,
-                      runType: RunTypeKind) =
+proc writeInGridAttrs*(h5f: var H5FileObj, run: ProcessedRun,
+                       rfKind: RunFolderKind,
+                       runType: RunTypeKind) =
 
   # use dirty template to define variables of group names
   let (groupName,
@@ -916,7 +916,7 @@ proc fillDataForH5(x, y: var seq[seq[seq[uint8]]],
       y[num][i] = yl
       ch[num][i] = chl
 
-proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
+proc writeProcessedRunToH5*(h5f: var H5FileObj, run: ProcessedRun) =
   ## this procedure writes the data from the processed run to a HDF5
   ## (opened already) given by h5file_id
   ## inputs:
@@ -1154,9 +1154,9 @@ proc fixOldTosTimestamps(runHeader: Table[string, string],
                                runStart)
     ev.evHeader["timestamp"] = $evDate.toTime.toUnix
 
-proc readAndProcessInGrid(listOfFiles: seq[string],
-                          runNumber: int,
-                          rfKind: RunFolderKind): ProcessedRun =
+proc readAndProcessInGrid*(listOfFiles: seq[string],
+                           runNumber: int,
+                           rfKind: RunFolderKind): ProcessedRun =
   ## Calls the procs to read InGrid data and hands it to the processing proc
   ## inputs:
   ##   listOfFiles: all the files to be read

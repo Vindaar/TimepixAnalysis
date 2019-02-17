@@ -168,10 +168,10 @@ proc createDatasets[N: int](dset_tab: var Table[string, seq[H5DataSet]],
                                                 maxshape = @[int.high, 1],
                                                 filter = filter)
 
-proc writeRecoRunToH5(h5f: var H5FileObj,
-                      h5fraw: var H5FileObj,
-                      reco_run: seq[FlowVar[ref RecoEvent]],
-                      runNumber: int) =
+proc writeRecoRunToH5*(h5f: var H5FileObj,
+                       h5fraw: var H5FileObj,
+                       reco_run: seq[FlowVar[ref RecoEvent]],
+                       runNumber: int) =
   ## proc which writes the reconstructed event data from a single run into
   ## the given H5 file. Called after every processed run
   ## inputs:
@@ -326,7 +326,7 @@ proc writeRecoRunToH5(h5f: var H5FileObj,
     chip_groups[ch_numb].attrs["chipNumber"] = ch_numb
     chip_groups[ch_numb].attrs["chipName"] = ch_name
 
-iterator readDataFromH5(h5f: var H5FileObj, group: string, runNumber: int):
+iterator readDataFromH5*(h5f: var H5FileObj, runNumber: int):
          (int, seq[(Pixels, int)]) =
   ## proc to read data from the HDF5 file from `group`
   ## returns the chip number and a sequence containing the pixel data for this
@@ -668,7 +668,7 @@ proc recoEvent(data: (Pixels, int), chip: int): ref RecoEvent =
 
 {.experimental.}
 #proc reconstructSingleChip(data: seq[Pixels], run, chip: int): seq[ref RecoEvent] =
-proc reconstructSingleChip(data: seq[(Pixels, int)], run, chip: int): seq[FlowVar[ref RecoEvent]] =
+proc reconstructSingleChip*(data: seq[(Pixels, int)], run, chip: int): seq[FlowVar[ref RecoEvent]] =
                            #evNumbers: seq[int]): seq[FlowVar[ref RecoEvent]] =
   ## procedure which receives pixel data for a given chip and run number
   ## and performs the reconstruction on it

@@ -66,7 +66,10 @@ const doc = withDocopt(docStr)
 
 
 var channel: Channel[string]
+var eventChannel: Channel[InGridFile]
 channel.open()
+eventChannel.open()
+
 
 
 proc `<`(a, b: InGridFile): bool = a.evNumber < b.evNumber
@@ -380,7 +383,65 @@ proc serve() =
     "../../Tools/karaRun/karaRun" "-d:client -r client.nim"
   waitFor server.serveClient()
 
-#proc worker() =
+proc watcher(path: string) =
+  var
+    monitor = newMonitor()
+  monitor.add(path, {MonitorCreate})
+
+  monitor.register(
+    proc (ev: MonitorEvent) =
+      case ev.kind
+      of MonitorCreate:
+        # file created, check valid event file
+        let evNum = ev.name.getEvNum
+
+        if evNum.isSome:
+          eventChannel.send InGridFile(fname: path / ev.name, evNumber: evNum.get)
+          echo "New data available!"
+      else: discard
+  )
+  monitor.watch()
+  runForever()
+
+proc worker(h5file, path: string,
+            runNumber, chip: int,
+            rfKind: RunFolderKind) =
+  var onPlt = OnlinePlotter(chip: chip,
+                            runNumber: runNumber)
+  # perform initial read and process
+  onPlt.push(initialRead(h5file, path, runNumber, rfKind))
+  sleep(1000)
+  onPlt.processed = initialReco(h5file, runNumber, onPlt.chip)
+
+  # open file and send first plot
+  var h5f = H5file(h5file, "rw")
+  createPlots(onPlt, h5f)
+  channel.sendPacket(onPlt)
+  # now watch channel for new data
+  var
+    newFiles: seq[string]
+    hasData = true
+    data: InGridFile
+  while true:
+    # reset has data
+    hasData = true
+    sleep(50)
+    while hasData:
+      (hasData, data) = eventChannel.tryRecv()
+      if hasData:
+        onPlt.push data
+        onPlt.hasNew = true
+    if onPlt.hasNew:
+      onPlt.hasNew = false
+      updateData(onPlt, h5f, rfKind)
+      updatePlots(onPlt, h5f)
+      # take current plot and send via channel
+      # TODO: check if new data, only send then
+      channel.sendPacket(onPlt)
+    else:
+      echo "No new data available!"
+
+  discard h5f.close()
 
 proc main =
   let args = docopt(doc)
@@ -397,52 +458,20 @@ proc main =
     h5file = "run_" & $runNumber & ".h5"
 
   if isRunFolder:
-    var
-      monitor = newMonitor()
-      onPlt = OnlinePlotter(chip: chip,
-                            runNumber: runNumber)
-    monitor.add(path, {MonitorCreate})
-
     # start the server thread
     var thr: Thread[void]
     thr.createThread(serve)
 
-    monitor.register(
-      proc (ev: MonitorEvent) =
-        case ev.kind
-        of MonitorCreate:
-          # file created, check valid event file
-          let evNum = ev.name.getEvNum
+    var watcherThr: Thread[string]
+    watcherThr.createThread(watcher, path)
 
-          if evNum.isSome:
-            onPlt.files.push InGridFile(fname: path / ev.name, evNumber: evNum.get)
-            echo "New data available!"
-            onPlt.hasNew = true
-        else: discard
-    )
-    monitor.watch()
-    poll()
-    onPlt.push(initialRead(h5file, path, runNumber, rfKind))
-    onPlt.processed = initialReco(h5file, runNumber, onPlt.chip)
+    # now perform main work of reading, reconstruction and storing data
+    worker(h5file, path, runNumber, chip, rfKind)
 
-    var h5f = H5file(h5file, "rw")
+    # TODO: properly clean up on Ctrl+C
+    joinThread(thr)
+    joinThread(watcherThr)
 
-    createPlots(onPlt, h5f)
-    # send first plots via channel
-    channel.sendPacket(onPlt)
-
-    while true:
-      poll()
-      if onPlt.hasNew:
-        onPlt.hasNew = false
-        updateData(onPlt, h5f, rfKind)
-        updatePlots(onPlt, h5f)
-        # take current plot and send via channel
-        # TODO: check if new data, only send then
-        channel.sendPacket(onPlt)
-      else:
-        echo "No new data available!"
-    discard h5f.close()
 
 
 when isMainModule:

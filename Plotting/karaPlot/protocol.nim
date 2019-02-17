@@ -322,14 +322,19 @@ proc getPlotName*(pKind: PlotKind): string =
   ## plots it's the name of the dataset we display.
   discard
 
+proc getRunsStr*(runs: seq[int]): kstring =
+  ## Returns a usable string of the given runs in the seq to use for
+  ## a file name. If less than 4 runs, then simply all runs separated
+  ## by underscores.
+  ## If more than 3 runs, simply show a range of runs.
+  if runs.len > 3:
+    result = &"{runs.min}_{runs.max}"
+  else:
+    result = runs.foldl($a & " " & $b, "").strip(chars = {' '})
 
 proc buildOutfile*(pd: PlotDescriptor): kstring =
   var name = ""
-  var runsStr = ""
-  if pd.runs.len > 3:
-    runsStr = &"{pd.runs.min}_{pd.runs.max}"
-  else:
-    runsStr = pd.runs.foldl($a & " " & $b, "").strip(chars = {' '})
+  let runsStr = getRunsStr(pd.runs)
   case pd.plotKind
   of pkInGridDset:
     name = InGridFnameTemplate %% [pd.name,

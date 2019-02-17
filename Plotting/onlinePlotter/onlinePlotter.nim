@@ -208,14 +208,18 @@ proc writeNewEvents(onPlt: var OnlinePlotter,
     chip = onPlt.chip
     grpBase = recoDataChipBase(runNumber) & $chip
   var
+    # reco len is a *lower* bound on the sequence size, since there may be
+    # several clusters in a single frame!
     x  = newSeqOfCap[seq[uint8]](reco.len)
     y  = newSeqOfCap[seq[uint8]](reco.len)
     ch = newSeqOfCap[seq[uint16]](reco.len)
     ev = newSeqOfCap[int](reco.len)
+    hits = newSeqOfCap[int](reco.len)
     xD = h5f[(grpBase / "x").dset_str]
     yD = h5f[(grpBase / "y").dset_str]
     chD = h5f[(grpBase / "ToT").dset_str]
     evD = h5f[(grpBase / "eventNumber").dset_str]
+    hitsD = h5f[(grpBase / "hits").dset_str]
   for event in reco:
     let
       num = event.event_number
@@ -225,20 +229,26 @@ proc writeNewEvents(onPlt: var OnlinePlotter,
       y.add(newSeq[uint8](cl.data.len))
       ch.add(newSeq[uint16](cl.data.len))
       ev.add num
+      hits.add cl.data.len
       for j in 0..cl.data.high:
         x[^1][j]  = cl.data[j].x
         y[^1][j]  = cl.data[j].y
         ch[^1][j] = cl.data[j].ch
   let oldsize = xD.shape[0]
-  let newsize = oldSize + reco.len
+  # use event sequence length to get number of clusters
+  let numClusters = ev.len
+  let newsize = oldSize + numClusters
+  echo "Old size ", oldsize, " newsize ", newsize, " last ev ", ev[^1]
   xD.resize((newsize, 1))
   yD.resize((newsize, 1))
   chD.resize((newsize, 1))
   evD.resize((newsize, 1))
-  xD.write_hyperslab(x, offset = @[oldsize, 0], count = @[reco.len, 1])
-  yD.write_hyperslab(y, offset = @[oldsize, 0], count = @[reco.len, 1])
-  chD.write_hyperslab(ch, offset = @[oldsize, 0], count = @[reco.len, 1])
-  evD.write_hyperslab(ev, offset = @[oldsize, 0], count = @[reco.len, 1])
+  hitsD.resize((newsize, 1))
+  xD.write_hyperslab(x, offset = @[oldsize, 0], count = @[numClusters, 1])
+  yD.write_hyperslab(y, offset = @[oldsize, 0], count = @[numClusters, 1])
+  chD.write_hyperslab(ch, offset = @[oldsize, 0], count = @[numClusters, 1])
+  evD.write_hyperslab(ev, offset = @[oldsize, 0], count = @[numClusters, 1])
+  hitsD.write_hyperslab(hits, offset = @[oldsize, 0], count = @[numClusters, 1])
 
   # set max index
   onPlt.numReco = newsize
@@ -370,6 +380,8 @@ proc serve() =
     "../../Tools/karaRun/karaRun" "-d:client -r client.nim"
   waitFor server.serveClient()
 
+#proc worker() =
+
 proc main =
   let args = docopt(doc)
   echo args
@@ -394,8 +406,6 @@ proc main =
     # start the server thread
     var thr: Thread[void]
     thr.createThread(serve)
-
-    channel.open(5)
 
     monitor.register(
       proc (ev: MonitorEvent) =

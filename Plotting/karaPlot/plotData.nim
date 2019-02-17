@@ -252,13 +252,13 @@ proc initPlotV(title: string, xlabel: string, ylabel: string, shape = ShapeKind.
                    ax: ax)
   else: discard
 
-proc read(h5f: var H5FileObj,
-          runNumber: int,
-          dsetName: string,
-          chipNumber = 0,
-          isFadc = false,
-          dtype: typedesc = float,
-          idx: seq[int] = @[]): seq[dtype] =
+proc read*(h5f: var H5FileObj,
+           runNumber: int,
+           dsetName: string,
+           chipNumber = 0,
+           isFadc = false,
+           dtype: typedesc = float,
+           idx: seq[int] = @[]): seq[dtype] =
   ## reads the given dataset from the H5 file and returns it
   ## (potentially) converted to ``dtype``
   var dset: H5DataSet
@@ -830,6 +830,21 @@ proc buildEvents[T, U](x, y: seq[seq[T]], ch: seq[seq[U]],
       forZip ix in xi, iy in yi, ich in chi:
         result[i, iy.int, ix.int] = ich.float
 
+proc readEvent*(h5f: var H5FileObj, run, chip: int, idx: seq[int]): Tensor[float] =
+  ## helper proc to read data for given indices of events `idx` and
+  ## builds a tensor of `idx.len` events.
+  let
+    x = h5f.readVlen(run, "x",
+                     chipNumber = chip,
+                     dtype = uint8, idx = idx)
+    y = h5f.readVlen(run, "y",
+                     chipNumber = chip,
+                     dtype = uint8, idx = idx)
+    ch = h5f.readVlen(run, "ToT",
+                      chipNumber = chip,
+                      dtype = uint16, idx = idx)
+  result = buildEvents(x, y, ch, toOrderedSet(@[0]))
+
 proc createEventDisplayPlots(h5f: var H5FileObj,
                              run: int,
                              runType: RunTypeKind,
@@ -1303,17 +1318,7 @@ iterator ingridEventIter(h5f: var H5FileObj,
   for pd in pds:
     events.add evTab[pd.event]
 
-  let
-    x = h5f.readVlen(run, "x",
-                     chipNumber = chip,
-                     dtype = uint8, idx = events)
-    y = h5f.readVlen(run, "y",
-                     chipNumber = chip,
-                     dtype = uint8, idx = events)
-    ch = h5f.readVlen(run, "ToT",
-                      chipNumber = chip,
-                      dtype = uint16, idx = events)
-    ev = buildEvents(x, y, ch, toOrderedSet(@[0]))
+  let ev = readEvent(h5f, run, chip, events)
   for i, pd in pds:
     var texts: seq[string]
     let event = evTab[pd.event]

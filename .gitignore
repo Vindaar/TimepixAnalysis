@@ -11,3 +11,11 @@ InGrid-Python/dist/*
 /Analysis/ingrid/out/*
 /Plotting/plotCalibration/out/*
 /Plotting/karaPlot/figs/*
+/Plotting/karaPlot/calibration*.html
+/Plotting/karaPlot/calibration*.org
+/Plotting/karaPlot/background*.html
+/Plotting/karaPlot/background*.org
+/Plotting/onlinePlotter/logs/*
+/Analysis/ingrid/*.h5
+/Analysis/ingrid/*.pdf
+/Analysis/ingrid/*.svg

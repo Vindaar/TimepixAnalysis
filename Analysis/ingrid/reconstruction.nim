@@ -766,7 +766,7 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
         #    - need to interface with Python code, i.e. call fitting procedure,
         #      which returns the value to the Nim program as its return value
         let t1 = epochTime()
-        for chip, pixdata in h5f.readDataFromH5(grp, runNumber):
+        for chip, pixdata in h5f.readDataFromH5(runNumber):
           # given single runs pixel data, call reconstruct run proc
           # NOTE: the data returned from the iterator contains all
           # events in ascending order of event number, i.e.

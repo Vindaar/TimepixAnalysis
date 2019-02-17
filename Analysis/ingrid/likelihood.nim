@@ -166,10 +166,13 @@ proc determineCutValue[T](hist: seq[T], eff: float): int =
   ## a software efficiency of `eff`
   var
     cur_eff = 0.0
+    last_eff = 0.0
   let hist_sum = hist.sum.float
   while cur_eff < eff:
     inc result
+    last_eff = cur_eff
     cur_eff = hist[0..result].sum.float / hist_sum
+  echo "Efficiency is at ", cur_eff, " and last Eff was ", last_eff
 
 proc calcCutValueTab(region: ChipRegion = crGold): Table[string, float] =
   ## returns a table mapping the different CDL datasets to the correct cut values

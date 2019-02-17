@@ -1,12 +1,15 @@
-import plotly, fsmonitor2, nimhdf5
+import plotly, fsmonitor2, nimhdf5, shell
 import ingrid / [raw_data_manipulation, reconstruction, tos_helpers, ingrid_types]
+from .. / karaPlot / plotData import readEvent, read
 import helpers/utils
-import zero_functional
 import sequtils, algorithm, strutils, strformat, os, tables, heapqueue, options
-import strscans
-import asyncdispatch
+import json, strscans, asyncdispatch, posix
 import threadpool_simple
-import posix
+import zero_functional
+import arraymancer
+import websocket
+import asynchttpserver, asyncnet
+import protocol
 
 # - read all files already in folder
 # - keep monitoring directory for more files to be added
@@ -20,11 +23,27 @@ type
   InGridFile = object
     fname: string
     evNumber: int
+  Event = object
+    data: Tensor[float]
+    idx: int
+  Histo[T] = object
+    # store as 1D sequence and recalculate the histogram each time
+    # or store bins?
+    # First go with recalculation and see how performance is
+    data: seq[T]
+    idx: Slice[int]
+
   OnlinePlotter = object
     files: HeapQueue[InGridFile]  ## seq containing filenames
     processed: int                ## number of files processed
+    numReco: int                  ## size of reconstructed datasets
+    processedPlot: int            ## number of files processed in plot
     chip: int                     ## chip to show
     runNumber: int
+    event: Event
+    pixHisto: Histo[int]
+    plt: Grid
+    hasNew: bool                  ## flag indicating new data is avilable
 
 import docopt
 
@@ -44,6 +63,11 @@ Options:
 Hand the path to the run folder for which to do online monitoring.
 """
 const doc = withDocopt(docStr)
+
+
+var channel: Channel[string]
+channel.open()
+
 
 proc `<`(a, b: InGridFile): bool = a.evNumber < b.evNumber
 
@@ -119,12 +143,68 @@ proc `[]`(onPlt: OnlinePlotter, idx: Slice[int]): seq[string] =
     result.add onPlt.files[i].fname
 
 proc len(onPlt: OnlinePlotter): int = result = onPlt.files.len
+proc high(onPlt: OnlinePlotter): int = result = onPlt.files.len - 1
 
-proc writeNewEvents(h5f: var H5FileObj,
-                    runNumber, chip: int,
+proc createPlots(onPlt: var OnlinePlotter, h5f: var H5FileObj) =
+  ## creates the initial plots based on the already written data in the
+  ## H5 file object
+  let layout = Layout(title: "Septempower is over 9000!!!",
+                      width: 1800,
+                      height: 850)
+  var grid = createGrid(numPlots = 2, layout = layout)
+  # read initial data for pixel histogram
+  let hits = h5f.read(onPlt.runNumber, "hits", onPlt.chip, dtype = int)
+  # get the last event. Just use number of hits to know how many events
+  let event = readEvent(h5f, onPlt.runNumber, onPlt.chip, @[hits.high]).squeeze
+
+  onPlt.event = Event(data: event,
+                      idx: hits.high)
+  onPlt.pixHisto = Histo[int](data: hits,
+                              idx: 0 .. hits.high)
+
+  let histp = histPlot(onPlt.pixHisto.data)
+    .binRange(0, 300)
+    .binSize(2.0)
+  let ev = heatmap(event.toRawSeq.reshape([256, 256]))
+  grid[0] = histp
+  grid[1] = ev
+  onPlt.plt = grid
+  onPlt.processedPlot = hits.high
+
+proc updatePlots(onPlt: var OnlinePlotter, h5f: var H5FileObj) =
+  if onPlt.processedPlot < onPlt.numReco:
+    let idxToRead = onPlt.pixHisto.idx.b + 1 ..< onPlt.numReco
+    let hits = h5f.read(onPlt.runNumber, "hits", onPlt.chip, dtype = int,
+                        idx = toSeq(idxToRead))
+    # get the last event. Just use number of hits to know how many events
+    let event = readEvent(h5f, onPlt.runNumber, onPlt.chip, @[onPlt.numReco - 1]).squeeze
+
+    onPlt.event = Event(data: event,
+                        idx: onPlt.numReco - 1)
+    let
+      idxLow = onPlt.pixHisto.idx.a
+      idxHigh = idxToRead.b
+      combinedHits = concat(onPlt.pixHisto.data, hits)
+    onPlt.pixHisto = Histo[int](data: combinedHits,
+                                 idx: idxLow .. idxHigh)
+
+    let histp = histPlot(onPlt.pixHisto.data)
+      .binRange(0, 300)
+      .binSize(2.0)
+    let ev = heatmap(event.toRawSeq.reshape([256, 256]))
+    onPlt.plt[0] = histp
+    onPlt.plt[1] = ev
+
+    onPlt.processedPlot = onPlt.numReco
+
+proc writeNewEvents(onPlt: var OnlinePlotter,
+                    h5f: var H5FileObj,
                     reco: seq[RecoEvent]) =
   ## adds the needed information for the newly added events
-  let grpBase = recoDataChipBase(runNumber) & $chip
+  let
+    runNumber = onPlt.runNumber
+    chip = onPlt.chip
+    grpBase = recoDataChipBase(runNumber) & $chip
   var
     x  = newSeqOfCap[seq[uint8]](reco.len)
     y  = newSeqOfCap[seq[uint8]](reco.len)
@@ -134,15 +214,15 @@ proc writeNewEvents(h5f: var H5FileObj,
     yD = h5f[(grpBase / "y").dset_str]
     chD = h5f[(grpBase / "ToT").dset_str]
     evD = h5f[(grpBase / "eventNumber").dset_str]
-  for ev in reco:
+  for event in reco:
     let
-      num = ev.event_number
-      chip = ev.chip_number
-    for i, cl in ev.cluster:
+      num = event.event_number
+      chip = event.chip_number
+    for i, cl in event.cluster:
       x.add(newSeq[uint8](cl.data.len))
       y.add(newSeq[uint8](cl.data.len))
       ch.add(newSeq[uint16](cl.data.len))
-      ev.add(num)
+      ev.add num
       for j in 0..cl.data.high:
         x[^1][j]  = cl.data[j].x
         y[^1][j]  = cl.data[j].y
@@ -152,12 +232,15 @@ proc writeNewEvents(h5f: var H5FileObj,
   xD.resize((newsize, 1))
   yD.resize((newsize, 1))
   chD.resize((newsize, 1))
+  evD.resize((newsize, 1))
   xD.write_hyperslab(x, offset = @[oldsize, 0], count = @[reco.len, 1])
   yD.write_hyperslab(y, offset = @[oldsize, 0], count = @[reco.len, 1])
   chD.write_hyperslab(ch, offset = @[oldsize, 0], count = @[reco.len, 1])
   evD.write_hyperslab(ev, offset = @[oldsize, 0], count = @[reco.len, 1])
 
-#proc updatePlots(h5f: var H5FileObj, runNumber: int, rfKind: RunFolderKind) =
+  # set max index
+  onPlt.numReco = newsize
+
 proc updateData(onPlt: var OnlinePlotter, h5f: var H5FileObj,
                 rfKind: RunFolderKind) =
   ## update the data based on new files in watched directory
@@ -199,9 +282,91 @@ proc updateData(onPlt: var OnlinePlotter, h5f: var H5FileObj,
                                      onPlt.chip)
       .mapIt((^it)[])
     # still need to write back to H5 file
-    h5f.writeNewEvents(onPlt.runNumber, onPlt.chip, reco)
+    writeNewEvents(onPlt, h5f, reco)
     # finally set processed files to new value
     onPlt.processed = onPlt.len
+
+proc sendPacket[T](channel: var Channel[T], onPlt: OnlinePlotter) =
+  ## send current plot via channel
+  var data = ""
+  toUgly(data, (% onPlt.plt))
+  let dp = initDataPacket(kind = Messages.Data,
+                          payload = data)
+  channel.send(dp.asData.string)
+
+proc processClient(req: Request) {.async.} =
+  ## handle a single client
+  let (ws, error) = await verifyWebsocketRequest(req)
+  if ws.isNil:
+    echo "WS negotiation failed: ", error
+    await req.respond(Http400, "Websocket negotiation failed: " & error)
+    req.client.close()
+    return
+  else:
+    # receive connection successful package
+    let (opcodeConnect, dataConnect) = await ws.readData()
+    let dp = parseDataPacket(dataConnect)
+    case dp.kind
+    of Messages.Connected:
+      echo "New websocket customer arrived! ", dataConnect
+    else:
+      echo "Received wrong packet, quit early"
+      return
+
+  var dp: DataPacket
+  var
+    hasData = false
+    dpData = ""
+  while true:
+    let (opcode, data) = await ws.readData()
+    echo "(opcode: ", opcode, ", data length: ", data
+
+    # reset has data bool
+    hasData = false
+
+    case opcode
+    of Opcode.Text, Opcode.Cont:
+      # parse the `DataPacket` we just received
+      dp = parseDataPacket(data)
+      # now just send this DataPacket and await response from worker
+      doAssert dp.kind == Messages.Request
+
+      while not hasData:
+        (hasData, dpData) = channel.tryRecv()
+        sleep(50)
+      # send data as packet
+      waitFor ws.sendText(dpData)
+    of Opcode.Close:
+      asyncCheck ws.close()
+      let (closeCode, reason) = extractCloseData(data)
+      echo "Socket went away, close code: ", closeCode, ", reason: ", reason
+      req.client.close()
+      return
+    else:
+      echo "Unkown error: ", opcode
+
+  echo "This client dies now!"
+  asyncCheck ws.close()
+  req.client.close()
+
+proc serveClient(server: AsyncHttpServer) {.async.} =
+  var
+    stopAvailable = false
+    stop = false
+  var clientFut = server.serve(Port(8080), processClient)
+  while not stopAvailable:
+    if not clientFut.finished:
+      # client still connected, continue
+      poll(500)
+    else:
+      # this client disconnected early, so accept another one
+      clientFut = server.serve(Port(8080), processClient)
+
+proc serve() =
+  var server = newAsyncHttpServer()
+  shell:
+    "../../Tools/karaRun/karaRun" "-d:client -r client.nim"
+  waitFor server.serveClient()
 
 proc main =
   let args = docopt(doc)
@@ -224,6 +389,12 @@ proc main =
                             runNumber: runNumber)
     monitor.add(path)
 
+    # start the server thread
+    var thr: Thread[void]
+    thr.createThread(serve)
+
+    channel.open(5)
+
     monitor.register(
       proc (ev: MonitorEvent) =
         case ev.kind
@@ -232,6 +403,8 @@ proc main =
           let evNum = ev.fullName.getEvNum
           if evNum.isSome:
             onPlt.files.push InGridFile(fname: ev.fullName, evNumber: evNum.get)
+            echo "New data available!"
+            onPlt.hasNew = true
         else: discard
     )
     monitor.watch()
@@ -240,10 +413,22 @@ proc main =
     onPlt.processed = initialReco(h5file, runNumber, onPlt.chip)
 
     var h5f = H5file(h5file, "rw")
+
+    createPlots(onPlt, h5f)
+    # send first plots via channel
+    channel.sendPacket(onPlt)
+
     while true:
       poll()
-      updateData(onPlt, h5f, rfKind)
-      #updatePlots(onPlt, h5f)
+      if onPlt.hasNew:
+        onPlt.hasNew = false
+        updateData(onPlt, h5f, rfKind)
+        updatePlots(onPlt, h5f)
+        # take current plot and send via channel
+        # TODO: check if new data, only send then
+        channel.sendPacket(onPlt)
+      else:
+        echo "No new data available!"
     discard h5f.close()
 
 

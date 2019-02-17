@@ -92,9 +92,11 @@ proc getEvNum(fname: string): Option[int] =
   ## extracts event number from InGrid filename
   var evNumStr: string
   var dummy: string
-  if scanf(fname, NewVirtexEventScanfNoPath, evNumStr):
-    result = some(evNumStr.parseInt)
-  elif scanf(fname, "$*" & NewVirtexEventScanfNoPath, dummy, evNumStr):
+  let fnameNoPath = fname.extractFilename
+  # Not needed since we extract the filename beforehand
+  #if scanf(fnameNoPath, "$*/" & NewVirtexEventScanfNoPath, dummy, evNumStr):
+  #  result = some(evNumStr.parseInt)
+  if scanf(fnameNoPath, NewVirtexEventScanfNoPath, evNumStr):
     result = some(evNumStr.parseInt)
   else:
     echo "Fname ", fname

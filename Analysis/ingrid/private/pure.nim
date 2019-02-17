@@ -39,7 +39,7 @@ const
   OldVirtexEventScanf = r"$*data$*_$*_" # needs: dummy, evNumber, chipNumber
   SrsEventScanf = r"$*run_$*_data_$*_${parseSrsTosDate}" # needs: dummy, runNumber, evNumber, date
   OldVirtexEventScanfNoPath = r"data$*_$*_$i." # needs: dummy, evNumber, chipNumber, timestamp
-  NewVirtexEventScanfNoPath = r"data$*.txt$." # needs: evNumber
+  NewVirtexEventScanfNoPath* = r"data$*.txt$." # needs: evNumber
   FadcEventScanfNoPath = r"data$*.txt-fadc" # needs: evNumber
   SrsEventScanfNoPath = r"run_$*_data_$*_${parseSrsTosDate}" # needs: dummy, runNumber, evNumber, date
 

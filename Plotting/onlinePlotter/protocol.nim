@@ -85,9 +85,9 @@ when defined(js):
   proc parseGrid*(data: kstring): JsonPlot =
     ## parses a JSON string containing a `JsonPlot` object, which itself contains
     ## a Grid plot
-    echo "DAta ", data
+    #echo "DAta ", data
     let jnode = data.parseJson
-    echo jnode.len
+    #echo jnode.len
     result = jnode.parseGrid
     #result = data.parseJsonToJs
 

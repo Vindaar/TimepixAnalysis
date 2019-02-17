@@ -27,10 +27,10 @@ proc animateClient(socket: var WebSocket) {.exportc.} =
       let pltJson = parseGrid(dp.payload)
       # replace data with new data
       if not inited:
-        plt.newPlot("ROOT".cstring, pltJson.traces[0], pltJson.layout)
+        plt.newPlot("ROOT".cstring, pltJson.traces, pltJson.layout)
         inited = true
       else:
-        plt.react("ROOT".cstring, pltJson.traces[0], pltJson.layout)
+        plt.react("ROOT".cstring, pltJson.traces, pltJson.layout)
 
   discard window.setInterval(doAgain, 100)
 

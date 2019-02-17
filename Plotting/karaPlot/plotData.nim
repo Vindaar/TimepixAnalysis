@@ -1678,7 +1678,7 @@ proc eventDisplay(h5file: string,
     serve(h5f, fileInfo, pds, flags)
   else:
     plotsFromPds(h5f, fInfoConfig, pds)
-    let outfile = "eventDisplay"
+    let outfile = "eventDisplay"  & "_" & getRunsStr(fInfoConfig.runs)
     handleOutput(outfile, flags)
 
   discard h5f.close()
@@ -1714,7 +1714,7 @@ proc createCalibrationPlots(h5file: string,
     # likelihoodHistograms(h5f) # need to cut on photo peak and esc peak
     # neighborPixels(h5f)
     discard h5f.close()
-    let outfile = "calibration"
+    let outfile = "calibration" & "_" & getRunsStr(fInfoConfig.runs)
     handleOutput(outfile, flags)
 
 proc createBackgroundPlots(h5file: string,
@@ -1747,7 +1747,7 @@ proc createBackgroundPlots(h5file: string,
     # likelihoodHistograms(h5f) # need to cut on photo peak and esc peak
     # neighborPixels(h5f)
     discard h5f.close()
-    let outfile = "background"
+    let outfile = "background" & "_" & getRunsStr(fInfoConfig.runs)
     handleOutput(outfile, flags)
 
 proc createXrayFingerPlots(bKind: BackendKind, flags: set[ConfigFlagKind]) =

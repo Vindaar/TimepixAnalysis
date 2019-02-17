@@ -116,8 +116,9 @@ var L = newConsoleLogger()
 if not dirExists("logs"):
   createDir("logs")
 var fL = newFileLogger("logs/reconstruction.log", fmtStr = verboseFmtStr)
-addHandler(L)
-addHandler(fL)
+when isMainModule:
+  addHandler(L)
+  addHandler(fL)
 
 ################################################################################
 

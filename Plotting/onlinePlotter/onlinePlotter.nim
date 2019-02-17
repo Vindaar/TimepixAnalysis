@@ -389,7 +389,7 @@ proc main =
       monitor = newMonitor()
       onPlt = OnlinePlotter(chip: chip,
                             runNumber: runNumber)
-    monitor.add(path)
+    monitor.add(path, {MonitorCreate})
 
     # start the server thread
     var thr: Thread[void]
@@ -402,9 +402,10 @@ proc main =
         case ev.kind
         of MonitorCreate:
           # file created, check valid event file
-          let evNum = ev.fullName.getEvNum
+          let evNum = ev.name.getEvNum
+
           if evNum.isSome:
-            onPlt.files.push InGridFile(fname: ev.fullName, evNumber: evNum.get)
+            onPlt.files.push InGridFile(fname: path / ev.name, evNumber: evNum.get)
             echo "New data available!"
             onPlt.hasNew = true
         else: discard

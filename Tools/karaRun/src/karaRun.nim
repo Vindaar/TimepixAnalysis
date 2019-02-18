@@ -146,8 +146,10 @@ proc main =
   let name = file.splitFile.name
   createDir("nimcache")
   if buildRelease:
+    echo "Building ", name, " in release mode"
     exec("nim js -d:release --out:nimcache/" & name & ".js " & rest)
   else:
+    echo "Building ", name, " in debug mode"
     exec("nim js --out:nimcache/" & name & ".js " & rest)
   let dest = "nimcache" / name & ".html"
   writeFile(dest, html % [name, selectedCss])

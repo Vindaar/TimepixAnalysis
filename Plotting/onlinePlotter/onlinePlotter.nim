@@ -380,7 +380,7 @@ proc serveClient(server: AsyncHttpServer) {.async.} =
 proc serve() =
   var server = newAsyncHttpServer()
   shell:
-    "../../Tools/karaRun/karaRun" "-d:client -r client.nim"
+    "../../Tools/karaRun/karaRun" "-d:release -r client.nim"
   waitFor server.serveClient()
 
 proc watcher(path: string) =

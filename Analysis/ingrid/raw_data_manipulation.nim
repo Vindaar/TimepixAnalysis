@@ -1168,16 +1168,19 @@ proc readAndProcessInGrid*(listOfFiles: seq[string],
   let ingrid = readRawInGridData(listOfFiles, rfKind)
   var sortedIngrid = sortReadInGridData(ingrid, rfKind)
 
-  # to extract the run header, we only need any element of
-  # the data. For `rfNewTos` and `rfOldTos` the run header is
-  # equivalent to the event header. For `rfSrsTos` it's different
-  let runHeader = getRunHeader(sortedIngrid[0], runNumber, rfKind)
-  case rfKind
-  of rfOldTos: fixOldTosTimestamps(runHeader, sortedIngrid)
-  else: discard
-  # process the data read into seq of FlowVars, save as result
-  let run = createRun(runHeader, runNumber, sortedIngrid, rfKind)
-  result = processRawInGridData(run)
+  # only continue, if any fails in input
+  # This may not be the case if proc is used in a dynamic environment!
+  if sortedIngrid.len > 0:
+    # to extract the run header, we only need any element of
+    # the data. For `rfNewTos` and `rfOldTos` the run header is
+    # equivalent to the event header. For `rfSrsTos` it's different
+    let runHeader = getRunHeader(sortedIngrid[0], runNumber, rfKind)
+    case rfKind
+    of rfOldTos: fixOldTosTimestamps(runHeader, sortedIngrid)
+    else: discard
+    # process the data read into seq of FlowVars, save as result
+    let run = createRun(runHeader, runNumber, sortedIngrid, rfKind)
+    result = processRawInGridData(run)
 
 proc processAndWriteFadc(run_folder: string, runNumber: int, h5f: var H5FileObj) =
   # for the FADC we call a single function here, which works on
@@ -1208,18 +1211,21 @@ proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string,
 
   batchFiles(files, batchsize - 1):
     let r = readAndProcessInGrid(files[0 .. ind_high], runNumber, rfKind)
-    nChips = r.nChips
+    if r.events.len > 0:
+      nChips = r.nChips
 
-    if attrsWritten == false:
-      writeInGridAttrs(h5f, r, rfKind, runType)
-      # create datasets in H5 file
-      initInGridInH5(h5f, runNumber, nChips, batchsize)
-      attrsWritten = true
+      if attrsWritten == false:
+        writeInGridAttrs(h5f, r, rfKind, runType)
+        # create datasets in H5 file
+        initInGridInH5(h5f, runNumber, nChips, batchsize)
+        attrsWritten = true
 
-    let a = squeeze(r.occupancies[0,_,_])
-    dumpFrameToFile("tmp/frame.txt", a)
-    writeProcessedRunToH5(h5f, r)
-    info "Size of total ProcessedRun object = ", sizeof(r)
+      let a = squeeze(r.occupancies[0,_,_])
+      dumpFrameToFile("tmp/frame.txt", a)
+      writeProcessedRunToH5(h5f, r)
+      info "Size of total ProcessedRun object = ", sizeof(r)
+    else:
+      warn "Skipped writing to file, since ProcessedRun contains no events!"
 
   ####################
   # Create Hardlinks #

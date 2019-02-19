@@ -78,18 +78,26 @@ proc processFiles(h5f: var H5FileObj,
                   files: seq[string],
                   runNumber: int,
                   rfKind: RunFolderKind,
-                  attrsWritten: bool) =
+                  attrsWritten: bool): bool =
   ## receives a slice of `OnlinePlotters` files and processes them
+  ## returns a bool indicating whether we actually wrote something
+  ## to the H5 file (not a single broken file encountered)
   const batchsize = 50000
   let r = readAndProcessInGrid(files, runNumber, rfKind)
-  let nChips = r.nChips
+  if r.events.len > 0:
+    # only continue if any events survived
+    let nChips = r.nChips
 
-  if attrsWritten == false:
-    writeInGridAttrs(h5f, r, rfKind, rtNone)
-    # create datasets in H5 file
-    initInGridInH5(h5f, runNumber, nChips, batchsize)
+    if attrsWritten == false:
+      writeInGridAttrs(h5f, r, rfKind, rtNone)
+      # create datasets in H5 file
+      initInGridInH5(h5f, runNumber, nChips, batchsize)
 
-  writeProcessedRunToH5(h5f, r)
+    writeProcessedRunToH5(h5f, r)
+    #
+    result = true
+  else:
+    result = false
 
 proc getEvNum(fname: string): Option[int] =
   ## extracts event number from InGrid filename
@@ -115,8 +123,9 @@ proc initialRead(h5file: string,
                                    EventSortType.fname,
                                    EventType.InGridType,
                                    rfKind)
-  processFiles(h5f, files, runNumber, rfKind, false)
-
+  let good = processFiles(h5f, files, runNumber, rfKind, false)
+  # there should be no reason why the initial read should fail
+  doAssert good == true, "Initial processing failed!"
   # convert files to seq[InGridFile] and return
   result = files.mapIt(InGridFile(fname: it, evNumber: it.getEvNum.get))
   discard h5f.close()
@@ -266,40 +275,46 @@ proc updateData(onPlt: var OnlinePlotter, h5f: var H5FileObj,
     let numNew = onPlt.len - onPlt.processed
     echo "Files :", files, " is ", numNew
     # read files and reconstruct individual events
-    processFiles(h5f, files, onPlt.runNumber, rfKind, true)
-
-    # read new events into a `seq[(Pixels, int)]` type
-    let grpName = rawDataChipBase(onPlt.runNumber) & $(onPlt.chip)
-    let
-      special_u8 = special_type(uint8)
-      special_u16 = special_type(uint16)
-    let
-      xDset = h5f[(grpName / "raw_x").dset_str]
-      yDset = h5f[(grpName / "raw_y").dset_str]
-      chDset = h5f[(grpName / "raw_ch").dset_str]
-      evNumDset =  h5f[(grpName.parentDir / "eventNumber").dset_str]
-    let toRead = toSeq(onPlt.processed ..< onPlt.len)
-    let
-      xs = xDset[special_u8, uint8, toRead]
-      ys = yDset[special_u8, uint8, toRead]
-      chs = chDset[special_u16, uint16, toRead]
-      evNum = evNumDset[toRead, int]
-    var pixData: seq[(Pixels, int)]
-    for i, ev in evNum:
+    let good = processFiles(h5f, files, onPlt.runNumber, rfKind, true)
+    if good:
+      # read new events into a `seq[(Pixels, int)]` type
+      let grpName = rawDataChipBase(onPlt.runNumber) & $(onPlt.chip)
       let
-        xi = xs[i]
-        yi = ys[i]
-        chi = chs[i]
-      let pix: Pixels = zip(xi, yi, chi) --> map((x: it[0], y: it[1], ch: it[2]))
-      pixData.add (pix, ev)
-    let reco = reconstructSingleChip(pixdata,
-                                     onPlt.runNumber,
-                                     onPlt.chip)
-      .mapIt((^it)[])
-    # still need to write back to H5 file
-    writeNewEvents(onPlt, h5f, reco)
-    # finally set processed files to new value
-    onPlt.processed = onPlt.len
+        special_u8 = special_type(uint8)
+        special_u16 = special_type(uint16)
+      let
+        xDset = h5f[(grpName / "raw_x").dset_str]
+        yDset = h5f[(grpName / "raw_y").dset_str]
+        chDset = h5f[(grpName / "raw_ch").dset_str]
+        evNumDset =  h5f[(grpName.parentDir / "eventNumber").dset_str]
+      let toRead = toSeq(onPlt.processed ..< onPlt.len)
+      let
+        xs = xDset[special_u8, uint8, toRead]
+        ys = yDset[special_u8, uint8, toRead]
+        chs = chDset[special_u16, uint16, toRead]
+        evNum = evNumDset[toRead, int]
+      var pixData: seq[(Pixels, int)]
+      for i, ev in evNum:
+        let
+          xi = xs[i]
+          yi = ys[i]
+          chi = chs[i]
+        let pix: Pixels = zip(xi, yi, chi) --> map((x: it[0], y: it[1], ch: it[2]))
+        pixData.add (pix, ev)
+      let reco = reconstructSingleChip(pixdata,
+                                       onPlt.runNumber,
+                                       onPlt.chip)
+        .mapIt((^it)[])
+      # still need to write back to H5 file
+      writeNewEvents(onPlt, h5f, reco)
+      # finally set processed files to new value
+      onPlt.processed = onPlt.len
+    else:
+      echo "No events could be read to reconstruct!"
+      # sleep for a short time to make sure we don't encounter a problem again,
+      # if the reason we end up here is that a single event was read, and that
+      # failed parsing (i.e. broken InGrid file error)
+      sleep(50)
 
 proc sendPacket[T](channel: var Channel[T], onPlt: OnlinePlotter) =
   ## send current plot via channel

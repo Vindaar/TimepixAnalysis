@@ -1,6 +1,6 @@
 import plotly
 import os except FileInfo
-import strutils, strformat, times, sequtils, math, macros, algorithm, sets
+import strutils, strformat, times, sequtils, math, macros, algorithm, sets, stats
 import options, logging, typeinfo, json
 import websocket, asynchttpserver, asyncnet, asyncdispatch
 
@@ -1206,13 +1206,25 @@ proc handleFeVsTime(h5f: var H5FileObj,
         pixSeq.add kalphaLoc
         dates.add tstamp
 
+  # calculate mean and STD of peak location
+  let
+    stdPeak = standardDeviation(pixSeq)
+    xloc = max(dates)
+    yloc = max(pixSeq)
+    stdAnn = Annotation(x: xloc,
+                        y: yloc,
+                        text: &"Peak variation σ: {stdPeak:.2f}")
+    # calculate mean of peak location
+  let meanPeak = mean(pixSeq)
+  let meanAnn = replace(stdAnn):
+    y = yloc - (yloc - min(pixSeq)) * 0.05
+    text = &"Mean location µ: {meanPeak:.2f}"
   # now plot
-  # calculate ratio and convert to string to workaround plotly limitation of
-  # only one type for Trace
   result[1] = plotDates(dates, pixSeq,
                         title = title,
                         xlabel = pd.xlabel,
                         outfile = result[0])
+  result[1].plPlot.layout.annotations.add [stdAnn, meanAnn]
 
 proc handleFePixDivChVsTime(h5f: var H5FileObj,
                             fileInfo: FileInfo,

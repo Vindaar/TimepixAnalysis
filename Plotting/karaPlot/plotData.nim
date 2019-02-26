@@ -141,8 +141,6 @@ var plotlyJson = newJObject()
 
 const NPix = 256
 
-var ShowPlots = false
-
 var channel: Channel[(JsonNode, PacketKind)]
 var stopChannel: Channel[bool]
 
@@ -195,6 +193,7 @@ proc savePlot(p: PlotV, outfile: string, fullPath = false) =
   # TODO: move elsewhere!!!
   let tomlConfig = parseToml.parseFile("config.toml")
   let plotlySaveSvg = tomlConfig["General"]["plotlySaveSvg"].getBool
+  let mplShowPlots = tomlConfig["General"]["mplShowPlots"].getBool
   var fname = outfile
   if not fullPath:
     fname = "figs" / outfile & ".svg"
@@ -209,7 +208,7 @@ proc savePlot(p: PlotV, outfile: string, fullPath = false) =
   of bMpl:
     discard p.plt.savefig(fname)
     imageSet.incl(fname)
-    if ShowPlots:
+    if mplShowPlots:
       discard callMethod(p.plt, "show")
     else:
       discard callMethod(p.plt, "close", "all")

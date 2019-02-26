@@ -1,7 +1,8 @@
 [General]
-        allowedChips = [0, 1, 2, 3, 4, 5, 6]
+        allowedChips = [3] #[0, 1, 2, 3, 4, 5, 6]
         outputFormat = "org" # <- store either as "json" or "org"
         plotlySaveSvg = true
+        mplShowPlots = false
 
 [InGrid]
         dsets = ["length", "width", "skewnessLongitudinal", "skewnessTransverse",

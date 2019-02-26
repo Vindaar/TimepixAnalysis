@@ -350,13 +350,11 @@ proc plotHist[T](xIn: seq[T], title, dset, outfile: string,
                             xs: xs,
                             name: dset)
     result.plPlot = Plot[float](layout: result.plLayout, traces: traces)
-    result.savePlot(outfile, fullPath = true)
   of bMpl:
     let nbins = ((binRange[1] - binRange[0]) / binSize).round.int
     discard result.ax.hist(xs,
                          bins = nbins,
                          range = binRange)
-    result.savePlot(outfile, fullPath = true)
   else: discard
 
 proc plotBar[T](binsIn, countsIn: seq[seq[T]], title: string,
@@ -531,15 +529,13 @@ proc plotHist2D(data: Tensor[float], title, outfile: string): PlotV =
   case BKind
   of bPlotly:
     let tr = Trace[float](`type`: PlotType.HeatMap,
-                      colormap: ColorMap.Viridis,
-                      zs: data.toRawSeq.reshape2D([NPix, NPix]))
+                          colormap: ColorMap.Viridis,
+                          zs: data.toRawSeq.reshape2D([NPix, NPix]))
     result.plPlot = Plot[float](layout: result.plLayout, traces: @[tr])
-    result.savePlot(outfile, fullPath = true)
   of bMpl:
     discard result.plt.imshow(data.toRawSeq.reshape2D([NPix, NPix]),
                        cmap = "viridis")
     discard result.plt.colorbar()
-    result.savePlot(outfile, fullPath = true)
   else:
     discard
 
@@ -552,14 +548,12 @@ proc plotScatter(pltV: PlotV, x, y: seq[float], name, outfile: string) =
                              ys: y,
                              name: name)
     pltV.plPlot.traces.add @[trFit]
-    pltV.savePlot(outfile, fullPath = true)
   of bMpl:
     # in this case `ax` is defined
     discard pltV.ax.plot(x,
                          y,
                          label = name,
                          color = "r")
-    pltV.savePlot(outfile, fullPath = true)
   else:
     warn &"Unsupported backend kind: {BKind}"
 
@@ -691,8 +685,7 @@ proc polya(h5f: var H5FileObj, runType: RunTypeKind,
 
 proc plotDates[T, U](x: seq[U], y: seq[T],
                      title, xlabel, outfile: string,
-                     ylabel = "",
-                     drawPlots = false): PlotV =
+                     ylabel = ""): PlotV =
   result = initPlotV(title, xlabel, ylabel, ShapeKind.Rectangle)
   case BKind
   of bPlotly:
@@ -702,12 +695,10 @@ proc plotDates[T, U](x: seq[U], y: seq[T],
                       ys: y,
                       marker: Marker[float](size: @[12.0]))
     result.plPlot = Plot[T](layout: result.plLayout, traces: @[tr])
-    result.savePlot(outfile, fullPath = true)
   of bMpl:
     let dtm = pyImport("datetime")
     let xP = x.mapIt(dtm.datetime.utcfromtimestamp(int(it)))
     discard result.ax.plot_date(xP, y, label = title)
-    result.savePlot(outfile, fullPath = true)
   else:
     discard
 
@@ -1146,8 +1137,6 @@ proc handleCombPolya(h5f: var H5FileObj,
     dsets.add "Chip " & $ch
   let xlabel = "Number of electrons"
   result[1] = plotBar(binsSeq, countsSeq, title, xlabel, dsets, result[0])
-  # now add fit to the existing plot
-  result[1].savePlot(result[0], fullPath = true)
 
 proc handleFeVsTime(h5f: var H5FileObj,
                     fileInfo: FileInfo,
@@ -1488,6 +1477,11 @@ proc createPlot*(h5f: var H5FileObj,
     result = handleOuterChips(h5f, fileInfo, pd)
   else:
     discard
+
+  # finally call savePlot if we actually created a plot
+  if not result[1].plPlot.isNil:
+    info &"Calling savePlot for {pd.plotKind} with filename {result[0]}"
+    savePlot(result[1], result[0], fullPath = true)
 
 
 proc createOrg(outfile: string) =

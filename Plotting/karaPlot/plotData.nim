@@ -1570,28 +1570,28 @@ proc jsonDump(outfile = "", clear = false): string =
   if clear:
     clearPlots()
 
-proc handleOutput(basename: string, flags: set[ConfigFlagKind]) =
+proc handleOutput(basename: string, flags: set[ConfigFlagKind]): string =
   ## handles output file creation. Reads the config.toml file
   ## and uses it to decide whether to store data as Org file or
   ## dump to Json
   # TODO: create some kind of Config object, which does this once at
   # startup of the program
   # TODO: when Org is used, we need to save all plots as SVG!
-  var outfile = basename
+  result = basename
   let tomlConfig = parseToml.parseFile("config.toml")
   let outfileKind = parseEnum[OutputFiletypeKind](
     tomlConfig["General"]["outputFormat"].getStr,
     ofUnknown
   )
   for fl in flags:
-    outfile &= "_" & $fl
+    result &= "_" & $fl
   case outfileKind
   of ofOrg:
-    outfile &= ".org"
-    createOrg(outfile)
+    result &= ".org"
+    createOrg(result)
   of ofJson:
-    outfile &= ".json"
-    discard jsonDump(outfile)
+    result &= ".json"
+    discard jsonDump(result)
   else:
     warn "Unsupported output file format!"
 
@@ -1681,7 +1681,7 @@ proc eventDisplay(h5file: string,
                   run: int,
                   runType: RunTypeKind,
                   bKind: BackendKind,
-                  flags: set[ConfigFlagKind]) =
+                  flags: set[ConfigFlagKind]): string =
   ## use as event display tool
   var h5f = H5file(h5file, "r")
   let fileInfo = getFileInfo(h5f)
@@ -1694,14 +1694,14 @@ proc eventDisplay(h5file: string,
   else:
     plotsFromPds(h5f, fInfoConfig, pds)
     let outfile = "eventDisplay"  & "_" & getRunsStr(fInfoConfig.runs)
-    handleOutput(outfile, flags)
+    result = handleOutput(outfile, flags)
 
   discard h5f.close()
 
 proc createCalibrationPlots(h5file: string,
                             bKind: BackendKind,
                             runType: RunTypeKind,
-                            flags: set[ConfigFlagKind]) =
+                            flags: set[ConfigFlagKind]): string =
   ## creates QA plots for calibration runs
   var h5f = H5file(h5file, "r")
   var fileInfo = getFileInfo(h5f)
@@ -1730,12 +1730,12 @@ proc createCalibrationPlots(h5file: string,
     # neighborPixels(h5f)
     discard h5f.close()
     let outfile = "calibration" & "_" & getRunsStr(fInfoConfig.runs)
-    handleOutput(outfile, flags)
+    result = handleOutput(outfile, flags)
 
 proc createBackgroundPlots(h5file: string,
                            bKind: BackendKind,
                            runType: RunTypeKind,
-                           flags: set[ConfigFlagKind]) =
+                           flags: set[ConfigFlagKind]): string =
   ## creates QA plots for calibration runs
   var h5f = H5file(h5file, "r")
   var fileInfo = getFileInfo(h5f)
@@ -1763,10 +1763,39 @@ proc createBackgroundPlots(h5file: string,
     # neighborPixels(h5f)
     discard h5f.close()
     let outfile = "background" & "_" & getRunsStr(fInfoConfig.runs)
-    handleOutput(outfile, flags)
+    result = handleOutput(outfile, flags)
 
-proc createXrayFingerPlots(bKind: BackendKind, flags: set[ConfigFlagKind]) =
+proc createXrayFingerPlots(bKind: BackendKind, flags: set[ConfigFlagKind]): string =
   discard
+
+proc handlePlotTypes(h5file: string,
+                     bKind: BackendKind,
+                     runType: RunTypeKind,
+                     flags: set[ConfigFlagKind],
+                     evDisplayRun = none[int]()) =
+  ## handles dispatch of the correct data type / kind / mode to be plotted
+  ## calibration, X-ray, background, event display...
+  ## If not run in server mode, launch staticDisplay with output JSON file
+  ## TODO: what happens for SVG? Need to check too.
+  var outfile = ""
+  if evDisplayRun.isSome():
+    outfile = eventDisplay(h5file, evDisplayRun.get, runType, BKind, flags)
+  else:
+    case runType
+    of rtCalibration:
+      outfile = createCalibrationPlots(h5file, bKind, runType, flags)
+    of rtBackground:
+      outfile = createBackgroundPlots(h5file, bKind, runType, flags)
+    of rtXrayFinger:
+      outfile = createXrayFingerPlots(bKind, flags)
+    else:
+      discard
+  if cfProvideServer notin flags:
+    # if not using server, start client, in case the data is being stored as
+    # JSON
+    let filecall = &"--file:{outfile}"
+    shell:
+      ./karaRun "-r" `$filecall` staticClient.nim
 
 proc parseBackendType(backend: string): BackendKind =
   ## given a string describing a run type, return the correct
@@ -1949,36 +1978,18 @@ proc plotData*() =
 
   var runType: RunTypeKind
   var bKind: BackendKind
-  var evDisplayRun: int
+  var evDisplayRun: Option[int] = none[int]()
   if runTypeStr != "nil":
     runType = parseRunType(runTypeStr)
   if backendStr != "nil":
     BKind = parseBackendType(backendStr)
   if evDisplayStr != "nil":
-    evDisplayRun = parseInt(evDisplayStr)
-    eventDisplay(h5file, evDisplayRun, runType, BKind, flags)
-  else:
-    case runType
-    of rtCalibration:
-      createCalibrationPlots(h5file, bKind, runType, flags)
-    of rtBackground:
-      createBackgroundPlots(h5file, bKind, runType, flags)
-    of rtXrayFinger:
-      createXrayFingerPlots(bKind, flags)
-    else:
-      discard
+    evDisplayRun = some(parseInt(evDisplayStr))
+
+  handlePlotTypes(h5file, bKind, runType, flags, evDisplayRun = evDisplayRun)
 
   if cfProvideServer in flags:
     joinThread(thr)
-
-# proc cb(req: Request) {.async.} =
-#   echo "cb"
-
-# proc main =
-#   var thr: Thread[void]
-#   thr.createThread(plotData)
-
-#   waitFor server.serve(Port(8080), )
 
 when isMainModule:
   plotData()

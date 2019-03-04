@@ -1866,7 +1866,7 @@ proc processClient(req: Request) {.async.} =
       return
     echo "New websocket customer arrived! ", dataConnect
   # let worker know that new client connected
-  #serveNewClientCh.send(true)
+  serveNewClientCh.send(true)
 
   # TODO: send PlotDescriptors first and then go into the loop
   # Include a channel to tell the main thread to restart plots, if
@@ -1918,7 +1918,7 @@ proc serveClient(server: AsyncHttpServer) {.async.} =
   var
     stopAvailable = false
     stop = false
-  var clientFut = server.serve(Port(8080), processClient)
+  var clientFut = server.serve(Port(8081), processClient)
   while not stopAvailable:
     # NOTE: this causes the puzzling stops of the program! `serve` sends stop via the
     # `stopChannel`, which in reality is just being catched here! That just force stops
@@ -1932,11 +1932,11 @@ proc serveClient(server: AsyncHttpServer) {.async.} =
       poll(500)
     else:
       # this client disconnected early, so accept another one
-      clientFut = server.serve(Port(8080), processClient)
+      clientFut = server.serve(Port(8081), processClient)
 
 proc serve() =
   var server: AsyncHttpServer
-  server = newAsyncHttpServer()
+  server = newAsyncHttpServer(reuseAddr = true, reusePort = true)
   channel.open(1)
   stopChannel.open(1)
   serveNewClientCh.open(1)

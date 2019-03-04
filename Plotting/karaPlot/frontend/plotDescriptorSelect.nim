@@ -19,8 +19,7 @@ proc renderPlotDescriptorSelect*(pState: var PlotState): VNode =
     pState.serverP.idx = y
     echo "x ", x
     echo " y ", y
-    #pState.activePd = n.value
-    #pState.serverP.idx = n.index
+    pState.activePd = n.value.parseJson.parsePd
     #pState.serverP.idx = n.index
 
   if pState.pds.len > 0:

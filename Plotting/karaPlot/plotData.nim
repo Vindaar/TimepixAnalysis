@@ -302,6 +302,15 @@ proc readVlen(h5f: var H5FileObj,
   else:
     result = dset[vlenDtype, dtype]
 
+template applyFilter(key: string, tomlConfig, theSet, fileInfo, field: untyped): untyped =
+  if tomlConfig["General"].hasKey(key):
+    let allowed = tomlConfig["General"][key].getElems
+    for el in allowed:
+      theSet.incl el.getInt.uint16
+  if theSet.card > 0:
+    fileInfo.field = fileInfo.field.filterIt(it.uint16 in theSet)
+
+
 proc applyConfig(fileInfo: var FileInfo) =
   ## reads the  `config.toml` of the project and applies certain
   ## filters / settings to the fileInfo object. This allows us to
@@ -309,15 +318,11 @@ proc applyConfig(fileInfo: var FileInfo) =
   # get allowed chips from toml
   let tomlConfig = parseToml.parseFile("config.toml")
   var chipSet: set[uint16]
-  if tomlConfig["General"].hasKey("allowedChips"):
-    let allowedChips = tomlConfig["General"]["allowedChips"].getElems
-    for el in allowedChips:
-      chipSet.incl el.getInt.uint16
+  var runSet: set[uint16]
   # TODO: move elsewhere
   fileInfo.plotlySaveSvg = tomlConfig["General"]["plotlySaveSvg"].getBool
-
-  if chipSet.card > 0:
-    fileInfo.chips = fileInfo.chips.filterIt(it.uint16 in chipSet)
+  applyFilter("allowedChips", tomlConfig, chipSet, fileInfo, chips)
+  applyFilter("allowedRuns", tomlConfig, runSet, fileInfo, runs)
 
 proc appliedConfig(fileInfo: FileInfo): FileInfo =
   ## returns a copy of the given `FileInfo` with the config.toml applied

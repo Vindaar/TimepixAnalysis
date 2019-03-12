@@ -190,6 +190,14 @@ def main(args):
                         default = False,
                         action = 'store_true',
                         help = "Flag to plot data same binning as Marlin2014 data")
+    parser.add_argument('--title',
+                        default = None,
+                        dest = "title",
+                        help = "The plot title to override the auto generated title")
+    parser.add_argument('--preliminary',
+                        default = False,
+                        action = 'store_true',
+                        help = "Flag to activate `preliminary` in center of plot")
     parser.add_argument('--fancy',
                         default = False,
                         action = 'store_true',
@@ -200,6 +208,8 @@ def main(args):
     print(args_dict)
 
     fancy = args_dict["fancy"]
+    customTitle = args_dict["title"]
+    preliminary = args_dict["preliminary"]
     region = args_dict["region"]
     chip = args_dict["chip"]
     logY = args_dict["log"]
@@ -219,14 +229,16 @@ def main(args):
     year = str(year) + " and " + str(year3)
     chip = str(chip) + " and " + str(chip3)
 
-    if fancy == True:
+    if fancy:
         plt.xlabel('Energy / $\\si{\\keV}$')
         if logY == False:
             plt.ylabel('Rate / $\\SI{1e-5}{\\keV \\per \\cm^2 \\per \\s}$')
         else:
             plt.ylabel('Rate / $\\si{\\keV \\per \\cm^2 \\per \\s}$')
     plt.xticks(np.arange(0, 11, 1))
-    if region != "all":
+    if customTitle != None:
+        plt.title(customTitle)
+    elif region != "all":
         plt.title("Background rate of {} in {} region for chip {}".format(year, region, chip))
     else:
         plt.title("Background rate of {} over whole chip {}".format(year, chip))
@@ -235,6 +247,17 @@ def main(args):
         plt.semilogy()
     plt.grid()
     plt.legend()
+
+    if preliminary:
+        ax = plt.gca()
+        fontsize = 30
+        if fancy:
+            fontsize = 75
+        plt.text(0.5, 0.5, "preliminary", fontsize = fontsize, rotation = 30,
+                 horizontalalignment = "center",
+                 verticalalignment = "center",
+                 transform = ax.transAxes)
+
     fname = "background_rate"
     if h5file2 is not None:
         fname = fname + year1 + "_" + year2 + "_" + year3

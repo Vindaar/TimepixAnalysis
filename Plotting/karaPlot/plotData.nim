@@ -207,11 +207,13 @@ proc savePlot(p: PlotV, outfile: string, fullPath = false) =
     if not plotlySaveSvg:
       plotlyJson[outfile] = jsonPlotly(p)
     else:
-      p.plPlot.saveImage(fname)
-      imageSet.incl(fname)
+      if not p.plPlot.isNil:
+        p.plPlot.saveImage(fname)
+        imageSet.incl(fname)
   of bMpl:
-    discard p.plt.savefig(fname)
-    imageSet.incl(fname)
+    if not p.plt.isNil:
+      discard p.plt.savefig(fname)
+      imageSet.incl(fname)
     if mplShowPlots:
       discard callMethod(p.plt, "show")
     else:
@@ -1499,9 +1501,9 @@ proc createPlot*(h5f: var H5FileObj,
     discard
 
   # finally call savePlot if we actually created a plot
-  if not result[1].plPlot.isNil:
-    info &"Calling savePlot for {pd.plotKind} with filename {result[0]}"
-    savePlot(result[1], result[0], fullPath = true)
+  #if not result[1].plPlot.isNil:
+  info &"Calling savePlot for {pd.plotKind} with filename {result[0]}"
+  savePlot(result[1], result[0], fullPath = true)
 
 
 proc createOrg(outfile: string) =

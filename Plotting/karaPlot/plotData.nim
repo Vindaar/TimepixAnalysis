@@ -1050,9 +1050,12 @@ proc handleInGridDset(h5f: var H5FileObj,
     let data = h5f.read(r, pd.name, pd.chip, dtype = float)
     # perform cut on range
     let group = h5f[recoPath(r, pd.chip)]
-    let idx = cutOnProperties(h5f, group,
+    if pd.range[0] != -Inf and pd.range[1] != Inf:
+      let idx = cutOnProperties(h5f, group,
                     ("energyFromCharge", pd.range[0], pd.range[1]))
-    allData.add idx.mapIt(data[it])
+      allData.add idx.mapIt(data[it])
+    else:
+      allData.add data
   result[0] = buildOutfile(pd)
   let title = buildTitle(pd)
   result[1] = plotHist(allData, title, pd.name, result[0], pd.binSize, pd.binRange)

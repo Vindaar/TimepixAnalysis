@@ -211,13 +211,13 @@ def main(args):
     year1, chip1 = preparePlot(h5file, chip, logY, CK_binning)
     if h5file2 is not None:
         year2, chip2 = preparePlot(h5file2, chip, logY, CK_binning)
-        year = year1 + " and " + year2
+        year = str(year1) + " and " + str(year2)
         chip = str(chip1) + " and " + str(chip2)
     else:
         year = year1
     year3, chip3 = prepareChristophFrameworkPlot(logY)
-    year = year + " and " + year3
-    chip = chip + " and " + str(chip3)
+    year = str(year) + " and " + str(year3)
+    chip = str(chip) + " and " + str(chip3)
 
     if fancy == True:
         plt.xlabel('Energy / $\\si{\\keV}$')

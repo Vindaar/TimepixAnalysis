@@ -191,9 +191,13 @@ proc jsonPlotly(pltV: PlotV): JsonNode =
 
 proc savePlot(p: PlotV, outfile: string, fullPath = false) =
   # TODO: move elsewhere!!!
-  let tomlConfig = parseToml.parseFile("config.toml")
-  let plotlySaveSvg = tomlConfig["General"]["plotlySaveSvg"].getBool
-  let mplShowPlots = tomlConfig["General"]["mplShowPlots"].getBool
+  var
+    plotlySaveSvg = false
+    mplShowPlots = false
+  if existsFile("config.toml"):
+    let tomlConfig = parseToml.parseFile("config.toml")
+    plotlySaveSvg = tomlConfig["General"]["plotlySaveSvg"].getBool
+    mplShowPlots = tomlConfig["General"]["mplShowPlots"].getBool
   var fname = outfile
   if not fullPath:
     fname = "figs" / outfile & ".svg"

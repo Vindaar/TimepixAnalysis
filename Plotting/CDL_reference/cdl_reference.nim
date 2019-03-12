@@ -23,10 +23,6 @@ proc makePlot(h5f: var H5FileObj, grp, dset: string, filter: (float, float)): Pl
     .ylabel("Counts normalized by PDF")
     .gridColor(GridColor)
     .markerColor(@[Color2], idx = 0)
-    .legendLocation(0.63, 0.95)
-    .legendBgColor(LegendBg)
-    .legendBorderColor(LegendBorder)
-    .legendBorderWidth(1)
     .width(800)
     .height(500)
   result.traces[0].autoWidth = true
@@ -53,6 +49,10 @@ proc main =
       plts.add h5f.makePlot(grp, dset, filters[i])
     let plt = plts[0]
       .addTrace(plts[1].traces[0])
+      .legendLocation(0.63, 0.95)
+      .legendBgColor(LegendBg)
+      .legendBorderColor(LegendBorder)
+      .legendBorderWidth(1)
       .markerColor(@[Color1], idx = 0)
       .markerColor(@[Color2], idx = 1)
     plt.traces[1].opacity = 0.5

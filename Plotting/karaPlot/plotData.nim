@@ -440,7 +440,7 @@ proc createCustomPlots(fileInfo: FileInfo): seq[PlotDescriptor] =
                               binSize: 1.0,
                               binRange: (7.0, 707.0))
 
-proc getBinSizeAndBinRange(dset: string): (float, (float, float)) =
+proc getBinSizeAndBinRange*(dset: string): (float, (float, float)) =
   ## accesses the helper procs to unwrap the options from the `dataset_helper`
   ## procs to return bin size and a bin range
   let binRangeO = getBinRangeForDset(dset)

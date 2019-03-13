@@ -4,7 +4,6 @@
  |       313 | rtTest       | y     | Cu     | EPIC   |     8.0 |
  |       314 | rtTest       | y     |        |        |         |
  |       315 | rtXray       | y     | Mn     | Cr     |    12.0 |
- | 316 - 318 | rtTest       | y     |        |        |         |
  |       319 | rtXray       | y     | Cu     | Ni     |    15.0 |
  |       320 | rtXray       | n     | Cu     | Ni     |    15.0 |
  |       321 | rtBackground | y     | -      | -      |     0.0 |

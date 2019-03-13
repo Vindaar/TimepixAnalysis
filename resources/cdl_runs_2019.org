@@ -1,40 +1,40 @@
- |     Run # | Type         | FADC? | Target | Filter | HV / kV |
- |-----------+--------------+-------+--------+--------+---------|
- |       312 | rtBackground | y     |        |        |         |
- |       313 | rtTest       | y     | Cu     | EPIC   |     8.0 |
- |       314 | rtTest       | y     |        |        |         |
- |       315 | rtXray       | y     | Mn     | Cr     |    12.0 |
- |       319 | rtXray       | y     | Cu     | Ni     |    15.0 |
- |       320 | rtXray       | n     | Cu     | Ni     |    15.0 |
- |       321 | rtBackground | y     | -      | -      |     0.0 |
- |       322 | rtTest       | y     |        |        |         |
- |       323 | rtXray       | n     | Mn     | Cr     |    12.0 |
- |       324 | rtTest       | y     |        |        |         |
- |       325 | rtXray       | y     | Ti     | Ti     |     9.0 |
- |       326 | rtXray       | n     | Ti     | Ti     |     9.0 |
- |       327 | rtTest       | y     |        |        |         |
- |       328 | rtXray       | y     | Ag     | Ag     |     6.0 |
- |       329 | rtXray       | n     | Ag     | Ag     |     6.0 |
- |       330 | rtBackground | y     | -      | -      |     0.0 |
- |       331 | rtTest       | y     | Al     | Al     |         |
- |       332 | rtXray       | y     | Al     | Al     |     4.0 |
- |       333 | rtXray       | n     | Al     | Al     |     4.0 |
- |       334 | rtTest       | y     | -      | -      |         |
- |       335 | rtXray       | y     | Cu     | EPIC   |     2.0 |
- |       336 | rtXray       | n     | Cu     | EPIC   |     2.0 |
- |       337 | rtXray       | n     | Cu     | EPIC   |     2.0 |
- |       338 | rtTest       | y     |        |        |         |
- |       339 | rtXray       | y     | Cu     | EPIC   |     0.9 |
- |       340 | rtXray       | n     | Cu     | EPIC   |     0.9 |
- |       341 | rtTest       | y     |        |        |         |
- |       342 | rtXray       | y     | C      | EPIC   |     0.6 |
- |       343 | rtXray       | n     | C      | EPIC   |     0.6 |
- |       344 | rtTest       | y     | -      | -      |         |
- |       345 | rtXray       | y     | Cu     | Ni     |    15.0 |
- |       346 | rtTest       | y     |        |        |         |
- |       347 | rtXray       | y     | Mn     | Cr     |    12.0 |
- |       348 | rtTest       | y     |        |        |         |
- |       349 | rtXray       | y     | Ti     | Ti     |     9.0 |
- |       350 | rtTest       | y     |        |        |         |
- |       351 | rtXray       | y     | Ag     | Ag     |     6.0 |
- |       352 | rtTest       | y     |        |        |         |
+ | Run # | Type         | FADC? | Target | Filter | HV / kV |
+ |-------+--------------+-------+--------+--------+---------|
+ |   312 | rtBackground | y     |        |        |         |
+ |   313 | rtBackground | y     | Cu     | EPIC   |     8.0 |
+ |   314 | rtBackground | y     |        |        |         |
+ |   315 | rtXrayFinger | y     | Mn     | Cr     |    12.0 |
+ |   319 | rtXrayFinger | y     | Cu     | Ni     |    15.0 |
+ |   320 | rtXrayFinger | n     | Cu     | Ni     |    15.0 |
+ |   321 | rtBackground | y     | -      | -      |     0.0 |
+ |   322 | rtBackground | y     |        |        |         |
+ |   323 | rtXrayFinger | n     | Mn     | Cr     |    12.0 |
+ |   324 | rtBackground | y     |        |        |         |
+ |   325 | rtXrayFinger | y     | Ti     | Ti     |     9.0 |
+ |   326 | rtXrayFinger | n     | Ti     | Ti     |     9.0 |
+ |   327 | rtBackground | y     |        |        |         |
+ |   328 | rtXrayFinger | y     | Ag     | Ag     |     6.0 |
+ |   329 | rtXrayFinger | n     | Ag     | Ag     |     6.0 |
+ |   330 | rtBackground | y     | -      | -      |     0.0 |
+ |   331 | rtBackground | y     | Al     | Al     |         |
+ |   332 | rtXrayFinger | y     | Al     | Al     |     4.0 |
+ |   333 | rtXrayFinger | n     | Al     | Al     |     4.0 |
+ |   334 | rtBackground | y     | -      | -      |         |
+ |   335 | rtXrayFinger | y     | Cu     | EPIC   |     2.0 |
+ |   336 | rtXrayFinger | n     | Cu     | EPIC   |     2.0 |
+ |   337 | rtXrayFinger | n     | Cu     | EPIC   |     2.0 |
+ |   338 | rtBackground | y     |        |        |         |
+ |   339 | rtXrayFinger | y     | Cu     | EPIC   |     0.9 |
+ |   340 | rtXrayFinger | n     | Cu     | EPIC   |     0.9 |
+ |   341 | rtBackground | y     |        |        |         |
+ |   342 | rtXrayFinger | y     | C      | EPIC   |     0.6 |
+ |   343 | rtXrayFinger | n     | C      | EPIC   |     0.6 |
+ |   344 | rtBackground | y     | -      | -      |         |
+ |   345 | rtXrayFinger | y     | Cu     | Ni     |    15.0 |
+ |   346 | rtBackground | y     |        |        |         |
+ |   347 | rtXrayFinger | y     | Mn     | Cr     |    12.0 |
+ |   348 | rtBackground | y     |        |        |         |
+ |   349 | rtXrayFinger | y     | Ti     | Ti     |     9.0 |
+ |   350 | rtBackground | y     |        |        |         |
+ |   351 | rtXrayFinger | y     | Ag     | Ag     |     6.0 |
+ |   352 | rtBackground | y     |        |        |         |

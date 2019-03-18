@@ -35,6 +35,15 @@ type
     fAl = "Al"
     fTi = "Ti"
 
+  TargetFilterKind = enum
+    tfCuNi = "Cu-Ni"
+    tfMnCr = "Mn-Cr"
+    tfTiTi = "Ti-Ti"
+    tfAgAg = "Ag-Ag"
+    tfAlAl = "Al-Al"
+    tfCuEpic = "Cu-Epic"
+    tfCEpic =  "C-Epic"
+
   CdlRun = object
     number: int
     runType: RunTypeKind
@@ -72,21 +81,98 @@ type
     rms_min: float
     rms_max: float
 
+  FitFuncKind = enum
+    ffConst, ffPol1, ffPol2, ffGauss, ffExpGauss
+
+  FitFuncArgs = object
+    name: string
+    case kind: FitFuncKind
+    of ffConst:
+      c: float
+    of ffPol1:
+      cp: float
+    of ffPol2:
+      cpp: float
+    of ffExpGauss:
+      ea: float
+      eb: float
+      eN: float
+      emu: float
+      es: float
+    of ffGauss:
+      gN: float
+      gmu: float
+      gs: float
+
+func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncArgs] =
+  let muIdx = argmax(hist)
+  case tfKind
+  of tfCuNi: #need to add for rest combinatons
+     discard
+  of tfMnCr:
+     discard
+  of tfTiTi:
+     discard
+  of tfAgAg:
+     discard
+     ## result.add FitFuncArgs(name: "Ag-Lalpha",
+     ##                        kind: ffExpGauss)
+     ## result.add FitFuncArgs(name: "Ag-Lbeta",
+     ##                        kind: ffGauss,
+     ##                        gmu: binning[muIdx],
+     ##                        gN: hist[muIdx],
+     ##                        gs: hist[muIdx] / 10.0)
+  of tfAlAl:
+    discard
+  of tfCuEpic:
+     discard
+  of tfCEpic:
+    #var ffConst = 0.0
+    result.add FitFuncArgs(name: "C-Kalpha",
+                           kind: ffGauss,
+                           gmu: binning[muIdx],
+                           gN: hist[muIdx],
+                           gs: hist[muIdx] / 10.0)
+    result.add FitFuncArgs(name: "O-Kalpha",
+                           kind: ffGauss,
+                           gmu: binning[muIdx],
+                           gN: hist[muIdx],
+                           gs: hist[muIdx] / 10.0)
+  #else:
+    #discard
+
+
 proc cEpicFunc(p_ar: seq[float], x: float): float =
+  var p: seq[float]
   result = p[0] * gauss(x, p[1], p[2]) + p[3] * gauss(x, p[4], p[5])
+
+template buildFitProc(name: untyped, parts: seq[FitFuncArgs]): untyped =
+  var params: seq[float]
+  var funcBody: float
+  for p in parts:
+    case p.kind
+    of ffGauss:
+      funcBody += p.gN * gauss(x, p.gmu, p.gs)
+    of ffExpGauss:
+      funcBody += expGauss(@[p.ea, p.eb, p.eN, p.emu, p.es], x)
+  proc `name`(p_ar: seq[float], x: float): float =
+    result = funcBody
+  `name`
+
 
 const cEpicFuncCharge = cEpicFunc
 # TODO: impl rest of functions + Charge functions
 
 proc getCdlFits(): Table[string, CdlFit] =
-  result = { "C-EPIC-0.6kV" : cEpicFunc,
-             "Cu-EPIC-0.9kV" : cuEpicLowFunc,
-             "Cu-EPIC-2kV" : cuEpicHighFunc,
-             "Al-Al-4kV" : alAlFunc,
-             "Ag-Ag-6kV" : agAgFunc,
-             "Ti-Ti-9kV" : tiTiFunc,
-             "Mn-Cr-12kV" : mnCrFunc,
-             "Cu-Ni-15kV" : cuNiFunc}.toTable
+  result = {"C-EPIC-0.6kV" : cEpicFunc}.toTable
+          #{ "C-EPIC-0.6kV" : cEpicFunc,
+             #"Cu-EPIC-0.9kV" : cuEpicLowFunc,
+             #"Cu-EPIC-2kV" : cuEpicHighFunc,
+             #"Al-Al-4kV" : alAlFunc,
+             #"Ag-Ag-6kV" : agAgFunc,
+             #"Ti-Ti-9kV" : tiTiFunc,
+             #"Mn-Cr-12kV" : mnCrFunc,
+             #"Cu-Ni-15kV" : cuNiFunc}.toTable
 
 proc toCutStr(run: CdlRun): string =
   let hv = block:

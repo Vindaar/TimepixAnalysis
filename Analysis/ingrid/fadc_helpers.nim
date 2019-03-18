@@ -379,7 +379,7 @@ proc getFadcData*(filename: string): FadcData =
   let ch0_indices {.global.} = arange(3, 4*2560, 4)
   # same for the pedestal run data
   const home = getHomeDir()
-  const pedestalRun = joinPath(home, "CastData/data/pedestalRuns/pedestalRun000042_1_182143774.txt-fadc")
+  const pedestalRun = joinPath(home, "data/pedestalRuns/pedestalRun000042_1_182143774.txt-fadc")
   let pedestal_d {.global.} = readFadcFile(pedestalRun)
 
   let data = readFadcFile(filename)[]
@@ -390,7 +390,7 @@ proc getPedestalRun*(): seq[uint16] =
   # our local pedestal run
 
   const home = getHomeDir()
-  const pedestal_file = joinPath(home, "CastData/Code/scripts/data/pedestalRuns/pedestalRun000042_1_182143774.txt-fadc")
+  const pedestal_file = joinPath(home, "data/pedestalRuns/pedestalRun000042_1_182143774.txt-fadc")
   let pedestal = readFadcFile(pedestal_file)
   result = pedestal.data
 

@@ -1,0 +1,455 @@
+* Notes on development of CDL fitting functions
+
+Just notes taken regarding the development an elegant solution to the
+implementation of the fitting functions for CDL data.
+It's mostly rambling and not very coherent in parts though..
+
+Alternative approach is a creation of the principle functions at
+compile time. Then we still need to determine the lines at runtime! We
+cannot really get around that, because we need the histogram to base our
+starting parameters on.
+However: we might be able to use almost the same approach, once at compile time
+with dummy values and then at runtime have the =getLines= function
+return the same data structures but with values filled.
+
+=FitFuncArgs= is the basis for the function building process. It looks
+like this:
+#+BEGIN_SRC nim
+type
+  FitFuncKind = enum
+    ffConst, ffPol1, ffPol2, ffGauss, ffExpGauss
+
+  FitFuncArgs = object
+    name: string
+    case kind: FitFuncKind
+    of ffConst:
+      c: float
+    of ffPol1:
+      cp: float
+    of ffPol2:
+      cpp: float
+    of ffExpGauss:
+      ea: float
+      eb: float
+      eN: float
+      emu: float
+      es: float
+    of ffGauss:
+      gN: float
+      gmu: float
+      gs: float
+#+END_SRC
+where =FitFuncKind= defines the different parts of functions that we
+have to take care of. The variant object =FitFuncArgs= is simply a
+single term in the total fit function, so that the final function can
+always be written as:
+\begin{equation}
+f(E) = \sum_i p_{\text{FFA}}
+\end{equation}
+where $p_{\text{FFA}}$ is a single =FitFuncArgs=, i.e. the final
+function of energy =E= is just a sum of all function parts.
+
+At the same time =FitFuncArgs= can also be utilized to store the start
+parameters of each fit function. There's a small caveat though. If we
+reuse the same data structure for function creation at compile time
+and start parameters at runtime, a =seq[FitFuncArgs]= is unsafe, since
+a CDL fitting function may contain several of the same parts, e.g. two
+=ffGauss=. In this case we have to make sure to always keep the same
+order for the runtime part as we use for the compile time creation, so
+that we don't confuse two peaks (in principle that doesn't really
+matter, since the function terms are identical, but when printing the
+resulting fit parameters, we need to be able to identify which
+parameter is for which function part :) ).
+
+** Creation of functions at compile time
+
+First we need to define the functions at compile time, before we can
+continue. The resulting functions need to have the signature:
+#+BEGIN_SRC nim
+CdlFitFunc = proc(p_ar: seq[float], x: float): float
+#+END_SRC
+since that is used by =mpfit= and =nlopt=. We additionally define a
+type =CdlFit=, which will store the thus generated function:
+#+BEGIN_SRC nim
+type
+  CdlFit = object
+    target: TargetKind
+    filter: FilterKind
+    hv: float
+    fit: CdlFitFunc
+#+END_SRC
+
+Assuming we have the =CEpic= function, consisting of two gaussians:
+#+BEGIN_SRC nim
+const cEpicF = @[FitFuncArgs(name: "C-Kalpha", kind: ffGauss),
+                 FitFuncArgs(name: "O-Kalpha", kind: ffGauss)]
+#+END_SRC
+Note, that we either have to define =cEpicF= as a =const= or as a
+=compileTime= variable like so:
+#+BEGIN_SRC nim
+var cEpicF {.compileTime.} = ...
+#+END_SRC
+so that we can use these objects to define a function at compile time.
+
+The code we had in the file so far looks like the following:
+#+BEGIN_SRC nim
+template buildFitProc(name: untyped, parts: seq[FitFuncArgs]): untyped =
+  var params: seq[float]
+  var funcBody: float
+  for p in parts:
+    case p.kind
+    of ffGauss:
+      funcBody += p.gN * gauss(x, p.gmu, p.gs)
+    of ffExpGauss:
+      funcBody += expGauss(@[p.ea, p.eb, p.eN, p.emu, p.es], x)
+  proc `name`(p_ar: seq[float], x: float): float =
+    result = funcBody
+  `name`
+#+END_SRC
+However, this cannot work. We mix calling a function at runtime with
+specific values, e.g. =gauss(x, p.gmu, p.gs)= with the creation of a
+procedure at compile time. In this case the biggest problem is the
+fact that we try to build the =funcBody= in the template via a loop,
+but call the functions already with =x=, which isn't defined yet. We
+can rescue the code to an extent by putting the loop into the proc
+body like so:
+#+BEGIN_SRC nim
+template buildFitProc(name: untyped, parts: seq[FitFuncArgs]): untyped =
+  var params: seq[float]
+  var funcBody: float
+  proc `name`(p_ar: seq[float], x: float): float =
+    for p in parts:
+      case p.kind
+      of ffGauss:
+        result += p.gN * gauss(x, p.gmu, p.gs)
+      of ffExpGauss:
+        result += expGauss(@[p.ea, p.eb, p.eN, p.emu, p.es], x)
+      else: discard
+  `name`
+#+END_SRC
+Now at least the code can almost compile, but in this way it still
+won't due to a stupid bug. If calling the template like:
+#+BEGIN_SRC nim
+buildFitProc(test, cEpicF)
+#+END_SRC
+we'd be greeted with
+#+BEGIN_SRC sh
+Error: expression 'test' is of type 'proc (p_ar: seq[float], x: float): float{.noSideEffect, gcsafe, locks: 0.}' and has to be discarded; for a function call use ()
+#+END_SRC
+which just tells us that in our code we're defining a function and
+then writing =test= in the code. Using =expandMacros= from the
+=macros= module, we can see what the template does:
+#+BEGIN_SRC nim
+expandMacros:
+  buildFitProc(test, cEpicF)
+#+END_SRC
+prints at compilation time the following:
+#+BEGIN_SRC nim
+var params190155: seq[float]
+var funcBody190156: float
+proc test(p_ar190157: seq[float]; x190158: float): float =
+  for p190159 in items(cEpicF):
+    case p190159.kind
+    of ffGauss:
+      result += p190159.gN * gauss(x190158, p190159.gmu, p190159.gs)
+    of ffExpGauss:
+      result += expGauss(@[p190159.ea, p190159.eb, p190159.eN, p190159.emu, p190159.es],
+                       x190158)
+    else:
+      discard
+
+test
+#+END_SRC
+The problem is that the line =`name`= in the template at the end just
+writes out the function name (not even as a function call). And the
+compiler complains to us that the expression =test= is simply a
+function of a certain type and has to be discarded, e.g.
+#+BEGIN_SRC nim
+discard test
+#+END_SRC
+would actually be valid, although it wouldn't do anything. The
+compiler even tells us we might want to call a function using =()=
+instead. Anyways, this is pretty stupid and my original intent was
+actually just to make sure that the proc that we just define will
+actually be visible in the global scope. But that isn't actually
+necessary. :)
+
+The bigger problem with this code is the fact that we're just mixing
+in the elements of =cEpicF= that we hand, but don't do anything with
+the parameters of the function that we define, namely =p_ar19015= (or
+rather =p_ar= for our purposes). So if we were to define these
+functions in such a way and try to call them, handing different
+=p_ar= wouldn't have any effect at all! We'd just be using the same
+parameters all the time, since they'd be hardcoded.
+
+That's why we need to better split up between compile time declaration
+of the functions and runtime calling.
+
+So let's reevaluate what we want to actually do.
+
+At compile time we need the =FitFuncArgs= not actually for their
+parameters, e.g. =gN, gmu, gs= from =ffGauss= for instance. But rather
+we need them to dispatch onto the correct function to call using the
+mentioned =p_ar= above! We can use the approach from above by
+inserting the for loop into the definition of our procedure. This
+still has one "problem" though. It means all functions we define have
+to actually perform the loop over the given =parts= (e.g. =cEpicF=) on
+each function call. That will have quite a significant performance
+impact. Although for our purpose here performance really isn't an
+issue at all. It's just not very elegant, because we do not actually
+make proper use of the fact that we know at compile time what the
+functions are we're calling! The code may look like the following:
+#+BEGIN_SRC nim
+template buildFitProc(name: untyped, parts: seq[FitFuncArgs]): untyped =
+  proc `name`(p_ar: seq[float], x: float): float =
+    var i = 0
+    for p in parts:
+      case p.kind
+      of ffGauss:
+        result += p_ar[i] * gauss(x, p_ar[i + 1], p_ar[i + 2])
+        inc i, 3 # increase by number of consumed parameters
+      of ffExpGauss:
+        result += expGauss(p_ar[i .. i + 4], x)
+        inc i, 5
+      else: discard
+#+END_SRC
+We simply case on each part and add the given term to the result. The
+only thing we have to do is to make sure to call the correct
+parameters and give them to the corresponding implemented
+functions. For that we use the variable =i=, which we increment the
+correct number of parameters in each case.
+
+With such a definition we then can define the start parameters again
+using =FitFuncArgs= and have a "serialization" procedure, which turns
+a =seq[FitFuncArgs]= into a =seq[float]= corresponding to the =p_ar=
+argument of the created function. Then, again, the order of the
+=FitFuncArgs= is crucial so that we map the correct parameters to the
+correct functions! We could make this more safe, but no point in
+complicating things even more.
+
+So then now we just define all equivalents for =cEpicF= in the code to
+represent all lines, extend =buildFitProc= to account for all kinds
+and actually call =buildFitProc= in the code with each
+=seq[FitFuncArgs]= defined. I would propose a nomenclature for the
+actual functions like 
+#+BEGIN_SRC 
+<target><filter>Func
+#+END_SRC
+e.g. =cEpicFunc=, =mnCrFunc= etc.
+
+** Calling functions at runtime
+
+With the definition of procedures in place, we can now revisit the
+=getLines= function that's already defined in the code and implement
+the serialization proc that turns this into a simple =seq[float]= to
+use for the actual fitting.
+
+=getLines= at the moment without comments looks like and only a
+single case used:
+#+BEGIN_SRC nim
+func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncArgs] =
+  let muIdx = argmax(hist)
+  case tfKind
+  of tfCEpic:
+    result.add FitFuncArgs(name: "C-Kalpha",
+                           kind: ffGauss,
+                           gmu: binning[muIdx],
+                           gN: hist[muIdx],
+                           gs: hist[muIdx] / 10.0)
+    result.add FitFuncArgs(name: "O-Kalpha",
+                           kind: ffGauss,
+                           gmu: binning[muIdx],
+                           gN: hist[muIdx],
+                           gs: hist[muIdx] / 10.0)
+  else: discard
+#+END_SRC
+
+We will call this function after reading the =hits= dataset in the
+corresponding H5 file from a CDL run (and having done some cleaning)
+and calculated the histogram of that with a given binning, similar to
+what we do to fit the Fe spectrum in =calibration.nim=:
+#+BEGIN_SRC nim
+proc fitFeSpectrum*(data: seq[int]): (seq[float], seq[int], seq[float]) =
+  const binSize = 3.0
+  let low = -0.5
+  var high = max(data).float + 0.5
+  let nbins = (ceil((high - low) / binSize)).int
+  # using correct nBins, determine actual high
+  high = low + binSize * nbins.float
+  let bin_edges = linspace(low, high, nbins + 1)
+  let hist = data.histogram(bins = nbins + 1, range = (low, high))
+
+  result[2] = fitFeSpectrumImpl(hist.mapIt(it.float), bin_edges[0 .. ^1])
+  result[0] = bin_edges[0 .. ^1]
+  result[1] = hist
+#+END_SRC
+where I removed some comments (we should probably create a function
+that receives =data= and returns only =hist= and the correct
+=bin_edges= given a certain number of bins or bin size. I.e. a wrapper
+around histogram that also returns the bin edges.
+
+Assuming we now have =hist= and =bin_edges= as variables in our code,
+we can continue:
+#+BEGIN_SRC nim
+let lines = getLines(hist, bin_edges, tfCEpic)
+let params = lines.serialize
+#+END_SRC
+So all we have left to do is implement the =serialize= proc. This
+needs to closely follow our implementation of the case statement
+within the =buildFitProc= so that the indices actually match.
+
+Let's do this:
+#+BEGIN_SRC nim
+proc serialize(parts: seq[FitFuncArgs]): seq[float] =
+  for p in parts:
+    case p.kind
+    of ffGauss:
+      result.add @[p.gN, p.gmu, p.gs]
+    of ffExpGauss:
+      result.add @[p.ea, p.eb, p.eN, p.emu, p.es]
+    else: discard
+#+END_SRC
+etc. the parameters should be in the order, in which they have to be
+given to the actual implementation functions! 
+
+Once we have serialized the parameters (and potentially dealt with
+bounds for the parameters; but this can wait, first see whether the
+fits work in principle or not), we can just call =mpfit= or =nlopt= to
+perform the fitting for us (again, see =calibration.nim= for
+examples).
+
+** Make use of =CdlFit=
+
+In the code above we completely ignore the =CdlFit= object so far. For
+the actual implementation it's not actually needed, but in comes in
+handy, when we run over the run list to automatically deal with the
+whole code above in a general manner, without having to manually
+define the arguments to functions like =getLines= etc.
+
+We need to be clear on the structure of the code.
+At compile time:
+- at compile time we define the constants like =cEpicF=, which define
+  what the CDL fitting functions /look like/ and then use each of
+  these to create the corresponding fitting function. So below the
+  definition of the =buildFitProc= template, we add 
+  #+BEGIN_SRC nim
+  cEpicF = @[...] # see above
+  buildFitProc(cEpicFunc, cEpicF) # see naming nomenclature above
+  #+END_SRC
+  (NOTE: regarding the naming nomenclature, we could easily write a
+  macro that creates these procedure names for us, either based on the
+  actual =TargetFilterKind= or just the name of the variable of
+  e.g. =cEpicF= (the former would be preferred, but depending on how
+  the code is written, this may not be available at compile time
+  without hardcoding the targets / filters or writing a macro that
+  iterates over the =TargetFilterKind= enum. Neither worth the
+  complication here).
+At run time:
+- perform the parsing of the CDL run list as already done in the code
+- read the =hits= data of the correct run in the file
+- making use of the =CdlRun= object, define the =CdlFit= object (Note:
+  there's one thing left to do here, we'll handle below)
+- using the hits data and the =CdlRun= perform the =getLines= call and
+  perform the fit
+
+The thing missing from this list is how to assign the correct
+=CdlFitFunc= to the =CdlFit= object. The =CdlRun= object contains the
+=target= and =filter= fields. Using the naming scheme mentioned above
+that is given as the argument to =buildFitProc=, we can create the
+identifier required (in contrast to the above note, creating the
+correct identifier - read as proc name - is easy here, because we
+already know which target and filter we look at).
+
+NOTE: In hindsight the above is not exactly the case. At least not if
+compared to the straight and simple manual coding of the created
+proc. Since it's only a few lines of code it's questionable whether
+the macro approach is actually worth it. Anyways, I'll let it in here.
+
+So if we have some =CdlRun= object named =cdlRun=, generating the
+=CdlFit= may look like shown below. What we aim for is just a proc
+that takes =target= and =filter=, creates a string from the
+combination, and then a =case= statement that checks for all string
+values that may show up as target / filter pairs and return the
+appropriate fit function. 
+An implementation based on the =TargetFilterKind= enum using a macro:
+#+BEGIN_SRC nim
+type
+  # the target filter kind definitions
+  TargetFilterKind = enum
+    tfCuNi = "Cu-Ni"
+    tfMnCr = "Mn-Cr"
+    tfTiTi = "Ti-Ti"
+    tfAgAg = "Ag-Ag"
+    tfAlAl = "Al-Al"
+    tfCuEpic = "Cu-Epic"
+    tfCEpic =  "C-Epic"    
+
+macro genTfToFilterProc(): untyped =
+  # get the enum of the `TargetFilterKind`
+  # The AST looks like this:
+  # EnumTy
+  #   Empty
+  #   Sym "tfTiTi"
+  #   Sym "tfCEpic"
+  #   ...
+  let tfkind = getType(TargetFilterKind)
+  # first generate the string combinations that make up the
+  # prefix of the function names
+  var funcNames: seq[string]
+  for x in tfKind:
+    # check if we look at the `Empty` element shown above
+    if x.kind != nnkEmpty:
+      let xStr = $(x.getImpl)
+      funcNames.add xStr.toLowerAscii.replace("-", "") & "Func"
+  # define all identifiers we need in our proc, i.e. all variable 
+  # names that will end up in the function
+  let 
+    pname = ident"getCdlFitFunc"
+    arg1 = ident"target"
+    argt1 = ident"TargetKind"
+    arg2 = ident"filter"
+    argt2 = ident"FilterKind"
+    cdf = ident"CdlFitFunc"
+    tfNameNode = ident"n"
+    resIdent = ident"result"
+ 
+  # now we build the case statement that will go into the procedure
+  var  caseStmt = nnkCaseStmt.newTree(tfNameNode)
+  for n in funcNames:
+    let retId = ident(n)
+    let retval = quote do:
+      `resIdent` = `retId`
+    caseStmt.add nnkOfBranch.newTree(newLit n, retval)
+  # finally assign the result of the macro to a quote block, that
+  # creates the simple proc
+  result = quote do:
+    proc `pname`(`arg1`: `argt1`, `arg2`: `argt2`): `cdf` =
+      let `tfNameNode` = ($`arg1`).toLowerAscii & $`arg2` & "Func"
+      `caseStmt`
+  echo result.repr
+#+END_SRC
+The created proc is just the following:
+#+BEGIN_SRC nim
+proc getCdlFitFunc(target: TargetKind; filter: FilterKind): CdlFitFunc =
+  let n = ($target).toLowerAscii &
+      $filter & "Func"
+  case n
+  of "titiFunc":
+    result = titiFunc
+  of "cepicFunc":
+    result = cepicFunc
+  ...
+#+END_SRC
+As mentioned in the note above, although in total it's 7 cases writing
+it manually is probably a better idea anyways. For a lot more cases
+this would soon start to be very handy, since the lines of code
+wouldn't change at all.
+
+In any case, with this implemented, we have all pieces available to
+us to put everything together. We just create a =CdlFit= object based
+on the common fields with the =CdlRun= object that we have, use the
+just created =getCdlFitFunc= to assign the field in the object and we
+can go to [[Calling functions at runtime]] in our code.
+
+NOTE: the above actually makes the definition of the =getCdlFits=
+procedure in the current file obsolete.

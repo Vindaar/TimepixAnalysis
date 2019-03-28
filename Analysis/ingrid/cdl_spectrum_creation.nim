@@ -105,6 +105,9 @@ type
       gs: float
 
 func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncArgs] =
+  ## this is a runtime generator for the correct fitting function prototype,
+  ## i.e. it returns a seq of parts, which need to be combined to the complete
+  ## function at runtime
   let muIdx = argmax(hist)
   case tfKind
   of tfCuNi: #need to add for rest combinatons
@@ -127,7 +130,6 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
   of tfCuEpic:
      discard
   of tfCEpic:
-    #var ffConst = 0.0
     result.add FitFuncArgs(name: "C-Kalpha",
                            kind: ffGauss,
                            gmu: binning[muIdx],
@@ -141,25 +143,72 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
   #else:
     #discard
 
-
-proc cEpicFunc(p_ar: seq[float], x: float): float =
-  var p: seq[float]
-  result = p[0] * gauss(x, p[1], p[2]) + p[3] * gauss(x, p[4], p[5])
-
 template buildFitProc(name: untyped, parts: seq[FitFuncArgs]): untyped =
-  var params: seq[float]
-  var funcBody: float
+  proc `name`(p_ar: seq[float], x: float): float =
+    var i = 0
+    for p in parts:
+      case p.kind
+      of ffGauss:
+        result += p_ar[i] * gauss(x, p_ar[i + 1], p_ar[i + 2])
+        inc i, 3 # increase by number of consumed parameters
+      of ffExpGauss:
+        result += expGauss(p_ar[i .. i + 4], x)
+        inc i, 5
+      else: discard
+
+# TODO: add additional constants for other pairs
+const cEpicF = @[FitFuncArgs(name: "C-Kalpha", kind: ffGauss),
+                 FitFuncArgs(name: "O-Kalpha", kind: ffGauss)]
+# TODO: call buildFitProc for the other pairs
+buildFitProc(cEpicFunc, cEpicF)
+
+# TODO: call the template above with some custom functions mainly consisting
+# e.g. of linears and parabola functions and see if they evaluate correctly!
+# just generate some dots and plot them and compare with manual defintion
+  
+proc serialize(parts: seq[FitFuncArgs]): seq[float] =
   for p in parts:
     case p.kind
     of ffGauss:
-      funcBody += p.gN * gauss(x, p.gmu, p.gs)
+      result.add @[p.gN, p.gmu, p.gs]
     of ffExpGauss:
-      funcBody += expGauss(@[p.ea, p.eb, p.eN, p.emu, p.es], x)
-  proc `name`(p_ar: seq[float], x: float): float =
-    result = funcBody
-  `name`
+      result.add @[p.ea, p.eb, p.eN, p.emu, p.es]
+    else: discard
 
+macro genTfToFitFunc(pname: untyped): untyped =
+  let tfkind = getType(TargetFilterKind)
+  # first generate the string combinations
+  echo tfKind.treeRepr
+  var funcNames: seq[string]
+  for x in tfKind:
+    if x.kind != nnkEmpty:
+      let xStr = $(x.getImpl)
+      funcNames.add xStr.toLowerAscii.replace("-", "") & "Func"
+  # given the names, write a proc that returns the function
+  let
+    arg1 = ident"target"
+    argt1 = ident"TargetKind"
+    arg2 = ident"filter"
+    argt2 = ident"FilterKind"
+    cdf = ident"CdlFitFunc"
+    tfNameNode = ident"n"
+    resIdent = ident"result"  
+  var caseStmt = nnkCaseStmt.newTree(tfNameNode)
+  for n in funcNames:
+    let retId = ident(n)
+    let retval = quote do:
+      `resIdent` = `retId`
+    caseStmt.add nnkOfBranch.newTree(newLit n, retval)
+  result = quote do:
+    proc `pname`(`arg1`: `argt1`, `arg2`: `argt2`): `cdf` =
+      let `tfNameNode` = ($`arg1`).toLowerAscii & $`arg2` & "Func"
+      `caseStmt`
+  echo result.repr
 
+# generate the =getCdlFitFunc= used to get the correct fit function
+# based on a `TargetKind` and `FilterKind`
+genTfToFitFunc(getCdlFitFunc)
+      
 const cEpicFuncCharge = cEpicFunc
 # TODO: impl rest of functions + Charge functions
 
@@ -250,6 +299,12 @@ proc main =
       writeDset("CdlSpectrum", "hits")
       writeDset("CdlSpectrumEvents", "eventNumber")
 
+      # TODO: here we can now:
+      # - create the CdlFit object for this CdlRun object making use of the
+      #   `getCdlFitFunc` procedure
+      # - call a `fitSpectrum` function, which performs the steps outlined in
+      #   the Org file in the "Calling functions at runtime" chapter
+      
       let hitsRaw = histPlot(h5f[grp.name / "hits", int64])
         .binSize(2.0)
         .binRange(0.0, 400.0)

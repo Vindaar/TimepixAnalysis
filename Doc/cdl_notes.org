@@ -198,7 +198,9 @@ each function call. That will have quite a significant performance
 impact. Although for our purpose here performance really isn't an
 issue at all. It's just not very elegant, because we do not actually
 make proper use of the fact that we know at compile time what the
-functions are we're calling! The code may look like the following:
+functions are we're calling! 
+NOTE: see the [[Unroll the loop]] section below for an update.
+The code may look like the following:
 #+BEGIN_SRC nim
 template buildFitProc(name: untyped, parts: seq[FitFuncArgs]): untyped =
   proc `name`(p_ar: seq[float], x: float): float =
@@ -236,6 +238,546 @@ actual functions like
 <target><filter>Func
 #+END_SRC
 e.g. =cEpicFunc=, =mnCrFunc= etc.
+
+*** Unroll the loop
+
+As mentioned in the section above, the =buildFitProc= template we
+implemented has an ugly property. It doesn't actually use the fact
+that we know at compile time what the function to be implemented
+actually looks like. Instead it does two things we'd like to
+avoid. Let's look at it's expansion using =expandMacros= to understand
+what that is exactly:
+#+BEGIN_SRC nim
+proc cEpicFuncAlt(p_ar1447574: seq[float]; x1447575: float): float =
+  var i1447576 = 0
+  for p1447577 in items(cEpicF):
+    case p1447577.kind
+    of ffGauss:
+      result = p_ar1447574[i1447576] * gauss(x1447575, p_ar1447574[i1447576 + 1],
+          p_ar1447574[i1447576 + 2], false)
+      inc i1447576, 3
+    of ffExpGauss:
+      result = expGauss(p_ar1447574[i1447576 .. i1447576 + 4], x1447575)
+      inc i1447576, 5
+    else:
+      discard
+#+END_SRC
+First let's pick out line 3 of this code. It accesses the =cEpicF=
+constant that we defined globally! First of all accessing a global
+(although it's a =const=, which at least makes it safe) is just not
+very nice, as it makes the code more complicated and harder to
+understand. Secondly, this means that the constants we actually only
+create to properly define the functions need to be stored in the
+programs binary, although technically they woulnd't even be needed
+anymore. 
+
+The second thing we'd like to avoid is the =for= loop itself and the
+=case= statement. Again, since we know what =FitFuncKind= =cEpicF=
+contains at compile time, performing a =case= on *every single*
+function call (which might be called a lot, if the fit isn't
+converging quickly) is just wasteful. The branch predictor of a modern
+CPU might detect that the =kind= tends to be the same and hence reduce
+the performance impact, but relying on that isn't nice. 
+
+So let's find a way to write this code in such a way that we actually
+get rid of these two pain points.
+
+First we can slightly refactor the template for better clarity as to
+where our implementation needs to be headed. We see that the case
+statement may actually be its own procedure:
+#+BEGIN_SRC nim
+proc handleFitFuncKind(i: var int, p_ar: seq[float], x: float, p: FitFuncArgs): float =
+  case p.kind
+  of ffGauss:
+    result = p_ar[i] * gauss(x, p_ar[i + 1], p_ar[i + 2])
+    inc i, 3 # increase by number of consumed parameters
+  of ffExpGauss:
+    result = expGauss(p_ar[i .. i + 4], x)
+    inc i, 5
+  else: discard
+
+template buildFitProc(name: untyped, parts: seq[FitFuncArgs]): untyped =
+  proc `name`(p_ar: seq[float], x: float): float =
+    var i = 0
+    for p in parts:
+      result += handleFitFuncKind(i, p_ar, x, p)
+#+END_SRC
+This way we reduce the generated procedure of the template to a
+declaration of an index variable =i=, a =for= loop over =parts= and a
+call to our =handleFitFuncKind= procedure. Thus, we only have to write
+a macro that creates a procedure, which:
+1. replaces the =case= statement at run time by a =case= statement at
+   compile time
+2. remove the =for= loop and replace it by an unrolled version of the
+   elements in the sequence.
+
+**** Write the case statement at compile time
+
+First let's figure out how to write the =case= statement at compile
+time.
+
+We start with a barebones macros to investigate what =parts= actually
+looks like at compile time:
+#+BEGIN_SRC nim
+macro buildFitFunc(name: untyped, parts: seq[FitFuncArgs]): untyped =
+  echo parts.treeRepr
+#+END_SRC
+The =treeRepr= procedure is a proc that prints the tree representation
+of a =NimNode=. The thing to be aware of is firstly that any (even
+typed like =parts: seq[FitFuncArgs]= parameter of a macro, will
+actually be =NimNodes= within the macro! 
+Calling this macro as =buildFitFunc(test, cEpicF)=, we'll just see the
+following line echoed at compile time:
+#+BEGIN_SRC nim
+Sym "cEpicF"
+#+END_SRC
+This just tells us that the the argument =parts= is just the already
+defined symbol =cEpicF=. Well yeah, that's what we wanted. However, in
+the macro we're not really interested in the symbol, but rather the
+implementation of that symbol. So we can use =getImpl= for that:
+#+BEGIN_SRC nim
+echo parts.getImpl.treeRepr
+#+END_SRC
+within the macro, will surprise us with a lot more output at compile
+time:
+#+BEGIN_SRC nim
+Bracket           
+  ObjConstr      
+    Empty     
+    ExprColonExpr 
+      Sym "name" 
+      StrLit "C-Kalpha"
+    ExprColonExpr 
+      Sym "kind" 
+      IntLit 3
+    ExprColonExpr 
+      Sym "c"    
+      FloatLit 0.0
+    ExprColonExpr 
+      Sym "cp"   
+      FloatLit 0.0
+    ExprColonExpr 
+      Sym "cpp"  
+      FloatLit 0.0
+    ExprColonExpr 
+      Sym "ea"   
+      FloatLit 0.0
+    ExprColonExpr 
+      Sym "eb"   
+      FloatLit 0.0
+    ExprColonExpr 
+      Sym "eN"
+      FloatLit 0.0
+    ExprColonExpr
+      Sym "emu"                                                         
+      FloatLit 0.0                
+    ExprColonExpr     
+      Sym "es"
+      FloatLit 0.0
+    ExprColonExpr     
+      Sym "gN"
+      FloatLit 0.0                                                                                
+    ExprColonExpr                                                                            
+      Sym "gmu"                                                                                  
+      FloatLit 0.0                                                                           
+    ExprColonExpr                                                                                 
+      Sym "gs"                                                                                          
+      FloatLit 0.0                                                                                     
+  ObjConstr                                                                                          
+    Empty                                                                                     
+    ExprColonExpr               
+      Sym "name"
+      StrLit "O-Kalpha" 
+    ExprColonExpr
+      Sym "kind"
+      IntLit 3
+    ExprColonExpr
+      Sym "c"
+      FloatLit 0.0
+    ExprColonExpr
+      Sym "cp"
+      FloatLit 0.0
+    ExprColonExpr
+      Sym "cpp"
+      FloatLit 0.0
+    ExprColonExpr
+      Sym "ea"
+      FloatLit 0.0
+    ExprColonExpr
+      Sym "eb"
+      FloatLit 0.0
+    ExprColonExpr
+      Sym "eN"
+      FloatLit 0.0
+    ExprColonExpr
+      Sym "emu"
+      FloatLit 0.0
+    ExprColonExpr
+      Sym "es"
+      FloatLit 0.0
+    ExprColonExpr
+      Sym "gN"
+      FloatLit 0.0
+    ExprColonExpr
+      Sym "gmu"
+      FloatLit 0.0
+    ExprColonExpr
+      Sym "gs"
+      FloatLit 0.0
+#+END_SRC
+While this looks like a *lot* of output, it's actually just what we
+wrote in the line in which we declared =cEpicF=:
+#+BEGIN_SRC nim
+const cEpicF = @[FitFuncArgs(name: "C-Kalpha", kind: ffGauss),
+                 FitFuncArgs(name: "O-Kalpha", kind: ffGauss)]
+#+END_SRC
+except that this time, the =FitFuncArgs= is already expanded to
+include all fields of the object with their default values of =0.0=
+(for floats). If we throw out the default fields, the output becomes a
+little more easy to read:
+#+BEGIN_SRC nim
+Bracket           
+  ObjConstr      
+    Empty     
+    ExprColonExpr 
+      Sym "name" 
+      StrLit "C-Kalpha"
+    ExprColonExpr 
+      Sym "kind" 
+      IntLit 3
+  ObjConstr                                                                                          
+    Empty                                                                                     
+    ExprColonExpr               
+      Sym "name"
+      StrLit "O-Kalpha" 
+    ExprColonExpr
+      Sym "kind"
+      IntLit 3
+#+END_SRC
+A note about language: anything that is one indented one level more
+than the above, is called a =child= node of the =parent= node. Looping
+over a =NimNode= means an iterator that yields each =child=
+node. =Child= nodes can be accessed from a =parent= using the =[]=
+accessor. Of course they are 0 indexed.
+So we have a =nnkBracket= node, which resembles the =@[]= in our
+declaration of =cEpicFunc= (note: the correct internal name for the
+nodes to use them in the macros is actually prefixed by =nnk=, which
+stands for =NimNodeKind=). The =nnkObjConstr= node is the name for
+each call to =FitFuncArgs=. Since our declaration has two
+=FitFuncArgs=, the =nnkBracket= has two child nodes. Aside from the
+seemingly random =nnkEmpty= node, the children of the =nnkObjConstr=
+simply resemble the implementation of the =FitFuncArgs= object, in the
+same order as our implementation lists them:
+#+BEGIN_SRC nim
+  FitFuncArgs = object
+    name: string
+    case kind: FitFuncKind
+    of ffConst:
+      c: float
+    of ffPol1:
+      cp: float
+    of ffPol2:
+      cpp: float
+    of ffExpGauss:
+      ea: float
+      eb: float
+      eN: float
+      emu: float
+      es: float
+    of ffGauss:
+      gN: float
+      gmu: float
+      gs: float
+#+END_SRC
+For our purposes then, all we need is the following child node:
+#+BEGIN_SRC nim
+    ExprColonExpr 
+      Sym "kind" 
+      IntLit 3
+#+END_SRC
+because it defines the =kind= of the =FitFuncArgs=. One implementation
+detail is visible, i.e. the fact that =enums= are actually just
+implemented as simple =sets=, i.e. the possible values are just
+integers, by default starting from =0=, counting up (although =enums=
+with holes are supported by explicitly assigning integers to the enum
+values). 
+So we need to extract this node and create a =FitFuncKind= enum value
+at compile time. Note: an =enum= *value* and not a =NimNode=, that
+contains an =enum= value! Otherwise we can't create a =case= statement
+that runs at compile time.
+Let's loop over the =parts= nodes at compile time and extract the node
+mentioned above. Within the =macro= we have defined, add:
+#+BEGIN_SRC nim
+  for p in parts.getImpl:
+    # each =p= is now each child of `nnkBracket`, i.e. each `nnkObjConstr`
+    # using `[]` we can then access the children of `p` again
+    let kindNode = p[2]
+#+END_SRC
+=kindNode= represents the node shown in the previous code snippet
+however, we actually need the =int= value contained in the node to
+create an enum value: 
+#+BEGIN_SRC nim
+let enumVal = kindNode[1]
+#+END_SRC
+But this again is only the =IntLit 3= node from above! We actually
+need the real integer value stored. This can be done using the
+=intVal= proc:
+#+BEGIN_SRC nim
+let enumVal = kindNode[1].intVal
+#+END_SRC
+Now =enumVal= is an actual integer, storing the number 3. We can now
+use this value to construct a =FitFuncKind= value of the correct kind:
+#+BEGIN_SRC nim
+let enumVal = FitFuncKind(kindNode[1].intVal)
+#+END_SRC
+by just using the constructor for =FitFuncKind= with the argument of
+the integer value.
+
+With this we can now actually write:
+#+BEGIN_SRC nim
+case enumVal
+of ffGauss:
+  # do something
+of ffExpGauss:
+  # do something else
+else: discard
+#+END_SRC
+The actual content of each case has to be different than what it was
+in the =template= case above though, because we need not return
+numerical values, but rather the code that is required! Fortunately,
+using a handy macro =quote= this is almost the same as writing the
+runtime code. 
+
+As a short reminder, the code that is required is something like
+(example the =ffGauss= case):
+#+BEGIN_SRC nim
+result += p_ar[i] * gauss(x, p[i + 1], p[i + 2])
+inc i, 3
+#+END_SRC
+within the case. What our job now is, is to create the =NimNodes= that
+are contained in this snippet and return a =nnkStmtList=, containing
+these expressions with the nodes inserted. Assuming we have a node
+that describes. We will write a compile time =proc= that will be
+called by the macro we define above, that does this. As the arguments
+we will give the nodes that need to show up in the code we must
+generate. A compile time proc only takes =NimNode= parameters and
+return types! It may look like the following (where pFitNode is still
+the raw =p= node we had above in the =for= loop):
+#+BEGIN_SRC nim
+proc genFitFuncImpl(resultNode, idx, paramsNode, xNode, pFitNode: NimNode): NimNode =
+  expectKind(pFitNode, nnkObjConstr)
+  let fKind = FitFuncKind(pFitNode[2][1].intVal)
+  case fKind
+  of ffGauss:
+    result = quote do:
+      `resultNode` += `paramsNode`[`idx`] * gauss(`xNode`,
+                                                  `paramsNode`[`idx` + 1],
+                                                  `paramsNode`[`idx` + 2])
+      inc `idx`, 3 # increase by number of consumed parameters
+  of ffExpGauss:
+    result = quote do:
+      result += expGauss(`paramsNode`[`idx` .. `idx` + 4], `xNode`)
+      inc `idx`, 5
+  else: discard
+#+END_SRC
+First we use =expectKind= on the =pFitNode= as a sanity check to make
+sure that =pFitNode= is actuall an =nnkObjConstr= node. Then we create
+what we called =enumVal= above as =fKind=, followed by the =case=
+statement. As mentioned above, using the =quote= macro, we almost
+write the exact normal code, except we put a bunch of things into =``=
+markers. What this means is "replace the identifier given by the value
+of the =NimNode= stored within the identifier". Anything that is not
+in =``= will be inserted as is into the code, after potential name
+mangling (i.e. turning =x= into =x154932=). =gauss= and =expGauss= do
+not have to be unquoted, because they refer to symbols known in the
+calling scope.
+
+Remains the question how we need to define the =NimNodes= given as
+parameters to the =genFitFuncImpl= proc. For the purposes here, all we
+need are =NimNodes= containing Nim identifiers. We can construct such
+identifiers using the =ident= proc as:
+#+BEGIN_SRC nim
+let resultNode = ident"result"
+#+END_SRC
+which just contains a =nnkIdent= with value ="result"= (seen by
+calling =echo resultNode.treeRepr=).
+
+With this we're almost done actually. We just have to define all these
+identifiers, construct the =proc body= and the parameters and return
+type of the proc we want to create. The latter things are easy. 
+
+The identifiers are defined as:
+#+BEGIN_SRC nim
+  let
+    idx = ident"i"
+    paramsNode = ident"p_ar"
+    xNode = ident"x"
+    resultNode = ident"result"
+#+END_SRC
+The =proc= return type also simply as:
+#+BEGIN_SRC nim
+  let retType = ident"float"
+#+END_SRC
+The parameters are a little more unintuitive, because the typical
+#+BEGIN_SRC nim
+params: seq[float]
+#+END_SRC
+is represented by an =nnkIdentDefs= node. =seq[float]= in addition can
+not just be written as =ident"seq[float]"=, but actually needs to be
+represented as an =nnkBracketExpr=:
+#+BEGIN_SRC nim
+nnkBracketExpr.newTree(ident"seq", ident"float")
+#+END_SRC
+The =newTree= proc produces a tree with an arbitrary number of
+branches (read as child nodes) of the type =nnkBracketExpr= in this
+case. 
+
+Note: if in doubt about how something is represented within Nim
+macros, either take a look at the =macros= module documentation:
+https://nim-lang.github.io/Nim/macros.html#statements-procedure-declaration
+or more conveniently by using the =dumpAstGen= macro, like so:
+#+BEGIN_SRC nim
+dumpAstGen:
+  var x: seq[float]
+#+END_SRC
+which will print the AST required to produce this code (without the
+=newTree= calls however!).
+
+Now we can define the parameters of the =proc= as:
+#+BEGIN_SRC nim
+let 
+  retParNode = nnkIdentDefs.newTree(paramsNode,
+                                    nnkBracketExpr.newTree(
+                                      ident"seq",
+                                      ident"float"),
+                                    newEmptyNode())
+  retXNode = nnkIdentDefs.newTree(xNode,
+                                  ident"float",
+                                  newEmptyNode())
+#+END_SRC
+where we use the =ident= nodes created above.
+
+We're almost done. The =proc= we want to write needs the =i= variable
+as a counter for the =p_ar= argument. So we start by creating the
+=proc= body and declaring =i=:
+#+BEGIN_SRC nim
+  # create a node to hold the procedure body
+  var procBody = newStmtList()
+  # declare the index variable we use
+  procBody.add quote do:
+    var `idx` = 0
+#+END_SRC
+Then we can make use of our =genFitFuncImpl= compile time proc to
+append to this =nnkStmtList=:
+#+BEGIN_SRC nim
+  for p in parts.getImpl:
+    # add the lines for the function calls
+    procBody.add genFitFuncImpl(resultNode, idx, paramsNode, xNode, p)
+#+END_SRC
+
+Now we just have to actually put these parts together and assign it to
+the =result= variable. We use the convenience =newProc= procedure,
+which simplifies the creation of a =proc= a little bit:
+#+BEGIN_SRC nim
+  # now define the result variable as a new proc
+  result = newProc(name = name,
+                   params = [retType, retParNode, retXNode],
+                   body = procBody,
+                   procType = nnkFuncDef)
+#+END_SRC
+The =params= argument of the =newProc= helper has to be an array,
+which contains the return type of the proc first (if there's no
+return type, it has to be =newEmptyNode()=), followed by the
+=nnkIdentDefs= we defined. In addition we change the =procType= to be
+=nnkFuncDef= so that we actually create a =func= instead of a =proc=.
+
+To see that we create the correct code, we can =echo= the =result=
+via =repr=:
+#+BEGIN_SRC nim
+echo result.repr
+#+END_SRC
+
+Now let's put all these snippets together and call it in the code:
+#+BEGIN_SRC nim
+proc genFitFuncImpl(resultNode, idx, paramsNode, xNode, pFitNode: NimNode): NimNode =
+  ## the compilet time procedure that creates the implementation lines for
+  ## the <target><Filter>Funcs that we create, which calls the correct functions,
+  ## e.g.
+  ##   result += p_ar[i] * gauss(x, p[i + 1], p[i + 2])
+  ##   inc i, 3
+  expectKind(pFitNode, nnkObjConstr)
+  let fkind = FitFuncKind(pFitNode[2][1].intVal)
+  case fKind
+  of ffGauss:
+    result = quote do:
+      `resultNode` += `paramsNode`[`idx`] * gauss(`xNode`,
+                                                  `paramsNode`[`idx` + 1],
+                                                  `paramsNode`[`idx` + 2])
+      inc `idx`, 3 # increase by number of consumed parameters
+  of ffExpGauss:
+    result = quote do:
+      result += expGauss(`paramsNode`[`idx` .. `idx` + 4], `xNode`)
+      inc `idx`, 5
+  else: discard
+
+macro buildFitFunc(name: untyped, parts: seq[FitFuncArgs]): untyped =
+  ## builds a CDL fit function based on the function described by
+  ## the `seq[FitFuncArgs]` at compile time. Using the `FitFuncKind` of
+  ## each part, it'll write the needed implementation lines for the
+  ## call to the correct functions, e.g. `gauss`, `expGauss` etc.
+  # define the variables needed in the implementation function and
+  # for the parameters
+  let
+    idx = ident"i"
+    paramsNode = ident"p_ar"
+    xNode = ident"x"
+    resultNode = ident"result"
+  # define parameters and return type of the proc we create
+  let
+    retType = ident"float"
+    retParNode = nnkIdentDefs.newTree(paramsNode,
+                                      nnkBracketExpr.newTree(
+                                        ident"seq",
+                                        ident"float"),
+                                      newEmptyNode())
+    retXNode = nnkIdentDefs.newTree(xNode,
+                                    ident"float",
+                                    newEmptyNode())
+  # create a node to hold the procedure body
+  var procBody = newStmtList()
+  # declare the index variable we use
+  procBody.add quote do:
+    var `idx` = 0
+
+  for p in parts.getImpl:
+    # add the lines for the function calls
+    procBody.add genFitFuncImpl(resultNode, idx, paramsNode, xNode, p)
+
+  # now define the result variable as a new proc
+  result = newProc(name = name,
+                   params = [retType, retParNode, retXNode],
+                   body = procBody,
+                   procType = nnkFuncDef)
+  echo result.repr
+
+buildFitFunc(cEpicFunc, cEpicF)
+#+END_SRC
+
+Upon compilation we're shown the following:
+#+BEGIN_SRC nim
+func cEpicFunc(p_ar: seq[float]; x: float): float =
+  var i = 0       
+  result += p_ar[i] * gauss(x, p_ar[i + 1], p_ar[i + 2], false)
+  inc i, 3    
+  result += p_ar[i] * gauss(x, p_ar[i + 1], p_ar[i + 2], false)
+  inc i, 3 
+#+END_SRC
+Which is just what we wanted! A specific, simple =func=, that *only*
+contains the code required for the =cEpicF= we gave to the macro. No
+more overheads and no more =const cEpicF= that need to live after
+compilation (which means we can actually replace the =const cEpicF=
+lines in the code by =var cEpicF {.compileTime.} = ...=, so these
+variables actually do not show up in the resulting binary!
 
 ** Calling functions at runtime
 

@@ -143,24 +143,90 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
   #else:
     #discard
 
+proc handleFitFuncKind(i: var int, p_ar: seq[float], x: float, p: FitFuncArgs): float =
+  case p.kind
+  of ffGauss:
+    result = p_ar[i] * gauss(x, p_ar[i + 1], p_ar[i + 2])
+    inc i, 3 # increase by number of consumed parameters
+  of ffExpGauss:
+    result = expGauss(p_ar[i .. i + 4], x)
+    inc i, 5
+  else: discard
+
 template buildFitProc(name: untyped, parts: seq[FitFuncArgs]): untyped =
   proc `name`(p_ar: seq[float], x: float): float =
     var i = 0
     for p in parts:
-      case p.kind
-      of ffGauss:
-        result += p_ar[i] * gauss(x, p_ar[i + 1], p_ar[i + 2])
-        inc i, 3 # increase by number of consumed parameters
-      of ffExpGauss:
-        result += expGauss(p_ar[i .. i + 4], x)
-        inc i, 5
-      else: discard
+      result += handleFitFuncKind(i, p_ar, x, p)
+
+proc genFitFuncImpl(resultNode, idx, paramsNode, xNode, pFitNode: NimNode): NimNode =
+  ## the compilet time procedure that creates the implementation lines for
+  ## the <target><Filter>Funcs that we create, which calls the correct functions,
+  ## e.g.
+  ##   result += p_ar[i] * gauss(x, p[i + 1], p[i + 2])
+  ##   inc i, 3
+  expectKind(pFitNode, nnkObjConstr)
+  let fkind = FitFuncKind(pFitNode[2][1].intVal)
+  case fKind
+  of ffGauss:
+    result = quote do:
+      `resultNode` += `paramsNode`[`idx`] * gauss(`xNode`,
+                                                  `paramsNode`[`idx` + 1],
+                                                  `paramsNode`[`idx` + 2])
+      inc `idx`, 3 # increase by number of consumed parameters
+  of ffExpGauss:
+    result = quote do:
+      result += expGauss(`paramsNode`[`idx` .. `idx` + 4], `xNode`)
+      inc `idx`, 5
+  else: discard
+
+macro buildFitFunc(name: untyped, parts: seq[FitFuncArgs]): untyped =
+  ## builds a CDL fit function based on the function described by
+  ## the `seq[FitFuncArgs]` at compile time. Using the `FitFuncKind` of
+  ## each part, it'll write the needed implementation lines for the
+  ## call to the correct functions, e.g. `gauss`, `expGauss` etc.
+  # define the variables needed in the implementation function and
+  # for the parameters
+  let
+    idx = ident"i"
+    paramsNode = ident"p_ar"
+    xNode = ident"x"
+    resultNode = ident"result"
+  # define parameters and return type of the proc we create
+  let
+    retType = ident"float"
+    retParNode = nnkIdentDefs.newTree(paramsNode,
+                                      nnkBracketExpr.newTree(
+                                        ident"seq",
+                                        ident"float"),
+                                      newEmptyNode())
+    retXNode = nnkIdentDefs.newTree(xNode,
+                                    ident"float",
+                                    newEmptyNode())
+  # create a node to hold the procedure body
+  var procBody = newStmtList()
+  # declare the index variable we use
+  procBody.add quote do:
+    var `idx` = 0
+
+  for p in parts.getImpl:
+    # add the lines for the function calls
+    procBody.add genFitFuncImpl(resultNode, idx, paramsNode, xNode, p)
+
+  # now define the result variable as a new proc
+  result = newProc(name = name,
+                   params = [retType, retParNode, retXNode],
+                   body = procBody,
+                   procType = nnkFuncDef)
+  echo result.repr
 
 # TODO: add additional constants for other pairs
 const cEpicF = @[FitFuncArgs(name: "C-Kalpha", kind: ffGauss),
                  FitFuncArgs(name: "O-Kalpha", kind: ffGauss)]
 # TODO: call buildFitProc for the other pairs
-buildFitProc(cEpicFunc, cEpicF)
+expandMacros:
+  buildFitProc(cEpicFuncAlt, cEpicF)
+  buildFitFunc(cEpicFunc, cEpicF)
 
 # TODO: call the template above with some custom functions mainly consisting
 # e.g. of linears and parabola functions and see if they evaluate correctly!

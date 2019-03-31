@@ -36,12 +36,12 @@ type
     fTi = "Ti"
 
   TargetFilterKind = enum
-    tfCuNi = "Cu-Ni"
-    tfMnCr = "Mn-Cr"
-    tfTiTi = "Ti-Ti"
-    tfAgAg = "Ag-Ag"
-    tfAlAl = "Al-Al"
-    tfCuEpic = "Cu-Epic"
+    #tfCuNi = "Cu-Ni"
+    #tfMnCr = "Mn-Cr"
+    #tfTiTi = "Ti-Ti"
+    #tfAgAg = "Ag-Ag"
+    #tfAlAl = "Al-Al"
+    #tfCuEpic = "Cu-Epic"
     tfCEpic =  "C-Epic"
 
   CdlRun = object
@@ -110,25 +110,25 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
   ## function at runtime
   let muIdx = argmax(hist)
   case tfKind
-  of tfCuNi: #need to add for rest combinatons
-     discard
-  of tfMnCr:
-     discard
-  of tfTiTi:
-     discard
-  of tfAgAg:
-     discard
-     ## result.add FitFuncArgs(name: "Ag-Lalpha",
-     ##                        kind: ffExpGauss)
-     ## result.add FitFuncArgs(name: "Ag-Lbeta",
-     ##                        kind: ffGauss,
-     ##                        gmu: binning[muIdx],
-     ##                        gN: hist[muIdx],
-     ##                        gs: hist[muIdx] / 10.0)
-  of tfAlAl:
-    discard
-  of tfCuEpic:
-     discard
+  #of tfCuNi: #need to add for rest combinatons
+  #   discard
+  #of tfMnCr:
+  #   discard
+  #of tfTiTi:
+  #   discard
+  #of tfAgAg:
+  #   discard
+  #   ## result.add FitFuncArgs(name: "Ag-Lalpha",
+  #   ##                        kind: ffExpGauss)
+  #   ## result.add FitFuncArgs(name: "Ag-Lbeta",
+  #   ##                        kind: ffGauss,
+  #   ##                        gmu: binning[muIdx],
+  #   ##                        gN: hist[muIdx],
+  #   ##                        gs: hist[muIdx] / 10.0)
+  #of tfAlAl:
+  #  discard
+  #of tfCuEpic:
+  #   discard
   of tfCEpic:
     result.add FitFuncArgs(name: "C-Kalpha",
                            kind: ffGauss,

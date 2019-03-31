@@ -208,12 +208,12 @@ macro genTfToFitFunc(pname: untyped): untyped =
 # generate the =getCdlFitFunc= used to get the correct fit function
 # based on a `TargetKind` and `FilterKind`
 genTfToFitFunc(getCdlFitFunc)
-      
+
 const cEpicFuncCharge = cEpicFunc
 # TODO: impl rest of functions + Charge functions
 
-proc getCdlFits(): Table[string, CdlFit] =
-  result = {"C-EPIC-0.6kV" : cEpicFunc}.toTable
+# proc getCdlFits(): Table[string, CdlFitFunc] =
+  # result = {"C-EPIC-0.6kV" : cEpicFunc}.toTable
           #{ "C-EPIC-0.6kV" : cEpicFunc,
              #"Cu-EPIC-0.9kV" : cuEpicLowFunc,
              #"Cu-EPIC-2kV" : cuEpicHighFunc,

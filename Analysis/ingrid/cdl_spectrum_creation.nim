@@ -1,4 +1,4 @@
-import parsecsv, os, streams, strutils, strformat, nimhdf5, tables, sequtils
+import parsecsv, os, streams, strutils, strformat, nimhdf5, tables, sequtils, macros
 import plotly
 import ingrid / [ingrid_types, tos_helpers, calibration]
 import docopt

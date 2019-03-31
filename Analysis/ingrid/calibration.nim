@@ -134,7 +134,7 @@ proc thlCalibFunc(p: seq[float], x: float): float =
   ## of the SCurves
   linearFunc(p, x)
 
-proc expGauss(p: seq[float], x: float): float =
+proc expGauss*(p: seq[float], x: float): float =
   # exponential * times (?!) from Christoph's expogaus.c
   if len(p) != 5:
     return Inf

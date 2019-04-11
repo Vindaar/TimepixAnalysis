@@ -180,7 +180,7 @@ proc genFitFuncImpl(resultNode, idx, paramsNode, xNode, pFitNode: NimNode): NimN
       inc `idx`, 5
   else: discard
 
-macro buildFitFunc(name: untyped, parts: seq[FitFuncArgs]): untyped =
+macro buildFitFunc(name: untyped, parts: openArray[FitFuncArgs]): untyped =
   ## builds a CDL fit function based on the function described by
   ## the `seq[FitFuncArgs]` at compile time. Using the `FitFuncKind` of
   ## each part, it'll write the needed implementation lines for the
@@ -220,18 +220,52 @@ macro buildFitFunc(name: untyped, parts: seq[FitFuncArgs]): untyped =
                    procType = nnkFuncDef)
   echo result.repr
 
+macro declareFitFunc(name, stmts: untyped): untyped =
+  ## DSL to declare the fit functions without having to go the
+  ## const of `seq[FitFuncArgs]` + buildFitFunc macro route.
+  ##
+  ## .. code-block::
+  ##   declareFitFunc(cEpic):
+  ##     ffGauss: "C-Kalpha"
+  ##     ffGauss: "O-Kalpha"
+  ##   # will be expanded to
+  ##   var cEpicF {.compileTime.} = @[FitFuncArgs(name: "C-Kalpha", kind: ffGauss),
+  ##                                  FitFuncArgs(name: "O-Kalpha", kind: ffGauss)]
+  ##   buildFitFunc(cEpicFunc, cEpicF)
+
+  let
+    thVarId = ident(name.strVal & "F_Mangle")
+    funcId = ident(name.strVal & "Func")
+  var ffSeq = nnkBracket.newTree()
+
+  for s in stmts:
+    expectKind(s, nnkCall)
+    let fkind = s[0]
+    let ffName = s[1][0].strVal
+    ffSeq.add quote do:
+      FitFuncArgs(name: `ffName`, kind: `fKind`)
+
+  result = quote do:
+    const `thVarId` = `ffSeq`
+    buildFitFunc(`funcId`, `thVarId`)
+
+declareFitFunc(cEpic):
+  ffGauss: "C-Kalpha"
+  ffGauss: "O-Kalpha"
+
+# old code for reference and understanding. TODOs still relevant
 # TODO: add additional constants for other pairs
-const cEpicF = @[FitFuncArgs(name: "C-Kalpha", kind: ffGauss),
-                 FitFuncArgs(name: "O-Kalpha", kind: ffGauss)]
+#const cEpicF = @[FitFuncArgs(name: "C-Kalpha", kind: ffGauss),
+#                 FitFuncArgs(name: "O-Kalpha", kind: ffGauss)]
+
 # TODO: call buildFitProc for the other pairs
-expandMacros:
-  buildFitProc(cEpicFuncAlt, cEpicF)
-  buildFitFunc(cEpicFunc, cEpicF)
+# buildFitProc(cEpicFuncAlt, cEpicF)
+# buildFitFunc(cEpicFunc, cEpicF)
 
 # TODO: call the template above with some custom functions mainly consisting
 # e.g. of linears and parabola functions and see if they evaluate correctly!
 # just generate some dots and plot them and compare with manual defintion
-  
+
 proc serialize(parts: seq[FitFuncArgs]): seq[float] =
   for p in parts:
     case p.kind
@@ -258,7 +292,7 @@ macro genTfToFitFunc(pname: untyped): untyped =
     argt2 = ident"FilterKind"
     cdf = ident"CdlFitFunc"
     tfNameNode = ident"n"
-    resIdent = ident"result"  
+    resIdent = ident"result"
   var caseStmt = nnkCaseStmt.newTree(tfNameNode)
   for n in funcNames:
     let retId = ident(n)

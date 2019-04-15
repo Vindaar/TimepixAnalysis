@@ -1,5 +1,5 @@
 import parsecsv, os, streams, strutils, strformat, nimhdf5, tables, sequtils, macros
-import plotly
+import plotly, mpfit
 import ingrid / [ingrid_types, tos_helpers, calibration]
 import docopt
 import helpers / utils
@@ -41,8 +41,8 @@ type
     #tfTiTi = "Ti-Ti"
     #tfAgAg = "Ag-Ag"
     #tfAlAl = "Al-Al"
-    #tfCuEpic = "Cu-Epic"
-    tfCEpic =  "C-Epic"
+    #tfCuEpic = "Cu-EPIC"
+    tfCEpic =  "C-EPIC"
 
   CdlRun = object
     number: int
@@ -93,16 +93,16 @@ type
       cp: float
     of ffPol2:
       cpp: float
+    of ffGauss:
+      gN: float
+      gmu: float
+      gs: float
     of ffExpGauss:
       ea: float
       eb: float
       eN: float
       emu: float
       es: float
-    of ffGauss:
-      gN: float
-      gmu: float
-      gs: float
 
 func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncArgs] =
   ## this is a runtime generator for the correct fitting function prototype,
@@ -134,12 +134,12 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
                            kind: ffGauss,
                            gmu: binning[muIdx],
                            gN: hist[muIdx],
-                           gs: hist[muIdx] / 10.0)
+                           gs: hist[muIdx] / 30.0)
     result.add FitFuncArgs(name: "O-Kalpha",
                            kind: ffGauss,
-                           gmu: binning[muIdx],
-                           gN: hist[muIdx],
-                           gs: hist[muIdx] / 10.0)
+                           gmu: binning[muIdx] * 2.0,
+                           gN: hist[muIdx] / 3.0,
+                           gs: hist[muIdx] / 30.0)
   #else:
     #discard
 
@@ -208,6 +208,7 @@ macro buildFitFunc(name: untyped, parts: openArray[FitFuncArgs]): untyped =
   # declare the index variable we use
   procBody.add quote do:
     var `idx` = 0
+    debugecho `paramsNode`
 
   for p in parts.getImpl:
     # add the lines for the function calls
@@ -275,10 +276,11 @@ proc serialize(parts: seq[FitFuncArgs]): seq[float] =
       result.add @[p.ea, p.eb, p.eN, p.emu, p.es]
     else: discard
 
+
 macro genTfToFitFunc(pname: untyped): untyped =
   let tfkind = getType(TargetFilterKind)
   # first generate the string combinations
-  echo tfKind.treeRepr
+  #echo tfKind.treeRepr
   var funcNames: seq[string]
   for x in tfKind:
     if x.kind != nnkEmpty:
@@ -286,10 +288,12 @@ macro genTfToFitFunc(pname: untyped): untyped =
       funcNames.add xStr.toLowerAscii.replace("-", "") & "Func"
   # given the names, write a proc that returns the function
   let
-    arg1 = ident"target"
-    argt1 = ident"TargetKind"
-    arg2 = ident"filter"
-    argt2 = ident"FilterKind"
+    # arg1 = ident"target"
+    # argt1 = ident"TargetKind"
+    # arg2 = ident"filter"
+    # argt2 = ident"FilterKind"
+    arg = ident"tfKind"
+    argType = ident"TargetFilterKind"
     cdf = ident"CdlFitFunc"
     tfNameNode = ident"n"
     resIdent = ident"result"
@@ -300,14 +304,48 @@ macro genTfToFitFunc(pname: untyped): untyped =
       `resIdent` = `retId`
     caseStmt.add nnkOfBranch.newTree(newLit n, retval)
   result = quote do:
-    proc `pname`(`arg1`: `argt1`, `arg2`: `argt2`): `cdf` =
-      let `tfNameNode` = ($`arg1`).toLowerAscii & $`arg2` & "Func"
+    proc `pname`(`arg`: `argType`): `cdf` =
+      let `tfNameNode` = ($`arg`).toLowerAscii.replace("-", "") & "Func"
       `caseStmt`
   echo result.repr
 
 # generate the =getCdlFitFunc= used to get the correct fit function
 # based on a `TargetKind` and `FilterKind`
 genTfToFitFunc(getCdlFitFunc)
+
+
+proc histoCDL(data: seq[SomeInteger], binSize: float = 3.0): (seq[float], seq[float]) =
+
+  let low = 0.0#-0.5
+  var high = max(data).float# + 0.5
+  let nbins = (ceil((high - low) / binSize)).int
+  # using correct nBins, determine actual high
+  high = low + binSize * nbins.float
+  let bin_edges = linspace(low, high, nbins)# + 1)
+  let hist = data.histogram(bins = nbins + 1, range = (low, high))
+
+  echo bin_edges.len
+  echo hist.len
+  echo bin_edges
+
+  result[0] = hist.mapIt(it.float)
+  result[1] = bin_edges# [0 .. ^1]
+
+proc fitCDLImpl(hist, binedges: seq[float], tfKind: TargetFilterKind): seq[float] =
+  let lines = getLines(hist, binedges, tfKind)
+  let params = lines.serialize
+
+  let err = hist.mapIt(1.0 / sqrt(it))
+
+  let (pRes, res) = fit(getCdlFitFunc(tfKind),
+                        params,
+                        binedges,
+                        hist,
+                        err)
+
+  echoResult(pRes, res=res)
+  result = pRes
+
 
 const cEpicFuncCharge = cEpicFunc
 # TODO: impl rest of functions + Charge functions
@@ -349,7 +387,10 @@ proc readRuns(fname: string): seq[CdlRun] =
                        filter: parseEnum[FilterKind](row[5].strip, fEmpty),
                        hv: if row[6].strip.len > 0: row[6].strip.parseFloat else: 0.0)
       result.add run
-      echo run.toCutStr
+      #echo run.toCutStr
+
+proc totfkind(target: TargetKind, filter: FilterKind): TargetFilterKind =
+  result = parseEnum[TargetFilterKind](&"{target}-{filter}")
 
 proc main =
 
@@ -368,13 +409,13 @@ proc main =
   let cutTab = getXraySpectrumCutVals()
 
   for r in runs:
-    if r.number != 342:
+    if r.number != 343:
       continue
     case r.runType
     of rtXrayFinger:
       let grp = h5f[(recoDataChipBase(r.number) & "3").grp_str]
       let cut = cutTab[r.toCutStr]
-      echo cut
+      #echo cut
       let passIdx = cutOnProperties(h5f,
                                     grp,
                                     cut.cutTo,
@@ -404,20 +445,45 @@ proc main =
       #   `getCdlFitFunc` procedure
       # - call a `fitSpectrum` function, which performs the steps outlined in
       #   the Org file in the "Calling functions at runtime" chapter
-      
-      let hitsRaw = histPlot(h5f[grp.name / "hits", int64])
-        .binSize(2.0)
+
+      let hitsRawData = h5f[grp.name / "hits", int64]
+      let hitsCDL = h5f[grp.name / "CdlSpectrum", int64]
+      let (siassa, bins) = histoCDL(hitsRawData, binSize = 1.0)
+      let tfk = totfkind(r.target, r.filter)
+      let pRes = fitCDLImpl(siassa, bins, tfk)
+      let fitres = bins.mapIt(getCdlFitFunc(tfk)(pRes, it))
+      let cdlplot = scatterPlot(bins, fitres).mode(PlotMode.Lines)
+
+
+      let hitsRaw = histPlot(hitsRawData.mapIt(it.float64))
+        .binSize(1.0)
         .binRange(0.0, 400.0)
-      let hitsCut = histPlot(h5f[grp.name / "CdlSpectrum", int64])
-        .binSize(2.0)
+      let hitsCut = histPlot(hitsCDL.mapIt(it.float64))
+        .binSize(1.0)
         .binRange(0.0, 400.0)
       hitsRaw.layout.barMode = BarMode.Overlay
       let plt = hitsRaw.addTrace(hitsCut.traces[0])
+        .addTrace(cdlplot.traces[0])
       plt.traces[1].opacity = 0.5
       plt.show()
 
     else:
       discard
+
+proc testdeclarefitmacro()=
+  const
+    mu1 = 2.0
+    mu2 = 10.0
+    d1  = 5.0
+    d2  = 1.0
+    N1  = 20.0
+    N2  = 5.0
+
+  let xa = linspace(0.0,20.0,1000)
+  let p  = @[N1, mu1, d1, N2, mu2, d2]
+  let y  = xa.mapIt(cEpicFunc(p, it))
+  scatterPlot(xa,y).show()
+
 
 
 when isMainModule:

@@ -117,30 +117,30 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
                            kind: ffExpGauss,
                            ea: hist[muIdx],
                            eb: hist[muIdx],
-                           eN: hist[muIdx],
-                           emu: binning[muIdx],
+                           eN: hist[muIdx] / 3.0,
+                           emu: binning[muIdx] * 2.0,
                            es: hist[muIdx] / 30.0)
     result.add FitFuncArgs(name: "Cu-Kalpha",
                            kind: ffExpGauss,
                            ea: hist[muIdx],
                            eb: hist[muIdx],
-                           eN: hist[muIdx] / 3.0,
-                           emu: binning[muIdx] * 2.0,
+                           eN: hist[muIdx],
+                           emu: binning[muIdx],
                            es: hist[muIdx] / 30.0)
   of tfMnCr12:
     result.add FitFuncArgs(name: "Mn-esc",
                            kind: ffExpGauss,
                            ea: hist[muIdx],
                            eb: hist[muIdx],
-                           eN: hist[muIdx],
-                           emu: binning[muIdx],
+                           eN: hist[muIdx] / 3.0,
+                           emu: binning[muIdx] / 2.0,
                            es: hist[muIdx] / 30.0)
     result.add FitFuncArgs(name: "Mn-Kalpha",
                            kind: ffExpGauss,
                            ea: hist[muIdx],
                            eb: hist[muIdx],
-                           eN: hist[muIdx] / 3.0,
-                           emu: binning[muIdx] * 2.0,
+                           eN: hist[muIdx],
+                           emu: binning[muIdx],
                            es: hist[muIdx] / 30.0)
   of tfTiTi9:
     result.add FitFuncArgs(name: "Ti-esc-alpha",
@@ -317,7 +317,7 @@ macro buildFitFunc(name: untyped, parts: openArray[FitFuncArgs]): untyped =
                    params = [retType, retParNode, retXNode],
                    body = procBody,
                    procType = nnkFuncDef)
-  echo result.repr
+  #echo result.repr
 
 macro declareFitFunc(name, stmts: untyped): untyped =
   ## DSL to declare the fit functions without having to go the
@@ -550,8 +550,8 @@ proc main =
   defer: discard h5f.close()
   let cutTab = getXraySpectrumCutVals()
   for r in runs:
-    #if r.number != 339:
-    # continue
+    if r.number != 347:
+     continue
     sleep 500
     case r.runType
     of rtXrayFinger:
@@ -607,8 +607,14 @@ proc main =
       hitsRaw.layout.barMode = BarMode.Overlay
       let plt = hitsRaw.addTrace(hitsCut.traces[0])
         .addTrace(cdlplot.traces[0])
-      plt.layout.title = &"test run number {r.number}"
+      plt.layout.title = &"run number: {r.number} target: {r.toCutStr}"
+      plt.layout.showlegend = true
       plt.traces[1].opacity = 0.5
+      plt.traces[0].name = "raw data"
+      plt.traces[1].name = "data with cuts"
+      plt.traces[2].name = "fit curve"
+      plt.layout.yaxis.title = "Occurence"
+      plt.layout.xaxis.title = "Number of pixels"
       plt.show()
 
     else:

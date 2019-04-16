@@ -36,13 +36,14 @@ type
     fTi = "Ti"
 
   TargetFilterKind = enum
-    #tfCuNi = "Cu-Ni"
-    #tfMnCr = "Mn-Cr"
-    #tfTiTi = "Ti-Ti"
-    #tfAgAg = "Ag-Ag"
-    #tfAlAl = "Al-Al"
-    #tfCuEpic = "Cu-EPIC"
-    tfCEpic =  "C-EPIC"
+    tfCuNi15 = "Cu-Ni-15kV"
+    tfMnCr12 = "Mn-Cr-12kV"
+    tfTiTi9 = "Ti-Ti-9kV"
+    tfAgAg6 = "Ag-Ag-6kV"
+    tfAlAl4 = "Al-Al-4kV"
+    tfCuEpic2 = "Cu-EPIC-2kV"
+    tfCuEpic0_9 = "Cu-EPIC-0.9kV"
+    tfCEpic0_6 =  "C-EPIC-0.6kV"
 
   CdlRun = object
     number: int
@@ -60,26 +61,27 @@ type
     hv: float
     fit: CdlFitFunc
 
-  cutsB = object
-    target: TargetKind
-    filter: FilterKind
-    hv: float
-    ck: int
-    length: float
-    rms_min: float
-    rms_max: float
-    eccentricity: float
-
-  cutsC = object
-    target: TargetKind
-    filter: FilterKind
-    hv: float
-    ck: int
-    charge_min: float
-    charge_max: float
-    length: float
-    rms_min: float
-    rms_max: float
+  ##dont need this anymore?!
+    #cutsB = object
+    #  target: TargetKind
+    #  filter: FilterKind
+    #  hv: float
+    #  ck: int
+    #  length: float
+    #  rms_min: float
+    #  rms_max: float
+    #  eccentricity: float
+    #
+    #cutsC = object
+    #  target: TargetKind
+    #  filter: FilterKind
+    #  hv: float
+    #  ck: int
+    #  charge_min: float
+    #  charge_max: float
+    #  length: float
+    #  rms_min: float
+    #  rms_max: float
 
   FitFuncKind = enum
     ffConst, ffPol1, ffPol2, ffGauss, ffExpGauss
@@ -110,35 +112,119 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
   ## function at runtime
   let muIdx = argmax(hist)
   case tfKind
-  #of tfCuNi: #need to add for rest combinatons
-  #   discard
-  #of tfMnCr:
-  #   discard
-  #of tfTiTi:
-  #   discard
-  #of tfAgAg:
-  #   discard
-  #   ## result.add FitFuncArgs(name: "Ag-Lalpha",
-  #   ##                        kind: ffExpGauss)
-  #   ## result.add FitFuncArgs(name: "Ag-Lbeta",
-  #   ##                        kind: ffGauss,
-  #   ##                        gmu: binning[muIdx],
-  #   ##                        gN: hist[muIdx],
-  #   ##                        gs: hist[muIdx] / 10.0)
-  #of tfAlAl:
-  #  discard
-  #of tfCuEpic:
-  #   discard
-  of tfCEpic:
+  of tfCuNi15: #need to add for rest combinatons
+    result.add FitFuncArgs(name: "Cu-esc",
+                           kind: ffExpGauss,
+                           ea: hist[muIdx],
+                           eb: hist[muIdx],
+                           eN: hist[muIdx],
+                           emu: binning[muIdx],
+                           es: hist[muIdx] / 30.0)
+    result.add FitFuncArgs(name: "Cu-Kalpha",
+                           kind: ffExpGauss,
+                           ea: hist[muIdx],
+                           eb: hist[muIdx],
+                           eN: hist[muIdx] / 3.0,
+                           emu: binning[muIdx] * 2.0,
+                           es: hist[muIdx] / 30.0)
+  of tfMnCr12:
+    result.add FitFuncArgs(name: "Mn-esc",
+                           kind: ffExpGauss,
+                           ea: hist[muIdx],
+                           eb: hist[muIdx],
+                           eN: hist[muIdx],
+                           emu: binning[muIdx],
+                           es: hist[muIdx] / 30.0)
+    result.add FitFuncArgs(name: "Mn-Kalpha",
+                           kind: ffExpGauss,
+                           ea: hist[muIdx],
+                           eb: hist[muIdx],
+                           eN: hist[muIdx] / 3.0,
+                           emu: binning[muIdx] * 2.0,
+                           es: hist[muIdx] / 30.0)
+  of tfTiTi9:
+    result.add FitFuncArgs(name: "Ti-esc-alpha",
+                           kind: ffGauss,
+                           gN: hist[muIdx],
+                           gmu: binning[muIdx],
+                           gs: hist[muIdx] / 30.0)
+    result.add FitFuncArgs(name: "Ti-esc-beta",
+                           kind: ffGauss,
+                           gN: hist[muIdx],
+                           gmu: binning[muIdx],
+                           gs: hist[muIdx] / 30.0)
+    result.add FitFuncArgs(name: "Ti-Kalpha",
+                           kind: ffExpGauss,
+                           ea: hist[muIdx],
+                           eb: hist[muIdx],
+                           eN: hist[muIdx] / 3.0,
+                           emu: binning[muIdx] * 2.0,
+                           es: hist[muIdx] / 30.0)
+    result.add FitFuncArgs(name: "Ti-Kbeta",
+                           kind: ffGauss,
+                           gN: hist[muIdx],
+                           gmu: binning[muIdx],
+                           gs: hist[muIdx] / 30.0)
+
+  of tfAgAg6:
+   result.add FitFuncArgs(name: "Ag-Lalpha",
+                          kind: ffExpGauss,
+                          ea: hist[muIdx],
+                          eb: hist[muIdx],
+                          eN: hist[muIdx] / 3.0,
+                          emu: binning[muIdx] * 2.0,
+                          es: hist[muIdx] / 30.0)
+   result.add FitFuncArgs(name: "Ag-Lbeta",
+                          kind: ffGauss,
+                          gmu: binning[muIdx],
+                          gN: hist[muIdx],
+                          gs: hist[muIdx] / 10.0)
+  of tfAlAl4:
+    result.add FitFuncArgs(name: "Al-Kalpha",
+                          kind: ffExpGauss,
+                          ea: hist[muIdx],
+                          eb: hist[muIdx],
+                          eN: hist[muIdx] / 3.0,
+                          emu: binning[muIdx] * 2.0,
+                          es: hist[muIdx] / 30.0)
+  of tfCuEpic2:
+   result.add FitFuncArgs(name: "Cu-Lalpha",
+                          kind: ffGauss,
+                          gmu: binning[muIdx],
+                          gN: hist[muIdx],
+                          gs: hist[muIdx] / 10.0)
+  of tfCuEpic0_9:
+   result.add FitFuncArgs(name: "",
+                          kind: ffGauss,
+                          gmu: binning[muIdx],
+                          gN: hist[muIdx],
+                          gs: hist[muIdx] / 5.0)
+   result.add FitFuncArgs(name: "",
+                          kind: ffGauss,
+                          gmu: binning[muIdx],
+                          gN: hist[muIdx],
+                          gs: hist[muIdx] / 10.0)
+   result.add FitFuncArgs(name: "",
+                          kind: ffGauss,
+                          gmu: binning[muIdx],
+                          gN: hist[muIdx],
+                          gs: hist[muIdx] / 15.0)
+   result.add FitFuncArgs(name: "",
+                          kind: ffGauss,
+                          gmu: binning[muIdx],
+                          gN: hist[muIdx],
+                          gs: hist[muIdx] / 20.0)
+   # TODO: FIX correct function
+  of tfCEpic0_6:
     result.add FitFuncArgs(name: "C-Kalpha",
                            kind: ffGauss,
-                           gmu: binning[muIdx],
                            gN: hist[muIdx],
+                           gmu: binning[muIdx],
                            gs: hist[muIdx] / 30.0)
     result.add FitFuncArgs(name: "O-Kalpha",
                            kind: ffGauss,
-                           gmu: binning[muIdx] * 2.0,
                            gN: hist[muIdx] / 3.0,
+                           gmu: binning[muIdx] * 2.0,
                            gs: hist[muIdx] / 30.0)
   #else:
     #discard
@@ -168,6 +254,18 @@ proc genFitFuncImpl(resultNode, idx, paramsNode, xNode, pFitNode: NimNode): NimN
   expectKind(pFitNode, nnkObjConstr)
   let fkind = FitFuncKind(pFitNode[2][1].intVal)
   case fKind
+  of ffConst:
+    result = quote do:
+      `resultNode` += `paramsNode`[`idx`]
+      inc `idx`
+  of ffPol1:
+    result = quote do:
+      `resultNode` += `paramsNode`[`idx`] * `xNode`
+      inc `idx`
+  of ffPol2:
+    result = quote do:
+      `resultNode` += `paramsNode`[`idx`] * `xNode` * `xNode`
+      inc `idx`
   of ffGauss:
     result = quote do:
       `resultNode` += `paramsNode`[`idx`] * gauss(`xNode`,
@@ -176,9 +274,9 @@ proc genFitFuncImpl(resultNode, idx, paramsNode, xNode, pFitNode: NimNode): NimN
       inc `idx`, 3 # increase by number of consumed parameters
   of ffExpGauss:
     result = quote do:
-      result += expGauss(`paramsNode`[`idx` .. `idx` + 4], `xNode`)
+      `resultNode` += expGauss(`paramsNode`[`idx` .. `idx` + 4], `xNode`)
       inc `idx`, 5
-  else: discard
+  #else: discard
 
 macro buildFitFunc(name: untyped, parts: openArray[FitFuncArgs]): untyped =
   ## builds a CDL fit function based on the function described by
@@ -208,7 +306,7 @@ macro buildFitFunc(name: untyped, parts: openArray[FitFuncArgs]): untyped =
   # declare the index variable we use
   procBody.add quote do:
     var `idx` = 0
-    debugecho `paramsNode`
+    #debugecho `paramsNode`
 
   for p in parts.getImpl:
     # add the lines for the function calls
@@ -241,6 +339,7 @@ macro declareFitFunc(name, stmts: untyped): untyped =
 
   for s in stmts:
     expectKind(s, nnkCall)
+    echo s.treeRepr
     let fkind = s[0]
     let ffName = s[1][0].strVal
     ffSeq.add quote do:
@@ -250,9 +349,35 @@ macro declareFitFunc(name, stmts: untyped): untyped =
     const `thVarId` = `ffSeq`
     buildFitFunc(`funcId`, `thVarId`)
 
-declareFitFunc(cEpic):
+
+declareFitFunc(cuNi15):
+  ffExpGauss: "Cu-esc"
+  ffExpGauss: "Cu-Kalpha"
+declareFitFunc(mnCr12):
+  ffExpGauss: "Mn-esc"
+  ffExpGauss: "Mn-Kalpha"
+declareFitFunc(tiTi9):
+  ffGauss: "Ti-esc-alpha"
+  ffGauss: "Ti-esc-beta"
+  ffExpGauss: "Ti-Kalpha"
+  ffGauss: "Ti-Kbeta"
+declareFitFunc(agAg6):
+  ffexpGauss: "Ag-Lalpha"
+  ffGauss: "Ag-Lbeta"
+declareFitFunc(alAl4):
+  ffexpGauss: "Al-Kalpha"
+declareFitFunc(cuEpic2):
+  ffGauss: "Cu-Lalpha"
+declareFitFunc(cuEpic0_9):
+  ffGauss: "O-Kalpha"
+  ffGauss: "C-Kalpha"
+  ffGauss: "Fe-Lalphabeta"
+  ffGauss: "Ni-Lalphabeta"
+declareFitFunc(cEpic0_6):
   ffGauss: "C-Kalpha"
   ffGauss: "O-Kalpha"
+    #gmu = 17.0 ##maybe declare some fixed parameter here later
+
 
 # old code for reference and understanding. TODOs still relevant
 # TODO: add additional constants for other pairs
@@ -284,14 +409,19 @@ macro genTfToFitFunc(pname: untyped): untyped =
   var funcNames: seq[string]
   for x in tfKind:
     if x.kind != nnkEmpty:
-      let xStr = $(x.getImpl)
-      funcNames.add xStr.toLowerAscii.replace("-", "") & "Func"
+      let xStr = ($(x.getImpl))
+        .toLowerAscii
+        .replace("-", "")
+        .replace(".", "")
+        .replace("kv", "") & "Func"
+      funcNames.add xStr
   # given the names, write a proc that returns the function
   let
     # arg1 = ident"target"
     # argt1 = ident"TargetKind"
     # arg2 = ident"filter"
     # argt2 = ident"FilterKind"
+    ##now with target and filter combined
     arg = ident"tfKind"
     argType = ident"TargetFilterKind"
     cdf = ident"CdlFitFunc"
@@ -305,7 +435,11 @@ macro genTfToFitFunc(pname: untyped): untyped =
     caseStmt.add nnkOfBranch.newTree(newLit n, retval)
   result = quote do:
     proc `pname`(`arg`: `argType`): `cdf` =
-      let `tfNameNode` = ($`arg`).toLowerAscii.replace("-", "") & "Func"
+      let `tfNameNode` = ($`arg`)
+        .toLowerAscii
+        .replace("-", "")
+        .replace(".", "")
+        .replace("kv", "") & "Func"
       `caseStmt`
   echo result.repr
 
@@ -314,7 +448,7 @@ macro genTfToFitFunc(pname: untyped): untyped =
 genTfToFitFunc(getCdlFitFunc)
 
 
-proc histoCDL(data: seq[SomeInteger], binSize: float = 3.0): (seq[float], seq[float]) =
+proc histoCdl(data: seq[SomeInteger], binSize: float = 3.0): (seq[float], seq[float]) =
 
   let low = 0.0#-0.5
   var high = max(data).float# + 0.5
@@ -331,7 +465,7 @@ proc histoCDL(data: seq[SomeInteger], binSize: float = 3.0): (seq[float], seq[fl
   result[0] = hist.mapIt(it.float)
   result[1] = bin_edges# [0 .. ^1]
 
-proc fitCDLImpl(hist, binedges: seq[float], tfKind: TargetFilterKind): seq[float] =
+proc fitCdlImpl(hist, binedges: seq[float], tfKind: TargetFilterKind): seq[float] =
   let lines = getLines(hist, binedges, tfKind)
   let params = lines.serialize
 
@@ -347,7 +481,15 @@ proc fitCDLImpl(hist, binedges: seq[float], tfKind: TargetFilterKind): seq[float
   result = pRes
 
 
-const cEpicFuncCharge = cEpicFunc
+const cuni15FuncCharge = cuNi15Func
+const mnCr12FuncCharge = mnCr12Func
+const tiTi9FuncCharge = tiTi9Func
+const agAg6FuncCharge = agAg6Func
+const alAl4FuncCharge = alAl4Func
+const cuEpic2FuncCharge = cuEpic2Func
+const cuEpic0_9FuncCharge = cuEpic0_9Func
+const cEpic0_6FuncCharge = cEpic0_6Func
+
 # TODO: impl rest of functions + Charge functions
 
 # proc getCdlFits(): Table[string, CdlFitFunc] =
@@ -389,8 +531,8 @@ proc readRuns(fname: string): seq[CdlRun] =
       result.add run
       #echo run.toCutStr
 
-proc totfkind(target: TargetKind, filter: FilterKind): TargetFilterKind =
-  result = parseEnum[TargetFilterKind](&"{target}-{filter}")
+proc totfkind(run: CdlRun): TargetFilterKind =
+  result = parseEnum[TargetFilterKind](&"{toCutStr(run)}")
 
 proc main =
 
@@ -407,10 +549,10 @@ proc main =
   var h5f = H5file(h5file, "rw")
   defer: discard h5f.close()
   let cutTab = getXraySpectrumCutVals()
-
   for r in runs:
-    if r.number != 343:
-      continue
+    #if r.number != 339:
+    # continue
+    sleep 500
     case r.runType
     of rtXrayFinger:
       let grp = h5f[(recoDataChipBase(r.number) & "3").grp_str]
@@ -445,12 +587,13 @@ proc main =
       #   `getCdlFitFunc` procedure
       # - call a `fitSpectrum` function, which performs the steps outlined in
       #   the Org file in the "Calling functions at runtime" chapter
+      ##done with histoCdl and fitCdlImpl
 
       let hitsRawData = h5f[grp.name / "hits", int64]
-      let hitsCDL = h5f[grp.name / "CdlSpectrum", int64]
-      let (siassa, bins) = histoCDL(hitsRawData, binSize = 1.0)
-      let tfk = totfkind(r.target, r.filter)
-      let pRes = fitCDLImpl(siassa, bins, tfk)
+      let hitsCdl = h5f[grp.name / "CdlSpectrum", int64]
+      let (histdata, bins) = histoCdl(hitsCdl, binSize = 1.0)
+      let tfk = r.totfkind
+      let pRes = fitCdlImpl(histdata, bins, tfk)
       let fitres = bins.mapIt(getCdlFitFunc(tfk)(pRes, it))
       let cdlplot = scatterPlot(bins, fitres).mode(PlotMode.Lines)
 
@@ -464,6 +607,7 @@ proc main =
       hitsRaw.layout.barMode = BarMode.Overlay
       let plt = hitsRaw.addTrace(hitsCut.traces[0])
         .addTrace(cdlplot.traces[0])
+      plt.layout.title = &"test run number {r.number}"
       plt.traces[1].opacity = 0.5
       plt.show()
 
@@ -481,7 +625,7 @@ proc testdeclarefitmacro()=
 
   let xa = linspace(0.0,20.0,1000)
   let p  = @[N1, mu1, d1, N2, mu2, d2]
-  let y  = xa.mapIt(cEpicFunc(p, it))
+  let y  = xa.mapIt(cEpic0_6Func(p, it))
   scatterPlot(xa,y).show()
 
 

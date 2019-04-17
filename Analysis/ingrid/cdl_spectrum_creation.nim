@@ -229,21 +229,6 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
   #else:
     #discard
 
-proc handleFitFuncKind(i: var int, p_ar: seq[float], x: float, p: FitFuncArgs): float =
-  case p.kind
-  of ffGauss:
-    result = p_ar[i] * gauss(x, p_ar[i + 1], p_ar[i + 2])
-    inc i, 3 # increase by number of consumed parameters
-  of ffExpGauss:
-    result = expGauss(p_ar[i .. i + 4], x)
-    inc i, 5
-  else: discard
-
-template buildFitProc(name: untyped, parts: seq[FitFuncArgs]): untyped =
-  proc `name`(p_ar: seq[float], x: float): float =
-    var i = 0
-    for p in parts:
-      result += handleFitFuncKind(i, p_ar, x, p)
 
 proc genFitFuncImpl(resultNode, idx, paramsNode, xNode, pFitNode: NimNode): NimNode =
   ## the compilet time procedure that creates the implementation lines for

@@ -106,6 +106,8 @@ type
       emu: float
       es: float
 
+const fixed = NaN
+
 func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncArgs] =
   ## this is a runtime generator for the correct fitting function prototype,
   ## i.e. it returns a seq of parts, which need to be combined to the complete
@@ -224,46 +226,105 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
     result.add FitFuncArgs(name: "O-Kalpha",
                            kind: ffGauss,
                            gN: hist[muIdx] / 3.0,
-                           gmu: binning[muIdx] * 2.0,
+                           gmu: fixed,#binning[muIdx] * 2.0,
                            gs: hist[muIdx] / 30.0)
-  #else:
-    #discard
 
-
-proc genFitFuncImpl(resultNode, idx, paramsNode, xNode, pFitNode: NimNode): NimNode =
+proc genFitFuncImpl(resultNode, idx, xNode, pFitNode: NimNode, paramsNode: seq[NimNode]): NimNode =
   ## the compilet time procedure that creates the implementation lines for
   ## the <target><Filter>Funcs that we create, which calls the correct functions,
   ## e.g.
   ##   result += p_ar[i] * gauss(x, p[i + 1], p[i + 2])
   ##   inc i, 3
   expectKind(pFitNode, nnkObjConstr)
-  let fkind = FitFuncKind(pFitNode[2][1].intVal)
+  let fkind = parseEnum[FitFuncKind](pFitNode[2][1].strVal)
+  for x in paramsNode:
+    echo x.repr
   case fKind
   of ffConst:
+    let p0 = paramsNode[0]
     result = quote do:
-      `resultNode` += `paramsNode`[`idx`]
-      inc `idx`
+      `resultNode` += `p0`
   of ffPol1:
+    let p0 = paramsNode[0]
     result = quote do:
-      `resultNode` += `paramsNode`[`idx`] * `xNode`
-      inc `idx`
+      `resultNode` += `p0` * `xNode`
   of ffPol2:
+    let p0 = paramsNode[0]
     result = quote do:
-      `resultNode` += `paramsNode`[`idx`] * `xNode` * `xNode`
-      inc `idx`
+      `resultNode` += `p0` * `xNode` * `xNode`
   of ffGauss:
+    let
+      p0 = paramsNode[0]
+      p1 = paramsNode[1]
+      p2 = paramsNode[2]
     result = quote do:
-      `resultNode` += `paramsNode`[`idx`] * gauss(`xNode`,
-                                                  `paramsNode`[`idx` + 1],
-                                                  `paramsNode`[`idx` + 2])
-      inc `idx`, 3 # increase by number of consumed parameters
+      `resultNode` += `p0` * gauss(`xNode`,
+                                   `p1`,
+                                   `p2`)
+
   of ffExpGauss:
+    let
+      p0 = paramsNode[0]
+      p1 = paramsNode[1]
+      p2 = paramsNode[2]
+      p3 = paramsNode[3]
+      p4 = paramsNode[4]
     result = quote do:
-      `resultNode` += expGauss(`paramsNode`[`idx` .. `idx` + 4], `xNode`)
-      inc `idx`, 5
+      `resultNode` += expGauss(@[`p0`, `p1`, `p2`, `p3`, `p4`], `xNode`)
   #else: discard
 
-macro buildFitFunc(name: untyped, parts: openArray[FitFuncArgs]): untyped =
+proc idOf(x: int): NimNode =
+  let param = ident"p_ar"
+  result = quote do:
+    `param`[`x`]
+
+proc drop(p: NimNode, frm: int): NimNode =
+  result = copy(p)
+  result.del(0, frm)
+  echo result.treeRepr
+
+proc incAndAdd(s: var seq[NimNode], idx: var int, cTab: var Table[string, NimNode],
+               key: string) =
+  if key in cTab:
+    s.add cTab[key]
+  else:
+    cTab[key] = idOf(idx)
+    s.add cTab[key]
+    inc idx
+
+proc parseParamsNodes(p, paramsNode: NimNode, idx: var int): seq[NimNode] =
+  ##
+  echo "XXX ", p.treeRepr
+  let fkind = parseEnum[FitFuncKind](p[2][1].strVal)
+  var cTab = initTable[string, NimNode]()
+  var toReplace: NimNode
+  if p.len > 3:
+    toReplace = p.drop(3)
+    for x in toReplace:
+      let id = x[0].strVal
+      cTab[id] = x[1]
+  #var idx = 0
+  case fKind
+  of ffConst:
+    incAndAdd(result, idx, cTab, "c")
+  of ffPol1:
+    incAndAdd(result, idx, cTab, "cp")
+  of ffPol2:
+    incAndAdd(result, idx, cTab, "cpp")
+    inc idx
+  of ffGauss:
+    incAndAdd(result, idx, cTab, "gN")
+    incAndAdd(result, idx, cTab, "gmu")
+    incAndAdd(result, idx, cTab, "gs")
+  of ffExpGauss:
+    incAndAdd(result, idx, cTab, "ea")
+    incAndAdd(result, idx, cTab, "eb")
+    incAndAdd(result, idx, cTab, "eN")
+    incAndAdd(result, idx, cTab, "emu")
+    incAndAdd(result, idx, cTab, "es")
+  echo result.repr
+
+proc buildFitFunc(name, parts: NimNode): NimNode =
   ## builds a CDL fit function based on the function described by
   ## the `seq[FitFuncArgs]` at compile time. Using the `FitFuncKind` of
   ## each part, it'll write the needed implementation lines for the
@@ -288,21 +349,18 @@ macro buildFitFunc(name: untyped, parts: openArray[FitFuncArgs]): untyped =
                                     newEmptyNode())
   # create a node to hold the procedure body
   var procBody = newStmtList()
-  # declare the index variable we use
-  procBody.add quote do:
-    var `idx` = 0
-    #debugecho `paramsNode`
 
-  for p in parts.getImpl:
+  var i = 0
+  for p in parts:
     # add the lines for the function calls
-    procBody.add genFitFuncImpl(resultNode, idx, paramsNode, xNode, p)
+    let parsedParams = parseParamsNodes(p, paramsNode, i)
+    procBody.add genFitFuncImpl(resultNode, idx, xNode, p, parsedParams)
 
   # now define the result variable as a new proc
   result = newProc(name = name,
                    params = [retType, retParNode, retXNode],
                    body = procBody,
                    procType = nnkFuncDef)
-  #echo result.repr
 
 macro declareFitFunc(name, stmts: untyped): untyped =
   ## DSL to declare the fit functions without having to go the
@@ -326,14 +384,26 @@ macro declareFitFunc(name, stmts: untyped): untyped =
     expectKind(s, nnkCall)
     echo s.treeRepr
     let fkind = s[0]
-    let ffName = s[1][0].strVal
-    ffSeq.add quote do:
-      FitFuncArgs(name: `ffName`, kind: `fKind`)
+    case s[1].len
+    of 1:
+      let ffName = s[1][0].strVal
+      ffSeq.add quote do:
+        FitFuncArgs(name: `ffName`, kind: `fKind`)
+    else:
+      var ffName = ""
+      var ffArg = nnkObjConstr.newTree(ident"FitFuncArgs")
+      for x in s[1]:
+        expectKind(x, nnkAsgn)
+        if x[0].basename.ident == toNimIdent"name":
+          ffArg.add nnkExprColonExpr.newTree(ident"name", x[1])
+        else:
+          ffArg.add nnkExprColonExpr.newTree(x[0], x[1])
+      ffArg.insert(2, nnkExprColonExpr.newTree(ident"kind", fKind))
 
-  result = quote do:
-    const `thVarId` = `ffSeq`
-    buildFitFunc(`funcId`, `thVarId`)
+      ffSeq.add ffArg
 
+  result = buildFitFunc(funcId, ffSeq)
+  echo result.repr
 
 declareFitFunc(cuNi15):
   ffExpGauss: "Cu-esc"
@@ -360,25 +430,30 @@ declareFitFunc(cuEpic0_9):
   ffGauss: "Ni-Lalphabeta"
 declareFitFunc(cEpic0_6):
   ffGauss: "C-Kalpha"
-  ffGauss: "O-Kalpha"
-    #gmu = 17.0 ##maybe declare some fixed parameter here later
+  ffGauss:
+    name = "O-Kalpha"
+    gmu = 17.0
 
-
+func filterNaN(s: openArray[float]): seq[float] =
+  result = newSeqOfCap[float](s.len)
+  for x in s:
+    if classify(x) != fcNaN:
+      result.add x
 
 proc serialize(parts: seq[FitFuncArgs]): seq[float] =
   for p in parts:
     case p.kind
     of ffGauss:
-      result.add @[p.gN, p.gmu, p.gs]
+      result.add filterNaN([p.gN, p.gmu, p.gs])
     of ffExpGauss:
-      result.add @[p.ea, p.eb, p.eN, p.emu, p.es]
-    else: discard
-
+      result.add filterNaN([p.ea, p.eb, p.eN, p.emu, p.es])
+    else:
+      # TODO: Finish other cases!
+      discard
 
 macro genTfToFitFunc(pname: untyped): untyped =
   let tfkind = getType(TargetFilterKind)
   # first generate the string combinations
-  #echo tfKind.treeRepr
   var funcNames: seq[string]
   for x in tfKind:
     if x.kind != nnkEmpty:

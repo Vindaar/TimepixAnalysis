@@ -364,18 +364,6 @@ declareFitFunc(cEpic0_6):
     #gmu = 17.0 ##maybe declare some fixed parameter here later
 
 
-# old code for reference and understanding. TODOs still relevant
-# TODO: add additional constants for other pairs
-#const cEpicF = @[FitFuncArgs(name: "C-Kalpha", kind: ffGauss),
-#                 FitFuncArgs(name: "O-Kalpha", kind: ffGauss)]
-
-# TODO: call buildFitProc for the other pairs
-# buildFitProc(cEpicFuncAlt, cEpicF)
-# buildFitFunc(cEpicFunc, cEpicF)
-
-# TODO: call the template above with some custom functions mainly consisting
-# e.g. of linears and parabola functions and see if they evaluate correctly!
-# just generate some dots and plot them and compare with manual defintion
 
 proc serialize(parts: seq[FitFuncArgs]): seq[float] =
   for p in parts:
@@ -402,10 +390,6 @@ macro genTfToFitFunc(pname: untyped): untyped =
       funcNames.add xStr
   # given the names, write a proc that returns the function
   let
-    # arg1 = ident"target"
-    # argt1 = ident"TargetKind"
-    # arg2 = ident"filter"
-    # argt2 = ident"FilterKind"
     ##now with target and filter combined
     arg = ident"tfKind"
     argType = ident"TargetFilterKind"

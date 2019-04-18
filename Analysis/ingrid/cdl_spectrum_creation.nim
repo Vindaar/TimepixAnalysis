@@ -1,8 +1,11 @@
 import parsecsv, os, streams, strutils, strformat, nimhdf5, tables, sequtils, macros
+import seqmath, algorithm
 import plotly, mpfit
 import ingrid / [ingrid_types, tos_helpers, calibration]
 import docopt
 import helpers / utils
+
+import nimpy
 
 const docStr = """
 Usage:
@@ -132,18 +135,18 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
   of tfMnCr12:
     result.add FitFuncArgs(name: "Mn-esc",
                            kind: ffExpGauss,
-                           ea: hist[muIdx],
-                           eb: hist[muIdx],
-                           eN: hist[muIdx] / 3.0,
+                           ea: hist[muIdx] * 1e-10,
+                           eb: hist[muIdx] * 1e-2,
+                           eN: hist[muIdx] / 8.0,
                            emu: binning[muIdx] / 2.0,
                            es: hist[muIdx] / 30.0)
     result.add FitFuncArgs(name: "Mn-Kalpha",
                            kind: ffExpGauss,
-                           ea: hist[muIdx],
-                           eb: hist[muIdx],
+                           ea: hist[muIdx] * 1e-10,
+                           eb: hist[muIdx] * 1e-2,
                            eN: hist[muIdx],
                            emu: binning[muIdx],
-                           es: hist[muIdx] / 30.0)
+                           es: hist[muIdx] / 15.0)
   of tfTiTi9:
     result.add FitFuncArgs(name: "Ti-esc-alpha",
                            kind: ffGauss,
@@ -167,7 +170,6 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
                            gN: hist[muIdx],
                            gmu: binning[muIdx],
                            gs: hist[muIdx] / 30.0)
-
   of tfAgAg6:
    result.add FitFuncArgs(name: "Ag-Lalpha",
                           kind: ffExpGauss,
@@ -226,8 +228,8 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
     result.add FitFuncArgs(name: "O-Kalpha",
                            kind: ffGauss,
                            gN: hist[muIdx] / 3.0,
-                           gmu: fixed,#binning[muIdx] * 2.0,
-                           gs: hist[muIdx] / 30.0)
+                           gmu: binning[muIdx] * 2.0, #
+                           gs: hist[muIdx] / 30.0)#fixed) #
 
 proc genFitFuncImpl(resultNode, idx, xNode, pFitNode: NimNode, paramsNode: seq[NimNode]): NimNode =
   ## the compilet time procedure that creates the implementation lines for
@@ -430,9 +432,10 @@ declareFitFunc(cuEpic0_9):
   ffGauss: "Ni-Lalphabeta"
 declareFitFunc(cEpic0_6):
   ffGauss: "C-Kalpha"
-  ffGauss:
-    name = "O-Kalpha"
-    gmu = 17.0
+  ffGauss: "O-Kalpha"
+    #name = "O-Kalpha"
+    #gmu = 15.0
+    #gs = -12.0
 
 func filterNaN(s: openArray[float]): seq[float] =
   result = newSeqOfCap[float](s.len)
@@ -493,36 +496,50 @@ genTfToFitFunc(getCdlFitFunc)
 
 
 proc histoCdl(data: seq[SomeInteger], binSize: float = 3.0): (seq[float], seq[float]) =
-
-  let low = 0.0#-0.5
-  var high = max(data).float# + 0.5
+  let low = -0.5
+  var high = max(data).float + 0.5
   let nbins = (ceil((high - low) / binSize)).int
   # using correct nBins, determine actual high
   high = low + binSize * nbins.float
-  let bin_edges = linspace(low, high, nbins)# + 1)
-  let hist = data.histogram(bins = nbins + 1, range = (low, high))
+  let bin_edges = linspace(low, high, nbins + 1)
+  let hist = data.histogram(bins = nbins, range = (low, high))
 
-  echo bin_edges.len
-  echo hist.len
-  echo bin_edges
+  #echo bin_edges.len
+  #echo hist.len
+  #echo bin_edges
 
   result[0] = hist.mapIt(it.float)
-  result[1] = bin_edges# [0 .. ^1]
+  result[1] = bin_edges[1 .. ^1]
 
-proc fitCdlImpl(hist, binedges: seq[float], tfKind: TargetFilterKind): seq[float] =
+proc fitCdlImpl(hist, binedges: seq[float], tfKind: TargetFilterKind):
+               (seq[float], seq[float], seq[float]) =
   let lines = getLines(hist, binedges, tfKind)
   let params = lines.serialize
+  let testcum = cumsum(hist)
+  let testsum = sum(hist)
+  let testquo = testcum.mapIt(it/testsum)
+  let lowIdx = testquo.lowerBound(0.005)
+  let highIdx = testquo.lowerBound(0.98)
+  #echo "testcum " , testquo
+  #echo "low ", lowIdx
+  #echo "high ", highIdx
+  let passbin = binedges[lowIdx .. highIdx]
+  let passhist = hist[lowIdx .. highIdx]
+  #echo testcum.len
 
-  let err = hist.mapIt(1.0 / sqrt(it))
+  let passIdx = toSeq(0 .. passhist.high).filterIt(passhist[it] > 0)
+  let fitBins = passIdx.mapIt(passbin[it])
+  let fitHist = passIdx.mapIt(passhist[it])
+  let err = fitHist.mapIt(sqrt(it))#1.0 / sqrt(it))
 
   let (pRes, res) = fit(getCdlFitFunc(tfKind),
                         params,
-                        binedges,
-                        hist,
+                        fitBins,
+                        fitHist,
                         err)
 
   echoResult(pRes, res=res)
-  result = pRes
+  result = (pRes, fitBins, fitHist)
 
 
 const cuni15FuncCharge = cuNi15Func
@@ -637,9 +654,14 @@ proc main =
       let hitsCdl = h5f[grp.name / "CdlSpectrum", int64]
       let (histdata, bins) = histoCdl(hitsCdl, binSize = 1.0)
       let tfk = r.totfkind
-      let pRes = fitCdlImpl(histdata, bins, tfk)
-      let fitres = bins.mapIt(getCdlFitFunc(tfk)(pRes, it))
-      let cdlplot = scatterPlot(bins, fitres).mode(PlotMode.Lines)
+      let (pRes, fitBins, fitHist) = fitCdlImpl(histdata, bins, tfk)
+      let fitres = fitBins.mapIt(getCdlFitFunc(tfk)(pRes, it))
+      let cdlplot = scatterPlot(fitBins, fitres).mode(PlotMode.Lines)
+
+      let scipy = pyImport("scipy.optimize")
+      let ff = getCdlFitFunc(tfk)
+      #let res = scipy.curve_fit(ff, fitBins, fitHist, p0 = pRes)
+
 
 
       let hitsRaw = histPlot(hitsRawData.mapIt(it.float64))

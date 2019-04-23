@@ -1,6 +1,6 @@
 import sequtils, strutils, strformat
 import hashes
-import ospaths
+import os, ospaths
 import future
 import seqmath
 import nimhdf5
@@ -998,8 +998,14 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
   var feDset = h5f[(groupName / "FeSpectrum").dsetStr]
   let feData = feDset[int64]
   # call python function with data
-  let res = pyFitFe.fitAndPlotFeSpectrum([feData], "", ".", runNumber,
-                                         fittingOnly, outfiles)
+  let res = block:
+    if outfiles.len == 0:
+      discard existsOrCreateDir("out")
+      pyFitFe.fitAndPlotFeSpectrum([feData], "", "out", runNumber,
+                                   fittingOnly)
+    else:
+      pyFitFe.fitAndPlotFeSpectrum([feData], "", ".", runNumber,
+                                   fittingOnly, outfiles)
 
   # NOTE: this is a workaround for a weird bug we're seeing. If we don't close the
   # library here, we get an error in a call to `deleteAttribute` from within

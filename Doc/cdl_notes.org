@@ -995,3 +995,79 @@ can go to [[Calling functions at runtime]] in our code.
 
 NOTE: the above actually makes the definition of the =getCdlFits=
 procedure in the current file obsolete.
+
+
+** Extending the code to allow for fixed parameters
+We wish to extend the code in such a way, that the =declareFitFunc=
+macro allows us to fix certain parameters of the function. For
+instance if we wanted to fix the center of a gaussian, i.e. remove it
+as a fit parameter, we should be able to replace that parameter at
+compile time for the generated function by a constant we define. 
+
+In code this should look something like the following:
+#+BEGIN_SRC nim
+declareFitFunc(cEpic0_6):
+  ffGauss: 
+    name = "C-Kalpha"
+    gmu = 15.0 # fix gmu parameter to 200.0
+  ffGauss: "O-Kalpha" # implied `name` field 
+#+END_SRC
+
+Which should instead of:
+#+BEGIN_SRC nim
+func cEpicFunc(p_ar: seq[float]; x: float): float =
+  var i = 0       
+  result += p_ar[i] * gauss(x, p_ar[i + 1], p_ar[i + 2], false)
+  inc i, 3    
+  result += p_ar[i] * gauss(x, p_ar[i + 1], p_ar[i + 2], false)
+  inc i, 3 
+#+END_SRC
+produce the following function instead:
+#+BEGIN_SRC nim
+func cEpicFunc(p_ar: seq[float]; x: float): float =
+  var i = 0       
+  result += p_ar[i] * gauss(x, 15.0, p_ar[i + 1], false)
+  inc i, 2    
+  result += p_ar[i] * gauss(x, p_ar[i + 1], p_ar[i + 2], false)
+  inc i, 3 
+#+END_SRC
+
+How do we achieve this? Currently in the =genFitFuncImpl= compile time
+proc, we just use the =quote do= macro to access specificially indices
+of the =paramsNode=. For instance the code for =ffGauss= is:
+#+BEGIN_SRC nim
+  of ffGauss:
+    result = quote do:
+      `resultNode` += `paramsNode`[`idx`] * gauss(`xNode`,
+                                                  `paramsNode`[`idx` + 1],
+                                                  `paramsNode`[`idx` + 2])
+      inc `idx`, 3 # increase by number of consumed parameters
+#+END_SRC
+
+This needs to be replaced by an approach where the =genFitFuncImpl=
+does not actually receive the =paramsNode= anymore, but rather a
+=seq[NimNode]=, which already contains in this case:
+#+BEGIN_SRC nim
+var pnodes = newSeq[NimNode]()
+pnodes.add quote do: 
+  `paramsNode`[`idx`]
+pnodes.add quote do:
+  `paramsNode`[`idx` + 1]
+pnodes.add quote do:
+  `paramsNode`[`idx` + 2]
+#+END_SRC
+and in case of the call with fixed parameters:
+#+BEGIN_SRC nim
+var i = 0 # local variable keeping track of what to add for idx to take from
+          # the actual p_ar array
+var pnodes = newSeq[NimNode]()
+pnodes.add quote do: 
+  `paramsNode`[`idx`]
+inc i
+pnodes.add newLit 15.0
+pnodes.add quote do:
+  `paramsNode`[`idx` + i]
+#+END_SRC
+
+
+NOTE: this has been implemented now. 

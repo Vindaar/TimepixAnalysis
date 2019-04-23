@@ -56,7 +56,7 @@ echo "Adding ingridDatabase to nimble"
 shell:
   one:
     cd `$dir`/InGridDatabase
-    nimble develop
+    nimble develop "-y"
     nimble koch
 
 echo "Adding ingrid to nimble"

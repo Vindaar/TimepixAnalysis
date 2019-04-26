@@ -139,7 +139,7 @@ proc expGauss*(p: seq[float], x: float): float =
   if len(p) != 5:
     return Inf
   let p_val = 2.0 * (p[1] * pow(p[4], 2.0) - p[3])
-  let q_val = 2.0 * pow(p[4], 2.0) * p[0] + pow(p[3], 2.0) - log(p[2], 10) * 2.0 * pow(p[4], 2.0)
+  let q_val = 2.0 * pow(p[4], 2.0) * p[0] + pow(p[3], 2.0) - ln(p[2]) * 2.0 * pow(p[4], 2.0)
 
   let threshold = - p_val / 2.0 - sqrt( pow(p_val, 2.0) / 4.0 - q_val )
 

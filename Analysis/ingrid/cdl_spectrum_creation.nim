@@ -1,11 +1,10 @@
 import parsecsv, os, streams, strutils, strformat, nimhdf5, tables, sequtils, macros
 import seqmath, algorithm
-import plotly, mpfit
+import plotly, mpfit, nlopt, nimpy
 import ingrid / [ingrid_types, tos_helpers, calibration]
 import docopt
 import helpers / utils
 
-import nimpy
 
 const docStr = """
 Usage:
@@ -64,28 +63,6 @@ type
     hv: float
     fit: CdlFitFunc
 
-  ##dont need this anymore?!
-    #cutsB = object
-    #  target: TargetKind
-    #  filter: FilterKind
-    #  hv: float
-    #  ck: int
-    #  length: float
-    #  rms_min: float
-    #  rms_max: float
-    #  eccentricity: float
-    #
-    #cutsC = object
-    #  target: TargetKind
-    #  filter: FilterKind
-    #  hv: float
-    #  ck: int
-    #  charge_min: float
-    #  charge_max: float
-    #  length: float
-    #  rms_min: float
-    #  rms_max: float
-
   FitFuncKind = enum
     ffConst, ffPol1, ffPol2, ffGauss, ffExpGauss
 
@@ -117,7 +94,7 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
   ## function at runtime
   let muIdx = argmax(hist)
   case tfKind
-  of tfCuNi15: #need to add for rest combinatons
+  of tfCuNi15:
     result.add FitFuncArgs(name: "Cu-esc",
                            kind: ffExpGauss,
                            ea: -hist[muIdx] * 1e-10,
@@ -683,6 +660,19 @@ proc main =
           let xNim = x.to(float)
           result.add ff(@[p0, p1, p2, p3, p4, p5, p6, p7, p8, p9], xNim)
 
+      fitForNlopt(convertNlopt, ff)
+      var opt = newNloptOpt("LN_COBYLA", 10)
+      var fitObj = FitObject(x: fitBins, y: fitHist, yErr: fitHist.mapIt(sqrt(it)))
+      var vstruct = newVarStruct(convertNlopt, fitObj)
+      opt.setFunction(vstruct)
+
+      opt.xtol_rel = 1e-10
+      opt.ftol_rel = 1e-10
+      opt.maxtime  = 5.0
+      let (paramsN, minN) = opt.optimize(pRes)
+      echo opt.status
+
+      nlopt_destroy(opt.optimizer)
 
       let res = scipy.curve_fit(convertff, fitBins, fitHist, p0 = pRes,
                                 sigma = fitHist.mapIt(sqrt(it)),
@@ -691,7 +681,9 @@ proc main =
       echo popt
       let pcov = res[1]
       let fitResPy = fitBins.mapIt(getCdlFitFunc(tfk)(popt, it))
+      let fitResNlopt = fitBins.mapIt(getCdlFitFunc(tfk)(paramsN, it))
       let cdlplotPy = scatterPlot(fitBins, fitResPy).mode(PlotMode.Lines)
+      let cdlplotNlopt = scatterPlot(fitBins, fitResNlopt).mode(PlotMode.Lines)
 
       let hitsRaw = histPlot(hitsRawData.mapIt(it.float64))
         .binSize(1.0)
@@ -703,6 +695,7 @@ proc main =
       let plt = hitsRaw.addTrace(hitsCut.traces[0])
         .addTrace(cdlplot.traces[0])
         .addTrace(cdlPlotPy.traces[0])
+        .addTrace(cdlPlotNlopt.traces[0])
       plt.layout.title = &"run number: {r.number} target: {r.toCutStr}"
       plt.layout.showlegend = true
       plt.traces[1].opacity = 0.5

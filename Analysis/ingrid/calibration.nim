@@ -87,36 +87,27 @@ func polyaImpl(p: seq[float], x: float): float =
   result = coeff1 * coeff2
 
 type
-  FitObject = object
-    x: seq[float]
-    y: seq[float]
-    yErr: seq[float]
+  FitObject* = object
+    x*: seq[float]
+    y*: seq[float]
+    yErr*: seq[float]
 
-func polya(p: seq[float], fitObj: FitObject): float =
-  ## Polya function to fit to TOT histogram / charge in electrons of a
-  ## run. This is the polya function, which is handed to NLopt to perform
-  ## the non-linear optimization of the calc'd chi^2.
-  ## Parameters:
-  ## N     = p[0]    scaling factor
-  ## G     = p[1]    gas gain
-  ## theta = p[2]    parameter, which describes distribution (?! I guess it makes sens
-  ##                 since we take its power and it enters gamma)
-  # debugecho "Scale ", p[0]
-  # debugecho "Gain ", p[1]
-  # debugecho "theta ", p[2]
-  # TODO: add errors, proper chi^2 intead of unscaled values,
-  # which results in huge chi^2 despite good fit
-  let x = fitObj.x
-  let y = fitObj.y
-  let yErr = fitObj.yErr
-  var fitY = x.mapIt(polyaImpl(p, it))
-  var diff = newSeq[float](x.len)
-  result = 0.0
-  for i in 0 .. x.high:
-    diff[i] = (y[i] - fitY[i]) / yErr[i]
-    result += pow(diff[i], 2.0)
-  result = result / (x.len - p.len).float
+template fitForNlopt*(name, funcToCall: untyped): untyped =
+  proc `name`(p: seq[float], fitObj: FitObject): float =
+    # TODO: add errors, proper chi^2 intead of unscaled values,
+    # which results in huge chi^2 despite good fit
+    let x = fitObj.x
+    let y = fitObj.y
+    let yErr = fitObj.yErr
+    var fitY = x.mapIt(`funcToCall`(p, it))
+    var diff = newSeq[float](x.len)
+    result = 0.0
+    for i in 0 .. x.high:
+      diff[i] = (y[i] - fitY[i]) / yErr[i]
+      result += pow(diff[i], 2.0)
+    result = result / (x.len - p.len).float
 
+fitForNlopt(polya, polyaImpl)
 
 func sCurveFunc(p: seq[float], x: float): float =
   ## we fit the complement of a cumulative distribution function

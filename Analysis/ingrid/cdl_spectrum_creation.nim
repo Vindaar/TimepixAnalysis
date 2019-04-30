@@ -98,14 +98,14 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
     result.add FitFuncArgs(name: "Cu-esc",
                            kind: ffExpGauss,
                            ea: -hist[muIdx] * 1e-10,
-                           eb: -hist[muIdx] * 1e-12,
-                           eN: hist[muIdx] / 8.0,
+                           eb: -hist[muIdx] * 1e-10,
+                           eN: hist[muIdx] / 4.0,
                            emu: binning[muIdx] / 2.0,
                            es: hist[muIdx] / 30.0)
     result.add FitFuncArgs(name: "Cu-Kalpha",
                            kind: ffExpGauss,
                            ea: -hist[muIdx] * 1e-10,
-                           eb: -hist[muIdx] * 1e-12,
+                           eb: -hist[muIdx] * 1e-10,
                            eN: hist[muIdx],
                            emu: binning[muIdx],
                            es: hist[muIdx] / 15.0)
@@ -165,15 +165,15 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
                           kind: ffExpGauss,
                           ea: hist[muIdx]* 1e-10,
                           eb: -hist[muIdx] * 1e-12,
-                          eN: hist[muIdx] / 3.0,
-                          emu: binning[muIdx] * 2.0,
-                          es: hist[muIdx] / 30.0)
+                          eN: hist[muIdx],
+                          emu: binning[muIdx],
+                          es: hist[muIdx] )
   of tfCuEpic2:
    result.add FitFuncArgs(name: "Cu-Lalpha",
                           kind: ffGauss,
                           gmu: binning[muIdx],
                           gN: hist[muIdx],
-                          gs: hist[muIdx] / 10.0)
+                          gs: hist[muIdx] )
   of tfCuEpic0_9:
    result.add FitFuncArgs(name: "",
                           kind: ffGauss,
@@ -612,8 +612,8 @@ proc main =
   defer: discard h5f.close()
   let cutTab = getXraySpectrumCutVals()
   for r in runs:
-    if r.number != 347:
-      continue
+    #if r.number != 347:
+      #continue
     sleep 500
     case r.runType
     of rtXrayFinger:
@@ -659,7 +659,7 @@ proc main =
           #result.add ff(@[p0, p1, p2, p3, p4, p5, p6, p7, p8, p9], xNim)
 
       fitForNlopt(convertNlopt, ff)
-      var opt = newNloptOpt("LN_COBYLA", 10)
+      var opt = newNloptOpt("LN_BOBYQA", pRes.len)
       var fitObj = FitObject(x: fitBins, y: fitHist, yErr: fitHist.mapIt(sqrt(it)))
       var vstruct = newVarStruct(convertNlopt, fitObj)
       opt.setFunction(vstruct)

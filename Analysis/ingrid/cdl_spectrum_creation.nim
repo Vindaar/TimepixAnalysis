@@ -113,14 +113,14 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
     result.add FitFuncArgs(name: "Mn-esc",
                            kind: ffExpGauss,
                            ea: -hist[muIdx] * 1e-10,
-                           eb: 0.046, #-hist[muIdx] * 1e-12,
-                           eN: hist[muIdx] / 8.0,
+                           eb: hist[muIdx] * 1e-10,
+                           eN: hist[muIdx] / 9.0,
                            emu: binning[muIdx] / 2.0,
-                           es: hist[muIdx] / 30.0)
+                           es: hist[muIdx] / 25.0)
     result.add FitFuncArgs(name: "Mn-Kalpha",
                            kind: ffExpGauss,
                            ea: -hist[muIdx] * 1e-10,
-                           eb: 0.044, #-hist[muIdx] * 1e-10,
+                           eb: hist[muIdx] * 1e-10,
                            eN: hist[muIdx],
                            emu: binning[muIdx],
                            es: hist[muIdx] / 15.0)
@@ -195,7 +195,6 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
                           gmu: binning[muIdx],
                           gN: hist[muIdx],
                           gs: hist[muIdx] / 20.0)
-   # TODO: FIX correct function
   of tfCEpic0_6:
     result.add FitFuncArgs(name: "C-Kalpha",
                            kind: ffGauss,
@@ -250,7 +249,7 @@ proc genFitFuncImpl(resultNode, idx, xNode, pFitNode: NimNode, paramsNode: seq[N
       p4 = paramsNode[4]
     result = quote do:
       `resultNode` += expGauss(@[`p0`, `p1`, `p2`, `p3`, `p4`], `xNode`)
-  #else: discard
+
 
 proc idOf(x: int): NimNode =
   let param = ident"p_ar"
@@ -386,14 +385,7 @@ macro declareFitFunc(name, stmts: untyped): untyped =
 
 declareFitFunc(cuNi15):
   ffExpGauss: "Cu-esc"
-    #name = "Cu-Kalpha"
-    #eb = 0.023
   ffExpGauss: "Cu-Kalpha"
-    #name = "Cu-Kalpha"
-    #ea = -8.305
-    #eb = 0.0484
-    #emu = 286.7
-    #es = 16.23
 declareFitFunc(mnCr12):
   ffExpGauss: "Mn-esc"
     #name = "Mn-esc"
@@ -410,11 +402,20 @@ declareFitFunc(mnCr12):
 declareFitFunc(tiTi9):
   ffGauss: "Ti-esc-alpha"
   ffGauss: "Ti-esc-beta"
+    #name = "Ti-esc-beta"
+    #gmu = ??
+    #gs = ??
   ffExpGauss: "Ti-Kalpha"
   ffGauss: "Ti-Kbeta"
+    #name = "Ti-Kbeta"
+    #gmu = ??
+    #gs = ??
 declareFitFunc(agAg6):
   ffexpGauss: "Ag-Lalpha"
   ffGauss: "Ag-Lbeta"
+    #name = "Ag-Lbeta"
+    #gmu = ??
+    #gs = ??
 declareFitFunc(alAl4):
   ffexpGauss: "Al-Kalpha"
 declareFitFunc(cuEpic2):
@@ -422,8 +423,17 @@ declareFitFunc(cuEpic2):
 declareFitFunc(cuEpic0_9):
   ffGauss: "O-Kalpha"
   ffGauss: "C-Kalpha"
+    #name = "C-Kalpha"
+    #gmu = ??
+    #gs = ??
   ffGauss: "Fe-Lalphabeta"
+    #name = "Fe-Lalphabeta"
+    #gmu = ??
+    #gs = ??
   ffGauss: "Ni-Lalphabeta"
+    #name = "Ni-Lalphabeta"
+    #gmu = ??
+    #gs = ??
 declareFitFunc(cEpic0_6):
   ffGauss: "C-Kalpha"
   ffGauss: "O-Kalpha"
@@ -515,12 +525,8 @@ proc fitCdlImpl(hist, binedges: seq[float], tfKind: TargetFilterKind):
   let testquo = testcum.mapIt(it/testsum)
   let lowIdx = testquo.lowerBound(0.005)
   let highIdx = testquo.lowerBound(0.98)
-  #echo "testcum " , testquo
-  #echo "low ", lowIdx
-  #echo "high ", highIdx
   let passbin = binedges[lowIdx .. highIdx]
   let passhist = hist[lowIdx .. highIdx]
-  #echo testcum.len
 
   let passIdx = toSeq(0 .. passhist.high).filterIt(passhist[it] > 0)
   let fitBins = passIdx.mapIt(passbin[it])
@@ -613,7 +619,6 @@ proc main =
     of rtXrayFinger:
       let grp = h5f[(recoDataChipBase(r.number) & "3").grp_str]
       let cut = cutTab[r.toCutStr]
-      #echo cut
       let passIdx = cutOnProperties(h5f,
                                     grp,
                                     cut.cutTo,
@@ -638,13 +643,6 @@ proc main =
       writeDset("CdlSpectrum", "hits")
       writeDset("CdlSpectrumEvents", "eventNumber")
 
-      # TODO: here we can now:
-      # - create the CdlFit object for this CdlRun object making use of the
-      #   `getCdlFitFunc` procedure
-      # - call a `fitSpectrum` function, which performs the steps outlined in
-      #   the Org file in the "Calling functions at runtime" chapter
-      ##done with histoCdl and fitCdlImpl
-
       let hitsRawData = h5f[grp.name / "hits", int64]
       let hitsCdl = h5f[grp.name / "CdlSpectrum", int64]
       let (histdata, bins) = histoCdl(hitsCdl, binSize = 1.0)
@@ -655,10 +653,10 @@ proc main =
 
       let scipy = pyImport("scipy.optimize")
       let ff = getCdlFitFunc(tfk)
-      proc convertff(fitObject: PyObject, p0, p1, p2, p3, p4,p5, p6, p7, p8, p9: float): seq[float] =
-        for x in fitObject:
-          let xNim = x.to(float)
-          result.add ff(@[p0, p1, p2, p3, p4, p5, p6, p7, p8, p9], xNim)
+      #proc convertff(fitObject: PyObject, p0, p1, p2, p3, p4,p5, p6, p7, p8, p9: float): seq[float] =
+        #for x in fitObject:
+          #let xNim = x.to(float)
+          #result.add ff(@[p0, p1, p2, p3, p4, p5, p6, p7, p8, p9], xNim)
 
       fitForNlopt(convertNlopt, ff)
       var opt = newNloptOpt("LN_COBYLA", 10)
@@ -671,18 +669,18 @@ proc main =
       opt.maxtime  = 5.0
       let (paramsN, minN) = opt.optimize(pRes)
       echo opt.status
-
+      echo paramsN
       nlopt_destroy(opt.optimizer)
 
-      let res = scipy.curve_fit(convertff, fitBins, fitHist, p0 = pRes,
-                                sigma = fitHist.mapIt(sqrt(it)),
-                                `method` = "trf", diff_step = 1e-5)
-      let popt = res[0].mapIt(it.to(float))
-      echo popt
-      let pcov = res[1]
-      let fitResPy = fitBins.mapIt(getCdlFitFunc(tfk)(popt, it))
+      #let res = scipy.curve_fit(convertff, fitBins, fitHist, p0 = pRes,
+      #                          sigma = fitHist.mapIt(sqrt(it)),
+      #                          `method` = "trf", diff_step = 1e-5)
+      #let popt = res[0].mapIt(it.to(float))
+      #echo popt
+      #let pcov = res[1]
+      #let fitResPy = fitBins.mapIt(getCdlFitFunc(tfk)(popt, it))
       let fitResNlopt = fitBins.mapIt(getCdlFitFunc(tfk)(paramsN, it))
-      let cdlplotPy = scatterPlot(fitBins, fitResPy).mode(PlotMode.Lines)
+      #let cdlplotPy = scatterPlot(fitBins, fitResPy).mode(PlotMode.Lines)
       let cdlplotNlopt = scatterPlot(fitBins, fitResNlopt).mode(PlotMode.Lines)
 
       let hitsRaw = histPlot(hitsRawData.mapIt(it.float64))
@@ -694,7 +692,7 @@ proc main =
       hitsRaw.layout.barMode = BarMode.Overlay
       let plt = hitsRaw.addTrace(hitsCut.traces[0])
         .addTrace(cdlplot.traces[0])
-        .addTrace(cdlPlotPy.traces[0])
+        #.addTrace(cdlPlotPy.traces[0])
         .addTrace(cdlPlotNlopt.traces[0])
       plt.layout.title = &"run number: {r.number} target: {r.toCutStr}"
       plt.layout.showlegend = true
@@ -702,7 +700,8 @@ proc main =
       plt.traces[0].name = "raw data"
       plt.traces[1].name = "data with cuts"
       plt.traces[2].name = "fit curve"
-      plt.traces[3].name = "fit curve py"
+      #plt.traces[3].name = "fit curve py"
+      plt.traces[3].name = "fit curve nlopt"
       plt.layout.yaxis.title = "Occurence"
       plt.layout.xaxis.title = "Number of pixels"
       plt.show()

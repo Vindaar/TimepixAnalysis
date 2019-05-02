@@ -4,6 +4,7 @@ import plotly, mpfit, nlopt, nimpy
 import ingrid / [ingrid_types, tos_helpers, calibration]
 import docopt
 import helpers / utils
+import chroma
 
 
 const docStr = """
@@ -17,6 +18,10 @@ Options:
   --version    Show the version number
 """
 const doc = withDocopt(docStr)
+
+const Color1 = color(1.0, 0.0, 102.0 / 256.0)
+const Color2 = color(0.0, 153.0 / 256.0, 204 / 256.0)
+const black = color(0.0, 0.0, 0.0)
 
 type
   TargetKind = enum
@@ -603,7 +608,7 @@ proc main =
 
   let h5file = $args["<h5file>"]
 
-  const filename = "../../resources/cdl_runs_2019.org"
+  const filename = "../../resources/cdl_runs_2014.org"
   const cutparams = "../../resources/params.org"
 
   let runs = readRuns(filename)
@@ -617,7 +622,7 @@ proc main =
     sleep 500
     case r.runType
     of rtXrayFinger:
-      let grp = h5f[(recoDataChipBase(r.number) & "3").grp_str]
+      let grp = h5f[(recoDataChipBase(r.number) & "0").grp_str]
       let cut = cutTab[r.toCutStr]
       let passIdx = cutOnProperties(h5f,
                                     grp,
@@ -698,13 +703,17 @@ proc main =
       plt.layout.showlegend = true
       plt.traces[1].opacity = 0.5
       plt.traces[0].name = "raw data"
+      plt.traces[0].marker = Marker[float](color: @[Color1])
       plt.traces[1].name = "data with cuts"
+      plt.traces[1].marker = Marker[float](color: @[Color2])
+      plt.traces[1].opacity = 1.0
       plt.traces[2].name = "fit curve"
       #plt.traces[3].name = "fit curve py"
       plt.traces[3].name = "fit curve nlopt"
+      plt.traces[3].marker = Marker[float](color: @[black])
       plt.layout.yaxis.title = "Occurence"
       plt.layout.xaxis.title = "Number of pixels"
-      plt.show()
+      plt.show(&"{r.number} - fit.svg")
 
     else:
       discard

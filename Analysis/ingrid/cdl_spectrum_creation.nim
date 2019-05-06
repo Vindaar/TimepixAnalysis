@@ -102,15 +102,15 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
   of tfCuNi15:
     result.add FitFuncArgs(name: "Cu-esc",
                            kind: ffExpGauss,
-                           ea: -hist[muIdx] * 1e-10,
-                           eb: -hist[muIdx] * 1e-10,
+                           ea: hist[muIdx] * 1e-10,
+                           eb: -hist[muIdx] * 1e-12,
                            eN: hist[muIdx] / 4.0,
                            emu: binning[muIdx] / 2.0,
                            es: hist[muIdx] / 30.0)
     result.add FitFuncArgs(name: "Cu-Kalpha",
                            kind: ffExpGauss,
-                           ea: -hist[muIdx] * 1e-10,
-                           eb: -hist[muIdx] * 1e-10,
+                           ea: hist[muIdx] * 1e-10,
+                           eb: -hist[muIdx] * 1e-12,
                            eN: hist[muIdx],
                            emu: binning[muIdx],
                            es: hist[muIdx] / 15.0)
@@ -119,7 +119,7 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
                            kind: ffExpGauss,
                            ea: -hist[muIdx] * 1e-10,
                            eb: hist[muIdx] * 1e-12,
-                           eN: hist[muIdx] / 8.0,
+                           eN: hist[muIdx] / 9.0,
                            emu: binning[muIdx] / 2.0,
                            es: hist[muIdx] / 30.0)
     result.add FitFuncArgs(name: "Mn-Kalpha",
@@ -175,23 +175,36 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
                           es: hist[muIdx] )
   of tfCuEpic2:
    result.add FitFuncArgs(name: "Cu-Lalpha",
+                          kind: ffGauss,
+                          gmu: binning[muIdx],
+                          gN: hist[muIdx],
+                          gs: hist[muIdx] )
+
+   result.add FitFuncArgs(name: "Cu-Lbeta",
                           kind: ffExpGauss,
-                          ea: -hist[muIdx]* 1e-10,
-                          eb: hist[muIdx] * 1e-10,
+                          ea: hist[muIdx]* 1e-10,
+                          eb: -hist[muIdx] * 1e-12,
                           eN: hist[muIdx],
                           emu: binning[muIdx],
-                          es: hist[muIdx] )
+                          es: hist[muIdx] / 30.0)
   of tfCuEpic0_9:
    result.add FitFuncArgs(name: "O-Kalpha",
                           kind: ffGauss,
                           gmu: binning[muIdx],
                           gN: hist[muIdx],
                           gs: hist[muIdx] )
-   result.add FitFuncArgs(name: "C-Kalpha",
-                          kind: ffGauss,
-                          gmu: binning[muIdx],
-                          gN: hist[muIdx],
-                          gs: hist[muIdx] )
+   #result.add FitFuncArgs(name: "C-Kalpha",
+   #                       kind: ffGauss,
+   #                       gmu: binning[muIdx],
+   #                       gN: hist[muIdx],
+   #                       gs: hist[muIdx] )
+   result.add FitFuncArgs(name: "O-Lbeta",
+                          kind: ffExpGauss,
+                          ea: hist[muIdx]* 1e-10,
+                          eb: -hist[muIdx] * 1e-12,
+                          eN: hist[muIdx],
+                          emu: binning[muIdx],
+                          es: hist[muIdx] / 20.0)
    #result.add FitFuncArgs(name: "Fe-Lalphabeta",
    #                       kind: ffGauss,
    #                       gmu: binning[muIdx],
@@ -426,10 +439,12 @@ declareFitFunc(agAg6):
 declareFitFunc(alAl4):
   ffexpGauss: "Al-Kalpha"
 declareFitFunc(cuEpic2):
-  ffexpGauss: "Cu-Lalpha"
+  ffGauss: "Cu-Lalpha"
+  ffexpGauss: "Cu-Lbeta"
 declareFitFunc(cuEpic0_9):
   ffGauss: "O-Kalpha"
-  ffGauss: "C-Kalpha"
+  #ffGauss: "C-Kalpha"
+  ffGauss: "O-Lneta"
     #name = "C-Kalpha"
     #gmu = ??
     #gs = ??
@@ -609,7 +624,7 @@ proc main =
   #echo args
   let h5file = $args["<h5file>"]
 
-  const filename = "../../resources/cdl_runs_2019.org"
+  const filename = "../../resources/cdl_runs_2014.org"
   const cutparams = "../../resources/cutparams.org"
   ##actually cutparams isn't necessary since cuts are choosen in tos helpers
 
@@ -626,7 +641,7 @@ proc main =
       sleep 500
       case r.runType
       of rtXrayFinger:
-        let grp = h5f[(recoDataChipBase(r.number) & "3").grp_str]
+        let grp = h5f[(recoDataChipBase(r.number) & "0").grp_str]
         #echo grp
         let cut = cutTab[r.toCutStr]
         let passIdx = cutOnProperties(h5f,
@@ -676,7 +691,7 @@ proc main =
       sleep 500
       case r.runType
       of rtXrayFinger:
-        let grp = h5f[(recoDataChipBase(r.number) & "3").grp_str]
+        let grp = h5f[(recoDataChipBase(r.number) & "0").grp_str]
         let tfk = r.totfkind
         echo tfk
         if tfk == targetFilter:
@@ -754,7 +769,7 @@ proc main =
     plt.traces[3].marker = Marker[float](color: @[black])
     plt.layout.yaxis.title = "Occurence"
     plt.layout.xaxis.title = "Number of pixels"
-    plt.show(&"{targetFilter}-2019.svg")
+    plt.show(&"{targetFilter}-2014.svg")
 
   for tfkind in TargetFilterKind:
     fitAndPlot(h5file, tfkind)

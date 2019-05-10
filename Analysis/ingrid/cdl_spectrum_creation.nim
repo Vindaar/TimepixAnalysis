@@ -102,18 +102,18 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
   of tfCuNi15:
     result.add FitFuncArgs(name: "Cu-esc",
                            kind: ffExpGauss,
-                           ea: -hist[muIdx] * 1e-10,#fixed,
+                           ea: hist[muIdx] * 1e-10,#fixed, ##1e-10 on laptop
                            eb: hist[muIdx] * 1e-12,#fixed,
-                           eN: hist[muIdx] / 4.0,#10.0,
-                           emu: binning[muIdx] / 2.0,#fixed,
-                           es: hist[muIdx] / 30.0)#40.00)#
+                           eN: hist[muIdx] / 4.0,#10.0, ##4 on laptop
+                           emu: 170.0,#binning[muIdx] ,#fixed, ##classic binning[muIdx] on laptop
+                           es: 20.0)#hist[muIdx] / 30.0)#40.00)# ##classic hist[muIdx] on laptop
     result.add FitFuncArgs(name: "Cu-Kalpha",
                            kind: ffExpGauss,
-                           ea: -hist[muIdx] * 1e-10,#fixed,
-                           eb: -hist[muIdx] * 1e-12,#fixed,
+                           ea: hist[muIdx] * 1e-10,#fixed, ##1e-10 on laptop
+                           eb: hist[muIdx] * 1e-12,#fixed,
                            eN: hist[muIdx],#80.0
                            emu: binning[muIdx],#fixed,
-                           es: hist[muIdx] / 15.0)#18.0)
+                           es: hist[muIdx] / 20.0)#18.0)
   of tfMnCr12:
     result.add FitFuncArgs(name: "Mn-esc",
                            kind: ffExpGauss,
@@ -134,12 +134,12 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
                            kind: ffGauss,
                            gN: hist[muIdx],
                            gmu: binning[muIdx],
-                           gs: hist[muIdx] / 30.0)
+                           gs: hist[muIdx] / 15.0) ##30 on laptop
     result.add FitFuncArgs(name: "Ti-esc-beta",
                            kind: ffGauss,
                            gN: hist[muIdx],
                            gmu: binning[muIdx],
-                           gs: hist[muIdx] / 30.0)
+                           gs: hist[muIdx] / 15.0) ##30 on laptop
     result.add FitFuncArgs(name: "Ti-Kalpha",
                            kind: ffExpGauss,
                            ea: hist[muIdx] * 1e-12,

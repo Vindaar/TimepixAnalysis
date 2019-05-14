@@ -166,7 +166,7 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
                           gN: hist[muIdx],
                           gs: hist[muIdx] / 10.0)
   of tfAlAl4:
-    result.add FitFuncArgs(name: "Al-Kalpha",
+   result.add FitFuncArgs(name: "Al-Kalpha",
                           kind: ffExpGauss,
                           ea: hist[muIdx]* 1e-10,
                           eb: -hist[muIdx] * 1e-12,
@@ -228,7 +228,7 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
                            gs: hist[muIdx] )#fixed) #
 
 
-func getLinesCHARGEtest(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncArgs] =
+func getLinesCharge(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncArgs] =
   ## this is a runtime generator for the correct fitting function prototype,
   ## i.e. it returns a seq of parts, which need to be combined to the complete
   ## function at runtime
@@ -237,14 +237,14 @@ func getLinesCHARGEtest(hist, binning: seq[float], tfKind: TargetFilterKind): se
   of tfCuNi15:
     result.add FitFuncArgs(name: "Cu-esc",
                            kind: ffGauss,
-                           gN: hist[muIdx],
-                           gmu: binning[muIdx],
-                           gs: hist[muIdx] / 15.0)
+                           gN: hist[muIdx] / 5.0,
+                           gmu: binning[muIdx] / 2.0,
+                           gs: hist[muIdx] * 1e3)
     result.add FitFuncArgs(name: "Cu-Kalpha",
                            kind: ffGauss,
                            gN: hist[muIdx],
                            gmu: binning[muIdx],
-                           gs: hist[muIdx] / 15.0)
+                           gs: hist[muIdx] * 1e3)
   of tfMnCr12:
     result.add FitFuncArgs(name: "Mn-esc",
                            kind: ffGauss,
@@ -536,6 +536,9 @@ declareFitFunc(cuNi15):
     #eN = 195.2
     #emu = 286.7
     #es = 16.23
+declareFitFunc(cuNi15Charge):
+  ffGauss: "Cu-esc"
+  ffGauss: "Cu-Kalpha"
 declareFitFunc(mnCr12):
   ffExpGauss: "Mn-esc"
     #name = "Mn-esc"
@@ -549,6 +552,12 @@ declareFitFunc(mnCr12):
     #eb = 0.04455
     #emu = 200.3
     #es = 12.7
+declareFitFunc(mnCr12Charge):
+  ffGauss: "Mn-esc"
+  ffGauss: "Mn-Kalpha"
+  ffConst: "p0"
+  ffPol1: "p1"
+  ffPol2: "p2"
 declareFitFunc(tiTi9):
   ffGauss: "Ti-esc-alpha"
   ffGauss: "Ti-esc-beta"
@@ -560,17 +569,35 @@ declareFitFunc(tiTi9):
     #name = "Ti-Kbeta"
     #gmu = ??
     #gs = ??
+declareFitFunc(tiTi9Charge):
+  ffGauss: "Ti-esc-aplha"
+  ffGauss: "Ti-esc-beta"
+  ffGauss: "Ti-Kalpha"
+  ffGauss: "Ti-Kbeta"
 declareFitFunc(agAg6):
   ffexpGauss: "Ag-Lalpha"
   ffGauss: "Ag-Lbeta"
     #name = "Ag-Lbeta"
     #gmu = ??
     #gs = ??
+declareFitFunc(agAg6Charge):
+  ffGauss: "Ag-esc"
+  ffGauss: "Ag-Kalpha"
+  ffConst: "p0"
+  ffPol1: "p1"
+  ffPol2: "p2"
 declareFitFunc(alAl4):
   ffexpGauss: "Al-Kalpha"
+declareFitFunc(alAl4Charge):
+  ffGauss: "Al-Kalpha"
+  ffConst: "p0"
+  ffPol1: "p1"
+  ffPol2: "p2"
 declareFitFunc(cuEpic2):
   ffGauss: "Cu-Lalpha"
   ffexpGauss: "Cu-Lbeta"
+declareFitFunc(cuEpic2Charge):
+  ffGauss: "Cu-Lalpha"
 declareFitFunc(cuEpic0_9):
   ffGauss: "O-Kalpha"
   #ffGauss: "C-Kalpha"
@@ -586,12 +613,17 @@ declareFitFunc(cuEpic0_9):
     #name = "Ni-Lalphabeta"
     #gmu = ??
     #gs = ??
+declareFitFunc(cuEpic0_9Charge):
+  ffGauss: "O-Kalpha"
 declareFitFunc(cEpic0_6):
   ffGauss: "C-Kalpha"
   ffGauss: "O-Kalpha"
     #name = "O-Kalpha"
     #gmu = 15.0
     #gs = -12.0
+declareFitFunc(cEpic0_6Charge):
+  ffGauss: "C-Kalpha"
+  ffGauss: "O-Kalpha"
 
 func filterNaN(s: openArray[float]): seq[float] =
   result = newSeqOfCap[float](s.len)
@@ -602,26 +634,34 @@ func filterNaN(s: openArray[float]): seq[float] =
 proc serialize(parts: seq[FitFuncArgs]): seq[float] =
   for p in parts:
     case p.kind
+    of ffConst:
+      result.add filterNaN([p.c])
+    of ffPol1:
+      result.add filterNaN([p.cp])
+    of ffPol2:
+      result.add filterNaN([p.cpp])
     of ffGauss:
       result.add filterNaN([p.gN, p.gmu, p.gs])
     of ffExpGauss:
       result.add filterNaN([p.ea, p.eb, p.eN, p.emu, p.es])
-    else:
+    #else:
       # TODO: Finish other cases!
-      discard
+      #discard
 
 macro genTfToFitFunc(pname: untyped): untyped =
   let tfkind = getType(TargetFilterKind)
   # first generate the string combinations
   var funcNames: seq[string]
+  #var funcNamesC: seq[string]
   for x in tfKind:
     if x.kind != nnkEmpty:
       let xStr = ($(x.getImpl))
         .toLowerAscii
         .replace("-", "")
         .replace(".", "")
-        .replace("kv", "") & "Func"
-      funcNames.add xStr
+        .replace("kv", "") #& "Func"
+      funcNames.add xStr# & "Func"
+      #funcNamesC.add xStr & "ChargeFunc"
   # given the names, write a proc that returns the function
   let
     ##now with target and filter combined
@@ -631,27 +671,45 @@ macro genTfToFitFunc(pname: untyped): untyped =
     tfNameNode = ident"n"
     resIdent = ident"result"
   var caseStmt = nnkCaseStmt.newTree(tfNameNode)
+  var caseStmtC = nnkCaseStmt.newTree(tfNameNode)
   for n in funcNames:
-    let retId = ident(n)
+    let retId = ident($n & "Func")
     let retval = quote do:
       `resIdent` = `retId`
-    caseStmt.add nnkOfBranch.newTree(newLit n, retval)
+    caseStmt.add nnkOfBranch.newTree(newLit $retId, retval)
+    let retIdC = ident($n & "ChargeFunc")
+    let retvalC = quote do:
+      `resIdent` = `retIdC`
+    caseStmtC.add nnkOfBranch.newTree(newLit $retIdC, retvalC)
+  let hitsname = pname
+  let chargename = ident($pname & "Charge")
   result = quote do:
-    proc `pname`(`arg`: `argType`): `cdf` =
+    #var hitsname = $pname
+    #var chargename = $pname & "charge"
+    proc `hitsname`(`arg`: `argType`): `cdf` =
       let `tfNameNode` = ($`arg`)
         .toLowerAscii
         .replace("-", "")
         .replace(".", "")
         .replace("kv", "") & "Func"
       `caseStmt`
+    proc `chargename`(`arg`: `argType`): `cdf` =
+      let `tfNameNode` = ($`arg`)
+        .toLowerAscii
+        .replace("-", "")
+        .replace(".", "")
+        .replace("kv", "") & "ChargeFunc"
+      `caseStmtC`
+
   echo result.repr
 
 # generate the =getCdlFitFunc= used to get the correct fit function
 # based on a `TargetKind` and `FilterKind`
 genTfToFitFunc(getCdlFitFunc)
+#genTfToFitFunc(getCdlFitFuncCharge)
 
 
-proc histoCdl(data: seq[SomeInteger], binSize: float = 3.0): (seq[float], seq[float]) =
+proc histoCdl(data: seq[SomeNumber], binSize: float = 3.0): (seq[float], seq[float]) =
   let low = -0.5
   var high = max(data).float + 0.5
   let nbins = (ceil((high - low) / binSize)).int
@@ -660,11 +718,6 @@ proc histoCdl(data: seq[SomeInteger], binSize: float = 3.0): (seq[float], seq[fl
   let bin_edges = linspace(low, high, nbins + 1)
   let hist = data.histogram(bins = nbins, range = (low, high))
 
-  #echo bin_edges.len
-  #echo hist.len
-  #echo bin_edges
-
-
   result[0] = hist.mapIt(it.float)
   result[1] = bin_edges[1 .. ^1]
 
@@ -672,7 +725,7 @@ proc fitCdlImpl(hist, binedges: seq[float], tfKind: TargetFilterKind):
                (seq[float], seq[float], seq[float]) =
   let lines = getLines(hist, binedges, tfKind)
   let params = lines.serialize
-  echo params
+  #echo params
   let testcum = cumsum(hist)
   let testsum = sum(hist)
   let testquo = testcum.mapIt(it/testsum)
@@ -695,15 +748,43 @@ proc fitCdlImpl(hist, binedges: seq[float], tfKind: TargetFilterKind):
   echoResult(pRes, res=res)
   result = (pRes, fitBins, fitHist)
 
+proc fitCdlChargeImpl(hist, binedges: seq[float], tfKind: TargetFilterKind):
+               (seq[float], seq[float], seq[float]) =
+  let linesCharge = getLinesCharge(hist, binedges, tfKind)
+  echo linesCharge, "??\n"
+  let params = linesCharge.serialize
+  echo params
+  let testcum = cumsum(hist)
+  let testsum = sum(hist)
+  let testquo = testcum.mapIt(it/testsum)
+  let lowIdx = testquo.lowerBound(0.0005)
+  let highIdx = testquo.lowerBound(0.98)
+  let passbin = binedges[lowIdx .. highIdx]
+  let passhist = hist[lowIdx .. highIdx]
 
-const cuni15FuncCharge = cuNi15Func
-const mnCr12FuncCharge = mnCr12Func
-const tiTi9FuncCharge = tiTi9Func
-const agAg6FuncCharge = agAg6Func
-const alAl4FuncCharge = alAl4Func
-const cuEpic2FuncCharge = cuEpic2Func
-const cuEpic0_9FuncCharge = cuEpic0_9Func
-const cEpic0_6FuncCharge = cEpic0_6Func
+  let passIdx = toSeq(0 .. passhist.high).filterIt(passhist[it] > 0)
+  let fitBins = passIdx.mapIt(passbin[it])
+  let fitHist = passIdx.mapIt(passhist[it])
+  let err = fitHist.mapIt(1.0)# / sqrt(it))
+
+  let (pRes, res) = fit(getCdlFitFuncCharge(tfKind),
+                        params,
+                        fitBins,
+                        fitHist,
+                        err)
+
+  echoResult(pRes, res=res)
+  result = (pRes, fitBins, fitHist)
+
+
+#const cuni15FuncCharge = cuNi15Func
+#const mnCr12FuncCharge = mnCr12Func
+#const tiTi9FuncCharge = tiTi9Func
+#const agAg6FuncCharge = agAg6Func
+#const alAl4FuncCharge = alAl4Func
+#const cuEpic2FuncCharge = cuEpic2Func
+#const cuEpic0_9FuncCharge = cuEpic0_9Func
+#const cEpic0_6FuncCharge = cEpic0_6Func
 
 # TODO: impl rest of functions + Charge functions
 
@@ -784,21 +865,22 @@ proc main =
                                      ("eccentricity", 0.0, cut.maxEccentricity))
         let nevents = passIdx.len
 
-        proc writeDset(dsetWrite, dsetRead: string) =
+        proc writeDset(dsetWrite, dsetRead: string, datatype: typedesc) =
           var
             dset = h5f.create_dataset(grp.name / dsetWrite, (nevents, 1),
-                                     int64)
+                                      datatype)
           if dsetWrite == "CdlSpectrumIndices":
             dset[dset.all] = passIdx
           else:
-            let read = h5f[grp.name / dsetRead, int64]
+            let read = h5f[grp.name / dsetRead, datatype]
             dset[dset.all] = passIdx.mapIt(read[it])
           dset.attrs["Target"] = $r.target
           dset.attrs["Filter"] = $r.filter
           dset.attrs["HV"] = $r.hv
-        writeDset("CdlSpectrumIndices", "")
-        writeDset("CdlSpectrum", "hits")
-        writeDset("CdlSpectrumEvents", "eventNumber")
+        writeDset("CdlSpectrumIndices", "", int64)
+        writeDset("CdlSpectrum", "hits", int64)
+        writeDset("CdlSpectrumEvents", "eventNumber", int64)
+        writeDset("CdlSpectrumCharge", "totalCharge", float64)
 
         let runnum = h5f[(recoBase() & $r.number).grp_str]
         #echo runnum
@@ -813,6 +895,8 @@ proc main =
     let targetFilter = tfkind
     var rawseq: seq[int64]
     var cutseq: seq[int64]
+    var rawChargeseq: seq[float64]
+    var cutChargeseq: seq[float64]
 
 
 
@@ -824,13 +908,18 @@ proc main =
       of rtXrayFinger:
         let grp = h5f[(recoDataChipBase(r.number) & "3").grp_str]
         let tfk = r.totfkind
-        echo tfk
+        #echo tfk
         if tfk == targetFilter:
             let hitsRawDataseq = h5f[grp.name / "hits", int64]
             let hitsCdlseq = h5f[grp.name / "CdlSpectrum", int64]
+            let chargeRawDataseq = h5f[grp.name / "totalCharge", float64]
+            let chargeCdlseq = h5f[grp.name / "CdlSpectrumCharge", float64]
+            #echo chargeCdlseq
 
             rawseq.add(hitsRawDataseq)
             cutseq.add(hitsCdlseq)
+            rawChargeseq.add(chargeRawDataseq)
+            cutChargeseq.add(chargeCdlseq)
         #echo rawseq
       else:
          discard
@@ -840,12 +929,20 @@ proc main =
     #let hitsCdl = h5f[grp.name / "CdlSpectrum", int64]
     let (histdata, bins) = histoCdl(cutseq, binSize = 1.0)
     let (pRes, fitBins, fitHist) = fitCdlImpl(histdata, bins, targetFilter)
+    let (histdataC, binsC) = histoCdl(cutChargeseq, binSize = 10000.0)
+    let (pResC, fitBinsC, fitHistC) = fitCdlChargeImpl(histdataC, binsC, targetFilter)
+
     let fitres = fitBins.mapIt(getCdlFitFunc(targetFilter)(pRes, it))
     let cdlplot = scatterPlot(fitBins, fitres).mode(PlotMode.Lines)
+    let fitresC = fitBins.mapIt(getCdlFitFuncCharge(targetFilter)(pResC, it))
+    let cdlplotC = scatterPlot(fitBinsC, fitresC).mode(PlotMode.Lines)
 
-    let scipy = pyImport("scipy.optimize")
+
     let ff = getCdlFitFunc(targetFilter)
-    #proc convertff(fitObject: PyObject, p0, p1, p2, p3, p4,p5, p6, p7, p8, p9: float): seq[float] =
+    let ffC = getCdlFitFuncCharge(targetFilter)
+
+    #let scipy = pyImport("scipy.optimize")
+     #proc convertff(fitObject: PyObject, p0, p1, p2, p3, p4,p5, p6, p7, p8, p9: float): seq[float] =
            #for x in fitObject:
           #let xNim = x.to(float)
           #result.add ff(@[p0, p1, p2, p3, p4, p5, p6, p7, p8, p9], xNim)
@@ -864,6 +961,22 @@ proc main =
     #echo paramsN
     nlopt_destroy(opt.optimizer)
 
+
+    fitForNlopt(convertNloptC, ffC)
+    var optC = newNloptOpt("LN_BOBYQA", pResC.len)
+    var fitObjC = FitObject(x: fitBinsC, y: fitHistC, yErr: fitHistC.mapIt(sqrt(it)))
+    var vstructC = newVarStruct(convertNloptC, fitObjC)
+    optC.setFunction(vstructC)
+
+    optC.xtol_rel = 1e-10
+    optC.ftol_rel = 1e-10
+    optC.maxtime  = 5.0
+    let lChargeStart = getLinesCharge(histDataC, binsC, targetFilter).serialize
+    let (paramsNC, minNC) = optC.optimize(lChargeStart)
+    #echo opt.status
+    #echo paramsN
+    nlopt_destroy(optC.optimizer)
+
     #let res = scipy.curve_fit(convertff, fitBins, fitHist, p0 = pRes,
     #                          sigma = fitHist.mapIt(sqrt(it)),
     #                          `method` = "trf", diff_step = 1e-5)
@@ -875,6 +988,10 @@ proc main =
     #let cdlplotPy = scatterPlot(fitBins, fitResPy).mode(PlotMode.Lines)
     let cdlplotNlopt = scatterPlot(fitBins, fitResNlopt).mode(PlotMode.Lines)
 
+    let fitResNloptC = fitBins.mapIt(getCdlFitFuncCharge(targetFilter)(paramsNC, it))
+    let cdlplotNloptC = scatterPlot(fitBinsC, fitResNloptC).mode(PlotMode.Lines)
+
+    ##plot of hits
     let hitsRaw = histPlot(rawseq.mapIt(it.float64))
       .binSize(1.0)
       .binRange(0.0, 400.0)
@@ -901,6 +1018,33 @@ proc main =
     plt.layout.yaxis.title = "Occurence"
     plt.layout.xaxis.title = "Number of pixels"
     plt.show(&"{targetFilter}-2019.svg")
+
+    ##plot of charge
+    let ChargeRaw = histPlot(rawChargeseq.mapIt(it.float64))
+      .binSize(10000.0)
+      .binRange(0.0, 3500000.0)
+    let ChargeCut = histPlot(cutChargeseq.mapIt(it.float64))
+      .binSize(10000.0)
+      .binRange(0.0, 3500000.0)
+    ChargeRaw.layout.barMode = BarMode.Overlay
+    let pltC = ChargeRaw.addTrace(ChargeCut.traces[0])
+      .addTrace(cdlplotC.traces[0])
+      .addTrace(cdlPlotNloptC.traces[0])
+    pltC.layout.title = &"target: {targetFilter}"
+    pltC.layout.showlegend = true
+    pltC.traces[1].opacity = 0.5
+    pltC.traces[0].name = "raw data"
+    pltC.traces[0].marker = Marker[float](color: @[Color1])
+    pltC.traces[1].name = "data with cuts"
+    pltC.traces[1].marker = Marker[float](color: @[Color2])
+    pltC.traces[1].opacity = 1.0
+    pltC.traces[2].name = "fit curve"
+    pltC.traces[2].marker = Marker[float](color: @[black])
+    pltC.layout.yaxis.title = "Occurence"
+    pltC.layout.xaxis.title = "Charge"
+    pltC.show(&"{targetFilter}Charge-2019.svg")
+
+
 
   for tfkind in TargetFilterKind:
     fitAndPlot(h5file, tfkind)

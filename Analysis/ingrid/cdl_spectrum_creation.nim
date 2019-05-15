@@ -237,113 +237,113 @@ func getLinesCharge(hist, binning: seq[float], tfKind: TargetFilterKind): seq[Fi
   of tfCuNi15:
     result.add FitFuncArgs(name: "Cu-esc",
                            kind: ffGauss,
-                           gN: hist[muIdx] / 5.0,
-                           gmu: binning[muIdx] / 2.0,
-                           gs: hist[muIdx] * 1e3)
+                           gN: hist[muIdx] / 10.0,
+                           gmu: 1070.0e3,#binning[muIdx] / 2.0,
+                           gs: hist[muIdx] * 1e5)
     result.add FitFuncArgs(name: "Cu-Kalpha",
                            kind: ffGauss,
                            gN: hist[muIdx],
-                           gmu: binning[muIdx],
-                           gs: hist[muIdx] * 1e3)
+                           gmu: 1700.0e3,#binning[muIdx] ,
+                           gs: hist[muIdx] * 1.5e5)
   of tfMnCr12:
     result.add FitFuncArgs(name: "Mn-esc",
                            kind: ffGauss,
                            gN: hist[muIdx],
-                           gmu: binning[muIdx],
-                           gs: hist[muIdx] / 15.0)
+                           gmu: 800.0e3,#binning[muIdx] / 2.0,
+                           gs: hist[muIdx] * 1e3)
     result.add FitFuncArgs(name: "Mn-Kalpha",
                            kind: ffGauss,
                            gN: hist[muIdx],
-                           gmu: binning[muIdx],
-                           gs: hist[muIdx] / 15.0)
-    result.add FitFuncArgs(name: "p0",
-                           kind: ffConst,
-                           c: hist[muIdx])
-    result.add FitFuncArgs(name: "p1",
-                           kind: ffPol1,
-                           cp: hist[muIdx])
-    result.add FitFuncArgs(name: "p2",
-                           kind: ffPol2,
-                           cpp: hist[muIdx])
+                           gmu: 1600.0e3,#binning[muIdx],
+                           gs: hist[muIdx] * 2e3)
+    #result.add FitFuncArgs(name: "p0",
+    #                       kind: ffConst,
+    #                       c: -hist[muIdx])
+    #result.add FitFuncArgs(name: "p1",
+    #                       kind: ffPol1,
+    #                       cp: hist[muIdx])
+    #result.add FitFuncArgs(name: "p2",
+    #                       kind: ffPol2,
+    #                       cpp: -hist[muIdx])
   of tfTiTi9:
     result.add FitFuncArgs(name: "Ti-esc-alpha",
                            kind: ffGauss,
-                           gN: hist[muIdx],
-                           gmu: binning[muIdx],
-                           gs: hist[muIdx] / 15.0)
+                           gN: hist[muIdx] / 10.0,
+                           gmu: 400.0e3,#binning[muIdx] ,
+                           gs: hist[muIdx] * 1e3)
     result.add FitFuncArgs(name: "Ti-esc-beta",
                            kind: ffGauss,
-                           gN: hist[muIdx],
-                           gmu: binning[muIdx],
-                           gs: hist[muIdx] / 15.0)
+                           gN: hist[muIdx] / 10.0,
+                           gmu: binning[muIdx] ,
+                           gs: hist[muIdx] * 1e3)
     result.add FitFuncArgs(name: "Ti-Kalpha",
                            kind: ffGauss,
-                           gN: hist[muIdx],
-                           gmu: binning[muIdx],
-                           gs: hist[muIdx] / 15.0)
+                           gN: hist[muIdx] ,
+                           gmu: 1140.0e3,#binning[muIdx] ,
+                           gs: hist[muIdx] * 1e3)
     result.add FitFuncArgs(name: "Ti-Kbeta",
                            kind: ffGauss,
                            gN: hist[muIdx],
-                           gmu: binning[muIdx],
-                           gs: hist[muIdx] / 30.0)
+                           gmu: binning[muIdx] * 1e5,
+                           gs: hist[muIdx] * 1e3)
   of tfAgAg6:
     result.add FitFuncArgs(name: "Ag-Lalpha",
                            kind: ffGauss,
                            gN: hist[muIdx],
-                           gmu: binning[muIdx],
-                           gs: hist[muIdx] / 15.0)
+                           gmu: 800.0e3,#binning[muIdx],
+                           gs: hist[muIdx] * 1e5)
     result.add FitFuncArgs(name: "Ag-Lbeta",
                            kind: ffGauss,
                            gN: hist[muIdx],
                            gmu: binning[muIdx],
-                           gs: hist[muIdx] / 15.0)
-    result.add FitFuncArgs(name: "p0",
-                           kind: ffConst,
-                           c: hist[muIdx])
-    result.add FitFuncArgs(name: "p1",
-                           kind: ffPol1,
-                           cp: hist[muIdx])
-    result.add FitFuncArgs(name: "p2",
-                           kind: ffPol2,
-                           cpp: hist[muIdx])
+                           gs: hist[muIdx] * 1.5e5)
+    #result.add FitFuncArgs(name: "p0",
+    #                       kind: ffConst,
+    #                       c: -hist[muIdx])
+    #result.add FitFuncArgs(name: "p1",
+    #                       kind: ffPol1,
+    #                       cp: hist[muIdx])
+    #result.add FitFuncArgs(name: "p2",
+    #                       kind: ffPol2,
+    #                       cpp: -hist[muIdx])
   of tfAlAl4:
     result.add FitFuncArgs(name: "Ag-Kaplha",
                            kind: ffGauss,
                            gN: hist[muIdx],
-                           gmu: binning[muIdx],
-                           gs: hist[muIdx] / 15.0)
-    result.add FitFuncArgs(name: "p0",
-                           kind: ffConst,
-                           c: hist[muIdx])
-    result.add FitFuncArgs(name: "p1",
-                           kind: ffPol1,
-                           cp: hist[muIdx])
-    result.add FitFuncArgs(name: "p2",
-                           kind: ffPol2,
-                           cpp: hist[muIdx])
+                           gmu: 350.0e3,#binning[muIdx],
+                           gs: hist[muIdx] * 1e5)
+    #result.add FitFuncArgs(name: "p0",
+    #                       kind: ffConst,
+    #                       c: -hist[muIdx])
+    #result.add FitFuncArgs(name: "p1",
+    #                       kind: ffPol1,
+    #                       cp: hist[muIdx])
+    #result.add FitFuncArgs(name: "p2",
+    #                       kind: ffPol2,
+    #                       cpp: -hist[muIdx])
   of tfCuEpic2:
-   result.add FitFuncArgs(name: "Cu-Lalpha",
+    result.add FitFuncArgs(name: "Cu-Lalpha",
                           kind: ffGauss,
                           gmu: binning[muIdx],
                           gN: hist[muIdx],
-                          gs: hist[muIdx] )
+                          gs: hist[muIdx] * 1e5)
   of tfCuEpic0_9:
-   result.add FitFuncArgs(name: "O-Kalpha",
+    result.add FitFuncArgs(name: "O-Kalpha",
                           kind: ffGauss,
                           gmu: binning[muIdx],
                           gN: hist[muIdx],
-                          gs: hist[muIdx] )
+                          gs: hist[muIdx] * 1e5)
   of tfCEpic0_6:
     result.add FitFuncArgs(name: "C-Kalpha",
                            kind: ffGauss,
                            gN: hist[muIdx],
                            gmu: binning[muIdx] / 2.0,
-                           gs: hist[muIdx] / 2.0)
+                           gs: hist[muIdx] * 1e5)
     result.add FitFuncArgs(name: "O-Kalpha",
                            kind: ffGauss,
                            gN: hist[muIdx] ,
                            gmu: binning[muIdx],
-                           gs: hist[muIdx] )
+                           gs: hist[muIdx] * 1e5)
 
 proc genFitFuncImpl(resultNode, idx, xNode, pFitNode: NimNode, paramsNode: seq[NimNode]): NimNode =
   ## the compilet time procedure that creates the implementation lines for
@@ -374,9 +374,7 @@ proc genFitFuncImpl(resultNode, idx, xNode, pFitNode: NimNode, paramsNode: seq[N
       p1 = paramsNode[1]
       p2 = paramsNode[2]
     result = quote do:
-      `resultNode` += `p0` * gauss(`xNode`,
-                                   `p1`,
-                                   `p2`)
+      `resultNode` += `p0` * gauss(`xNode`, `p1`, `p2`)
 
   of ffExpGauss:
     let
@@ -538,7 +536,15 @@ declareFitFunc(cuNi15):
     #es = 16.23
 declareFitFunc(cuNi15Charge):
   ffGauss: "Cu-esc"
+    #name = "Cu-esc"
+    #gN = 14.25
+    #gmu = 1077142.2
+    #gs = 113290.5
   ffGauss: "Cu-Kalpha"
+    #name = "Cu-Kalpha"
+    #gN = 28.47
+    #gmu = 187.0
+    #gs = 13.5
 declareFitFunc(mnCr12):
   ffExpGauss: "Mn-esc"
     #name = "Mn-esc"
@@ -555,9 +561,9 @@ declareFitFunc(mnCr12):
 declareFitFunc(mnCr12Charge):
   ffGauss: "Mn-esc"
   ffGauss: "Mn-Kalpha"
-  ffConst: "p0"
-  ffPol1: "p1"
-  ffPol2: "p2"
+  #ffConst: "p0"
+  #ffPol1: "p1"
+  #ffPol2: "p2"
 declareFitFunc(tiTi9):
   ffGauss: "Ti-esc-alpha"
   ffGauss: "Ti-esc-beta"
@@ -583,16 +589,16 @@ declareFitFunc(agAg6):
 declareFitFunc(agAg6Charge):
   ffGauss: "Ag-esc"
   ffGauss: "Ag-Kalpha"
-  ffConst: "p0"
-  ffPol1: "p1"
-  ffPol2: "p2"
+  #ffConst: "p0"
+  #ffPol1: "p1"
+  #ffPol2: "p2"
 declareFitFunc(alAl4):
   ffexpGauss: "Al-Kalpha"
 declareFitFunc(alAl4Charge):
   ffGauss: "Al-Kalpha"
-  ffConst: "p0"
-  ffPol1: "p1"
-  ffPol2: "p2"
+  #ffConst: "p0"
+  #ffPol1: "p1"
+  #ffPol2: "p2"
 declareFitFunc(cuEpic2):
   ffGauss: "Cu-Lalpha"
   ffexpGauss: "Cu-Lbeta"
@@ -706,7 +712,6 @@ macro genTfToFitFunc(pname: untyped): untyped =
 # generate the =getCdlFitFunc= used to get the correct fit function
 # based on a `TargetKind` and `FilterKind`
 genTfToFitFunc(getCdlFitFunc)
-#genTfToFitFunc(getCdlFitFuncCharge)
 
 
 proc histoCdl(data: seq[SomeNumber], binSize: float = 3.0): (seq[float], seq[float]) =
@@ -777,14 +782,14 @@ proc fitCdlChargeImpl(hist, binedges: seq[float], tfKind: TargetFilterKind):
   result = (pRes, fitBins, fitHist)
 
 
-#const cuni15FuncCharge = cuNi15Func
-#const mnCr12FuncCharge = mnCr12Func
-#const tiTi9FuncCharge = tiTi9Func
-#const agAg6FuncCharge = agAg6Func
-#const alAl4FuncCharge = alAl4Func
-#const cuEpic2FuncCharge = cuEpic2Func
-#const cuEpic0_9FuncCharge = cuEpic0_9Func
-#const cEpic0_6FuncCharge = cEpic0_6Func
+const cuni15FuncCharge = cuNi15Func
+const mnCr12FuncCharge = mnCr12Func
+const tiTi9FuncCharge = tiTi9Func
+const agAg6FuncCharge = agAg6Func
+const alAl4FuncCharge = alAl4Func
+const cuEpic2FuncCharge = cuEpic2Func
+const cuEpic0_9FuncCharge = cuEpic0_9Func
+const cEpic0_6FuncCharge = cEpic0_6Func
 
 # TODO: impl rest of functions + Charge functions
 
@@ -934,7 +939,7 @@ proc main =
 
     let fitres = fitBins.mapIt(getCdlFitFunc(targetFilter)(pRes, it))
     let cdlplot = scatterPlot(fitBins, fitres).mode(PlotMode.Lines)
-    let fitresC = fitBins.mapIt(getCdlFitFuncCharge(targetFilter)(pResC, it))
+    let fitresC = fitBinsC.mapIt(getCdlFitFuncCharge(targetFilter)(pResC, it))
     let cdlplotC = scatterPlot(fitBinsC, fitresC).mode(PlotMode.Lines)
 
 
@@ -957,8 +962,6 @@ proc main =
     opt.ftol_rel = 1e-10
     opt.maxtime  = 5.0
     let (paramsN, minN) = opt.optimize(pRes)
-    #echo opt.status
-    #echo paramsN
     nlopt_destroy(opt.optimizer)
 
 
@@ -971,10 +974,8 @@ proc main =
     optC.xtol_rel = 1e-10
     optC.ftol_rel = 1e-10
     optC.maxtime  = 5.0
-    let lChargeStart = getLinesCharge(histDataC, binsC, targetFilter).serialize
-    let (paramsNC, minNC) = optC.optimize(lChargeStart)
-    #echo opt.status
-    #echo paramsN
+    #let lChargeStart = getLinesCharge(histDataC, binsC, targetFilter).serialize
+    let (paramsNC, minNC) = optC.optimize(pResC)
     nlopt_destroy(optC.optimizer)
 
     #let res = scipy.curve_fit(convertff, fitBins, fitHist, p0 = pRes,
@@ -988,7 +989,7 @@ proc main =
     #let cdlplotPy = scatterPlot(fitBins, fitResPy).mode(PlotMode.Lines)
     let cdlplotNlopt = scatterPlot(fitBins, fitResNlopt).mode(PlotMode.Lines)
 
-    let fitResNloptC = fitBins.mapIt(getCdlFitFuncCharge(targetFilter)(paramsNC, it))
+    let fitResNloptC = fitBinsC.mapIt(getCdlFitFuncCharge(targetFilter)(paramsNC, it))
     let cdlplotNloptC = scatterPlot(fitBinsC, fitResNloptC).mode(PlotMode.Lines)
 
     ##plot of hits
@@ -1029,6 +1030,7 @@ proc main =
     ChargeRaw.layout.barMode = BarMode.Overlay
     let pltC = ChargeRaw.addTrace(ChargeCut.traces[0])
       .addTrace(cdlplotC.traces[0])
+      #.addTrace(plotC.traces[0])
       .addTrace(cdlPlotNloptC.traces[0])
     pltC.layout.title = &"target: {targetFilter}"
     pltC.layout.showlegend = true
@@ -1040,6 +1042,7 @@ proc main =
     pltC.traces[1].opacity = 1.0
     pltC.traces[2].name = "fit curve"
     pltC.traces[2].marker = Marker[float](color: @[black])
+    pltC.traces[3].name = "fit curve nlopt"
     pltC.layout.yaxis.title = "Occurence"
     pltC.layout.xaxis.title = "Charge"
     pltC.show(&"{targetFilter}Charge-2019.svg")

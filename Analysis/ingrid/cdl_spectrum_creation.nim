@@ -91,6 +91,11 @@ type
       emu: float
       es: float
 
+  DataKind = enum
+    Dhits = "hits"
+    Dcharge = "charge"
+
+
 const fixed = NaN
 
 func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncArgs] =
@@ -722,11 +727,28 @@ proc histoCdl(data: seq[SomeNumber], binSize: float = 3.0): (seq[float], seq[flo
   result[0] = hist.mapIt(it.float)
   result[1] = bin_edges[1 .. ^1]
 
-proc fitCdlImpl(hist, binedges: seq[float], tfKind: TargetFilterKind):
+proc fitCdlImpl(hist, binedges: seq[float], tfKind: TargetFilterKind, dKind: DataKind):
                (seq[float], seq[float], seq[float]) =
-  let lines = getLines(hist, binedges, tfKind)
+  ##generates the fit paramter
+  var lines: seq[FitFuncArgs]
+  var fitfunc: CdlFitFunc
+  var lowbound: float
+  var highbound: float
+  case dKind
+  of Dhits:
+    lines = getLines(hist, binedges, tfKind)
+    fitfunc = getCdlFitFunc(tfKind)
+    lowbound = 0.0005
+    highbound = 0.98
+
+  of Dcharge:
+    lines = getLinesCharge(hist, binedges, tfKind)
+    fitfunc = getCdlFitFuncCharge(tfKind)
+    lowbound = 0.1
+    highbound = 0.9
+
+
   let params = lines.serialize
-  #echo params
   let testcum = cumsum(hist)
   let testsum = sum(hist)
   let testquo = testcum.mapIt(it/testsum)
@@ -740,35 +762,7 @@ proc fitCdlImpl(hist, binedges: seq[float], tfKind: TargetFilterKind):
   let fitHist = passIdx.mapIt(passhist[it])
   let err = fitHist.mapIt(1.0)# / sqrt(it))
 
-  let (pRes, res) = fit(getCdlFitFunc(tfKind),
-                        params,
-                        fitBins,
-                        fitHist,
-                        err)
-
-  echoResult(pRes, res=res)
-  result = (pRes, fitBins, fitHist)
-
-proc fitCdlChargeImpl(hist, binedges: seq[float], tfKind: TargetFilterKind):
-               (seq[float], seq[float], seq[float]) =
-  let linesCharge = getLinesCharge(hist, binedges, tfKind)
-  #echo linesCharge, "??\n"
-  let params = linesCharge.serialize
-  #echo params
-  let testcum = cumsum(hist)
-  let testsum = sum(hist)
-  let testquo = testcum.mapIt(it/testsum)
-  let lowIdx = testquo.lowerBound(0.0005)
-  let highIdx = testquo.lowerBound(0.98)
-  let passbin = binedges[lowIdx .. highIdx]
-  let passhist = hist[lowIdx .. highIdx]
-
-  let passIdx = toSeq(0 .. passhist.high).filterIt(passhist[it] > 0)
-  let fitBins = passIdx.mapIt(passbin[it])
-  let fitHist = passIdx.mapIt(passhist[it])
-  let err = fitHist.mapIt(1.0)# / sqrt(it))
-
-  let (pRes, res) = fit(getCdlFitFuncCharge(tfKind),
+  let (pRes, res) = fit(fitfunc,
                         params,
                         fitBins,
                         fitHist,
@@ -778,27 +772,14 @@ proc fitCdlChargeImpl(hist, binedges: seq[float], tfKind: TargetFilterKind):
   result = (pRes, fitBins, fitHist)
 
 
-const cuni15FuncCharge = cuNi15Func
-const mnCr12FuncCharge = mnCr12Func
-const tiTi9FuncCharge = tiTi9Func
-const agAg6FuncCharge = agAg6Func
-const alAl4FuncCharge = alAl4Func
-const cuEpic2FuncCharge = cuEpic2Func
-const cuEpic0_9FuncCharge = cuEpic0_9Func
-const cEpic0_6FuncCharge = cEpic0_6Func
-
-# TODO: impl rest of functions + Charge functions
-
-# proc getCdlFits(): Table[string, CdlFitFunc] =
-  # result = {"C-EPIC-0.6kV" : cEpicFunc}.toTable
-          #{ "C-EPIC-0.6kV" : cEpicFunc,
-             #"Cu-EPIC-0.9kV" : cuEpicLowFunc,
-             #"Cu-EPIC-2kV" : cuEpicHighFunc,
-             #"Al-Al-4kV" : alAlFunc,
-             #"Ag-Ag-6kV" : agAgFunc,
-             #"Ti-Ti-9kV" : tiTiFunc,
-             #"Mn-Cr-12kV" : mnCrFunc,
-             #"Cu-Ni-15kV" : cuNiFunc}.toTable
+#const cuni15FuncCharge = cuNi15Func
+#const mnCr12FuncCharge = mnCr12Func
+#const tiTi9FuncCharge = tiTi9Func
+#const agAg6FuncCharge = agAg6Func
+#const alAl4FuncCharge = alAl4Func
+#const cuEpic2FuncCharge = cuEpic2Func
+#const cuEpic0_9FuncCharge = cuEpic0_9Func
+#const cEpic0_6FuncCharge = cEpic0_6Func
 
 proc toCutStr(run: CdlRun): string =
   let hv = block:
@@ -893,6 +874,16 @@ proc main =
     var cutseq: seq[int64]
     var rawChargeseq: seq[float64]
     var cutChargeseq: seq[float64]
+    ##maybe later use the DataKind aswell for fitfunc
+    #var fitfunc: CdlFitFunc
+    #var datakind: DataKind
+    #case dKind
+    #of Dhits:
+    #  datakind = Dhits
+    #  fitfunc = getCdlFitFunc(targetFilter)
+    #of Dcharge:
+    #  datakind = Dcharge
+    #  fitfunc = getCdlFitFuncCharge(targetFilter)
     let fitfunc = getCdlFitFunc(targetFilter)
     let fitfuncC = getCdlFitFuncCharge(targetFilter)
 
@@ -921,10 +912,10 @@ proc main =
 
     proc calcfit(dataseq: seq[SomeNumber],
                  cdlFitFunc: CdlFitFunc,
-                 binSize: float): (seq[float], seq[float]) =
-      let cutseq = dataseq
-      let (histdata, bins) = histoCdl(cutseq, binSize)
-      let (pRes, fitBins, fitHist) = fitCdlImpl(histdata, bins, targetFilter)
+                 binSize: float,
+                 dKind: DataKind): (seq[float], seq[float]) =
+      let (histdata, bins) = histoCdl(dataseq, binSize)
+      let (pRes, fitBins, fitHist) = fitCdlImpl(histdata, bins, targetFilter, dKind)
 
       fitForNlopt(convertNlopt, cdlFitFunc)
       var opt = newNloptOpt("LN_BOBYQA", pRes.len)
@@ -939,8 +930,9 @@ proc main =
 
       result = (pRes, paramsN)
 
-    let hitresults = calcfit(cutseq, fitfunc, 1.0)
-    let chargeresults = calcfit(cutChargeseq, fitfuncC, 10000.0)
+    let hitresults = calcfit(cutseq, fitfunc, 1.0, Dhits)
+    let chargeresults = calcfit(cutChargeseq, fitfuncC, 10000.0, Dcharge)
+    echo hitresults
     echo chargeresults
     proc calcfitcurve(dataseq: seq[SomeNumber],
                       cdlFitFunc: CdlFitFunc,
@@ -948,7 +940,7 @@ proc main =
       let
         minvalue = dataseq.min
         maxvalue = dataseq.max
-        range = linspace(minvalue.float, maxvalue.float, 1000)
+        range = linspace(minvalue.float, maxvalue.float, 1500)
         yvals = range.mapIt(cdlFitFunc(fitparams, it))
       result = (range, yvals)
 
@@ -957,7 +949,6 @@ proc main =
     let mpfitresC = calcfitcurve(cutChargeseq, fitfuncC, chargeresults[0])
     let nloptres = calcfitcurve(cutseq, fitfunc, hitresults[1])
     let nloptresC = calcfitcurve(cutChargeseq, fitfuncC, chargeresults[1])
-    #echo nloptresC
     let cdlPlot = scatterPlot(mpfitres[0], mpfitres[1]).mode(PlotMode.Lines)
     let cdlPlotC = scatterPlot(mpfitresC[0], mpfitresC[1]).mode(PlotMode.Lines)
     let cdlPlotNlopt = scatterPlot(nloptres[0], nloptres[1]).mode(PlotMode.Lines)
@@ -998,7 +989,7 @@ proc main =
       .binRange(0.0, 3500000.0)
     ChargeRaw.layout.barMode = BarMode.Overlay
     let pltC = ChargeRaw.addTrace(ChargeCut.traces[0])
-      .addTrace(cdlPlotC.traces[0])
+      #.addTrace(cdlPlotC.traces[0])
       .addTrace(cdlPlotNloptC.traces[0])
     pltC.layout.title = &"target: {targetFilter}"
     pltC.layout.showlegend = true
@@ -1018,6 +1009,8 @@ proc main =
 
   for tfkind in TargetFilterKind:
     fitAndPlot(h5file, tfkind)
+    #fitAndPlot(h5file, tfkind, Dhits)
+    #fitAndPlot(h5file, tfkind, Dcharge)
 
 
   proc testdeclarefitmacro()=

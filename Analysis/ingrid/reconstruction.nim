@@ -707,6 +707,30 @@ proc createAndFitFeSpec(h5f: var H5FileObj,
          "more chips. Exception message:\n" & e.msg
   h5fout.fitToFeSpectrum(runNumber, centerChip, fittingOnly)
 
+proc calcTriggerFractions(h5f: var H5FileObj, runNumber: int) =
+  ## calculates the fraction of events within a given run of events with
+  ## - FADC triggers
+  ## - non trivial scinti 1 and 2 triggers
+  ## and writes it as attributes to the reconstruction run group
+  const dsetNames = ["fadcReadout", "szint1ClockInt", "szint2ClockInt"]
+
+  let fadcData = h5f[recoBase & $runNumber / "fadcReadout", int64]
+  let szint1Data = h5f[recoBase & $runNumber / "szint1ClockInt", int64]
+  let szint2Data = h5f[recoBase & $runNumber / "szint2ClockInt", int64]
+
+  let fadcRatio = fadcData.filterIt(it == 1).len.float / fadcData.len.float
+  let szint1Ratio = szint1Data.filterIt(it > 0).len.float / szint1Data.len.float
+  let szint2Ratio = szint2Data.filterIt(it > 0).len.float / szint2Data.len.float
+  let s1NonTrivial = szint1Data.filterIt(it > 0 and it < 4095).len.float / szint1Data.len.float
+  let s2NonTrivial = szint2Data.filterIt(it > 0 and it < 4095).len.float / szint2Data.len.float
+
+  let grp = h5f[(recoBase & $runNumber).grp_str]
+  grp.attrs["fadcTriggerRatio"] = fadcRatio
+  grp.attrs["szint1TriggerRatio"] = szint1Ratio
+  grp.attrs["szint2TriggerRatio"] = szint2Ratio
+  grp.attrs["nonTrivial_szint1TriggerRatio"] = s1NonTrivial
+  grp.attrs["nonTrivial_szint2TriggerRatio"] = s2NonTrivial
+
 proc reconstructRunsInFile(h5f: var H5FileObj,
                            h5fout: var H5FileObj,
                            flags: set[RecoFlagKind],
@@ -778,11 +802,15 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
         info "Reconstruction of run $# took $# seconds" % [$runNumber, $(epochTime() - t1)]
         # finished run, so write run to H5 file
         h5fout.writeRecoRunToH5(h5f, reco_run, runNumber)
+
         # now flush both files
         h5fout.flush
         h5f.flush
         # set reco run length back to 0
         reco_run.setLen(0)
+
+        # calculate fractions of FADC / Scinti triggers per run
+        h5fout.calcTriggerFractions(runNumber)
 
         runNumbersDone.incl runNumber.uint16
 

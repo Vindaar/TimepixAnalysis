@@ -127,14 +127,14 @@ template benchmark(num: int, actions: untyped) {.dirty.} =
   for i in 0 ..< num:
     actions
 
-macro setTabFields[T: (float | int), N: int](tab: Table[string, seq[seq[T]]],
-                                             names: array[N, string],
-                                             chip: int,
-                                             obj: untyped): untyped =
+macro setTabFields(tab: Table[string, seq[seq[typed]]],
+                   names: typed, # some array[N, string]
+                   chip: int,
+                   obj: untyped): untyped =
   ## taking some table `tab` sets all fields of the table taken from an array `names` to the
   ## fields of the object `obj` of the same names as the names in the table
   result = newStmtList()
-  let namesImpl = names.symbol.getImpl
+  let namesImpl = names.getImpl
   for name in namesImpl:
     let field = parseExpr(name.strVal)
     result.add quote do:

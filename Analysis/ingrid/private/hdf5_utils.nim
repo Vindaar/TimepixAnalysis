@@ -279,31 +279,25 @@ proc getTrackingEvents*(h5f: var H5FileObj, group: H5Group, num_tracking: int = 
     result = @[]
 
 
-proc filterTrackingEvents*[T: SomeInteger](cluster_events: seq[T], tracking_inds: seq[int]): seq[int] =
-  ## filters out all indices (= event numbers) of a reconstructed run for one chip
+proc filterTrackingEvents*[T: SomeInteger](cluster_events: seq[T], eventsInTracking: seq[int]): seq[int] =
+  ## filters out all event numbers of a reconstructed run for one chip
   ## Need to remove all indices, which are within the tracking indices, but for which
   ## no cluster is found in the datasets, so that we can only read the clusters, which
   ## happened during (or outside) of a tracking
   ## inputs:
   ##   `cluster_events`: all events for one reconstructed chip
-  ##   `tracking_inds`: the indices which are part (or not) of a tracking
+  ##   `tracking_inds`: the event numbers which are part (or not) of a tracking
   # set result to the indices of tracking (non tracking), i.e.
   # all allowed events
-  if tracking_inds.len == 0:
+  result = toSeq(0 .. cluster_events.high)
+  if eventsInTracking.len == 0:
     # in case we are handed an empty seq, we simply use all cluster events
-    result = toSeq(0 .. cluster_events.high)
+    discard
   else:
-    # create capped sequence of max possible length `cluster_events`
-    result = newSeqOfCap[int](cluster_events.len)
-    # using allowed events get indices for other events by iterating
-    # over all allowed events and removing those, which are not
-    # in the events of a chip
-    for ind in tracking_inds:
-      # remove all events of the allowed events, which are not
-      # part of the events for one chip
-      if ind in cluster_events:
-        # if index in cluster events, add it
-        result.add find(cluster_events, ind)
+    # now given all indices describing the cluster event numbers, filter out
+    # those, which are ``not`` part of `eventsInTracking``
+    result = toSeq(0 ..< cluster_events.len)
+      .filterIt(cluster_events[it].int in eventsInTracking)
 
 proc filterTrackingEvents*(h5f: var H5FileObj, group: H5Group, tracking_inds: seq[int]): seq[int] =
   ## wrapper around the above proc, which reads the data about which events are allowed

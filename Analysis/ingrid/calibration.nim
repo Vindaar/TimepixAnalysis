@@ -1,5 +1,6 @@
 import sequtils, strutils, strformat
-import ospaths
+import hashes
+import os, ospaths
 import future
 import seqmath
 import nimhdf5
@@ -988,8 +989,14 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
   var feDset = h5f[(groupName / "FeSpectrum").dsetStr]
   let feData = feDset[int64]
   # call python function with data
-  let res = pyFitFe.fitAndPlotFeSpectrum([feData], "", ".", runNumber,
-                                         fittingOnly, outfiles)
+  let res = block:
+    if outfiles.len == 0:
+      discard existsOrCreateDir("out")
+      pyFitFe.fitAndPlotFeSpectrum([feData], "", "out", runNumber,
+                                   fittingOnly)
+    else:
+      pyFitFe.fitAndPlotFeSpectrum([feData], "", ".", runNumber,
+                                   fittingOnly, outfiles)
 
   # NOTE: this is a workaround for a weird bug we're seeing. If we don't close the
   # library here, we get an error in a call to `deleteAttribute` from within
@@ -1158,8 +1165,10 @@ proc performChargeCalibGasGainFit*(h5f: var H5FileObj) =
                 xaxis: Axis(title: "Gas gain `G`"),
                 yaxis: Axis(title: "Calibration factor `a^{-1}` [1e-6 keV / e]"))
     p = Plot[float64](layout: lo, traces: @[chGainTrace, fitTrace])
-  # TODO: change filename to include more info
-  p.show("gasgain_vs_calibration_charge.svg")
+  # use the data to which we fit to create a hash value. That way we only overwrite the file
+  # in case we plot the same data
+  let fnameHash = concat(gainVals, calib).hash
+  p.show(&"out/gasgain_vs_calibration_charge_{fnameHash}.svg")
 
 proc calcEnergyFromPixels*(h5f: var H5FileObj, runNumber: int, calib_factor: float) =
   ## proc which applies an energy calibration based on the number of hit pixels in an event

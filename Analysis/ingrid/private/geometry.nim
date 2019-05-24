@@ -1,5 +1,6 @@
 import math
 import ../ingrid_types
+import cdl_cuts
 
 ################################################################################
 ############# Geometry calculation related procs ###############################
@@ -72,3 +73,34 @@ template applyPitchConversion*[T: (float | SomeInteger)](x, y: T): (float, float
   ## template which returns the converted positions on a Timepix
   ## pixel position --> position from center in mm
   ((float(NPIX) - float(x) + 0.5) * PITCH, (float(y) + 0.5) * PITCH)
+
+
+func inRegion*(centerX, centerY: float, region: ChipRegion): bool {.inline.} =
+  ## returns the result of a cut on a certain chip `region`. Inputs the
+  ## `centerX` and `centerY` position of a cluster and returns true if
+  ## the cluster is within the region
+  const centerChip = 7.0
+  case region
+  of crGold:
+    # make sure this is only initialized once somehow...
+    let regCut = getRegionCut(region)
+    result = if centerX >= regCut.xMin and
+                centerX <= regCut.xMax and
+                centerY >= regCut.yMin and
+                centerY <= regCut.yMax:
+               true
+             else:
+               false
+  of crAll:
+    # simply always return good
+    result = true
+  else:
+    # make sure this is only initialized once somehow...
+    let regCut = getRegionCut(region)
+    # silver and bronze region only different by radius
+    let
+      xdiff = (centerX - centerChip)
+      ydiff = (centerY - centerChip)
+      radius = distance(xdiff, ydiff)
+    # TODO: gold cut is NOT part of the silver region (see C. Krieger PhD p. 133)
+    result = if radius <= regCut.radius: true else : false

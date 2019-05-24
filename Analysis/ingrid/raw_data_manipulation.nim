@@ -54,7 +54,6 @@ type
     rfIgnoreRunList, rfOverwrite, rfNoFadc
 
 const FILE_BUFSIZE = 25000
-const NChips = 7
 
 ##############################
 # create globals for 2014/15 run list
@@ -853,19 +852,6 @@ proc writeInGridAttrs*(h5f: var H5FileObj, run: ProcessedRun,
   run_group.attrs["centerChipName"] = centerName
   reco_group.attrs["centerChipName"] = centerName
 
-  # into the reco group name we now write the ToT and Hits information
-  # var totDset = h5f.create_dataset(reco_group & "/ToT")
-  #for chip in 0 .. run.nChips:
-    # since not every chip has hits on each event, we need to create one group
-    # for each chip and store each chip's data in these
-
-    #let chipGroupName = reco_group_name & "/chip_$#" % $chip
-    #var chip_group = h5f.create_group(chipGroupName)
-
-    # write chip name and number, taken from first event
-    #chip_groups[chip].attrs["chipNumber"] = run.events[0].chips[chip].chip.number
-    #chip_groups[chip].attrs["chipName"]   = run.events[0].chips[chip].chip.name
-
 proc fillDataForH5(x, y: var seq[seq[seq[uint8]]],
                    ch: var seq[seq[seq[uint16]]],
                    evHeaders: var Table[string, seq[int]],
@@ -1231,8 +1217,6 @@ proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string,
   # Create Hardlinks #
   ####################
   linkRawToReco(h5f, runNumber, nChips)
-
-
 
   # dump sequences to file
   #dumpToTandHits(folder, runType, r.tots, r.hits)

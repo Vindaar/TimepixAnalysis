@@ -167,19 +167,6 @@ createCombineTemplates("Hits", "reconstruction")
 #createCombineTemplates("Minvals", "reconstruction")
 #createCombineTemplates("Noisy", "reconstruction")
 
-
-# template combineRawBasenameToT*(chip_number, runNumber: int): string =
-#   "/runs/combined/ToT_$#_$#" % [$chip_number, $runNumber]
-
-# template combineRawBasenameHits*(chip_number, runNumber: int): string =
-#   "/runs/combined/Hits_$#_$#" % [$chip_number, $runNumber]
-
-# template combineRecoBasenameToT*(chip_number, runNumber: int): string =
-#   "/reconstruction/combined/ToT_$#_$#" % [$chip_number, $runNumber]
-
-# template combineRecoBasenameHits*(chip_number, runNumber: int): string =
-#   "/reconstruction/combined/Hits_$#_$#" % [$chip_number, $runNumber]
-
 template combineRecoBasenameFadc*(): string =
   "/reconstruction/combined/fadc/"
 
@@ -461,3 +448,8 @@ proc getExtendedRunInfo*(h5f: var H5FileObj, runNumber: int,
 
   result.rfKind = rfKind
   result.runType = runType
+
+
+when isMainModule:
+  assert combineRawBasenameToT(0, 1) == "/runs/combined/ToT_0_1"
+  assert combineRecoBasenameToT(0, 1) == "/reconstruction/combined/ToT_0_1"

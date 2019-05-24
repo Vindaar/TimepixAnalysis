@@ -37,7 +37,7 @@ Options:
   --version              Show version.
 """
 
-const h5cdl_file = "/mnt/Daten/CAST/CDL-reference/calibration-cdl.h5"
+const h5cdl_file = currentSourcePath() / "../../../resources/calibration-cdl.h5"
 const cdlExists = fileExists(h5cdl_file)
 when not cdlExists:
   {.fatal: "CAST CDL reference file `calibration-cdl.h5` does not exist at: " &

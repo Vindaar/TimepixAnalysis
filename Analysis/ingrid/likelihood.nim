@@ -60,52 +60,6 @@ proc splitSeq[T, U](s: seq[seq[T]], dtype: typedesc[U]): (seq[U], seq[U]) =
     result[0][i] = s[i][0].U
     result[1][i] = s[i][1].U
 
-proc getTrace[T](x, y: seq[T], `type`: PlotType, info = ""): Trace[T] =
-  result = Trace[T](`type`: `type`)
-  result.xs = x
-  case `type`
-  of PlotType.Scatter, PlotType.Bar:
-    result.ys = y
-  else: discard
-  result.name = info
-
-func getLayout(title, xlabel, ylabel: string): Layout =
-    result = Layout(title: title,
-                    width: 1200, height: 800,
-                    xaxis: Axis(title: xlabel),
-                    yaxis: Axis(title: ylabel),
-                    autosize: false)
-
-proc plot[T](x: seq[T], y: seq[T] = @[], `type` = PlotType.Scatter, x_err, y_err: seq[T] = @[],
-             title = "", xlabel = "", ylabel = "", filename = "") =
-  case `type`
-  of PlotType.Scatter, PlotType.Bar:
-    let layout = getLayout(title, xlabel, ylabel)
-    let trace = getTrace(x, y, `type`)
-    let p = Plot[T](layout: layout, traces: @[trace])
-    p.show()
-  of PlotType.Histogram:
-    raise newException(Exception, "Please use the `hist` proc to plot histograms instead!")
-  else: discard
-
-proc hist[T](x: seq[T], bins: (float, float), binSize: float, nBins = 0,
-             title = "", xlabel = "", ylabel = "", filename = "") =
-  let xFilt = x.filterIt(it != Inf and it != -Inf)
-  let layout = getLayout(title, xlabel, ylabel)
-  layout.xaxis.range = (bins[0], bins[1])
-  var trace: Trace[T]
-  if nBins != 0:
-    trace = Trace[T](`type`: PlotType.Histogram, nBins: nBins)
-  else:
-    echo "Setting bins and binsize"
-    trace = Trace[T](`type`: PlotType.Histogram, bins: bins, binSize: binSize)
-  trace.xs = xFilt
-  let p = Plot[T](layout: layout, traces: @[trace])
-  if title.len > 0:
-    p.show(title & ".svg")
-  else:
-    p.show()
-
 proc buildLogLHist(h5file, dset: string, region: ChipRegion = crGold): seq[float] =
   ## given a file `h5file` containing a CDL calibration dataset
   ## `dset` apply the cuts on all events and build the logL distribution
@@ -159,7 +113,11 @@ proc buildLogLHist(h5file, dset: string, region: ChipRegion = crGold): seq[float
   echo min(result), " ", max(result)
   if "4kV" in dset or "0.6kV" in dset:
     let binSize = (30.0 + 0.0) / 200.0
-    hist(result, bins = (0.0, 30.0), binSize = binSize, title = dset & " for region: " & $region)
+    histPlot(result)
+      .binRange(0.0, 30.0)
+      .binSize(binSize)
+      .title(dset & " for region: " & $region)
+      .show()
 
 proc determineCutValue[T](hist: seq[T], eff: float): int =
   ## given a histogram `hist`, determine the correct bin to cut at to achieve
@@ -509,8 +467,16 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, tracking = 
 
   let binSize = (30.0 + 0.0) / 200.0
   let bins = (0.0, 30.0)
-  hist(logLSeq, bins = bins, binSize = binSize, title = "Background logL for all runs 4kV Al")
-  hist(logLSeqLow, bins = bins, binSize = binSize, title = "Background logL for all runs 0.6kV C")
+  histPlot(logLSeq)
+    .binRange(bins[0], bins[1])
+    .binSize(binSize)
+    .title("Background logL for all runs 4kV Al")
+    .show()
+  histPlot(logLSeqLow)
+    .binRange(bins[0], bins[1])
+    .binSize(binSize)
+    .title("Background logL for all runs 0.6kV C")
+    .show()
 
   # once done write total duration as attributes to `likelihood` group
   var lhGrp = h5fout[likelihoodGroupGrpStr()]

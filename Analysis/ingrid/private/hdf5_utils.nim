@@ -224,7 +224,11 @@ proc getTrackingEvents*(h5f: var H5FileObj, group: H5Group, num_tracking: int = 
   ## given a `group` in a `h5f`, filter out all indices, which are part of
   ## a tracking (`tracking == true`) or not part of a tracking (`tracking == false`)
   ## NOTE: the indices of the whole timestamp array correspond to the event
-  ## numbers of a run, since this is a 1:1 mapping
+  ## numbers of a run, since this is a 1:1 mapping.
+  ## NOTE2: This only works as long as the raw input does ``actually`` contain
+  ## all files! While this was true for Virtex 6 TOS files in 2017/18, it does
+  ## not at all hold for V6 2014/15 and SRS TOS files!. Thus get the event numbers
+  ## and map to them.
   result = @[]
   # attributes of this group
   var attrs = group.attrs
@@ -242,7 +246,8 @@ proc getTrackingEvents*(h5f: var H5FileObj, group: H5Group, num_tracking: int = 
       tr_stops[i]  = attrs[&"tracking_stop_{i}", string].parse(date_syntax)
     # get the timestamp of all events
     let
-      tstamp = h5f[(group.name / "timestamp").dset_str][int64]
+      evNums = h5f[group.name / "eventNumber", int64].asType(int)
+      tstamp = h5f[group.name / "timestamp", int64]
       # start and stop in seconds
       tr_starts_s = mapIt(tr_starts, int(it.toTime.toSeconds))
       tr_stops_s  = mapIt(tr_stops,  int(it.toTime.toSeconds))
@@ -256,17 +261,18 @@ proc getTrackingEvents*(h5f: var H5FileObj, group: H5Group, num_tracking: int = 
     if tracking == true:
       if num_tracking >= 0:
         # simply get the correct indices from allTrackingInds
-        result = allTrackingInds[num_tracking]
+        result = allTrackingInds[num_tracking].mapIt(evNums[it])
       else:
         # flatten the allTrackingInds nested seq and return
-        result = flatten(allTrackingInds)
+        result = flatten(allTrackingInds).mapIt(evNums[it])
     else:
       # all outside trackings are simply the indices, which are not part of a flattened
       # allTrackingInds
       let allTrackingsFlat = flatten(allTrackingInds)
       # and now filter all indices not part of flattened index
-      result = filterIt(toSeq(0 ..< tstamp.len)) do:
-        it notin allTrackingsFlat
+      result = toSeq(0 ..< tstamp.len)
+        .filterIt(it notin allTrackingsFlat)
+        .mapIt(evNums[it])
   except KeyError:
     # in this case there is no tracking information. Keep all indices
     echo &"No tracking information in {group.name} found, use all clusters"

@@ -33,6 +33,9 @@ Options:
   --to=FOLDER            Output location of all extracted events. Events will just
                          be copied there.
   --tracking             If flag is set, we only consider solar trackings (signal like)
+  --scintiveto           If flag is set, we use the scintillators as a veto
+  --fadcveto             If flag is set, we use the FADC as a veto
+  --septemveto           If flag is set, we use the Septemboard as a veto
   -h --help              Show this help
   --version              Show version.
 """
@@ -51,6 +54,9 @@ const RmsCleaningCut = 1.5
 
 type
   histTuple = tuple[bins: seq[float64], hist: seq[float64]]
+
+  FlagKind = enum
+    fkTracking, fkFadc, fkScinti, fkSeptem
 
 proc splitSeq[T, U](s: seq[seq[T]], dtype: typedesc[U]): (seq[U], seq[U]) =
   ## splits a (N, 2) nested seq into two seqs
@@ -350,12 +356,70 @@ proc writeLikelihoodData(h5f: var H5FileObj,
   runGrp.copy_attributes(group.attrs)
   chpGrpOut.copy_attributes(chpGrpIn.attrs)
 
+func isVetoedByFadc(eventNumber: int, fadcTrigger, fadcEvNum: seq[int64],
+                    fadcRise, fadcFall: seq[uint16],
+                    flags: set[FlagKind]): bool =
+  ## returns `true` if the event of `ind` is vetoed by the FADC based on cuts on
+  ## the rise and fall time. Vetoed means the event must be thrown out
+  ## because it does ``not`` conform to the X-ray hypothesis.
+  ## ------------ NOTE --------------
+  ## looking at ~/org/Figs/SPSC_Jan_2019/test/Run3/{rise,fall}Time_normalizedPDF_run3.pdf
+  ## makes it seem like anything above ~130 is probably not an X-ray. Take that for
+  ## now.
+  ## TODO: CHOOSE THESE VALUE MORE WISELY!!!!!!
+  const cutRiseHigh = 130'u16
+  const cutRiseLow = 40'u16
+  const cutFallLow = 400'u16
+  const cutFallHigh = 600'u16
+  result = false
+  let fIdx = fadcEvNum.lowerBound(eventNumber)
+  if fkFadc in flags and
+     fadcEvNum[fIdx] == eventNumber and
+     fadcTrigger[fIdx] == 1:
+    # thus we know that `fIdx` points to an event with an FADC trigger
+    # corresponding to `eventNumber`
+    if fadcRise[fIdx] >= cutRiseLow and
+       fadcRise[fIdx] >= cutRiseHigh and
+       fadcFall[fIdx] >= cutFallLow and
+       fadcFall[fIdx] >= cutFallHigh:
+      result = false
+    else:
+      # outside either of the cuts, throw it out
+      result = true
 
-proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, tracking = false) =
+func isVetoedByScintis(eventNumber: int,
+                       scintEvNum: seq[int64],
+                       scinti1, scinti2: seq[int64],
+                       flags: set[FlagKind]): bool =
+  ## returns `true` if the event of `ind` is vetoed by the scintillators based
+  ## on the fact that one of the two scintillators had a non trivial scintillator
+  ## count value ( > 0 and < 4095; in practice ~< 400).
+  ## Vetoed means the event must be thrown out, because the event was most
+  ## likely induced by a muon
+  result = false
+  if fkScinti in flags:
+    # throw out any event with a non trivial (> 0 and < 4095)
+    # scintillator trigger
+    const low = 0
+    const high = 400 # be pessimistic about high
+    let sIdx = scintEvNum.lowerBound(eventNumber)
+    if scintEvNum[sIdx] == eventNumber and
+       ((scinti1[sIdx] > low and scinti1[sIdx] < high) or
+        (scinti2[sIdx] > low and scinti2[sIdx] < high)):
+      # had a non trivial trigger, throw out
+      result = true
+
+proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, flags: set[FlagKind]) =
   ## filters all clusters with a likelihood value in the given `h5f` by
   ## the logL cut values returned by `calcCutValueTab`
   ## clusters passing the cuts are stored in `h5fout`
-  ## if `tracking == false` we cut on non tracking data
+  ## The `flags` argument decides what kind of filtering we perform aside from
+  ## the logL cuts
+  ## - fkTracking: only tracking data considered
+  ## The remaining flags may not be available for all datasets!
+  ## - fkFadc: FADC used as veto
+  ## - fkScinti: Scintillators used as veto
+  ## - fkSeptem: Septemboard used as veto
   const region = crGold
 
   let cutTab = calcCutValueTab(region)
@@ -385,8 +449,31 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, tracking = 
     # get timestamp for run
     let tstamp = h5f[(group / "timestamp"), int64]
     let evDurations = h5f[group / "eventDuration", float64]
+    let eventNumbers = h5f[group / "eventNumber", int64]
     # add sum of event durations
     totalDuration += evDurations.foldl(a + b, 0.0)
+
+    var
+      fadcTrigger: seq[int64]
+      fadcRise: seq[uint16]
+      fadcFall: seq[uint16]
+      fadcEvNum: seq[int64]
+      scinti1Trigger: seq[int64]
+      scinti2Trigger: seq[int64]
+    if fkFadc in flags:
+      fadcTrigger = h5f[group / "fadcReadout", int64]
+      fadcRise = h5f[group / "fadc/riseTime", uint16]
+      fadcFall = h5f[group / "fadc/fallTime", uint16]
+      fadcEvNum = h5f[group / "fadc/eventNumber", int64]
+    if fkFadc in flags:
+      scinti1Trigger = h5f[group / "szint1ClockInt", int64]
+    if fkFadc in flags:
+      scinti2Trigger = h5f[group / "szint2ClockInt", int64]
+    if fkSeptem in flags:
+      raise newException(Exception, "Septemboard cuts not implemented at the " &
+        "moment. To use it use the --septemVeto switch on the background rate " &
+        "plot creation tool!")
+
     for chpGrp in items(h5f, group):
       if "fadc" in chpGrp.name:
         continue
@@ -413,10 +500,16 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, tracking = 
         centerY = h5f[(chpGrp.name / "centerY"), float64]
         rmsTrans = h5f[(chpGrp.name / "rmsTransverse"), float64]
         evNumbers = h5f[(chpGrp.name / "eventNumber"), int64].asType(int)
-        # get indices (= event numbers) corresponding to no tracking
-        tracking_inds = h5f.getTrackingEvents(mgrp, tracking = tracking)
-        # get all events part of tracking
-        tracking_events = filterTrackingEvents(evNumbers, tracking_inds)
+
+      # get event numbers corresponding to tracking (non tracking)
+      var eventsInTracking: seq[int]
+      if fkTracking in flags:
+        eventsInTracking = h5f.getTrackingEvents(mgrp, tracking = true)
+      else:
+        eventsInTracking = h5f.getTrackingEvents(mgrp, tracking = false)
+
+      # get all events part of tracking (non tracking)
+      let indicesInTracking = filterTrackingEvents(evNumbers, eventsInTracking)
 
       if chipNumber == 0:
         for i, e in energy:
@@ -428,18 +521,27 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, tracking = 
       # hash set containing all indices of clusters, which pass the cuts
       var passedInds = initSet[int]()
       # iterate through all clusters not part of tracking and apply logL cut
-      for ind in tracking_events:
+      for ind in indicesInTracking:
         let dset = energy[ind].toRefDset
         when false:
           # see above, not yet implemented
-          # add current event to total duration; note before cut, since we want
+          # add current ind to total duration; note before cut, since we want
           # total time detector was alive!
           totalDurationRun += evDurations[ind]
+
+        let fadcVeto = isVetoedByFadc(evNumbers[ind], fadcTrigger, fadcEvNum,
+                                      fadcRise, fadcFall, flags)
+        let scintiVeto = isVetoedByScintis(evNumbers[ind], eventNumbers, scinti1Trigger,
+                                           scinti2Trigger, flags)
+
         # given datasest add element to dataset, iff it passes logL, region and
         # cleaning cut
-        let regionCut = inRegion(centerX[ind], centerY[ind], region)
-        if logL[ind] <= cutTab[dset] and regionCut == true and
-           rmsTrans[ind] <= RmsCleaningCut:
+        let inCutRegion = inRegion(centerX[ind], centerY[ind], region)
+        if logL[ind] <= cutTab[dset] and
+           inCutRegion and
+           rmsTrans[ind] <= RmsCleaningCut and
+           not fadcVeto and # if veto is true, means throw out!
+           not scintiVeto:
           # include this index to the set of indices
           when false:
             totalDurationRunPassed += evDurations[ind]
@@ -535,7 +637,11 @@ proc main() =
     ref_file = $args["--reference"]
     extractFrom = $args["--extract"]
 
-  let tracking_flag = if $args["--tracking"] == "true": true else: false
+  var flags: set[FlagKind]
+  if $args["--tracking"] == "true": flags.incl fkTracking
+  if $args["--scintiveto"] == "true": flags.incl fkScinti
+  if $args["--fadcveto"] == "true": flags.incl fkFadc
+  if $args["--septemveto"] == "true": flags.incl fkSeptem
 
   var h5foutfile: string = ""
   if $args["--h5out"] != "nil":
@@ -556,7 +662,7 @@ proc main() =
     h5f.calcLogLikelihood(ref_file)
     # now perform the cut on the logL values stored in `h5f` and write
     # the results to h5fout
-    h5f.filterClustersByLogL(h5fout, tracking = tracking_flag)
+    h5f.filterClustersByLogL(h5fout, flags)
     # given the cut values and the likelihood values for all events
     # based on the X-ray reference distributions, we can now cut away
     # all events not passing the cuts :)

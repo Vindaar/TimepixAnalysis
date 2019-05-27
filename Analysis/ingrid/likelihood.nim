@@ -361,8 +361,7 @@ proc writeLikelihoodData(h5f: var H5FileObj,
   chpGrpOut.copy_attributes(chpGrpIn.attrs)
 
 func isVetoedByFadc(eventNumber: int, fadcTrigger, fadcEvNum: seq[int64],
-                    fadcRise, fadcFall: seq[uint16],
-                    flags: set[FlagKind]): bool =
+                    fadcRise, fadcFall: seq[uint16]): bool =
   ## returns `true` if the event of `ind` is vetoed by the FADC based on cuts on
   ## the rise and fall time. Vetoed means the event must be thrown out
   ## because it does ``not`` conform to the X-ray hypothesis.
@@ -377,8 +376,7 @@ func isVetoedByFadc(eventNumber: int, fadcTrigger, fadcEvNum: seq[int64],
   const cutFallHigh = 600'u16
   result = false
   let fIdx = fadcEvNum.lowerBound(eventNumber)
-  if fkFadc in flags and
-     fadcEvNum[fIdx] == eventNumber and
+  if fadcEvNum[fIdx] == eventNumber and
      fadcTrigger[fIdx] == 1:
     # thus we know that `fIdx` points to an event with an FADC trigger
     # corresponding to `eventNumber`
@@ -393,25 +391,33 @@ func isVetoedByFadc(eventNumber: int, fadcTrigger, fadcEvNum: seq[int64],
 
 func isVetoedByScintis(eventNumber: int,
                        scintEvNum: seq[int64],
-                       scinti1, scinti2: seq[int64],
-                       flags: set[FlagKind]): bool =
+                       scinti1, scinti2: seq[int64]): bool =
   ## returns `true` if the event of `ind` is vetoed by the scintillators based
   ## on the fact that one of the two scintillators had a non trivial scintillator
   ## count value ( > 0 and < 4095; in practice ~< 400).
   ## Vetoed means the event must be thrown out, because the event was most
   ## likely induced by a muon
   result = false
-  if fkScinti in flags:
-    # throw out any event with a non trivial (> 0 and < 4095)
-    # scintillator trigger
-    const low = 0
-    const high = 400 # be pessimistic about high
-    let sIdx = scintEvNum.lowerBound(eventNumber)
-    if scintEvNum[sIdx] == eventNumber and
-       ((scinti1[sIdx] > low and scinti1[sIdx] < high) or
-        (scinti2[sIdx] > low and scinti2[sIdx] < high)):
-      # had a non trivial trigger, throw out
-      result = true
+  # throw out any event with a non trivial (> 0 and < 4095)
+  # scintillator trigger
+  const low = 0
+  const high = 400 # be pessimistic about high
+  let sIdx = scintEvNum.lowerBound(eventNumber)
+  if scintEvNum[sIdx] == eventNumber and
+     ((scinti1[sIdx] > low and scinti1[sIdx] < high) or
+      (scinti2[sIdx] > low and scinti2[sIdx] < high)):
+    # had a non trivial trigger, throw out
+    result = true
+
+proc writeVetoInfos(grp: H5Group, fadcVetoCount, scintiVetoCount: int,
+                    flags: set[FlagKind]) =
+  ## writes information about used vetoes and the number of events removed by
+  ## the vetos
+  var mgrp = grp
+  mgrp.attrs["FADC Veto"] = $(fkFadc in flags)
+  mgrp.attrs["Scinti Veto"] = $(fkScinti in flags)
+  mgrp.attrs["# removed by FADC veto"] = fadcVetoCount
+  mgrp.attrs["# removed by scinti veto"] = scintiVetoCount
 
 proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, flags: set[FlagKind]) =
   ## filters all clusters with a likelihood value in the given `h5f` by
@@ -442,6 +448,9 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, flags: set[
     # alternative, total duration of whole run
     var totalDuration: float64 = 0.0
 
+  var useFadcVeto = fkFadc in flags
+  var useScintiVeto = fkScinti in flags
+
   var logLSeq = newSeq[float64]()
   var logLSeqLow = newSeq[float64]()
   for num, group in runs(h5f):
@@ -465,13 +474,16 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, flags: set[
       scinti1Trigger: seq[int64]
       scinti2Trigger: seq[int64]
     if fkFadc in flags:
-      fadcTrigger = h5f[group / "fadcReadout", int64]
-      fadcRise = h5f[group / "fadc/riseTime", uint16]
-      fadcFall = h5f[group / "fadc/fallTime", uint16]
-      fadcEvNum = h5f[group / "fadc/eventNumber", int64]
-    if fkFadc in flags:
+      try:
+        fadcTrigger = h5f[group / "fadcReadout", int64]
+        fadcRise = h5f[group / "fadc/riseTime", uint16]
+        fadcFall = h5f[group / "fadc/fallTime", uint16]
+        fadcEvNum = h5f[group / "fadc/eventNumber", int64]
+      except KeyError:
+        echo "Run ", num, " has no FADC datasets!"
+        useFadcVeto = false
+    if fkScinti in flags:
       scinti1Trigger = h5f[group / "szint1ClockInt", int64]
-    if fkFadc in flags:
       scinti2Trigger = h5f[group / "szint2ClockInt", int64]
     if fkSeptem in flags:
       raise newException(Exception, "Septemboard cuts not implemented at the " &
@@ -481,6 +493,10 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, flags: set[
     for chpGrp in items(h5f, group):
       if "fadc" in chpGrp.name:
         continue
+
+      var fadcVetoCount = 0
+      var scintiVetoCount = 0
+
       # iterate over all chips and perform logL calcs
       var attrs = chpGrp.attrs
       let
@@ -533,10 +549,20 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, flags: set[
           # total time detector was alive!
           totalDurationRun += evDurations[ind]
 
-        let fadcVeto = isVetoedByFadc(evNumbers[ind], fadcTrigger, fadcEvNum,
-                                      fadcRise, fadcFall, flags)
-        let scintiVeto = isVetoedByScintis(evNumbers[ind], eventNumbers, scinti1Trigger,
-                                           scinti2Trigger, flags)
+        var fadcVeto = false
+        var scintiVeto = false
+        if useFadcVeto:
+          fadcVeto = isVetoedByFadc(evNumbers[ind], fadcTrigger, fadcEvNum,
+                                    fadcRise, fadcFall)
+        if fadcVeto:
+          # increase if FADC vetoed this event
+          inc fadcVetoCount
+        if useScintiVeto:
+          scintiVeto = isVetoedByScintis(evNumbers[ind], eventNumbers, scinti1Trigger,
+                                         scinti2Trigger)
+        if scintiVeto:
+          # increase if Scintis vetoed this event
+          inc scintiVetoCount
 
         # given datasest add element to dataset, iff it passes logL, region and
         # cleaning cut
@@ -551,6 +577,7 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, flags: set[
             totalDurationRunPassed += evDurations[ind]
           passedInds.incl ind
 
+      chpGrp.writeVetoInfos(fadcVetoCount, scintiVetoCount, flags)
       # create dataset to store it
       if passedInds.card > 0:
         # call function which handles writing the data
@@ -660,6 +687,11 @@ proc main() =
     else:
       # in case no outfile given, we write to the same file
       h5fout = h5f
+
+    if fkFadc in flags:
+      echo "Using FADC as veto"
+    if fkScinti in flags:
+      echo "Using scintillators as veto"
 
     # perform likelihood calculation
     h5f.calcLogLikelihood(XrayRefFile)

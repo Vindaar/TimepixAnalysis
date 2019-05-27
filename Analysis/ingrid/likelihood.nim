@@ -19,8 +19,8 @@ It calculates the likelihood values for each reconstructed cluster of a run and
 writes them back to the H5 file
 
 Usage:
-  likelihood <HDF5file> --reference <ref_file> [options]
-  likelihood <HDF5file> --reference <ref_file> --h5out <outfile> [options]
+  likelihood <HDF5file> [options]
+  likelihood <HDF5file> --h5out <outfile> [options]
   likelihood <HDF5file> --extract=FOLDER --to=OUTFOLDER
 
 Options:

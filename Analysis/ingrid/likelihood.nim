@@ -24,7 +24,6 @@ Usage:
   likelihood <HDF5file> --extract=FOLDER --to=OUTFOLDER
 
 Options:
-  --reference <ref_file> The H5 file containing the X-ray reference spectra
   --h5out <outfile>      The H5 file in which we store the events passing logL cut
   --extract=FOLDER       Given a H5 file created by this program under the
                          h5out argument, we will extract all raw event files,
@@ -41,10 +40,15 @@ Options:
 """
 
 const h5cdl_file = currentSourcePath() / "../../../resources/calibration-cdl.h5"
+const XrayRefFile = currentSourcePath() / "../../../resources/XrayReferenceDataSet.h5"
 const cdlExists = fileExists(h5cdl_file)
 when not cdlExists:
   {.fatal: "CAST CDL reference file `calibration-cdl.h5` does not exist at: " &
     $h5cdl_file.}
+const refExists = fileExists(XrayRefFile)
+when not refExists:
+  {.fatal: "X-ray reference file `XrayReferenceDataSet.h5` does not exist at: " &
+    $XrayRefFile.}
 
 
 # cut performed regardless of logL value on the data, since transverse
@@ -634,7 +638,6 @@ proc main() =
   let args = docopt(doc)
   let
     h5f_file = $args["<HDF5file>"]
-    ref_file = $args["--reference"]
     extractFrom = $args["--extract"]
 
   var flags: set[FlagKind]
@@ -659,7 +662,7 @@ proc main() =
       h5fout = h5f
 
     # perform likelihood calculation
-    h5f.calcLogLikelihood(ref_file)
+    h5f.calcLogLikelihood(XrayRefFile)
     # now perform the cut on the logL values stored in `h5f` and write
     # the results to h5fout
     h5f.filterClustersByLogL(h5fout, flags)

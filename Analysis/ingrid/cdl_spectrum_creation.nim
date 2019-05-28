@@ -131,45 +131,45 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
   case tfKind
   of tfCuNi15:
     result.add FitFuncArgs(name: "Cu-esc",
-                           kind: ffexpGauss,
-                           ea: -hist[muIdx] / 8.0,# * 1e-10,#fixed, ##1e-10 on laptop
-                           eb: hist[muIdx] * 1e-2,# * 1e-12,#fixed,
-                           eN: hist[muIdx] / 8.0,#10.0, ##4 on laptop
-                           emu: 170.0,#binning[muIdx] ,#fixed, ##classic binning[muIdx] on laptop
-                           es: 20.0)#hist[muIdx] / 30.0)#40.00)# ##classic hist[muIdx] on laptop
+                           kind: ffGauss,
+                           #ea: hist[muIdx] / 80.0,# * 1e-10,
+                           #eb: hist[muIdx] * 1e-2,# * 1e-12,
+                           gN: hist[muIdx] / 20.0,#10.0,
+                           gmu: binning[muIdx], #170
+                           gs: hist[muIdx] / 15.0) #20
     result.add FitFuncArgs(name: "Cu-Kalpha",
-                           kind: ffexpGauss,
-                           ea: -hist[muIdx],# * 1e-10,#fixed, ##1e-10 on laptop
-                           eb: hist[muIdx] * 1e-2,# * 1e-12,#fixed,
-                           eN: hist[muIdx] / 4.0,#80.0
-                           emu: binning[muIdx],#fixed,
-                           es: hist[muIdx])# / 20.0)#18.0)
+                           kind: ffGauss,
+                           #ea: hist[muIdx] / 10.0,# * 1e-10,#fixed,
+                           #eb: hist[muIdx] * 1e-2,# * 1e-12,
+                           gN: hist[muIdx] / 10.0,
+                           gmu: binning[muIdx],
+                           gs: hist[muIdx] / 30.0)
   of tfMnCr12:
     result.add FitFuncArgs(name: "Mn-esc",
                            kind: ffGauss,
                            #ea: -hist[muIdx] * 1e-10,
                            #eb: -hist[muIdx] * 1e-12,
                            gN: hist[muIdx] / 9.0,#50.0,
-                           gmu: 100.0,#binning[muIdx] / 2.0,#160.0,
-                           gs: 16.0) #hist[muIdx] / 30.0)#16.0)
+                           gmu: 100.0,#binning[muIdx] / 2.0,
+                           gs: 16.0) #hist[muIdx] / 30.0)
     result.add FitFuncArgs(name: "Mn-Kalpha",
                            kind: ffExpGauss,
                            ea: -hist[muIdx] * 1e-10,
                            eb: -hist[muIdx] * 1e-12,
-                           eN: hist[muIdx] / 2.0,#350.0,
-                           emu: 200.0, #binning[muIdx],#200.0,
-                           es: 13.0) #hist[muIdx] / 15.0)#13.0)
+                           eN: hist[muIdx] / 2.0,
+                           emu: 200.0, #binning[muIdx],
+                           es: 13.0) #hist[muIdx] / 15.0)
   of tfTiTi9:
     result.add FitFuncArgs(name: "Ti-esc-alpha",
                            kind: ffGauss,
                            gN: hist[muIdx] / 10.0,
                            gmu: binning[muIdx],
-                           gs: hist[muIdx] / 30.0) ##30 on laptop
+                           gs: hist[muIdx] / 30.0)
     result.add FitFuncArgs(name: "Ti-esc-beta",
                            kind: ffGauss,
                            gN: hist[muIdx] / 10.0,
                            gmu: binning[muIdx],
-                           gs: hist[muIdx] / 30.0) ##30 on laptop
+                           gs: hist[muIdx] / 30.0)
     result.add FitFuncArgs(name: "Ti-Kalpha",
                            kind: ffExpGauss,
                            ea: hist[muIdx] * 1e-12,
@@ -560,14 +560,14 @@ macro declareFitFunc(name, stmts: untyped): untyped =
   echo result.repr
 
 declareFitFunc(cuNi15):
-  ffexpGauss: "Cu-esc"
+  ffGauss: "Cu-esc"
     #name = "Cu-esc"
     #ea = -1.644
     #eb = 0.023
     #eN = 28.47
     #emu = 187.0
     #es = 13.5
-  ffexpGauss: "Cu-Kalpha"
+  ffGauss: "Cu-Kalpha"
     #name = "Cu-Kalpha"
     #ea = -8.305
     #eb = 0.08444
@@ -698,7 +698,6 @@ macro genTfToFitFunc(pname: untyped): untyped =
   let tfkind = getType(TargetFilterKind)
   #first generate the string combinations
   var funcNames: seq[string]
-  #var funcNamesC: seq[string]
   for x in tfKind:
     if x.kind != nnkEmpty:
       let xStr = ($(x.getImpl))
@@ -707,7 +706,6 @@ macro genTfToFitFunc(pname: untyped): untyped =
         .replace(".", "")
         .replace("kv", "")
       funcNames.add xStr
-      #funcNamesC.add xStr & "ChargeFunc"
   #given the names, write a proc that returns the function
   let
     ##now with target and filter combined
@@ -730,8 +728,6 @@ macro genTfToFitFunc(pname: untyped): untyped =
   let hitsname = pname
   let chargename = ident($pname & "Charge")
   result = quote do:
-    #var hitsname = $pname
-    #var chargename = $pname & "charge"
     proc `hitsname`(`arg`: `argType`): `cdf` =
       let `tfNameNode` = ($`arg`)
         .toLowerAscii
@@ -1066,7 +1062,7 @@ proc main =
 
 
   for tfkind in TargetFilterKind:
-  #fitAndPlot(h5file, tfCUEpic2)
+  #fitAndPlot(h5file, tfMnCr12)
     fitAndPlot(h5file, tfkind)
     #fitAndPlot(h5file, tfkind, Dhits)
     #fitAndPlot(h5file, tfkind, Dcharge)

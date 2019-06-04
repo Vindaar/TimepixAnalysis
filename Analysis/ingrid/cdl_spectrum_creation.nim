@@ -106,21 +106,6 @@ type
 
 const fixed = NaN
 
-##create a svg
-let nodes = buildSvg:
-  let size = 200
-  svg(width=size, height=size, xmlns="http://www.w3.org/2000/svg", version="1.1"):
-    for _ in 0 .. 1000:
-      let x = random(size)
-      let y = random(size)
-      let radius = random(5)
-      circle(cx=x, cy=y, r=radius, stroke="#111122", fill="#E0E0F0", `fill-opacity`=0.5)
-
-let xmlNodes = nodes.render.parseXml
-
-#echo xmlNodes
-#echo xmlNodes.len
-
 
 func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncArgs] =
   ## this is a runtime generator for the correct fitting function prototype,
@@ -889,26 +874,29 @@ proc main =
 
   recoAndWrite(h5file)
 
-  proc fitAndPlot(h5file: string, tfKind: TargetFilterKind) =
+  proc fitAndPlot[T: SomeNumber](h5file: string, tfKind: TargetFilterKind, dKind: DataKind) =
     var h5file = h5file
     let targetFilter = tfkind
-    var rawseq: seq[int64]
-    var cutseq: seq[int64]
-    var rawChargeseq: seq[float64]
-    var cutChargeseq: seq[float64]
-    ##maybe later use the DataKind aswell for fitfunc
-    #var fitfunc: CdlFitFunc
-    #var datakind: DataKind
-    #case dKind
-    #of Dhits:
-    #  datakind = Dhits
-    #  fitfunc = getCdlFitFunc(targetFilter)
-    #of Dcharge:
-    #  datakind = Dcharge
-    #  fitfunc = getCdlFitFuncCharge(targetFilter)
-    let fitfunc = getCdlFitFunc(targetFilter)
-    let fitfuncC = getCdlFitFuncCharge(targetFilter)
-
+    var rawseq: seq[T]
+    var cutseq: seq[T]
+    var binsizeplot: float
+    var binrangeplot: float
+    var xtitle: string
+    var filename: string
+    var fitfunc: CdlFitFunc
+    case dKind
+    of Dhits:
+      fitfunc = getCdlFitFunc(targetFilter)
+      binsizeplot = 1.0
+      binrangeplot = 400.0
+      xtitle = "Number of pixles"
+      filename = &"{tfKind}"
+    of Dcharge:
+      fitfunc = getCdlFitFuncCharge(targetFilter)
+      binsizeplot = 10000.0
+      binrangeplot = 3500000.0
+      xtitle = "Charge"
+      filename = &"{tfKind}Charge"
 
     for r in runs:
       #if r.number != 347:
@@ -919,15 +907,17 @@ proc main =
         let grp = h5f[(recoDataChipBase(r.number) & "3").grp_str]
         let tfk = r.totfkind
         if tfk == targetFilter:
-            let hitsRawDataseq = h5f[grp.name / "hits", int64]
-            let hitsCdlseq = h5f[grp.name / "CdlSpectrum", int64]
-            let chargeRawDataseq = h5f[grp.name / "totalCharge", float64]
-            let chargeCdlseq = h5f[grp.name / "CdlSpectrumCharge", float64]
-
-            rawseq.add(hitsRawDataseq)
-            cutseq.add(hitsCdlseq)
-            rawChargeseq.add(chargeRawDataseq)
-            cutChargeseq.add(chargeCdlseq)
+            case dKind
+            of Dhits:
+              let RawDataSeq = h5f[grp.name / "hits", T]
+              let Cdlseq = h5f[grp.name / "CdlSpectrum", T]
+              rawseq.add(RawDataseq)
+              cutseq.add(Cdlseq)
+            of Dcharge:
+              let RawDataSeq = h5f[grp.name / "totalCharge", T]
+              let Cdlseq = h5f[grp.name / "CdlSpectrumCharge", T]
+              rawseq.add(RawDataseq)
+              cutseq.add(Cdlseq)
       else:
          discard
 
@@ -955,10 +945,6 @@ proc main =
 
       result = (pRes, paramsN, minbin, maxbin)
 
-    let hitresults = calcfit(cutseq, fitfunc, 1.0, Dhits)
-    let chargeresults = calcfit(cutChargeseq, fitfuncC, 10000.0, Dcharge)
-    echo "hitparams", hitresults
-    echo "charparams", chargeresults
     proc calcfitcurve(minbin: float, maxbin: float,
                       cdlFitFunc: CdlFitFunc,
                       fitparams: seq[float]): (seq[float], seq[float]) =
@@ -969,24 +955,49 @@ proc main =
         yvals = range.mapIt(cdlFitFunc(fitparams, it))
       result = (range, yvals)
 
+    var hitresults: (seq[float], seq[float], float, float)
+    var lines: seq[FitFuncArgs]
+    var fitmu: float
+    var fitsig: float
+    hitresults = calcfit(cutseq, fitfunc, binsizeplot, dKind)
+    ##get the interesting fit params
+    let (histdata, bins) = histoCdl(cutseq, binsizeplot, dKind)
+    lines = getLines(histdata, bins, tfKind)
+    #echo "lines ", lines[0].kind
+    case lines[0].kind
+      of ffGauss:
+        fitmu = hitresults[1][1]
+        fitsig = hitresults[1][2]
+      of ffExpGauss:
+        fitmu = hitresults[1][3]
+        fitsig = hitresults[1][4]
+      else:
+        discard
+
+    echo "fitmu ", fitmu
+    echo "fitsig ", fitsig
+
 
     let mpfitres = calcfitcurve(hitresults[2], hitresults[3], fitfunc, hitresults[0])
-    let mpfitresC = calcfitcurve(chargeresults[2], chargeresults[3], fitfuncC, chargeresults[0])
     let nloptres = calcfitcurve(hitresults[2], hitresults[3], fitfunc, hitresults[1])
-    let nloptresC = calcfitcurve(chargeresults[2], chargeresults[3], fitfuncC, chargeresults[1])
     let cdlPlot = scatterPlot(mpfitres[0], mpfitres[1]).mode(PlotMode.Lines)
-    let cdlPlotC = scatterPlot(mpfitresC[0], mpfitresC[1]).mode(PlotMode.Lines)
     let cdlPlotNlopt = scatterPlot(nloptres[0], nloptres[1]).mode(PlotMode.Lines)
-    let cdlPlotNloptC = scatterPlot(nloptresC[0], nloptresC[1]).mode(PlotMode.Lines)
 
+    ##test of annotations
+    #echo "testforparams ", testmu
+    #echo test8
+    #let teststring = test8.string
+    #let testanno = Annotation(x: 350,
+    #                          y: 100,
+    #                          text: &"test: " & test8)
 
-    ##plot of hits
+    ##plot of hits and charge
     let hitsRaw = histPlot(rawseq.mapIt(it.float64))
-      .binSize(1.0)
-      .binRange(0.0, 400.0)
+      .binSize(binsizeplot)
+      .binRange(0.0, binrangeplot)
     let hitsCut = histPlot(cutseq.mapIt(it.float64))
-      .binSize(1.0)
-      .binRange(0.0, 400.0)
+      .binSize(binsizeplot)
+      .binRange(0.0, binrangeplot)
     hitsRaw.layout.barMode = BarMode.Overlay
     let plt = hitsRaw.addTrace(hitsCut.traces[0])
       #.addTrace(cdlPlot.traces[0])
@@ -1007,45 +1018,53 @@ proc main =
     plt.traces[2].name = "fit curve nlopt"
     plt.traces[2].marker = Marker[float](color: @[ColorTGelb])
     plt.layout.yaxis.title = "Occurence"
-    plt.layout.xaxis.title = "Number of pixels"
-    plt.show(&"{targetFilter}-2019.svg")
+    plt.layout.xaxis.title = xtitle
+    #plt.layout.annotations.add [testanno]
+    plt.show(&"{filename}-2019.svg")
 
-    ##plot of charge
-    let ChargeRaw = histPlot(rawChargeseq.mapIt(it.float64))
-      .binSize(10000.0)
-      .binRange(0.0, 3500000.0)
-    let ChargeCut = histPlot(cutChargeseq.mapIt(it.float64))
-      .binSize(10000.0)
-      .binRange(0.0, 3500000.0)
-    ChargeRaw.layout.barMode = BarMode.Overlay
-    let pltC = ChargeRaw.addTrace(ChargeCut.traces[0])
-      #.addTrace(cdlPlotC.traces[0])
-      .addTrace(cdlPlotNloptC.traces[0])
-      .legendLocation(x = 0.8, y = 0.9)
-      .legendBgColor(ColorTHGrau)
-      .backgroundColor(ColorTHGrau)
-      .gridColor(color())
-    pltC.layout.title = &"target: {targetFilter}"
-    pltC.layout.showlegend = true
-    #pltC.legendBgColor(ColorTB)
-    pltC.traces[1].opacity = 0.5
-    pltC.traces[0].name = "raw data"
-    pltC.traces[0].marker = Marker[float](color: @[ColorTGrau])
-    pltC.traces[1].name = "data with cuts"
-    pltC.traces[1].marker = Marker[float](color: @[ColorTDBlau])
-    pltC.traces[1].opacity = 1.0
-    pltC.traces[2].marker = Marker[float](color: @[ColorTGelb])
-    pltC.traces[2].name = "fit curve nlopt"
-    pltC.layout.yaxis.title = "Occurence"
-    pltC.layout.xaxis.title = "Charge"
-    pltC.show(&"{targetFilter}Charge-2019.svg")
+    ##create a svg
+    # let nodes = buildSvg:
+    #   let size = 20
+    #   svg(width=size, height=size, xmlns="http://www.w3.org/2000/svg", version="1.1"):
+    #     for _ in 0 .. 1000:
+    #       let x = random(size)
+    #       let y = random(size)
+    #       let radius = random(5)
+    #       circle(cx=x, cy=y, r=radius, stroke="#111122", fill="#E0E0F0", `fill-opacity`=0.5)
+    #
+    # let xmlNodes = nodes.render.parseXml
+    #
+    # #echo xmlNodes
+    # #echo xmlNodes.len
+    #
+    # let xmlPolya = loadXml "Mn-Cr-12kVCharge-2019.svg"
+    # echo xmlPolya.len
+
+    # let att = {"transform" : "translate(800, 400)"}.toXmlAttributes
+    # var nnNew = newXmlTree("g", xmlNodes.mapIt(it), att)
+    # for x in xmlNodes:
+    #   nnNew.add x
+    # var nnPNew = newElement("g")
+    # for x in xmlPolya:
+    #   nnPNew.add x
+    #
+    # for i in 0 ..< xmlPolya.len:
+    #   xmlPolya.delete(0)
+    #
+    # xmlPolya.add nnPNew
+    # xmlPolya.add nnNew
+    # echo xmlPolya.len
+    #
+    # var f = open("test.svg", fmWrite)
+    # f.write(xmlPolya)
+    # f.close()
 
 
   for tfkind in TargetFilterKind:
   #fitAndPlot(h5file, tfCEpic0_6)
-    fitAndPlot(h5file, tfkind)
-    #fitAndPlot(h5file, tfkind, Dhits)
-    #fitAndPlot(h5file, tfkind, Dcharge)
+    #fitAndPlot(h5file, tfkind)
+    fitAndPlot[int64](h5file, tfkind, Dhits)
+    fitAndPlot[float64](h5file, tfkind, Dcharge)
 
 
   proc testdeclarefitmacro()=

@@ -141,6 +141,9 @@ def preparePlot(h5file, chip, logY, CK_binning):
     if year == "2014/15":
         chip = 0
 
+    # close H5 file before we read from it again in `readH5Data`
+    h5f.close()
+
     energy = readXrayData(h5file, chip) # / 1000.0 division needed for E from P since in eV
     print(np.shape(energy))
     #print energy

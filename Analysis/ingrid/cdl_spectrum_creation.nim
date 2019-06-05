@@ -13,12 +13,21 @@ Usage:
   cdl_spectrum_creation <h5file> [options]
   cdl_spectrum_creation -h | --help
   cdl_spectrum_creation --version
+  cdl_spectrum_creation <h5file> --cutcdl
 
 Options:
   -h, --help   Show this help
   --version    Show the version number
+  --cutcdl     Creates CDL data in h5
 """
 const doc = withDocopt(docStr)
+
+##some constants depending on the run
+const filename = "../../resources/cdl_runs_2019.org"
+#const cutparams = "../../resources/cutparams.org"
+#actually cutparams isn't necessary since cuts are choosen in tos helpers
+const outdate = &"2019"
+const chipnumber = "3"
 
 ## some different color definitions
 const Color1 = color(1.0, 0.0, 102.0 / 256.0)
@@ -70,12 +79,6 @@ type
     hv: float
 
   CdlFitFunc = proc(p_ar: seq[float], x: float): float
-
-  #CdlFit = object
-  #  target: TargetKind
-  #  filter: FilterKind
-  #  hv: float
-  #  fit: CdlFitFunc
 
   FitFuncKind = enum
     ffConst, ffPol1, ffPol2, ffGauss, ffExpGauss
@@ -147,12 +150,12 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
                            gs: 16.0) #hist[muIdx] / 30.0)
   of tfTiTi9:
     result.add FitFuncArgs(name: "Ti-Kalpha",
-                           kind: ffGauss,
-                           #ea: hist[muIdx] ,
-                           #eb: hist[muIdx] ,
-                           gN: hist[muIdx] / 10.0,
-                           gmu: binning[muIdx] ,
-                           gs: hist[muIdx] / 30.0)
+                           kind: ffExpGauss,
+                           ea: hist[muIdx] * 1e-10,
+                           eb: hist[muIdx] * 1e-12,
+                           eN: hist[muIdx] / 10.0,
+                           emu: binning[muIdx] ,
+                           es: hist[muIdx] / 30.0)
     result.add FitFuncArgs(name: "Ti-esc-alpha",
                            kind: ffGauss,
                            gN: hist[muIdx] / 20.0,
@@ -161,13 +164,13 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
     result.add FitFuncArgs(name: "Ti-esc-beta",
                            kind: ffGauss,
                            gN: hist[muIdx] / 20.0,
-                           gmu: binning[muIdx],
-                           gs: hist[muIdx] / 15.0)
+                           gmu: fixed, #binning[muIdx],
+                           gs: fixed) #hist[muIdx] / 15.0)
     result.add FitFuncArgs(name: "Ti-Kbeta",
                            kind: ffGauss,
                            gN: hist[muIdx] / 10.0,
-                           gmu: binning[muIdx],
-                           gs: hist[muIdx] / 15.0)
+                           gmu: fixed, #binning[muIdx],
+                           gs: fixed) #hist[muIdx] / 15.0)
   of tfAgAg6:
     result.add FitFuncArgs(name: "Ag-Lalpha",
                           kind: ffGauss,
@@ -184,8 +187,8 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
   of tfAlAl4:
     result.add FitFuncArgs(name: "Al-Kalpha",
                           kind: ffExpGauss,
-                          ea: hist[muIdx] * 1e-10,
-                          eb: hist[muIdx] * 1e-12,
+                          ea: hist[muIdx],# * 1e-10,
+                          eb: hist[muIdx],# * 1e-12,
                           eN: hist[muIdx] / 4.0,
                           emu: binning[muIdx],
                           es: hist[muIdx] / 10.0)
@@ -294,13 +297,13 @@ func getLinesCharge(hist, binning: seq[float], tfKind: TargetFilterKind): seq[Fi
     result.add FitFuncArgs(name: "Ti-esc-beta",
                            kind: ffGauss,
                            gN: hist[muIdx] / 10.0,
-                           gmu: binning[muIdx] ,
-                           gs: hist[muIdx] * 1e3)
+                           gmu: fixed, #binning[muIdx] ,
+                           gs: fixed) #hist[muIdx] * 1e3)
     result.add FitFuncArgs(name: "Ti-Kbeta",
                            kind: ffGauss,
                            gN: hist[muIdx] / 2.0,
-                           gmu: binning[muIdx], #* 1e5,
-                           gs: hist[muIdx] * 1e3)
+                           gmu: fixed, #binning[muIdx], #* 1e5,
+                           gs: fixed) #hist[muIdx] * 1e3)
   of tfAgAg6:
     result.add FitFuncArgs(name: "Ag-Lalpha",
                            kind: ffGauss,
@@ -326,7 +329,7 @@ func getLinesCharge(hist, binning: seq[float], tfKind: TargetFilterKind): seq[Fi
                            kind: ffGauss,
                            gN: hist[muIdx] / 4.0,
                            gmu: 350.0e3,#binning[muIdx],
-                           gs: hist[muIdx] * 1e3)
+                           gs: hist[muIdx] * 1e2)
     #result.add FitFuncArgs(name: "p0",
     #                       kind: ffConst,
     #                       c: -hist[muIdx])
@@ -426,6 +429,7 @@ proc drop(p: NimNode, frm: int): NimNode =
   result = copy(p)
   result.del(0, frm)
   echo result.treeRepr
+
 
 proc resolveCall(tab: OrderedTable[string, NimNode],
                  n: NimNode): NimNode =
@@ -549,17 +553,18 @@ proc buildFitFunc(name, parts: NimNode): NimNode =
   var procBody = newStmtList()
 
   var i = 0
-  var paramsTab = initOrderedTable[string, NimNode]()
+
+  var fancyTab = initOrderedTable[string, NimNode]()
   for p in parts:
     # create the table which maps the parameter of each line to the
     # correct NimNode. May either be
     # - `p_ar[idx]`
     # - some literal int / float
     # - some calculation involving a reference to some other parameter
-    paramsTab.fillParamsTable(p, i)
+    fancyTab.fillParamsTable(p, i)
   # now that we have the whole tableresolve all still remaining references
   # to other parameters
-  let params = resolveNodes(paramsTab)
+  let params = resolveNodes(fancytab)
   i = 0
   for p in parts:
     procBody.add genFitFuncImpl(i, xNode, p, params)
@@ -615,64 +620,45 @@ macro declareFitFunc(name, stmts: untyped): untyped =
 declareFitFunc(cuNi15):
   ffGauss: "Cu-Kalpha"
     #name = "Cu-Kalpha"
-    #ea = -8.305
-    #eb = 0.08444
-    #eN = 195.2
-    #emu = 286.7
-    #es = 16.23
+    #gmu = 5.5
   ffGauss: "Cu-esc"
     #name = "Cu-esc"
-    #ea = -1.644
-    #eb = 0.023
-    #eN = 28.47
-    #emu = 187.0
-    #es = 13.5
+    #gmu = gmu("Cu-Kalpha") * 5.5
 declareFitFunc(cuNi15Charge):
   ffGauss: "Cu-Kalpha"
-    #name = "Cu-Kalpha"
-    #gN = 28.47
-    #gmu = 187.0
-    #gs = 13.5
   ffGauss: "Cu-esc"
-    #name = "Cu-esc"
-    #gN = 14.25
-    #gmu = 1077142.2
-    #gs = 113290.5
 declareFitFunc(mnCr12):
   ffExpGauss: "Mn-Kalpha"
-    #name = "Mn-Kalpha"
-    #ea = -1.834
-    #eb = 0.04455
-    #emu = 200.3
-    #es = 12.7
   ffGauss: "Mn-esc"
-    #name = "Mn-esc"
-    #ea = -0.06356
-    #eb = 0.0467
-    #emu = 102.1
-    #es = 8.44
 declareFitFunc(mnCr12Charge):
   ffGauss: "Mn-Kalpha"
   ffGauss: "Mn-esc"
-  #ffConst: "p0"
-  #ffPol1: "p1"
-  #ffPol2: "p2"
 declareFitFunc(tiTi9):
-  ffGauss: "Ti-Kalpha"
+  ffExpGauss: "Ti-Kalpha"
   ffGauss: "Ti-esc-alpha"
-  ffGauss: "Ti-esc-beta"
-    #name = "Ti-esc-beta"
-    #gmu = ??
-    #gs = ??
-  ffGauss: "Ti-Kbeta"
-    #name = "Ti-Kbeta"
-    #gmu = ??
-    #gs = ??
+    #name = "Ti-esc-alpha"
+    #gmu = emu("Ti-Kalpha") * (1.537/4.511)
+  ffGauss: #"Ti-esc-beta"
+    name = "Ti-esc-beta"
+    gmu = emu("Ti-Kalpha") * (1.959/4.511)
+    gs = gs("Ti-esc-alpha")
+  ffGauss: #"Ti-Kbeta"
+    name = "Ti-Kbeta"
+    gmu = emu("Ti-Kalpha") * (4.932/4.511)
+    gs = es("Ti-Kalpha")
 declareFitFunc(tiTi9Charge):
   ffGauss: "Ti-Kalpha"
-  ffGauss: "Ti-esc-aplha"
-  ffGauss: "Ti-esc-beta"
-  ffGauss: "Ti-Kbeta"
+  ffGauss: "Ti-esc-alpha"
+    #name = "Ti-esc-alpha"
+    #gmu = emu("Ti-Kalpha") * (1.537/4.511)
+  ffGauss: #"Ti-esc-beta"
+    name = "Ti-esc-beta"
+    gmu = gmu("Ti-Kalpha") * (1.959/4.511)
+    gs = gs("Ti-esc-alpha")
+  ffGauss: #"Ti-Kbeta"
+    name = "Ti-Kbeta"
+    gmu = gmu("Ti-Kalpha") * (4.932/4.511)
+    gs = gs("Ti-Kalpha")
 declareFitFunc(agAg6):
   ffGauss: "Ag-Lalpha"
   ffGauss: "Ag-Lbeta"
@@ -686,7 +672,7 @@ declareFitFunc(agAg6Charge):
   #ffPol1: "p1"
   #ffPol2: "p2"
 declareFitFunc(alAl4):
-  ffexpGauss: "Al-Kalpha"
+  ffExpGauss: "Al-Kalpha"
 declareFitFunc(alAl4Charge):
   ffGauss: "Al-Kalpha"
   #ffConst: "p0"
@@ -888,59 +874,62 @@ proc readRuns(fname: string): seq[CdlRun] =
 proc totfkind(run: CdlRun): TargetFilterKind =
   result = parseEnum[TargetFilterKind](&"{toCutStr(run)}")
 
-proc main =
 
-  let args = docopt(doc)
-  let h5file = $args["<h5file>"]
-  const filename = "../../resources/cdl_runs_2019.org"
-  #const cutparams = "../../resources/cutparams.org"
-  #actually cutparams isn't necessary since cuts are choosen in tos helpers
+proc cutAndWrite (h5file: string) =
   let runs = readRuns(filename)
   var h5f = H5file(h5file, "rw")
   defer: discard h5f.close()
   let cutTab = getXraySpectrumCutVals()
+  for r in runs:
+    #if r.number != 315:
+      #continue
+    sleep 500
+    case r.runType
+    of rtXrayFinger:
+      let grp = h5f[(recoDataChipBase(r.number) & chipnumber).grp_str]
+      let cut = cutTab[r.toCutStr]
+      let passIdx = cutOnProperties(h5f,
+                                   grp,
+                                   cut.cutTo,
+                                   ("rmsTransverse", cut.minRms, cut.maxRms),
+                                   ("length", 0.0, cut.maxLength),
+                                   ("hits", cut.minPix, Inf),
+                                   ("eccentricity", 0.0, cut.maxEccentricity))
+      let nevents = passIdx.len
 
-  proc recoAndWrite (h5file: string) =
-    for r in runs:
-      #if r.number != 315:
-        #continue
-      sleep 500
-      case r.runType
-      of rtXrayFinger:
-        let grp = h5f[(recoDataChipBase(r.number) & "3").grp_str]
-        let cut = cutTab[r.toCutStr]
-        let passIdx = cutOnProperties(h5f,
-                                     grp,
-                                     cut.cutTo,
-                                     ("rmsTransverse", cut.minRms, cut.maxRms),
-                                     ("length", 0.0, cut.maxLength),
-                                     ("hits", cut.minPix, Inf),
-                                     ("eccentricity", 0.0, cut.maxEccentricity))
-        let nevents = passIdx.len
+      proc writeDset(dsetWrite, dsetRead: string, datatype: typedesc) =
+        var
+          dset = h5f.create_dataset(grp.name / dsetWrite, (nevents, 1),
+                                    datatype)
+        if dsetWrite == "CdlSpectrumIndices":
+          dset[dset.all] = passIdx
+        else:
+          let read = h5f[grp.name / dsetRead, datatype]
+          dset[dset.all] = passIdx.mapIt(read[it])
+        dset.attrs["Target"] = $r.target
+        dset.attrs["Filter"] = $r.filter
+        dset.attrs["HV"] = $r.hv
+      writeDset("CdlSpectrumIndices", "", int64)
+      writeDset("CdlSpectrum", "hits", int64)
+      writeDset("CdlSpectrumEvents", "eventNumber", int64)
+      writeDset("CdlSpectrumCharge", "totalCharge", float64)
 
-        proc writeDset(dsetWrite, dsetRead: string, datatype: typedesc) =
-          var
-            dset = h5f.create_dataset(grp.name / dsetWrite, (nevents, 1),
-                                      datatype)
-          if dsetWrite == "CdlSpectrumIndices":
-            dset[dset.all] = passIdx
-          else:
-            let read = h5f[grp.name / dsetRead, datatype]
-            dset[dset.all] = passIdx.mapIt(read[it])
-          dset.attrs["Target"] = $r.target
-          dset.attrs["Filter"] = $r.filter
-          dset.attrs["HV"] = $r.hv
-        writeDset("CdlSpectrumIndices", "", int64)
-        writeDset("CdlSpectrum", "hits", int64)
-        writeDset("CdlSpectrumEvents", "eventNumber", int64)
-        writeDset("CdlSpectrumCharge", "totalCharge", float64)
+      let runnum = h5f[(recoBase() & $r.number).grp_str]
+      runnum.attrs["tfKind"] = $r.toCutStr
+    else:
+      discard
 
-        let runnum = h5f[(recoBase() & $r.number).grp_str]
-        runnum.attrs["tfKind"] = $r.toCutStr
-      else:
-        discard
+proc main =
 
-  recoAndWrite(h5file)
+  let args = docopt(doc)
+  let h5file = $args["<h5file>"]
+  let reco_order = $args["--cutcdl"]
+  let runs = readRuns(filename)
+  var h5f = H5file(h5file, "rw")
+  defer: discard h5f.close()
+
+  if reco_order == "true":
+    cutAndWrite(h5file)
 
   proc fitAndPlot[T: SomeNumber](h5file: string, tfKind: TargetFilterKind, dKind: DataKind) =
     let targetFilter = tfkind
@@ -949,21 +938,25 @@ proc main =
     var binsizeplot: float
     var binrangeplot: float
     var xtitle: string
-    var filename: string
+    var outname: string
     var fitfunc: CdlFitFunc
+    var lines: seq[FitFuncArgs]
+    var dummy = @[1.0, 2.0]
     case dKind
     of Dhits:
       fitfunc = getCdlFitFunc(targetFilter)
       binsizeplot = 1.0
       binrangeplot = 400.0
       xtitle = "Number of pixles"
-      filename = &"{tfKind}"
+      outname = &"{tfKind}"
+      lines = getLines(dummy, dummy, tfKind)
     of Dcharge:
       fitfunc = getCdlFitFuncCharge(targetFilter)
       binsizeplot = 10000.0
       binrangeplot = 3500000.0
       xtitle = "Charge"
-      filename = &"{tfKind}Charge"
+      outname = &"{tfKind}Charge"
+      lines = getLinesCharge(dummy, dummy, tfKind)
 
     for r in runs:
       #if r.number != 347:
@@ -971,7 +964,7 @@ proc main =
       sleep 500
       case r.runType
       of rtXrayFinger:
-        let grp = h5f[(recoDataChipBase(r.number) & "3").grp_str]
+        let grp = h5f[(recoDataChipBase(r.number) & chipnumber).grp_str]
         let tfk = r.totfkind
         if tfk == targetFilter:
           case dKind
@@ -987,6 +980,7 @@ proc main =
             cutseq.add(Cdlseq)
       else:
          discard
+
     proc calcfit(dataseq: seq[SomeNumber],
                  cdlFitFunc: CdlFitFunc,
                  binSize: float,
@@ -1020,33 +1014,36 @@ proc main =
       result = (range, yvals)
 
     #var hitresults: (seq[float], seq[float], float, float)
-    let hitresults = calcfit(cutseq, fitfunc, binsizeplot, dKind)
+    let fitresults = calcfit(cutseq, fitfunc, binsizeplot, dKind)
+    echo "fitresults ", fitresults
     ##get the interesting fit params
-    var lines: seq[FitFuncArgs]
     var fitmu: float
     var fitsig: float
+    var energyres: float
     var museq: seq[float]
     var sigseq: seq[float]
-    let (histdata, bins) = histoCdl(cutseq, binsizeplot, dKind)
-    lines = getLines(histdata, bins, tfKind)
-    #echo "lines ", lines[0].kind
+    #let (histdata, bins) = histoCdl(cutseq, binsizeplot, dKind)
+    #lines = getLines(histdata, bins, tfKind)
+    echo "lines ", lines[0].kind
     case lines[0].kind
     of ffGauss:
-      fitmu = hitresults[1][1]
-      fitsig = hitresults[1][2]
+      fitmu = fitresults[1][1]
+      fitsig = fitresults[1][2]
       museq.add(fitmu)
     of ffExpGauss:
-      fitmu = hitresults[1][3]
-      fitsig = hitresults[1][4]
+      fitmu = fitresults[1][3]
+      fitsig = fitresults[1][4]
       museq.add(fitmu)
     else:
       discard
     echo "fitmu ", fitmu
     echo "fitsig ", fitsig
     echo "fitmuseq ", museq
+    energyres = fitsig / fitmu
+    echo "energyres ", energyres
 
-    let mpfitres = calcfitcurve(hitresults[2], hitresults[3], fitfunc, hitresults[0])
-    let nloptres = calcfitcurve(hitresults[2], hitresults[3], fitfunc, hitresults[1])
+    let mpfitres = calcfitcurve(fitresults[2], fitresults[3], fitfunc, fitresults[0])
+    let nloptres = calcfitcurve(fitresults[2], fitresults[3], fitfunc, fitresults[1])
     let cdlPlot = scatterPlot(mpfitres[0], mpfitres[1]).mode(PlotMode.Lines)
     let cdlPlotNlopt = scatterPlot(nloptres[0], nloptres[1]).mode(PlotMode.Lines)
 
@@ -1087,7 +1084,7 @@ proc main =
     plt.layout.yaxis.title = "Occurence"
     plt.layout.xaxis.title = xtitle
     #plt.layout.annotations.add [testanno]
-    plt.show(&"{filename}-2019.svg")
+    plt.show(&"{outname}-{outdate}.svg")
 
     ##create a svg
     # let nodes = buildSvg:
@@ -1127,11 +1124,13 @@ proc main =
     # f.close()
 
 
-  for tfkind in TargetFilterKind:
+  #for tfkind in TargetFilterKind:
   #fitAndPlot(h5file, tfCEpic0_6)
+  fitAndPlot[int64](h5file, tfTiTi9, Dhits)
+  fitAndPlot[float64](h5file, tfTiTi9, Dcharge)
     #fitAndPlot(h5file, tfkind)
-    fitAndPlot[int64](h5file, tfkind, Dhits)
-    fitAndPlot[float64](h5file, tfkind, Dcharge)
+    #fitAndPlot[int64](h5file, tfkind, Dhits)
+    #fitAndPlot[float64](h5file, tfkind, Dcharge)
 
 
 when isMainModule:

@@ -250,10 +250,11 @@ def main(args):
 
     # now handle all additional files
     fileList = args_dict["fileList"]
-    for f in fileList:
-        year2, chip2 = preparePlot(f, chip, logY, CK_binning)
-        year = str(year) + " and " + str(year2)
-        chipStr = str(chip) + " and " + str(chip2)
+    if fileList is not None:
+        for f in fileList:
+            year2, chip2 = preparePlot(f, chip, logY, CK_binning)
+            year = str(year) + " and " + str(year2)
+            chipStr = str(chip) + " and " + str(chip2)
 
     if show2014:
         year3, chip3 = prepareChristophFrameworkPlot(logY)
@@ -293,11 +294,9 @@ def main(args):
                  transform = ax.transAxes)
 
     fname = "background_rate"
-    if fileList is not None:
-        fname = fname + year
-    else:
-        fname = fname + year1 + "_" + year3
-    fname = fname.replace("/", "_")
+    fname = fname + year
+    fname = fname.replace("/", "_").replace(" ", "_")
+    print("Saving plot as ", fname + ".pdf")
     plt.savefig(fname + ".pdf")
     plt.show()
 

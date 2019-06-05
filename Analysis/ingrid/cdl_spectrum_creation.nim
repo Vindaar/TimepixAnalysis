@@ -372,46 +372,50 @@ func getLinesCharge(hist, binning: seq[float], tfKind: TargetFilterKind): seq[Fi
                            gmu: binning[muIdx], #* 1e3,
                            gs: hist[muIdx]  * 1e3)
 
-proc genFitFuncImpl(resultNode, idx, xNode, pFitNode: NimNode, paramsNode: seq[NimNode]): NimNode =
+proc genFitFuncImpl(idx: var int, xNode,
+                    pFitNode: NimNode, paramsNode: seq[NimNode]): NimNode =
   ## the compile time procedure that creates the implementation lines for
   ## the <target><Filter>Funcs that we create, which calls the correct functions,
   ## e.g.
   ##   result += p_ar[i] * gauss(x, p[i + 1], p[i + 2])
   ##   inc i, 3
+  let resultNode = ident"result"
   expectKind(pFitNode, nnkObjConstr)
   let fkind = parseEnum[FitFuncKind](pFitNode[2][1].strVal)
-  for x in paramsNode:
-    echo x.repr
   case fKind
   of ffConst:
-    let p0 = paramsNode[0]
+    let p0 = paramsNode[idx]
     result = quote do:
       `resultNode` += `p0`
+    inc idx
   of ffPol1:
-    let p0 = paramsNode[0]
+    let p0 = paramsNode[idx]
     result = quote do:
       `resultNode` += `p0` * `xNode`
+    inc idx
   of ffPol2:
-    let p0 = paramsNode[0]
+    let p0 = paramsNode[idx]
     result = quote do:
       `resultNode` += `p0` * `xNode` * `xNode`
+    inc idx
   of ffGauss:
     let
-      p0 = paramsNode[0]
-      p1 = paramsNode[1]
-      p2 = paramsNode[2]
+      p0 = paramsNode[idx]
+      p1 = paramsNode[idx + 1]
+      p2 = paramsNode[idx + 2]
     result = quote do:
       `resultNode` += `p0` * gauss(`xNode`, `p1`, `p2`)
+    inc idx, 3
   of ffExpGauss:
     let
-      p0 = paramsNode[0]
-      p1 = paramsNode[1]
-      p2 = paramsNode[2]
-      p3 = paramsNode[3]
-      p4 = paramsNode[4]
+      p0 = paramsNode[idx]
+      p1 = paramsNode[idx + 1]
+      p2 = paramsNode[idx + 2]
+      p3 = paramsNode[idx + 3]
+      p4 = paramsNode[idx + 4]
     result = quote do:
       `resultNode` += expGauss(@[`p0`, `p1`, `p2`, `p3`, `p4`], `xNode`)
-
+    inc idx, 5
 
 proc idOf(x: int): NimNode =
   let param = ident"p_ar"
@@ -423,45 +427,101 @@ proc drop(p: NimNode, frm: int): NimNode =
   result.del(0, frm)
   echo result.treeRepr
 
-proc incAndAdd(s: var seq[NimNode], idx: var int, cTab: var Table[string, NimNode],
-               key: string) =
-  if key in cTab:
-    s.add cTab[key]
+proc resolveCall(tab: OrderedTable[string, NimNode],
+                 n: NimNode): NimNode =
+  expectKind(n, nnkCall)
+  const paramIdent = "p_ar"
+  if n[1].strVal == paramIdent:
+    # call is an nnkOpenSymChoice from the `p_ar[x]`
+    result = n
   else:
-    cTab[key] = idOf(idx)
-    s.add cTab[key]
-    inc idx
+    # call is a reference to a different parameter
+    let key = n[0].strVal & "_" & n[1].strVal
+    result = tab[key]
 
-proc parseParamsNodes(p, paramsNode: NimNode, idx: var int): seq[NimNode] =
-  ##
-  echo "XXX ", p.treeRepr
+proc resolveNodes(tab: OrderedTable[string, NimNode]): seq[NimNode] =
+  ## resolve the potentially still ambiguous nodes (e.g. a reference to a
+  ## parameter of a different line) and convert the `OrderedTable` into a
+  ## serialized sequence of the nodes
+  for k, v in tab:
+    case v.kind
+    of nnkCall:
+      result.add resolveCall(tab, v)
+    else:
+      if v.len == 0:
+        result.add v
+      else:
+        # have to walk the tree to replace references
+        var node = copyNimTree(v)
+        for i in 0 ..< node.len:
+          case node[i].kind
+          of nnkCall:
+            # replace the call with the resolved node
+            node[i] = resolveCall(tab, node[i])
+          else:
+            # else leave node unchanged
+            discard
+        result.add node
+
+proc incAndFill(tab: var OrderedTable[string, NimNode],
+                idx: var int, keyBase, lineName: string) =
+  let key = keyBase & "_" & lineName
+  if key notin tab:
+    tab[key] = idOf(idx)
+    inc idx
+  else:
+    # if key in the table, remove it and re-add so that the position
+    # is the correct one in our OrderedTable!
+    let tmp = tab[key]
+    tab.del(key)
+    tab[key] = tmp
+
+proc fillParamsTable(tab: var OrderedTable[string, NimNode],
+                     p: NimNode, idx: var int) =
+  ## creates a table of NimNodes, which stores the NimNode that will show up
+  ## in the created fitting procedure under a unique string, which consists
+  ## of `FitParameter_LineName`. This table can then later be used to
+  ## reference arbitrary parameters of the fitting functions in a different
+  ## or same line
+  # get the correct part of the parameters
   let fkind = parseEnum[FitFuncKind](p[2][1].strVal)
-  var cTab = initTable[string, NimNode]()
+  #var cTab = initOrderedTable[string, NimNode]()
   var toReplace: NimNode
+  let lineName = p[1][1].strVal
   if p.len > 3:
+    # if p.len has more than 3 children, one ore more parameters have
+    # been fixed to some constant or relative value. Fill the `tab` with
+    # the NimNodes corresponding to those values
     toReplace = p.drop(3)
     for x in toReplace:
-      let id = x[0].strVal
-      cTab[id] = x[1]
+      case x[1].kind
+      of nnkIdent, nnkIntLit .. nnkFloatLit, nnkInfix, nnkCall:
+        let id = x[0].strVal & "_" & lineName
+        tab[id] = x[1]
+      else: error("Unsupported kind " & $x[1].kind)
+
+  # Now walk over the table with the parameters of the current line
+  # and either enter the correct `p_ar[idx]` field as the value in
+  # the table or put the value to be replaced at the correct position
+  # in the table
   case fKind
   of ffConst:
-    incAndAdd(result, idx, cTab, "c")
+    incAndFill(tab, idx, "c", lineName)
   of ffPol1:
-    incAndAdd(result, idx, cTab, "cp")
+    incAndFill(tab, idx, "cp", lineName)
   of ffPol2:
-    incAndAdd(result, idx, cTab, "cpp")
+    incAndFill(tab, idx, "cpp", lineName)
     inc idx
   of ffGauss:
-    incAndAdd(result, idx, cTab, "gN")
-    incAndAdd(result, idx, cTab, "gmu")
-    incAndAdd(result, idx, cTab, "gs")
+    incAndFill(tab, idx, "gN", lineName)
+    incAndFill(tab, idx, "gmu", lineName)
+    incAndFill(tab, idx, "gs", lineName)
   of ffExpGauss:
-    incAndAdd(result, idx, cTab, "ea")
-    incAndAdd(result, idx, cTab, "eb")
-    incAndAdd(result, idx, cTab, "eN")
-    incAndAdd(result, idx, cTab, "emu")
-    incAndAdd(result, idx, cTab, "es")
-  echo result.repr
+    incAndFill(tab, idx, "ea", lineName)
+    incAndFill(tab, idx, "eb", lineName)
+    incAndFill(tab, idx, "eN", lineName)
+    incAndFill(tab, idx, "emu", lineName)
+    incAndFill(tab, idx, "es", lineName)
 
 proc buildFitFunc(name, parts: NimNode): NimNode =
   ## builds a CDL fit function based on the function described by
@@ -474,7 +534,6 @@ proc buildFitFunc(name, parts: NimNode): NimNode =
     idx = ident"i"
     paramsNode = ident"p_ar"
     xNode = ident"x"
-    resultNode = ident"result"
   # define parameters and return type of the proc we create
   let
     retType = ident"float"
@@ -490,10 +549,20 @@ proc buildFitFunc(name, parts: NimNode): NimNode =
   var procBody = newStmtList()
 
   var i = 0
+  var paramsTab = initOrderedTable[string, NimNode]()
   for p in parts:
-    # add the lines for the function calls
-    let parsedParams = parseParamsNodes(p, paramsNode, i)
-    procBody.add genFitFuncImpl(resultNode, idx, xNode, p, parsedParams)
+    # create the table which maps the parameter of each line to the
+    # correct NimNode. May either be
+    # - `p_ar[idx]`
+    # - some literal int / float
+    # - some calculation involving a reference to some other parameter
+    paramsTab.fillParamsTable(p, i)
+  # now that we have the whole tableresolve all still remaining references
+  # to other parameters
+  let params = resolveNodes(paramsTab)
+  i = 0
+  for p in parts:
+    procBody.add genFitFuncImpl(i, xNode, p, params)
 
   # now define the result variable as a new proc
   result = newProc(name = name,

@@ -23,6 +23,10 @@ colorGrey = (189.0/255.0, 189.0/255.0, 189.0/255.0)
 colorLightGrey = (117.0/255.0, 117.0/255.0, 117.0/255.0)
 colorDarkGrey = (33.0/255.0, 33.0/255.0, 33.0/255.0)
 
+colorOrange = (255.0/255.0, 80.0/255.0, 47.0/255.0)
+colorWine = (98.0/255.0, 55.0/255.0, 78.0/255.0)
+colorCyan = (0.0/255.0, 255.0/255.0, 255.0/255.0)
+
 
 def fancy_plotting():
     # set up some LaTeX plotting parameters
@@ -32,22 +36,36 @@ def fancy_plotting():
     # next line is for thesis after Brock thesis guide
     fig_width_pt = 451.58598
     inches_per_pt = 1.0/72.27               # Convert pt to inch
-    golden_mean = (np.sqrt(5)-1.0)/2.0         # Aesthetic ratio
+    #golden_mean = (np.sqrt(5)-1.0)/2.0         # Aesthetic ratio
+    golden_mean = 10.0 / 20.0 #(np.sqrt(5)-1.0)/2.0         # Aesthetic ratio
     fig_width = 1.3*fig_width_pt*inches_per_pt  # width in inches
     fig_height = 1.3*fig_width*golden_mean      # height in inches
     fig_size =  [fig_width,fig_height]
+    #params = {'backend': 'ps',
+    #          'axes.labelsize':      40,#10,
+    #          'axes.titlesize':      40,
+    #          'font.size':           40,
+    #          'legend.fontsize':     32,#10,
+    #          'xtick.labelsize':     32,#8,
+    #          'ytick.labelsize':     32,#8,
+    #          'text.usetex':         True,
+    #          'text.latex.preamble': [r'\usepackage{siunitx} \usepackage{mhchem}'],
+    #          'font.family':         'serif',
+    #          'font.serif':          'cm',
+    #          'figure.figsize':      fig_size}
     params = {'backend': 'ps',
-              'axes.labelsize':      40,#10,
-              'axes.titlesize':      40,
-              'font.size':           40,
-              'legend.fontsize':     32,#10,
-              'xtick.labelsize':     32,#8,
-              'ytick.labelsize':     32,#8,
+              'axes.labelsize':      20,#10,
+              'axes.titlesize':      20,
+              'font.size':           20,
+              'legend.fontsize':     16,#10,
+              'xtick.labelsize':     16,#8,
+              'ytick.labelsize':     16,#8,
               'text.usetex':         True,
               'text.latex.preamble': [r'\usepackage{siunitx} \usepackage{mhchem}'],
               'font.family':         'serif',
               'font.serif':          'cm',
               'figure.figsize':      fig_size}
+
     pylab.rcParams.update(params)
 
 def readXrayData(h5file, chip):
@@ -92,9 +110,10 @@ def prepareChristophFrameworkPlot(logY):
     plt.errorbar(energy, rate, yerr = dRate,
                  linestyle = '',
                  marker = '.',
-                 markersize = 15.,
+                 markersize = 8.,
                  color = colorMarlin,
-                 label = year
+                 label = year,
+                 linewidth = 1.0
     )
     return year, 0
 
@@ -121,19 +140,19 @@ def preparePlot(h5file, chip, logY, CK_binning):
         year = "2018"
         #time_back = 1123 * 3600
         #shutter_open = 0.88
-        color = colorDarkGrey#2017
+        color = color2017
     elif "2018" in h5file and not "scinti" in h5file:
         # Case of FADC veto
         year = "2018+FADC veto"
-        color = colorBlue
+        color = (1.0, 0.0, 0.0)#colorBlue
     elif "2018" in h5file and not "fadc" in h5file:
         # Case of scintillators veto
         year = "2018+scinti veto"
-        color = colorDarkGrey
+        color = colorYellow#DarkGrey
     elif "2018" in h5file:
         # Case of FADC + scintillators veto
         year = "2018+scinti+FADC veto"
-        color = colorYellow
+        color = colorCyan
     else:
         import sys
         sys.exit("File needs to state if 2014, 2017 or 2018 data!")
@@ -180,14 +199,14 @@ def preparePlot(h5file, chip, logY, CK_binning):
     plt.errorbar(bins, hist, yerr = hist_err, xerr = bin_width / 2.0,
                  linestyle = '',
                  marker = '.',
-                 markersize = 15,
+                 markersize = 8,
                  color = color,
                  #color = (147/255.0, 88/255.0, 254/255.0),#'blue',
                  #color = (186/255.0, 31/255.0, 86/255.0),#'blue',a
                  #color = (220/255.0, 37/255.0, 102/255.0),
                  #color = (99/255.0, 59/255.0, 171/255.0),
                  #color = (253 / 255.0, 151 / 255.0, 31 / 255.0),
-                 linewidth = 2,
+                 linewidth = 1,
                  label = year)
 
     return year, chip

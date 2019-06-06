@@ -211,6 +211,18 @@ def preparePlot(h5file, chip, logY, CK_binning):
 
     return year, chip
 
+def addRegion(fname):
+    if "all" in fname:
+        return "all_"
+    elif "bronze" in fname:
+        return "bronze_"
+    elif "silver" in fname:
+        return "silver_"
+    elif "gold" in fname:
+        return "gold_"
+    else:
+        return ""
+
 def main(args):
     parser = argparse.ArgumentParser(description = 'H5 Data plotter')
     parser.add_argument('file',
@@ -315,7 +327,8 @@ def main(args):
                  verticalalignment = "center",
                  transform = ax.transAxes)
 
-    fname = "background_rate"
+    logStr = "log_" if logY == True else ""
+    fname = "background_rate_" + addRegion(h5file) + logStr
     fname = fname + year
     fname = fname.replace("/", "_").replace(" ", "_")
     print("Saving plot as ", fname + ".pdf")

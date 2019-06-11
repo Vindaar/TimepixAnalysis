@@ -31,6 +31,7 @@ Options:
                          Useful to e.g. plot passed events with the event display.
   --to=FOLDER            Output location of all extracted events. Events will just
                          be copied there.
+  --region=REGION        The chip region to which we cut.
   --tracking             If flag is set, we only consider solar trackings (signal like)
   --scintiveto           If flag is set, we use the scintillators as a veto
   --fadcveto             If flag is set, we use the FADC as a veto
@@ -376,7 +377,8 @@ func isVetoedByFadc(eventNumber: int, fadcTrigger, fadcEvNum: seq[int64],
   const cutFallHigh = 600'u16
   result = false
   let fIdx = fadcEvNum.lowerBound(eventNumber)
-  if fadcEvNum[fIdx] == eventNumber and
+  if fIdx < fadcEvNum.high and
+     fadcEvNum[fIdx] == eventNumber and
      fadcTrigger[fIdx] == 1:
     # thus we know that `fIdx` points to an event with an FADC trigger
     # corresponding to `eventNumber`
@@ -403,7 +405,8 @@ func isVetoedByScintis(eventNumber: int,
   const low = 0
   const high = 400 # be pessimistic about high
   let sIdx = scintEvNum.lowerBound(eventNumber)
-  if scintEvNum[sIdx] == eventNumber and
+  if sIdx < scintEvNum.high and
+     scintEvNum[sIdx] == eventNumber and
      ((scinti1[sIdx] > low and scinti1[sIdx] < high) or
       (scinti2[sIdx] > low and scinti2[sIdx] < high)):
     # had a non trivial trigger, throw out
@@ -419,7 +422,9 @@ proc writeVetoInfos(grp: H5Group, fadcVetoCount, scintiVetoCount: int,
   mgrp.attrs["# removed by FADC veto"] = fadcVetoCount
   mgrp.attrs["# removed by scinti veto"] = scintiVetoCount
 
-proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, flags: set[FlagKind]) =
+proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj,
+                          flags: set[FlagKind],
+                          region = crGold) =
   ## filters all clusters with a likelihood value in the given `h5f` by
   ## the logL cut values returned by `calcCutValueTab`
   ## clusters passing the cuts are stored in `h5fout`
@@ -430,8 +435,6 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj, flags: set[
   ## - fkFadc: FADC used as veto
   ## - fkScinti: Scintillators used as veto
   ## - fkSeptem: Septemboard used as veto
-  const region = crGold
-
   let cutTab = calcCutValueTab(region)
   # get the likelihood and energy datasets
   # get the group from file
@@ -673,6 +676,11 @@ proc main() =
   if $args["--fadcveto"] == "true": flags.incl fkFadc
   if $args["--septemveto"] == "true": flags.incl fkSeptem
 
+  let region = if $args["--region"] != "nil":
+                 parseEnum[ChipRegion]($args["--region"])
+               else:
+                 crGold
+
   var h5foutfile: string = ""
   if $args["--h5out"] != "nil":
     h5foutfile = $args["--h5out"]
@@ -697,7 +705,7 @@ proc main() =
     h5f.calcLogLikelihood(XrayRefFile)
     # now perform the cut on the logL values stored in `h5f` and write
     # the results to h5fout
-    h5f.filterClustersByLogL(h5fout, flags)
+    h5f.filterClustersByLogL(h5fout, flags, region)
     # given the cut values and the likelihood values for all events
     # based on the X-ray reference distributions, we can now cut away
     # all events not passing the cuts :)

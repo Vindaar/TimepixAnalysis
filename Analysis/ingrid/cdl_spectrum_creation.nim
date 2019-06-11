@@ -794,8 +794,7 @@ proc histoCdl(data: seq[SomeNumber], binSize: float = 3.0, dKind: DataKind): (se
   let nbins = (ceil((high - low) / binSize)).round.int
   # using correct nBins, determine actual high
   high = low + binSize * nbins.float
-  let bin_edges = linspace(low, high, nbins + 1)
-  let hist = data.histogram(bins = nbins, range = (low, high))
+  let (hist, bin_edges) = data.histogram(bins = nbins, range = (low, high))
 
   result[0] = hist.mapIt(it.float)
   case dKind

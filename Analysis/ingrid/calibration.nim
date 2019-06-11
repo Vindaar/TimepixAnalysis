@@ -287,8 +287,7 @@ proc fitFeSpectrum*(data: seq[int]): (seq[float], seq[int], seq[float]) =
   let nbins = (ceil((high - low) / binSize)).int
   # using correct nBins, determine actual high
   high = low + binSize * nbins.float
-  let bin_edges = linspace(low, high, nbins + 1)
-  let hist = data.histogram(bins = nbins + 1, range = (low, high))
+  let (hist, bin_edges) = data.histogram(bins = nbins + 1, range = (low, high))
 
   echo bin_edges.len
   echo hist.len
@@ -874,7 +873,9 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int, createPlots = false) =
       var bin_edges = mapIt(linspace(hitLow, hitHigh, binCount + 1), calibrateCharge(it, a, b, c, t))
       # the histogram counts are the same for ToT values as well as for charge values,
       # so calculate for ToT
-      let binned = tots.histogram(bins = binCount, range = (hitLow + 0.5, hitHigh + 0.5))
+      let (binned, _) = tots.histogram(bins = binCount, range = (hitLow + 0.5, hitHigh + 0.5))
+      let (binnedCh, bin_edgesCh) = chargeDset.histogram(bins = bin_edges)
+      doAssert binned == binnedCh
 
       # ``NOTE: remove last element from bin_edges to have``
       # ``bin_edges.len == binned.len``

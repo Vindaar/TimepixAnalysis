@@ -160,7 +160,7 @@ proc calcCutValueTab(region: ChipRegion = crGold): Table[string, float] =
       # cuts on properties and chip region
       rawLogHists = mapIt(toSeq(values(xray_ref)), buildLogLHist(h5cdl_file, it, region))
       # given raw log histograms, create the correctly binned histograms from it
-      logHists = mapIt(rawLogHists, histogram(it, nbins, logLrange))
+      logHists = mapIt(rawLogHists, histogram(it, nbins, logLrange)[0])
       # get the cut value for a software efficiency of 80%
       cutVals = mapIt(logHists, determineCutValue(it, efficiency))
       # get the correct binning for the histograms

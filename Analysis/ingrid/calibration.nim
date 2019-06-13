@@ -874,7 +874,7 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int, createPlots = false) =
       # the histogram counts are the same for ToT values as well as for charge values,
       # so calculate for ToT
       let (binned, _) = tots.histogram(bins = binCount, range = (hitLow + 0.5, hitHigh + 0.5))
-      let (binnedCh, bin_edgesCh) = chargeDset.histogram(bins = bin_edges)
+      let (binnedCh, bin_edgesCh) = chargeDset[float64].histogram(bins = bin_edges)
       doAssert binned == binnedCh
 
       # ``NOTE: remove last element from bin_edges to have``

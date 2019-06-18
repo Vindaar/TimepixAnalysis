@@ -28,14 +28,7 @@ proc getDf(h5f: var H5FileObj, path: string, keys: varargs[string]): DataFrame =
   result = toDf(data)
   result.len = size
 
-
-proc main(fname: string) =
-  var h5f = H5file(fname, "r")
-  defer: discard h5f.close()
-  var
-    totDuration = 0.0
-    numEvents = 0
-    numMax = 0
+iterator getDataframes(h5f: var H5FileObj): DataFrame =
   for num, group in runs(h5f):
     for grp in items(h5f, group):
       if "fadc" notin grp.name:
@@ -45,28 +38,42 @@ proc main(fname: string) =
                              concat(@["eventNumber"],
                                     @(getFloatGeometryNames()),
                                     @(getIntClusterNames())))
-          echo df
-          let fname = "figs/" & num
-          echo "Saving as ", fname
+          yield df
 
-          # small sizes
-          let dfSmall = df.filter(f{"length" < 1.0})
-          let dfOne = df.mutate(f{"smaller" ~ "length" < 1.0})
-            #.group_by("smaller")
-          echo dfOne
+proc main(fname: string) =
+  var h5f = H5file(fname, "r")
+  defer: discard h5f.close()
+  for df in getDataframes(h5f):
+    echo df
+    let fname = "figs/" & $12
+    echo "Saving as ", fname
 
+    # small sizes
+    let dfSmall = df.filter(f{"length" < 1.0})
+    let dfOne = df.mutate(f{"smaller" ~ "length" < 1.0})
+      #.group_by("smaller")
+    echo dfOne
+    ggplot(df, aes("length", "eccentricity")) +
+      geom_point() +
+      ggsave(fname & "le.svg")
 
-          ggplot(df, aes("length", "eccentricity")) +
-            geom_point() +
-            ggsave(fname & "le.svg")
+    ggplot(dfOne, aes("length", "hits", color = "smaller")) +
+      geom_point() +
+      ggsave(fname & "length.svg")
 
-          ggplot(dfOne, aes("length", "hits", color = "smaller")) +
-            geom_point() +
-            ggsave(fname & "length.svg")
+    echo (dfOne.filter(f{"hits" < 300.0}).arrange("hits", order = SortOrder.Descending))
+    echo f{"eccCut<1.5" ~ "eccentricity" < 1.5 and "length" < 6.0}
+    echo dfOne.mutate(f{"eccCut<1.5" ~ "eccentricity" < 1.5 and "length" < 6.0})
 
-          #ggplot(df) +
-          #  geom_histogram(aes(x = f{) +
-          #  ggsave(fname & "hitsSmall.svg")
+    echo dfOne.mutate(f{"between50and100" ~ "hits" < 100.0 and "hits" > 50.0})
+    echo dfOne.filter(f{"hits" < 100.0 xor "hits" > 50.0})
+
+    dfOne.mutate(f{"eccCut<1.5" ~ "eccentricity" < 1.5 and "length" < 6.0})
+                 #f{"length<6" ~ "length" < 6.0})
+      .filter(f{"hits" < 300.0})
+      .ggplot(aes("hits", fill = "eccCut<1.5")) +
+      geom_histogram() +
+      ggsave(fname & "hitsSmall.svg")
 
 
 when isMainModule:

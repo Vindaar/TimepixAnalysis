@@ -108,6 +108,24 @@ template fitForNlopt*(name, funcToCall: untyped): untyped =
       result += pow(diff[i], 2.0)
     result = result / (x.len - p.len).float
 
+template fitForNloptLnLikelihood*(name, funcToCall: untyped): untyped =
+  proc `name`(p: seq[float], fitObj: FitObject): float =
+    ## Maximum Likelihood Estimator
+    ## the Chi Square of a Poisson distributed log Likelihood
+    ## Chi^2_\lambda, P = 2 * \sum_i y_i - n_i + n_i * ln(n_i / y_i)
+    ## n_i = number of events in bin i
+    ## y_i = model prediction for number of events in bin i
+    ## derived from likelihood ratio test theorem
+    let x = fitObj.x
+    let y = fitObj.y
+    var fitY = x.mapIt(`funcToCall`(p, it))
+    result = 0.0
+    for i in 0 ..< xData.len:
+      if fitY[i] > 0.0 and yData[i] > 0.0:
+        result = result + (fitY[i] - yData[i] + yData[i] * ln(yData[i] / fitY[i]))
+      # ignore empty data and model points
+    result = 2 * result
+
 fitForNlopt(polya, polyaImpl)
 
 func sCurveFunc(p: seq[float], x: float): float =

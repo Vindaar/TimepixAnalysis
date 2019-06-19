@@ -571,7 +571,7 @@ template eccentricityNloptOptimizer(fit_object: FitObject): NloptOpt =
   var
     # set the boundary values corresponding to range of 360 deg
     lb = (-4.0 * arctan(1.0), 4.0 * arctan(1.0))
-  var opt = newNloptOpt("LN_BOBYQA", 1, @[lb])
+  var opt = newNloptOpt(LN_BOBYQA, 1, @[lb])
   # hand the function to fit as well as the data object we need in it
   var varStruct = newVarStruct(eccentricity, fit_object)
   opt.setFunction(varStruct)

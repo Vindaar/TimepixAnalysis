@@ -149,7 +149,7 @@ template fitForNloptLnLikelihoodGrad*(name, funcToCall: untyped): untyped =
       else:
         res = res + (fitY[i] - y[i])
 
-      h = x[i] * epsilon(float64)
+      h = x[i] * sqrt(epsilon(float64))
       gradRes[i] = (`funcToCall`(x[i] + h) - `funcToCall`(x[i] - h)) / 2.0 * h
       # ignore empty data and model points
     res = 2 * res

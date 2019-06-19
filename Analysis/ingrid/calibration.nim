@@ -129,7 +129,7 @@ template fitForNloptLnLikelihood*(name, funcToCall: untyped): untyped =
     result = 2 * result
 
 template fitForNloptLnLikelihoodGrad*(name, funcToCall: untyped): untyped =
-  proc `name`(p: seq[float], grad: seq[float], fitObj: FitObject): (float, seq[float]) =
+  proc `name`(p: seq[float], fitObj: FitObject): (float, seq[float]) =
     ## Maximum Likelihood Estimator
     ## the Chi Square of a Poisson distributed log Likelihood
     ## Chi^2_\lambda, P = 2 * \sum_i y_i - n_i + n_i * ln(n_i / y_i)
@@ -137,22 +137,28 @@ template fitForNloptLnLikelihoodGrad*(name, funcToCall: untyped): untyped =
     ## y_i = model prediction for number of events in bin i
     ## derived from likelihood ratio test theorem
     # NOTE: do not need last gradients
-    let x = fitObj.x
-    let y = fitObj.y
-    var fitY = x.mapIt(`funcToCall`(p, it))
-    var gradRes = newSeq[float](x.len)
+    let xD = fitObj.x
+    let yD = fitObj.y
+    var gradRes = newSeq[float](p.len)
     var res = 0.0
     var h: float
-    for i in 0 ..< x.len:
-      if fitY[i] > 0.0 and y[i] > 0.0:
-        res = res + (fitY[i] - y[i] + y[i] * ln(y[i] / fitY[i]))
-      else:
-        res = res + (fitY[i] - y[i])
-
-      h = x[i] * sqrt(epsilon(float64))
-      gradRes[i] = (`funcToCall`(p, x[i] + h) - `funcToCall`(p, x[i] - h)) / 2.0 * h
+    proc fnc(x, y, params: seq[float]): float =
+      let fitY = x.mapIt(`funcToCall`(params, it))
+      for i in 0 ..< x.len:
+        if fitY[i] > 0.0 and y[i] > 0.0:
+          result = result + (fitY[i] - y[i] + y[i] * ln(y[i] / fitY[i]))
+        else:
+          result = result + (fitY[i] - y[i])
+    res = 2 * fnc(xD, yD, p)
+    for i in 0 ..< gradRes.len:
+      h = p[i] * sqrt(epsilon(float64))
+      var
+        modParsUp = p
+        modParsDown = p
+      modParsUp[i] = p[i] + h
+      modParsDown[i] = p[i] - h
+      gradRes[i] = (fnc(xD, yD, modParsUp) - fnc(xD, yD, modParsDown)) / (2.0 * h)
       # ignore empty data and model points
-    res = 2 * res
     result = (res, gradRes)
 
 fitForNlopt(polya, polyaImpl)
@@ -547,7 +553,7 @@ proc fitPolyaNim*(charges,
     # set ``x``, ``y`` result and use to create plot
     # create NLopt optimizer without parameter bounds
     let bounds = @[(-Inf, Inf), (-Inf, Inf), (0.5, 15.0)]
-    var opt = newNloptOpt("LN_COBYLA", 3, bounds)
+    var opt = newNloptOpt(LN_COBYLA, 3, bounds)
     # hand the function to fit as well as the data object we need in it
     var fitObject: FitObject
     let toFitInds = toSeq(0 ..< charges.len).filterIt(charges[it] > 1200.0)# and charges[it] < 4500.0)

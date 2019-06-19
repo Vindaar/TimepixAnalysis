@@ -120,9 +120,9 @@ template fitForNloptLnLikelihood*(name, funcToCall: untyped): untyped =
     let y = fitObj.y
     var fitY = x.mapIt(`funcToCall`(p, it))
     result = 0.0
-    for i in 0 ..< xData.len:
-      if fitY[i] > 0.0 and yData[i] > 0.0:
-        result = result + (fitY[i] - yData[i] + yData[i] * ln(yData[i] / fitY[i]))
+    for i in 0 ..< x.len:
+      if fitY[i] > 0.0 and y[i] > 0.0:
+        result = result + (fitY[i] - y[i] + y[i] * ln(y[i] / fitY[i]))
       # ignore empty data and model points
     result = 2 * result
 

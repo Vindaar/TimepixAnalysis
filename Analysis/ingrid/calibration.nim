@@ -2,7 +2,7 @@ import sequtils, strutils, strformat
 import hashes
 import os, ospaths
 import future
-import seqmath
+import seqmath, fenv
 import nimhdf5
 import tables
 import mpfit

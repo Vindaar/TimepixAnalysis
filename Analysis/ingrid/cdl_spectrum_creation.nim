@@ -1012,7 +1012,7 @@ proc main =
       let (histdata, bins) = histoCdl(dataseq, binSize, dKind)
       let (pRes, fitBins, fitHist) = fitCdlImpl(histdata, bins, targetFilter, dKind)
       #fitForNlopt(convertNlopt, cdlFitFunc)
-      fitForNloptLnLikelihood(convertNlopt, cdlFitFunc)
+      fitForNloptLnLikelihoodGrad(convertNlopt, cdlFitFun)
       var opt = newNloptOpt("LN_BOBYQA", pRes.len)
       var fitObj = FitObject(x: fitBins, y: fitHist) #, yErr: fitHist.mapIt(sqrt(it)))
       var vstruct = newVarStruct(convertNlopt, fitObj)

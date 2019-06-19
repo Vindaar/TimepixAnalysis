@@ -128,6 +128,33 @@ template fitForNloptLnLikelihood*(name, funcToCall: untyped): untyped =
       # ignore empty data and model points
     result = 2 * result
 
+template fitForNloptLnLikelihoodGrad*(name, funcToCall: untyped): untyped =
+  proc `name`(p: seq[float], grad: seq[float], fitObj: FitObject): (float, seq[float]) =
+    ## Maximum Likelihood Estimator
+    ## the Chi Square of a Poisson distributed log Likelihood
+    ## Chi^2_\lambda, P = 2 * \sum_i y_i - n_i + n_i * ln(n_i / y_i)
+    ## n_i = number of events in bin i
+    ## y_i = model prediction for number of events in bin i
+    ## derived from likelihood ratio test theorem
+    # NOTE: do not need last gradients
+    let x = fitObj.x
+    let y = fitObj.y
+    var fitY = x.mapIt(`funcToCall`(p, it))
+    var gradRes = newSeq[float](x.len)
+    var res = 0.0
+    var h: float
+    for i in 0 ..< x.len:
+      if fitY[i] > 0.0 and y[i] > 0.0:
+        res = res + (fitY[i] - y[i] + y[i] * ln(y[i] / fitY[i]))
+      else:
+        res = res + (fitY[i] - y[i])
+
+      h = x[i] * epsilon(float64)
+      gradRes[i] = (`funcToCall`(x[i] + h) - `funcToCall`(x[i] - h)) / 2.0 * h
+      # ignore empty data and model points
+    res = 2 * res
+    result = (res, gradRes)
+
 fitForNlopt(polya, polyaImpl)
 
 func sCurveFunc(p: seq[float], x: float): float =

@@ -123,6 +123,8 @@ template fitForNloptLnLikelihood*(name, funcToCall: untyped): untyped =
     for i in 0 ..< x.len:
       if fitY[i] > 0.0 and y[i] > 0.0:
         result = result + (fitY[i] - y[i] + y[i] * ln(y[i] / fitY[i]))
+      else:
+        result = result + (fitY[i] - y[i])
       # ignore empty data and model points
     result = 2 * result
 

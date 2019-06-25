@@ -658,7 +658,7 @@ proc recoCluster(c: Cluster): ClusterObject =
   # properties, i.e. RMS, skewness and kurtosis along the long axis of the cluster
   result.geometry = calcGeometry(c, result.centerX, result.centerY, rot_angle)
 
-proc recoEvent(data: (Pixels, int), chip: int): ref RecoEvent =
+proc recoEvent*(data: (Pixels, int), chip: int): ref RecoEvent =
   result = new RecoEvent
   result.event_number = data[1]
   result.chip_number = chip

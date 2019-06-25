@@ -422,6 +422,54 @@ proc writeVetoInfos(grp: H5Group, fadcVetoCount, scintiVetoCount: int,
   mgrp.attrs["# removed by FADC veto"] = fadcVetoCount
   mgrp.attrs["# removed by scinti veto"] = scintiVetoCount
 
+proc applySeptemVeto(h5f, h5fout: var H5FileObj,
+                     runNumber: int,
+                     passedInds: HashSet[int]) =
+  ## Applies the septem board veto to the given `passedInds` in `runNumber` of `h5f`.
+  ## Writes the resulting clusters, which pass to the `septem` subgroup (parallel to
+  ## the `chip_*` groups into `h5fout`.
+
+  let group = h5f[(recoBase() & $runNumber).grp_str]
+  let centerChip = group.attrs["centerChip", int]
+  let septemDf = h5f.getSeptemEventDF(runNumber)
+  echo septemDf
+
+  # now filter events for `centerChip` from and compare with `passedInds`
+  let centerDf = septemDf.filter(f{"chipNumber" == centerChip})
+  echo "Center df ", centerDf
+  let passedEvs = passedInds.mapIt(centerDf["eventNumber", it]).sorted.toOrderedSet
+  echo passedEvs
+  #echo "From ", passedInds
+
+  # for the `passedEvs` we have to read all data from all chips
+  let septemGrouped = septemDf.group_by("eventNumber")
+  for (pair, evGroup) in groups(septemGrouped):
+    let evNum = pair[0][1]
+    if evNum in passedEvs:
+      # then grab all chips for this event
+      echo "For event ", pair
+      echo evGroup
+      echo evGroup["chipNumber"]
+      # now use the `eventIndex` to read the correct data from the datasets
+
+  # Now create a full septem frame, see `tpaPlusGgplot.nim`
+  # use full frame, extract data as zero suppressed events / don't build full frame
+  # rather use data frame and get `Pixels` from that. Each row is one `Pixel`
+  # use `reconstruction.recoEvent` to reconstruct the whole thing into possibly
+  # several clusters
+  # How to handle the fact that we're actually working event by event wise?
+  # Only do this for chip == 3, then read others? Might work, since we're only interested
+  # in those events anyways, that have chip 3 in it.
+  # after reconstruction, simply calculate the `logL` for cluster and add as additional check
+  # to veto below
+
+
+  #raise newException(Exception, "Septemboard cuts not implemented at the " &
+  #  "moment. To use it use the --septemVeto switch on the background rate " &
+  #  "plot creation tool!")
+
+
+
 proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj,
                           flags: set[FlagKind],
                           region = crGold) =
@@ -462,6 +510,7 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj,
     var mgrp = h5f[group.grp_str]
     var run_attrs = mgrp.attrs
     let nChips = run_attrs["numChips", int]
+    let centerChip = run_attrs["centerChip", int]
     # get timestamp for run
     let tstamp = h5f[(group / "timestamp"), int64]
     let evDurations = h5f[group / "eventDuration", float64]
@@ -488,10 +537,6 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj,
     if fkScinti in flags:
       scinti1Trigger = h5f[group / "szint1ClockInt", int64]
       scinti2Trigger = h5f[group / "szint2ClockInt", int64]
-    if fkSeptem in flags:
-      raise newException(Exception, "Septemboard cuts not implemented at the " &
-        "moment. To use it use the --septemVeto switch on the background rate " &
-        "plot creation tool!")
 
     for chpGrp in items(h5f, group):
       if "fadc" in chpGrp.name:
@@ -505,6 +550,7 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj,
       let
         # get chip specific dsets
         chipNumber = attrs["chipNumber", int]
+
       when false:
         # add duration for this chip to Duration table
         totalDurations[chipNumber] = 0.0
@@ -589,6 +635,12 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj,
                                 chipNumber,
                                 cutTab,
                                 passedInds)
+        # now in a second pass perform a septem veto if desired
+        # If there's no events left, then we don't care about
+        if fkSeptem in flags and chipNumber == centerChip:
+          # read all data for other chips ``iff`` chip == 3 (centerChip):
+          h5f.applySeptemVeto(h5fout, num.parseInt, passedInds)
+
         when false:
           (totalDurationRun, totalDurationRunPassed)
       else:

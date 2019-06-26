@@ -581,35 +581,35 @@ proc fitPolyaNim*(charges,
     echo &"Result of gas gain opt for chip {chipNumber} and run {runNumber}: "
     echo "\t ", params, " at chisq ", minVal
 
-proc fitPolyaPython*(charges,
-                     counts: seq[float],
-                     chipNumber, runNumber: int,
-                     createPlots = true): FitResult =
-  fitPolyaTmpl(charges, counts, chipNumber, runNumber, createPlots):
-    # set ``x``, ``y`` result and use to create plot
-    #echo "Charges ", charges
-    #let preX = linspace(min(charges), max(charges), 100)
-    #let preY = preX.mapIt(polyaImpl(p, it))
-    #let preTr = getTrace(preX, preY, "gas gain pre fit")
-    #echo preY
-    #plotGasGain(@[trData, preTr], chipNumber, runNumber, false)
-    # create NLopt optimizer without parameter bounds
-    let toFitInds = toSeq(0 ..< counts.len).filterIt(charges[it] > 1200.0)# and charges[it] < 4500.0)
-    let chToFit = toFitInds.mapIt(charges[it])
-    let countsToFit = toFitInds.mapIt(counts[it])
-    # try to fit using scipy.optimize.curve_fit
-    let bPy = @[@[-Inf, -Inf, 0.5], @[Inf, Inf, 15.0]]
-    let scipyOpt = pyImport("scipy.optimize")
-    let pyRes = scipyOpt.curve_fit(polyaPython, chToFit, countsToFit,
-                                   p0=p, bounds = bPy)
-    var params = newSeq[float](p.len)
-    var count = 0
-    for resP in pyRes[0]:
-      params[count] = resP.to(float)
-      inc count
-    let minVal = 0.0
-    echo &"Result of gas gain opt for chip {chipNumber} and run {runNumber}: "
-    echo "\t ", params, " at chisq `not available`"#, minVal
+#proc fitPolyaPython*(charges,
+#                     counts: seq[float],
+#                     chipNumber, runNumber: int,
+#                     createPlots = true): FitResult =
+#  fitPolyaTmpl(charges, counts, chipNumber, runNumber, createPlots):
+#    # set ``x``, ``y`` result and use to create plot
+#    #echo "Charges ", charges
+#    #let preX = linspace(min(charges), max(charges), 100)
+#    #let preY = preX.mapIt(polyaImpl(p, it))
+#    #let preTr = getTrace(preX, preY, "gas gain pre fit")
+#    #echo preY
+#    #plotGasGain(@[trData, preTr], chipNumber, runNumber, false)
+#    # create NLopt optimizer without parameter bounds
+#    let toFitInds = toSeq(0 ..< counts.len).filterIt(charges[it] > 1200.0)# and charges[it] < 4500.0)
+#    let chToFit = toFitInds.mapIt(charges[it])
+#    let countsToFit = toFitInds.mapIt(counts[it])
+#    # try to fit using scipy.optimize.curve_fit
+#    let bPy = @[@[-Inf, -Inf, 0.5], @[Inf, Inf, 15.0]]
+#    let scipyOpt = pyImport("scipy.optimize")
+#    let pyRes = scipyOpt.curve_fit(polyaPython, chToFit, countsToFit,
+#                                   p0=p, bounds = bPy)
+#    var params = newSeq[float](p.len)
+#    var count = 0
+#    for resP in pyRes[0]:
+#      params[count] = resP.to(float)
+#      inc count
+#    let minVal = 0.0
+#    echo &"Result of gas gain opt for chip {chipNumber} and run {runNumber}: "
+#    echo "\t ", params, " at chisq `not available`"#, minVal
 
 proc cutOnDsets[T](eventNumbers: seq[SomeInteger],
                    region: ChipRegion,
@@ -934,10 +934,10 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int, createPlots = false) =
       # ``bin_edges.len == binned.len``
       bin_edges = bin_edges[0 .. ^2]
       # given binned histogram, fit polya
-      let fitResult = fitPolyaPython(bin_edges,
-                                     binned.asType(float64),
-                                     chipNumber, runNumber,
-                                     createPlots = createPlots)
+      let fitResult = fitPolyaNim(bin_edges,
+                                  binned.asType(float64),
+                                  chipNumber, runNumber,
+                                  createPlots = createPlots)
       # create dataset for polya histogram
       var polyaDset = h5f.create_dataset(group.name / "polya", (binCount, 2), dtype = float64,
                                          overwrite = true)

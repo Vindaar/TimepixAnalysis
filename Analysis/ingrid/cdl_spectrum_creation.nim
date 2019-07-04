@@ -135,47 +135,47 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
                           kind: ffExpGauss,
                           ea: hist[muIdx] * 1e-10,
                           eb: hist[muIdx] * 1e-12,
-                          eN: hist[muIdx] / 30.0, #30.0
-                          emu: 200.0, # binning[muIdx], #200.0
-                          es: hist[muIdx] / 30.0) # 13.0
+                          eN: hist[muIdx],# / 10.0, #30.0
+                          emu: 190.0, #binning[muIdx], #200.0
+                          es: hist[muIdx] / 15.0) # 13.0
     result.add FitFuncArgs(name: "Mn-esc",
                           kind: ffExpGauss,
                           ea: hist[muIdx]  * 1e-10,
                           eb: hist[muIdx]  * 1e-12,
                           eN: hist[muIdx] / 10.0, #120
-                          emu: 100.0, #binning[muIdx], #100.0
-                          es: hist[muIdx])# / 15.0) #16.0
+                          emu: 90.0, #binning[muIdx], #100.0
+                          es: hist[muIdx] / 15.0) #16.0
   of tfTiTi9:
     result.add FitFuncArgs(name: "Ti-Kalpha",
                           kind: ffExpGauss,
                           ea: hist[muIdx] * 1e-10,
                           eb: hist[muIdx] * 1e-12,
-                          eN: hist[muIdx] / 10.0,
-                          emu: binning[muIdx] ,
+                          eN: hist[muIdx],# / 10.0,
+                          emu: binning[muIdx],
                           es: hist[muIdx] / 30.0)
     result.add FitFuncArgs(name: "Ti-esc-alpha",
                           kind: ffGauss,
                           gN: hist[muIdx] / 20.0,
-                          gmu: binning[muIdx],
+                          gmu: binning[muIdx] / 2.0,
                           gs: hist[muIdx] / 15.0)
     result.add FitFuncArgs(name: "Ti-esc-beta",
                           kind: ffGauss,
-                          gN: hist[muIdx] / 20.0,
+                          gN: hist[muIdx],# / 20.0,
                           gmu: fixed, #binning[muIdx],
                           gs: fixed) #hist[muIdx] / 15.0)
     result.add FitFuncArgs(name: "Ti-Kbeta",
                           kind: ffGauss,
-                          gN: hist[muIdx] / 10.0,
+                          gN: hist[muIdx],# / 10.0,
                           gmu: fixed, #binning[muIdx],
                           gs: fixed) #hist[muIdx] / 15.0)
   of tfAgAg6:
     result.add FitFuncArgs(name: "Ag-Lalpha",
                           kind: ffExpGauss,
-                          ea: hist[muIdx], # * 1e-10,
-                          eb: hist[muIdx], # * 1e-12,
+                          ea: hist[muIdx] * 1e-10,
+                          eb: hist[muIdx] * 1e-12,
                           eN: hist[muIdx], # / 10.0,
                           emu: binning[muIdx],
-                          es: hist[muIdx] / 10.0) ##30.0
+                          es: hist[muIdx] / 30.0) ##30.0
     result.add FitFuncArgs(name: "Ag-Lbeta",
                           kind: ffGauss,
                           gN: fixed, #binning[muIdx] / 3.0,
@@ -184,17 +184,17 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
   of tfAlAl4:
     result.add FitFuncArgs(name: "Al-Kalpha",
                           kind: ffExpGauss,
-                          ea: hist[muIdx],# * 1e-10,
-                          eb: hist[muIdx],# * 1e-12,
+                          ea: hist[muIdx] * 1e-10,
+                          eb: hist[muIdx] * 1e-12,
                           eN: hist[muIdx],# / 10.0,
                           emu: binning[muIdx],
-                          es: hist[muIdx] / 10.0) ##30.0
+                          es: hist[muIdx] / 50.0) ##30.0
   of tfCuEpic2:
     result.add FitFuncArgs(name: "Cu-Lalpha",
                           kind: ffGauss,
                           gN: hist[muIdx],
-                          gmu: binning[muIdx] / 4.0,
-                          gs: hist[muIdx] / 10.0)
+                          gmu: binning[muIdx],# / 4.0,
+                          gs: hist[muIdx])# / 10.0)
     result.add FitFuncArgs(name: "Cu-Lbeta",
                           kind: ffGauss,
                           gN: hist[muIdx] / 10.0,
@@ -203,9 +203,9 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
   of tfCuEpic0_9:
     result.add FitFuncArgs(name: "O-Kalpha",
                           kind: ffGauss,
-                          gN: hist[muIdx], # / 100.0,
-                          gmu: binning[muIdx],# / 5.0,
-                          gs: hist[muIdx] / 40.0)
+                          gN: hist[muIdx],# / 20.0,
+                          gmu: binning[muIdx],# * 2.0,
+                          gs: hist[muIdx] / 5.0)
     result.add FitFuncArgs(name: "C-Kalpha",
                           kind: ffGauss,
                           gN: hist[muIdx] / 10.0,
@@ -224,7 +224,7 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
   of tfCEpic0_6:
     result.add FitFuncArgs(name: "C-Kalpha",
                           kind: ffGauss,
-                          gN: hist[muIdx] / 100.0,# / 4.0,
+                          gN: hist[muIdx],# / 100.0,# / 4.0,
                           gmu: binning[muIdx], # * 2.0,
                           gs: hist[muIdx])# *  2.0)
     result.add FitFuncArgs(name: "O-Kalpha",
@@ -232,6 +232,73 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
                           gN: hist[muIdx] / 100.0,# / 10.0,
                           gmu: fixed, #binning[muIdx],
                           gs: fixed) #hist[muIdx])
+
+func getbounds(tfKind:TargetFilterKind): seq[tuple[l, u:float]] =
+  case tfKind
+  of tfCuNi15:
+    result = @[(l: -Inf, u:Inf),
+               (l: -Inf, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: -Inf, u:Inf),
+               (l: -Inf, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf)]
+  of tfMnCr12:
+    result = @[(l: -Inf, u:Inf),
+               (l: -Inf, u:Inf),
+               (l: 110.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:15.0),
+               (l: -Inf, u:Inf),
+               (l: -Inf, u:Inf),
+               (l: 5.0, u:Inf),
+               (l: 80.0, u:105.0),
+               (l: 1.0, u:12.0)]
+  of tfTiTi9:
+    result = @[(l: -Inf, u:Inf),
+               (l: -Inf, u:Inf),
+               (l: 260.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:100.0),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf)]
+  of tfAgAg6:
+    result = @[(l: -Inf, u:Inf),
+               (l: -Inf, u:Inf),
+               (l: 320.0, u:380.0),
+               (l: 50.0, u:116.0),
+               (l: 10.0, u:14.0)]
+  of tfAlAl4:
+    result = @[(l: -Inf, u:Inf),
+               (l: -Inf, u:Inf),
+               (l: 515.0, u:550.0),
+               (l: 30.0, u:59.0),
+               (l: 10.0, u:11.0)]
+  of tfCuEpic2:
+    result = @[(l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf)]
+  of tfCuEpic0_9:
+    result = @[(l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf)]
+  of tfCEpic0_6:
+    result = @[(l: 600.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:100.0)]
 
 
 func getLinesCharge(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncArgs] =
@@ -256,12 +323,12 @@ func getLinesCharge(hist, binning: seq[float], tfKind: TargetFilterKind): seq[Fi
                           kind: ffGauss,
                           gN: hist[muIdx] / 4.0,
                           gmu: binning[muIdx],
-                          gs: hist[muIdx] * 2.5e3)
+                          gs: hist[muIdx] * 2.0e3)
     result.add FitFuncArgs(name: "Mn-esc",
                           kind: ffGauss,
                           gN: hist[muIdx] / 10.0,
                           gmu: binning[muIdx] / 2.0,
-                          gs: hist[muIdx] * 1e3)
+                          gs: hist[muIdx] * 1.0e3)
     #result.add FitFuncArgs(name: "p0",
     #                      kind: ffConst,
     #                      c: -hist[muIdx])
@@ -274,30 +341,30 @@ func getLinesCharge(hist, binning: seq[float], tfKind: TargetFilterKind): seq[Fi
   of tfTiTi9:
     result.add FitFuncArgs(name: "Ti-Kalpha",
                           kind: ffGauss,
-                          gN: hist[muIdx] / 10.0,
+                          gN: hist[muIdx],# / 10.0,
                           gmu: binning[muIdx] , #1140.0e3,
                           gs: hist[muIdx] * 4e2)
     result.add FitFuncArgs(name: "Ti-esc-alpha",
                           kind: ffGauss,
                           gN: hist[muIdx] / 20.0,
-                          gmu: binning[muIdx], # / 2.0, #400.0e3,
+                          gmu: binning[muIdx] / 3.0, #400.0e3,
                           gs: hist[muIdx] * 1e2)
     result.add FitFuncArgs(name: "Ti-esc-beta",
                           kind: ffGauss,
-                          gN: hist[muIdx] / 40.0,
+                          gN: hist[muIdx] / 30.0,
                           gmu: fixed, #binning[muIdx] ,
                           gs: fixed) #hist[muIdx] * 1e3)
     result.add FitFuncArgs(name: "Ti-Kbeta",
                           kind: ffGauss,
-                          gN: hist[muIdx] / 40.0,
+                          gN: hist[muIdx] / 30.0,
                           gmu: fixed, #binning[muIdx], #* 1e5,
                           gs: fixed) #hist[muIdx] * 1e3)
   of tfAgAg6:
     result.add FitFuncArgs(name: "Ag-Lalpha",
                           kind: ffGauss,
                           gN: hist[muIdx],# / 2.0,
-                          gmu: binning[muIdx] , #800.0e3
-                          gs: hist[muIdx])# * 2e2)# * 10)
+                          gmu: binning[muIdx],# * 1e3,
+                          gs: hist[muIdx] * 1e2)# * 10)
     result.add FitFuncArgs(name: "Ag-Lbeta",
                           kind: ffGauss,
                           gN: fixed, #hist[muIdx] / 10.0,
@@ -317,7 +384,7 @@ func getLinesCharge(hist, binning: seq[float], tfKind: TargetFilterKind): seq[Fi
                           kind: ffGauss,
                           gN: hist[muIdx],# / 2.0,
                           gmu: binning[muIdx],# 350.0e3
-                          gs: hist[muIdx])# * 1e2)# * 10)
+                          gs: hist[muIdx] * 1e2)# * 10)
     #result.add FitFuncArgs(name: "p0",
     #                      kind: ffConst,
     #                      c: -hist[muIdx])
@@ -332,12 +399,12 @@ func getLinesCharge(hist, binning: seq[float], tfKind: TargetFilterKind): seq[Fi
                           kind: ffGauss,
                           gN: hist[muIdx],# / 20.0,
                           gmu: binning[muIdx], #* 0.5e3,
-                          gs: hist[muIdx])# * 2e3)
+                          gs: hist[muIdx] * 2e2)
     result.add FitFuncArgs(name: "Cu-Lbeta",
                           kind: ffGauss,
                           gN: hist[muIdx],# / 50.0,
                           gmu: binning[muIdx],
-                          gs: hist[muIdx])# * 0.5e3)
+                          gs: hist[muIdx] * 0.5e2)
   of tfCuEpic0_9:
     result.add FitFuncArgs(name: "O-Kalpha",
                           kind: ffGauss,
@@ -354,12 +421,65 @@ func getLinesCharge(hist, binning: seq[float], tfKind: TargetFilterKind): seq[Fi
                           kind: ffGauss,
                           gN: hist[muIdx],# / 4.0,
                           gmu: binning[muIdx],
-                          gs: hist[muIdx])#  * 1e2)
+                          gs: hist[muIdx]  * 1e2)
     result.add FitFuncArgs(name: "O-Kalpha",
                           kind: ffGauss,
                           gN: hist[muIdx],# / 10.0,
                           gmu: fixed, #binning[muIdx], #* 1e3,
                           gs: fixed) #hist[muIdx]  * 1e3)
+
+func getboundsCharge(tfKind:TargetFilterKind): seq[tuple[l, u:float]] =
+  case tfKind
+  of tfCuNi15:
+    result = @[(l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf)]
+  of tfMnCr12:
+    result = @[(l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf)]
+  of tfTiTi9:
+    result = @[(l: 260.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:100.0),
+               (l: 1.0, u:450.0e3),
+               (l: 1.0, u:Inf),
+               (l: 5.0, u:Inf),
+               (l: 5.0, u:Inf)]
+  of tfAgAg6:
+    result = @[(l: 400.0, u:450.0),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:110.0e3)]
+  of tfAlAl4:
+    result = @[(l: 630.0, u:Inf),
+               (l: 1.0, u:360.0e3),
+               (l: 1.0, u:70.0e3)]
+  of tfCuEpic2:
+    result = @[(l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf)]
+  of tfCuEpic0_9:
+    result = @[(l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf)]
+  of tfCEpic0_6:
+    result = @[(l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf)]
 
 proc genFitFuncImpl(idx: var int, xNode,
                     pFitNode: NimNode, paramsNode: seq[NimNode]): NimNode =
@@ -910,7 +1030,8 @@ proc cutAndWrite(h5file: string) =
       discard
 
 proc energycurve(energyResHits: seq[float], energyResCharge: seq[float]) =
-  var energyval = @[15.0, 12.0, 9.0, 6.0, 4.0, 2.0, 0.9, 0.6]
+  #var energyval = @[15.0, 12.0, 9.0, 6.0, 4.0, 2.0, 0.9, 0.6]
+  var energyval = @[8.048, 5.899, 4.511, 2.984, 1.487, 0.930, 0.525, 0.277]
   let energyplotHits = scatterPlot(energyval, energyResHits)
   let energyplotCharge = scatterPlot(energyval, energyResCharge)
   let energyplot = energyplotHits.addTrace(energyplotCharge.traces[0])
@@ -945,7 +1066,7 @@ proc peakfit(peakpos: seq[float], name: string) =
 
 
 proc main =
-  echo "OK"
+  #echo "OK"
   let args = docopt(doc)
   echo "ARGS", args
   let h5file = $args["<h5file>"]
@@ -1011,18 +1132,15 @@ proc main =
                  dKind: DataKind): (seq[float], seq[float], float, float) =
       let (histdata, bins) = histoCdl(dataseq, binSize, dKind)
       let (pStart, pRes, fitBins, fitHist) = fitCdlImpl(histdata, bins, targetFilter, dKind)
+      #fitForNlopt(convertNlopt, cdlFitFunc)
       #fitForNloptLnLikelihood(convertNlopt, cdlFitFunc)
       fitForNloptLnLikelihoodGrad(convertNlopt, cdlFitFunc)
-      let bounds = @[(l: 0.0, u:1000.0),
-                     (l: 0.0, u:50.0),
-                     (l: 0.0, u:50.0),
-                     (l: 1.0, u:300.0),
-                     (l: 1.0, u:300.0),
-                     (l: 1.0, u:300.0)]
-                     #(l: pStart[1]*0.5, u:pStart[1]*1.5),
-                     #(l: pStart[2]*0.5, u:pStart[2]*1.5),
-                     #(l: -Inf, u:Inf),
-                     #(l: -Inf, u:Inf),
+      var bounds: seq[tuple[l, u:float]]
+      case dKind
+      of Dhits:
+        bounds = getbounds(targetFilter)
+      of Dcharge:
+        bounds = getboundsCharge(targetFilter)
       doassert pStart.len == bounds.len
       echo "P start len ", pStart.len
       echo "Bounds len ", bounds.len
@@ -1031,13 +1149,13 @@ proc main =
       var fitObj = FitObject(x: fitBins, y: fitHist) #, yErr: fitHist.mapIt(sqrt(it)))
       var vstruct = newVarStruct(convertNlopt, fitObj)
       opt.setFunction(vstruct)
-      #opt.xtol_rel = 1e-10
-      #opt.ftol_rel = 1e-10
+      opt.xtol_rel = 1e-10
+      opt.ftol_rel = 1e-10
       #opt.xtol_abs = 1e-14
       #opt.ftol_abs = 1e-14
-      opt.maxtime  = 5.0
-      #opt.maxEval  = 100
-      opt.initialStep = 1
+      opt.maxtime  = 7.0
+      #opt.maxEval  = 2000
+      #opt.initialStep = 1
       let (paramsN, minN) = opt.optimize(pStart)
       nlopt_destroy(opt.optimizer)
 
@@ -1180,17 +1298,17 @@ proc main =
   var energyResHits: seq[float]
   var peakposCharge: seq[float]
   var energyResCharge: seq[float]
-  let a = fitAndPlot[int64](h5file, tfCuEpic0_9, Dhits)
-  let b = fitAndPlot[float64](h5file, tfCuEpic0_9, Dcharge)
-  #for tfkind in TargetFilterKind:
-  #  let energyHits = fitAndPlot[int64](h5file, tfkind, Dhits)
-  #  peakposHits.add(energyHits[0])
-  #  energyResHits.add(energyHits[1])
-  #  #echo "energyres ", energyResHit
-  #  let energyCharge = fitAndPlot[float64](h5file, tfkind, Dcharge)
-  #  peakposCharge.add(energyCharge[0])
-  #  energyResCharge.add(energyCharge[1])
-  #energycurve(energyResHits, energyResCharge)
+  #let a = fitAndPlot[int64](h5file, tfAgAg6, Dhits)
+  #let b = fitAndPlot[float64](h5file, tfAgAg6, Dcharge)
+  for tfkind in TargetFilterKind:
+    let energyHits = fitAndPlot[int64](h5file, tfkind, Dhits)
+    peakposHits.add(energyHits[0])
+    energyResHits.add(energyHits[1])
+    #echo "energyres ", energyResHit
+    let energyCharge = fitAndPlot[float64](h5file, tfkind, Dcharge)
+    peakposCharge.add(energyCharge[0])
+    energyResCharge.add(energyCharge[1])
+  energycurve(energyResHits, energyResCharge)
   #peakfit(peakposHits, "Hits")
   #peakfit(peakposCharge, "Charge")
 

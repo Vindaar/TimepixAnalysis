@@ -8,12 +8,15 @@ type
   EventHeader* = Table[string, string]
   ChipHeader*  = Table[string, string]
   Pix*         = tuple[x, y: uint8, ch: uint16]
-  Pixels*      = seq[Pix]
+  PixInt*      = tuple[x, y: int, ch: int]
+  SomePix*     = Pix | PixInt
+  Pixels*   = seq[Pix]
+  PixelsInt* = seq[PixInt]
 
   # Coord type which contains (x, y) coordinates of a pixel
   Coord* = tuple[x, y: uint8]
   # cluster object
-  Cluster* = seq[Pix]
+  Cluster*[T: SomePIx] = seq[T]
 
   Pixels_prot = object#Table[string, seq[int]]
     # x:  seq[int]
@@ -142,8 +145,8 @@ type
 
   # object which stores a single `Cluster` in combination with information
   # about itself, e.g. energy, geometry etc.
-  ClusterObject* = object
-    data*: Cluster
+  ClusterObject*[T: SomePix] = object
+    data*: Cluster[T]
     hits*: int
     centerX*: float
     centerY*: float
@@ -156,8 +159,8 @@ type
   # split into different clusters and information about it, chip and
   # event number (run number is left out, because it will be stored in
   # the group of a run anyways)
-  RecoEvent* = object
-    cluster*: seq[ClusterObject]
+  RecoEvent*[T: SomePix] = object
+    cluster*: seq[ClusterObject[T]]
     event_number*: int
     chip_number*: int
 

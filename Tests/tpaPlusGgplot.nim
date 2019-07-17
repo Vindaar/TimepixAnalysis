@@ -28,7 +28,7 @@ proc buildSeptemOccupancy(df: DataFrame) =
     echo "Number of total pixels ", subgroup.len
     # each subgroup corresponds to a full septemboard event
     # Construct a tensor covering the whole board from them
-    var occ = zeros[float]([3 * 256, 3 * 256])
+    var occ = initSeptemFrame()
     # now create another subgroup of the current by the chip number
     let chips = subgroup.group_by("chipNumber")
     #for j in 0 ..< 7:

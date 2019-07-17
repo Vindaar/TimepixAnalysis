@@ -7,6 +7,8 @@ import hdf5_utils
 import nimhdf5
 import arraymancer
 
+import ingrid / ingrid_types
+
 macro echoType(x: typed): untyped =
   echo x.treeRepr
 
@@ -113,6 +115,9 @@ proc getChipOutline*(maxVal: SomeNumber): DataFrame =
   let ch = toSeq(0 ..< xs.len).mapIt(maxVal.float)
   result = seqsToDf({"x" : xs, "y" : ys, "charge" : ch})
 
+proc initSeptemFrame*(): Tensor[float] {.noinit.} =
+  result = zeros[float]([3 * 256, 3 * 256])
+
 proc getFullFrame*(maxVal: SomeNumber): DataFrame =
   ## returns a data frame with an event similar to a full timepix event, i.e. the
   ## pixels along the pad all full to 4096 pixels (after that cut off)
@@ -125,11 +130,12 @@ proc getFullFrame*(maxVal: SomeNumber): DataFrame =
   let xy = comb.transpose
   result = seqsToDf({"x" : xy[0], "y": xy[1], "charge" : ch})
 
-proc addChipToSeptemEvent*(occ: var Tensor[float], df: DataFrame, chipNumber: range[0 .. 6],
-                           zDset = "charge") =
-  doAssert zDset in df, "DataFrame has no key " & $zDset
+template withSeptemXY*(chipNumber: int, actions: untyped): untyped =
+  ## injects the x0, y0 coordinates of the given chip number embedded into
+  ## the septem frame
   var
-    x0, y0: int
+    x0 {.inject.}: int
+    y0 {.inject.}: int
   case chipNumber
   of 0:
     # chip bottom left of board
@@ -159,16 +165,42 @@ proc addChipToSeptemEvent*(occ: var Tensor[float], df: DataFrame, chipNumber: ra
     # top left chip
     y0 = 3 * 256
     x0 = 128 + 256
-  # now add values to correct places in tensor
-  for i in 0 ..< df.len:
-    var xIdx, yIdx: int64
+  actions
+
+func chpPixToSeptemPix*(p: Pix, chipNumber: range[0 .. 6]): PixInt =
+  ## converts the given local chip pixel to the full septem frame coordinate system
+  withSeptemXY(chipNumber):
+    var xIdx, yIdx: int
     case chipNumber
     of 0, 1, 2, 3, 4:
-      xIdx = x0 + df["x"][i].toInt
-      yIdx = y0 + df["y"][i].toInt
+      xIdx = x0 + p.x.int
+      yIdx = y0 + p.y.int
     of 5, 6:
-      xIdx = x0 - df["x"][i].toInt
-      yIdx = y0 - df["y"][i].toInt
-    occ[yIdx.int, xIdx.int] += df[zDset][i].toFloat
-  #for i in 0 ..< chip.len:
-  # instead of using the data frame, create fake data for now to test arrangment
+      xIdx = x0 - p.x.int
+      yIdx = y0 - p.y.int
+    result = (x: xIdx, y: yIdx, ch: p.ch.int)
+
+func chpPixToSeptemPix*(pix: Pixels, chipNumber: range[0 .. 6]): PixelsInt =
+  ## converts the given local chip pixels to the full septem frame coordinate system
+  result.setLen(pix.len)
+  for i, p in pix:
+    let pp = chpPixToSeptemPix(p, chipNumber)
+    result[i] = pp
+
+proc addChipToSeptemEvent*(occ: var Tensor[float], df: DataFrame, chipNumber: range[0 .. 6],
+                           zDset = "charge") =
+  doAssert zDset in df, "DataFrame has no key " & $zDset
+  # now add values to correct places in tensor
+  withSeptemXY(chipNumber):
+    for i in 0 ..< df.len:
+      var xIdx, yIdx: int64
+      case chipNumber
+      of 0, 1, 2, 3, 4:
+        xIdx = x0 + df["x"][i].toInt
+        yIdx = y0 + df["y"][i].toInt
+      of 5, 6:
+        xIdx = x0 - df["x"][i].toInt
+        yIdx = y0 - df["y"][i].toInt
+      occ[yIdx.int, xIdx.int] += df[zDset][i].toFloat
+    #for i in 0 ..< chip.len:
+    # instead of using the data frame, create fake data for now to test arrangment

@@ -431,6 +431,7 @@ proc applySeptemVeto(h5f, h5fout: var H5FileObj,
 
   let group = h5f[(recoBase() & $runNumber).grp_str]
   let centerChip = group.attrs["centerChip", int]
+  let numChips = group.attrs["numChips", int]
   let septemDf = h5f.getSeptemEventDF(runNumber)
   echo septemDf
 
@@ -441,6 +442,18 @@ proc applySeptemVeto(h5f, h5fout: var H5FileObj,
   echo passedEvs
   #echo "From ", passedInds
 
+  var
+    allDataX: seq[seq[seq[uint8]]]
+    allDataY: seq[seq[seq[uint8]]]
+    allDataCh: seq[seq[seq[uint16]]]
+  let vlenXY = special_type(uint8)
+  let vlenCh = special_type(float64)
+    #allData
+  for i in 0 ..< numChips:
+    allDataX.add h5f[group.name / "chip_" & $i / "x", vlenXY, uint8]
+    allDataY.add h5f[group.name / "chip_" & $i / "y", vlenXY, uint8]
+    allDataCh.add h5f[group.name / "chip_" & $i / "ToT", vlenCh, uint16]
+
   # for the `passedEvs` we have to read all data from all chips
   let septemGrouped = septemDf.group_by("eventNumber")
   for (pair, evGroup) in groups(septemGrouped):
@@ -450,7 +463,23 @@ proc applySeptemVeto(h5f, h5fout: var H5FileObj,
       echo "For event ", pair
       echo evGroup
       echo evGroup["chipNumber"]
-      # now use the `eventIndex` to read the correct data from the datasets
+      var septemFrame: PixelsInt
+      for row in evGroup:
+        # get the chip number and event index, dump corresponding event pixel data
+        # onto the "SeptemFrame"
+        var frame = initSeptemFrame()
+        let chip = row["chipNumber"].toInt
+        let idx = row["eventIndex"].toInt
+        let
+          chX = allDataX[chip][idx]
+          chY = allDataY[chip][idx]
+          chCh = allDataCh[chip][idx]
+        let numPix = chX.len
+        var chpPix = newSeq[Pix](numPix)
+        for i in 0 ..< numPix:
+          chpPix[i] = (x: chX[i], y: chY[i], ch: chCh[i])
+        # convert to septem coordinate and add to frame
+        septemFrame.add chpPix.chpPixToSeptemPix(chip)
 
   # Now create a full septem frame, see `tpaPlusGgplot.nim`
   # use full frame, extract data as zero suppressed events / don't build full frame

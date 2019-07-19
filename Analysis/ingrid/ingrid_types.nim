@@ -8,24 +8,16 @@ type
   EventHeader* = Table[string, string]
   ChipHeader*  = Table[string, string]
   Pix*         = tuple[x, y: uint8, ch: uint16]
+  # Integer based pixels are used for full Septemboard frames, due to 3x256 pixels per direction
   PixInt*      = tuple[x, y: int, ch: int]
   SomePix*     = Pix | PixInt
-  Pixels*   = seq[Pix]
-  PixelsInt* = seq[PixInt]
+  Pixels*      = seq[Pix]
+  PixelsInt*   = seq[PixInt]
 
   # Coord type which contains (x, y) coordinates of a pixel
   Coord*[T] = tuple[x, y: T]
   # cluster object
-  Cluster* = seq[Pix]
-  ClusterInt* = seq[PixInt]
-
-  Pixels_prot = object#Table[string, seq[int]]
-    # x:  seq[int]
-    # y:  seq[int]
-    # ch: seq[int]
-    x:  seq[uint8]
-    y:  seq[uint8]
-    ch: seq[uint16]
+  Cluster*[T: SomePix] = seq[T]
 
   Chip* = tuple[name: string, number: int]
 
@@ -146,8 +138,8 @@ type
 
   # object which stores a single `Cluster` in combination with information
   # about itself, e.g. energy, geometry etc.
-  ClusterObject*[T: Cluster | ClusterInt] = object
-    data*: T
+  ClusterObject*[T: SomePix] = object
+    data*: Cluster[T]
     hits*: int
     centerX*: float
     centerY*: float
@@ -160,7 +152,7 @@ type
   # split into different clusters and information about it, chip and
   # event number (run number is left out, because it will be stored in
   # the group of a run anyways)
-  RecoEvent*[T: Cluster | ClusterInt] = object
+  RecoEvent*[T: SomePix] = object
     cluster*: seq[ClusterObject[T]]
     event_number*: int
     chip_number*: int

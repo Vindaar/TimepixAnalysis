@@ -39,12 +39,8 @@ import fadc_analysis
 type
   # fit object, which is handed to the NLopt library in the
   # `VarStruct` -> to the eccentricity function
-  FitObject = object
-    cluster: Cluster
-    xy: tuple[x, y: float64]
-
-  FitObjectInt = object
-    cluster: ClusterInt
+  FitObject[T: SomePix] = object
+    cluster: Cluster[T]
     xy: tuple[x, y: float64]
 
   RecoFlagKind = enum
@@ -174,7 +170,7 @@ proc createDatasets[N: int](dset_tab: var Table[string, seq[H5DataSet]],
                                                 maxshape = @[int.high, 1],
                                                 filter = filter)
 
-proc writeRecoRunToH5*[T: Cluster | ClusterInt](h5f: var H5FileObj,
+proc writeRecoRunToH5*[T: SomePix](h5f: var H5FileObj,
                                    h5fraw: var H5FileObj,
                                    reco_run: seq[FlowVar[ref RecoEvent[T]]],
                                    runNumber: int) =
@@ -380,7 +376,7 @@ proc newClusterGeometry(): ClusterGeometry =
                            fractionInTransverseRms: Inf)
 
 
-proc newClusterObject[T: Cluster | ClusterInt](c: T): ClusterObject[T] =
+proc newClusterObject[T: SomePix](c: Cluster[T]): ClusterObject[T] =
   ## initialize variables with Inf for now
   # TODO: should we initialize geometry values by Inf as well?
   let geometry = ClusterGeometry()
@@ -390,7 +386,7 @@ proc newClusterObject[T: Cluster | ClusterInt](c: T): ClusterObject[T] =
                             energy: Inf,
                             geometry: geometry)
 
-template eccentricityImpl() {.dirty.} =
+proc eccentricity[T: SomePix](p: seq[float], func_data: FitObject[T]): float =
   ## this function calculates the eccentricity of a found pixel cluster using nimnlopt.
   ## Since no proper high level library is yet available, we need to pass a var pointer
   ## of func_data, which contains the x and y arrays in which the data is stored, in
@@ -425,13 +421,11 @@ template eccentricityImpl() {.dirty.} =
   let exc = rms_x / rms_y
   result = -exc
 
-proc eccentricity(p: seq[float], func_data: FitObject): float =
-  eccentricityImpl()
+#proc eccentricityInt(p: seq[float], func_data: FitObjectInt): float =
+#  eccentricityImpl()
 
-proc eccentricityInt(p: seq[float], func_data: FitObjectInt): float =
-  eccentricityImpl()
-
-proc calcGeometry[T: Cluster | ClusterInt](cluster: T, pos_x, pos_y, rot_angle: float): ClusterGeometry =
+proc calcGeometry[T: SomePix](cluster: Cluster[T],
+                              pos_x, pos_y, rot_angle: float): ClusterGeometry =
   ## given a cluster and the rotation angle of it, calculate the different
   ## statistical moments, i.e. RMS, skewness and kurtosis in longitudinal and
   ## transverse direction
@@ -513,7 +507,7 @@ proc isPixInSearchRadius[T: SomeInteger](p1, p2: Coord[T], search_r: int): bool 
     in_y = true
   result = if in_x == true and in_y == true: true else: false
 
-proc findSimpleCluster*[T: SomePix](pixels: seq[T], outType: typedesc): seq[outType] =
+proc findSimpleCluster*[T: SomePix](pixels: seq[T]): seq[Cluster[T]] =
   ## this procedure searches for clusters based on a fixed search radius, whether
   ## a pixel is found within that boundary, e.g. searchRadius = 50:
   ## if within 50 pixels another pixel is found, add pixel to cluster, continue
@@ -525,13 +519,9 @@ proc findSimpleCluster*[T: SomePix](pixels: seq[T], outType: typedesc): seq[outT
   # - iterate over all hit pixels in event
   # - check next pixel, is it within search bound? yes,
   #   add pixel to hit
-  when T is Pix:
-    var c: Cluster
-  elif T is PixInt:
-    var c: ClusterInt
   var
     # sequence in which to store the hits, which are part of a cluster
-    # c: Cluster[T] = @[]
+    c: Cluster[T] = @[]
     # create copy of pixels so that we can remove elements from it
     raw_event = pixels
     # counter
@@ -571,27 +561,24 @@ proc findSimpleCluster*[T: SomePix](pixels: seq[T], outType: typedesc): seq[outT
       if len(c) > cutoff_size:
         result.add(c)
       if len(raw_event) > cutoff_size:
-        result.add(findSimpleCluster(raw_event, outType))
+        result.add(findSimpleCluster(raw_event))
     elif raw_event.len == 0 and len(c) > cutoff_size:
       result.add(c)
     inc i
 
-proc eccentricityNloptOptimizer[T: FitObject | FitObjectInt](fitObject: T): NloptOpt[T] =
+proc eccentricityNloptOptimizer[T: SomePix](fitObject: FitObject[T]): NloptOpt[FitObject[T]] =
   ## returns the already configured Nlopt optimizer to fit the rotation angle /
   ## eccentricity
   ## set  the values of the fit objectn
   var
     # set the boundary values corresponding to range of 360 deg
     lb = (-4.0 * arctan(1.0), 4.0 * arctan(1.0))
-  result = newNloptOpt[T](LN_BOBYQA, 1, @[lb])
+  type tFitObj = type(fitObject)
+  result = newNloptOpt[tFitObj](LN_BOBYQA, 1, @[lb])
   # hand the function to fit as well as the data object we need in it
   # NOTE: workaround for https://github.com/nim-lang/Nim/issues/11778
-  when T is FitObject:
-    var varStruct = VarStruct[type(fitObject)](userFunc: eccentricity, data: fitObject,
-                                               kind: FuncKind.NoGrad)
-  elif T is FitObjectInt:
-    var varStruct = VarStruct[type(fitObject)](userFunc: eccentricityInt, data: fitObject,
-                                               kind: FuncKind.NoGrad)
+  var varStruct = VarStruct[tFitObj](userFunc: eccentricity, data: fitObject,
+                                     kind: FuncKind.NoGrad)
   result.setFunction(varStruct)
   # set relative precisions of x and y, as well as limit max time the algorithm
   # should take to 1 second
@@ -601,7 +588,7 @@ proc eccentricityNloptOptimizer[T: FitObject | FitObjectInt](fitObject: T): Nlop
   result.maxtime  = 1.0
   result.initial_step = 0.02
 
-proc fitRotAngle[T: Cluster | ClusterInt](cl_obj: ClusterObject[T], rotAngleEstimate: float): (float, float) =
+proc fitRotAngle[T: SomePix](cl_obj: ClusterObject[T], rotAngleEstimate: float): (float, float) =
   ## simple template which wraps the optimization of the rotation angle /
   ## eccentricity
   ## cluster object is handed as var to avoid any copying
@@ -609,10 +596,7 @@ proc fitRotAngle[T: Cluster | ClusterInt](cl_obj: ClusterObject[T], rotAngleEsti
   # TODO: think about what to do with 11810 pixels, throw them out
   # set the fit object with which we hand the necessary data to the
   # eccentricity function
-  when T is Cluster:
-    var fitObject: FitObject
-  elif T is ClusterInt:
-    var fitObject: FitObjectInt
+  var fitObject: FitObject[T]
   # the resulting fit parameter
   var p = @[rotAngleEstimate]
   fit_object.cluster = cl_obj.data
@@ -628,7 +612,7 @@ proc fitRotAngle[T: Cluster | ClusterInt](cl_obj: ClusterObject[T], rotAngleEsti
   # now return the rotation angle and eccentricity
   result = (params[0], min_val)
 
-proc recoCluster[U: Cluster | ClusterInt](c: U): ClusterObject[U] {.gcsafe.} =
+proc recoCluster[T: SomePix](c: Cluster[T]): ClusterObject[T] {.gcsafe.} =
   result = newClusterObject(c)
   let
     clustersize: int = len(c)
@@ -678,19 +662,19 @@ proc recoCluster[U: Cluster | ClusterInt](c: U): ClusterObject[U] {.gcsafe.} =
   # properties, i.e. RMS, skewness and kurtosis along the long axis of the cluster
   result.geometry = calcGeometry(c, result.centerX, result.centerY, rot_angle)
 
-proc recoEvent*[T: SomePix; U: Cluster | ClusterInt](data: (seq[T], int), chip: int): ref RecoEvent[U] {.gcsafe.} =
-  result = new RecoEvent[U]
+proc recoEvent*[T: SomePix](data: (seq[T], int), chip: int): ref RecoEvent[T] {.gcsafe.} =
+  result = new RecoEvent[T]
   result.event_number = data[1]
   result.chip_number = chip
   if data[0].len > 0:
-    let cluster = findSimpleCluster(data[0], U)
-    result.cluster = newSeq[ClusterObject[U]](cluster.len)
+    let cluster = findSimpleCluster(data[0])
+    result.cluster = newSeq[ClusterObject[T]](cluster.len)
     for i, cl in cluster:
       result.cluster[i] = recoCluster(cl)
 
 {.experimental.}
 #proc reconstructSingleChip(data: seq[Pixels], run, chip: int): seq[ref RecoEvent] =
-proc reconstructSingleChip*(data: seq[(Pixels, int)], run, chip: int): seq[FlowVar[ref RecoEvent[Cluster]]] =
+proc reconstructSingleChip*(data: seq[(Pixels, int)], run, chip: int): seq[FlowVar[ref RecoEvent[Pix]]] =
                            #evNumbers: seq[int]): seq[FlowVar[ref RecoEvent]] =
   ## procedure which receives pixel data for a given chip and run number
   ## and performs the reconstruction on it
@@ -701,12 +685,12 @@ proc reconstructSingleChip*(data: seq[(Pixels, int)], run, chip: int): seq[FlowV
   info &"Working on chip {chip} in run {run}"
   info &"We have {data.len} events to reconstruct"
   var count = 0
-  result = newSeq[FlowVar[ref RecoEvent[Cluster]]](data.len)
+  result = newSeq[FlowVar[ref RecoEvent[Pix]]](data.len)
   #parallel:
   let p = newThreadPool()
   for event in 0..data.high:
     if event < result.len:
-      result[event] = p.spawn recoEvent[Pix, Cluster](data[event], chip)
+      result[event] = p.spawn recoEvent(data[event], chip)
     echoFilesCounted(count, 2500)
   p.sync()
 
@@ -772,7 +756,7 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
   let
     raw_data_basename = rawDataBase()
     t0 = epochTime()
-  var reco_run: seq[FlowVar[ref RecoEvent[Cluster]]] = @[]
+  var reco_run: seq[FlowVar[ref RecoEvent[Pix]]] = @[]
   let showPlots = if cfShowPlots in cfgFlags: true else: false
 
   # iterate over all raw data groups
@@ -924,7 +908,7 @@ proc reconstructSingleRunFolder(folder: string)
     for c in chips:
       let
         num: int = c.chip.number
-        cluster = findSimpleCluster(c.pixels, Cluster)
+        cluster = findSimpleCluster(c.pixels)
       for cl in cluster:
         #echo "Starting reco of ", a.evHeader["eventNumber"]
         let ob = recoCluster(cl)

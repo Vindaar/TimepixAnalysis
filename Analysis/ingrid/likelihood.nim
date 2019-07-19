@@ -485,7 +485,7 @@ proc applySeptemVeto(h5f, h5fout: var H5FileObj,
         # given the full frame run through the full reconstruction for this cluster
         # here we give chip number as -1, indicating "Septem"
         echo "septem frame ", septemFrame
-        let recoed = recoEvent[PixInt, ClusterInt]((septemFrame, evNum.toInt.int), -1)
+        let recoed = recoEvent((septemFrame, evNum.toInt.int), -1)
         echo "Recoed is ", recoed[]
 
   # Now create a full septem frame, see `tpaPlusGgplot.nim`

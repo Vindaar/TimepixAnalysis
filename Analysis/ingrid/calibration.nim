@@ -553,7 +553,7 @@ proc fitPolyaNim*(charges,
     # set ``x``, ``y`` result and use to create plot
     # create NLopt optimizer without parameter bounds
     let bounds = @[(-Inf, Inf), (-Inf, Inf), (0.5, 15.0)]
-    var opt = newNloptOpt(LN_COBYLA, 3, bounds)
+    var opt = newNloptOpt[FitObject](LN_COBYLA, 3, bounds)
     # hand the function to fit as well as the data object we need in it
     var fitObject: FitObject
     let toFitInds = toSeq(0 ..< charges.len).filterIt(charges[it] > 1200.0)# and charges[it] < 4500.0)

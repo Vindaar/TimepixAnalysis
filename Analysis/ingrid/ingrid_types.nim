@@ -14,9 +14,10 @@ type
   PixelsInt* = seq[PixInt]
 
   # Coord type which contains (x, y) coordinates of a pixel
-  Coord* = tuple[x, y: uint8]
+  Coord*[T] = tuple[x, y: T]
   # cluster object
-  Cluster*[T: SomePIx] = seq[T]
+  Cluster* = seq[Pix]
+  ClusterInt* = seq[PixInt]
 
   Pixels_prot = object#Table[string, seq[int]]
     # x:  seq[int]
@@ -145,8 +146,8 @@ type
 
   # object which stores a single `Cluster` in combination with information
   # about itself, e.g. energy, geometry etc.
-  ClusterObject*[T: SomePix] = object
-    data*: Cluster[T]
+  ClusterObject*[T: Cluster | ClusterInt] = object
+    data*: T
     hits*: int
     centerX*: float
     centerY*: float
@@ -159,7 +160,7 @@ type
   # split into different clusters and information about it, chip and
   # event number (run number is left out, because it will be stored in
   # the group of a run anyways)
-  RecoEvent*[T: SomePix] = object
+  RecoEvent*[T: Cluster | ClusterInt] = object
     cluster*: seq[ClusterObject[T]]
     event_number*: int
     chip_number*: int

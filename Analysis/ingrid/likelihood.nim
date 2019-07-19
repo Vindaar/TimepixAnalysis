@@ -11,7 +11,8 @@ import sequtils
 import seqmath
 import loopfusion
 import plotly
-import ingrid_types
+import ingrid / ingrid_types
+from ingrid / reconstruction import recoEvent
 
 let doc = """
 InGrid likelihood calculator. This program is run after reconstruction is finished.
@@ -481,6 +482,12 @@ proc applySeptemVeto(h5f, h5fout: var H5FileObj,
         # convert to septem coordinate and add to frame
         septemFrame.add chpPix.chpPixToSeptemPix(chip)
 
+        # given the full frame run through the full reconstruction for this cluster
+        # here we give chip number as -1, indicating "Septem"
+        echo "septem frame ", septemFrame
+        let recoed = recoEvent[PixInt, ClusterInt]((septemFrame, evNum.toInt.int), -1)
+        echo "Recoed is ", recoed[]
+
   # Now create a full septem frame, see `tpaPlusGgplot.nim`
   # use full frame, extract data as zero suppressed events / don't build full frame
   # rather use data frame and get `Pixels` from that. Each row is one `Pixel`
@@ -496,8 +503,6 @@ proc applySeptemVeto(h5f, h5fout: var H5FileObj,
   #raise newException(Exception, "Septemboard cuts not implemented at the " &
   #  "moment. To use it use the --septemVeto switch on the background rate " &
   #  "plot creation tool!")
-
-
 
 proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj,
                           flags: set[FlagKind],

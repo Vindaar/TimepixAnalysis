@@ -182,25 +182,9 @@ proc calcCutValueTab(region: ChipRegion = crGold): Table[string, float] =
     echo mapIt(logHists, it.sum)
     echo "Corresponding to logL values of ", result
 
-proc calcLogLikelihood*(h5f: var H5FileObj, ref_file: string) =
-  ##
-  ## - read all data of single run
-  ## - get energy dataset
-  ## - create energy bins
-  ## - use digitize to get the correct energy bins for each cluster
-  ## - create individual seq's for each energy bin (containing all
-  ##   clusters and the corresponding properties)
-  ## - create histogram for each of these energy binned properties
-
-  ## in XrayLikelihoodProcessor we have
-  ## - 1 histogram for each property and each energy bin
-  ## - fill them with the log likelihood of all events falling into that histogram
-  ##   - logLikelihood:
-  ##     get number of elements in histogram at the bin for the element for which we get
-  ##     the logL
-  ##     # elements / # total in histogram = likelihood. Take log
-
-  var h5ref = H5file(ref_file, "r")
+proc readRefDsets(): tuple[ecc, ldivRms, fracRms: Table[string, histTuple]] =
+  ## reads the reference datasets from the `XrayRefFile` and returns them.
+  var h5ref = H5file(XrayRefFile, "r")
   # create a table, which stores the reference datasets from the ref file
   const xray_ref = getXrayRefTable()
 
@@ -221,6 +205,45 @@ proc calcLogLikelihood*(h5f: var H5FileObj, ref_file: string) =
     lengthDivRmsTrans_ref[dset_name] = ldivrms[float32].reshape2D(ldivrms.shape).splitSeq(float64)
     fracRmsTrans_ref[dset_name] = frmst[float32].reshape2D(frmst.shape).splitSeq(float64)
 
+  result = (ecc: ecc_ref, ldivRms: lengthDivRmsTrans_ref, fracRms: fracRmsTrans_ref)
+
+func calcLikelihoodForEvent(energy, eccentricity, lengthDivRmsTrans, fracRmsTrans: float,
+                            refSetTuple: tuple[ecc,
+                                               ldivRms,
+                                               fracRms: Table[string, histTuple]]): float =
+  let (ecc_ref, lengthDivRmsTrans_ref, fracRmsTrans_ref) = refSetTuple
+  # try simple logL calc
+  let refset = toRefDset(energy) # / 1000.0) division needed for E from Pix,
+                                 # since that is in eV inst of keV
+  result += logLikelihood(ecc_ref[refset][1],
+                          eccentricity,
+                          ecc_ref[refset][0])
+  result += logLikelihood(lengthDivRmsTrans_ref[refset][1],
+                          lengthDivRmsTrans,
+                          lengthDivRmsTrans_ref[refset][0])
+  result += logLikelihood(fracRmsTrans_ref[refset][1],
+                          fracRmsTrans,
+                          fracRmsTrans_ref[refset][0])
+  result *= -1.0
+
+proc calcLogLikelihood*(h5f: var H5FileObj) =
+  ##
+  ## - read all data of single run
+  ## - get energy dataset
+  ## - create energy bins
+  ## - use digitize to get the correct energy bins for each cluster
+  ## - create individual seq's for each energy bin (containing all
+  ##   clusters and the corresponding properties)
+  ## - create histogram for each of these energy binned properties
+
+  ## in XrayLikelihoodProcessor we have
+  ## - 1 histogram for each property and each energy bin
+  ## - fill them with the log likelihood of all events falling into that histogram
+  ##   - logLikelihood:
+  ##     get number of elements in histogram at the bin for the element for which we get
+  ##     the logL
+  ##     # elements / # total in histogram = likelihood. Take log
+  let refSetTuple = readRefDsets()
   # get the group from file
   for num, group in runs(h5f):
     echo &"Start logL calc of run {group}"
@@ -248,20 +271,8 @@ proc calcLogLikelihood*(h5f: var H5FileObj, ref_file: string) =
       # create seq to store data logL data for this chip
       var logL_s = newSeq[float64](ecc.len)
       for i in 0 .. ecc.high:
-        var logL = 0.0'f64
-        # try simple logL calc
-        let refset = toRefDset(energies[i]) # / 1000.0) division needed for E from Pix,
-                                            # since that is in eV inst of keV
-        logL += logLikelihood(ecc_ref[refset][1],
-                              ecc[i],
-                              ecc_ref[refset][0])
-        logL += logLikelihood(lengthDivRmsTrans_ref[refset][1],
-                              lengthDivRmsTrans[i],
-                              lengthDivRmsTrans_ref[refset][0])
-        logL += logLikelihood(fracRmsTrans_ref[refset][1],
-                              fracRmsTrans[i],
-                              fracRmsTrans_ref[refset][0])
-        logL *= -1.0
+        let logL = calcLikelihoodForEvent(energies[i], ecc[i], lengthDivRmsTrans[i], fracRmsTrans[i],
+                                          refSetTuple)
         # add logL to the sequence. May be Inf though
         logL_s[i] = logL
         # if logL != Inf:
@@ -425,11 +436,12 @@ proc writeVetoInfos(grp: H5Group, fadcVetoCount, scintiVetoCount: int,
 
 proc applySeptemVeto(h5f, h5fout: var H5FileObj,
                      runNumber: int,
-                     passedInds: HashSet[int]) =
+                     passedInds: var HashSet[int]) =
   ## Applies the septem board veto to the given `passedInds` in `runNumber` of `h5f`.
   ## Writes the resulting clusters, which pass to the `septem` subgroup (parallel to
   ## the `chip_*` groups into `h5fout`.
-
+  ## If an event does not pass the septem veto cut, it is excluded from the `passedInds`
+  ## set.
   let group = h5f[(recoBase() & $runNumber).grp_str]
   let centerChip = group.attrs["centerChip", int]
   let numChips = group.attrs["numChips", int]
@@ -454,6 +466,8 @@ proc applySeptemVeto(h5f, h5fout: var H5FileObj,
     allDataX.add h5f[group.name / "chip_" & $i / "x", vlenXY, uint8]
     allDataY.add h5f[group.name / "chip_" & $i / "y", vlenXY, uint8]
     allDataCh.add h5f[group.name / "chip_" & $i / "ToT", vlenCh, uint16]
+
+  let refSetTuple = readRefDsets()
 
   # for the `passedEvs` we have to read all data from all chips
   let septemGrouped = septemDf.group_by("eventNumber")
@@ -482,12 +496,19 @@ proc applySeptemVeto(h5f, h5fout: var H5FileObj,
         # convert to septem coordinate and add to frame
         septemFrame.add chpPix.chpPixToSeptemPix(chip)
 
-        # given the full frame run through the full reconstruction for this cluster
-        # here we give chip number as -1, indicating "Septem"
-        echo "septem frame ", septemFrame
-        let recoed = recoEvent((septemFrame, evNum.toInt.int), -1)
-        echo "Recoed is ", recoed[]
-
+      # given the full frame run through the full reconstruction for this cluster
+      # here we give chip number as -1, indicating "Septem"
+      let recoEv = recoEvent((septemFrame, evNum.toInt.int), -1)[]
+      echo "Recoed is ", recoEv.cluster
+      # calculate log likelihood of all reconstructed clusters
+      for cl in recoEv.cluster:
+        let energy = cl.hits.float * 26.0
+        let logL = calcLikelihoodForEvent(energy, # <- TODO: hack for now!
+                                          cl.geometry.eccentricity,
+                                          cl.geometry.lengthDivRmsTrans,
+                                          cl.geometry.fractionInTransverseRms,
+                                          refSetTuple)
+        echo "Likelihood value is ", logL, " at energy ", energy
   # Now create a full septem frame, see `tpaPlusGgplot.nim`
   # use full frame, extract data as zero suppressed events / don't build full frame
   # rather use data frame and get `Pixels` from that. Each row is one `Pixel`
@@ -663,17 +684,19 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj,
       chpGrp.writeVetoInfos(fadcVetoCount, scintiVetoCount, flags)
       # create dataset to store it
       if passedInds.card > 0:
+        # now in a second pass perform a septem veto if desired
+        # If there's no events left, then we don't care about
+        if fkSeptem in flags and chipNumber == centerChip:
+          # read all data for other chips ``iff`` chip == 3 (centerChip):
+          h5f.applySeptemVeto(h5fout, num.parseInt, passedInds)
+
+
         # call function which handles writing the data
         h5f.writeLikelihoodData(h5fout,
                                 mgrp,
                                 chipNumber,
                                 cutTab,
                                 passedInds)
-        # now in a second pass perform a septem veto if desired
-        # If there's no events left, then we don't care about
-        if fkSeptem in flags and chipNumber == centerChip:
-          # read all data for other chips ``iff`` chip == 3 (centerChip):
-          h5f.applySeptemVeto(h5fout, num.parseInt, passedInds)
 
         when false:
           (totalDurationRun, totalDurationRunPassed)
@@ -788,7 +811,7 @@ proc main() =
       echo "Using scintillators as veto"
 
     # perform likelihood calculation
-    h5f.calcLogLikelihood(XrayRefFile)
+    h5f.calcLogLikelihood()
     # now perform the cut on the logL values stored in `h5f` and write
     # the results to h5fout
     h5f.filterClustersByLogL(h5fout, flags, region)

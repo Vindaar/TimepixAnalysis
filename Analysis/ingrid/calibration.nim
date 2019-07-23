@@ -171,7 +171,7 @@ func sCurveFunc(p: seq[float], x: float): float =
   # parameter p[0] == scale factor
   result = normalCdfC(x, p[2], p[1]) * p[0]
 
-func linearFunc(p: seq[float], x: float): float =
+func linearFunc*(p: seq[float], x: float): float =
   result = p[0] + x * p[1]
 
 proc thlCalibFunc(p: seq[float], x: float): float =

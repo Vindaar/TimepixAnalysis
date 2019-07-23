@@ -865,6 +865,7 @@ proc applyChargeCalibration*(h5f: var H5FileObj, runNumber: int) =
         charge[i] = vec.mapIt((calibrateCharge(it.float, a, b, c, t)))
         # and for the sum of all in one cluster
         totalCharge[i] = calibrateCharge(sumTots[i].float, a, b, c, t)
+        doAssert totalCharge[i] == charge[i].sum, " why not the same " & $totalCharge[i] & " and " & $(charge[i].sum)
       #let charge = tots --> map(it --> map(it --> calibrateCharge(it.float, a, b, c, t))) --> to(seq[seq[float]])
       # create dataset for charge values
       let vlenFloat = special_type(float64)

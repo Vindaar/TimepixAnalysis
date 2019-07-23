@@ -121,7 +121,8 @@ proc buildLogLHist(h5file, dset: string, region: ChipRegion = crGold): seq[float
         pixelCut  = if npix[i]   > cuts.minPix:    true else: false
       # add event to likelihood if all cuts passed
       if allIt([regionCut, xRmsCut, xLengthCut, xEccCut, chargeCut, rmsCut, lengthCut, pixelCut], it):
-        result.add logL[i]
+        if logL[i] != Inf:
+          result.add logL[i]
 
   # now create plots of all ref likelihood distributions
   echo min(result), " ", max(result)

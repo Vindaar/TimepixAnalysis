@@ -4,6 +4,7 @@ import tables
 import strutils, strformat, ospaths
 import algorithm
 import sets
+import stats
 import nimhdf5
 import tos_helpers
 import helpers/utils
@@ -11,8 +12,9 @@ import sequtils
 import seqmath
 import loopfusion
 import plotly
-import ingrid / ingrid_types
+import ingrid / [ingrid_types, calibration]
 from ingrid / reconstruction import recoEvent
+import ingridDatabase / databaseRead
 
 let doc = """
 InGrid likelihood calculator. This program is run after reconstruction is finished.
@@ -442,17 +444,18 @@ proc applySeptemVeto(h5f, h5fout: var H5FileObj,
   ## the `chip_*` groups into `h5fout`.
   ## If an event does not pass the septem veto cut, it is excluded from the `passedInds`
   ## set.
+  echo "Passed indices before septem veto ", passedInds.card
   let group = h5f[(recoBase() & $runNumber).grp_str]
   let centerChip = group.attrs["centerChip", int]
   let numChips = group.attrs["numChips", int]
   let septemDf = h5f.getSeptemEventDF(runNumber)
-  echo septemDf
+  #echo septemDf
 
   # now filter events for `centerChip` from and compare with `passedInds`
   let centerDf = septemDf.filter(f{"chipNumber" == centerChip})
-  echo "Center df ", centerDf
+  #echo "Center df ", centerDf
   let passedEvs = passedInds.mapIt(centerDf["eventNumber", it]).sorted.toOrderedSet
-  echo passedEvs
+  #echo passedEvs
   #echo "From ", passedInds
 
   var
@@ -468,6 +471,13 @@ proc applySeptemVeto(h5f, h5fout: var H5FileObj,
     allDataCh.add h5f[group.name / "chip_" & $i / "ToT", vlenCh, uint16]
 
   let refSetTuple = readRefDsets()
+  let cutTab = calcCutValueTab(crGold)
+  let chips = toSeq(0 .. 6)
+  let gains = chips.mapIt(h5f[(group.name / "chip_" & $it / "charge").dset_str].attrs["G", float64])
+  let septemHChips = chips.mapIt(getSeptemHChip(it))
+  let toTCalibParams = septemHChips.mapIt(getTotCalibParameters(it))
+  let (b, m) = getCalibVsGasGainFactors(septemHChips[centerChip])
+  var rs: RunningStat
 
   # for the `passedEvs` we have to read all data from all chips
   let septemGrouped = septemDf.group_by("eventNumber")
@@ -475,16 +485,19 @@ proc applySeptemVeto(h5f, h5fout: var H5FileObj,
     let evNum = pair[0][1]
     if evNum in passedEvs:
       # then grab all chips for this event
-      echo "For event ", pair
-      echo evGroup
-      echo evGroup["chipNumber"]
+      #echo "For event ", pair
+      #echo evGroup
+      #echo evGroup["chipNumber"]
       var septemFrame: PixelsInt
+      #var septemChFrame: PixelsCharge
+      var centerEvIdx: int
       for row in evGroup:
         # get the chip number and event index, dump corresponding event pixel data
         # onto the "SeptemFrame"
-        var frame = initSeptemFrame()
         let chip = row["chipNumber"].toInt
         let idx = row["eventIndex"].toInt
+        if chip == centerChip:
+          centerEvIdx = idx.int
         let
           chX = allDataX[chip][idx]
           chY = allDataY[chip][idx]
@@ -499,31 +512,39 @@ proc applySeptemVeto(h5f, h5fout: var H5FileObj,
       # given the full frame run through the full reconstruction for this cluster
       # here we give chip number as -1, indicating "Septem"
       let recoEv = recoEvent((septemFrame, evNum.toInt.int), -1)[]
-      echo "Recoed is ", recoEv.cluster
       # calculate log likelihood of all reconstructed clusters
+      var passed = false
+      var totCharge: float
       for cl in recoEv.cluster:
-        let energy = cl.hits.float * 26.0
+        let clData = cl.data
+        for pix in clData:
+          # take each pixel tuple and reconvert it to chip based coordinates
+          # first determine chip it corresponds to
+          let pixChip = determineChip(pix)
+          # calculate running mean of gas gain for each pixel, by pushing the
+          # gain of the current chip to the `RunningStat`
+          rs.push gains[pixChip]
+          # taken the chip of the pixel, reconvert that to a local coordinate system
+          # given charge of this pixel, assign it to some intermediate storage
+          let params = totCalibParams[pixChip]
+          totCharge += calibrateCharge(pix.ch.float, params[0], params[1], params[2], params[3])
+        # using total charge and `RunningStat` calculate energy from charge
+        let energy = totCharge * linearFunc(@[b, m], gains.mean) * 1e-6
+
+        #let energy = cl.hits.float * 26.0
+        let dset = energy.toRefDset
         let logL = calcLikelihoodForEvent(energy, # <- TODO: hack for now!
                                           cl.geometry.eccentricity,
                                           cl.geometry.lengthDivRmsTrans,
                                           cl.geometry.fractionInTransverseRms,
                                           refSetTuple)
-        echo "Likelihood value is ", logL, " at energy ", energy
-  # Now create a full septem frame, see `tpaPlusGgplot.nim`
-  # use full frame, extract data as zero suppressed events / don't build full frame
-  # rather use data frame and get `Pixels` from that. Each row is one `Pixel`
-  # use `reconstruction.recoEvent` to reconstruct the whole thing into possibly
-  # several clusters
-  # How to handle the fact that we're actually working event by event wise?
-  # Only do this for chip == 3, then read others? Might work, since we're only interested
-  # in those events anyways, that have chip 3 in it.
-  # after reconstruction, simply calculate the `logL` for cluster and add as additional check
-  # to veto below
-
-
-  #raise newException(Exception, "Septemboard cuts not implemented at the " &
-  #  "moment. To use it use the --septemVeto switch on the background rate " &
-  #  "plot creation tool!")
+        #echo "Likelihood value is ", logL, " at energy ", energy
+        if logL < cutTab[dset]:
+          # first attempt. Unless passing throw event from passindIngs
+          passed = true
+      if not passed:
+        passedInds.excl centerEvIdx
+  echo "Passed indices after septem veto ", passedInds.card
 
 proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj,
                           flags: set[FlagKind],

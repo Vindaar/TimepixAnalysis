@@ -143,20 +143,24 @@ def preparePlot(h5file, chip, logY, CK_binning):
         #time_back = 1123 * 3600
         #shutter_open = 0.88
         color = color2017
-    elif "2018" in h5file and not "fadc" in h5file and not "scinti" in h5file:
+    elif "2018" in h5file and not "fadc" in h5file and not "scinti" in h5file and not "septemveto" in h5file:
         # 2017
         year = "2018"
         #time_back = 1123 * 3600
         #shutter_open = 0.88
         color = color2017
-    elif "2018" in h5file and not "scinti" in h5file:
+    elif "2018" in h5file and "fadc" in h5file:
         # Case of FADC veto
         year = "2018+FADC veto"
         color = (1.0, 0.0, 0.0)#colorBlue
-    elif "2018" in h5file and not "fadc" in h5file:
+    elif "2018" in h5file and "scinti" in h5file:
         # Case of scintillators veto
         year = "2018+scinti veto"
         color = colorYellow#DarkGrey
+    elif "2018" in h5file and "septemveto" in h5file:
+        # Case of scintillators veto
+        year = "2018+septem veto"
+        color = colorOrange#DarkGrey
     elif "2018" in h5file:
         # Case of FADC + scintillators veto
         year = "2018+scinti+FADC veto"

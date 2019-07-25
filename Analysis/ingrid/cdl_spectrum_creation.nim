@@ -136,14 +136,14 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
                           ea: hist[muIdx] * 1e-10,
                           eb: hist[muIdx] * 1e-12,
                           eN: hist[muIdx],# / 10.0, #30.0
-                          emu: 190.0, #binning[muIdx], #200.0
+                          emu: 197.0, #binning[muIdx], #200.0
                           es: hist[muIdx] / 15.0) # 13.0
     result.add FitFuncArgs(name: "Mn-esc",
                           kind: ffExpGauss,
                           ea: hist[muIdx]  * 1e-10,
                           eb: hist[muIdx]  * 1e-12,
                           eN: hist[muIdx] / 10.0, #120
-                          emu: 90.0, #binning[muIdx], #100.0
+                          emu: 95.0, #binning[muIdx], #100.0
                           es: hist[muIdx] / 15.0) #16.0
   of tfTiTi9:
     result.add FitFuncArgs(name: "Ti-Kalpha",
@@ -188,7 +188,7 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
                           eb: hist[muIdx] * 1e-12,
                           eN: hist[muIdx],# / 10.0,
                           emu: binning[muIdx],
-                          es: hist[muIdx] / 50.0) ##30.0
+                          es: hist[muIdx] / 80.0) ##30.0
   of tfCuEpic2:
     result.add FitFuncArgs(name: "Cu-Lalpha",
                           kind: ffGauss,
@@ -203,24 +203,24 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
   of tfCuEpic0_9:
     result.add FitFuncArgs(name: "O-Kalpha",
                           kind: ffGauss,
-                          gN: hist[muIdx],# / 20.0,
+                          gN: hist[muIdx],# / 1.5,
                           gmu: binning[muIdx],# * 2.0,
-                          gs: hist[muIdx] / 5.0)
-    result.add FitFuncArgs(name: "C-Kalpha",
-                          kind: ffGauss,
-                          gN: hist[muIdx] / 10.0,
-                          gmu: fixed, #binning[muIdx], # / 2.0,
-                          gs: fixed) #hist[muIdx] / 30.0)
-    result.add FitFuncArgs(name: "Fe-Lalphabeta",
-                          kind: ffGauss,
-                          gN: hist[muIdx] / 10.0,
-                          gmu: fixed, #binning[muIdx],
-                          gs: fixed) #hist[muIdx] )
-    result.add FitFuncArgs(name: "Ni-Lalphabeta",
-                          kind: ffGauss,
-                          gN: hist[muIdx] / 10.0,
-                          gmu: fixed, #binning[muIdx],
-                          gs: fixed) #hist[muIdx] )
+                          gs: hist[muIdx] / 100.0)
+    #result.add FitFuncArgs(name: "C-Kalpha",
+    #                      kind: ffGauss,
+    #                      gN: hist[muIdx] / 100.0,
+    #                      gmu: fixed, #binning[muIdx], # / 2.0,
+    #                      gs: fixed) #hist[muIdx] / 30.0)
+    #result.add FitFuncArgs(name: "Fe-Lalphabeta",
+    #                      kind: ffGauss,
+    #                      gN: hist[muIdx] / 10.0,
+    #                      gmu: fixed, #binning[muIdx],
+    #                      gs: fixed) #hist[muIdx] )
+    #result.add FitFuncArgs(name: "Ni-Lalphabeta",
+    #                      kind: ffGauss,
+    #                      gN: hist[muIdx] / 10.0,
+    #                      gmu: fixed, #binning[muIdx],
+    #                      gs: fixed) #hist[muIdx] )
   of tfCEpic0_6:
     result.add FitFuncArgs(name: "C-Kalpha",
                           kind: ffGauss,
@@ -249,14 +249,14 @@ func getbounds(tfKind:TargetFilterKind): seq[tuple[l, u:float]] =
   of tfMnCr12:
     result = @[(l: -Inf, u:Inf),
                (l: -Inf, u:Inf),
-               (l: 110.0, u:Inf),
-               (l: 1.0, u:Inf),
-               (l: 1.0, u:15.0),
+               (l: 80.0, u:Inf),
+               (l: 190.0, u:Inf),
+               (l: 1.5, u:20.0),
                (l: -Inf, u:Inf),
                (l: -Inf, u:Inf),
                (l: 5.0, u:Inf),
-               (l: 80.0, u:105.0),
-               (l: 1.0, u:12.0)]
+               (l: 80.0, u:110.0),
+               (l: 1.0, u:15.0)]
   of tfTiTi9:
     result = @[(l: -Inf, u:Inf),
                (l: -Inf, u:Inf),
@@ -271,15 +271,15 @@ func getbounds(tfKind:TargetFilterKind): seq[tuple[l, u:float]] =
   of tfAgAg6:
     result = @[(l: -Inf, u:Inf),
                (l: -Inf, u:Inf),
-               (l: 320.0, u:380.0),
+               (l: 310.0, u:380.0),
                (l: 50.0, u:116.0),
-               (l: 10.0, u:14.0)]
+               (l: 10.0, u:13.5)]
   of tfAlAl4:
     result = @[(l: -Inf, u:Inf),
                (l: -Inf, u:Inf),
-               (l: 515.0, u:550.0),
-               (l: 30.0, u:59.0),
-               (l: 10.0, u:11.0)]
+               (l: 480.0, u:535.0),
+               (l: 10.0, u:57.5),
+               (l: 5.0, u:7.5)]
   of tfCuEpic2:
     result = @[(l: 1.0, u:Inf),
                (l: 1.0, u:Inf),
@@ -289,11 +289,11 @@ func getbounds(tfKind:TargetFilterKind): seq[tuple[l, u:float]] =
                (l: 1.0, u:Inf)]
   of tfCuEpic0_9:
     result = @[(l: 1.0, u:Inf),
-               (l: 1.0, u:Inf),
-               (l: 1.0, u:Inf),
-               (l: 1.0, u:Inf),
-               (l: 1.0, u:Inf),
-               (l: 1.0, u:Inf)]
+               (l: 1.0, u:23.0),
+               (l: 1.0, u:7.0)]
+               #(l: 1.0, u:60.0)]
+               #(l: 5.0, u:60.0),
+               #(l: 5.0, u:110.0)]
   of tfCEpic0_6:
     result = @[(l: 600.0, u:Inf),
                (l: 1.0, u:Inf),
@@ -454,7 +454,7 @@ func getboundsCharge(tfKind:TargetFilterKind): seq[tuple[l, u:float]] =
                (l: 5.0, u:Inf),
                (l: 5.0, u:Inf)]
   of tfAgAg6:
-    result = @[(l: 400.0, u:450.0),
+    result = @[(l: 390.0, u:450.0),
                (l: 1.0, u:Inf),
                (l: 1.0, u:110.0e3)]
   of tfAlAl4:
@@ -793,18 +793,18 @@ declareFitFunc(cuEpic2Charge):
   ffGauss: "Cu-Lbeta"
 declareFitFunc(cuEpic0_9):
   ffGauss: "O-Kalpha"
-  ffGauss: #"C-Kalpha"
-    name = "C-Kalpha"
-    gmu = gmu("O-Kalpha") * (0.277/0.525)
-    gs = gs("O-Kalpha")
-  ffGauss: #"Fe-Lalphabeta"
-    name = "Fe-Lalphabeta"
-    gmu = gmu("O-Kalpha") * (0.71/0.525)
-    gs = gs("O-Kalpha")
-  ffGauss: #"Ni-Lalphabeta"
-    name = "Ni-Lalphabeta"
-    gmu = gmu("O-Kalpha") * (0.86/0.525)
-    gs = gs("O-Kalpha")
+  #ffGauss: #"C-Kalpha"
+  #  name = "C-Kalpha"
+  #  gmu = gmu("O-Kalpha") * (0.277/0.525)
+  #  gs = gs("O-Kalpha")
+  #ffGauss: #"Fe-Lalphabeta"
+  #  name = "Fe-Lalphabeta"
+  #  gmu = gmu("O-Kalpha") * (0.71/0.525)
+  #  gs = gs("O-Kalpha")
+  #ffGauss: #"Ni-Lalphabeta"
+  #  name = "Ni-Lalphabeta"
+  #  gmu = gmu("O-Kalpha") * (0.86/0.525)
+  #  gs = gs("O-Kalpha")
 declareFitFunc(cuEpic0_9Charge):
   ffGauss: "O-Kalpha"
   ffGauss: "C-Kalpha"
@@ -918,7 +918,7 @@ proc histoCdl(data: seq[SomeNumber], binSize: float = 3.0, dKind: DataKind): (se
 
 
 proc fitCdlImpl(hist, binedges: seq[float], tfKind: TargetFilterKind, dKind: DataKind):
-               (seq[float], seq[float], seq[float], seq[float]) =
+               (seq[float], seq[float], seq[float], seq[float], seq[float]) =
   ##generates the fit paramter
   var lines: seq[FitFuncArgs]
   var fitfunc: CdlFitFunc
@@ -951,7 +951,8 @@ proc fitCdlImpl(hist, binedges: seq[float], tfKind: TargetFilterKind, dKind: Dat
                         err)
 
   echoResult(pRes, res=res)
-  result = (params, pRes, fitBins, fitHist)
+  echo "error futcdlimpl ", res.error
+  result = (params, pRes, fitBins, fitHist, res.error)
 
 proc toCutStr(run: CdlRun): string =
   let hv = block:
@@ -1029,37 +1030,43 @@ proc cutAndWrite(h5file: string) =
     else:
       discard
 
-proc energycurve(energyResHits: seq[float], energyResCharge: seq[float]) =
+proc energycurve(energyResHits: seq[float], energyResCharge: seq[float], errorHits: seq[float], errorCharge: seq[float]) =
   #var energyval = @[15.0, 12.0, 9.0, 6.0, 4.0, 2.0, 0.9, 0.6]
   var energyval = @[8.048, 5.899, 4.511, 2.984, 1.487, 0.930, 0.525, 0.277]
   let energyplotHits = scatterPlot(energyval, energyResHits)
   let energyplotCharge = scatterPlot(energyval, energyResCharge)
+  let errorbarHits = newErrorbar(errorHits)
+  let errorbarCharge = newErrorbar(errorCharge)
   let energyplot = energyplotHits.addTrace(energyplotCharge.traces[0])
     .legendLocation(x = 0.8, y = 0.9)
-    .legendBgColor(ColorTHGrau)
+    #.legendBgColor(ColorTHGrau)
     .backgroundColor(ColorTHGrau)
     .gridColor(color())
   energyplot.layout.showlegend = true
   energyplot.layout.title = "Energy resolution plot"
   energyplot.layout.xaxis.title = "Energy in keV"
-  energyplot.layout.yaxis.title = "Energy resoltion"
+  energyplot.layout.yaxis.title = "Energy resolution"
   energyplot.traces[0].name = "number of hits"
-  energyplot.traces[0].marker = Marker[float](color: @[ColorTDBlau])
+  energyplot.traces[0].marker = Marker[float](color: @[ColorTDBlau])#, size: @[8.0])
+  energyplot.traces[0].ys_err = errorbarHits
   energyplot.traces[1].name = "total charge"
-  energyplot.traces[1].marker = Marker[float](color: @[ColorTGelb])
+  energyplot.traces[1].marker = Marker[float](color: @[ColorTGelb])#, size: @[8.0])
+  energyplot.traces[1].ys_err = errorbarCharge
   energyplot.show(&"energyresoplot-{outdate}.svg")
 
-proc peakfit(peakpos: seq[float], name: string) =
+proc peakfit(peakpos: seq[float], name: string, error: seq[float]) =
   var energyval = @[8.048, 5.899, 4.511, 2.984, 1.487, 0.930, 0.525, 0.277]
   let peakfit = scatterPlot(energyval, peakpos)
-    .legendLocation(x = 0.8, y = 0.9)
-    .legendBgColor(ColorTHGrau)
+    .legendLocation(x = 0.1, y = 0.9)
+    #.legendBgColor(ColorTHGrau)
     .backgroundColor(ColorTHGrau)
     .gridColor(color())
+  let errorbar = newErrorbar(error)
   peakfit.layout.showlegend = true
   peakfit.layout.title = name
   peakfit.traces[0].name = &"{name}"
   peakfit.traces[0].marker = Marker[float](color: @[ColorTDBlau])
+  peakfit.traces[0].ys_err = errorbar
   peakfit.layout.xaxis.title = "Energy in keV"
   peakfit.layout.yaxis.title = &"Peakposition for {name}"
   peakfit.show(&"{name}.svg")
@@ -1074,12 +1081,13 @@ proc main =
   let runs = readRuns(filename)
   var h5f = H5file(h5file, "rw")
   defer: discard h5f.close()
+  var ploterror: seq[float]
 
   if reco_order == "true":
     cutAndWrite(h5file)
 
   proc fitAndPlot[T: SomeNumber](h5file: string, tfKind: TargetFilterKind, dKind: DataKind):
-                 (seq[float], seq[float]) =
+                 (seq[float], seq[float], seq[float], seq[float]) =
     let targetFilter = tfkind
     var rawseq: seq[T]
     var cutseq: seq[T]
@@ -1131,7 +1139,7 @@ proc main =
                  binSize: float,
                  dKind: DataKind): (seq[float], seq[float], float, float) =
       let (histdata, bins) = histoCdl(dataseq, binSize, dKind)
-      let (pStart, pRes, fitBins, fitHist) = fitCdlImpl(histdata, bins, targetFilter, dKind)
+      let (pStart, pRes, fitBins, fitHist, errorres) = fitCdlImpl(histdata, bins, targetFilter, dKind)
       #fitForNlopt(convertNlopt, cdlFitFunc)
       #fitForNloptLnLikelihood(convertNlopt, cdlFitFunc)
       fitForNloptLnLikelihoodGrad(convertNlopt, cdlFitFunc)
@@ -1142,8 +1150,8 @@ proc main =
       of Dcharge:
         bounds = getboundsCharge(targetFilter)
       doassert pStart.len == bounds.len
-      echo "P start len ", pStart.len
-      echo "Bounds len ", bounds.len
+      #echo "P start len ", pStart.len
+      #echo "Bounds len ", bounds.len
       #var opt = newNloptOpt(LD_TNEWTON_PRECOND, pStart.len, bounds)
       var opt = newNloptOpt(LD_MMA, pStart.len, bounds)
       var fitObj = FitObject(x: fitBins, y: fitHist) #, yErr: fitHist.mapIt(sqrt(it)))
@@ -1153,7 +1161,7 @@ proc main =
       opt.ftol_rel = 1e-10
       #opt.xtol_abs = 1e-14
       #opt.ftol_abs = 1e-14
-      opt.maxtime  = 7.0
+      opt.maxtime  = 20.0
       #opt.maxEval  = 2000
       #opt.initialStep = 1
       let (paramsN, minN) = opt.optimize(pStart)
@@ -1162,7 +1170,10 @@ proc main =
       let minbin = fitBins.min
       let maxbin = fitBins.max
       result = (pRes, paramsN, minbin, maxbin)
-      echo "fit start params ", pStart
+      #echo "fit start params ", pStart
+      #echo "fit pRes ", pRes
+      #echo "fit paramsN ", paramsN
+
 
 
     proc calcfitcurve(minbin: float, maxbin: float,
@@ -1177,36 +1188,67 @@ proc main =
 
 
     let (histdata, bins) = histoCdl(cutseq, binsizeplot, dKind)
-    let (pStart, pRes, fitBins, fitHist) = fitCdlImpl(histdata, bins, targetFilter, dKind)
+    let (pStart, pRes, fitBins, fitHist, errorsres) = fitCdlImpl(histdata, bins, targetFilter, dKind)
     let fitresults = calcfit(cutseq, fitfunc, binsizeplot, dKind)
     echo "fitresults nlopt", fitresults[1]
     ##get the interesting fit params
+
+    ##some sketchy work around for errors
+    let cumu = cumsum(histdata)
+    let sum = sum(histdata)
+    let quotient = cumu.mapIt(it/sum)
+    let lowIdx = quotient.lowerBound(0.0005)
+    let highIdx = quotient.lowerBound(0.98)
+    let passbin = bins[lowIdx .. highIdx]
+    let passhist = histdata[lowIdx .. highIdx]
+    let passIdx = toSeq(0 .. passhist.high).filterIt(passhist[it] > 0)
+    let fitBinserr = passIdx.mapIt(passbin[it])
+    let fitHisterr = passIdx.mapIt(passhist[it])
+    let err = fitHist.mapIt(1.0)# / sqrt(it))
+
+    let (FitError, mpfitError) = fit(fitfunc, fitresults[1], fitBinserr, fitHisterr, err)
+    echo "fit errors: ", mpfitError.error
+    ploterror = mpfitError.error
+
+
     var fitmu: float
     var fitsig: float
+    var fitmuerr: float
+    var fitsigerr: float
     var energyres: float
     var museq: seq[float]
     var sigseq: seq[float]
     var energyseq: seq[float]
-    echo "lines ", lines[0].kind
+    var energyreserr: float
+    var energyseqerr: seq[float]
+    #echo "lines ", lines[0].kind
     case lines[0].kind
     of ffGauss:
       fitmu = fitresults[1][1]
       fitsig = fitresults[1][2]
+      fitmuerr = ploterror[1]
+      fitsigerr = ploterror[2]
       museq.add(fitmu)
     of ffExpGauss:
       fitmu = fitresults[1][3]
       fitsig = fitresults[1][4]
+      fitmuerr = ploterror[3]
+      fitsigerr = ploterror[4]
       museq.add(fitmu)
     else:
       discard
-    echo "fitmu ", fitmu
-    echo "fitsig ", fitsig
-    echo "fitmuseq ", museq
+    #echo "fitmu ", fitmu
+    #echo "fitsig ", fitsig
+    #echo "fitmuseq ", museq
     energyres = fitsig / fitmu
+    energyreserr = sqrt(pow((fitsigerr / fitmu), 2) + pow((fitsig * fitmuerr / pow(fitmu,2)),2) )
+    energyseqerr.add(energyreserr)
     energyseq.add(energyres)
     echo "energyres ", energyres
     result[0].add(fitmu)
     result[1].add(energyres)
+    result[2].add(fitmuerr)
+    result[3].add(energyreserr)
 
     let mpfitres = calcfitcurve(fitresults[2], fitresults[3], fitfunc, fitresults[0])
     let nloptres = calcfitcurve(fitresults[2], fitresults[3], fitfunc, fitresults[1])
@@ -1234,15 +1276,15 @@ proc main =
     let plt = hitsRaw.addTrace(hitsCut.traces[0])
       #.addTrace(cdlPlot.traces[0])
       .addTrace(cdlPlotNlopt.traces[0])
-      .addTrace(startPlot.traces[0])
+      #.addTrace(startPlot.traces[0])
       .legendLocation(x = 0.8, y = 0.9)
-      .legendBgColor(ColorTHGrau)
+      #.legendBgColor(ColorTHGrau)
       .backgroundColor(ColorTHGrau)
       .gridColor(color())
     plt.layout.title = &"target: {targetFilter}"
     plt.layout.showlegend = true
     #plt.legendBgColor(ColorTB)
-    plt.traces[1].opacity = 0.5
+    plt.traces[0].opacity = 1.0
     plt.traces[0].name = "raw data"
     plt.traces[0].marker = Marker[float](color: @[ColorTGrau])
     plt.traces[1].name = "data with cuts"
@@ -1250,8 +1292,8 @@ proc main =
     plt.traces[1].opacity = 1.0
     plt.traces[2].name = "fit curve nlopt"
     plt.traces[2].marker = Marker[float](color: @[ColorTGelb])
-    plt.traces[3].name = "fit start"
-    plt.traces[3].marker = Marker[float](color: @[black])
+    #plt.traces[3].name = "fit start"
+    #plt.traces[3].marker = Marker[float](color: @[black])
     plt.layout.yaxis.title = "Occurence"
     plt.layout.xaxis.title = xtitle
     #plt.layout.annotations.add [testanno]
@@ -1295,22 +1337,30 @@ proc main =
     # f.close()
 
   var peakposHits: seq[float]
+  var peakHitsErr: seq[float]
   var energyResHits: seq[float]
+  var energyHitsErr: seq[float]
   var peakposCharge: seq[float]
+  var peakChargeErr: seq[float]
   var energyResCharge: seq[float]
-  #let a = fitAndPlot[int64](h5file, tfAgAg6, Dhits)
-  #let b = fitAndPlot[float64](h5file, tfAgAg6, Dcharge)
+  var energyChargeErr: seq[float]
+  #let a = fitAndPlot[int64](h5file, tfCuEpic0_9, Dhits)
+  #let b = fitAndPlot[float64](h5file, tfCuEpic0_9, Dcharge)
   for tfkind in TargetFilterKind:
     let energyHits = fitAndPlot[int64](h5file, tfkind, Dhits)
     peakposHits.add(energyHits[0])
     energyResHits.add(energyHits[1])
+    peakHitsErr.add(energyHits[2])
+    energyHitsErr.add(energyHits[3])
     #echo "energyres ", energyResHit
     let energyCharge = fitAndPlot[float64](h5file, tfkind, Dcharge)
     peakposCharge.add(energyCharge[0])
     energyResCharge.add(energyCharge[1])
-  energycurve(energyResHits, energyResCharge)
-  #peakfit(peakposHits, "Hits")
-  #peakfit(peakposCharge, "Charge")
+    peakChargeErr.add(energyCharge[2])
+    energyChargeErr.add(energyCharge[3])
+  energycurve(energyResHits, energyResCharge, energyHitsErr, energyChargeErr)
+  peakfit(peakposHits, "Hits", peakHitsErr)
+  peakfit(peakposCharge, "Charge", peakChargeErr)
 
 when isMainModule:
   main()

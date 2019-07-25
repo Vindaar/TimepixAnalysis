@@ -76,6 +76,14 @@ def readXrayData(h5file, chip):
         raise TypeError("Chip number MUST be an integer!")
     energy = readH5Data(h5file, group_name, chipNumber, ["energyFromCharge"])
     return energy
+    # TODO: this is a hack for now!
+    #try:
+    #    energy = readH5Data(h5file, group_name, chipNumber, ["energyFromPixel"])
+    #    return energy / 1000.0
+    #except ValueError:
+    #    energy = readH5Data(h5file, group_name, chipNumber, ["energyFromCharge"])
+    #    return energy
+
 
 def prepareChristophFrameworkPlot(logY):
     ## creates the plot for the background rate of Christoph's analysis framework

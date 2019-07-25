@@ -116,8 +116,18 @@ proc getChipOutline*(maxVal: SomeNumber): DataFrame =
   let ch = toSeq(0 ..< xs.len).mapIt(maxVal.float)
   result = seqsToDf({"x" : xs, "y" : ys, "charge" : ch})
 
-proc initSeptemFrame*(): Tensor[float] {.noinit.} =
-  result = zeros[float]([3 * 256, 3 * 256])
+proc getSeptemOutlines*(maxVal: SomeNumber): Tensor[float] =
+  ## returns the outline of the chips of the SeptemBoard in a
+  ## full septem frame as a Tensor
+  result = initSeptemFrame()
+  for j in 0 ..< 7:
+    let outlineDf = getChipOutline(maxVal)
+    result.addChipToSeptemEvent(outlineDf, j)
+  result.apply_inline:
+      if x > 0.0:
+        maxVal / 10.0
+      else:
+        x
 
 proc getFullFrame*(maxVal: SomeNumber): DataFrame =
   ## returns a data frame with an event similar to a full timepix event, i.e. the

@@ -517,6 +517,7 @@ proc applySeptemVeto(h5f, h5fout: var H5FileObj,
       var passed = false
       var totCharge: float
       for cl in recoEv.cluster:
+        var frame = initSeptemFrame()
         let clData = cl.data
         for pix in clData:
           # take each pixel tuple and reconvert it to chip based coordinates
@@ -528,7 +529,9 @@ proc applySeptemVeto(h5f, h5fout: var H5FileObj,
           # taken the chip of the pixel, reconvert that to a local coordinate system
           # given charge of this pixel, assign it to some intermediate storage
           let params = totCalibParams[pixChip]
-          totCharge += calibrateCharge(pix.ch.float, params[0], params[1], params[2], params[3])
+          let pixCharge = calibrateCharge(pix.ch.float, params[0], params[1], params[2], params[3])
+          totCharge += pixCharge
+          frame[pix.y, pix.x] = 1.0 #pixCharge
         # using total charge and `RunningStat` calculate energy from charge
         let energy = totCharge * linearFunc(@[b, m], gains.mean) * 1e-6
 
@@ -543,6 +546,15 @@ proc applySeptemVeto(h5f, h5fout: var H5FileObj,
         if logL < cutTab[dset]:
           # first attempt. Unless passing throw event from passindIngs
           passed = true
+        else:
+          echo "Plotting not passing cluster!"
+          let outline = getSeptemOutlines(1.0)
+          frame = frame .+ outline
+          heatmap(frame.toSeq2D)
+            .title("Event " & $evNum & " number of clusters " & $recoEv.cluster.len)
+            .width(1600)
+            .height(1600)
+            .show()
       if not passed:
         passedInds.excl centerEvIdx
   echo "Passed indices after septem veto ", passedInds.card

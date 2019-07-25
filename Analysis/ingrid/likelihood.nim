@@ -12,6 +12,7 @@ import sequtils
 import seqmath
 import loopfusion
 import plotly
+import arraymancer
 import ingrid / [ingrid_types, calibration]
 from ingrid / reconstruction import recoEvent
 import ingridDatabase / databaseRead
@@ -125,14 +126,14 @@ proc buildLogLHist(h5file, dset: string, region: ChipRegion = crGold): seq[float
           result.add logL[i]
 
   # now create plots of all ref likelihood distributions
-  echo min(result), " ", max(result)
-  if "4kV" in dset or "0.6kV" in dset:
-    let binSize = (30.0 + 0.0) / 200.0
-    histPlot(result)
-      .binRange(0.0, 30.0)
-      .binSize(binSize)
-      .title(dset & " for region: " & $region)
-      .show()
+  echo "max is inf ? ", min(result), " ", max(result)
+  #if "4kV" in dset or "0.6kV" in dset:
+  #  let binSize = (30.0 + 0.0) / 200.0
+  #  histPlot(result)
+  #    .binRange(0.0, 30.0)
+  #    .binSize(binSize)
+  #    .title(dset & " for region: " & $region)
+  #    .show()
 
 proc determineCutValue[T](hist: seq[T], eff: float): int =
   ## given a histogram `hist`, determine the correct bin to cut at to achieve
@@ -747,18 +748,18 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj,
         totalDurations[chipNumber] += totalDurationRun
         totalDurationsPassed[chipNumber] += totalDurationRunPassed
 
-  let binSize = (30.0 + 0.0) / 200.0
-  let bins = (0.0, 30.0)
-  histPlot(logLSeq)
-    .binRange(bins[0], bins[1])
-    .binSize(binSize)
-    .title("Background logL for all runs 4kV Al")
-    .show()
-  histPlot(logLSeqLow)
-    .binRange(bins[0], bins[1])
-    .binSize(binSize)
-    .title("Background logL for all runs 0.6kV C")
-    .show()
+  #let binSize = (30.0 + 0.0) / 200.0
+  #let bins = (0.0, 30.0)
+  #histPlot(logLSeq)
+  #  .binRange(bins[0], bins[1])
+  #  .binSize(binSize)
+  #  .title("Background logL for all runs 4kV Al")
+  #  .show()
+  #histPlot(logLSeqLow)
+  #  .binRange(bins[0], bins[1])
+  #  .binSize(binSize)
+  #  .title("Background logL for all runs 0.6kV C")
+  #  .show()
 
   # once done write total duration as attributes to `likelihood` group
   var lhGrp = h5fout[likelihoodGroupGrpStr()]

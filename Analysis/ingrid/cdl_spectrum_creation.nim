@@ -1076,8 +1076,8 @@ proc dumpFitParameters(outfile, svgFname: string,
   ## dumps the fit paramters and their names, plus the filename of the corresponding SVG
   ## to a txt file
   var outf = open(outfile, fmAppend)
-  outf.write(&"svg: {svgFname}")
-  outf.write(&"tfKind: {tfKind}")
+  outf.write(&"svg: {svgFname}\n")
+  outf.write(&"tfKind: {tfKind}\n")
   # now get the correct names for the fit parameters via a call to getLines
   var fitLines: seq[FitFuncArgs]
   case dKind
@@ -1088,10 +1088,17 @@ proc dumpFitParameters(outfile, svgFname: string,
     fitLines = getLinesCharge(@[0'f64], @[0'f64], # dummy values
                               tfKind)
   # iterate the lines and then unroll the FitFuncArgs object
+  var i = 0
   for line in fitLines:
     for field, val in fieldPairs(line):
-      echo "Field ", field
-      echo "Value ", val
+      when type(val) is float:
+        if val != NaN:
+          if params[i] >= 1e5:
+            outf.write($field & &" = {params[i]:.2e} \\pm {errors[i]:.2e}\n")
+          else:
+            outf.write($field & &" = {params[i]:.4f} \\pm {errors[i]:.4f}\n")
+          inc i
+  outf.close()
 
 proc fitAndPlot[T: SomeNumber](h5file, fitParamsFname: string,
                                tfKind: TargetFilterKind, dKind: DataKind):
@@ -1317,7 +1324,7 @@ proc fitAndPlot[T: SomeNumber](h5file, fitParamsFname: string,
   plt.show(fname)
 
   # now dump the fit results, SVG filename and correct parameter names to a file
-  dumpFitParameters(fname, fitParamsFname, fitresults[1], ploterror, tfKind, dKind)
+  dumpFitParameters(fitParamsFname, fname, fitresults[1], ploterror, tfKind, dKind)
 
   ##create a svg
   # let nodes = buildSvg:

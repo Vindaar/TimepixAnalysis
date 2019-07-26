@@ -12,12 +12,16 @@ Usage:
   cdl_spectrum_creation <h5file> [options]
   cdl_spectrum_creation -h | --help
   cdl_spectrum_creation --version
-  cdl_spectrum_creation <h5file> --cutcdl
+  cdl_spectrum_creation <h5file> --dumpAccurate [options]
+  cdl_spectrum_creation <h5file> --cutcdl [options]
 
 Options:
-  -h, --help   Show this help
-  --version    Show the version number
-  --cutcdl     Creates CDL data in h5
+  -h, --help      Show this help
+  --version       Show the version number
+  --cutcdl        Creates CDL data in h5
+  --dumpAccurate  If set will dump the fit parameters to a
+                  `fitParameters_<timestamp>.txt` file with
+                  higher accuracy (4 decimal places instead of 2).
 """
 const doc = withDocopt(docStr)
 
@@ -59,7 +63,7 @@ type
     fAl = "Al"
     fTi = "Ti"
 
-  TargetFilterKind = enum
+  TargetFilterKind* = enum
     tfCuNi15 = "Cu-Ni-15kV"
     tfMnCr12 = "Mn-Cr-12kV"
     tfTiTi9 = "Ti-Ti-9kV"
@@ -1087,16 +1091,43 @@ proc dumpFitParameters(outfile, svgFname: string,
   of DCharge:
     fitLines = getLinesCharge(@[0'f64], @[0'f64], # dummy values
                               tfKind)
+  let maxLineWidth = fitLines.mapIt(it.name.len).max
+
+  # determine max length of params and errors fields as a string
+  func toString(f: float): string =
+    if f >= 1e5:
+      if "accurate" in outfile:
+        result = &"{f:.2e}"
+      else:
+        result = &"{f:.1e}"
+    else:
+      if "accurate" in outfile:
+        result = &"{f:.4f}"
+      else:
+        result = &"{f:.2f}"
+  func maxWidth(s: seq[float]): int =
+    let strs = s.mapIt(it.toString)
+    result = max(strs.mapIt(it.len))
+  func paddedStrs(s: seq[float]): seq[string] =
+    let maxW = s.maxWidth
+    result = s.mapIt(it.toString)
+    for i in 0 ..< result.len:
+      result[i] = result[i].align(maxW)
+
+  let pStrs = params.paddedStrs
+  let eStrs = errors.paddedStrs
   # iterate the lines and then unroll the FitFuncArgs object
   var i = 0
+  var lineName: string
   for line in fitLines:
     for field, val in fieldPairs(line):
-      when type(val) is float:
+      when type(val) is string:
+        lineName = val
+        outf.write(&"{lineName}:\n")
+      elif type(val) is float:
+        let fstr = $field
         if val != NaN:
-          if params[i] >= 1e5:
-            outf.write($field & &" = {params[i]:.2e} \\pm {errors[i]:.2e}\n")
-          else:
-            outf.write($field & &" = {params[i]:.4f} \\pm {errors[i]:.4f}\n")
+          outf.write(&"{fstr:<3} = {pStrs[i]} \\pm {eStrs[i]}\n")
           inc i
   outf.close()
 
@@ -1326,54 +1357,24 @@ proc fitAndPlot[T: SomeNumber](h5file, fitParamsFname: string,
   # now dump the fit results, SVG filename and correct parameter names to a file
   dumpFitParameters(fitParamsFname, fname, fitresults[1], ploterror, tfKind, dKind)
 
-  ##create a svg
-  # let nodes = buildSvg:
-  #   let size = 20
-  #   svg(width=size, height=size, xmlns="http://www.w3.org/2000/svg", version="1.1"):
-  #     for _ in 0 .. 1000:
-  #       let x = random(size)
-  #       let y = random(size)
-  #       let radius = random(5)
-  #       circle(cx=x, cy=y, r=radius, stroke="#111122", fill="#E0E0F0", `fill-opacity`=0.5)
-  #
-  # let xmlNodes = nodes.render.parseXml
-  #
-  # #echo xmlNodes
-  # #echo xmlNodes.len
-  #
-  # let xmlPolya = loadXml "Mn-Cr-12kVCharge-2019.svg"
-  # echo xmlPolya.len
-
-  # let att = {"transform" : "translate(800, 400)"}.toXmlAttributes
-  # var nnNew = newXmlTree("g", xmlNodes.mapIt(it), att)
-  # for x in xmlNodes:
-  #   nnNew.add x
-  # var nnPNew = newElement("g")
-  # for x in xmlPolya:
-  #   nnPNew.add x
-  #
-  # for i in 0 ..< xmlPolya.len:
-  #   xmlPolya.delete(0)
-  #
-  # xmlPolya.add nnPNew
-  # xmlPolya.add nnNew
-  # echo xmlPolya.len
-  #
-  # var f = open("test.svg", fmWrite)
-  # f.write(xmlPolya)
-  # f.close()
-
-
-
 proc main =
   #echo "OK"
   let args = docopt(doc)
   echo "ARGS", args
 
-  let fitParamsFname = "fitparams_" & $(epochTime().round.int) & ".txt"
-
   let h5file = $args["<h5file>"]
   let reco_order = $args["--cutcdl"]
+  let dumpAccurate = if args["--dumpAccurate"].toBool:
+                       true
+                     else:
+                       false
+
+
+  var fitParamsFname = ""
+  if dumpAccurate:
+    fitParamsFname = "fitparams_accurate_" & $(epochTime().round.int) & ".txt"
+  else:
+    fitParamsFname = "fitparams_" & $(epochTime().round.int) & ".txt"
 
   if reco_order == "true":
     cutAndWrite(h5file)

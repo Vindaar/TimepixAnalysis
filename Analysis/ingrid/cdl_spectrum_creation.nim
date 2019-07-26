@@ -14,6 +14,8 @@ Usage:
   cdl_spectrum_creation --version
   cdl_spectrum_creation <h5file> --dumpAccurate [options]
   cdl_spectrum_creation <h5file> --cutcdl [options]
+  cdl_spectrum_creation <h5file> --genRefFile --year=YEAR [options]
+  cdl_spectrum_creation <h5file> --genCdlFile --year=YEAR [options]
 
 Options:
   -h, --help      Show this help
@@ -22,6 +24,13 @@ Options:
   --dumpAccurate  If set will dump the fit parameters to a
                   `fitParameters_<timestamp>.txt` file with
                   higher accuracy (4 decimal places instead of 2).
+  --genRefFile    Generates the X-ray reference data file. Basically
+                  TargetFilterKinds filtered by charge cut on peaks.
+  --genCdlFile    Generate the combined CDL calibration file.
+                  Mainly input file regrouped by TargetFilterKind
+                  instead of run numbers.
+  --outfile=NAME  Name of the output file. Optional.
+  --year=YEAR     Year to add to output filenames.
 """
 const doc = withDocopt(docStr)
 
@@ -109,6 +118,10 @@ type
   DataKind = enum
     Dhits = "hits"
     Dcharge = "charge"
+
+  YearKind = enum
+    yr2014 = "2014"
+    yr2018 = "2018"
 
 const fixed = NaN
 
@@ -1357,53 +1370,90 @@ proc fitAndPlot[T: SomeNumber](h5file, fitParamsFname: string,
   # now dump the fit results, SVG filename and correct parameter names to a file
   dumpFitParameters(fitParamsFname, fname, fitresults[1], ploterror, tfKind, dKind)
 
+
+func generateCdlCalibrationFile(h5file: string, year: YearKind,
+                                outfile = "calibration-cdl") =
+  ## generates the CD calibration data file
+  discard
+
+func generateXrayReferenceFile(h5file: string, year: YearKind,
+                               outfile = "XrayReferenceFile") =
+  ## generates the X-ray reference data file
+  # this is achieved by taking the raw TargetFilterKind runs, combining them
+  # into a the full CDL calibration file (if the input is the raw run based
+  # file, else it skips the first step)
+  # then we apply the charge cuts and bin the data by N bins
+  # the result is written to the new file as (N, 2) datasets
+  var h5f = H5file(h5file, "r")
+  if "reconstruction" in h5f:
+    # is a raw file, first create the CDL calibration file
+    discard h5f.close()
+    let cdlOut = "auto_calibration-cdl_" & $year
+    generateCdlCalibrationFile(h5file, cdlOut)
+    h5f = H5file(cdlOut, "r")
+
+  # now walk all groups in root of h5f, read the datasets required for
+  # charge cuts, write all passing indices back to file as binned
+  # datasets
+  discard
+
 proc main =
   #echo "OK"
   let args = docopt(doc)
   echo "ARGS", args
 
   let h5file = $args["<h5file>"]
-  let reco_order = $args["--cutcdl"]
+  let year = parseEnum[YearKind]($args["--year"])
+  let reco_order = args["--cutcdl"].toBool
+  let genRefFile = args["--genRefFile"].toBool
+  let genCdlFile = args["--genCdlFile"].toBool
   let dumpAccurate = if args["--dumpAccurate"].toBool:
                        true
                      else:
                        false
 
-
-  var fitParamsFname = ""
-  if dumpAccurate:
-    fitParamsFname = "fitparams_accurate_" & $(epochTime().round.int) & ".txt"
-  else:
-    fitParamsFname = "fitparams_" & $(epochTime().round.int) & ".txt"
-
-  if reco_order == "true":
+  if genRefFile:
+    generateXrayReferenceFile(h5file, year)
+  if genCdlFIle:
+    generateCdlCalibrationFile(h5file, year)
+  if reco_order:
     cutAndWrite(h5file)
 
-  var peakposHits: seq[float]
-  var peakHitsErr: seq[float]
-  var energyResHits: seq[float]
-  var energyHitsErr: seq[float]
-  var peakposCharge: seq[float]
-  var peakChargeErr: seq[float]
-  var energyResCharge: seq[float]
-  var energyChargeErr: seq[float]
-  #let a = fitAndPlot[int64](h5file, tfCuEpic0_9, Dhits)
-  #let b = fitAndPlot[float64](h5file, tfCuEpic0_9, Dcharge)
-  for tfkind in TargetFilterKind:
-    let energyHits = fitAndPlot[int64](h5file, fitParamsFname, tfkind, Dhits)
-    peakposHits.add(energyHits[0])
-    energyResHits.add(energyHits[1])
-    peakHitsErr.add(energyHits[2])
-    energyHitsErr.add(energyHits[3])
-    #echo "energyres ", energyResHit
-    let energyCharge = fitAndPlot[float64](h5file, fitParamsFname, tfkind, Dcharge)
-    peakposCharge.add(energyCharge[0])
-    energyResCharge.add(energyCharge[1])
-    peakChargeErr.add(energyCharge[2])
-    energyChargeErr.add(energyCharge[3])
-  energycurve(energyResHits, energyResCharge, energyHitsErr, energyChargeErr)
-  peakfit(peakposHits, "Hits", peakHitsErr)
-  peakfit(peakposCharge, "Charge", peakChargeErr)
+  if not genRefFile and not genCdlFile:
+    # only perform CDL fits if neither CDL calibration file nor
+    # reference file created
+    var fitParamsFname = ""
+    if dumpAccurate:
+      fitParamsFname = "fitparams_accurate_" & $(epochTime().round.int) & ".txt"
+    else:
+      fitParamsFname = "fitparams_" & $(epochTime().round.int) & ".txt"
+
+
+    var peakposHits: seq[float]
+    var peakHitsErr: seq[float]
+    var energyResHits: seq[float]
+    var energyHitsErr: seq[float]
+    var peakposCharge: seq[float]
+    var peakChargeErr: seq[float]
+    var energyResCharge: seq[float]
+    var energyChargeErr: seq[float]
+    #let a = fitAndPlot[int64](h5file, tfCuEpic0_9, Dhits)
+    #let b = fitAndPlot[float64](h5file, tfCuEpic0_9, Dcharge)
+    for tfkind in TargetFilterKind:
+      let energyHits = fitAndPlot[int64](h5file, fitParamsFname, tfkind, Dhits)
+      peakposHits.add(energyHits[0])
+      energyResHits.add(energyHits[1])
+      peakHitsErr.add(energyHits[2])
+      energyHitsErr.add(energyHits[3])
+      #echo "energyres ", energyResHit
+      let energyCharge = fitAndPlot[float64](h5file, fitParamsFname, tfkind, Dcharge)
+      peakposCharge.add(energyCharge[0])
+      energyResCharge.add(energyCharge[1])
+      peakChargeErr.add(energyCharge[2])
+      energyChargeErr.add(energyCharge[3])
+    energycurve(energyResHits, energyResCharge, energyHitsErr, energyChargeErr)
+    peakfit(peakposHits, "Hits", peakHitsErr)
+    peakfit(peakposCharge, "Charge", peakChargeErr)
 
 when isMainModule:
   main()

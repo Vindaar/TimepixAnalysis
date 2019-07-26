@@ -78,51 +78,30 @@ proc dumpOnSvg(svgPath: string, param: Params) =
           tspan(x = 0, `white-space`="pre"):
             t: p.replace("\\pm", "±")
 
-          #tspan(x=50, dy="1.2em"):
-          #  t: "Hello World"
-          #tspan(x=50, dy="1.2em"):
-          #  t: "Ok!"
-  echo nodes
-
-  var xmlNodes = nodes.render.parseXml
-
-  #echo xmlNodes
-  #echo xmlNodes.len
-
+  # convert SVG to XML tree
+  var fitDumpNodes = nodes.render.parseXml
+  # load the SVG as XML tree
   let xmlPlot = loadXml svgFname
-  echo xmlPlot.len
 
+  # create a transform attribute, which will place the fit parameter dump
+  # (`fitDumpNodes`) onto the `xmlPlot`
   let att = {"transform" : "translate(850, 150)"}.toXmlAttributes
-
-  #for x in mitems(xmlNodes):
-  #  var tups: StringTableRef
-  #  tups = x.attrs
-  #  tups["xml:space"] = "preserved"
-  #  x.attrs = tups.XmlAttributes
-
-  var nnNew = newXmlTree("g", xmlNodes.mapIt(it), att)
-  #for x in mitems(nnNew):
-  #  x.attr("xml:space") = "preserve"
-    #echo "X is ", x.attrs
-  #for x in xmlNodes:
-  #  nnNew.add x
+  # create new tree combining `att`, `fitDumpNodes` into a `g` XML element
+  var fitDumpTree = newXmlTree("g", fitDumpNodes.mapIt(it), att)
+  # create new `g` element, into which we will put the old SVG plot
   var nnPNew = newElement("g")
-  for x in xmlPLot:
+  for x in xmlPlot:
     nnPNew.add x
-
+  # delete the 0th entry on all `xmlPlot` children
   for i in 0 ..< xmlPlot.len:
     xmlPlot.delete(0)
-
+  # finally readd everything via the `g` elements
   xmlPlot.add nnPNew
-  xmlPlot.add nnNew
-  echo xmlPlot.len
-  #echo xmlPlot
-
-  var f = open("test_" & param.svg, fmWrite)
+  xmlPlot.add fitDumpTree
+  # write to file
+  var f = open("fitDump_" & param.svg, fmWrite)
   f.write(xmlPlot)
   f.close()
-
-
 
 proc main =
   let args = docopt(doc)

@@ -1126,7 +1126,7 @@ proc dumpFitParameters(outfile, svgFname: string,
         outf.write(&"{lineName}:\n")
       elif type(val) is float:
         let fstr = $field
-        if val != NaN:
+        if classify(val) != fcNaN:
           outf.write(&"{fstr:<3} = {pStrs[i]} \\pm {eStrs[i]}\n")
           inc i
   outf.close()

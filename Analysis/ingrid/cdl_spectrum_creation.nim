@@ -1386,8 +1386,7 @@ proc cdlToXrayTransform(h5fout: var H5FileObj,
   of yr2014:
     (numBins, minVal, maxVal) = cdlToXrayBinning2014(outname)
   of yr2018:
-    # (numBins, minVal, maxVal) = cdlToXrayBinning2018(outname) # not implemented yet
-    discard
+    (numBins, minVal, maxVal) = cdlToXrayBinning2018(outname) # not implemented yet
   # given passing data, calculate histogram and write to file
   let (hist, bins) = histogram(passedData,
                                numBins,
@@ -1493,6 +1492,28 @@ proc generateXrayReferenceFile(h5file: string, year: YearKind,
                            year)
       of "feb2019":
         doAssert year == yr2018
+        # now perform cuts on datasets
+        doAssert tfKindStr & "kV" in xrayRefCuts
+        let cut = xrayRefCuts[tfKindStr & "kV"]
+        let passIdx = cutOnProperties(h5f,
+                                      group,
+                                      ("rmsTransverse", cut.minRms, cut.maxRms),
+                                      ("length", 0.0, cut.maxLength),
+                                      ("hits", cut.minPix, Inf),
+                                      ("totalCharge", cut.minCharge, cut.maxCharge))
+        echo "Number of passing indices ", passIdx.len
+        # given passIdx, now read each dataset iteratively and apply cuts
+        for dset in mgrp:
+          case dset.dtypeAnyKind
+          of akSequence:
+            # variable length data, x, y, charge, will be dropped in conversion
+            discard
+          else:
+            # output name as as input for 2018
+            let outname = dset.name.extractFilename
+            # float64 data
+            let passedData = readAndFilter(h5f, dset.name, passIdx)
+            cdlToXrayTransform(h5fout, passedData, tfKindStr & "kV", outname, year)
       else:
         raise newException(ValueError, "Invalid year string for calibration: " &
           $date)

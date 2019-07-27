@@ -1,5 +1,5 @@
 import parsecsv, os, streams, strutils, strformat, nimhdf5, tables, sequtils, macros
-import seqmath, algorithm, times
+import seqmath, algorithm, times, strscans, typeinfo
 import plotly, mpfit, nlopt, nimpy
 import ingrid / [ingrid_types, tos_helpers, calibration]
 import docopt
@@ -1370,13 +1370,52 @@ proc fitAndPlot[T: SomeNumber](h5file, fitParamsFname: string,
   # now dump the fit results, SVG filename and correct parameter names to a file
   dumpFitParameters(fitParamsFname, fname, fitresults[1], ploterror, tfKind, dKind)
 
+proc cdlToXrayTransform(h5fout: var H5FileObj,
+                        passedData: seq[float],
+                        tfKindStr: string,
+                        outname: string,
+                        year: YearKind) =
+  ## performs whole conversion from from calibration-cdl data to Xray cut
+  ## if the charge cut has been applied (`passIdx` indicates passing indices).
+  # means we have a 1:1 map, so get the required binning
+  var
+    numBins: int
+    minVal: float
+    maxVal: float
+  case year
+  of yr2014:
+    (numBins, minVal, maxVal) = cdlToXrayBinning2014(outname)
+  of yr2018:
+    # (numBins, minVal, maxVal) = cdlToXrayBinning2018(outname) # not implemented yet
+    discard
+  # given passing data, calculate histogram and write to file
+  let (hist, bins) = histogram(passedData,
+                               numBins,
+                               range = (minVal, maxVal),
+                               upperRangeBinRight = false)
+  # combine the hist bins data to a seq2D
+  let histBins = @[bins[0 .. ^2], hist.mapIt(it.float)].transpose
+  # create dataset
+  let dsetToWrite = h5fout.create_dataset((tfKindStr / outname),
+                                          histBins.shape,
+                                          float)
+  dsetToWrite[dsetToWrite.all] = histBins
+
+proc readAndFilter(h5f: var H5FileObj,
+                   dsetName: string,
+                   passIdx: seq[int]): seq[float] =
+  ## reads the dataset given by `dsetName` as a `float` seq and filters
+  ## by `passIdx`.
+  let data = h5f.readAs(dsetName, float)
+  # apply passIdx
+  result = passIdx.mapIt(data[it])
 
 func generateCdlCalibrationFile(h5file: string, year: YearKind,
                                 outfile = "calibration-cdl") =
   ## generates the CD calibration data file
   discard
 
-func generateXrayReferenceFile(h5file: string, year: YearKind,
+proc generateXrayReferenceFile(h5file: string, year: YearKind,
                                outfile = "XrayReferenceFile") =
   ## generates the X-ray reference data file
   # this is achieved by taking the raw TargetFilterKind runs, combining them
@@ -1389,13 +1428,79 @@ func generateXrayReferenceFile(h5file: string, year: YearKind,
     # is a raw file, first create the CDL calibration file
     discard h5f.close()
     let cdlOut = "auto_calibration-cdl_" & $year
-    generateCdlCalibrationFile(h5file, cdlOut)
+    generateCdlCalibrationFile(h5file, year, cdlOut)
     h5f = H5file(cdlOut, "r")
 
   # now walk all groups in root of h5f, read the datasets required for
   # charge cuts, write all passing indices back to file as binned
   # datasets
-  discard
+  var
+    date: string
+    tfKindStr: string
+  const xrayRefTab = getXrayRefTable()
+  let xrayRefCuts = getEnergyBinMinMaxVals() #XraySpectrumCutVals()
+
+  var h5fout = H5file(outfile & $year & ".h5", "rw")
+
+  for group in h5f:
+    var mgrp = group
+    echo group.name
+    if scanf(group.name, "/calibration-cdl-$+-$+kV", date, tfKindStr):
+      case date
+      of "apr2014":
+        doAssert year == yr2014
+        # now perform cuts on datasets
+        doAssert tfKindStr & "kV" in xrayRefCuts
+        let cut = xrayRefCuts[tfKindStr & "kV"]
+        let passIdx = cutOnProperties(h5f,
+                                      group,
+                                      ("RmsTransverse", cut.minRms, cut.maxRms),
+                                      ("Length", 0.0, cut.maxLength),
+                                      ("NumberOfPixels", cut.minPix, Inf),
+                                      ("TotalCharge", cut.minCharge, cut.maxCharge))
+        echo "Number of passing indices ", passIdx.len
+        #let pix = h5f.readAs(group.name / "NumberOfPixels", float)
+        #let pixReduced = passIdx.mapIt(pix[it])
+        #let dfRaw = seqsToDf({"pix" : pix})
+        #let dfReduced = seqsToDf({"pix" : pixReduced})
+        #ggplot(dfRaw, aes("pix")) + geom_histogram(bins = 300) + ggsave("test_" & $tfKindStr & ".pdf")
+        #ggplot(dfReduced, aes("pix")) + geom_histogram(bins = 300) + ggsave("test_cut_" & $tfKindStr & ".pdf")
+        # given passIdx, now read each dataset iteratively and apply cuts
+        for dset in mgrp:
+          case dset.dtypeAnyKind
+          of akSequence:
+            # variable length data, x, y, charge, will be dropped in conversion
+            discard
+          else:
+            # get the name of the dataset in the output
+            let outname = cdlToXray2014(dset.name.extractFilename)
+            if outname.len > 0:
+              # float32 data
+              let passedData = readAndFilter(h5f, dset.name, passIdx)
+              cdlToXrayTransform(h5fout, passedData, tfKindStr & "kV", outname, year)
+        # 2014 dataset does not contain `lengthdivbyrmsy` in the calibration file
+        # create that manually
+        let length = readAndFilter(h5f, mgrp.name / "Length", passIdx)
+        let rmsTrans = readAndFilter(h5f, mgrp.name / "RmsTransverse", passIdx)
+        let lengthDivRmsTrans = toSeq(0 ..< length.len).mapIt(
+          length[it] / rmsTrans[it]
+        )
+        # also write this dataset
+        cdlToXrayTransform(h5fout,
+                           lengthDivRmsTrans,
+                           tfKindStr & "kV",
+                           "lengthdivbyrmsy",
+                           year)
+      of "feb2019":
+        doAssert year == yr2018
+      else:
+        raise newException(ValueError, "Invalid year string for calibration: " &
+          $date)
+    else:
+      raise newException(ValueError, "Could not match calibration group in " &
+        $h5file & ", group name was " & $group.name)
+  discard h5fout.close()
+  discard h5f.close()
 
 proc main =
   #echo "OK"

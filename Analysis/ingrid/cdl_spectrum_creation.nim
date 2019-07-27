@@ -997,10 +997,25 @@ proc readRuns(fname: string): seq[CdlRun] =
                        hv: if row[6].strip.len > 0: row[6].strip.parseFloat else: 0.0)
       result.add run
 
-
 proc totfkind(run: CdlRun): TargetFilterKind =
   result = parseEnum[TargetFilterKind](&"{toCutStr(run)}")
 
+iterator tfRuns(h5f: var H5FileObj, tfKind: TargetFilterKind): H5Group =
+  ## Yields the center chip group of all runs from `filename`,
+  ## which match `tfKind`
+  let runs = readRuns(filename)
+  for r in runs:
+    case r.runType
+    of rtXrayFinger:
+      let tfk = r.totfkind
+      if tfk == tfKind:
+        let runGrp = h5f[recoRunGrpStr(r.number)]
+        let centerChip = runGrp.attrs["centerChip", int]
+        let chpGrp = h5f[(runGrp.name / "chip_" & $centerChip).grp_str]
+        yield chpGrp
+    else:
+      # nothing to yield if not an "XrayFinger" (read CDL) run
+      discard
 
 proc cutAndWrite(h5file: string) =
   let runs = readRuns(filename)
@@ -1409,10 +1424,21 @@ proc readAndFilter(h5f: var H5FileObj,
   # apply passIdx
   result = passIdx.mapIt(data[it])
 
-func generateCdlCalibrationFile(h5file: string, year: YearKind,
+proc generateCdlCalibrationFile(h5file: string, year: YearKind,
                                 outfile = "calibration-cdl") =
-  ## generates the CD calibration data file
-  discard
+  ## generates the CDL calibration data file from a HDF5 file containing
+  ## all CDL runs. Supports either 2014 CDL data or 2019 CDL data.
+  # walk all runs corresponding to a single `TargetFilterKind` and
+  # combine the datasets into the output files
+  var h5f = H5file(h5file, "r")
+  let runs = readRuns(filename)
+  for tfKind in TargetFilterKind:
+    for grp in tfRuns(h5f, tfKind):
+      # will not iterate the datasets and write to the outfile
+      # via hyperslabs, potentially appending to the existing
+      # dataset
+      discard
+  discard h5f.close()
 
 proc generateXrayReferenceFile(h5file: string, year: YearKind,
                                outfile = "XrayReferenceFile") =

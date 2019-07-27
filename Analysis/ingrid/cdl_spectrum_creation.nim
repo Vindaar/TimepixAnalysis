@@ -1413,6 +1413,23 @@ proc readAndFilter(h5f: var H5FileObj,
   # apply passIdx
   result = passIdx.mapIt(data[it])
 
+template  datasetCreation(h5f: untyped, name, dlen, `type`: untyped): untyped =
+  ## inserts the correct data set creation parameters
+  h5f.create_dataset(name,
+                     dlen,
+                     dtype = `type`,
+                     chunksize = @[5000, 1], # some hardcoded chunk size
+                     maxshape = @[int.high, 1])
+
+template createAndWrite(h5f, `type`, dset, outname: untyped): untyped =
+  let vlenType = special_type(`type`)
+  let outDset = h5fout.datasetCreation(outname, dset.shape, vlenType)
+  outDset[outDset.all] = h5f[dset.name, vlenType, `type`]
+
+template getAndAdd(h5read, h5write, dset, `type`, outDset: untyped): untyped =
+  let vlenType = special_type(`type`)
+  outDset.add h5read[dset.name, vlenType, `type`]
+
 proc generateCdlCalibrationFile(h5file: string, year: YearKind,
                                 outfile = "calibration-cdl") =
   ## generates the CDL calibration data file from a HDF5 file containing
@@ -1420,14 +1437,51 @@ proc generateCdlCalibrationFile(h5file: string, year: YearKind,
   # walk all runs corresponding to a single `TargetFilterKind` and
   # combine the datasets into the output files
   var h5f = H5file(h5file, "r")
+  var h5fout = H5file(outfile & "-year.h5", "rw")
   let runs = readRuns(filename)
   for tfKind in TargetFilterKind:
     for grp in tfRuns(h5f, tfKind):
       # will not iterate the datasets and write to the outfile
       # via hyperslabs, potentially appending to the existing
       # dataset
-      discard
+      var mgrp = grp
+      for dset in mgrp:
+        # TODO: add appropriate conversion of TPA naming to Marlin naming for
+        # 2014 raw input or allow `genRefFile` option to deal with TPA naming
+        # even for 2014 input!
+        let outname = cdlGroupName($tfKind, $year, dset.name)
+        if outname in h5fout:
+          # create dataset first
+          case dset.dtypeAnyKind
+          of akSequence:
+            # keep their base type and create special type
+            case dset.dtypeBaseKind
+            of akUint8:
+              createAndWrite(h5fout, uint8, dset, outname)
+            of akUint16:
+              createAndWrite(h5fout, uint16, dset, outname)
+            else:
+              raise newException(Exception, "??? " & $dset)
+          else:
+            let outDset = h5fout.datasetCreation(outname, dset.shape, float)
+            outDset[outDset.all] = h5f.readAs(dset.name, float)
+        else:
+          # append to dataset
+          var outDset = h5f[outname.dset_str]
+          case outDset.dtypeAnyKind
+          of akSequence:
+            # keep their base type and create special type
+            case outDset.dtypeBaseKind
+            of akUint8:
+              getAndAdd(h5f, h5fout, dset, uint8, outDset)
+            of akUint16:
+              getAndAdd(h5f, h5fout, dset, uint16, outDset)
+            else:
+              raise newException(Exception, "??? " & $dset)
+          else:
+            outDset.add h5f.readAs(dset.name, float)
   discard h5f.close()
+  discard h5fout.close()
 
 proc generateXrayReferenceFile(h5file: string, year: YearKind,
                                outfile = "XrayReferenceFile") =

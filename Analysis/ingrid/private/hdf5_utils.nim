@@ -9,6 +9,16 @@ import pure
 # Procs describing the data layout in the HDF5 file #
 #####################################################
 
+func cdlGroupName*(tfKindStr, year, dset: string): string =
+  let dsetName = dset.extractFilename
+  var myr = ""
+  case year
+  of "2014", "2015":
+    myr = "apr2014"
+  of "2018", "2019":
+    myr = "feb2019"
+  result = &"calibration-cdl-{myr}-{tfKindStr}/{dsetName}"
+
 func cdlToXrayBinning2014Map(): Table[string, tuple[bins: int, min, max: float]] =
   ## Maps the names of the `XrayReferenceDataSet.h5` (2014) to the
   ## number of bins and min, max values that must be given to the histogram function

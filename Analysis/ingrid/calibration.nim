@@ -677,8 +677,16 @@ proc cutOnProperties*(h5f: var H5FileObj,
   of crAll:
     discard
   else:
-    posX = h5f[group.name / "centerX", float]
-    posY = h5f[group.name / "centerY", float]
+    try:
+      # TODO: this is a workaround for now. `centerX` is the name used for
+      # TimepixAnalysis, but the `calibration-cdl.h5` data from Marlin uses
+      # PositionX. I don't want to add a `year` field or something to this proc,
+      # so for now we just depend on an exception.
+      posX = h5f.readAs(group.name / "centerX", float)
+      posY = h5f.readAs(group.name / "centerY", float)
+    except KeyError:
+      posX = h5f.readAs(group.name / "PositionX", float)
+      posY = h5f.readAs(group.name / "PositionY", float)
 
   for i in 0 ..< nEvents:
     # cut on region if applicable

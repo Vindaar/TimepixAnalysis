@@ -1453,6 +1453,7 @@ proc generateXrayReferenceFile(h5file: string, year: YearKind,
         let cut = xrayRefCuts[tfKindStr & "kV"]
         let passIdx = cutOnProperties(h5f,
                                       group,
+                                      crSilver, # try cutting to silver
                                       ("RmsTransverse", cut.minRms, cut.maxRms),
                                       ("Length", 0.0, cut.maxLength),
                                       ("NumberOfPixels", cut.minPix, Inf),

@@ -9,6 +9,81 @@ import pure
 # Procs describing the data layout in the HDF5 file #
 #####################################################
 
+func cdlToXrayBinning2014Map(): Table[string, tuple[bins: int, min, max: float]] =
+  ## Maps the names of the `XrayReferenceDataSet.h5` (2014) to the
+  ## number of bins and min, max values that must be given to the histogram function
+  ## to arrive at the result from the `calibration-cdl.h5` (2014) file.
+  result = { "lengthdivbyradius" : (bins: 100, min: 0.9950000047683716, max: 1.985000014305115),
+             "skewnessl" : (bins: 100, min: -5.050000190734863, max: 4.849999904632568),
+             "skewnesst" : (bins: 100, min: -5.050000190734863, max: 4.849999904632568),
+             "rmsy" : (bins: 150, min: -0.01666666753590107, max: 4.949999809265137),
+             "excentricity" : (bins: 150, min: 0.9700000286102295, max: 9.909999847412109),
+             "pixels" : (bins: 250, min: -0.5, max: 497.5),
+             "kurtosisl" : (bins: 100, min: -5.050000190734863, max: 4.849999904632568),
+             "kurtosist" : (bins: 100, min: -5.050000190734863, max: 4.849999904632568),
+             "length" : (bins: 200, min: -0.05000000074505806, max: 19.85000038146973),
+             "xrayperevent" : (bins: 6, min: -1.0, max: 4.0),
+             "fractionwithin0.5radius" : (bins: 100, min: -0.004999999888241291, max: 0.9850000143051147),
+             "radiusdivbyrmsy" : (bins: 100, min: -0.05000000074505806, max: 9.850000381469727),
+             "balance" : (bins: 500, min: -0.0003999999898951501, max: 0.3987999856472015),
+             "width" : (bins: 100, min: -0.05000000074505806, max: 9.850000381469727),
+             "rmsx" : (bins: 150, min: -0.01666666753590107, max: 4.949999809265137),
+             "lengthdivbyrmsy" : (bins: 150, min: -0.1000000014901161, max: 29.70000076293945),
+             "rotAngle" : (bins: 100, min: -0.0157079640775919, max: 3.094468832015991),
+             "energy" : (bins: 100, min: -0.05000000074505806, max: 9.850000381469727),
+             "likelihood" : (bins: 200, min: -40.125, max: 9.625),
+             "radius" : (bins: 100, min: -0.02500000037252903, max: 4.925000190734863),
+             "fractionwithinrmsy" : (bins: 100, min: -0.004999999888241291, max: 0.9850000143051147),
+             "charge" : (bins: 200, min: -6250.0, max: 2481250.0) }.toTable
+
+func cdlToXrayBinning2014*(name: string): tuple[bins: int, min, max: float] =
+  const map = cdlToXrayBinning2014Map()
+  result = map[name]
+
+func cdlToXray2014Map(): Table[string, string] =
+  ## Maps the datasets from the `calibration-cdl.h5` (2014) file to the
+  ## `XrayReferenceDataSet.h5` (2014) file.
+  ## The latter is derived from the former via the charge cuts via:
+  ## `func getEnergyBinMinMaxVals*(): Table[string, Cuts]`
+  ## applied to the datasets.
+  ## The result is binned via the binning described in cdlToXrayBinning2014()
+  ## The following datasets are unaccounted for in the map, since they must
+  ## be calculated from the existing other datasets:
+  ## - "xrayperevent"
+  ## - "lengthdivbyradius"
+  ## - "lengthdivbyrmsy"
+  ## - "fractionwithin0.5radius"
+  ## - "radiusdivbyrmsy"
+  ## - "balance"
+  result = { "EnergyFromCharge" : "energy",
+             "SkewnessLongitudinal" : "skewnessl",
+             "RotationAngle" : "rotAngle",
+             "Radius" : "radius",
+             "PositionX" : "",
+             "PositionY" : "",
+             "Width" : "width",
+             "Length" : "length",
+             "KurtosisLongitudinal" : "kurtosisl",
+             "RunType" : "",
+             "EnergyFromPixels" : "",
+             "Excentricity" : "excentricity",
+             "KurtosisTransverse" : "kurtosist",
+             "RmsLongitudinal" : "rmsx",
+             "RmsTransverse" : "rmsy",
+             "SkewnessTransverse" : "skewnesst",
+             "EventNumber" : "",
+             "LikelihoodMarlin" : "likelihood",
+             "NumberOfPixels" : "pixels",
+             "TotalCharge" : "charge",
+             "FractionWithinRmsTransverse" : "fractionwithinrmsy",
+             "Timestamp" : "",
+             "RunNumber" : ""}.toTable
+
+# mapping of 2014 calibration-cdl data to XrayReference data
+proc cdlToXray2014*(name: string): string =
+  const map = cdlToXray2014Map()
+  result = map[name]
+
 proc getFloatGeometryNames*(): array[12, string] =
   ## returns all dataset names in the H5 output file, which are members
   ## of a `ClusterGeometry` object

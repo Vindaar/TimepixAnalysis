@@ -1159,15 +1159,23 @@ proc dumpFitParameters(outfile, svgFname: string,
           inc i
   outf.close()
 
+proc calcfitcurve(minbin: float, maxbin: float,
+                  cdlFitFunc: CdlFitFunc,
+                  fitparams: seq[float]): (seq[float], seq[float]) =
+  let
+    minvalue = minbin
+    maxvalue = maxbin
+    range = linspace(minvalue.float, maxvalue.float, 1500)
+    yvals = range.mapIt(cdlFitFunc(fitparams, it))
+  result = (range, yvals)
+
 proc fitAndPlot[T: SomeNumber](h5file, fitParamsFname: string,
                                tfKind: TargetFilterKind, dKind: DataKind):
                (seq[float], seq[float], seq[float], seq[float]) =
   var h5f = H5file(h5file, "rw")
   defer: discard h5f.close()
 
-  let
-    runs = readRuns(filename)
-    targetFilter = tfkind
+  let runs = readRuns(filename)
   var ploterror: seq[float]
   var rawseq: seq[T]
   var cutseq: seq[T]
@@ -1180,55 +1188,49 @@ proc fitAndPlot[T: SomeNumber](h5file, fitParamsFname: string,
   var dummy = @[1.0, 2.0]
   case dKind
   of Dhits:
-    fitfunc = getCdlFitFunc(targetFilter)
+    fitfunc = getCdlFitFunc(tfKind)
     binsizeplot = 1.0
     binrangeplot = 400.0
     xtitle = "Number of pixles"
     outname = &"{tfKind}"
     lines = getLines(dummy, dummy, tfKind)
   of Dcharge:
-    fitfunc = getCdlFitFuncCharge(targetFilter)
+    fitfunc = getCdlFitFuncCharge(tfKind)
     binsizeplot = 10000.0
     binrangeplot = 3500000.0
     xtitle = "Charge"
     outname = &"{tfKind}Charge"
     lines = getLinesCharge(dummy, dummy, tfKind)
 
-  for r in runs:
-    case r.runType
-    of rtXrayFinger:
-      let grp = h5f[(recoDataChipBase(r.number) & chipnumber).grp_str]
-      let tfk = r.totfkind
-      if tfk == targetFilter:
-        case dKind
-        of Dhits:
-          let RawDataSeq = h5f[grp.name / "hits", T]
-          let Cdlseq = h5f[grp.name / "CdlSpectrum", T]
-          rawseq.add(RawDataseq)
-          cutseq.add(Cdlseq)
-        of Dcharge:
-          let RawDataSeq = h5f[grp.name / "totalCharge", T]
-          let Cdlseq = h5f[grp.name / "CdlSpectrumCharge", T]
-          rawseq.add(RawDataseq)
-          cutseq.add(Cdlseq)
-    else:
-       discard
+  for grp in tfRuns(h5f, tfKind):
+    case dKind
+    of Dhits:
+      let RawDataSeq = h5f[grp.name / "hits", T]
+      let Cdlseq = h5f[grp.name / "CdlSpectrum", T]
+      rawseq.add(RawDataseq)
+      cutseq.add(Cdlseq)
+    of Dcharge:
+      let RawDataSeq = h5f[grp.name / "totalCharge", T]
+      let Cdlseq = h5f[grp.name / "CdlSpectrumCharge", T]
+      rawseq.add(RawDataseq)
+      cutseq.add(Cdlseq)
 
   proc calcfit(dataseq: seq[SomeNumber],
                cdlFitFunc: CdlFitFunc,
                binSize: float,
+               tfKind: TargetFilterKind,
                dKind: DataKind): (seq[float], seq[float], float, float) =
     let (histdata, bins) = histoCdl(dataseq, binSize, dKind)
-    let (pStart, pRes, fitBins, fitHist, errorres) = fitCdlImpl(histdata, bins, targetFilter, dKind)
+    let (pStart, pRes, fitBins, fitHist, errorres) = fitCdlImpl(histdata, bins, tfKind, dKind)
     #fitForNlopt(convertNlopt, cdlFitFunc)
     #fitForNloptLnLikelihood(convertNlopt, cdlFitFunc)
     fitForNloptLnLikelihoodGrad(convertNlopt, cdlFitFunc)
     var bounds: seq[tuple[l, u:float]]
     case dKind
     of Dhits:
-      bounds = getbounds(targetFilter)
+      bounds = getbounds(tfKind)
     of Dcharge:
-      bounds = getboundsCharge(targetFilter)
+      bounds = getboundsCharge(tfKind)
     doassert pStart.len == bounds.len
     #echo "P start len ", pStart.len
     #echo "Bounds len ", bounds.len
@@ -1255,22 +1257,9 @@ proc fitAndPlot[T: SomeNumber](h5file, fitParamsFname: string,
     #echo "fit pRes ", pRes
     #echo "fit paramsN ", paramsN
 
-
-
-  proc calcfitcurve(minbin: float, maxbin: float,
-                    cdlFitFunc: CdlFitFunc,
-                    fitparams: seq[float]): (seq[float], seq[float]) =
-    let
-      minvalue = minbin
-      maxvalue = maxbin
-      range = linspace(minvalue.float, maxvalue.float, 1500)
-      yvals = range.mapIt(cdlFitFunc(fitparams, it))
-    result = (range, yvals)
-
-
   let (histdata, bins) = histoCdl(cutseq, binsizeplot, dKind)
-  let (pStart, pRes, fitBins, fitHist, errorsres) = fitCdlImpl(histdata, bins, targetFilter, dKind)
-  let fitresults = calcfit(cutseq, fitfunc, binsizeplot, dKind)
+  let (pStart, pRes, fitBins, fitHist, errorsres) = fitCdlImpl(histdata, bins, tfKind, dKind)
+  let fitresults = calcfit(cutseq, fitfunc, binsizeplot, tfKind, dKind)
   echo "fitresults nlopt", fitresults[1]
   ##get the interesting fit params
 
@@ -1362,7 +1351,7 @@ proc fitAndPlot[T: SomeNumber](h5file, fitParamsFname: string,
     #.legendBgColor(ColorTHGrau)
     .backgroundColor(ColorTHGrau)
     .gridColor(color())
-  plt.layout.title = &"target: {targetFilter}"
+  plt.layout.title = &"target: {tfKind}"
   plt.layout.showlegend = true
   #plt.legendBgColor(ColorTB)
   plt.traces[0].opacity = 1.0

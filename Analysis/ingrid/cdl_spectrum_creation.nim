@@ -1518,7 +1518,12 @@ proc generateXrayReferenceFile(h5file: string, year: YearKind,
     date: string
     tfKindStr: string
   const xrayRefTab = getXrayRefTable()
-  let xrayRefCuts = getEnergyBinMinMaxVals() #XraySpectrumCutVals()
+  var xrayRefCuts: Table[string, Cuts]
+  case year
+  of yr2014:
+    xrayRefCuts = getEnergyBinMinMaxVals2014() #XraySpectrumCutVals()
+  of yr2018:
+    xrayRefCuts = getEnergyBinMinMaxVals2018()
 
   var h5fout = H5file(outfile & $year & ".h5", "rw")
 

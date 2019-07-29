@@ -9,10 +9,13 @@ export tables, algorithm
 ##################### procs related to X-ray reference datasets ################
 ################################################################################
 
-template cdlPrefix*(): string =
+template cdlPrefix*(year: string): string =
   ## return the prefix of the group names in the `calibration-cdl.h5` file
   ## part of the names of the reference names below
-  "calibration-cdl-apr2014-"
+  if "2014" in year:
+    "calibration-cdl-apr2014-"
+  else:
+    "ccalibration-cdl-feb2019-"
 
 proc getChristophCutVals*(): Table[string, float] =
   ## returns the cut values used by Christoph in his PhD thesis
@@ -92,8 +95,67 @@ func getXraySpectrumCutVals*(): Table[string, Cuts] =
   for key, vals in pairs(xray_ref):
     result[vals] = ranges[key]
 
+func getEnergyBinMinMaxVals2018*(): Table[string, Cuts] =
+  ## returns a table of Cuts (kind ckReference) objects, one for each energy bin for the
+  ## CDL data from February 2019.
+  ## The charge cut values are derived from the fits to the main peaks in the spectra.
+  ## It's
+  ## minCharge = gmu - 3 * gs
+  ## maxCharge = gmu + 3 * gs
+  ## to cover 99.7 % of the spectrum
+  ## for an overview of all spectras that were used to derive these values, see
+  ## master thesis of Hendrik Schmick
+  ## (that might be important in case the cdl_spectrum_creation code might change, making
+  ## these used values void for some reason!).
+  let baseCut = Cuts(kind: ckReference,
+                     minRms: 0.1,
+                     maxRms: 1.1,
+                     maxLength: 7.0,
+                     minPix: 3,
+                     minCharge: -Inf,
+                     maxCharge: Inf)
+  func calcMinCharge(mean, sigma: float): float =
+    result = mean - 3 * sigma
+  func calcMaxCharge(mean, sigma: float): float =
+    result = mean + 3 * sigma
 
-func getEnergyBinMinMaxVals*(): Table[string, Cuts] =
+  let range0 = replace(baseCut):
+    minCharge = 0.0
+    maxCharge = calcMaxCharge(9.42e4, 3.28e4)
+    minRms = -Inf
+    maxRms = Inf
+    maxLength = 6.0
+  let range1 = replace(baseCut):
+    minCharge = calcMinCharge(1.98e5, 7.03e4)
+    maxCharge = calcMaxCharge(1.98e5, 7.03e4)
+    maxLength = 6.0
+  let range2 = replace(baseCut):
+    minCharge = calcMinCharge(3.8e5, 9.61e4)
+    maxCharge = calcMaxCharge(3.8e5, 9.61e4)
+  let range3 = replace(baseCut):
+    minCharge = calcMinCharge(3.6e5, 7e4)
+    maxCharge = calcMaxCharge(3.6e5, 7e4)
+  let range4 = replace(baseCut):
+    minCharge = calcMinCharge(7.6e5, 1.1e5)
+    maxCharge = calcMaxCharge(7.6e5, 1.1e5)
+  let range5 = replace(baseCut):
+    minCharge = calcMinCharge(1.1e6, 1.5e5)
+    maxCharge = calcMaxCharge(1.1e6, 1.5e5)
+  let range6 = replace(baseCut):
+    minCharge = calcMinCharge(1.3e6, 1.4e5)
+    maxCharge = calcMaxCharge(1.3e6, 1.4e5)
+  let range7 = replace(baseCut):
+    minCharge = calcMinCharge(1.7e6, 1.5e5)
+    maxCharge = calcMaxCharge(1.7e6, 1.5e5)
+  let
+    ranges = [range0, range1, range2, range3, range4, range5, range6, range7]
+    xray_ref = getXrayRefTable()
+
+  result = initTable[string, Cuts]()
+  for key, vals in pairs(xray_ref):
+    result[vals] = ranges[key]
+
+func getEnergyBinMinMaxVals2014*(): Table[string, Cuts] =
   ## returns a table of Cuts (kind ckReference) objects, one for each energy bin
   let baseCut = Cuts(kind: ckReference,
                      minRms: 0.1,

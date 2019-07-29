@@ -1599,7 +1599,6 @@ proc main =
   echo "ARGS", args
 
   let h5file = $args["<h5file>"]
-  let year = parseEnum[YearKind]($args["--year"])
   let reco_order = args["--cutcdl"].toBool
   let genRefFile = args["--genRefFile"].toBool
   let genCdlFile = args["--genCdlFile"].toBool
@@ -1609,8 +1608,10 @@ proc main =
                        false
 
   if genRefFile:
+    let year = parseEnum[YearKind]($args["--year"])
     generateXrayReferenceFile(h5file, year)
   if genCdlFIle:
+    let year = parseEnum[YearKind]($args["--year"])
     generateCdlCalibrationFile(h5file, year)
   if reco_order:
     cutAndWrite(h5file)

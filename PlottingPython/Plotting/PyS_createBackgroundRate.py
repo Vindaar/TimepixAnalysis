@@ -315,6 +315,10 @@ def main(args):
                         default = False,
                         action = 'store_true',
                         help = "Flag to activate plotting of 2014/15 data w/ Marlin")
+    parser.add_argument('--dontShow',
+                        default = False,
+                        action = 'store_true',
+                        help = "Flag to disable interactive plot window")
     parser.add_argument('--fancy',
                         default = False,
                         action = 'store_true',
@@ -332,6 +336,7 @@ def main(args):
     logY = args_dict["log"]
     show2014 = args_dict["show2014"]
     CK_binning = args_dict["ck_binning"]
+    dontShowPlot = args_dict["dontShow"]
 
     if fancy == True:
         fancy_plotting()
@@ -388,8 +393,11 @@ def main(args):
     fname = fname + year
     fname = fname.replace("/", "_").replace(" ", "_")
     print("Saving plot as ", fname + ".pdf")
+    plt.tight_layout()
     plt.savefig(fname + ".pdf")
-    plt.show()
+    if not dontShowPlot:
+        plt.show()
+
 
 if __name__=="__main__":
     import sys

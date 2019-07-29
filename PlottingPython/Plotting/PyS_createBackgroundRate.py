@@ -27,6 +27,20 @@ colorOrange = (255.0/255.0, 80.0/255.0, 47.0/255.0)
 colorWine = (98.0/255.0, 55.0/255.0, 78.0/255.0)
 colorCyan = (0.0/255.0, 255.0/255.0, 255.0/255.0)
 
+colorWheel = [
+    color2017, #(0.64, 0.65, 0.00),
+    colorCyan, #(0.00, 0.75, 0.49),
+    colorYellow, #(0.00, 0.69, 0.97),
+    (0.97, 0.46, 0.43),
+    #(0.91, 0.42, 0.95)
+]
+
+def yieldColor():
+    for c in colorWheel:
+        yield c
+
+genColors = yieldColor()
+
 
 def fancy_plotting():
     # set up some LaTeX plotting parameters
@@ -131,40 +145,70 @@ def preparePlot(h5file, chip, logY, CK_binning):
     lhGrp = h5f["/likelihood"]
     time_back = lhGrp.attrs["totalDuration"]
     shutter_open = 1.0
-    if "2014" in h5file:
+    baseName = os.path.basename(h5file)
+    if "2014" in baseName:
         year = "2014/15"
         # Christoph 2014 / 15
         #time_back = 4000 * 3600
         #shutter_open = 0.97
-        color = color2014
-    elif "2017" in h5file:
+        color = next(genColors) #color2014
+    elif "2017" in baseName:
         # 2017
         year = "2017/18"
         #time_back = 1123 * 3600
         #shutter_open = 0.88
-        color = color2017
-    elif "2018" in h5file and not "fadc" in h5file and not "scinti" in h5file and not "septemveto" in h5file:
+        color = next(genColors)#color2017
+    elif "2018" in baseName and not "fadc" in baseName and not "scinti" in baseName and not "septemveto" in baseName:
         # 2017
-        year = "2018"
         #time_back = 1123 * 3600
         #shutter_open = 0.88
-        color = color2017
-    elif "2018" in h5file and "fadc" in h5file:
+        if "cdl" in baseName:
+            year = "2018-CDL"
+            color = next(genColors)
+        else:
+            year = "2018"
+            color = next(genColors) #color2017
+    elif "2018" in baseName and "fadc" in baseName and not "scinti" in baseName and not "septemveto" in baseName:
         # Case of FADC veto
-        year = "2018+FADC veto"
-        color = (1.0, 0.0, 0.0)#colorBlue
-    elif "2018" in h5file and "scinti" in h5file:
+        if "cdl" in baseName:
+            year = "2018-CDL+FADC veto"
+            color = next(genColors)
+        else:
+            year = "2018+FADC veto"
+            color = next(genColors) #(1.0, 0.0, 0.0)#colorBlue
+    elif "2018" in baseName and "scinti" in baseName and not "fadc" in baseName and not "septemveto" in baseName:
         # Case of scintillators veto
-        year = "2018+scinti veto"
-        color = colorYellow#DarkGrey
-    elif "2018" in h5file and "septemveto" in h5file:
+        if "cdl" in baseName:
+            year = "2018-CDL+scinti veto"
+            color = next(genColors)
+        else:
+            year = "2018+scinti veto"
+            color = next(genColors) #colorYellow#DarkGrey
+    elif "2018" in baseName and "septemveto" in baseName and not "fadc" in baseName and not "scinti" in baseName:
         # Case of scintillators veto
-        year = "2018+septem veto"
-        color = colorOrange#DarkGrey
-    elif "2018" in h5file:
+        if "cdl" in baseName:
+            year = "2018-CDL+septem veto"
+            color = next(genColors)
+        else:
+            year = "2018+septem veto"
+            color = next(genColors) #colorOrange#DarkGrey
+    elif "2018" in baseName and not "septemveto" in baseName:
         # Case of FADC + scintillators veto
-        year = "2018+scinti+FADC veto"
-        color = colorCyan
+        if "cdl" in baseName:
+            year = "2018-CDL+scinti+FADC veto"
+            color = next(genColors) #colorCyan
+        else:
+            year = "2018+scinti+FADC veto"
+            color = next(genColors) #colorCyan
+    elif "2018" in baseName:
+        # Case of FADC + scintillators veto
+        if "cdl" in baseName:
+            year = "2018-CDL+scinti+FADC veto+septem veto"
+            color = next(genColors) #colorCyan
+        else:
+            year = "2018+scinti+FADC veto+septem veto"
+            color = next(genColors) #colorCyan
+
     else:
         import sys
         sys.exit("File needs to state if 2014, 2017 or 2018 data!")

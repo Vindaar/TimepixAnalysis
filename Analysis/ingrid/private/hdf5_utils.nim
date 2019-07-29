@@ -1,6 +1,6 @@
 import ../ingrid_types
 import helpers/utils
-import strutils, ospaths, times, strformat, sequtils, tables, re, algorithm
+import strutils, ospaths, times, strformat, sequtils, tables, re, algorithm, sets
 import nimhdf5
 import macros
 import pure
@@ -74,6 +74,44 @@ func cdlToXrayBinning2018Map(): Table[string, tuple[bins: int, min, max: float]]
 func cdlToXrayBinning2018*(name: string): tuple[bins: int, min, max: float] =
   const map = cdlToXrayBinning2018Map()
   result = map[name]
+
+func inCdl2018*(name: string): bool =
+  const dsetSet = [ "skewnessLongitudinal",
+                    "skewnessTransverse",
+                    "rmsTransverse",
+                    "eccentricity",
+                    "hits",
+                    "kurtosisLongitudinal",
+                    "kurtosisTransverse",
+                    "length",
+                    "width",
+                    "rmsLongitudinal",
+                    "lengthDivRmsTrans",
+                    "rotationAngle",
+                    "energyFromCharge",
+                    "likelihood",
+                    "fractionInTransverseRms",
+                    "totalCharge" ].toHashSet
+  result = name in dsetSet
+
+func inCdl2014*(name: string): bool =
+  const dsetSet = [ "EnergyFromCharge",
+                    "SkewnessLongitudinal",
+                    "RotationAngle",
+                    "Radius",
+                    "Width",
+                    "Length",
+                    "KurtosisLongitudinal",
+                    "Excentricity",
+                    "KurtosisTransverse",
+                    "RmsLongitudinal",
+                    "RmsTransverse",
+                    "SkewnessTransverse",
+                    "LikelihoodMarlin",
+                    "NumberOfPixels",
+                    "TotalCharge",
+                    "FractionWithinRmsTransverse" ].toHashSet
+  result = name in dsetSet
 
 func cdlToXray2014Map(): Table[string, string] =
   ## Maps the datasets from the `calibration-cdl.h5` (2014) file to the

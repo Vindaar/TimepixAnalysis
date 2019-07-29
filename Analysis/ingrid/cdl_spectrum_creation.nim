@@ -1390,7 +1390,7 @@ proc cdlToXrayTransform(h5fout: var H5FileObj,
   of yr2014:
     (numBins, minVal, maxVal) = cdlToXrayBinning2014(outname)
   of yr2018:
-    (numBins, minVal, maxVal) = cdlToXrayBinning2018(outname) # not implemented yet
+    (numBins, minVal, maxVal) = cdlToXrayBinning2018(outname)
   # given passing data, calculate histogram and write to file
   let (hist, bins) = histogram(passedData,
                                numBins,
@@ -1409,6 +1409,7 @@ proc readAndFilter(h5f: var H5FileObj,
                    passIdx: seq[int]): seq[float] =
   ## reads the dataset given by `dsetName` as a `float` seq and filters
   ## by `passIdx`.
+  echo "INFO: Apply filtering to dset: ", dsetName
   let data = h5f.readAs(dsetName, float)
   # apply passIdx
   result = passIdx.mapIt(data[it])
@@ -1553,8 +1554,14 @@ proc generateXrayReferenceFile(h5file: string, year: YearKind,
             discard
           else:
             # get the name of the dataset in the output
-            let outname = cdlToXray2014(dset.name.extractFilename)
-            if outname.len > 0:
+            let dsetName = dset.name.extractFilename
+            var outname = ""
+            if dsetName.inCdl2014:
+              outname = cdlToXray2014(dsetName)
+            elif dsetName.inCdl2018:
+              # if 2014 data reconstructed with TPA, we'll end up here
+              outname = dsetName # use dataset name as is
+            if outname.len > 0: # skip if outname in neither of the two CDL dset names
               # float32 data
               let passedData = readAndFilter(h5f, dset.name, passIdx)
               cdlToXrayTransform(h5fout, passedData, tfKindStr & "kV", outname, year)
@@ -1591,10 +1598,11 @@ proc generateXrayReferenceFile(h5file: string, year: YearKind,
             discard
           else:
             # output name as as input for 2018
-            let outname = dset.name.extractFilename
-            # float64 data
-            let passedData = readAndFilter(h5f, dset.name, passIdx)
-            cdlToXrayTransform(h5fout, passedData, tfKindStr & "kV", outname, year)
+            let dsetName = dset.name.extractFilename
+            if dsetName.inCdl2018: # else skip this dset
+              # float64 data
+              let passedData = readAndFilter(h5f, dset.name, passIdx)
+              cdlToXrayTransform(h5fout, passedData, tfKindStr & "kV", dsetName, year)
       else:
         raise newException(ValueError, "Invalid year string for calibration: " &
           $date)

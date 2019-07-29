@@ -72,7 +72,7 @@ func cdlToXrayBinning2018Map(): Table[string, tuple[bins: int, min, max: float]]
              "totalCharge" : (bins: 200, min: -6250.0, max: 2481250.0) }.toTable
 
 func cdlToXrayBinning2018*(name: string): tuple[bins: int, min, max: float] =
-  const map = cdlToXrayBinning2014Map()
+  const map = cdlToXrayBinning2018Map()
   result = map[name]
 
 func cdlToXray2014Map(): Table[string, string] =

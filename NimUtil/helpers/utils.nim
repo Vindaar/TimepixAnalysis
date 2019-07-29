@@ -391,7 +391,8 @@ proc getDaysHoursMinutes*(dur: Duration): string =
 template getDateSyntax*(): string =
   ## returns the default syntax used when echoing a `DateTime` or `Time` object
   ## to parse a thusly created string
-  "yyyy-MM-dd'T'HH-mm-sszzz"
+  # "yyyy-MM-dd'T'HH-mm-sszzz"
+  "yyyy-MM-dd\'T\'HH:mm:sszzz"
 
 # import the arraymancer related procs only if the `-d:pure` flag is not
 # set. This allows us to keep this dependency out, if desired

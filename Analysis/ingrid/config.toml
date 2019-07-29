@@ -2,4 +2,4 @@
 # tools
 
 [Calibration]
-        showPlots = true
+        showPlots = false

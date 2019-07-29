@@ -318,9 +318,10 @@ def readH5Data(h5file, group_name, chip, dset_names):
     # and one ore more dataset names, read the data and return
     # a list of the `dset_names` arrays
 
-    print("Opening h5file {}".format(h5file))
-    h5f = h5py.File(h5file, "r")
-    print(h5f)
+    if isinstance(h5file, str):
+        print("Opening h5file {}".format(h5file))
+        h5f = h5py.File(h5file, "r")
+        print(h5f)
 
     # first check whether we read one run or all
     result = []
@@ -353,7 +354,8 @@ def readH5Data(h5file, group_name, chip, dset_names):
             result = readFadcInGridDset(h5f, group_name, dset_names[0])
             result = np.asarray(result)
 
-    h5f.close()
+    if isinstance(h5file, str):
+        h5f.close()
     return result
 
 

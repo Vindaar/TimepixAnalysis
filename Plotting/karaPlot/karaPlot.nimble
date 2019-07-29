@@ -14,7 +14,7 @@ requires "parsetoml"
 import shell
 
 task server, "Build the server":
-  exec "nim c -d:release -d:H5_FUTURE --threads:on plotData.nim"
+  exec "nim c -d:release -d:H5_LEGACY --threads:on plotData.nim"
 
 task client, "Build the client":
   exec "nim js plotDataClient.nim"

@@ -195,7 +195,7 @@ proc specialTypesAndEvKeys(): (hid_t, hid_t, array[7, string]) =
     ev_type_ch = special_type(uint16)
     # dataset names corresponding to event header keys
     eventHeaderKeys = ["eventNumber", "useHvFadc", "fadcReadout", "timestamp",
-                         "szint1ClockInt", "szint2ClockInt", "fadcTriggerClock"]
+                       "szint1ClockInt", "szint2ClockInt", "fadcTriggerClock"]
   result[0] = ev_type_xy
   result[1] = ev_type_ch
   result[2] = eventHeaderKeys

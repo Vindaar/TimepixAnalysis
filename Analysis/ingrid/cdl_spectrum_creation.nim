@@ -1413,7 +1413,7 @@ proc readAndFilter(h5f: var H5FileObj,
   # apply passIdx
   result = passIdx.mapIt(data[it])
 
-template  datasetCreation(h5f: untyped, name, dlen, `type`: untyped): untyped =
+template datasetCreation(h5f: untyped, name, dlen, `type`: untyped): untyped =
   ## inserts the correct data set creation parameters
   h5f.create_dataset(name,
                      dlen,
@@ -1421,10 +1421,10 @@ template  datasetCreation(h5f: untyped, name, dlen, `type`: untyped): untyped =
                      chunksize = @[5000, 1], # some hardcoded chunk size
                      maxshape = @[int.high, 1])
 
-template createAndWrite(h5f, `type`, dset, outname: untyped): untyped =
+template createAndWrite(h5read, h5write, `type`, dset, outname: untyped): untyped =
   let vlenType = special_type(`type`)
-  let outDset = h5fout.datasetCreation(outname, dset.shape, vlenType)
-  outDset[outDset.all] = h5f[dset.name, vlenType, `type`]
+  let outDset = h5write.datasetCreation(outname, dset.shape, vlenType)
+  outDset[outDset.all] = h5read[dset.name, vlenType, `type`]
 
 template getAndAdd(h5read, h5write, dset, `type`, outDset: untyped): untyped =
   let vlenType = special_type(`type`)
@@ -1437,7 +1437,7 @@ proc generateCdlCalibrationFile(h5file: string, year: YearKind,
   # walk all runs corresponding to a single `TargetFilterKind` and
   # combine the datasets into the output files
   var h5f = H5file(h5file, "r")
-  var h5fout = H5file(outfile & "-year.h5", "rw")
+  var h5fout = H5file(&"{outfile}-{year}.h5", "rw")
   let runs = readRuns(filename)
   for tfKind in TargetFilterKind:
     for grp in tfRuns(h5f, tfKind):
@@ -1446,20 +1446,29 @@ proc generateCdlCalibrationFile(h5file: string, year: YearKind,
       # dataset
       var mgrp = grp
       for dset in mgrp:
+        if dset.shape.len == 1 or dset.shape[1] > 1:
+          # skip all datasets in the input, which are 2 dimensional. That includes
+          # {polya, polyaFit, FeSpectrum, CDL...}
+          # dset.shape == 1 is for `FeSpectrumCharge`, since it's the only dataset
+          # atm that is actually 1D (see TPA issue #39).
+          continue
         # TODO: add appropriate conversion of TPA naming to Marlin naming for
         # 2014 raw input or allow `genRefFile` option to deal with TPA naming
         # even for 2014 input!
         let outname = cdlGroupName($tfKind, $year, dset.name)
-        if outname in h5fout:
+        if outname notin h5fout:
           # create dataset first
           case dset.dtypeAnyKind
           of akSequence:
             # keep their base type and create special type
             case dset.dtypeBaseKind
             of akUint8:
-              createAndWrite(h5fout, uint8, dset, outname)
+              createAndWrite(h5f, h5fout, uint8, dset, outname)
             of akUint16:
-              createAndWrite(h5fout, uint16, dset, outname)
+              createAndWrite(h5f, h5fout, uint16, dset, outname)
+            of akFloat64:
+              # charge
+              createAndWrite(h5f, h5fout, float64, dset, outname)
             else:
               raise newException(Exception, "??? " & $dset)
           else:
@@ -1467,7 +1476,7 @@ proc generateCdlCalibrationFile(h5file: string, year: YearKind,
             outDset[outDset.all] = h5f.readAs(dset.name, float)
         else:
           # append to dataset
-          var outDset = h5f[outname.dset_str]
+          var outDset = h5fout[outname.dset_str]
           case outDset.dtypeAnyKind
           of akSequence:
             # keep their base type and create special type
@@ -1476,6 +1485,8 @@ proc generateCdlCalibrationFile(h5file: string, year: YearKind,
               getAndAdd(h5f, h5fout, dset, uint8, outDset)
             of akUint16:
               getAndAdd(h5f, h5fout, dset, uint16, outDset)
+            of akFloat64:
+              getAndAdd(h5f, h5fout, dset, float64, outDset)
             else:
               raise newException(Exception, "??? " & $dset)
           else:
@@ -1602,17 +1613,25 @@ proc main =
   let reco_order = args["--cutcdl"].toBool
   let genRefFile = args["--genRefFile"].toBool
   let genCdlFile = args["--genCdlFile"].toBool
+  let genOutfile = if $args["--outfile"] != "nil":
+                     $args["--outfile"]
+                   else:
+                     ""
   let dumpAccurate = if args["--dumpAccurate"].toBool:
                        true
                      else:
                        false
 
+  template callGenFunc(fn: untyped): untyped =
+    let year = parseEnum[YearKind]($args["--year"])
+    if genOutFile.len > 0:
+      fn(h5file, year, genOutFile)
+    else:
+      fn(h5file, year)
   if genRefFile:
-    let year = parseEnum[YearKind]($args["--year"])
-    generateXrayReferenceFile(h5file, year)
+    callGenFunc(generateXrayReferenceFile)
   if genCdlFIle:
-    let year = parseEnum[YearKind]($args["--year"])
-    generateCdlCalibrationFile(h5file, year)
+    callGenFunc(generateCdlCalibrationFile)
   if reco_order:
     cutAndWrite(h5file)
 

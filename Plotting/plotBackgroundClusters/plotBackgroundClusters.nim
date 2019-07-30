@@ -2,6 +2,9 @@ import plotly, nimhdf5, docopt, arraymancer, seqmath
 import strformat, sequtils, strutils, os
 import helpers / utils
 import ingrid / tos_helpers
+import json
+
+import colorMaps
 
 const docStr = """
 Usage:
@@ -28,6 +31,22 @@ iterator extractClusters(h5f: var H5FileObj): (seq[float], seq[float]) =
     let cY = h5f[chipGrp.name / "centerY", float]
     yield (cX, cY)
 
+proc goldRegionOutline(maxVal: int): Tensor[int] =
+  ## returns the outline of the gold region
+  let min = (256.0 * 4.5 / 14.0).round.int
+  let max = (256.0 * 9.5 / 14.0).round.int
+  result = zeros[int]([256, 256])
+  for coord, val in result:
+    if (coord[0] in @[min, min + 1, min - 1] and
+        coord[1] in {min .. max}) or
+       (coord[0] in @[max, max + 1, max - 1] and
+        coord[1] in {min .. max}) or
+       (coord[1] in @[min, min + 1, min - 1] and
+        coord[0] in {min .. max}) or
+       (coord[1] in @[max, max + 1, max - 1] and
+        coord[0] in {min .. max}):
+      result[coord[0], coord[1]] = maxVal
+
 proc main =
   let args = docopt(doc)
   let h5file = $args["<likelihoodFile>"]
@@ -47,8 +66,6 @@ proc main =
     var
       xInd = (256.0 * cX[i] / 14.0).round.int
       yInd = (256.0 * cY[i] / 14.0).round.int
-    echo xInd, " for corresponding ", cX[i]
-    echo yInd, " for corresponding ", cY[i]
     if xInd == 256:
       xInd = 255
     if yInd == 256:
@@ -59,12 +76,23 @@ proc main =
   echo perc99
   occ = occ.clamp(0, 6)
 
-  heatmap(occ.toSeq2D)
+  let outline = goldRegionOutline(5)
+  occ = occ .+ outline
+
+  let plt = heatmap(occ.toSeq2D)
     .width(1600)
     .height(1600)
-    .show()
+    .toPlotJson
 
-
+  template createPlot(cmap: untyped): untyped =
+    plt.traces[0]["colorscale"] = cmap
+    plt.traces[0]["zmax"] = % 6
+    plt.traces[0]["zauto"] = % false
+    plt.show(h5file.extractFilename & "_" & astToStr(cmap) & ".svg")
+  createPlot(viridisZeroWhitePlotly)
+  createPlot(viridisPlotly)
+  createPlot(plasmaPlotly)
+  createPlot(plasmaZeroWhitePlotly)
 
 when isMainModule:
   main()

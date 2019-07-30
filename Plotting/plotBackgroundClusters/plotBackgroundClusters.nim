@@ -25,8 +25,18 @@ const doc = withDocopt(docStr)
 iterator extractClusters(h5f: var H5FileObj): (seq[float], seq[float]) =
   for num, grp in runs(h5f, likelihoodBase()):
     var mgrp = h5f[grp.grp_str]
-    let centerChip = mgrp.attrs["centerChip", int]
-    let chipGrp = h5f[(grp / "chip_" & $centerChip).grp_str]
+    var centerChip: int
+    try:
+      centerChip = mgrp.attrs["centerChip", int]
+    except KeyError:
+      echo "WARNING: could not find `centerChip` attribute. Will assume 3!"
+      centerChip = 3
+    var chipGrp: H5Group
+    try:
+      chipGrp = h5f[(grp / "chip_" & $centerChip).grp_str]
+    except KeyError:
+      echo "INFO: no events left in run number " & $num & " for chip " & $centerChip
+      continue
     let cX = h5f[chipGrp.name / "centerX", float]
     let cY = h5f[chipGrp.name / "centerY", float]
     yield (cX, cY)

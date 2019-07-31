@@ -15,7 +15,7 @@ template cdlPrefix*(year: string): string =
   if "2014" in year:
     "calibration-cdl-apr2014-"
   else:
-    "ccalibration-cdl-feb2019-"
+    "calibration-cdl-feb2019-"
 
 proc getChristophCutVals*(): Table[string, float] =
   ## returns the cut values used by Christoph in his PhD thesis

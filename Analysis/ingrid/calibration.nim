@@ -1316,7 +1316,7 @@ proc calcEnergyFromCharge*(h5f: var H5FileObj) =
     echo "Energy from charge calibration for run ", num
     if chipName.len == 0:
       # get center chip name to be able to read fit parameters
-      let centerChipName = group.attrs["centerChipName", string]
+      chipName = group.attrs["centerChipName", string]
       # get parameters during first iter...
       (b, m) = getCalibVsGasGainFactors(chipName)
 

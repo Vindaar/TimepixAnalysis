@@ -47,6 +47,12 @@ const
   SCurveFolder* = "SCurve/"
   StartTotRead* = 20.0
   ChargeCalibGasGain* = "chargeCalibGasGain"
+
+  # defines the "center" chips of different detectors, which are natively supported
+  # by the ingrid database. However, this is only for reference.
+  centerChip2014* = "D03W63"
+  centerChip2017* = "H10W69"
+
 let
   ChipNameLineReg* = re(r"chipName:")
   ChipNameReg* = re(r".*([A-Z])\s*([0-9]+)\s*W\s*([0-9]{2}).*")
@@ -76,3 +82,18 @@ type
 
 proc `$`*(chip: ChipName): string =
   result = $chip.col & $chip.row & " W" & $chip.wafer
+
+#####################################################
+#### Procs specifically realted to hardware #########
+#####################################################
+
+proc getSeptemHChip*(chipNumber: int): string =
+  ## returns the name of a given SeptemH chip
+  const names = ["E6 W69",
+                 "K6 W69",
+                 "H9 W69",
+                 "H10 W69",
+                 "G10 W69",
+                 "D9 W69",
+                 "L8 W69"]
+  result = names[chipNumber]

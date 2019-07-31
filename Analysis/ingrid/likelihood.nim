@@ -15,7 +15,7 @@ import plotly
 import arraymancer
 import ingrid / [ingrid_types, calibration]
 from ingrid / reconstruction import recoEvent
-import ingridDatabase / databaseRead
+import ingridDatabase / [databaseRead, databaseDefinitions]
 
 let doc = """
 InGrid likelihood calculator. This program is run after reconstruction is finished.

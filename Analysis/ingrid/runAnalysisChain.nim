@@ -1,6 +1,7 @@
 import shell, docopt
 import strutils, strformat, os
 import helpers / utils
+import logging
 
 const docStr = """
 Usage:
@@ -26,21 +27,43 @@ type
     dy2017 = "2017"
     dy2018 = "2018"
 
-proc rawDataManipulation(path, runType, outName: string) =
+# set up the logger
+var L = newConsoleLogger()
+if not dirExists("logs"):
+  createDir("logs")
+var fL = newFileLogger("logs/runAnalysisChain.log", fmtStr = verboseFmtStr)
+when isMainModule:
+  addHandler(L)
+  addHandler(fL)
+
+proc rawDataManipulation(path, runType, outName: string): bool =
   let runTypeStr = &"--runType={runType}"
   let outStr = &"--out={outName}"
-  shell:
+  info "Running raw_data_manipulation on " & $path & $runTypeStr & $outStr
+  let res = shellVerbose:
     ./raw_data_manipulation `$path` `$runTypeStr` `$outStr`
+  info "Last commands output: " & $res[0]
+  info "Last commands exit code: " & $res[1]
+  result = res[1] == 0
 
-proc reconstruction(path: string,
-                    option = "") =
-  shell:
+proc reconstruction(path: string, option = ""): bool =
+  info "Running reconstruction on " & $path & $option
+  let res = shellVerbose:
     ./reconstruction `$path` `$option`
+  info "Last commands output: " & $res[0]
+  info "Last commands exit code: " & $res[1]
+  result = res[1] == 0
 
 func likelihood() = discard
 
-proc runChain(path: string, dYear: DataYear) =
+template tc(cmd: untyped): untyped {.dirty.} =
+  ## convenience template to wrap a command in toContinue checks
+  if toContinue:
+    toContinue = cmd
+
+proc runChain(path: string, dYear: DataYear): bool =
   ## performs the whole chain of the given dataset
+  var toContinue = true
   case dYear
   of dy2017, dy2018:
     # copy the correct ingrid Database file
@@ -48,26 +71,28 @@ proc runChain(path: string, dYear: DataYear) =
   else: discard
 
   # raw data for calibration
-  rawDataManipulation(path / "CalibrationRuns", "calib", path / &"CalibrationRuns{$dYear}.h5")
+  tc(rawDataManipulation(path / "CalibrationRuns", "calib", path / &"CalibrationRuns{$dYear}.h5"))
   # raw data for background
-  rawDataManipulation(path / "DataRuns", "back", path / &"DataRuns{$dYear}.h5")
+  tc(rawDataManipulation(path / "DataRuns", "back", path / &"DataRuns{$dYear}.h5"))
 
   # reconstruction for both
   for opt in recoOptions:
-    reconstruction(path / &"CalibrationRuns{$dYear}.h5", opt)
+    tc(reconstruction(path / &"CalibrationRuns{$dYear}.h5", opt))
     if opt != "--only_gain_fit":
-      reconstruction(path / &"DataRuns{$dYear}.h5", opt)
+      tc(reconstruction(path / &"DataRuns{$dYear}.h5", opt))
+  result = toContinue
 
 proc main =
   let args = docopt(doc)
   let dataPath = $args["<dataPath>"]
+  var toContinue = true
 
   if args["--2014"].toBool:
-    runChain(dataPath / "2014_15", dy2014)
-  if args["--2017"].toBool:
-    runChain(dataPath / "2017", dy2017)
-  if args["--2018"].toBool:
-    runChain(dataPath / "2018_2", dy2018)
+    tc(runChain(dataPath / "2014_15", dy2014))
+  if toContinue and args["--2017"].toBool:
+    tc(runChain(dataPath / "2017", dy2017))
+  if toContinue and args["--2018"].toBool:
+    tc(runChain(dataPath / "2018_2", dy2018))
 
 when isMainModule:
   main()

@@ -535,6 +535,9 @@ The following Nim modules are definitely required for
 loopfusion
 arraymancer
 https://github.com/vindaar/seqmath#head
+https://github.com/vindaar/shell#head
+https://github.com/vindaar/ginger#head
+https://github.com/vindaar/ggplotnim#head
 nimhdf5
 docopt
 mpfit
@@ -543,6 +546,8 @@ plotly
 zero_functional
 helpers
 nimpy
+parsetoml
+https://github.com/yglukhov/threadpools#head
 ingridDatabase
 #+END_SRC
 

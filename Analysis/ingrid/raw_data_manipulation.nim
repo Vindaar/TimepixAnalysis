@@ -142,43 +142,6 @@ when isMainModule:
 template ch_len(): int = 2560
 template all_ch_len(): int = ch_len() * 4
 
-template inGridGroupNames(runNumber: int): (string, string, string, string) =
-  ## returns the names of all groups in a H5 file related to InGrid
-  let
-    # group name for raw data
-    groupName = getGroupNameForRun(runNumber)
-    # group name for reconstructed data
-    recoGroupName = getRecoNameForRun(runNumber)
-    # create datatypes for variable length data
-    chipGroupName = group_name & "/chip_$#" #% $chp
-    combineGroupName = getRawCombineName()
-  var result = (groupName, recoGroupName, chipGroupName, combineGroupName)
-  result
-
-template inGridGroups(h5f: var H5FileObj,
-                      nChips: int = 0,
-                      forFadc: static[bool] = false):
-         (H5Group, H5Group, H5Group, seq[H5Group]) =
-  ## template to get the H5 groups for
-  ## Note: some variables need to be defined in the calling scope! This
-  ## is why this is a template!
-  var
-    # create the groups for the run and reconstruction data
-    runGroup = h5f.create_group(groupName)
-    recoGroup = h5f.create_group(recoGroupName)
-  when forFadc == false:
-    var
-      # combined data group
-      combineGroup = h5f.create_group(combineGroupName)
-      # create group for each chip
-      chipGroups = mapIt(toSeq(0 ..< nChips), h5f.create_group(chipGroupName % $it))
-    var result = (runGroup, recoGroup, combineGroup, chipGroups)
-  else:
-    var
-      fadcCombine = h5f.create_group(combineRecoBasenameFadc())
-    var result = (runGroup, recoGroup, fadcCombine, newSeq[H5Group](0))
-  result
-
 proc specialTypesAndEvKeys(): (hid_t, hid_t, array[7, string]) =
   let
     # create datatypes for variable length data
@@ -507,13 +470,9 @@ proc initFadcInH5(h5f: var H5FileObj, runNumber, batchsize: int, filename: strin
     ch_len = ch_len()
     all_ch_len = all_ch_len()
 
-  let
-    group_name = getGroupNameForRun(runNumber) & "/fadc"
-    reco_group_name = getRecoNameForRun(runNumber) & "/fadc"
-
-  # use dirty template to get groups for the group names
-  var (runGroup, recoGroup, fadcCombine, _) = inGridGroups(h5f, forFadc = true)
+  let groupName = getGroupNameForRun(runNumber) & "/fadc"
   var
+    runGroup = h5f.create_group(groupName)
     # create the datasets for raw data etc
     # NOTE: we initialize all datasets with a size of 0. This means we need to extend
     # it immediately. However, this allows us to always (!) simply extend and write
@@ -698,6 +657,11 @@ proc readProcessWriteFadcData(run_folder: string, runNumber: int, h5f: var H5Fil
   info "Number of files read: ", files_read.toSet.len
   # finally finish writing to the HDF5 file
   finishFadcWriteToH5(h5f, runNumber)
+func createChipGroups(h5f: var H5FileObj,
+                      runNumber: int,
+                      nChips: int = 0): seq[H5Group] =
+  let chipGroupName = getGroupNameForRun(runNumber) & "/chip_$#"
+  result = mapIt(toSeq(0 ..< nChips), h5f.create_group(chipGroupName % $it))
 
 proc initInGridInH5*(h5f: var H5FileObj, runNumber, nChips, batchsize: int) =
   ## This proc creates the groups and dataset for the InGrid data in the H5 file
@@ -705,7 +669,7 @@ proc initInGridInH5*(h5f: var H5FileObj, runNumber, nChips, batchsize: int) =
   ##   h5f: H5file = the H5 file object of the writeable HDF5 file
   ##   ?
   # create variables for group names (NOTE: dirty template!)
-  let (groupName, recoGroupName, chipGroupName, combineGroupName) = inGridGroupNames(runNumber)
+  let chipGroups = createChipGroups(h5f, runNumber, nChips)
   let (ev_type_xy, ev_type_ch, eventHeaderKeys) = specialTypesAndEvKeys()
 
   template datasetCreation(h5f: untyped, name: untyped, `type`: untyped): untyped =
@@ -718,15 +682,6 @@ proc initInGridInH5*(h5f: var H5FileObj, runNumber, nChips, batchsize: int) =
                        filter = filter)
 
   var
-    # group for raw data
-    run_group = h5f.create_group(group_name)
-    # group for reconstructed data
-    reco_group = h5f.create_group(reco_group_name)
-    # combined data group
-    combine_group = h5f.create_group(combine_group_name)
-
-    # create group for each chip
-    chip_groups = mapIt(toSeq(0 ..< nChips), h5f.create_group(chipGroupName % $it))
     # datasets are chunked in the batchsize we read. Size originally 0
     x_dsets  = mapIt(chip_groups, h5f.datasetCreation(it.name & "/raw_x", ev_type_xy))
     y_dsets  = mapIt(chip_groups, h5f.datasetCreation(it.name & "/raw_y", ev_type_xy))
@@ -742,24 +697,43 @@ proc initInGridInH5*(h5f: var H5FileObj, runNumber, nChips, batchsize: int) =
 
     # other single column data
     durationDset = h5f.datasetCreation(joinPath(group_name, "eventDuration"), float)
-  let names = mapIt(toSeq(0 ..< nChips), chipGroupName % $it)
+  let names = chipGroups.mapIt(it.name)
   var
     totDset = mapIt(names, h5f.datasetCreation(it & "/ToT", uint16))
     hitDset = mapIt(names, h5f.datasetCreation(it & "/Hits", uint16))
     # use normal dataset creation proc, due to static size of occupancies
     occDset = mapIt(names, h5f.create_dataset(it & "/Occupancy", (256, 256), int))
 
-proc writeInGridAttrs*(h5f: var H5FileObj, run: ProcessedRun,
-                       rfKind: RunFolderKind,
-                       runType: RunTypeKind) =
+proc getCenterChipAndName(runs: ProcessedRun): (int, string) =
+  ## returns the chip number and the name of the center chip
+  # TODO: Find nicer solution!
+  var centerChip = 0
+  case run.nChips
+  of 1:
+    centerChip = 0
+  of 7:
+    centerChip = 3
+  else:
+    warn &"This number of chips ({run.nChips}) currently unsupported for" &
+      " `centerChip` determination. Will be set to 0."
+  let centerName = run.chips[centerChip].name
 
-  # use dirty template to define variables of group names
-  let (groupName,
-       recoGroupName,
-       chipGroupName,
-       combineGroupName) = inGridGroupNames(run.runNumber)
-  # use another dirty template to get the groups for the names
-  var (runGroup, recoGroup, combineGroup, chipGroups) = inGridGroups(h5f, run.nChips)
+proc writeRawAttrs*(h5f: var H5FileObj,
+                    run: ProcessedRun,
+                    rfKind: RunFolderKind,
+                    runType: RunTypeKind) =
+  # finally write run type to base runs / reconstruction groups
+  var rawG = h5f["runs".grp_str]
+  rawG.attrs["runType"] = $runType
+  rawG.attrs["runFolderKind"] = $rfKind
+  let (centerChip, centerName) = getCenterChipAndName(run)
+  rawG.attrs["centerChip"] = centerChip
+  rawG.attrs["centerChipName"] = centerName
+
+proc writeRunGrpAttrs*(h5f: var H5FileObj, group: var H5Group,
+                       run: ProcessedRun) =
+  ## writes all attributes to given `group` that can be extracted from
+  ## the `ProcessedRun`, `rfKind` and `runType`.
   # now write attribute data (containing the event run header, for a start
   # NOTE: unfortunately we cannot write all of it simply using applyIt,
   # because we need to parse some numbers as ints, leave some as strings
@@ -773,53 +747,42 @@ proc writeInGridAttrs*(h5f: var H5FileObj, run: ProcessedRun,
   for it in asInt:
     if it in run.runHeader:
       let att = parseInt(run.runHeader[it])
-      run_group.attrs[it]  = att
-      reco_group.attrs[it] = att
+      group.attrs[it]  = att
   for it in asString:
     if it in run.runHeader:
-      let att = run.runHeader[it]
-      run_group.attrs[it] = att
-      reco_group.attrs[it] = att
-
+      let att = run.runHeader[it]u
+      group.attrs[it] = att
+  let (centerChip, centerName) = getCenterChipAndName(run)
+  group.attrs["centerChipName"] = centerName
+  group.attrs["centerChip"] = centerChip
   # initialize the attribute for the current number of stored events to 0
-  run_group.attrs["numEventsStored"] = 0
+  group.attrs["numEventsStored"] = 0
+
+proc writeChipAttrs*(h5f: var H5FileObj,
+                     chipGroups: seq[H5Group],
+                     run: ProcessedRun) =
   # write attributes for each chip
-  var i = 0
-  for grp in mitems(chip_groups):
+  for i, grp in mpairs(chip_groups):
     grp.attrs["chipNumber"] = run.chips[i].number
     grp.attrs["chipName"]   = run.chips[i].name
     # initialize the attribute for the current number of stored events to 0
     grp.attrs["numEventsStored"] = 0
-    inc i
 
-  # finally write run type to base runs / reconstruction groups
-  var
-    rawG = h5f["runs".grp_str]
-    recoG = h5f["reconstruction".grp_str]
-  rawG.attrs["runType"] = $runType
-  recoG.attrs["runType"] = $runType
-  rawG.attrs["runFolderKind"] = $rfKind
-  recoG.attrs["runFolderKind"] = $rfKind
-  # Currently hardcode the number of chips we use.
-  # TODO: Find nicer solution!
-  var centerChip = 0
-  case run.nChips
-  of 1:
-    centerChip = 0
-  of 7:
-    centerChip = 3
-  else:
-    warn &"This number of chips ({run.nChips}) currently unsupported for" &
-      " `centerChip` determination. Will be set to 0."
-  let centerName = run.chips[centerChip].name
-  rawG.attrs["centerChip"] = centerChip
-  recoG.attrs["centerChip"] = centerChip
-  run_group.attrs["centerChip"] = centerChip
-  reco_group.attrs["centerChip"] = centerChip
-  rawG.attrs["centerChipName"] = centerName
-  recoG.attrs["centerChipName"] = centerName
-  run_group.attrs["centerChipName"] = centerName
-  reco_group.attrs["centerChipName"] = centerName
+proc writeInGridAttrs*(h5f: var H5FileObj, run: ProcessedRun,
+                       rfKind: RunFolderKind, runType: RunTypeKind) =
+  # writes all attributes into the output file. This includes
+  # - "runs" group attributes
+  # - individual run group attributes
+  # - chip group attributes
+  # "runs" group
+  writeRawAttrs(h5f, run, rfKind, runType)
+  # individual run group
+  let groupName = getGroupNameForRun(run.runNumber)
+  var group = h5f[groupName.grp_str]
+  writeRunGrpAttrs(h5f, group, run)
+  # chip groups
+  var chipGroups = createChipGroups(h5f, run.runNumber, run.nChips)
+  writeChipAttrs(h5f, chipGroups, run)
 
 proc fillDataForH5(x, y: var seq[seq[seq[uint8]]],
                    ch: var seq[seq[seq[uint16]]],
@@ -888,12 +851,8 @@ proc writeProcessedRunToH5*(h5f: var H5FileObj, run: ProcessedRun) =
   let t0 = epochTime()
   # first write the raw data
   # get the names of the groups
-  let (groupName,
-       recoGroupName,
-       chipGroupName,
-       combineGroupName) = inGridGroupNames(run.runNumber)
-  # another dirty template to get the groups for the names
-  var (runGroup, recoGroup, combineGroup, chipGroups) = inGridGroups(h5f, nChips)
+  let groupName = getGroupNameForRun(runNumber)
+  var chipGroups = createChipGroups(h5f, runNumber, nChips)
   let (ev_type_xy, ev_type_ch, eventHeaderKeys) = specialTypesAndEvKeys()
 
   var
@@ -979,7 +938,7 @@ proc writeProcessedRunToH5*(h5f: var H5FileObj, run: ProcessedRun) =
   info "ToTs shape is ", run.tots.shape
   info "hits shape is ", run.hits.shape
   # into the reco group name we now write the ToT and Hits information
-  var (totDsets, hitDsets, occDsets) = getTotHitOccDsets(h5f, chipGroupName, nChips)
+  var (totDsets, hitDsets, occDsets) = getTotHitOccDsets(h5f, chipGroups)
 
   for chip in 0 ..< run.nChips:
     # since not every chip has hits on each event, we need to create one group

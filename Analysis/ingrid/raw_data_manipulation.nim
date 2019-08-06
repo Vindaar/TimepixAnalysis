@@ -1163,13 +1163,12 @@ proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string,
                                    EventType.InGridType,
                                    rfKind)
 
-
   batchFiles(files, batchsize - 1):
     let r = readAndProcessInGrid(files[0 .. ind_high], runNumber, rfKind)
     if r.events.len > 0:
       nChips = r.nChips
 
-      if attrsWritten == false:
+      if not attrsWritten:
         writeInGridAttrs(h5f, r, rfKind, runType)
         # create datasets in H5 file
         initInGridInH5(h5f, runNumber, nChips, batchsize)

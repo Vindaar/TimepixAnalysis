@@ -686,7 +686,7 @@ proc writeRawAttrs*(h5f: var H5FileObj,
                     run: ProcessedRun,
                     rfKind: RunFolderKind,
                     runType: RunTypeKind) =
-  # finally write run type to base runs / reconstruction groups
+  # finally write run type to base runs group
   var rawG = h5f["runs".grp_str]
   rawG.attrs["runType"] = $runType
   rawG.attrs["runFolderKind"] = $rfKind

@@ -67,20 +67,23 @@ proc runChain(path: string, dYear: DataYear): bool =
   case dYear
   of dy2017, dy2018:
     # copy the correct ingrid Database file
+    # TODo: if we only copy the backup databases, we always overwrite potentially
+    # new fit parameters that were added to the database during the reconstruction!
+    # Need to copy back after running the reconstruction in some form.
     copyFile(relIDPath / &"ingridDatabase{$dYear}.h5", relIdPath / "ingridDatabase.h5")
   else: discard
 
   # raw data for calibration
   tc(rawDataManipulation(path / "CalibrationRuns", "calib", path / &"CalibrationRuns{$dYear}.h5"))
   # raw data for background
-  tc(rawDataManipulation(path / "DataRuns", "back", path / &"DataRuns{$dYear}.h5"))
+  #tc(rawDataManipulation(path / "DataRuns", "back", path / &"DataRuns{$dYear}.h5"))
 
   # reconstruction for both
-  for opt in recoOptions:
-    tc(reconstruction(path / &"CalibrationRuns{$dYear}.h5", opt))
-    if opt != "--only_gain_fit":
-      tc(reconstruction(path / &"DataRuns{$dYear}.h5", opt))
-  result = toContinue
+  #for opt in recoOptions:
+  #  tc(reconstruction(path / &"CalibrationRuns{$dYear}.h5", opt))
+  #  if opt != "--only_gain_fit":
+  #    tc(reconstruction(path / &"DataRuns{$dYear}.h5", opt))
+  #result = toContinue
 
 proc main =
   let args = docopt(doc)

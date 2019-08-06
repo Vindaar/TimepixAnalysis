@@ -215,7 +215,7 @@ proc recoPath*(runNumber, chipNumber: int): grp_str {.inline.} =
 
 proc getGroupNameForRun*(runNumber: int): string =
   # generates the group name for a given run number
-  result = rawDataBase() & "$#" % $runNumber
+  result = rawDataBase() & $runNumber
 
 template recoBase*(): string =
   "/reconstruction/run_"
@@ -228,7 +228,7 @@ template likelihoodBase*(): string =
 
 proc getRecoNameForRun*(runNumber: int): string =
   # generates the reconstrution group name for a given run number
-  result = recoBase() & "$#" % $runNumber
+  result = recoBase() & $runNumber
 
 proc getRawCombineName*(): string =
   # generates the base path for the combine folder
@@ -319,10 +319,10 @@ template combineRecoBasenameFadc*(): string =
   "/reconstruction/combined/fadc/"
 
 template combineRecoBasenameNoisy*(runNumber: int): string =
-  "/reconstruction/combined/fadc/noisy_$#" % [$runNumber]
+  "/reconstruction/combined/fadc/noisy_" & $runNumber
 
 template combineRecoBasenameMinvals*(runNumber: int): string =
-  "/reconstruction/combined/fadc/minvals_$#" % [$runNumber]
+  "/reconstruction/combined/fadc/minvals_" & $runNumber
 
 proc fadcRunPath*(runNumber: int): string {.inline.} =
   result = getRecoNameForRun(runNumber) / "fadc"

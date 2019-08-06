@@ -387,7 +387,6 @@ proc processRawInGridData(run: Run): ProcessedRun =
   result.hits = hits
   result.occupancies = occ
 
-{.experimental.}
 proc processFadcData(fadcFilesNil: seq[FlowVar[ref FadcFile]]): ProcessedFadcData {.inline.} =
   ## proc which performs all processing needed to be done on the raw FADC
   ## data. Starting from conversion of FadcFiles -> FadcData, but includes
@@ -505,23 +504,19 @@ proc initFadcInH5(h5f: var H5FileObj, runNumber, batchsize: int, filename: strin
   # read the given FADC file and extract that information from it
   let fadc_for_attrs = readFadcFile(filename)
   # helper sequence to loop over both groups to write attrs
-  var group_seq = @[run_group, reco_group]
-  for group in mitems(group_seq):
-    group.attrs["posttrig"] = fadc_for_attrs.posttrig
-    group.attrs["pretrig"] = fadc_for_attrs.pretrig
-    group.attrs["n_channels"] = fadc_for_attrs.n_channels
-    group.attrs["channel_mask"] = fadc_for_attrs.channel_mask
-    group.attrs["frequency"] = fadc_for_attrs.frequency
-    group.attrs["sampling_mode"] = fadc_for_attrs.sampling_mode
-    group.attrs["pedestal_run"] = if fadc_for_attrs.pedestal_run == true: 1 else: 0
+  runGroup.attrs["posttrig"] = fadc_for_attrs.posttrig
+  runGroup.attrs["pretrig"] = fadc_for_attrs.pretrig
+  runGroup.attrs["n_channels"] = fadc_for_attrs.n_channels
+  runGroup.attrs["channel_mask"] = fadc_for_attrs.channel_mask
+  runGroup.attrs["frequency"] = fadc_for_attrs.frequency
+  runGroup.attrs["sampling_mode"] = fadc_for_attrs.sampling_mode
+  runGroup.attrs["pedestal_run"] = if fadc_for_attrs.pedestal_run == true: 1 else: 0
 
 proc writeFadcDataToH5(h5f: var H5FileObj, runNumber: int, f_proc: ProcessedFadcData) =
   # proc to write the current FADC data to the H5 file
   # now write the data
   let
-    reco_group_name = getRecoNameForRun(runNumber)
     raw_name = rawFadcBasename(runNumber)
-    reco_name = fadcDataBasename(runNumber)
     trigRec_name = trigRecBasename(runNumber)
     eventNumber_name = eventNumberBasename(runNumber)
     ch_len = ch_len()
@@ -529,16 +524,11 @@ proc writeFadcDataToH5(h5f: var H5FileObj, runNumber: int, f_proc: ProcessedFadc
     nEvents = f_proc.raw_fadc_data.len
   var
     raw_fadc_dset = h5f[raw_name.dset_str]
-    fadc_dset = h5f[reco_name.dset_str]
     trigRec_dset = h5f[trigRec_name.dset_str]
     eventNumber_dset = h5f[eventNumber_name.dset_str]
-    noisy_dset = h5f[noiseBasename(runNumber).dset_str]
-    minVals_dset = h5f[minValsBasename(runNumber).dset_str]
 
   info raw_fadc_dset.shape
   info raw_fadc_dset.maxshape
-  info fadc_dset.shape
-  info fadc_dset.maxshape
   info trigRec_dset.shape
   info trigRec_dset.maxshape
   info eventNumber_dset.shape
@@ -554,11 +544,8 @@ proc writeFadcDataToH5(h5f: var H5FileObj, runNumber: int, f_proc: ProcessedFadc
   # in which case we simply set it to 0 on the first call and afterwards extend it by
   # the size we add
   raw_fadc_dset.resize((newsize, all_ch_len))
-  fadc_dset.resize((newsize, ch_len))
   trigRec_dset.resize((newsize, 1))
   eventNumber_dset.resize((newsize, 1))
-  noisy_dset.resize((newsize, 1))
-  minVals_dset.resize((newsize, 1))
 
   # now write the data
   let t0 = epochTime()
@@ -568,39 +555,26 @@ proc writeFadcDataToH5(h5f: var H5FileObj, runNumber: int, f_proc: ProcessedFadc
   raw_fadc_dset.write_hyperslab(f_proc.raw_fadc_data,
                                 offset = @[oldsize, 0],
                                 count = @[nEvents, all_ch_len])
-  fadc_dset.write_hyperslab(f_proc.fadc_data.toRawSeq,
-                            offset = @[oldsize, 0],
-                            count = @[nEvents, ch_len])
+  #fadc_dset.write_hyperslab(f_proc.fadc_data.toRawSeq,
+  #                          offset = @[oldsize, 0],
+  #                          count = @[nEvents, ch_len])
   trigRec_dset.write_hyperslab(f_proc.trigRecs,
                                offset = @[oldsize, 0],
                                count = @[nEvents, 1])
   eventNumber_dset.write_hyperslab(f_proc.eventNumber,
                                offset = @[oldsize, 0],
                                count = @[nEvents, 1])
-  noisy_dset.write_hyperslab(f_proc.noisy,
-                             offset = @[oldsize, 0],
-                             count = @[nEvents, 1])
-  minVals_dset.write_hyperslab(f_proc.minVals,
-                               offset = @[oldsize, 0],
-                               count = @[nEvents, 1])
+  #noisy_dset.write_hyperslab(f_proc.noisy,
+  #                           offset = @[oldsize, 0],
+  #                           count = @[nEvents, 1])
+  #minVals_dset.write_hyperslab(f_proc.minVals,
+  #                             offset = @[oldsize, 0],
+  #                             count = @[nEvents, 1])
   info "Writing of FADC data took $# seconds" % $(epochTime() - t0)
 
-proc finishFadcWriteToH5(h5f: var H5FileObj, runNumber: int) =
-  # proc to finalize the last things we need to write for the FADC data
-  # for now only hardlinking to combine group
-  let
-    noisy_target = noiseBasename(runNumber)
-    minVals_target = minValsBasename(runNumber)
-    noisy_link = combineRecoBasenameNoisy(runNumber)
-    minVals_link = combineRecoBasenameMinVals(runNumber)
-
-  h5f.create_hardlink(noisy_target, noisy_link)
-  h5f.create_hardlink(minVals_target, minVals_link)
-
-proc readProcessWriteFadcData(run_folder: string, runNumber: int, h5f: var H5FileObj) =
+proc readWriteFadcData(run_folder: string, runNumber: int, h5f: var H5FileObj) =
   ## given a run_folder it reads all fadc files (data<number>.txt-fadc),
-  ## processes it (FadcFile -> FadcData) and writes it to the HDF5 file
-
+  ## processes it (FadcFile -> FadcRaw) and writes it to the HDF5 file
   # get a sorted list of files, sorted by inode
   var
     files: seq[string] = getSortedListOfFiles(run_folder,
@@ -645,7 +619,8 @@ proc readProcessWriteFadcData(run_folder: string, runNumber: int, h5f: var H5Fil
 
   info "Number of files read: ", files_read.toSet.len
   # finally finish writing to the HDF5 file
-  finishFadcWriteToH5(h5f, runNumber)
+  # finishFadcWriteToH5(h5f, runNumber)
+
 func createChipGroups(h5f: var H5FileObj,
                       runNumber: int,
                       nChips: int = 0): seq[H5Group] =

@@ -212,28 +212,6 @@ proc getTotHitOccDsets(h5f: var H5FileObj, chipGroupName: string, nChips: int):
     occDset = occDsetNames.mapIt(h5f[it.dset_str])
   result = (totDset, hitDset, occDset)
 
-# macro combineBasename(typename: static[string]): typed =
-#   # really ugly macro, mostly to toy around, to create basename templates
-#   # creates a string, which is parsed to create templates, based on static
-#   # string inputs
-#   # returns a base string with for the given type, so that we
-#   # can create names for the location of hardlinks for ToT, Hits etc
-#   # for all runs
-#   # set the name and beginning of returned string to be filled
-#   let nim_template_name: string = """
-# template combineBasename$#*(chip_number, runNumber: int): string =
-#   result: string = ""
-#   let end_str = "_", chip_number, "_", runNumber
-#   result = "$#" & end_str
-#   result""" % [typename, typename]
-#   # add the further two fields to be handed to the function
-#   #nim_template_name &= """$chip_number_$runNumber"
-#   #"""
-#   result = parseStmt(nim_template_name)
-
-# template combinedBasenameHits(chip_number, runNumber: int) =
-#   "Hits_$#_$#" % [$chip_number, $runNumber]
-
 template batchFiles(files: var seq[string], bufsize, actions: untyped): untyped =
   ## this is a template, which can be used to batch a set of files into chunks
   ## of size `bufsize`. This is done by deleting elements from `files` until it

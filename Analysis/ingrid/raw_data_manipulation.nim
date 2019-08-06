@@ -77,15 +77,7 @@ else:
   const oldTosBackRuns  = ""
   const oldTosXrayRuns  = ""
 
-when defined(linux):
-  const commitHash = staticExec("git rev-parse --short HEAD")
-else:
-  const commitHash = ""
-# get date using `CompileDate` magic
-const currentDate = CompileDate & " at " & CompileTime
-
-const docTmpl = """
-Version: $# built on: $#
+const docStr = """
 InGrid raw data manipulation.
 
 Usage:
@@ -114,7 +106,7 @@ Options:
   --version           Show version.
 
 """
-const doc = docTmpl % [commitHash, currentDate]
+const doc = withDocopt(docStr)
 
 # define the compression filter we use
 #let filter = H5Filter(kind: fkZlib, zlibLevel: 6) # on run 146 took: 0.889728331565857 min

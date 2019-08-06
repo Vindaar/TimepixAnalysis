@@ -1013,28 +1013,24 @@ proc writeProcessedRunToH5*(h5f: var H5FileObj, run: ProcessedRun) =
     occDset.unsafeWrite(stackOcc.get_data_ptr, stackOcc.size)
 
 
-proc linkRawToReco(h5f: var H5FileObj, runNumber, nChips: int) =
-  ## perform linking from raw group to reco group
-  let (groupName,
-       recoGroupName,
-       chipGroupName,
-       combineGroupName) = inGridGroupNames(runNumber)
-  let (_, _, eventHeaderKeys) = specialTypesAndEvKeys()
-  let (totDsetNames,
-       hitDsetNames,
-       occDsetNames) = getTotHitOccDsetNames(chipGroupName, nChips)
-  let
-    durationDsetName = joinPath(groupName, "eventDuration")
-
-  # link over to reconstruction group
-  h5f.create_hardlink(durationDsetName, recoGroupName / extractFilename(durationDsetName))
-  # create hard links of header data to reco group
-  for key in eventHeaderKeys:
-    h5f.create_hardlink(joinPath(groupName, key), joinPath(recoGroupName, key))
-  for chip in 0 ..< nChips:
-    # create hardlinks for ToT and Hits
-    h5f.create_hardlink(totDsetNames[chip], combineRawBasenameToT(chip, runNumber))
-    h5f.create_hardlink(hitDsetNames[chip], combineRawBasenameHits(chip, runNumber))
+#proc linkRawToReco(h5f: var H5FileObj, runNumber, nChips: int) =
+#  ## perform linking from raw group to reco group
+#  let (groupName,
+#       recoGroupName,
+#       chipGroupName,
+#       combineGroupName) = inGridRawGroupNames(runNumber)
+#  let (_, _, eventHeaderKeys) = specialTypesAndEvKeys()
+#  let (totDsetNames,
+#       hitDsetNames,
+#       occDsetNames) = getTotHitOccDsetNames(chipGroupName, nChips)
+#  let
+#    durationDsetName = joinPath(groupName, "eventDuration")
+#
+#  # link over to reconstruction group
+#  h5f.create_hardlink(durationDsetName, recoGroupName / extractFilename(durationDsetName))
+#  # create hard links of header data to reco group
+#  for key in eventHeaderKeys:
+#    h5f.create_hardlink(joinPath(groupName, key), joinPath(recoGroupName, key))
 
 proc createRun(runHeader: Table[string, string],
                runNumber: int,
@@ -1184,7 +1180,7 @@ proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string,
   ####################
   # Create Hardlinks #
   ####################
-  linkRawToReco(h5f, runNumber, nChips)
+  # linkRawToReco(h5f, runNumber, nChips)
 
   # dump sequences to file
   #dumpToTandHits(folder, runType, r.tots, r.hits)

@@ -154,25 +154,14 @@ proc specialTypesAndEvKeys(): (hid_t, hid_t, array[7, string]) =
   result[1] = ev_type_ch
   result[2] = eventHeaderKeys
 
-proc getTotHitOccDsetNames(chipGroupName: string,
-                           nChips: int):
-                          (seq[string], seq[string], seq[string]) =
-  let
-    totDsetNames = toSeq(0 ..< nChips).mapIt((chipGroupName % $it) & "/ToT")
-    hitDsetNames = toSeq(0 ..< nChips).mapIt((chipGroupName % $it) & "/Hits")
-    occDsetNames = toSeq(0 ..< nChips).mapIt((chipGroupName % $it) & "/Occupancy")
-  result = (totDsetNames, hitDsetNames, occDsetNames)
-
-proc getTotHitOccDsets(h5f: var H5FileObj, chipGroupName: string, nChips: int):
+proc getTotHitOccDsets(h5f: var H5FileObj, chipGroups: seq[H5Group]):
                       (seq[H5DataSet], seq[H5DataSet], seq[H5DataSet]) =
-  let (totDsetNames,
-       hitDsetNames,
-       occDsetNames) = getTotHitOccDsetNames(chipGroupName, nChips)
-
+  func fromChipGroups(chipGroups: seq[H5Group], name: string): seq[H5DataSet] =
+    chipGroups.mapIt(h5f[(it.name & "/ToT").dset_str])
   var
-    totDset = totDsetNames.mapIt(h5f[it.dset_str])
-    hitDset = hitDsetNames.mapIt(h5f[it.dset_str])
-    occDset = occDsetNames.mapIt(h5f[it.dset_str])
+    totDset = fromChipGroups(h5f, "/ToT")
+    hitDset = fromChipGroups(h5f, "/Hits")
+    occDset = fromChipGroups(h5f, "/Occupancy")
   result = (totDset, hitDset, occDset)
 
 template batchFiles(files: var seq[string], bufsize, actions: untyped): untyped =

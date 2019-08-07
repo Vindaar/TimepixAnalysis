@@ -1090,9 +1090,10 @@ proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string,
       nChips = r.nChips
 
       if not attrsWritten:
-        writeInGridAttrs(h5f, r, rfKind, runType)
         # create datasets in H5 file
         initInGridInH5(h5f, runNumber, nChips, batchsize)
+        # now init attributes
+        writeInGridAttrs(h5f, r, rfKind, runType)
         attrsWritten = true
 
       let a = squeeze(r.occupancies[0,_,_])

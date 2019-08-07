@@ -5,12 +5,16 @@ import logging
 
 const docStr = """
 Usage:
-  runAnalysisChain <dataPath> (--2014 | --2017 | --2018) [options]
+  runAnalysisChain <dataPath> (--2014 | --2017 | --2018) [--noBack --noCalib --noRaw --noReco] [options]
 
 Options:
   --2014       Run 2014 analysis chain
   --2017       Run 2017 analysis chain
   --2018       Run 2018_2 analysis chain
+  --noBack     Do not perform analysis chain on background runs
+  --noCalib    Do not perform analysis chain on caliration runs
+  --noRaw      Do not perform raw data manipulation
+  --noReco     Do not perform reconstruction
   -h, --help   Show this help
   --version    Show the version number
 """
@@ -22,6 +26,9 @@ const recoOptions = ["", "--only_fadc", "--only_charge", "--only_gas_gain",
 const relIDPath = "../../InGridDatabase/src/resources"
 
 type
+  AnaFlags = enum
+    afNoBack, afNoCalib, afNoRaw, afNoReco
+
   DataYear = enum
     dy2014 = "2014"
     dy2017 = "2017"
@@ -61,7 +68,7 @@ template tc(cmd: untyped): untyped {.dirty.} =
   if toContinue:
     toContinue = cmd
 
-proc runChain(path: string, dYear: DataYear): bool =
+proc runChain(path: string, dYear: DataYear, flags: set[AnaFlags]): bool =
   ## performs the whole chain of the given dataset
   var toContinue = true
   case dYear
@@ -74,28 +81,41 @@ proc runChain(path: string, dYear: DataYear): bool =
   else: discard
 
   # raw data for calibration
-  tc(rawDataManipulation(path / "CalibrationRuns", "calib", path / &"CalibrationRuns{$dYear}.h5"))
+  if afNoCalib notin flags and afNoRaw notin flags:
+    tc(rawDataManipulation(path / "CalibrationRuns", "calib", path / &"CalibrationRuns{$dYear}.h5"))
   # raw data for background
-  #tc(rawDataManipulation(path / "DataRuns", "back", path / &"DataRuns{$dYear}.h5"))
+  if afNoBack notin flags and afNoRaw notin flags:
+    tc(rawDataManipulation(path / "DataRuns", "back", path / &"DataRuns{$dYear}.h5"))
 
   # reconstruction for both
-  #for opt in recoOptions:
-  #  tc(reconstruction(path / &"CalibrationRuns{$dYear}.h5", opt))
-  #  if opt != "--only_gain_fit":
-  #    tc(reconstruction(path / &"DataRuns{$dYear}.h5", opt))
-  #result = toContinue
+  for opt in recoOptions:
+    if afNoCalib notin flags and afNoReco notin flags:
+      tc(reconstruction(path / &"CalibrationRuns{$dYear}.h5", opt))
+    if opt != "--only_gain_fit" and afNoBack notin flags and afNoReco notin flags:
+      tc(reconstruction(path / &"DataRuns{$dYear}.h5", opt))
+  result = toContinue
 
 proc main =
   let args = docopt(doc)
   let dataPath = $args["<dataPath>"]
   var toContinue = true
 
+  var flags: set[AnaFlags]
+  if args["--noBack"].toBool:
+    flags.incl afNoBack
+  if args["--noCalib"].toBool:
+    flags.incl afNoCalib
+  if args["--noRaw"].toBool:
+    flags.incl afNoRaw
+  if args["--noReco"].toBool:
+    flags.incl afNoReco
+
   if args["--2014"].toBool:
-    tc(runChain(dataPath / "2014_15", dy2014))
+    tc(runChain(dataPath / "2014_15", dy2014, flags))
   if toContinue and args["--2017"].toBool:
-    tc(runChain(dataPath / "2017", dy2017))
+    tc(runChain(dataPath / "2017", dy2017, flags))
   if toContinue and args["--2018"].toBool:
-    tc(runChain(dataPath / "2018_2", dy2018))
+    tc(runChain(dataPath / "2018_2", dy2018, flags))
 
 when isMainModule:
   main()

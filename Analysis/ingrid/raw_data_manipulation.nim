@@ -156,12 +156,12 @@ proc specialTypesAndEvKeys(): (hid_t, hid_t, array[7, string]) =
 
 proc getTotHitOccDsets(h5f: var H5FileObj, chipGroups: seq[H5Group]):
                       (seq[H5DataSet], seq[H5DataSet], seq[H5DataSet]) =
-  func fromChipGroups(chipGroups: seq[H5Group], name: string): seq[H5DataSet] =
+  proc fromChipGroups(h5f: var H5FileObj, chipGroups: seq[H5Group], name: string): seq[H5DataSet] =
     chipGroups.mapIt(h5f[(it.name & "/ToT").dset_str])
   var
-    totDset = fromChipGroups(h5f, "/ToT")
-    hitDset = fromChipGroups(h5f, "/Hits")
-    occDset = fromChipGroups(h5f, "/Occupancy")
+    totDset = h5f.fromChipGroups(chipGroups, "/ToT")
+    hitDset = h5f.fromChipGroups(chipGroups, "/Hits")
+    occDset = h5f.fromChipGroups(chipGroups, "/Occupancy")
   result = (totDset, hitDset, occDset)
 
 template batchFiles(files: var seq[string], bufsize, actions: untyped): untyped =
@@ -621,7 +621,7 @@ proc readWriteFadcData(run_folder: string, runNumber: int, h5f: var H5FileObj) =
   # finally finish writing to the HDF5 file
   # finishFadcWriteToH5(h5f, runNumber)
 
-func createChipGroups(h5f: var H5FileObj,
+proc createChipGroups(h5f: var H5FileObj,
                       runNumber: int,
                       nChips: int = 0): seq[H5Group] =
   let chipGroupName = getGroupNameForRun(runNumber) & "/chip_$#"
@@ -633,6 +633,7 @@ proc initInGridInH5*(h5f: var H5FileObj, runNumber, nChips, batchsize: int) =
   ##   h5f: H5file = the H5 file object of the writeable HDF5 file
   ##   ?
   # create variables for group names (NOTE: dirty template!)
+  let groupName = getGroupNameForRun(runNumber)
   let chipGroups = createChipGroups(h5f, runNumber, nChips)
   let (ev_type_xy, ev_type_ch, eventHeaderKeys) = specialTypesAndEvKeys()
 
@@ -654,13 +655,13 @@ proc initInGridInH5*(h5f: var H5FileObj, runNumber, nChips, batchsize: int) =
     # datasets to store the header information for each event
     evHeadersDsetTab = eventHeaderKeys.mapIt(
       (it,
-       h5f.datasetCreation(group_name & "/" & it, int))
+       h5f.datasetCreation(groupName & "/" & it, int))
     ).toTable
     # TODO: add string of datetime as well
     #dateTimeDset = h5f.create_dataset(joinPath(group_name, "dateTime"), nEvents, string)
 
     # other single column data
-    durationDset = h5f.datasetCreation(joinPath(group_name, "eventDuration"), float)
+    durationDset = h5f.datasetCreation(joinPath(groupName, "eventDuration"), float)
   let names = chipGroups.mapIt(it.name)
   var
     totDset = mapIt(names, h5f.datasetCreation(it & "/ToT", uint16))
@@ -668,7 +669,7 @@ proc initInGridInH5*(h5f: var H5FileObj, runNumber, nChips, batchsize: int) =
     # use normal dataset creation proc, due to static size of occupancies
     occDset = mapIt(names, h5f.create_dataset(it & "/Occupancy", (256, 256), int))
 
-proc getCenterChipAndName(runs: ProcessedRun): (int, string) =
+proc getCenterChipAndName(run: ProcessedRun): (int, string) =
   ## returns the chip number and the name of the center chip
   # TODO: Find nicer solution!
   var centerChip = 0
@@ -714,7 +715,7 @@ proc writeRunGrpAttrs*(h5f: var H5FileObj, group: var H5Group,
       group.attrs[it]  = att
   for it in asString:
     if it in run.runHeader:
-      let att = run.runHeader[it]u
+      let att = run.runHeader[it]
       group.attrs[it] = att
   let (centerChip, centerName) = getCenterChipAndName(run)
   group.attrs["centerChipName"] = centerName
@@ -723,7 +724,7 @@ proc writeRunGrpAttrs*(h5f: var H5FileObj, group: var H5Group,
   group.attrs["numEventsStored"] = 0
 
 proc writeChipAttrs*(h5f: var H5FileObj,
-                     chipGroups: seq[H5Group],
+                     chipGroups: var seq[H5Group],
                      run: ProcessedRun) =
   # write attributes for each chip
   for i, grp in mpairs(chip_groups):
@@ -816,6 +817,7 @@ proc writeProcessedRunToH5*(h5f: var H5FileObj, run: ProcessedRun) =
   # first write the raw data
   # get the names of the groups
   let groupName = getGroupNameForRun(runNumber)
+  var runGroup = h5f[groupName.grp_str]
   var chipGroups = createChipGroups(h5f, runNumber, nChips)
   let (ev_type_xy, ev_type_ch, eventHeaderKeys) = specialTypesAndEvKeys()
 
@@ -830,7 +832,7 @@ proc writeProcessedRunToH5*(h5f: var H5FileObj, run: ProcessedRun) =
         (it, h5f[(groupName & "/" & it).dset_str])
       ).toTable
     # TODO: add string of datetime as well
-    #dateTimeDset = h5f.create_dataset(joinPath(group_name, "dateTime"), nEvents, string)
+    #dateTimeDset = h5f.create_dataset(joinPath(groupName, "dateTime"), nEvents, string)
 
     # other single column data
     durationDset = h5f[(joinPath(groupName, "eventDuration")).dset_str]
@@ -1062,7 +1064,7 @@ proc processAndWriteFadc(run_folder: string, runNumber: int, h5f: var H5FileObj)
   # filsa at a time.
   let mem1 = getOccupiedMem()
   info "occupied memory before fadc $# \n\n" % [$mem1]
-  readProcessWriteFadcData(run_folder, runNumber, h5f)
+  readWriteFadcData(run_folder, runNumber, h5f)
   info "FADC took $# data" % $(getOccupiedMem() - mem1)
 
 proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string,

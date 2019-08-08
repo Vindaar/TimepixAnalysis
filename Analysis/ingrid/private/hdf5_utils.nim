@@ -213,7 +213,7 @@ template recoDataChipBase*(runNumber: int): string =
 proc recoPath*(runNumber, chipNumber: int): grp_str {.inline.} =
   result = (recoDataChipBase(runNumber) & $chipNumber).grp_str
 
-proc getGroupNameForRun*(runNumber: int): string =
+proc getGroupNameRaw*(runNumber: int): string =
   # generates the group name for a given run number
   result = rawDataBase() & $runNumber
 
@@ -226,7 +226,7 @@ proc recoRunGrpStr*(runNumber: int): grp_str {.inline.} =
 template likelihoodBase*(): string =
   "/likelihood/run_"
 
-proc getRecoNameForRun*(runNumber: int): string =
+proc getGroupNameReco*(runNumber: int): string =
   # generates the reconstrution group name for a given run number
   result = recoBase() & $runNumber
 
@@ -324,44 +324,51 @@ template combineRecoBasenameNoisy*(runNumber: int): string =
 template combineRecoBasenameMinvals*(runNumber: int): string =
   "/reconstruction/combined/fadc/minvals_" & $runNumber
 
-proc fadcRunPath*(runNumber: int): string {.inline.} =
-  result = getRecoNameForRun(runNumber) / "fadc"
+proc fadcRawPath*(runNumber: int): string {.inline.} =
+  result = getGroupNameRaw(runNumber) / "fadc"
 
-template noiseBasename*(runNumber: int): string =
-  fadcRunPath(runNumber) / "noisy"
-
-template minvalsBasename*(runNumber: int): string =
-  fadcRunPath(runNumber) / "minvals"
+proc fadcRecoPath*(runNumber: int): string {.inline.} =
+  result = getGroupNameReco(runNumber) / "fadc"
 
 template rawFadcBasename*(runNumber: int): string =
-  getGroupNameForRun(runNumber) / "fadc/raw_fadc"
+  fadcRawPath(runNumber) / "raw_fadc"
 
 template trigRecBasename*(runNumber: int): string =
-  getGroupNameForRun(runNumber) / "fadc/trigger_record"
+  fadcRawPath(runNumber) / "trigger_record"
+
+template noiseBasename*(runNumber: int): string =
+  fadcRecoPath(runNumber) / "noisy"
+
+template minvalsBasename*(runNumber: int): string =
+  fadcRecoPath(runNumber) / "minvals"
 
 template fadcDataBasename*(runNumber: int): string =
-  fadcRunPath(runNumber) / "fadc_data"
+  fadcRecoPath(runNumber) / "fadc_data"
 
 template fadcBaselineBasename*(runNumber: int): string =
-  fadcRunPath(runNumber) / "baseline"
+  fadcRecoPath(runNumber) / "baseline"
 
 template argMinvalBasename*(runNumber: int): string =
-  fadcRunPath(runNumber) / "argMinval"
+  fadcRecoPath(runNumber) / "argMinval"
 
 template riseStartBasename*(runNumber: int): string =
-  fadcRunPath(runNumber) / "riseStart"
+  fadcRecoPath(runNumber) / "riseStart"
 
 template fallStopBasename*(runNumber: int): string =
-  fadcRunPath(runNumber) / "fallStop"
+  fadcRecoPath(runNumber) / "fallStop"
 
 template riseTimeBasename*(runNumber: int): string =
-  fadcRunPath(runNumber) / "riseTime"
+  fadcRecoPath(runNumber) / "riseTime"
 
 template fallTimeBasename*(runNumber: int): string =
-  fadcRunPath(runNumber) / "fallTime"
+  fadcRecoPath(runNumber) / "fallTime"
 
-template eventNumberBasename*(runNumber: int): string =
-  fadcRunPath(runNumber) / "eventNumber"
+template eventNumberBasenameReco*(runNumber: int): string =
+  fadcRecoPath(runNumber) / "eventNumber"
+
+template eventNumberBasenameRaw*(runNumber: int): string =
+  fadcRawPath(runNumber) / "eventNumber"
+
 
 
 ################################################################################

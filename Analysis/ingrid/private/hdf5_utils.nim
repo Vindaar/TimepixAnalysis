@@ -231,14 +231,6 @@ proc getGroupNameReco*(runNumber: int): string =
   # generates the reconstrution group name for a given run number
   result = recoBase() & $runNumber
 
-proc getRawCombineName*(): string =
-  # generates the base path for the combine folder
-  result = "/runs/combined/"
-
-proc getRecoCombineName*(): string =
-  # generates the base path for the combine folder
-  result = "/reconstruction/combined/"
-
 proc hasDset*(h5f: var H5FileObj, runNumber, chipNumber: int, dset: string):
                 bool =
   ## returns `true` if the given run and chip has the given `dset`
@@ -284,46 +276,6 @@ proc getCenterChip*(h5f: var H5FileObj, runNumber: int): int =
   ## reads the `centerChip` attribute from the run group corresponding to
   ## `runNumber`
   result = h5f[recoRunGrpStr(runNumber)].attrs["centerChip", int]
-
-macro createCombineTemplates(name, datatype: string): untyped =
-  ## creates a template, which returns a basename of the type
-  ## combineBasename`name`(chip_number, runNumber): string =
-  ##   "/runs/combined/`name`_$#_$#" % [$chip_number, $runNumber]
-  var source = ""
-  case datatype.strVal
-  of "runs":
-    source &= "template combineRawBasename" & name.strVal & "*(chip_number, runNumber: int): string =\n"
-  of "reconstruction":
-    source &= "template combineRecoBasename" & name.strVal & "*(chip_number, runNumber: int): string =\n"
-  else:
-    discard
-  case name.strVal
-  of "Hits", "ToT":
-    source &= "  \"/" & datatype.strVal & "/combined/" & name.strVal
-  else:
-    source &= "  \"/" & datatype.strVal.toLowerAscii & "/combined/" & name.strVal.toLowerAscii
-  source &= "_$#_$#\" % [$chip_number, $runNumber]"
-  result = parseStmt(source)
-  echo toStrLit(result)
-
-createCombineTemplates("ToT", "runs")
-createCombineTemplates("Hits", "runs")
-createCombineTemplates("ToT", "reconstruction")
-createCombineTemplates("Hits", "reconstruction")
-# these don't work, since we use the name once in upper and once in lower case
-#createCombineTemplates("Fadc", "reconstruction")
-#createCombineTemplates("Noisy", "reconstruction")
-#createCombineTemplates("Minvals", "reconstruction")
-#createCombineTemplates("Noisy", "reconstruction")
-
-template combineRecoBasenameFadc*(): string =
-  "/reconstruction/combined/fadc/"
-
-template combineRecoBasenameNoisy*(runNumber: int): string =
-  "/reconstruction/combined/fadc/noisy_" & $runNumber
-
-template combineRecoBasenameMinvals*(runNumber: int): string =
-  "/reconstruction/combined/fadc/minvals_" & $runNumber
 
 proc fadcRawPath*(runNumber: int): string {.inline.} =
   result = getGroupNameRaw(runNumber) / "fadc"

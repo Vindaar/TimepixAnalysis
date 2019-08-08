@@ -449,6 +449,7 @@ def plotFeSpec(feSpec, ecData, run_number, outfolder,
     else:
         # in that case clear the current figure to not end up with
         # both plots in one
+        fig.close()
         plt.clf()
 
     return [text, text2, text3]
@@ -485,6 +486,7 @@ def plotFeSpecCharge(feSpec, ecData, run_number, outfolder,
     else:
         # in that case clear the current figure to not end up with
         # both plots in one
+        fig.close()
         plt.clf()
 
     return [text2, text3]

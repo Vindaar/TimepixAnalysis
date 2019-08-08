@@ -1,4 +1,3 @@
-import ospaths
 import os
 import re
 import sequtils, sugar
@@ -81,9 +80,6 @@ proc readFadcFile*(file: seq[string]): ref FadcFile = #seq[float] =
     # speeds up the add, as the sequence does not have to be resized all the
     # time
     data = newSeqOfCap[uint16](10240)
-    postTrig, trigRec, preTrig, n_channels, frequency, sampling_mode: int
-    bitMode14, pedestalRun: bool
-    line_spl: seq[string]
   # line 0 is the filename itself
   let filepath = file[0]
 
@@ -171,9 +167,6 @@ proc readFadcFileMem*(filepath: string): ref FadcFile = #seq[float] =
     # speeds up the add, as the sequence does not have to be resized all the
     # time
     data = newSeqOfCap[uint16](10240)
-    postTrig, trigRec, preTrig, n_channels, frequency, sampling_mode: int
-    bitMode14, pedestalRun: bool
-    line_spl: seq[string]
 
   var file: seq[string]
   var ff: MemFile

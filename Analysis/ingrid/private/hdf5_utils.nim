@@ -1,6 +1,7 @@
 import ../ingrid_types
 import helpers/utils
-import strutils, ospaths, times, strformat, sequtils, tables, re, algorithm, sets
+import os except FileInfo
+import strutils, times, strformat, sequtils, tables, re, algorithm, sets
 import nimhdf5
 import macros
 import pure
@@ -284,7 +285,7 @@ proc getCenterChip*(h5f: var H5FileObj, runNumber: int): int =
   ## `runNumber`
   result = h5f[recoRunGrpStr(runNumber)].attrs["centerChip", int]
 
-macro createCombineTemplates(name, datatype: string): typed =
+macro createCombineTemplates(name, datatype: string): untyped =
   ## creates a template, which returns a basename of the type
   ## combineBasename`name`(chip_number, runNumber): string =
   ##   "/runs/combined/`name`_$#_$#" % [$chip_number, $runNumber]
@@ -404,8 +405,8 @@ proc getTrackingEvents*(h5f: var H5FileObj, group: H5Group, num_tracking: int = 
       evNums = h5f[group.name / "eventNumber", int64].asType(int)
       tstamp = h5f[group.name / "timestamp", int64]
       # start and stop in seconds
-      tr_starts_s = mapIt(tr_starts, int(it.toTime.toSeconds))
-      tr_stops_s  = mapIt(tr_stops,  int(it.toTime.toSeconds))
+      tr_starts_s = mapIt(tr_starts, it.toTime.toUnix)
+      tr_stops_s  = mapIt(tr_stops,  it.toTime.toUnix)
     # filter out all indices of timestamps, which lie inside the tracking
 
     # first get all indices of all trackings in a seq[seq[int]]
@@ -517,7 +518,7 @@ proc getRunInfo*(path: string): RunInfo =
   ## wrapper around the above proc if only the path to the run is known
   let regex = r"^/([\w-_]+/)*data\d{6,9}\.txt$"
   let fadcRegex = r"^/([\w-_]+/)*data\d{6,9}\.txt-fadc$"
-  let (is_run_folder, runNumber, rfKind, contains_run_folder) = isTosRunFolder(path)
+  let (_, runNumber, rfKind, _) = isTosRunFolder(path)
   let files = getListOfFiles(path, regex)
   let fadcFiles = getListOfFiles(path, fadcRegex)
   if files.len > 0:

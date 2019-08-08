@@ -1,4 +1,4 @@
-import os, ospaths
+import os
 import strutils, strformat, strscans
 import parseutils
 import times
@@ -6,24 +6,17 @@ import algorithm
 import re
 import tables
 import memfiles
-import sequtils, future
+import sequtils, sugar
 #import threadpool
 import threadpool_simple
 import math
 import streams, parsecsv
-import sets
-
-import typetraits
 
 # cus modules
 import helpers/utils
 import ../ingrid_types
 # zero functional is fine, because it's purely Nim
 import zero_functional
-
-import macros
-
-{.deadCodeElim: on.}
 
 const
   # some helper constants
@@ -94,7 +87,7 @@ proc readToTFile*(filename: string,
     startTot = startRead
   else:
     startTot = StartTot
-  let nstarts = pulses.filterIt(it == startTot).len
+  # let nstarts = pulses.filterIt(it == startTot).len
 
   let lastInd = pulses.len - pulses.reversed.find(startToT) - 2
   if lastInd > 0:
@@ -190,7 +183,7 @@ proc getFilenameFromEventNumber*[T: SomeInteger](evNumber: T): string =
 proc formatAsOrgDate*(t: Time, org_format = "yyyy-MM-dd ddd H:mm"): string =
   ## this procedure formats the given Time object as an org-mode date
   ## by first converting it to a TimeInfo object
-  let ti = getLocalTime(t)
+  let ti = local(t)
   result = format(ti, org_format)
 
 proc getTimeFromEvent*(file: string): Time =
@@ -237,7 +230,7 @@ proc writeDateSeqToFile*(date_seq: seq[Time]): void =
   if open(f, outfile, fmWrite):
     f.write("# date\t unix time\n")
     for time in date_seq:
-      let sec: string = formatFloat(toSeconds(time))
+      let sec = $toUnix(time)
       #let t: string = format(getLocalTime(time), "yyyy-MM-dd hh:mm:ss")
       #let str = join(@[t, sec, "\n"], sep = "\t")
       let str = join(@[$(time), sec, "\n"], sep = "\t")
@@ -349,7 +342,6 @@ proc parseSrsRunInfo(path: string): Table[string, string] =
     # all good, can parse it
     # run number, start and end time
     # won't be considered
-    var idx = 0
     var s = openFileStream(runPath)
     defer: s.close()
     var line = ""
@@ -433,7 +425,7 @@ proc estimateRunTime(files: seq[(int, string)],
   for tup in files:
     let (evNum, evName) = tup
     doAssert lastEvNum < evNum, " List of files MUST be sorted!"
-    let (head, tail) = evName.splitPath
+    let (_, tail) = evName.splitPath
     discard scanf(tail, OldVirtexEventScanfNoPath, dummy, dummy, timestamp)
     let tstamp = ($timestamp).align(9, padding = '0')
     let hour = tstamp[0 .. 1].parseInt
@@ -451,7 +443,7 @@ proc estimateRunTime(files: seq[(int, string)],
   runStop.hour = tstamp.hour
   runStop.minute = tstamp.minute
   runStop.second = tstamp.second
-  let runTime = (runStop - runStart).seconds
+  let runTime = (runStop - runStart).inSeconds
   result = (runStop, runTime)
 
 proc getOldRunInformation*(folder: string, runNumber: int, rfKind: RunFolderKind):
@@ -462,7 +454,7 @@ proc getOldRunInformation*(folder: string, runNumber: int, rfKind: RunFolderKind
   of rfOldTos:
     const oldTosRunDescriptorPrefix = OldTosRunDescriptorPrefix
     let
-      (head, tail) = folder.splitPath
+      (_, tail) = folder.splitPath
       datFile = joinPath(folder, tail & ".dat")
     try:
       let
@@ -539,7 +531,7 @@ proc getRunHeader*(ev: Event,
       (totalEvents, numEvents, startTime, stopTime, runTime) = runInfo
       start = fromUnix(startTime)
       stop = fromUnix(stopTime)
-      mid = ((stop - start).seconds div 2 + start.toUnix).fromUnix
+      mid = ((stop - start).inSeconds div 2 + start.toUnix).fromUnix
     result["numEvents"] = $numEvents
     result["totalEvents"] = $totalEvents
     result["dateTime"] = start.format("yyyy-MM-dd'.'hh:mm:ss")
@@ -580,12 +572,10 @@ proc readMemFilesIntoBuffer*(list_of_files: seq[string]): seq[seq[string]] =
   # I guess there's a reason why we do not return a seq of memory mapped files
   # anymore
   var lineBuf = newStringOfCap(80)
-  var sliceData: ptr UncheckedArray[char]
   var ff: MemFile
   for f in list_of_files:
     # add filename to result
     dat.add f
-    let fname = f
     try:
       ff = memfiles.open(f)
       for slice in memSlices(ff):
@@ -665,7 +655,7 @@ proc processEventWithScanf*(data: seq[string]): ref Event =
     ## proc performing the match of `Event Header` part using strscans.scanf.
     ## These lines start with `## `.
     ## The given string has already been stripped of the prefix
-    if likely(line[0]!= '[') and
+    if likely(line[0] != '[') and
        likely(scanf(line, headerMatch, keyMatch, valMatch)):
       e_header[keyMatch] = valMatch
       keyMatch.setLen(0)
@@ -799,7 +789,7 @@ proc processEventWithScanf*(data: seq[string]): ref Event =
         return nil
 
   # finally add the timestamp from the dateTime to the table as well
-  e_header["timestamp"] = $(int(parseTOSDateString(e_header["dateTime"]).toSeconds))
+  e_header["timestamp"] = $(parseTOSDateString(e_header["dateTime"]).toUnix)
 
   result.evHeader = e_header
   result.chips = chips
@@ -827,7 +817,7 @@ proc addOldHeaderKeys(e_header, c_header: var Table[string, string],
   c_header["chipName"] = OldChipName
   # subtract 1, because in the past TOS was 1 indexed
   c_header["chipNumber"] = $(chipNumber - 1)
-  let (head, tail) = filepath.splitPath
+  let (head, _) = filepath.splitPath
   e_header["pathName"] = head
 
 proc processOldEventScanf*(data: seq[string]): ref OldEvent =
@@ -854,7 +844,6 @@ proc processOldEventScanf*(data: seq[string]): ref OldEvent =
     # important, because we cannot trust numHits in chip header, due to zero
     # suppression! We init by `-1` to deal with old TOS format, in which there
     # is no header
-    pix_to_read: int = 0
   result = new OldEvent
 
   let filepath = data[0]
@@ -927,8 +916,6 @@ proc processSrsEventScanf*(data: seq[string]): ref SrsEvent =
   ## - read the pixel data in an event
   # in this case we have a sequence of strings
   var
-    # variable to count already read pixels
-    pix_counter = 0
     # variables to read data into
     e_header = initTable[string, string]()
     c_header = initTable[string, string]()
@@ -941,7 +928,6 @@ proc processSrsEventScanf*(data: seq[string]): ref SrsEvent =
     # important, because we cannot trust numHits in chip header, due to zero
     # suppression! We init by `-1` to deal with old TOS format, in which there
     # is no header
-    pix_to_read: int = 0
   result = new SrsEvent
 
   let filepath = data[0]
@@ -1012,7 +998,6 @@ proc processSrsEventScanf*(data: seq[string]): ref SrsEvent =
   # from the filename
   var
     evNumber: string
-    chipNumber: string
     runNumber: string
   # need to use `$*` to parse, because if we use $i for integers, we end up
   # parsing the `_` tokens as well, making scanf fail
@@ -1025,11 +1010,11 @@ proc processSrsEventScanf*(data: seq[string]): ref SrsEvent =
   let fname = filepath.extractFilename
   if scanf(fname, SrsEventScanfNoPath, runNumber, evNumber, date):
     e_header["dateTime"] = $date
-    e_header["timestamp"] = $(int(date.toSeconds))
+    e_header["timestamp"] = $(date.toUnix)
     e_header["eventNumber"] = evNumber.strip(trailing = false, chars = {'0'})
     e_header["runNumber"] = runNumber.strip(trailing = false, chars = {'0'})
     e_header["numChips"] = $result.nChips
-    let (head, tail) = filepath.splitPath
+    let (head, _) = filepath.splitPath
     e_header["pathName"] = head
 
     # since we strip the '0' characters, we might strip everything, if the
@@ -1292,7 +1277,6 @@ proc isTosRunFolder*(folder: string):
     matches_rf_name = true
     # in case of the old tos, extract the run number from the folder name
     result.rfKind = rfOldTos
-    let (head, tail) = folder.splitPath
     oldTosRunDescriptor = re(oldTosRunDescriptorPrefix & oldVirtexRunRegex)
     if folder =~ oldTosRunDescriptor:
       result.runNumber = matches[0].parseInt
@@ -1324,7 +1308,7 @@ proc isTosRunFolder*(folder: string):
         break
     else:
       # else we deal with a folder. call this function recursively
-      let (is_rf, runNumber, rfKind, contains_rf) = isTosRunFolder(path)
+      let (is_rf, _, _, _) = isTosRunFolder(path)
       # if the underlying folder contains an event file, this folder thus
       # contains a run folder
       if is_rf == true:
@@ -1364,13 +1348,13 @@ proc getRunTimeInfo*(run_files: seq[string]): RunTimeInfo =
     # and times
     timeFirst = getTimeFromEvent(firstFile)
 
-  let (lastFile, timeLast) = findLastEvent(sortedFiles)
+  let (_, timeLast) = findLastEvent(sortedFiles)
 
   # calc run length
   let runLength = timeLast - timeFirst
 
   echo "Time first is $# and time last is $#" % [$timeFirst, $timeLast]
-  echo "Time difference in seconds $#" % $((timeLast - timeFirst).seconds)
+  echo "Time difference in seconds $#" % $((timeLast - timeFirst).inSeconds)
   echo "Time difference start end $#" % $(runLength)
 
   result.t_start = timeFirst
@@ -1381,7 +1365,7 @@ proc getRunInfo*(path: string): RunInfo =
   ## wrapper around the above proc if only the path to the run is known
   let regex = r"^/([\w-_]+/)*data\d{6,9}\.txt$"
   let fadcRegex = r"^/([\w-_]+/)*data\d{6,9}\.txt-fadc$"
-  let (is_run_folder, runNumber, rfKind, contains_run_folder) = isTosRunFolder(path)
+  let (_, runNumber, rfKind, _) = isTosRunFolder(path)
   let files = getListOfFiles(path, regex)
   let fadcFiles = getListOfFiles(path, fadcRegex)
   if files.len > 0:
@@ -1395,12 +1379,12 @@ proc getRunInfo*(path: string): RunInfo =
 
 proc extractRunNumber*(runFolder: string): int =
   ## given a valid TOS run folder, extract its run Number
-  let (is_rf, runNumber, rfKind, contains_rf) = isTosRunFolder(runFolder)
+  let (_, runNumber, _, _) = isTosRunFolder(runFolder)
   result = runNumber
 
 proc extractRunFolderKind*(runFolder: string): RunFolderKind =
   ## given a valid TOS run folder, extract its run Number
-  let (is_rf, runNumber, rfKind, contains_rf) = isTosRunFolder(runFolder)
+  let (_, _, rfKind, _) = isTosRunFolder(runFolder)
   result = rfKind
 
 proc fillRunHeader*(event: Event): Table[string, string] =

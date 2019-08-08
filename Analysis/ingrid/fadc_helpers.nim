@@ -136,7 +136,7 @@ proc readFadcFile*(file: seq[string]): ref FadcFile = #seq[float] =
   # line 8: pedestal run flag
   if scanf(file[8], matchHeader, dummy, valMatch):
     let p_run_flag = valMatch
-    result.pedestalRun = if p_run_flag == 0: false else: true
+    result.pedestalRun = p_run_flag != 0
 
   # lines 9 - 21: #Data + commented out lines
   for line in file[22 .. ^4]:
@@ -237,7 +237,7 @@ proc readFadcFileMem*(filepath: string): ref FadcFile = #seq[float] =
   # line 8: pedestal run flag
   if scanf(file[8], matchHeader, dummy, valMatch):
     let p_run_flag = valMatch
-    result.pedestalRun = if p_run_flag == 0: false else: true
+    result.pedestalRun = p_run_flag != 0
 
   # lines 9 - 21: #Data + commented out lines
   # fast parsing of the rest of the file using memory mapped slicing

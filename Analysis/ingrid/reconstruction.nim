@@ -188,7 +188,8 @@ proc writeRecoRunToH5*[T: SomePix](h5f: var H5FileObj,
   ##     potentially throws HDF5LibraryError, if a call to the H5 library fails
 
   # now we need to write into reco group for each chip
-  var rawGroup = h5f[getGroupNameForRun(runNumber).grp_str]
+  var rawGroup = h5f[
+    getGroupNameRaw(runNumber).grp_str]
   let nChips = rawGroup.attrs["numChips", int]
 
   # for now hardcode the number of chips. easy to change by getting the number
@@ -199,7 +200,7 @@ proc writeRecoRunToH5*[T: SomePix](h5f: var H5FileObj,
     # start time for timing the write
     t0 = epochTime()
     # group name for reconstructed data
-    reco_group_name = getRecoNameForRun(runNumber)
+    reco_group_name = getGroupNameReco(runNumber)
     chip_group_name = reco_group_name / "chip_$#"
     combine_group_name = getRecoCombineName()
 

@@ -7,10 +7,8 @@
 ## - calculating the num_pix / event histogram
 ## - caluclating the FADC signal depth / event histogram
 ## - calculate the ToT per pixel histogram
-
 ## standard lib
 import os, osproc, logging
-import re
 import sequtils, sugar
 import algorithm
 import tables
@@ -20,7 +18,6 @@ import threadpool_simple
 import memfiles
 import strutils, strformat, parseutils
 import docopt
-import typetraits
 import sets
 import macros
 #import nimprof
@@ -135,7 +132,6 @@ var fL = newFileLogger("logs/raw_data_manipulation.log", fmtStr = verboseFmtStr)
 when isMainModule:
   addHandler(L)
   addHandler(fL)
-
 
 ################################################################################
 
@@ -405,14 +401,14 @@ proc processFadcData(fadcFilesNil: seq[FlowVar[ref FadcFile]]): ProcessedFadcDat
     warn &"Removed {fadcFilesNil.len - fadcFiles.len} broken FADC files!"
 
   let
-    fadc_ch0_indices = getCh0Indices()
-    ch_len = ch_len()
-    pedestal_run = getPedestalRun()
+    #fadc_ch0_indices = getCh0Indices()
+    #ch_len = ch_len()
+    #pedestal_run = getPedestalRun()
     nEvents = fadcFiles.len
     # we demand at least 4 dips, before we can consider an event as noisy
-    n_dips = 4
+    #n_dips = 4
     # the percentile considered for the calculation of the minimum
-    min_percentile = 0.95
+    #min_percentile = 0.95
 
   # convert FlowVars of FadcFiles to sequence of FadcFiles
   result.raw_fadc_data = newSeq[seq[uint16]](nEvents)
@@ -618,6 +614,7 @@ proc initInGridInH5*(h5f: var H5FileObj, runNumber, nChips, batchsize: int) =
                        chunksize = @[batchsize, 1],
                        maxshape = @[int.high, 1],
                        filter = filter)
+
 
   var
     # datasets are chunked in the batchsize we read. Size originally 0

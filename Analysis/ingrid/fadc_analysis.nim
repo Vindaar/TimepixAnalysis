@@ -130,7 +130,7 @@ proc noiseAnalysis(h5f: var H5FileObj): tuple[f50, f100: Table[string, float64]]
         tr_start = attrs[&"tracking_start_{i}", string].parse(date_syntax)
         tr_stop  = attrs[&"tracking_stop_{i}", string].parse(date_syntax)
         tr_mean  = tr_start + initDuration(
-          seconds = ((tr_stop - tr_start).seconds.float / 2).round.int
+          seconds = ((tr_stop - tr_start).inSeconds.float / 2).round.int
         )
       let
         durations = h5f[(group / "eventDuration").dset_str][float64]
@@ -142,7 +142,7 @@ proc noiseAnalysis(h5f: var H5FileObj): tuple[f50, f100: Table[string, float64]]
         duration_live = initDuration(seconds = durations_track.sum.int)
       let
         # calculate shutter open time
-        ratio = duration_live.seconds.float / (tr_stop - tr_start).seconds.float
+        ratio = duration_live.inSeconds.float / (tr_stop - tr_start).inSeconds.float
         fk_type = getFadcIntTime(tr_mean)
       # build the key for the table consisting of run number, FADC int time
       # and the date

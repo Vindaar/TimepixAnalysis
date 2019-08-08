@@ -221,7 +221,7 @@ proc readFadcFileMem*(filepath: string): ref FadcFile = #seq[float] =
   # parsing for first 6 lines
   var dummy: string
   try:
-    writeMatchHeader(file[1 .. 6],
+    writeMatchHeader(file[0 .. 5],
                      fadcHeaderFields,
                      matchHeader, dummy,
                      valMatch, result)
@@ -229,13 +229,13 @@ proc readFadcFileMem*(filepath: string): ref FadcFile = #seq[float] =
     # broken file
     return nil
   # line 7: sampling mode
-  if scanf(file[7], matchHeader, dummy, valMatch):
+  if scanf(file[6], matchHeader, dummy, valMatch):
     let mode_register = valMatch
     # now get bit 1 from mode_register by comparing with 0b010
     result.bitMode14 = (mode_register and 0b010) == 0b010
     result.sampling_mode = mode_register
   # line 8: pedestal run flag
-  if scanf(file[8], matchHeader, dummy, valMatch):
+  if scanf(file[7], matchHeader, dummy, valMatch):
     let p_run_flag = valMatch
     result.pedestalRun = p_run_flag != 0
 

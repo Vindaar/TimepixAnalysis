@@ -416,10 +416,10 @@ proc processFadcData(fadcFilesNil: seq[FlowVar[ref FadcFile]]): ProcessedFadcDat
 
   # convert FlowVars of FadcFiles to sequence of FadcFiles
   result.raw_fadc_data = newSeq[seq[uint16]](nEvents)
-  result.fadc_data = zeros[float]([nEvents, ch_len])
+  #result.fadc_data = zeros[float]([nEvents, ch_len])
   result.trigRecs = newSeq[int](nEvents)
-  result.noisy = newSeq[int](nEvents)
-  result.minVals = newSeq[float](nEvents)
+  #result.noisy = newSeq[int](nEvents)
+  #result.minVals = newSeq[float](nEvents)
   result.eventNumber = newSeq[int](nEvents)
   let t0 = epochTime()
   # TODO: parallelize this somehow so that it's faster!
@@ -427,10 +427,10 @@ proc processFadcData(fadcFilesNil: seq[FlowVar[ref FadcFile]]): ProcessedFadcDat
     result.raw_fadc_data[i] = ev.data
     result.trigRecs[i]      = ev.trigRec
     result.eventNumber[i]   = ev.eventNumber
-    let fadc_dat = ev.fadcFileToFadcData(pedestal_run, fadc_ch0_indices).data
-    result.fadc_data[i, _]  = fadc_dat.reshape([1, ch_len])
-    result.noisy[i]         = fadc_dat.isFadcFileNoisy(n_dips)
-    result.minVals[i]       = fadc_dat.calcMinOfPulse(min_percentile)
+    #let fadc_dat = ev.fadcFileToFadcData(pedestal_run, fadc_ch0_indices).data
+    #result.fadc_data[i, _]  = fadc_dat.reshape([1, ch_len])
+    #result.noisy[i]         = fadc_dat.isFadcFileNoisy(n_dips)
+    #result.minVals[i]       = fadc_dat.calcMinOfPulse(min_percentile)
 
   # this parallel solution seems to be slower, instead of faster ?! well, probably
   # because we only have these two spawns and one of these functions is much slower

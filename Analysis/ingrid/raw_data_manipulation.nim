@@ -459,46 +459,29 @@ proc initFadcInH5(h5f: var H5FileObj, runNumber, batchsize: int, filename: strin
     all_ch_len = all_ch_len()
 
   let groupName = fadcRawPath(runNumber)
+  template datasetCreation(h5f, name, shape, `type`: untyped): untyped =
+    ## inserts the correct data set creation parameters
+    h5f.create_dataset(name,
+                       shape,
+                       dtype = `type`,
+                       chunksize = @[batchsize, shape[1]],
+                       maxshape = @[int.high, shape[1]],
+                       filter = filter)
   var
     runGroup = h5f.create_group(groupName)
     # create the datasets for raw data etc
     # NOTE: we initialize all datasets with a size of 0. This means we need to extend
     # it immediately. However, this allows us to always (!) simply extend and write
     # the data to dset.len onwards!
-    raw_fadc_dset    = h5f.create_dataset(rawFadcBasename(runNumber), (0, all_ch_len),
-                                          uint16,
-                                          chunksize = @[batchsize, all_ch_len],
-                                          maxshape = @[int.high, all_ch_len],
-                                          filter = filter)
-    fadc_dset        = h5f.create_dataset(fadcDataBasename(runNumber), (0, ch_len),
-                                          float,
-                                          chunksize = @[batchsize, ch_len],
-                                          maxshape = @[int.high, ch_len],
-                                          filter = filter)
-    trigrec_dset     = h5f.create_dataset(trigrecBasename(runNumber), (0, 1),
-                                          int,
-                                          chunksize = @[batchsize, 1],
-                                          maxshape = @[int.high, 1],
-                                          filter = filter)
+    raw_fadc_dset    = h5f.datasetCreation(rawFadcBasename(runNumber), (0, all_ch_len), uint16)
+    #fadc_dset        = h5f.datasetCreation(fadcDataBasename(runNumber), (0, ch_len), float)
+    trigrec_dset     = h5f.datasetCreation(trigrecBasename(runNumber), (0, 1), int)
     # dataset of eventNumber
-    eventNumber_dset = h5f.create_dataset(eventNumberBasename(runNumber), (0, 1),
-                                          int,
-                                          chunksize = @[batchsize, 1],
-                                          maxshape = @[int.high, 1],
-                                          filter = filter)
-
-    # dataset stores flag whether FADC event was a noisy one (using our algorithm)
-    noisy_dset       = h5f.create_dataset(noiseBasename(runNumber), (0, 1),
-                                          int,
-                                          chunksize = @[batchsize, 1],
-                                          maxshape = @[int.high, 1],
-                                          filter = filter)
+    eventNumber_dset = h5f.datasetCreation(eventNumberBasenameRaw(runNumber), (0, 1), int)
+    # dataset stores flag whether FADC event was a noisyo one (using our algorithm)
+    #noisy_dset       = h5f.datasetCreation(noiseBasename(runNumber), (0, 1), int)
     # dataset stores minima of each FADC event, dip voltage
-    minVals_dset     = h5f.create_dataset(minValsBasename(runNumber), (0, 1),
-                                          float,
-                                          chunksize = @[batchsize, 1],
-                                          maxshape = @[int.high, 1],
-                                          filter = filter)
+    #minVals_dset     = h5f.datasetCreation(minValsBasename(runNumber), (0, 1), float)
 
   # write attributes to FADC groups
   # read the given FADC file and extract that information from it

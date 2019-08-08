@@ -501,7 +501,7 @@ proc writeFadcDataToH5(h5f: var H5FileObj, runNumber: int, f_proc: ProcessedFadc
   let
     raw_name = rawFadcBasename(runNumber)
     trigRec_name = trigRecBasename(runNumber)
-    eventNumber_name = eventNumberBasename(runNumber)
+    eventNumber_name = eventNumberBasenameRaw(runNumber)
     ch_len = ch_len()
     all_ch_len = all_ch_len()
     nEvents = f_proc.raw_fadc_data.len
@@ -526,27 +526,17 @@ proc writeFadcDataToH5(h5f: var H5FileObj, runNumber: int, f_proc: ProcessedFadc
   # NOTE: one way to mitigate t his, would be to set oldsize as a {.global.} variable
   # in which case we simply set it to 0 on the first call and afterwards extend it by
   # the size we add
-  raw_fadc_dset.resize((newsize, all_ch_len))
-  trigRec_dset.resize((newsize, 1))
-  eventNumber_dset.resize((newsize, 1))
+  info "Adding to FADC datasets, from $# to $#" % [$oldsize, $newsize]
+  raw_fadc_dset.add f_proc.raw_fadc_data
+  trigRec_dset.add f_proc.trigRecs
+  eventNumber_dset.add f_proc.eventNumber
 
   # now write the data
   let t0 = epochTime()
-  # TODO: speed this up
   # write using hyperslab
-  info "Trying to write using hyperslab! from $# to $#" % [$oldsize, $newsize]
-  raw_fadc_dset.write_hyperslab(f_proc.raw_fadc_data,
-                                offset = @[oldsize, 0],
-                                count = @[nEvents, all_ch_len])
   #fadc_dset.write_hyperslab(f_proc.fadc_data.toRawSeq,
   #                          offset = @[oldsize, 0],
   #                          count = @[nEvents, ch_len])
-  trigRec_dset.write_hyperslab(f_proc.trigRecs,
-                               offset = @[oldsize, 0],
-                               count = @[nEvents, 1])
-  eventNumber_dset.write_hyperslab(f_proc.eventNumber,
-                               offset = @[oldsize, 0],
-                               count = @[nEvents, 1])
   #noisy_dset.write_hyperslab(f_proc.noisy,
   #                           offset = @[oldsize, 0],
   #                           count = @[nEvents, 1])
@@ -848,33 +838,23 @@ proc writeProcessedRunToH5*(h5f: var H5FileObj, run: ProcessedRun) =
   ##############################
 
   info "Writing all dset x data "
-  #let all = x_dsets[0].all
-
-  template writeHyper(dset: untyped, data: untyped): untyped =
-    dset.write_hyperslab(data, offset = @[oldsize, 0], count = @[nEvents, 1])
-
   for i in 0 ..< nChips:
     withDebug:
       info "Writing dsets ", i, " size x ", x_dsets.len
-    x_dsets[i].resize((newsize, 1))
-    y_dsets[i].resize((newsize, 1))
-    ch_dsets[i].resize((newsize, 1))
+    x_dsets[i].add x[i]
+    y_dsets[i].add y[i]
+    ch_dsets[i].add ch[i]
     withDebug:
       info "Shape of x ", x[i].len, " ", x[i].shape
       info "Shape of dset ", x_dsets[i].shape
-    x_dsets[i].writeHyper(x[i])
-    y_dsets[i].writeHyper(y[i])
-    ch_dsets[i].writeHyper(ch[i])
 
   for key, dset in mpairs(evHeadersDsetTab):
     withDebug:
       info "Writing $# in $#" % [$key, $dset]
-    dset.resize((newsize, 1))
-    dset.writeHyper(evHeaders[key])
+    dset.add evHeaders[key]
 
   # write other single column datasets
-  durationDset.resize((newsize, 1))
-  durationDset.writeHyper(duration)
+  durationDset.add duration
   info "took a total of $# seconds" % $(epochTime() - t0)
 
   ####################
@@ -905,18 +885,12 @@ proc writeProcessedRunToH5*(h5f: var H5FileObj, run: ProcessedRun) =
       totDset = totDsets[chip]
       hitDset = hitDsets[chip]
       occDset = occDsets[chip]
-
-    let newTotSize = totDset.shape[0] + tot.len
-    let newHitSize = hitDset.shape[0] + hit.len
-
-    let totOldSize = totDset.shape[0]
-    totDset.resize((newTotSize, 1))
-    hitDset.resize((newHitSize, 1))
-    # need to handle ToT dataset differently
-    totDset.write_hyperslab(tot.reshape([tot.len, 1]), offset = @[totOldSize, 0], count = @[tot.len, 1])
-    hitDset.writeHyper(hit.reshape([hit.len, 1]))
+    totDset.add tot
+    hitDset.add hit
     # before writing the occupancy dataset, we need to read the old, stack the current
     # occupancy on it and finally write the result
+    # TODO: this does not seem to make sense to me. We're iterating over all chips in a whole run.
+    # Why would there be data in the occupancy dataset for us to read?
     let stackOcc = occDset[int64].toTensor.reshape([256, 256]) .+ occ
     occDset.unsafeWrite(stackOcc.get_data_ptr, stackOcc.size)
 

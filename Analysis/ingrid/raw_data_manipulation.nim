@@ -458,7 +458,7 @@ proc initFadcInH5(h5f: var H5FileObj, runNumber, batchsize: int, filename: strin
     ch_len = ch_len()
     all_ch_len = all_ch_len()
 
-  let groupName = getGroupNameForRun(runNumber) & "/fadc"
+  let groupName = fadcRawPath(runNumber)
   var
     runGroup = h5f.create_group(groupName)
     # create the datasets for raw data etc
@@ -624,7 +624,7 @@ proc readWriteFadcData(run_folder: string, runNumber: int, h5f: var H5FileObj) =
 proc createChipGroups(h5f: var H5FileObj,
                       runNumber: int,
                       nChips: int = 0): seq[H5Group] =
-  let chipGroupName = getGroupNameForRun(runNumber) & "/chip_$#"
+  let chipGroupName = getGroupNameRaw(runNumber) & "/chip_$#"
   result = mapIt(toSeq(0 ..< nChips), h5f.create_group(chipGroupName % $it))
 
 proc initInGridInH5*(h5f: var H5FileObj, runNumber, nChips, batchsize: int) =
@@ -633,7 +633,7 @@ proc initInGridInH5*(h5f: var H5FileObj, runNumber, nChips, batchsize: int) =
   ##   h5f: H5file = the H5 file object of the writeable HDF5 file
   ##   ?
   # create variables for group names (NOTE: dirty template!)
-  let groupName = getGroupNameForRun(runNumber)
+  let groupName = getGroupNameRaw(runNumber)
   let chipGroups = createChipGroups(h5f, runNumber, nChips)
   let (ev_type_xy, ev_type_ch, eventHeaderKeys) = specialTypesAndEvKeys()
 
@@ -742,7 +742,7 @@ proc writeInGridAttrs*(h5f: var H5FileObj, run: ProcessedRun,
   # "runs" group
   writeRawAttrs(h5f, run, rfKind, runType)
   # individual run group
-  let groupName = getGroupNameForRun(run.runNumber)
+  let groupName = getGroupNameRaw(run.runNumber)
   var group = h5f[groupName.grp_str]
   writeRunGrpAttrs(h5f, group, run)
   # chip groups
@@ -816,7 +816,7 @@ proc writeProcessedRunToH5*(h5f: var H5FileObj, run: ProcessedRun) =
   let t0 = epochTime()
   # first write the raw data
   # get the names of the groups
-  let groupName = getGroupNameForRun(runNumber)
+  let groupName = getGroupNameRaw(runNumber)
   var runGroup = h5f[groupName.grp_str]
   var chipGroups = createChipGroups(h5f, runNumber, nChips)
   let (ev_type_xy, ev_type_ch, eventHeaderKeys) = specialTypesAndEvKeys()

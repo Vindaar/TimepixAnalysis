@@ -157,7 +157,7 @@ proc specialTypesAndEvKeys(): (hid_t, hid_t, array[7, string]) =
 proc getTotHitOccDsets(h5f: var H5FileObj, chipGroups: seq[H5Group]):
                       (seq[H5DataSet], seq[H5DataSet], seq[H5DataSet]) =
   proc fromChipGroups(h5f: var H5FileObj, chipGroups: seq[H5Group], name: string): seq[H5DataSet] =
-    chipGroups.mapIt(h5f[(it.name & "/ToT").dset_str])
+    chipGroups.mapIt(h5f[(it.name & name).dset_str])
   var
     totDset = h5f.fromChipGroups(chipGroups, "/ToT")
     hitDset = h5f.fromChipGroups(chipGroups, "/Hits")

@@ -81,6 +81,9 @@ proc readFadcFile*(file: seq[string]): ref FadcFile = #seq[float] =
     # time
     data = newSeqOfCap[uint16](10240)
   # line 0 is the filename itself
+  doAssert file[0].len > 0
+  doAssert file[file.high].len > 0, "Make sure to strip the input before " &
+    "handing it to `readFadcFile`!"
   let filepath = file[0]
 
   # variable we use to match value in header line

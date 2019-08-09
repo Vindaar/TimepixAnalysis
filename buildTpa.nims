@@ -5,7 +5,17 @@ import shell, strutils
 
 echo "Adding helpers to nimble"
 let dir = getCurrentDir()
-shell:
+var toContinue = true
+
+template shellCheck(actions: untyped): untyped =
+  if toContinue:
+    let res = shellVerbose:
+      actions
+    toContinue = res[1] == 0
+  else:
+    quit("Building TimepixAnalysis failed!")
+
+shellCheck:
   one:
     cd `$dir`/NimUtil
     nimble develop "-y"
@@ -16,8 +26,9 @@ shellAssign:
   nloptCheck = nimble path nlopt
 if "Error" in nloptCheck:
   echo "Clone and build NLopt"
-  shell:
+  shellCheck:
     one:
+      mkdir -p "$HOME/src"
       cd "$HOME/src"
       git clone "https://github.com/vindaar/nimnlopt"
       cd nimnlopt/c_header
@@ -38,8 +49,9 @@ shellAssign:
   mpfitCheck = nimble path mpfit
 if "Error" in mpfitCheck:
   echo "Clone and build mpfit"
-  shell:
+  shellCheck:
     one:
+      mkdir -p "$HOME/src"
       cd "$HOME/src"
       git clone "https://github.com/vindaar/nim-mpfit"
       cd "nim-mpfit"
@@ -53,14 +65,13 @@ if "Error" in mpfitCheck:
     "e.g. '/usr/local/lib'! \n\n"
 
 echo "Adding ingridDatabase to nimble"
-shell:
+shellCheck:
   one:
     cd `$dir`/InGridDatabase
     nimble develop "-y"
-    nimble koch
 
 echo "Adding ingrid to nimble"
-shell:
+shellCheck:
   one:
     cd `$dir`/Analysis
     nimble develop "-y"
@@ -69,8 +80,28 @@ echo "Now add the InGrid-Python module via `setup.py develop` to your " &
   "correct Python installation"
 
 echo "Compiling Nim procs for Python"
-shell:
+shellCheck:
   one:
     cd `$dir`/Analysis/ingrid
     nim c "-d:release --app:lib --out:procsForPython.so" procsForPython.nim
-    mv procsForPython.so "../../InGrid-Python/ingrid"
+    mv procsForPython.so `$dir`/"InGrid-Python/ingrid"
+
+echo "Attempt compiling raw_data_manipulation"
+shellCheck:
+  one:
+    cd `$dir`/Analysis/ingrid
+    nim c "-d:release --threads:on" raw_data_manipulation.nim
+
+echo "Attempt compiling reconstruction"
+shellCheck:
+  one:
+    cd `$dir`/Analysis/ingrid
+    nim c "-d:release --threads:on" reconstruction.nim
+
+echo "Attempt compiling likelihood"
+shellCheck:
+  one:
+    cd `$dir`/Analysis/ingrid
+    nim c "-d:release --threads:on" likelihood.nim
+
+echo "Finished building TimepixAnalysis!"

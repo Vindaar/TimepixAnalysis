@@ -4,7 +4,7 @@ os:
   - linux
 
 language: c
-dist: xenial
+dist: bionic
 
 matrix:
   include:
@@ -26,13 +26,11 @@ cache:
 addons:
   apt:
         packages:
-                - libhdf5-10
+                - libhdf5-100
                 - libhdf5-dev
                 - libgfortran3
                 - libsz2
                 - libaec-dev
-                - libnlopt
-                - libnlopt-dev
 
 install:
   - curl https://nim-lang.org/choosenim/init.sh -sSf > init.sh
@@ -42,6 +40,6 @@ install:
   - choosenim $CHANNEL
 
 script:
-  - nimble install "https://github.com/vindaar/shell"
+  - nimble install -y "https://github.com/vindaar/shell"
   - nim e buildTpa.nims
   - nim e runTests.nims

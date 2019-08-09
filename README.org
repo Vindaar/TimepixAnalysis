@@ -1,7 +1,10 @@
 * Timepix analysis & calibration
+[[https://travis-ci.org/Vindaar/TimepixAnalysis][https://travis-ci.org/Vindaar/TimepixAnalysis.svg?branch=master]]
 
-  #+ATTR_HTML: title="Join the chat at https://gitter.im/TimepixAnalysis/Lobby"
-  [[https://gitter.im/TimepixAnalysis/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge][file:https://badges.gitter.im/TimepixAnalysis/Lobby.svg]]
+#+ATTR_HTML: title="Join the chat at https://gitter.im/TimepixAnalysis/Lobby"
+[[https://gitter.im/TimepixAnalysis/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge][file:https://badges.gitter.im/TimepixAnalysis/Lobby.svg]]
+
+
 
 This repository contains code related to the data analysis of Timepix
 based gaseous detectors.
@@ -546,6 +549,7 @@ plotly
 zero_functional
 helpers
 nimpy
+karax
 parsetoml
 https://github.com/yglukhov/threadpools#head
 ingridDatabase

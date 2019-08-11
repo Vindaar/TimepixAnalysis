@@ -33,49 +33,6 @@ Options:
   --version                   Show version.
 """
 
-# proc noiseAnalysis(h5f: var H5FileObj) =
-#   ## proc which performs the analysis of the noise, i.e. ratio of active and dead
-#   ## detector. Read the timestamps in the files, get event durations and in bin
-#   ## ranges, which can be determined (~ 20 s to account for 1s accuracy in timestamp?)
-
-#   const avg_int = 10
-#   for num, group in runs(h5f):
-#     echo num, " and ", group
-#     # so what do we need to do? Get timestamps.
-#     # get each event, check if noisy (use noisy flag)
-#     # define bin by starting at t = t0, build up some
-#     # seq of noisy, not noisy
-#     # once t = t1, where delta t = t1 - t0
-#     # we calculate ratio of noisy vs non noisy
-#     # given shift start and end times, we can later extract
-#     # noise development
-#     let tstamp = h5f[(group / "timestamp").dset_str][int64]
-#     let noisy  = h5f[(group / "fadc/noisy").dset_str][int64]
-#     var
-#       n_noise = 0
-#       n_good  = 0
-#       t_0     = tstamp[0]
-#       noise_frac: seq[float] = @[]
-#     # TODO: good start, but still wrong. Less FADC events than timestamps
-#     # thus also need fadc_readout dataset to get the times of each FADC
-#     # event. That is to know when each happened etc
-#     # then also need not only fraction of noisy events, but also effective
-#     # dead time. So we need also eventDuration
-
-#     for i, t in tstamp:
-#       if tstamp[i] - t_0 > avg_int:
-#         noise_frac.add (n_noise / n_good)
-#         n_noise = 0
-#         n_good = 0
-#         t_0 = tstamp[i]
-#       else:
-#         if noisy[i] == 1:
-#           inc n_noise
-#         else:
-#           inc n_good
-#     echo "Noise fracs are ", noise_frac
-#     quit()
-
 type
   FadcIntTime = enum
     fk50, fk100
@@ -187,35 +144,44 @@ proc writeNoiseData(tab_tup: tuple[f50, f100: Table[string, float64]], outfile: 
   for k, v in t100:
     outf.write(&"{k} \t {v}\n")
 
-
-proc findThresholdValue[T](data: seq[seq[T]], x_min: seq[int], threshold: seq[T], left = true, positive = false): seq[int] =
+proc findThresholdValue[T](data: seq[T], x_min: int, threshold: T, left = true, positive = false): int =
   ## left determines whether we start search left or right
   ## positive sets the range of the data. postiive == false means we consider
-  ## dips instaed of peaks
+  ## dips instead of peaks
+  let thr = threshold
+  var x = xMin
+  var count = 0
+  while data[x] < thr and count < 2560:
+    # positive == true would mean data[x] > thr
+    if left == true:
+      dec x
+      if x <= 0:
+        x = data.high
+    else:
+      inc x
+      if x >= data.high:
+        x = 0
+    inc count
+  # once we're out, we found our threshold in the data
+  if count >= 2560:
+    # set the threshold value to the start value, indicating, that
+    # it could not be found
+    result = x_min
+  else:
+    # in case of a good result..
+    result = x
+
+proc findThresholdValue[T](data: seq[seq[T]],
+                           x_min: seq[int],
+                           threshold: seq[T],
+                           left = true,
+                           positive = false): seq[int] =
+  ## left determines whether we start search left or right
+  ## positive sets the range of the data. postiive == false means we consider
+  ## dips instead of peaks
   result = newSeq[int](x_min.len)
   for i, el in data:
-    let thr     = threshold[i]
-    var x = x_min[i]
-    var count = 0
-    while el[x] < thr and count < 2560:
-      # positive == true would mean el[x] > thr
-      if left == true:
-        dec x
-        if x <= 0:
-          x = el.high
-      else:
-        inc x
-        if x >= el.high:
-          x = 0
-      inc count
-    # once we're out, we found our threshold in the data
-    if count >= 2560:
-      # set the threshold value to the start value, indicating, that
-      # it could not be found
-      result[i] = x_min[i]
-    else:
-      # in case of a good result..
-      result[i] = x
+    result[i] = findThresholdValue(el, xMin[i], threshold[i], left, positive)
 
 proc diffUnderModulo[T](a, b: T, modulo: int): T {.inline.} =
   ## returns the difference between two values taking into account
@@ -224,6 +190,90 @@ proc diffUnderModulo[T](a, b: T, modulo: int): T {.inline.} =
     d1 = abs(a - b)
     d2 = abs(modulo - abs(a - b))
   result = min(d1, d2)
+
+proc calcRiseAndFallTime*(fadc: seq[float]): tuple[baseline: float,
+                                                   xmin,
+                                                   riseStart,
+                                                   fallStop,
+                                                   riseTime,
+                                                   fallTime: uint16] =
+  ## Calculates the baseline, minimum location, start of pulse rise, end of pulse fall,
+  ## rise time and fall time for a single FADC spectrum
+  # get location of minimum
+  let xMin = argmin(fadc.toTensor)
+
+  # now determine baseline + 10 % of its maximum value
+  let baseline = fadc.percentile(p = 50) + system.max(fadc) * 0.1
+  # now determine rise and fall times
+  let
+    riseStart = findThresholdValue(fadc, xMin, baseline)
+    fallStop = findThresholdValue(fadc, xMin, baseline, left = false)
+
+  # given this data, we could now in principle already calculate the fall and rise
+  # times in nano seconds, but we're going to stick to registers for now
+  let
+    riseTime = diffUnderModulo(xMin, riseStart, 2560)
+    fallTime = diffUnderModulo(xMin, fallStop, 2560)
+
+  result = (baseline: baseline, xMin: xMin.uint16, riseStart: riseStart.uint16, fallStop: fallStop.uint16,
+            riseTime: riseTime.uint16, fallTime: fallTime.uint16)
+
+proc calcRiseAndFallTime*(fadc: seq[seq[float]],
+                          seqBased: static bool): tuple[baseline: seq[float],
+                                                        xmin,
+                                                        riseStart,
+                                                        fallStop,
+                                                        riseTime,
+                                                        fallTime: seq[uint16]] =
+  ## Calculates the baseline, minimum location, start of pulse rise, end of pulse fall,
+  ## rise time and fall time for all given FADC spectra
+  when seqBased:
+    # get location of minimum
+    let x_min = mapIt(fadc, argmin(it.toTensor))
+
+    # now determine baseline + 10 % of its maximum value
+    let baseline = mapIt(fadc, it.percentile(p = 50) + system.max(it) * 0.1)
+    # now determine rise and fall times
+    let
+      rise_start = findThresholdValue(fadc, x_min, baseline)
+      fall_stop = findThresholdValue(fadc, x_min, baseline, left = false)
+
+    # given this data, we could now in principle already calculate the fall and rise
+    # times in nano seconds, but we're going to stick to registers for now
+    let
+      rise_times = mapIt(zip(x_min, rise_start), diffUnderModulo(it[0], it[1], 2560))
+      fall_times = mapIt(zip(x_min, fall_stop), diffUnderModulo(it[1], it[0], 2560))
+
+    # convert data to uint16
+    let
+      x_min_u = x_min.asType(uint16)
+      rise_start_u = rise_start.asType(uint16)
+      fall_stop_u = fall_stop.asType(uint16)
+      rise_times_u = rise_times.asType(uint16)
+      fall_times_u = fall_times.asType(uint16)
+
+    result = (baseline: baseline, xMin: x_min_u, riseStart: rise_start_u, fallStop: fall_stop_u,
+              riseTime: rise_times_u, fallTime: fall_times_u)
+  else:
+    let nSpectra = fadc.len
+    var
+      baseline = newSeq[float](nSpectra)
+      xMin = newSeq[uint16](nSpectra)
+      riseStart = newSeq[uint16](nSpectra)
+      fallStop = newSeq[uint16](nSpectra)
+      riseTime = newSeq[uint16](nSpectra)
+      fallTime = newSeq[uint16](nSpectra)
+    # for i in `||`(0, fadc.high, ""):
+    for i in 0 .. fadc.high:
+      let tup = calcRiseAndFallTime(fadc[i])
+      baseline[i] = tup[0]
+      xMin[i] = tup[1]
+      riseStart[i] = tup[2]
+      fallStop[i] = tup[3]
+      riseTime[i] = tup[4]
+      fallTime[i] = tup[5]
+    result = (baseline: baseline, xMin: xMin, riseStart: riseStart, fallStop: fallStop,
+              riseTime: riseTime, fallTime: fallTime)
 
 proc calcRiseAndFallTimes*(h5f: var H5FileObj, run_number: int) =
   ## proc which reads the FADC data from the given file
@@ -239,36 +289,17 @@ proc calcRiseAndFallTimes*(h5f: var H5FileObj, run_number: int) =
   var
     fadc = h5f[fadc_group.dset_str]
 
-  let t0 = epochTime()
   let fadcShape = fadc.shape
   let nEvents = fadcShape[0]
   var f_data = fadc[float64].reshape2D(fadcShape)
 
   # given the reshaped array, we can now compute the
   # fall and rise times
-
-  # get location of minimum
-  let x_min = mapIt(f_data, argmin(it.toTensor))
-
-  let t1 = epochTime()
-  echo "Getting all minima took $# seconds" % $(t1 - t0)
-
-  # now determine baseline + 10 % of its maximum value
-  let baseline = mapIt(f_data, it.percentile(p = 50) + system.max(it) * 0.1)
-  let t2 = epochTime()
-  echo "Baseline calc took $# seconds" % $(t2 - t1)
-
-  # now determine rise and fall times
-  let
-    rise_start = findThresholdValue(f_data, x_min, baseline)
-    fall_stop = findThresholdValue(f_data, x_min, baseline, left = false)
-
-  # given this data, we could now in principle already calculate the fall and rise
-  # times in nano seconds, but we're going to stick to registers for now
-  let
-    rise_times = mapIt(zip(x_min, rise_start), diffUnderModulo(it[0], it[1], 2560))
-    fall_times = mapIt(zip(x_min, fall_stop), diffUnderModulo(it[1], it[0], 2560))
-
+  let t0 = epochTime()
+  echo "Start fadc calc"
+  let (baseline, xMin, riseStart, fallStop, riseTime, fallTime) = calcRiseAndFallTime(f_data,
+                                                                                      false)
+  echo "FADC minima calculations took: ", (epochTime() - t0)
   # now write data back to h5file
   var
     base_dset = h5f.create_dataset(fadcBaselineBasename(run_number), nEvents, float)
@@ -278,22 +309,14 @@ proc calcRiseAndFallTimes*(h5f: var H5FileObj, run_number: int) =
     rise_t_dset = h5f.create_dataset(riseTimeBasename(run_number), nEvents, uint16)
     fall_t_dset = h5f.create_dataset(fallTimeBasename(run_number), nEvents, uint16)
 
-  # convert data to uint16
-  let
-    x_min_u = x_min.asType(uint16)
-    rise_start_u = rise_start.asType(uint16)
-    fall_stop_u = fall_stop.asType(uint16)
-    rise_times_u = rise_times.asType(uint16)
-    fall_times_u = fall_times.asType(uint16)
-
   # write the data
   let all = base_dset.all
   base_dset[all] = baseline
-  x_min_dset[all] = x_min_u
-  rise_s_dset[all] = rise_start_u
-  fall_s_dset[all] = fall_stop_u
-  rise_t_dset[all] = rise_times_u
-  fall_t_dset[all] = fall_times_u
+  x_min_dset[all] = xMin
+  rise_s_dset[all] = riseStart
+  fall_s_dset[all] = fallStop
+  rise_t_dset[all] = riseTime
+  fall_t_dset[all] = fallTime
 
 proc main() =
   let args = docopt(doc)

@@ -38,8 +38,18 @@ install:
   - export PATH=$HOME/.nimble/bin:$PATH
   - nimble refresh -y
   - choosenim $CHANNEL
+  - mkdir -p $HOME/src
+  - pushd $HOME/src
+  - git clone https://github.com/vindaar/chroma
+  - pushd chroma
+  - git fetch origin
+  - git checkout origin/addMoreSpaces
+  - nimble develop -y
 
 script:
+  - popd && popd
   - nimble install -y "https://github.com/vindaar/shell"
+  - nimble install -y "https://github.com/vindaar/ginger@#head"
+  - nimble install -y "https://github.com/vindaar/ggplotnim@#head"
   - nim e buildTpa.nims
   - nim e runTests.nims

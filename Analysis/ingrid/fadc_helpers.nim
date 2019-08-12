@@ -310,10 +310,10 @@ proc calcMinOfPulseAlt*(array: Tensor[float], percentile: float): float =
 proc applyFadcPedestalRun*[T](fadc_data, pedestalRun: seq[T]): seq[float] =
   # applys the pedestal run given in the second argument to the first one
   # by zipping the two arrays and using map to subtract each element
-  result = map(
-    zip(fadc_data, pedestalRun),
-    proc(val: (T, T)): float = float(val[0]) - float(val[1])
-  )
+  doAssert fadc_data.len == pedestalRun.len
+  result = newSeq[float](fadc_data.len)
+  for i in 0 .. fadc_data.high:
+    result[i] = fadc_data[i].float - pedestalRun[i].float
 
 proc getCh0Indices*(): seq[int] {.inline.} =
   # proc which simply returns the channel 0 indices

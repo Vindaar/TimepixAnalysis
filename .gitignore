@@ -19,3 +19,5 @@ InGrid-Python/dist/*
 /Analysis/ingrid/*.h5
 /Analysis/ingrid/*.pdf
 /Analysis/ingrid/*.svg
+Tests/io/plots/fadc_spectrum[0-9]*.pdf
+Analysis/ingrid/fitparams_*[0-9]*.txt

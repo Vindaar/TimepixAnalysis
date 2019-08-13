@@ -144,7 +144,7 @@ proc writeNoiseData(tab_tup: tuple[f50, f100: Table[string, float64]], outfile: 
   for k, v in t100:
     outf.write(&"{k} \t {v}\n")
 
-proc findThresholdValue[T](data: seq[T], x_min: int, threshold: T, left = true, positive = false): int =
+proc findThresholdValue*[T](data: seq[T], x_min: int, threshold: T, left = true, positive = false): int =
   ## left determines whether we start search left or right
   ## positive sets the range of the data. postiive == false means we consider
   ## dips instead of peaks
@@ -183,7 +183,7 @@ proc findThresholdValue[T](data: seq[seq[T]],
   for i, el in data:
     result[i] = findThresholdValue(el, xMin[i], threshold[i], left, positive)
 
-proc diffUnderModulo[T](a, b: T, modulo: int): T {.inline.} =
+proc diffUnderModulo*[T](a, b: T, modulo: int): T {.inline.} =
   ## returns the difference between two values taking into account
   ## modulo a certain value
   let

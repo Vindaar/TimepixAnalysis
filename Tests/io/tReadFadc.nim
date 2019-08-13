@@ -1,4 +1,4 @@
-import ingrid / [ingrid_types, fadc_helpers]
+import ingrid / [ingrid_types, fadc_helpers, fadc_analysis]
 import sequtils, strutils, os, algorithm
 import data/fadcTestData
 import unittest
@@ -27,6 +27,12 @@ proc checkEqual(fadc: FadcFile): bool =
   check fadc.bitMode14 == false
   check fadc.data == fadcTestData.dataArray
   return true
+
+func almostEqual(x, y: float, ep = 1e-5): bool =
+  ## checks very roughly if the values match. Anything beyond
+  ## 1e-5 should be of no issue for us
+  result = (x - y) < ep
+
 
 suite "Fadc data":
   test "Reading raw FADC data":
@@ -116,7 +122,7 @@ suite "Fadc data":
     # finally convert tick values to a voltage
     let convFactor = 1.0 / 2048.0
     let voltage = rolled.mapIt(it * convFactor)
-
+    echo "NRoll was ", nRoll
     check voltage == fData.data.toRawSeq
 
     # compare the calculated spectrum with our expectation for this
@@ -125,10 +131,6 @@ suite "Fadc data":
     # the sequence we compare to was originally calculated  the same way.
     # It only guarantees that we catch possible errors / changes introduced
     # in the future
-    func almostEqual(x, y: float, ep = 1e-5): bool =
-      ## checks very roughly if the values match. Anything beyond
-      ## 1e-5 should be of no issue for us
-      result = (x - y) < ep
     for i, val in fdata.data:
       check almostEqual(val, convertedDataArray[i[0]])
 
@@ -145,3 +147,79 @@ suite "Fadc data":
     # with the exact same input, yields a different result :/
     # check if the plot is exactly the same (high level sanity check)
     # check sameFile(path & plotSuffix, path & ".pdf")
+
+  test "Checking FADC property calculations":
+    # starting from the working calculation of the spectrum reconstruction,
+    # we now check all calculations that extract information from the spectrum
+    let fadcMem = readFadcFileMem(fname)
+    let pedestalRun = getPedestalRun()
+    let fData = fadcFileToFadcData(fadcMem[], pedestalRun)
+    let fadc = fdata.data.toRawSeq
+
+    # - call `calcMinOfPulse`
+    # - call `isFadcFileNoisy`
+    #   - write tests for `findPeaks`
+    # - call `calcRiseAndFallTime`
+    #   - write tests for `findThresholdValue`
+    let tup = calcRiseAndFallTime(fadc)
+    echo tup
+    let (baseline, xMin, riseStart, fallStop, riseTime, fallTime) = tup
+    # again, the derived values correspond to the (at the time of writing the tests)
+    # current results, which look reasonable to me, aside from the issues mentioned in
+    # https://github.com/Vindaar/TimepixAnalysis/issues/41
+    # Once #41 is fixed this test will be modified.
+    # Also check out the plot below, which highlights the calculated values in the plot
+    check baseline.almostEqual(-0.0013671875)
+    check xMin == 1383
+    check riseStart == 1282
+    check fallStop == 1742
+    check riseTime == xMin - riseStart
+    check riseTime == 101
+    check fallTime == fallStop - xMin
+    check fallTime == 359
+
+    # now calculate manually and compare
+    let xminMan = argmin(fadc)
+    check xmin.int == xminMan
+    let baseman = fadc.percentile(p = 50) + max(fadc) * 0.1
+    check baseman == baseline
+    let
+      riseSMan = findThresholdValue(fadc, xminMan, baseman)
+      fallSMan = findThresholdValue(fadc, xminMan, baseman, left = false)
+    check riseSMan == riseStart.int
+    check fallSMan == fallStop.int
+
+    let
+      riseTMan = diffUnderModulo(xminMan, riseSMan, 2560)
+      fallTMan = diffUnderModulo(xminMan, fallSMan, 2560)
+    check riseTMan == riseTime.int
+    check fallTMan == fallTime.int
+
+    let baselineY = toSeq(0 ..< 2560).mapIt(baseline)
+    let xminlineX = @[xmin, xmin] # one point for x of min, max
+    let xminlineY = linspace(fData.data.min, fData.data.max, xminlineX.len)
+
+    let riseStartX = @[riseStart, riseStart]
+    let fallStopX = @[fallStop, fallStop]
+
+    let df = seqsToDf({ "x" : toSeq(0 ..< 2560),
+                        "baseline": baselineY,
+                        "data": fadc,
+                        "xminX" : xminlineX,
+                        "xminY" : xminlineY,
+                        "riseStart" : riseStartX,
+                        "fallStop" : fallStopX})
+
+    # Comparison has to be done by hand unfortunately
+    let path = pwd / "plots/fadc_spectrum_baseline"
+    ggplot(df, aes(x ~ data)) + geom_line() +
+      geom_point(color = color(0.1, 0.1, 0.1, 0.1)) +
+      geom_line(aes(x ~ baseline),
+                color = color(0.0, 0.0)) +
+      geom_line(aes(xminX ~ xminY),
+                color = color(1.0, 0.0, 0.0)) +
+      geom_line(aes(riseStart ~ xminY),
+                color = color(0.5, 0.0, 1.0)) +
+      geom_line(aes(fallStop ~ xminY),
+                color = color(0.0, 1.0, 0.0)) +
+      ggsave(path & plotSuffix)

@@ -10,7 +10,9 @@ import seqmath
 
 const pwd = currentSourcePath().parentDir
 const fnameOldTOS = pwd / "data/oldTos/data000013_1_141548204.txt"
-const fnameSRSTOS = pwd / "data/srsTos/run_006615_data_000041_160502_17-53-31.txt"
+const fnameSRSTOS = pwd / "data/srsTOS/run_006615_data_000041_160502_17-53-31.txt"
+const fnameSrsRunInfoRunMode1 = pwd / "data/srsTOS/runMode1/"
+const fnameSrsRunInfoRunMode0 = pwd / "data/srsTOS/runMode0/"
 const fnameVirtex = pwd / "data/newTos/data000003.txt"
 const fnameBackground = pwd / "data/newTos/data022059.txt"
 
@@ -75,8 +77,65 @@ suite "InGrid data":
     # which we clone on travis, link to the test directory and ignore the link in gitignore
     # an alternative is to use git lfs for this purpose.
 
-
   test "Reading SRS TOS InGrid data":
+    let fileContent = readFile(fnameSrsTos).strip.splitLines
+    let data = concat(@[fnameSrsTos], fileContent)
+
+    let ev: SrsEvent = processSrsEventScanf(data)[]
+
+    proc checkHeader(header: Table[string, string]): bool =
+      check header["dateTime"] == "2016-05-02T17:53:31+02:00"
+      check header["timestamp"] == "1462204411"
+      check header["eventNumber"] == "41"
+      check header["runNumber"] == "6615"
+      check header["numChips"] == "1"
+      check header["pathName"] == fnameSrsTos.parentDir
+      check header.len == 6
+      return true
+    check checkHeader(ev.evHeader)
+
+    check ev.nChips == 1
+    # TODO: make sure to calculate length here already?
+    check ev.length == 0.0 # undefined for old TOS data at this point
+    check ev.chips.len == 1
+
+    let srsTosPix = srsTosPixelStr.strip.splitLines.mapIt((x:  parseInt(it.split[0]).uint8,
+                                                           y:  parseInt(it.split[1]).uint8,
+                                                           ch: parseInt(it.split[2]).uint16))
+
+    proc checkChip(ch: ChipEvent): bool =
+      check ch.chip.name == SrsDefaultChipName
+      check ch.chip.number == 0
+      check ch.pixels.len == 219
+      check ch.pixels == srsTosPix
+      return true
+    check checkChip(ev.chips[0])
+
+  test "Reading SRS TOS run information, run mode == 1":
+    let srsTosRunInfo = parseSrsRunInfo(fnameSrsRunInfoRunMode1)
+    check srsTosRunInfo["runMode"] == "1"
+    check srsTosRunInfo["runTime"] == "0"
+    check srsTosRunInfo["shutterMode"] == "long"
+    check srsTosRunInfo["shutterTime"] == "2"
+    check srsTosRunInfo["runTimeFrames"] == "200000"
+    check srsTosRunInfo[SrsNoChipId] == SrsNoChipIdMsg
+    check "numChips" notin srsTosRunInfo
+    check SrsRunIncomplete notin srsTosRunInfo
+
+  test "Reading SRS TOS run information, run mode == 0":
+    let srsTosRunInfo = parseSrsRunInfo(fnameSrsRunInfoRunMode0)
+    check srsTosRunInfo["runMode"] == "0"
+    check srsTosRunInfo["runTime"] == "1000"
+    check srsTosRunInfo["shutterMode"] == "long"
+    check srsTosRunInfo["shutterTime"] == "2"
+    check srsTosRunInfo["runTimeFrames"] == "1"
+    check srsTosRunInfo[SrsNoChipId] == SrsNoChipIdMsg
+    check "numChips" notin srsTosRunInfo
+    check SrsRunIncomplete notin srsTosRunInfo
+
+  test "Reading SRS TOS run information w/ chip headers":
+    # NOTE: it seems like we don't have a run with the correct FEC headers available right now
     discard
+
   test "Reading current Virtex TOS InGrid data":
     discard

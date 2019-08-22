@@ -1,5 +1,6 @@
 import ingrid / ingrid_types
 import ingrid / tos_helpers
+import ingridDatabase / databaseDefinitions
 import sequtils, strutils, os, algorithm
 import data/ingridTestData
 import unittest
@@ -13,8 +14,8 @@ const fnameOldTOS = pwd / "data/oldTos/data000013_1_141548204.txt"
 const fnameSRSTOS = pwd / "data/srsTOS/run_006615_data_000041_160502_17-53-31.txt"
 const fnameSrsRunInfoRunMode1 = pwd / "data/srsTOS/runMode1/"
 const fnameSrsRunInfoRunMode0 = pwd / "data/srsTOS/runMode0/"
-const fnameVirtex = pwd / "data/newTos/data000003.txt"
-const fnameBackground = pwd / "data/newTos/data022059.txt"
+const fnameVCalib = pwd / "data/newTos/data000003.txt"
+const fnameVBackground = pwd / "data/newTos/data022059.txt"
 
 import times
 let plotSuffix = $getTime().toUnix & ".pdf"
@@ -121,6 +122,7 @@ suite "InGrid data":
     check srsTosRunInfo[SrsNoChipId] == SrsNoChipIdMsg
     check "numChips" notin srsTosRunInfo
     check SrsRunIncomplete notin srsTosRunInfo
+    check srsTosRunInfo.len == 6
 
   test "Reading SRS TOS run information, run mode == 0":
     let srsTosRunInfo = parseSrsRunInfo(fnameSrsRunInfoRunMode0)
@@ -132,10 +134,125 @@ suite "InGrid data":
     check srsTosRunInfo[SrsNoChipId] == SrsNoChipIdMsg
     check "numChips" notin srsTosRunInfo
     check SrsRunIncomplete notin srsTosRunInfo
+    check srsTosRunInfo.len == 6
 
   test "Reading SRS TOS run information w/ chip headers":
     # NOTE: it seems like we don't have a run with the correct FEC headers available right now
     discard
 
-  test "Reading current Virtex TOS InGrid data":
-    discard
+  test "Reading current Virtex TOS InGrid data, calibration example":
+    let fileContent = readFile(fnameVcalib).strip.splitLines
+    let data = concat(@[fnameVcalib], fileContent)
+
+    let ev: Event = processEventWithScanf(data)[]
+
+    proc checkHeader(header: Table[string, string]): bool =
+      check header["runNumber"] == "302"
+      check header["runTime"] == "7200"
+      check header["runTimeFrames"] == "0"
+      check header["pathName"] == "data/runs/Run_302_181217-14-18" # the real path name
+      check header["dateTime"] == "2018-12-17.14:18:09"
+      check header["numChips"] == "7"
+      check header["shutterTime"] == "30"
+      check header["shutterMode"] == "verylong"
+      check header["runMode"] == "0"
+      check header["fastClock"] == "0"
+      check header["externalTrigger"] == "0"
+      check header["eventNumber"] == "3"
+      check header["useHvFadc"] == "1"
+      check header["fadcReadout"] == "1"
+      check header["szint1ClockInt"] == "0"
+      check header["szint2ClockInt"] == "3427"
+      check header["fadcTriggerClock"] == "996321"
+      check header["timestamp"] == "1545052689"
+      check header.len == 18
+      return true
+    check checkHeader(ev.evHeader)
+
+    check ev.nChips == 7
+    # TODO: make sure to calculate length here already?
+    check ev.length == 0.0 # undefined for old TOS data at this point
+    check ev.chips.len == 7
+
+    let vcalibTosPixCh3 = virtexCalibPixelStrCh3
+      .strip
+      .splitLines
+      .mapIt((x:  parseInt(it.split[0]).uint8,
+              y:  parseInt(it.split[1]).uint8,
+              ch: parseInt(it.split[2]).uint16))
+
+    let vcalibTosPixCh6 = virtexCalibPixelStrCh6
+      .strip
+      .splitLines
+      .mapIt((x:  parseInt(it.split[0]).uint8,
+              y:  parseInt(it.split[1]).uint8,
+              ch: parseInt(it.split[2]).uint16))
+
+
+    proc checkChip(ch: ChipEvent, chNum: int): bool =
+      check ch.chip.name.replace(" ", "") == getSeptemHChip(chNum).replace(" ", "")
+      check ch.chip.number == chNum
+      if chNum == 3:
+        check ch.pixels.len == 257
+        check ch.pixels == vcalibTosPixCh3
+      elif chNum == 6:
+        check ch.pixels.len == 2
+        check ch.pixels == vcalibTosPixCh6
+      else:
+        check ch.pixels.len == 0
+      return true
+    for i in 0 .. 6:
+      check checkChip(ev.chips[i], i)
+
+  test "Reading current Virtex TOS InGrid data, background example":
+    let fileContent = readFile(fnameVbackground).strip.splitLines
+    let data = concat(@[fnameVbackground], fileContent)
+
+    let ev: Event = processEventWithScanf(data)[]
+
+    proc checkHeader(header: Table[string, string]): bool =
+      check header["runNumber"] == "76"
+      check header["runTime"] == "0"
+      check header["runTimeFrames"] == "1"
+      check header["pathName"] == "data/runs/Run_76_171030-18-39" # the real path name
+      check header["dateTime"] == "2017-10-31.09:01:17"
+      check header["numChips"] == "7"
+      check header["shutterTime"] == "32"
+      check header["shutterMode"] == "verylong"
+      check header["runMode"] == "0"
+      check header["fastClock"] == "0"
+      check header["externalTrigger"] == "0"
+      check header["eventNumber"] == "22059"
+      check header["useHvFadc"] == "1"
+      check header["fadcReadout"] == "1"
+      check header["szint1ClockInt"] == "4095"
+      check header["szint2ClockInt"] == "0"
+      check header["fadcTriggerClock"] == "83508713"
+      check header["timestamp"] == "1509436877"
+      check header.len == 18
+      return true
+    check checkHeader(ev.evHeader)
+
+    check ev.nChips == 7
+    # TODO: make sure to calculate length here already?
+    check ev.length == 0.0 # undefined for old TOS data at this point
+    check ev.chips.len == 7
+
+    func parsePix(data: (int, string)): (int, seq[(uint8, uint8, uint16)]) =
+      result[0] = data[0]
+      result[1] = data[1]
+      .strip
+      .splitLines
+      .mapIt((x:  parseInt(it.split[0]).uint8,
+              y:  parseInt(it.split[1]).uint8,
+              ch: parseInt(it.split[2]).uint16))
+
+    proc checkChip(ch: ChipEvent, chNum: int): bool =
+      check ch.chip.name.replace(" ", "") == getSeptemHChip(chNum).replace(" ", "")
+      check ch.chip.number == chNum
+      let data = parsePix(virtexBackgroundPixelStr[chNum])
+      check ch.pixels.len == data[0]
+      check ch.pixels == data[1]
+      return true
+    for i in 0 .. 6:
+      check checkChip(ev.chips[i], i)

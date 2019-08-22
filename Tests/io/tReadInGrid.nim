@@ -62,6 +62,19 @@ suite "InGrid data":
     check checkChip(ev.chips[0])
 
     # TODO: add test for `.dat` file
+    let oldTosRunInfo = getOldRunInformation(fnameOldTos.parentDir, 475, rfOldTos)
+    check oldTosRunInfo[0] == 144498
+    check oldTosRunInfo[1] == 26332
+    check oldTosRunInfo[2] == 1444997747
+    check oldTosRunInfo[3] == 1445001347
+    check oldTosRunInfo[4] == 3600
+    # NOTE: parsing of the file works fine, but we can't check whether reading all data from the run
+    # actually results in these values, since providing a whole test run for this purpose is
+    # too much data. We need a better way to store such a run than using the git repository
+    # One possible way to avoid polluting our git repo would be to create a separate test data repo
+    # which we clone on travis, link to the test directory and ignore the link in gitignore
+    # an alternative is to use git lfs for this purpose.
+
 
   test "Reading SRS TOS InGrid data":
     discard

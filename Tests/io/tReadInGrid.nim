@@ -6,7 +6,6 @@ import data/ingridTestData
 import unittest
 import arraymancer
 
-import ggplotnim
 import seqmath
 
 const pwd = currentSourcePath().parentDir

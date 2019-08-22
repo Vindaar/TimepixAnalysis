@@ -335,7 +335,7 @@ proc readEventHeader*(filepath: string): Table[string, string] =
       let val = matches[1]
       result[key] = val
 
-proc parseSrsRunInfo(path: string): Table[string, string] =
+proc parseSrsRunInfo*(path: string): Table[string, string] =
   result = initTable[string, string]()
   let runPath = path / "run.txt"
   if fileExists(runPath):

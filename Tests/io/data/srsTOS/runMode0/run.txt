@@ -1,0 +1,10 @@
+Run number run: 	4001
+Run start time: 	181009_22-46-00
+Run end time: 	181010_00-10-25
+
+Run parameters:
+	 run mode (0=time,1=number of frames)	0
+	 run time / number of triggers	1000
+	 shutter mode (0 = untiggered, 1 = untriggered long, 2 = untriggered very long, 3 = untiggered 2x faster clock, 4 = untiggered long 2x faster clock, 5 = untiggered very long 2x faster clock, 6 = external trigger, 7 = external trigger 2x faster clock 	long
+	 shutter time 2
+	 readout mode (0 = zero suppressed, 1 = complete matrix)	0

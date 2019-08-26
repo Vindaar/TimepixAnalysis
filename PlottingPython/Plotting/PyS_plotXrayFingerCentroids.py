@@ -55,7 +55,7 @@ def readXrayData(h5file):
         x_ind = 256 - x * scale
         y_ind = 256 - y * scale
         x_inds.append(x_ind)
-        y_inds.append(y_ind)        
+        y_inds.append(y_ind)
         centers[int(y_ind)][int(x_ind)] += 1
     centroid_x = np.mean(x_inds)
     centroid_y = np.mean(y_inds)
@@ -65,10 +65,10 @@ def readXrayData(h5file):
     return centroid_x, centroid_y, centers
 
 def addFakeData(centers, aroundVal, sigma = 0.7, posx = 27, posy = 27):
-    """ 
+    """
     This func can be used to add some fake data to `centers` with a gaussian distr
     around `aroundVal`.
-    This is used in order to highlight deficiencies in certain color maps, which vary 
+    This is used in order to highlight deficiencies in certain color maps, which vary
     too much in hue and are not perceptually uniform.
     """
     print("Around val: ", aroundVal)
@@ -114,7 +114,7 @@ def main(args):
                         default = False,
                         action = 'store_true',
                         help = "Flag to activate fancy plotting via LaTeX output")
-    
+
     args_dict = vars(parser.parse_args())
     h5file = os.path.abspath(args_dict["file"])
     h5file2 = args_dict["file2"]
@@ -123,7 +123,7 @@ def main(args):
     stack = args_dict["stack"]
     show_centroid = args_dict["centroid"]
     print(args_dict)
-    
+
     if args_dict["fancy"] == True:
         fancy_plotting()
 
@@ -132,7 +132,7 @@ def main(args):
         centroid_x2, centroid_y2, centers2 = readXrayData(h5file2)
         if stack == True:
             centers += centers2
-    
+
     circle = Circle((centroid_x, centroid_y), 5.0, color = 'red')
     print("MAX ", np.max(centers))
     #maxval = 2.5#np.percentile(centers, 99)
@@ -145,8 +145,8 @@ def main(args):
             print("fake before")
             nonEmpty = np.nonzero(centers)
             print(" non empty: ", nonEmpty)
-            centers = addFakeData(centers, 2.0, posy = 87, posx = 125)#np.percentile(centers[nonEmpty], 50))
-            centers = addFakeData(centers, 0.7, posx = 221, posy = 221)#np.percentile(centers[nonEmpty], 50))
+            centers = addFakeData(centers, 2.0, posy = 87, posx = 125)
+            centers = addFakeData(centers, 0.7, posx = 221, posy = 221)
             print("fake now ")
         ax = ax.imshow(centers, cmap = cmap, vmax = maxval)
         if show_centroid:
@@ -161,14 +161,14 @@ def main(args):
     elif h5file2 != None and stack == False:
         fig, ax = plt.subplots(1, 2)
         circle2 = Circle((centroid_x2, centroid_y2), 5.0, color = 'red')
-        
+
         ax[0].imshow(centers, cmap = cmap, vmax = 4)
         ax[1].imshow(centers2, cmap = viridis, vmax = 4)
         if show_centroid:
             ax[0].add_artist(circle)
             ax[1].add_artist(circle2)
         ax[0].set_title(os.path.basename(h5file))
-        ax[1].set_title(os.path.basename(h5file2))        
+        ax[1].set_title(os.path.basename(h5file2))
 
     if h5file2 == None:
         plt.title(os.path.basename(h5file))
@@ -178,11 +178,10 @@ def main(args):
 
     plt.show()
 
-    
-    
-    
+
+
+
 
 if __name__=="__main__":
     import sys
     main(sys.argv[1:])
-        

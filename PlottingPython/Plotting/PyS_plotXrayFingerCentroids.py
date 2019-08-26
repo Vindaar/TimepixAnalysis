@@ -39,7 +39,8 @@ def fancy_plotting():
 
 def readXrayData(h5file):
     # read data
-    group_name = likelihoodBase()
+    #group_name = likelihoodBase()
+    group_name = "/reconstruction/"
     chipNumber = 3
     center_x = readH5Data(h5file, group_name, chipNumber, ["centerX"])
     center_y = readH5Data(h5file, group_name, chipNumber, ["centerY"])
@@ -63,6 +64,30 @@ def readXrayData(h5file):
 
     return centroid_x, centroid_y, centers
 
+def addFakeData(centers, aroundVal, sigma = 0.7, posx = 27, posy = 27):
+    """ 
+    This func can be used to add some fake data to `centers` with a gaussian distr
+    around `aroundVal`.
+    This is used in order to highlight deficiencies in certain color maps, which vary 
+    too much in hue and are not perceptually uniform.
+    """
+    print("Around val: ", aroundVal)
+    size = 150
+    noise = np.sort(np.random.normal(aroundVal, sigma, 150))
+    noise[:150 / 2] = np.roll(noise, np.shape(noise)[0] / 2)[:150 / 2]
+    noise[150 / 2:] = np.flip(np.roll(noise, np.shape(noise)[0] / 2)[150 / 2:])
+    xvals = np.sort(np.random.normal(posx, 4, 150))
+    yvals = np.random.normal(posy, 4, 150)
+    print "vals ", xvals
+    print "vals ", yvals
+    res = centers
+    count = 0
+    for x, y in zip(xvals, yvals):
+        if noise[count] > 0:
+            res[int(np.round(x)), int(np.round(y))] = noise[count]
+        count += 1
+    return res
+
 def main(args):
     parser = argparse.ArgumentParser(description = 'H5 Data plotter')
     parser.add_argument('file',
@@ -71,12 +96,20 @@ def main(args):
                         default = None,
                         dest = "file2",
                         help = "A potential second file to plot against")
+    parser.add_argument('--cmap',
+                        default = 'viridis',
+                        dest = "cmap",
+                        help = "The colormap to use, default viridis")
     parser.add_argument('--stack',
                         action = "store_true",
                         help = "If toggled, the occupancies are stacked")
     parser.add_argument('--centroid',
                         action = "store_true",
                         help = "If toggled, the centroid of all events is shown")
+    parser.add_argument('--fakeData',
+                        action = "store_true",
+                        dest = "fakeData",
+                        help = "If toggled, will add some fake noise to the plot")
     parser.add_argument('--fancy',
                         default = False,
                         action = 'store_true',
@@ -85,6 +118,8 @@ def main(args):
     args_dict = vars(parser.parse_args())
     h5file = os.path.abspath(args_dict["file"])
     h5file2 = args_dict["file2"]
+    cmap = args_dict["cmap"]
+    toAddFakeData = args_dict["fakeData"]
     stack = args_dict["stack"]
     show_centroid = args_dict["centroid"]
     print(args_dict)
@@ -99,9 +134,21 @@ def main(args):
             centers += centers2
     
     circle = Circle((centroid_x, centroid_y), 5.0, color = 'red')
+    print("MAX ", np.max(centers))
+    #maxval = 2.5#np.percentile(centers, 99)
+    maxval = 5.0
+    #maxval = 2.2
+    ax = None
     if h5file2 != None and stack == True or h5file2 == None:
         fig, ax = plt.subplots()
-        ax.imshow(centers, cmap = 'viridis', vmax = 1)
+        if toAddFakeData:
+            print("fake before")
+            nonEmpty = np.nonzero(centers)
+            print(" non empty: ", nonEmpty)
+            centers = addFakeData(centers, 2.0, posy = 87, posx = 125)#np.percentile(centers[nonEmpty], 50))
+            centers = addFakeData(centers, 0.7, posx = 221, posy = 221)#np.percentile(centers[nonEmpty], 50))
+            print("fake now ")
+        ax = ax.imshow(centers, cmap = cmap, vmax = maxval)
         if show_centroid:
             ax.add_artist(circle)
         if h5file2 != None:
@@ -115,8 +162,8 @@ def main(args):
         fig, ax = plt.subplots(1, 2)
         circle2 = Circle((centroid_x2, centroid_y2), 5.0, color = 'red')
         
-        ax[0].imshow(centers, cmap = 'viridis', vmax = 4)
-        ax[1].imshow(centers2, cmap = 'viridis', vmax = 4)
+        ax[0].imshow(centers, cmap = cmap, vmax = 4)
+        ax[1].imshow(centers2, cmap = viridis, vmax = 4)
         if show_centroid:
             ax[0].add_artist(circle)
             ax[1].add_artist(circle2)
@@ -125,8 +172,12 @@ def main(args):
 
     if h5file2 == None:
         plt.title(os.path.basename(h5file))
-    
+
+    plt.savefig("xray_finger_clusters_" + str(cmap) + "_max_" + str(maxval) + ".pdf")
+    fig.colorbar(ax)
+
     plt.show()
+
     
     
     

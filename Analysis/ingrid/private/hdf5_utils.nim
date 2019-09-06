@@ -52,9 +52,9 @@ func cdlToXrayBinning2014*(name: string): tuple[bins: int, min, max: float] =
   result = map[name]
 
 func cdlToXrayBinning2018Map(): Table[string, tuple[bins: int, min, max: float]] =
-  ## Maps the names of the `XrayReferenceDataSet.h5` (2014) to the
+  ## Maps the names of the `XrayReferenceDataSet.h5` (2019) to the
   ## number of bins and min, max values that must be given to the histogram function
-  ## to arrive at the result from the `calibration-cdl.h5` (2014) file.
+  ## to arrive at the result equivalent to the `calibration-cdl.h5` (2019) file.
   result = { "skewnessLongitudinal" : (bins: 100, min: -5.050000190734863, max: 4.849999904632568),
              "skewnessTransverse" : (bins: 100, min: -5.050000190734863, max: 4.849999904632568),
              "rmsTransverse" : (bins: 150, min: -0.01666666753590107, max: 4.949999809265137),

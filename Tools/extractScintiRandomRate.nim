@@ -23,20 +23,62 @@ proc getScintiFadcDataFrame(h5f: var H5FileObj, runNumber: int): DataFrame =
   result = DataFrame()
   for n in names:
     let data = h5f.readAs(grp.name / n, float)
-    result[n] = toVector(%~ data)
+    result[n.replace("ClockInt", "")] = toVector(%~ data)
     result.len = data.len
 
 proc sumEv(s: seq[float]): float =
   result = s.foldl(a + b, 0.0)
 liftVectorFloatProc(sumEv)
 
+proc calcScinti(df: DataFrame, scinti: string, runNumber: int): float =
+  ##  returns the rate of triggers from this scinti for random events
+  ggplot(df.filter(f{scinti < 4095}),
+         aes(x = scinti)) +
+    geom_histogram() +
+    ggsave(scinti & "_full_run" & $runNumber & ".pdf")
+
+  let nonTrivial = df.filter(f{scinti > 0 and
+                               scinti < 4095})
+  let nonMain = df.filter(f{scinti >= 300 and
+                            scinti < 4095})
+  echo nonTrivial
+  echo nonMain
+  echo "non trivial ", scinti, ":", nonTrivial.len
+  echo "outside of main peak ", scinti, ":", nonMain.len
+  echo "time of non trivial ", scinti, ":",
+    nonTrivial.summarize(f{"time" ~ sumEv("eventDuration")})
+  echo "time of non trivial non main ", scinti, ":",
+    nonMain.summarize(f{"time" ~ sumEv("eventDuration")})
+  ggplot(nonMain, aes(x = scinti)) +
+    geom_histogram() +
+    ggsave(scinti & "_nonMain_run" & $runNumber & ".pdf")
+
+  ggplot(df.filter(f{scinti > 0 and scinti < 300}), aes(scinti)) +
+    geom_histogram() +
+    ggsave(scinti & "_main_run" & $runNumber & ".pdf")
+
+  let nonMainTriggers = nonMain.len
+  let mainTriggers = df.filter(f{scinti > 0 and scinti < 300}).len
+  echo "Main triggers: ", mainTriggers
+  let fTriggers = df.len
+  echo "FADC triggers ", fTriggers
+  # calc rate by considering number of FADC triggers - main triggers
+  # (since those cannot reliable be counted towards the open shutter time
+  # for randoms)
+  let triggers = fTriggers - mainTriggers
+  echo "Relevant triggers ", triggers
+
+  # time of open shutter
+  let deltaT = triggers.float * (4094.0 - 300.0) * 25e-9
+  echo "Open shutter time in s: ", deltaT
+  result = nonMainTriggers.float / deltaT
+
 proc main(fname: string, runNumber: int) =
   var h5f = H5file(fname, "r")
   defer: discard h5f.close()
 
   let df = getScintiFadcDataFrame(h5f, runNumber)
-
-
+  echo df
 
   # first calculate total time of run
   let runTime = df.summarize(f{"runTime" ~ sumEv("eventDuration")})["runTime"][0].toFloat
@@ -48,38 +90,13 @@ proc main(fname: string, runNumber: int) =
   let runTimeFadc = runTimeFadcDf["runTimeFADC"][0].toFloat
   echo "Open shutter time w/ FADC trigger in hours: ", runTimeFadc / 3600.0
   echo dfTriggered
-  echo dfTriggered.summarize(f{"test" ~ max("szint2ClockInt")})
-  ggplot(dfTriggered, aes(x = "szint1ClockInt")) +
-    geom_histogram() +
-    geom_histogram(aes("szint2ClockInt")) +
-    ggsave("scinti.pdf")
 
-  let nonTrivialSzint1 = dfTriggered.filter(f{"szint1ClockInt" > 0 and
-                                              "szint1ClockInt" < 4095})
-  let nonMainSzint1 = dfTriggered.filter(f{"szint1ClockInt" > 200 and
-                                           "szint1ClockInt" < 4095})
-  let nonTrivialSzint2 = dfTriggered.filter(f{"szint2ClockInt" > 0 and
-                                              "szint2ClockInt" < 4095})
-  let nonMainSzint2 = dfTriggered.filter(f{"szint2ClockInt" > 200 and
-                                           "szint2ClockInt" < 4095})
-  echo nonTrivialSzint1
-  echo nonMainSzint1
-  echo nonTrivialSzint2
-  echo nonMainSzint2
+  let rate1 = calcScinti(dfTriggered, "szint1", runNumber)
+  let rate2 = calcScinti(dfTriggered, "szint2", runNumber)
 
-  echo "non trivial szint 1: ", nonTrivialSzint1.len
-  echo "outside of main peak 1: ", nonMainSzint1.len
-  echo "non trivial szint 2: ", nonTrivialSzint2.len
-  echo "outside of main peak 2: ", nonMainSzint2.len
+  echo "Scinti1 rate: ", rate1, " s^-1"
+  echo "Scinti2 rate: ", rate2, " s^-1"
 
-  echo "time of non trivial 1 ",
-    nonTrivialSzint1.summarize(f{"time" ~ sumEv("eventDuration")})
-  echo "time of non trivial non main 1 ",
-    nonMainSzint1.summarize(f{"time" ~ sumEv("eventDuration")})
-  echo "time of non trivial 2 ",
-    nonTrivialSzint2.summarize(f{"time" ~ sumEv("eventDuration")})
-  echo "time of non trivial non main 2 ",
-    nonMainSzint2.summarize(f{"time" ~ sumEv("eventDuration")})
 
 when isMainModule:
   if paramCount() == 2:

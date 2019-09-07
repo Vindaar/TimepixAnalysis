@@ -1169,12 +1169,9 @@ proc calcfitcurve(minbin: float, maxbin: float,
     yvals = range.mapIt(cdlFitFunc(fitparams, it))
   result = (range, yvals)
 
-proc fitAndPlot[T: SomeNumber](h5file, fitParamsFname: string,
+proc fitAndPlot[T: SomeNumber](h5f: var H5FileObj, fitParamsFname: string,
                                tfKind: TargetFilterKind, dKind: DataKind):
                (seq[float], seq[float], seq[float], seq[float]) =
-  var h5f = H5file(h5file, "rw")
-  defer: discard h5f.close()
-
   let runs = readRuns(filename)
   var ploterror: seq[float]
   var rawseq: seq[T]
@@ -1668,18 +1665,20 @@ proc main =
     var energyChargeErr: seq[float]
     #let a = fitAndPlot[int64](h5file, tfCuEpic0_9, Dhits)
     #let b = fitAndPlot[float64](h5file, tfCuEpic0_9, Dcharge)
+    var h5f = H5file(h5file, "rw")
     for tfkind in TargetFilterKind:
-      let energyHits = fitAndPlot[int64](h5file, fitParamsFname, tfkind, Dhits)
+      let energyHits = fitAndPlot[int64](h5f, fitParamsFname, tfkind, Dhits)
       peakposHits.add(energyHits[0])
       energyResHits.add(energyHits[1])
       peakHitsErr.add(energyHits[2])
       energyHitsErr.add(energyHits[3])
       #echo "energyres ", energyResHit
-      let energyCharge = fitAndPlot[float64](h5file, fitParamsFname, tfkind, Dcharge)
+      let energyCharge = fitAndPlot[float64](h5f, fitParamsFname, tfkind, Dcharge)
       peakposCharge.add(energyCharge[0])
       energyResCharge.add(energyCharge[1])
       peakChargeErr.add(energyCharge[2])
       energyChargeErr.add(energyCharge[3])
+    discard h5f.close()
     energycurve(energyResHits, energyResCharge, energyHitsErr, energyChargeErr)
     peakfit(peakposHits, "Hits", peakHitsErr)
     peakfit(peakposCharge, "Charge", peakChargeErr)

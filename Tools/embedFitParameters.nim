@@ -85,7 +85,7 @@ proc dumpOnSvg(svgPath: string, param: Params) =
 
   # create a transform attribute, which will place the fit parameter dump
   # (`fitDumpNodes`) onto the `xmlPlot`
-  let att = {"transform" : "translate(850, 150)"}.toXmlAttributes
+  let att = {"transform" : "translate(600, 250)"}.toXmlAttributes
   # create new tree combining `att`, `fitDumpNodes` into a `g` XML element
   var fitDumpTree = newXmlTree("g", fitDumpNodes.mapIt(it), att)
   # create new `g` element, into which we will put the old SVG plot

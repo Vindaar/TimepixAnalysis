@@ -1324,15 +1324,13 @@ proc fitAndPlot[T: SomeNumber](h5f: var H5FileObj, fitParamsFname: string,
   let cdlPlotNlopt = scatterPlot(nloptres[0], nloptres[1]).mode(PlotMode.Lines)
   let startPlot = scatterPlot(startval[0], startval[1]).mode(PlotMode.Lines)
 
-  ##test of annotations
-  #echo "testforparams ", testmu
-  #echo test8
-  #let teststring = test8.string
-  #let testanno = Annotation(x: 350,
-  #                          y: 100,
-  #                          text: &"test: " & test8)
-
   ##plot of hits and charge
+  # modify bin range if necessary
+  if fitmu < binrangeplot / 3.0:
+    binrangeplot = binrangeplot / 1.5
+  elif fitmu > binrangeplot / 2.0:
+    binrangeplot = binrangeplot * 1.5
+
   let hitsRaw = histPlot(rawseq.mapIt(it.float64))
     .binSize(binsizeplot)
     .binRange(0.0, binrangeplot)

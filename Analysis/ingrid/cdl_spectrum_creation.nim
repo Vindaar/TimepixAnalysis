@@ -1083,7 +1083,7 @@ proc energycurve(energyResHits: seq[float], energyResCharge: seq[float], errorHi
   energyplot.traces[1].name = "total charge"
   energyplot.traces[1].marker = Marker[float](color: @[ColorTGelb])#, size: @[8.0])
   energyplot.traces[1].ys_err = errorbarCharge
-  energyplot.show(&"energyresoplot-{outdate}.svg")
+  energyplot.show(&"energyresoplot-{outdate}.svg", onlySave = true)
 
 proc peakfit(peakpos: seq[float], name: string, error: seq[float]) =
   var energyval = @[8.048, 5.899, 4.511, 2.984, 1.487, 0.930, 0.525, 0.277]
@@ -1100,7 +1100,7 @@ proc peakfit(peakpos: seq[float], name: string, error: seq[float]) =
   peakfit.traces[0].ys_err = errorbar
   peakfit.layout.xaxis.title = "Energy in keV"
   peakfit.layout.yaxis.title = &"Peakposition for {name}"
-  peakfit.show(&"{name}.svg")
+  peakfit.show(&"{name}.svg", onlySave = true)
 
 proc dumpFitParameters(outfile, svgFname: string,
                        params: seq[float], errors: seq[float],
@@ -1369,7 +1369,7 @@ proc fitAndPlot[T: SomeNumber](h5file, fitParamsFname: string,
   #plt.layout.annotations.add [testanno]
 
   let fname = &"{outname}-{outdate}.svg"
-  plt.show(fname)
+  plt.show(fname, onlySave = true)
 
   # now dump the fit results, SVG filename and correct parameter names to a file
   dumpFitParameters(fitParamsFname, fname, fitresults[1], ploterror, tfKind, dKind)

@@ -156,13 +156,16 @@ proc main =
         discard
 
   # given all read events, dump them to Json
+  var outJson = newJArray()
+  for i, r in recos:
+    let rJson = %r
+    ## assert conversion back and forth idempotent
+    doAssert rJson.to(RecoEvent[Pix]) == recos[i]
+    outJson.add rJson
+
   var outf = open("marlinEvents.json", fmWrite)
   defer: outf.close()
-  for i, r in recos:
-    ## assert conversion back and forth idempotent
-    let rJson = %r
-    doAssert rJson.to(RecoEvent[Pix]) == recos[i]
-    outf.write(rJson.pretty & "\n")
+  outf.write(outJson.pretty)
 
 when isMainModule:
   main()

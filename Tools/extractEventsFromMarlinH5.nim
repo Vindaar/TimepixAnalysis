@@ -103,6 +103,9 @@ proc readRecoEvent(h5f: var H5FileObj, group: string, ind: int): Option[RecoEven
      ecc > 1.5:
     return none[RecoEvent[Pix]]()
 
+  let runNumber = read(int, "RunNumber")
+  echo "[INFO]: Run number of idx ", ind, " : ", runNumber, " and eventNumber ", res.eventNumber
+
   # now fill clusters
   withSome readCluster(h5f, group, ind, res.eventNumber):
     some cluster: res.cluster.add cluster

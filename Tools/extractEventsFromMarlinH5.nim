@@ -67,6 +67,7 @@ proc readCluster(h5f: var H5FileObj, group: string, ind, evNum: int): Option[Clu
   let totdata = readVlen(vlenUint16, uint16, "ChargeValuesVector")
   for i in 0 ..< xdata.len:
     cObj.data.add (x: xdata[i], y: ydata[i], ch: totData[i])
+  doAssert cObj.data.len == cObj.hits
   result = some(cObj)
 
 proc readRecoEvent(h5f: var H5FileObj, group: string, ind: int): Option[RecoEvent[Pix]] =

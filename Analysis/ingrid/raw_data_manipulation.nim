@@ -734,15 +734,6 @@ proc fillDataForH5(x, y: var seq[seq[seq[uint8]]],
     y[i]  = newSeq[seq[uint8]](nEvents)
     ch[i] = newSeq[seq[uint16]](nEvents)
   for i, event in events:
-    # given chip number, we can write the data of this event to the correct dataset
-    # need to subtract number of events already in file (min(evNumber) > 0!)
-    # NOTE: we now simply enumerate the number of events we read. There should be no reason
-    # why we should have to consider the real event numbers
-    # TODO: if you read this in the future and everything works, remove the
-    # next two lines :)
-    let evNumberRaw = parseInt(event.evHeader["eventNumber"])
-    let evNumber = parseInt(event.evHeader["eventNumber"]) - startEvent
-
     duration[i] = event.length
     # add event header information
     for key in keys(evHeaders):

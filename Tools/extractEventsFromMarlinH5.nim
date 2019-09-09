@@ -20,6 +20,11 @@ template read(astype: untyped, name: string): untyped  =
     var dset = h5f[(group / name).dset_str]
     dset[ind, float32].asType
 
+template readVlen(vlen, dtype: untyped, name: string): untyped  =
+  block:
+    var dset = h5f[(group / name).dset_str]
+    dset[ind, vlen, dtype]
+
 proc readCluster(h5f: var H5FileObj, group: string, ind, evNum: int): Option[ClusterObject[Pix]] =
   ## compares the event number of the cluster at index `evNum` with the event
   ## number at the index. If they match returns a `some[ClusterObject[Pix]]`, else
@@ -53,6 +58,15 @@ proc readCluster(h5f: var H5FileObj, group: string, ind, evNum: int): Option[Clu
   cGeom.lengthDivRmsTrans = cGeom.length / cGeom.rmsTransverse
 
   cObj.geometry = cGeom
+
+  # finally read data of pixels
+  let vlenUint8 = special_type(uint8)
+  let vlenUint16 = special_type(uint16)
+  let xdata = readVlen(vlenUint8, uint8, "XCoordinatesVector")
+  let ydata = readVlen(vlenUint8, uint8, "YCoordinatesVector")
+  let totdata = readVlen(vlenUint16, uint16, "ChargeValuesVector")
+  for i in 0 ..< xdata.len:
+    cObj.data.add (x: xdata[i], y: ydata[i], ch: totData[i])
   result = some(cObj)
 
 proc readRecoEvent(h5f: var H5FileObj, group: string, ind: int): Option[RecoEvent[Pix]] =
@@ -138,23 +152,13 @@ proc main =
         discard
 
   # given all read events, dump them to Json
-  var recoJson = newSeq[JsonNode]()
-  var rrr = % recos[1]
-  rrr["cluster"][0]["data"] = % @[(1'u8, 2'u8, 12'u16), (5'u8, 2'u8, 53'u16)]
-  recoJson.add rrr
-  for r in recos:
-    recoJson.add (% r)
-
-  var outf = open("test.json", fmWrite)
+  var outf = open("marlinEvents.json", fmWrite)
   defer: outf.close()
-  for r in recoJson:
-    outf.write(r.pretty & "\n")
-
-  # test returning json back to RecoEvent[Pix]
-  echo recoJson[0].pretty
-  echo rrr.pretty
-  let back = recoJson[0].to(RecoEvent[Pix])
-  #echo "Back is ", back
+  for i, r in recos:
+    ## assert conversion back and forth idempotent
+    let rJson = %r
+    doAssert rJson.to(RecoEvent[Pix]) == recos[i]
+    outf.write(rJson.pretty & "\n")
 
 when isMainModule:
   main()

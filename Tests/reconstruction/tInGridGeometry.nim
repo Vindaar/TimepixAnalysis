@@ -10,8 +10,8 @@ import ggplotnim
 import seqmath
 
 const pwd = currentSourcePath().parentDir
-const fnameVCalib = pwd / "data/newTos/data000003.txt"
-const fnameVBackground = pwd / "data/newTos/data022059.txt"
+const dataPwd = pwd / "marlinTestEvents"
+const jsonData = dataPwd / "marlinEvents.json"
 
 import times
 let plotSuffix = $getTime().toUnix & ".pdf"
@@ -32,3 +32,7 @@ suite "InGrid geometry calculations":
     # in Christoph's root tree to compare where differences come from
     let fileContent = readFile(fnameVbackground).strip.splitLines
     let data = concat(@[fnameVbackground], fileContent)
+
+  test "Comparison of Marlin events with TPA reco":
+    ## given 3 events in data/marlinTestEvents
+    ## They are *not*

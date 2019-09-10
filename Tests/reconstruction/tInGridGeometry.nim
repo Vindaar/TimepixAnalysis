@@ -20,7 +20,7 @@ let plotSuffix = $getTime().toUnix & ".pdf"
 # MarlinTPC has
 const CorrectOneOffXError = true
 
-func almostEqual[T: SomeNumber](x, y: T, ep = 1e-5): bool =
+func almostEqual[T: SomeNumber](x, y: T, ep = 1e-6): bool =
   ## checks very roughly if the values match. Anything beyond
   ## 1e-5 should be of no issue for us
   result = (x - y).float < ep
@@ -156,5 +156,5 @@ suite "InGrid geometry calculations":
         echoCheck("kurtosisTransverse", recoGeom.kurtosisTransverse, expGeom.kurtosisTransverse, 1e-3)
         echoCheck("length", recoGeom.length, expGeom.length, 1e-3)
         echoCheck("width", recoGeom.width, expGeom.width, 1e-3)
-        echoCheck("fractionInTransverseRms", recoGeom.fractionInTransverseRms, expGeom.fractionInTransverseRms, 1e-3)
+        echoCheck("fractionInTransverseRms", recoGeom.fractionInTransverseRms, expGeom.fractionInTransverseRms, 1e-6)
         echoCheck("lengthDivRmsTrans", recoGeom.lengthDivRmsTrans, expGeom.lengthDivRmsTrans, 1e-3)

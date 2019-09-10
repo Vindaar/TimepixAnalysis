@@ -16,6 +16,8 @@ const jsonData = dataPwd / "marlinEvents.json"
 import times
 let plotSuffix = $getTime().toUnix & ".pdf"
 
+const CorrectOneOffXError = false
+
 #proc checkEqual(ingrid: ): bool =
   # checks whther the ingrid event is equal to our expectation
 #  return true
@@ -76,7 +78,11 @@ suite "InGrid geometry calculations":
       # NOTE: the pixel
       # 167 200 *
       # is the noisy pixel of the 2014/15 chip. Filter it out.
-      let pix = ev.chips[0].pixels.filterIt(it.x != 167'u8 and it.y != 200'u8)
+      var pix = ev.chips[0]
+        .pixels
+        .filterIt(it.x != 167'u8 and it.y != 200'u8)
+      if CorrectOneOffXError:
+        pix = pix.mapIt((x: (it[0] + 1'u8), y: it[1], ch: it[2]))
 
       var reco = recoEvent((pix, f[1]), 0)[]
       # sort by cluster length (Marlin and TPA don't agree on the cluster ordering)
@@ -122,8 +128,12 @@ suite "InGrid geometry calculations":
 
         # compare content by x, y pixels
         for k in 0 ..< recoCluster.data.len:
-          check recoCluster.data[k].x + 1 == expCluster.data[k].x # Marlin x coordinate is off by 1!
-          check recoCluster.data[k].y     == expCluster.data[k].y
+          if CorrectOneOffXError:
+            # corrected 1 off error manually
+            check recoCluster.data[k].x == expCluster.data[k].x
+          else:
+            check recoCluster.data[k].x == expCluster.data[k].x # Marlin x coordinate is off by 1!
+          check recoCluster.data[k].y == recoCluster.data[k].y
           # cannot compare charge yet
 
         # if all passed we have

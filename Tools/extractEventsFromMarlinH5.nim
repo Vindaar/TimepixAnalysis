@@ -6,8 +6,8 @@ file to be able to compare them to the reconstructed raw data.
 
 ]#
 
-import ingrid / ingrid_types
-import nimhdf5, sequtils, seqmath, strutils, random, json, os
+import ingrid / [ingrid_types, tos_helpers]
+import nimhdf5, sequtils, seqmath, strutils, strformat, random, json, os
 import options, optionsutils
 export options except get, unsafeGet
 export optionsutils
@@ -15,7 +15,7 @@ export optionsutils
 import ggplotnim
 
 const path = currentSourcePath().parentDir / "../resources/background_splitted.2014+2015.h5"
-const NumEvents = 3
+const NumEvents = 15
 
 template read(astype: untyped, name: string): untyped  =
   block:
@@ -72,7 +72,9 @@ proc readCluster(h5f: var H5FileObj, group: string, ind, evNum: int): Option[Clu
   doAssert cObj.data.len == cObj.hits
   result = some(cObj)
 
-proc readRecoEvent(h5f: var H5FileObj, group: string, ind: int): Option[RecoEvent[Pix]] =
+proc readRecoEvent(h5f: var H5FileObj, group: string, ind: int):
+                  (Option[(int, RecoEvent[Pix])]) =
+  ## First option value is the `runNumber`
   ## reads event with number `ind` from the file. Assumes we read from the
   ## no tracking group
   ## Returns a `some` if the cluster at index `ind` matches the following conditions
@@ -104,7 +106,7 @@ proc readRecoEvent(h5f: var H5FileObj, group: string, ind: int): Option[RecoEven
      hits > 400 or
      ecc < 1.2 or
      ecc > 1.5:
-    return none[RecoEvent[Pix]]()
+    return none[(int, RecoEvent[Pix])]()
 
   let runNumber = read(int, "RunNumber")
   echo "[INFO]: Run number of idx ", ind, " : ", runNumber, " and eventNumber ", res.eventNumber
@@ -131,7 +133,7 @@ proc readRecoEvent(h5f: var H5FileObj, group: string, ind: int): Option[RecoEven
   whileCond(idx < nElems):
     inc idx
 
-  result = some(res)
+  result = some((runNumber, res))
 
 proc `%`(p: Pix): JsonNode =
   result = %* { "x" : % p.x,
@@ -156,24 +158,35 @@ proc main =
   defer: discard h5f.close()
   var showPlots = false
   var numEvents = NumEvents
+  var copyRaw = false
   if paramCount() > 0:
     echo "paramCount() ", paramCount()
     if paramStr(1) == "--plot":
       showPlots = true
       echo "Updating plots in recoed_cluster.pdf"
       numEvents = int.high
+    elif paramStr(1) == "--copyRawFiles":
+      # experimental option to copy the corresponding raw data files
+      # to the local directory.
+      # NOTE: this is entirely machine dependent. It expects
+      # - raw data files to be in /data/CAST/2014_15/DataRuns
+      # - reconstructed data in /data/CAST/2014_15/DataRuns.h5
+      # could be extended for general use, if pointed to raw data directory
+      # but not worth the effort
+      copyRaw = true
 
   # first generate some indices randomly
   const group = "background-sc-not-only"
   let nElems = h5f[(group / "EventNumber").dset_str].shape[0] - 1
 
   var r = initRand(299792458)
-  var recos = newSeq[RecoEvent[Pix]]()
+  var recos = newSeq[(int, RecoEvent[Pix])]()
   while recos.len < NumEvents:
     let idx = r.rand(nElems)
     withSome readRecoEvent(h5f, group, idx):
-      some reco:
-        recos.add reco
+      some recoTup:
+        let reco = recoTup[1]
+        recos.add recoTup
         if showPlots:
           var df = DataFrame()
           df.bindToDf(reco.cluster)
@@ -192,15 +205,31 @@ proc main =
 
   # given all read events, dump them to Json
   var outJson = newJArray()
-  for i, r in recos:
+  for i, (runNumber, r) in recos:
     let rJson = %r
     ## assert conversion back and forth idempotent
-    doAssert rJson.to(RecoEvent[Pix]) == recos[i]
+    doAssert rJson.to(RecoEvent[Pix]) == r
     outJson.add rJson
 
   var outf = open("marlinEvents.json", fmWrite)
   defer: outf.close()
   outf.write(outJson.pretty)
+
+  if copyRaw:
+    const dataPath = "/data/CAST/2014_15/DataRuns"
+    var h5f = H5File(dataPath.parentDir / "DataRuns2014.h5", "r")
+    for (runNumber, r) in recos:
+      # get the index of the event
+      # NOTE: this is ``*not*`` the event number due to how MarlinTPC counts the
+      # events. It just counts non empty events it considers and calls that eventNumber
+      let idx = r.eventNumber
+      let grp = recoBase() & $runNumber
+      let eventNumber = h5f[grp / "eventNumber", int][idx]
+      # find the correct file in the target directory
+      for dir in walkDirs(dataPath / $runNumber & "*"):
+        for f in walkFiles(dir / "data" & align($eventNumber, 6, '0') & "*.txt"):
+          echo &"(\"{f.extractFilename}\", {eventNumber})"
+          copyFile(f, "./" & extractFilename(f))
 
 when isMainModule:
   main()

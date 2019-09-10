@@ -104,20 +104,45 @@ suite "InGrid geometry calculations":
       # TODO: "fix" the code below. Does not quite work, simply because Marlin and TPA
       # produce different resutls on the cluster algorithm already.
       # Somehow fix that future me.
-      #for j in 0 ..< reco.cluster.len:
-      #  echo "Comparing cluster ", j, " of event ", i
-      #  echo reco.cluster[j].data
-      #  echo expEvents[i].cluster[j].data
-      #  check reco.cluster[j].hits == expEvents[i].cluster[j].hits
-      #  check reco.cluster[j].data.len == expEvents[i].cluster[j].data.len
-      #  # sort cluster content by pixels x, y
-      #  reco.cluster[j].data = reco.cluster[j].data.sortedByIt((it[0], it[1]))
-      #  expEvents[i].cluster[j].data = expEvents[i].cluster[j].data.sortedByIt((it[0], it[1]))
-      #
-      #  # compare content by x, y pixels
-      #  for k in 0 ..< reco.cluster[j].data.len:
-      #    echo "Comparing ", reco.cluster[j].data[k]
-      #    echo "With ", expEvents[i].cluster[j].data[k]
-      #    check reco.cluster[j].data[k].x + 1 == expEvents[i].cluster[j].data[k].x # Marlin x coordinate is off by 1!
-      #    check reco.cluster[j].data[k].y     == expEvents[i].cluster[j].data[k].y
+      # NOTE: For now we only consider those events, which have only a single cluster
+      # for both frameworks
+      if reco.cluster.len == 1 and expEvents[i].cluster.len == 1:
+        # for j in 0 ..< reco.cluster.len:
+        var recoCluster = reco.cluster[0]
+        var expCluster = expEvents[i].cluster[0]
+        check recoCluster.hits == expCluster.hits
+        check recoCluster.data.len == expCluster.data.len
+        # sort cluster content by pixels x, y
+        recoCluster.data = recoCluster.data.sortedByIt((it[0], it[1]))
+        expCluster.data = expCluster.data.sortedByIt((it[0], it[1]))
+
+        # compare content by x, y pixels
+        for k in 0 ..< recoCluster.data.len:
+          check recoCluster.data[k].x + 1 == expCluster.data[k].x # Marlin x coordinate is off by 1!
+          check recoCluster.data[k].y     == expCluster.data[k].y
           # cannot compare charge yet
+
+        # if all passed we have
+        # - the same number of clusters
+        # - the same pixels in the clusters (except the noisy pixel)
+        # now compare the geometrical properties
+        check recoCluster.centerX == expCluster.centerX
+        check recoCluster.centerY == expCluster.centerY
+        # sum TOT will not be the same, since expCluster contains charge values
+        # check recoCluster.sumTot == expCluster.sumTot
+        # have to calculate energy before we can compare it
+        # check recoCluster.energy == expCluster.energy
+        let recoGeom = recoCluster.geometry
+        let expGeom = expCluster.geometry
+        check recoGeom.rmsLongitudinal          == expGeom.rmsLongitudinal
+        check recoGeom.rmsTransverse            == expGeom.rmsTransverse
+        check recoGeom.eccentricity             == expGeom.eccentricity
+        check recoGeom.rotationAngle            == expGeom.rotationAngle
+        check recoGeom.skewnessLongitudinal     == expGeom.skewnessLongitudinal
+        check recoGeom.skewnessTransverse       == expGeom.skewnessTransverse
+        check recoGeom.kurtosisLongitudinal     == expGeom.kurtosisLongitudinal
+        check recoGeom.kurtosisTransverse       == expGeom.kurtosisTransverse
+        check recoGeom.length                   == expGeom.length
+        check recoGeom.width                    == expGeom.width
+        check recoGeom.fractionInTransverseRms  == expGeom.fractionInTransverseRms
+        check recoGeom.lengthDivRmsTrans        == expGeom.lengthDivRmsTrans

@@ -16,16 +16,14 @@ const jsonData = dataPwd / "marlinEvents.json"
 import times
 let plotSuffix = $getTime().toUnix & ".pdf"
 
-const CorrectOneOffXError = false
+# if false we do not correct for the "one-off" error that
+# MarlinTPC has
+const CorrectOneOffXError = true
 
-#proc checkEqual(ingrid: ): bool =
-  # checks whther the ingrid event is equal to our expectation
-#  return true
-
-func almostEqual(x, y: float, ep = 1e-5): bool =
+func almostEqual[T: SomeNumber](x, y: T, ep = 1e-5): bool =
   ## checks very roughly if the values match. Anything beyond
   ## 1e-5 should be of no issue for us
-  result = (x - y) < ep
+  result = (x - y).float < ep
 
 proc `%`(p: Pix): JsonNode =
   result = %* { "x" : % p.x,
@@ -43,9 +41,9 @@ proc bindToDf[T](df: var DataFrame, clusters: seq[ClusterObject[T]]) =
   if "from" notin df:
     df["from"] = toVector(toSeq(0 ..< df.len).mapIt(%~ "-1"))
 
-template echoCheck(name, cond1, cond2: untyped): untyped =
-  echo "| $# | $# | $# |" % [$name, $cond1, $cond2]
-  check cond1 == cond2
+template echoCheck(name, cond1, cond2: untyped, eps = 1e-5): untyped =
+  echo "| $# | $# | $# | $# |" % [$name, $cond1, $cond2, $abs(cond2 - cond1)]
+  check almostEqual(cond1, cond2, eps)
 
 suite "InGrid geometry calculations":
   test "Reconstructing single cluster manually":
@@ -132,7 +130,7 @@ suite "InGrid geometry calculations":
             # corrected 1 off error manually
             check recoCluster.data[k].x == expCluster.data[k].x
           else:
-            check recoCluster.data[k].x == expCluster.data[k].x # Marlin x coordinate is off by 1!
+            check recoCluster.data[k].x + 1 == expCluster.data[k].x # Marlin x coordinate is off by 1!
           check recoCluster.data[k].y == recoCluster.data[k].y
           # cannot compare charge yet
 
@@ -148,15 +146,15 @@ suite "InGrid geometry calculations":
         # check recoCluster.energy == expCluster.energy
         let recoGeom = recoCluster.geometry
         let expGeom = expCluster.geometry
-        echoCheck("rmsLongitudinal", recoGeom.rmsLongitudinal, expGeom.rmsLongitudinal)
-        echoCheck("rmsTransverse", recoGeom.rmsTransverse, expGeom.rmsTransverse)
-        echoCheck("eccentricity", recoGeom.eccentricity, expGeom.eccentricity)
-        echoCheck("rotationAngle", recoGeom.rotationAngle, expGeom.rotationAngle)
-        echoCheck("skewnessLongitudinal", recoGeom.skewnessLongitudinal, expGeom.skewnessLongitudinal)
-        echoCheck("skewnessTransverse", recoGeom.skewnessTransverse, expGeom.skewnessTransverse)
-        echoCheck("kurtosisLongitudinal", recoGeom.kurtosisLongitudinal, expGeom.kurtosisLongitudinal)
-        echoCheck("kurtosisTransverse", recoGeom.kurtosisTransverse, expGeom.kurtosisTransverse)
-        echoCheck("length", recoGeom.length, expGeom.length)
-        echoCheck("width", recoGeom.width, expGeom.width)
-        echoCheck("fractionInTransverseRms", recoGeom.fractionInTransverseRms, expGeom.fractionInTransverseRms)
-        echoCheck("lengthDivRmsTrans", recoGeom.lengthDivRmsTrans, expGeom.lengthDivRmsTrans)
+        echoCheck("rmsLongitudinal", recoGeom.rmsLongitudinal, expGeom.rmsLongitudinal, 1e-3)
+        echoCheck("rmsTransverse", recoGeom.rmsTransverse, expGeom.rmsTransverse, 1e-3)
+        echoCheck("eccentricity", recoGeom.eccentricity, expGeom.eccentricity, 1e-3)
+        echoCheck("rotationAngle", recoGeom.rotationAngle, expGeom.rotationAngle, 1e-2)
+        echoCheck("skewnessLongitudinal", recoGeom.skewnessLongitudinal, expGeom.skewnessLongitudinal, 1e-2)
+        echoCheck("skewnessTransverse", recoGeom.skewnessTransverse, expGeom.skewnessTransverse, 1e-2)
+        echoCheck("kurtosisLongitudinal", recoGeom.kurtosisLongitudinal, expGeom.kurtosisLongitudinal, 1e-3)
+        echoCheck("kurtosisTransverse", recoGeom.kurtosisTransverse, expGeom.kurtosisTransverse, 1e-3)
+        echoCheck("length", recoGeom.length, expGeom.length, 1e-3)
+        echoCheck("width", recoGeom.width, expGeom.width, 1e-3)
+        echoCheck("fractionInTransverseRms", recoGeom.fractionInTransverseRms, expGeom.fractionInTransverseRms, 1e-3)
+        echoCheck("lengthDivRmsTrans", recoGeom.lengthDivRmsTrans, expGeom.lengthDivRmsTrans, 1e-3)

@@ -41,6 +41,10 @@ proc bindToDf[T](df: var DataFrame, clusters: seq[ClusterObject[T]]) =
   if "from" notin df:
     df["from"] = toVector(toSeq(0 ..< df.len).mapIt(%~ "-1"))
 
+template echoCheck(name, cond1, cond2: untyped): untyped =
+  echo "| $# | $# | $# |" % [$name, $cond1, $cond2]
+  check cond1 == cond2
+
 suite "InGrid geometry calculations":
   test "Reconstructing single cluster manually":
     # in the first test we read the InGrid data and perform the reconstruction
@@ -110,8 +114,8 @@ suite "InGrid geometry calculations":
         # for j in 0 ..< reco.cluster.len:
         var recoCluster = reco.cluster[0]
         var expCluster = expEvents[i].cluster[0]
-        check recoCluster.hits == expCluster.hits
-        check recoCluster.data.len == expCluster.data.len
+        echoCheck("hits", recoCluster.hits, expCluster.hits)
+        echoCheck("data", recoCluster.data.len, expCluster.data.len)
         # sort cluster content by pixels x, y
         recoCluster.data = recoCluster.data.sortedByIt((it[0], it[1]))
         expCluster.data = expCluster.data.sortedByIt((it[0], it[1]))
@@ -126,23 +130,23 @@ suite "InGrid geometry calculations":
         # - the same number of clusters
         # - the same pixels in the clusters (except the noisy pixel)
         # now compare the geometrical properties
-        check recoCluster.centerX == expCluster.centerX
-        check recoCluster.centerY == expCluster.centerY
+        echoCheck("centerX", recoCluster.centerX, expCluster.centerX)
+        echoCheck("centerY", recoCluster.centerY, expCluster.centerY)
         # sum TOT will not be the same, since expCluster contains charge values
         # check recoCluster.sumTot == expCluster.sumTot
         # have to calculate energy before we can compare it
         # check recoCluster.energy == expCluster.energy
         let recoGeom = recoCluster.geometry
         let expGeom = expCluster.geometry
-        check recoGeom.rmsLongitudinal          == expGeom.rmsLongitudinal
-        check recoGeom.rmsTransverse            == expGeom.rmsTransverse
-        check recoGeom.eccentricity             == expGeom.eccentricity
-        check recoGeom.rotationAngle            == expGeom.rotationAngle
-        check recoGeom.skewnessLongitudinal     == expGeom.skewnessLongitudinal
-        check recoGeom.skewnessTransverse       == expGeom.skewnessTransverse
-        check recoGeom.kurtosisLongitudinal     == expGeom.kurtosisLongitudinal
-        check recoGeom.kurtosisTransverse       == expGeom.kurtosisTransverse
-        check recoGeom.length                   == expGeom.length
-        check recoGeom.width                    == expGeom.width
-        check recoGeom.fractionInTransverseRms  == expGeom.fractionInTransverseRms
-        check recoGeom.lengthDivRmsTrans        == expGeom.lengthDivRmsTrans
+        echoCheck("rmsLongitudinal", recoGeom.rmsLongitudinal, expGeom.rmsLongitudinal)
+        echoCheck("rmsTransverse", recoGeom.rmsTransverse, expGeom.rmsTransverse)
+        echoCheck("eccentricity", recoGeom.eccentricity, expGeom.eccentricity)
+        echoCheck("rotationAngle", recoGeom.rotationAngle, expGeom.rotationAngle)
+        echoCheck("skewnessLongitudinal", recoGeom.skewnessLongitudinal, expGeom.skewnessLongitudinal)
+        echoCheck("skewnessTransverse", recoGeom.skewnessTransverse, expGeom.skewnessTransverse)
+        echoCheck("kurtosisLongitudinal", recoGeom.kurtosisLongitudinal, expGeom.kurtosisLongitudinal)
+        echoCheck("kurtosisTransverse", recoGeom.kurtosisTransverse, expGeom.kurtosisTransverse)
+        echoCheck("length", recoGeom.length, expGeom.length)
+        echoCheck("width", recoGeom.width, expGeom.width)
+        echoCheck("fractionInTransverseRms", recoGeom.fractionInTransverseRms, expGeom.fractionInTransverseRms)
+        echoCheck("lengthDivRmsTrans", recoGeom.lengthDivRmsTrans, expGeom.lengthDivRmsTrans)

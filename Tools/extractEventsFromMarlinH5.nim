@@ -12,6 +12,8 @@ import options, optionsutils
 export options except get, unsafeGet
 export optionsutils
 
+import ggplotnim
+
 const path = currentSourcePath().parentDir / "../resources/background_splitted.2014+2015.h5"
 const NumEvents = 3
 
@@ -136,10 +138,30 @@ proc `%`(p: Pix): JsonNode =
                 "y" : % p.y,
                 "ch" : % p.ch }
 
+proc bindToDf[T](df: var DataFrame, clusters: seq[ClusterObject[T]]) =
+  var dfs = newSeq[DataFrame]()
+  for i, cl in clusters:
+    let ldf = seqsToDf({ "x" : cl.data.mapIt(it.x),
+                         "y" : cl.data.mapIt(it.y),
+                         "ch" :  cl.data.mapIt(it.ch)})
+    dfs.add ldf
+  df = bind_rows(dfs, id = "from")
+  if "from" notin df:
+    df["from"] = toVector(toSeq(0 ..< df.len).mapIt(%~ "-1"))
+
+
 proc main =
 
   var h5f = H5file(path, "r")
   defer: discard h5f.close()
+  var showPlots = false
+  var numEvents = NumEvents
+  if paramCount() > 0:
+    echo "paramCount() ", paramCount()
+    if paramStr(1) == "--plot":
+      showPlots = true
+      echo "Updating plots in recoed_cluster.pdf"
+      numEvents = int.high
 
   # first generate some indices randomly
   const group = "background-sc-not-only"
@@ -150,7 +172,20 @@ proc main =
   while recos.len < NumEvents:
     let idx = r.rand(nElems)
     withSome readRecoEvent(h5f, group, idx):
-      some reco: recos.add reco
+      some reco:
+        recos.add reco
+        if showPlots:
+          var df = DataFrame()
+          df.bindToDf(reco.cluster)
+          ggplot(df, aes("x", "y", color = "from")) +
+            geom_point() +
+            ggtitle("Event number: " & $reco.eventNumber & " with clusters: " & $reco.cluster.len) +
+            ggsave("recoed_cluster.pdf")
+          if reco.cluster.len > 1:
+            echo "FOUND ", reco.cluster.len
+            sleep(3000)
+          else:
+            sleep(100)
       none:
         echo "INFO: Skipping non matching index ", idx
         discard

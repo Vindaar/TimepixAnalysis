@@ -564,10 +564,10 @@ proc findSimpleCluster*[T: SomePix](pixels: seq[T]): seq[Cluster[T]] =
       result.add(c)
     inc i
 
-proc eccentricityNloptOptimizer[T: SomePix](fitObject: FitObject[T]): NloptOpt[FitObject[T]] =
+proc eccentricityNloptOptimizer[T: SomePix](fitObject: FitObject[T]):
+  NloptOpt[FitObject[T]] =
   ## returns the already configured Nlopt optimizer to fit the rotation angle /
   ## eccentricity
-  ## set  the values of the fit objectn
   var
     # set the boundary values corresponding to range of 360 deg
     lb = (-4.0 * arctan(1.0), 4.0 * arctan(1.0))
@@ -586,19 +586,18 @@ proc eccentricityNloptOptimizer[T: SomePix](fitObject: FitObject[T]): NloptOpt[F
   result.maxtime  = 1.0
   result.initial_step = 0.02
 
-proc fitRotAngle[T: SomePix](cl_obj: ClusterObject[T], rotAngleEstimate: float): (float, float) =
-  ## simple template which wraps the optimization of the rotation angle /
-  ## eccentricity
-  ## cluster object is handed as var to avoid any copying
-
-  # TODO: think about what to do with 11810 pixels, throw them out
+proc fitRotAngle[T: SomePix](cl_obj: ClusterObject[T],
+                             rotAngleEstimate: float): (float, float) =
+  ## Performs the fitting of the rotation angle on the given ClusterObject
+  ## `cl_obj` and returns the final parameters as well as the minimum
+  ## value at those parameters.
   # set the fit object with which we hand the necessary data to the
   # eccentricity function
   var fitObject: FitObject[T]
   # the resulting fit parameter
   var p = @[rotAngleEstimate]
-  fit_object.cluster = cl_obj.data
-  fit_object.xy = (x: cl_obj.centerX, y: cl_obj.centerY)
+  var fit_object = FitObject[T](cluster: cl_obj.data,
+                                xy: (x: cl_obj.centerX, y: cl_obj.centerY))
   var opt = eccentricityNloptOptimizer(fit_object)
   # start minimization
   let (params, min_val) = opt.optimize(p)
@@ -607,7 +606,7 @@ proc fitRotAngle[T: SomePix](cl_obj: ClusterObject[T], rotAngleEstimate: float):
     warn "nlopt failed!"
   # clean up optimizer
   destroy(opt)
-  # now return the rotation angle and eccentricity
+  # now return the optimized parameters and the corresponding min value
   result = (params[0], min_val)
 
 proc recoCluster[T: SomePix](c: Cluster[T]): ClusterObject[T] {.gcsafe.} =

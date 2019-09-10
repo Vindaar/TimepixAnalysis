@@ -593,13 +593,11 @@ proc fitRotAngle[T: SomePix](cl_obj: ClusterObject[T],
   ## value at those parameters.
   # set the fit object with which we hand the necessary data to the
   # eccentricity function
-  var fitObject: FitObject[T]
-  # the resulting fit parameter
-  var p = @[rotAngleEstimate]
   var fit_object = FitObject[T](cluster: cl_obj.data,
                                 xy: (x: cl_obj.centerX, y: cl_obj.centerY))
   var opt = eccentricityNloptOptimizer(fit_object)
   # start minimization
+  var p = @[rotAngleEstimate]
   let (params, min_val) = opt.optimize(p)
   if opt.status < NLOPT_SUCCESS:
     info opt.status

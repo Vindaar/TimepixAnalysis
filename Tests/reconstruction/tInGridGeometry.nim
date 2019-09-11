@@ -30,16 +30,16 @@ proc `%`(p: Pix): JsonNode =
                 "y" : % p.y,
                 "ch" : % p.ch }
 
-proc bindToDf[T](df: var DataFrame, clusters: seq[ClusterObject[T]]) =
+proc bindToDf[T](clusters: seq[ClusterObject[T]]): DataFrame =
   var dfs = newSeq[DataFrame]()
   for i, cl in clusters:
     let ldf = seqsToDf({ "x" : cl.data.mapIt(it.x),
                          "y" : cl.data.mapIt(it.y),
                          "ch" :  cl.data.mapIt(it.ch)})
     dfs.add ldf
-  df = bind_rows(dfs, id = "from")
-  if "from" notin df:
-    df["from"] = toVector(toSeq(0 ..< df.len).mapIt(%~ "-1"))
+  result = bind_rows(dfs, id = "from")
+  if "from" notin result:
+    result["from"] = toVector(toSeq(0 ..< result.len).mapIt(%~ "-1"))
 
 template echoCheck(name, cond1, cond2: untyped, eps = 1e-5): untyped =
   echo "| $# | $# | $# | $# |" % [$name, $cond1, $cond2, $abs(cond2 - cond1)]
@@ -57,6 +57,56 @@ proc echoMissing[T](s1, s2: ClusterObject[T]) =
   for x in s2.data:
     if not x.pixContained(s1.data):
       echo "Missing: ", x
+
+proc ggplotMoreClusters[T](recoCluster, expCluster: seq[ClusterObject[T]],
+                           idx, eventNumber: int) =
+  let dfReco = bindToDf(recoCluster)
+  let dfExp = bindToDf(expCluster)
+  let df = bind_rows([dfReco, dfExp], id = "origin")
+  ggplot(df, aes("x", "y", color = "from")) +
+    geom_point() +
+    facet_wrap(~origin) +
+    ggtitle(&"Event {idx}/eventNumber: {eventNumber}" &
+            &" with clusters: {recoCluster.len}") +
+    ggsave(&"recoed_cluster_{idx}.pdf")
+
+
+proc ggplotMissing[T](recoCluster, expCluster: seq[ClusterObject[T]],
+                      idx, eventNumber: int) =
+  # both only single cluster. Create plot w/o facet wrap, highlighting
+  # possible missing pixels between the two
+  check recoCluster.len == 1
+  check expCluster.len == 1
+  var missing: DataFrame
+  var missIn = ""
+  let recoLen = recoCluster[0].data.len
+  let expLen = expCluster[0].data.len
+  let dfReco = bindToDf(recoCluster)
+  let dfExp = bindToDf(expCluster)
+  var df: DataFrame
+  var fname = ""
+  if recoLen < expLen:
+    missing = setDiff(dfExp.select("x", "y"), dfReco.select("x", "y"))
+    df = bind_rows([("false", dfReco), ("true", missing)], id = "missing")
+    missIn = "TPA"
+    fname = &"recoed_cluster_missing_tpa_{idx}.pdf"
+  elif expLen < recoLen:
+    missing = setDiff(dfReco.select("x", "y"), dfExp.select("x", "y"))
+    df = bind_rows([("false", dfReco), ("true", missing)], id = "missing")
+    missIn = "Marlin"
+    fname = &"recoed_cluster_missing_marlin_{idx}.pdf"
+  else:
+    missing = setDiff(dfReco.select("x", "y"), dfExp.select("x", "y"))
+    doAssert missing.len == 0
+    df = dfReco # just take reco, since the two contain the same pixels anyways
+    fname = &"recoed_cluster_same_{idx}.pdf"
+  ggplot(df, aes("x", "y", color = "missing")) +
+    geom_point() +
+    ggtitle(&"Event {idx}/eventNumber: {eventNumber} with clusters: " &
+            &"{recoCluster.len}  and missing pix in {missIn}: {missing.len}") +
+    ggsave(fname)
+  if missing.len > 0:
+    doAssert false, "Had an event with missing pixels!"
 
 suite "InGrid geometry calculations":
   test "Reconstructing single cluster manually":
@@ -117,55 +167,15 @@ suite "InGrid geometry calculations":
       reco.cluster.sort((r1, r2: auto) => cmp(r1.data.len , r2.data.len))
 
       # create plot of found clusters
-      var dfReco = DataFrame()
-      dfReco.bindToDf(reco.cluster)
-      var dfExp = DataFrame()
-      dfExp.bindToDf(expEvents[i].cluster)
-      var df = bind_rows([dfReco, dfExp], id = "origin")
       if reco.cluster.len > 1 or expEvents[i].cluster.len > 1:
-        # work around issue in ggplotnim
-        ggplot(df, aes("x", "y", color = "from")) +
-          geom_point() +
-          facet_wrap(~origin) +
-          ggtitle("Event " & $i & "/eventNumber: " & $f[1] &
-            " with clusters: " & $reco.cluster.len) +
-          ggsave(&"recoed_cluster_{i}.pdf")
+        ggplotMoreClusters(reco.cluster, expEvents[i].cluster,
+                           i, f[1])
       else:
-        # both only single cluster. Create plot w/o facet wrap, highlighting
-        # possible missing pixels between the two
-        echo "\n\n\n\n\n"
-        doAssert reco.cluster.len == 1
-        doAssert expEvents[i].cluster.len == 1
-        var missing: DataFrame
-        let recoLen = reco.cluster[0].data.len
-        let expLen = expEvents[i].cluster[0].data.len
-        var fname = ""
-        if recoLen < expLen:
-          missing = setDiff(dfExp.select("x", "y"), dfReco.select("x", "y"))
-          df = bind_rows([("false", dfReco), ("true", missing)], id = "missing")
-          fname = &"recoed_cluster_missing_{i}.pdf"
-        elif expLen < recoLen:
-          doAssert false, "this doesn't happen. TPA always at least as many pix " &
-            "as Marlin?!"
-        else:
-          missing = setDiff(dfReco.select("x", "y"), dfExp.select("x", "y"))
-          doAssert missing.len == 0
-          df = dfReco # just take reco, since the two contain the same pixels anyways
-          fname = &"recoed_cluster_same_{i}.pdf"
-        echo missing
-        ggplot(df, aes("x", "y", color = "missing")) +
-          geom_point() +
-          ggtitle("Event " & $i & "/eventNumber: " & $f[1] & " with clusters: " &
-            $reco.cluster.len & " and missing pix in TPA: " & $missing.len) +
-          ggsave(fname)
+        ggplotMissing(reco.cluster, expEvents[i].cluster,
+                      i, f[1])
 
       echo "Cluster numbers : ", reco.cluster.len
       echo "Exp cluster numbers : ", expEvents[i].cluster.len
-      # TODO: "fix" the code below. Does not quite work, simply because Marlin and TPA
-      # produce different resutls on the cluster algorithm already.
-      # Somehow fix that future me.
-      # NOTE: For now we only consider those events, which have only a single cluster
-      # for both frameworks
       if reco.cluster.len == expEvents[i].cluster.len:
         for j in 0 ..< reco.cluster.len:
           var recoCluster = reco.cluster[j]

@@ -12,7 +12,7 @@ template shellCheck(actions: untyped): untyped =
     let res = shellVerbose:
       actions
     toContinue = res[1] == 0
-  else:
+  if not toContinue:
     quit("Building TimepixAnalysis failed!")
 
 shellCheck:

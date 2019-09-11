@@ -117,12 +117,15 @@ proc ggplotMissing[T](recoCluster, expCluster: seq[ClusterObject[T]],
     doAssert false, "Had an event with missing pixels!"
 
 proc compareClusters(recoClusters, expClusters: seq[ClusterObject[Pix]],
-                     idx, eventNumber: int): bool =
+                     idx, eventNumber: int): (bool, (float, float)) =
   template retFalse(cond: untyped): untyped =
     ## helper template to return false, if the condition fails
     let cont = cond == true
     if not cont:
-      return false
+      return (false, (0.0, 0.0))
+
+  var rotAngDiff: float
+  var meanPropDiff: float
   for j in 0 ..< recoClusters.len:
     var recoCluster = recoClusters[j]
     var expCluster = expClusters[j]
@@ -173,7 +176,19 @@ proc compareClusters(recoClusters, expClusters: seq[ClusterObject[Pix]],
     retFalse echoCheck("width", recoGeom.width, expGeom.width, 1e-3)
     retFalse echoCheck("fractionInTransverseRms", recoGeom.fractionInTransverseRms, expGeom.fractionInTransverseRms, 1e-6)
     retFalse echoCheck("lengthDivRmsTrans", recoGeom.lengthDivRmsTrans, expGeom.lengthDivRmsTrans, 1e-2)
-  result = true
+
+    # survived the checks, consider difference of rotation angle
+    rotAngDiff = abs(recoGeom.rotationAngle - expGeom.rotationAngle)
+    let diffs = @[abs(recoGeom.skewnessLongitudinal - expGeom.skewnessLongitudinal),
+                  abs(recoGeom.skewnessTransverse - expGeom.skewnessTransverse),
+                  abs(recoGeom.kurtosisLongitudinal - expGeom.kurtosisLongitudinal),
+                  abs(recoGeom.kurtosisTransverse - expGeom.kurtosisTransverse),
+                  abs(recoGeom.length - expGeom.length),
+                  abs(recoGeom.width - expGeom.width),
+                  abs(recoGeom.fractionInTransverseRms - expGeom.fractionInTransverseRms),
+                  abs(recoGeom.lengthDivRmsTrans - expGeom.lengthDivRmsTrans)]
+    meanPropDiff = (diffs.sum / diffs.len.float)
+  result = (true, (rotDiff: rotAngDiff, propDiff: meanPropDiff))
 
 suite "InGrid geometry calculations":
   test "Reconstructing single cluster manually":
@@ -210,7 +225,11 @@ suite "InGrid geometry calculations":
       expReco.cluster.sort((r1, r2: auto) => cmp(r1.data.len , r2.data.len))
       expEvents.add expReco
 
-    var skippedEvents = 0
+    var skippedEvents = newSeq[string]()
+    var rotAngDiffs = newSeq[float]()
+    var meanPropDiffs = newSeq[float]()
+    var evIdx = newSeq[int]()
+    var evNums = newSeq[int]()
     for i, f in fnames:
       let fileContent = readFile(dataPwd / f[0]).strip.splitLines
       let data = concat(@[f[0]], fileContent)
@@ -246,8 +265,26 @@ suite "InGrid geometry calculations":
       echo "Cluster numbers : ", reco.cluster.len
       echo "Exp cluster numbers : ", expEvents[i].cluster.len
       if reco.cluster.len == expEvents[i].cluster.len:
-        check compareClusters(reco.cluster, expEvents[i].cluster,
-                              i, f[1])
+        let (passed, diffTup) = compareClusters(reco.cluster, expEvents[i].cluster,
+                                                i, f[1])
+        check passed
+        rotAngDiffs.add diffTup[0]
+        meanPropDiffs.add diffTup[1]
+        evIdx.add i
+        evNums.add f[1]
       else:
         # different number of clusters
-        inc skippedEvents
+        skippedEvents.add f[0]
+
+    let df = seqsToDf({ "eventIndex" : evIdx,
+                        "eventNumber": evNums,
+                        "rotAngDifference" : rotAngDiffs,
+                        "meanPropertyDifference" : meanPropDiffs })
+    echo pretty(df, -1)
+    ggplot(df, aes("rotAngDifference", "meanPropertyDifference")) +
+      geom_point() +
+      ggsave("rotAng_diff_vs_mean_prop_diff.pdf")
+
+    echo "Number of skipped events: ", skippedEvents.len
+    for f in skippedEvents:
+      echo f

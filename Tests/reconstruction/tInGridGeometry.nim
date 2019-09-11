@@ -41,9 +41,17 @@ proc bindToDf[T](clusters: seq[ClusterObject[T]]): DataFrame =
   if "from" notin result:
     result["from"] = toVector(toSeq(0 ..< result.len).mapIt(%~ "-1"))
 
+template red(s: string): untyped =
+  "\e[91m" & s & "\e[0m"
+
 template echoCheck(name, cond1, cond2: untyped, eps = 1e-5): untyped =
   echo "| $# | $# | $# | $# |" % [$name, $cond1, $cond2, $abs(cond2 - cond1)]
-  check almostEqual(cond1, cond2, eps)
+  let condres = almostEqual(cond1, cond2, eps) == true
+  if not condres:
+    echo red"Check: ", astToStr(cond1), "~=~", astToStr(cond2), " failed"
+    echo red"Was: ", astToStr(cond1), " == ", cond1
+    echo red"Was: ", astToStr(cond2), " == ", cond2
+  condres
 
 func pixContained(p: Pix, s: seq[Pix]): bool =
   ## returns true if the pixel `x` is found in `s`, while ignoring
@@ -108,6 +116,65 @@ proc ggplotMissing[T](recoCluster, expCluster: seq[ClusterObject[T]],
   if missing.len > 0:
     doAssert false, "Had an event with missing pixels!"
 
+proc compareClusters(recoClusters, expClusters: seq[ClusterObject[Pix]],
+                     idx, eventNumber: int): bool =
+  template retFalse(cond: untyped): untyped =
+    ## helper template to return false, if the condition fails
+    let cont = cond == true
+    if not cont:
+      return false
+  for j in 0 ..< recoClusters.len:
+    var recoCluster = recoClusters[j]
+    var expCluster = expClusters[j]
+    if recoCluster.hits != expCluster.hits:
+      # determine which pixels are missing from one or the other
+      if recoCluster.hits < expCluster.hits:
+        echoMissing(recoCluster, expCluster)
+      else:
+        echoMissing(expCluster, recoCluster)
+    retFalse echoCheck("hits", recoCluster.hits, expCluster.hits)
+    retFalse echoCheck("data", recoCluster.data.len, expCluster.data.len)
+    # sort cluster content by pixels x, y
+    recoCluster.data = recoCluster.data.sortedByIt((it[0], it[1]))
+    expCluster.data = expCluster.data.sortedByIt((it[0], it[1]))
+
+    # compare content by x, y pixels
+    for k in 0 ..< recoCluster.data.len:
+      if CorrectOneOffXError:
+        # corrected 1 off error manually
+        #check recoCluster.data[k].x == expCluster.data[k].x
+        discard
+      else:
+        retFalse recoCluster.data[k].x + 1 == expCluster.data[k].x # Marlin x coordinate is off by 1!
+      retFalse recoCluster.data[k].y == recoCluster.data[k].y
+      # cannot compare charge yet
+
+    # if all passed we have
+    # - the same number of clusters
+    # - the same pixels in the clusters (except the noisy pixel)
+    # now compare the geometrical properties
+    retFalse echoCheck("centerX", recoCluster.centerX, expCluster.centerX)
+    retFalse echoCheck("centerY", recoCluster.centerY, expCluster.centerY)
+    # sum TOT will not be the same, since expCluster contains charge values
+    # check recoCluster.sumTot == expCluster.sumTot
+    # have to calculate energy before we can compare it
+    # check recoCluster.energy == expCluster.energy
+    let recoGeom = recoCluster.geometry
+    let expGeom = expCluster.geometry
+    retFalse echoCheck("rmsLongitudinal", recoGeom.rmsLongitudinal, expGeom.rmsLongitudinal, 1e-3)
+    retFalse echoCheck("rmsTransverse", recoGeom.rmsTransverse, expGeom.rmsTransverse, 1e-3)
+    retFalse echoCheck("eccentricity", recoGeom.eccentricity, expGeom.eccentricity, 1e-3)
+    retFalse echoCheck("rotationAngle", recoGeom.rotationAngle, expGeom.rotationAngle, 1e-2)
+    retFalse echoCheck("skewnessLongitudinal", recoGeom.skewnessLongitudinal, expGeom.skewnessLongitudinal, 1e-2)
+    retFalse echoCheck("skewnessTransverse", recoGeom.skewnessTransverse, expGeom.skewnessTransverse, 1e-2)
+    retFalse echoCheck("kurtosisLongitudinal", recoGeom.kurtosisLongitudinal, expGeom.kurtosisLongitudinal, 1e-2)
+    retFalse echoCheck("kurtosisTransverse", recoGeom.kurtosisTransverse, expGeom.kurtosisTransverse, 1e-3)
+    retFalse echoCheck("length", recoGeom.length, expGeom.length, 1e-2)
+    retFalse echoCheck("width", recoGeom.width, expGeom.width, 1e-3)
+    retFalse echoCheck("fractionInTransverseRms", recoGeom.fractionInTransverseRms, expGeom.fractionInTransverseRms, 1e-6)
+    retFalse echoCheck("lengthDivRmsTrans", recoGeom.lengthDivRmsTrans, expGeom.lengthDivRmsTrans, 1e-2)
+  result = true
+
 suite "InGrid geometry calculations":
   test "Reconstructing single cluster manually":
     # in the first test we read the InGrid data and perform the reconstruction
@@ -143,6 +210,7 @@ suite "InGrid geometry calculations":
       expReco.cluster.sort((r1, r2: auto) => cmp(r1.data.len , r2.data.len))
       expEvents.add expReco
 
+    var skippedEvents = 0
     for i, f in fnames:
       let fileContent = readFile(dataPwd / f[0]).strip.splitLines
       let data = concat(@[f[0]], fileContent)
@@ -174,56 +242,12 @@ suite "InGrid geometry calculations":
         ggplotMissing(reco.cluster, expEvents[i].cluster,
                       i, f[1])
 
+      echo "\n\n\nIdx number: ", i, " eventNumber: ", f[1]
       echo "Cluster numbers : ", reco.cluster.len
       echo "Exp cluster numbers : ", expEvents[i].cluster.len
       if reco.cluster.len == expEvents[i].cluster.len:
-        for j in 0 ..< reco.cluster.len:
-          var recoCluster = reco.cluster[j]
-          var expCluster = expEvents[i].cluster[j]
-          if recoCluster.hits != expCluster.hits:
-            # determine which pixels are missing from one or the other
-            if recoCluster.hits < expCluster.hits:
-              echoMissing(recoCluster, expCluster)
-            else:
-              echoMissing(expCluster, recoCluster)
-          echoCheck("hits", recoCluster.hits, expCluster.hits)
-          echoCheck("data", recoCluster.data.len, expCluster.data.len)
-          # sort cluster content by pixels x, y
-          recoCluster.data = recoCluster.data.sortedByIt((it[0], it[1]))
-          expCluster.data = expCluster.data.sortedByIt((it[0], it[1]))
-
-          # compare content by x, y pixels
-          for k in 0 ..< recoCluster.data.len:
-            if CorrectOneOffXError:
-              # corrected 1 off error manually
-              #check recoCluster.data[k].x == expCluster.data[k].x
-              discard
-            else:
-              check recoCluster.data[k].x + 1 == expCluster.data[k].x # Marlin x coordinate is off by 1!
-            check recoCluster.data[k].y == recoCluster.data[k].y
-            # cannot compare charge yet
-
-          # if all passed we have
-          # - the same number of clusters
-          # - the same pixels in the clusters (except the noisy pixel)
-          # now compare the geometrical properties
-          echoCheck("centerX", recoCluster.centerX, expCluster.centerX)
-          echoCheck("centerY", recoCluster.centerY, expCluster.centerY)
-          # sum TOT will not be the same, since expCluster contains charge values
-          # check recoCluster.sumTot == expCluster.sumTot
-          # have to calculate energy before we can compare it
-          # check recoCluster.energy == expCluster.energy
-          let recoGeom = recoCluster.geometry
-          let expGeom = expCluster.geometry
-          echoCheck("rmsLongitudinal", recoGeom.rmsLongitudinal, expGeom.rmsLongitudinal, 1e-3)
-          echoCheck("rmsTransverse", recoGeom.rmsTransverse, expGeom.rmsTransverse, 1e-3)
-          echoCheck("eccentricity", recoGeom.eccentricity, expGeom.eccentricity, 1e-3)
-          echoCheck("rotationAngle", recoGeom.rotationAngle, expGeom.rotationAngle, 1e-2)
-          echoCheck("skewnessLongitudinal", recoGeom.skewnessLongitudinal, expGeom.skewnessLongitudinal, 1e-2)
-          echoCheck("skewnessTransverse", recoGeom.skewnessTransverse, expGeom.skewnessTransverse, 1e-2)
-          echoCheck("kurtosisLongitudinal", recoGeom.kurtosisLongitudinal, expGeom.kurtosisLongitudinal, 1e-2)
-          echoCheck("kurtosisTransverse", recoGeom.kurtosisTransverse, expGeom.kurtosisTransverse, 1e-3)
-          echoCheck("length", recoGeom.length, expGeom.length, 1e-2)
-          echoCheck("width", recoGeom.width, expGeom.width, 1e-3)
-          echoCheck("fractionInTransverseRms", recoGeom.fractionInTransverseRms, expGeom.fractionInTransverseRms, 1e-6)
-          echoCheck("lengthDivRmsTrans", recoGeom.lengthDivRmsTrans, expGeom.lengthDivRmsTrans, 1e-2)
+        check compareClusters(reco.cluster, expEvents[i].cluster,
+                              i, f[1])
+      else:
+        # different number of clusters
+        inc skippedEvents

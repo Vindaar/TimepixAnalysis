@@ -1,0 +1,3 @@
+[submodule "TPAresources"]
+	path = resources/TPAresources
+	url = git@github.com:vindaar/TPAresources.git

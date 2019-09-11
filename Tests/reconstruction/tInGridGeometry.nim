@@ -45,6 +45,19 @@ template echoCheck(name, cond1, cond2: untyped, eps = 1e-5): untyped =
   echo "| $# | $# | $# | $# |" % [$name, $cond1, $cond2, $abs(cond2 - cond1)]
   check almostEqual(cond1, cond2, eps)
 
+func pixContained(p: Pix, s: seq[Pix]): bool =
+  ## returns true if the pixel `x` is found in `s`, while ignoring
+  ## the charge value
+  result = s.filterIt(it.x == p.x and it.y == p.y).len > 0
+
+proc echoMissing[T](s1, s2: ClusterObject[T]) =
+  ## assumes that `s2` contains more elements than `s1`
+  ## Echoes all events that are *not* in `s1`, but are in `s2`
+  doAssert s1.hits < s2.hits
+  for x in s2.data:
+    if not x.pixContained(s1.data):
+      echo "Missing: ", x
+
 suite "InGrid geometry calculations":
   test "Reconstructing single cluster manually":
     # in the first test we read the InGrid data and perform the reconstruction
@@ -103,21 +116,41 @@ suite "InGrid geometry calculations":
       dfReco.bindToDf(reco.cluster)
       var dfExp = DataFrame()
       dfExp.bindToDf(expEvents[i].cluster)
-      let df = bind_rows([dfReco, dfExp], id = "origin")
-      echo dfReco
-      echo dfExp
-      if "from" in df:
+      var df = bind_rows([dfReco, dfExp], id = "origin")
+      if reco.cluster.len > 1 or expEvents[i].cluster.len > 1:
         # work around issue in ggplotnim
         ggplot(df, aes("x", "y", color = "from")) +
           geom_point() +
           facet_wrap(~origin) +
-          ggtitle("Is event " & $i & " with clusters: " & $reco.cluster.len) +
+          ggtitle("Event " & $i & "/eventNumber: " & $f[1] &
+            " with clusters: " & $reco.cluster.len) +
           ggsave(&"recoed_cluster_{i}.pdf")
       else:
-        ggplot(df, aes("x", "y")) +
+        # both only single cluster. Create plot w/o facet wrap, highlighting
+        # possible missing pixels between the two
+        echo "\n\n\n\n\n"
+        var missing: DataFrame
+        let recoLen = reco.cluster[0].data.len
+        let expLen = expEvents[i].cluster[0].data.len
+        var fname = ""
+        if recoLen < expLen:
+          missing = setDiff(dfExp.select("x", "y"), dfReco.select("x", "y"))
+          df = bind_rows([("false", dfReco), ("true", missing)], id = "missing")
+          fname = &"recoed_cluster_missing_{i}.pdf"
+        elif expLen < recoLen:
+          doAssert false, "this doesn't happen. TPA always at least as many pix " &
+            "as Marlin?!"
+        else:
+          missing = setDiff(dfReco.select("x", "y"), dfExp.select("x", "y"))
+          doAssert missing.len == 0
+          df = dfReco # just take reco, since the two contain the same pixels anyways
+          fname = &"recoed_cluster_same_{i}.pdf"
+        echo missing
+        ggplot(df, aes("x", "y", color = "missing")) +
           geom_point() +
-          facet_wrap(~origin) +
-          ggsave(&"recoed_cluster_{i}.pdf")
+          ggtitle("Event " & $i & "/eventNumber: " & $f[1] & " with clusters: " &
+            $reco.cluster.len & " and missing pix in TPA: " & $missing.len) +
+          ggsave(fname)
 
       echo "Cluster numbers : ", reco.cluster.len
       echo "Exp cluster numbers : ", expEvents[i].cluster.len

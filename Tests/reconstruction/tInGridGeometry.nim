@@ -101,9 +101,14 @@ suite "InGrid geometry calculations":
       # NOTE: the pixel
       # 167 200 *
       # is the noisy pixel of the 2014/15 chip. Filter it out.
+      let numPixBefore = ev.chips[0].pixels.len
       var pix = ev.chips[0]
         .pixels
-        .filterIt(it.x != 167'u8 and it.y != 200'u8)
+        .filterIt((it.x, it.y) != (167'u8, 200'u8))
+      doAssert numPixBefore == pix.len or numPixbefore == pix.len + 1, "Only " &
+        "a single noisy pixel was to be removed?! " & $(numPixBefore - pix.len) &
+        "instead removed!"
+
       if CorrectOneOffXError:
         pix = pix.mapIt((x: (it[0] + 1'u8), y: it[1], ch: it[2]))
 
@@ -129,6 +134,8 @@ suite "InGrid geometry calculations":
         # both only single cluster. Create plot w/o facet wrap, highlighting
         # possible missing pixels between the two
         echo "\n\n\n\n\n"
+        doAssert reco.cluster.len == 1
+        doAssert expEvents[i].cluster.len == 1
         var missing: DataFrame
         let recoLen = reco.cluster[0].data.len
         let expLen = expEvents[i].cluster[0].data.len

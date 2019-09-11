@@ -10,7 +10,7 @@ import ggplotnim
 import seqmath
 
 const pwd = currentSourcePath().parentDir
-const dataPwd = pwd / "data/marlinTestEvents"
+const dataPwd = pwd / "../../resources/TPAresources/reconstruction/marlinExtracted"
 const jsonData = dataPwd / "marlinEvents.json"
 
 import times
@@ -58,7 +58,19 @@ suite "InGrid geometry calculations":
     ## given 3 events in data/marlinTestEvents
     const fnames = [("data059424_1_061500181.txt", 59424),
                     ("data057178_1_011827128.txt", 57178),
-                    ("data034772_1_021331054.txt", 34772)]
+                    ("data034772_1_021331054.txt", 34772),
+                    ("data036747_1_004216875.txt", 36747),
+                    ("data031801_1_232447799.txt", 31801),
+                    ("data038770_1_211608905.txt", 38770),
+                    ("data055899_1_054858137.txt", 55899),
+                    ("data053375_1_061636475.txt", 53375),
+                    ("data011673_1_172643126.txt", 11673),
+                    ("data057233_1_015223500.txt", 57233),
+                    ("data025415_1_184828778.txt", 25415),
+                    ("data043020_1_232312198.txt", 43020),
+                    ("data069254_1_094825394.txt", 69254),
+                    ("data053908_1_050952120.txt", 53908),
+                    ("data074237_1_062130738.txt", 74237)]
     # reconstruct each file in `fnames` and compare with the `RecoEvent[Pix]` from `marlinEvent.json`
     let expEventsJ = jsonData.readFile.parseJson
     var expEvents = newSeq[RecoEvent[Pix]]()

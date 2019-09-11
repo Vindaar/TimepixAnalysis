@@ -280,12 +280,12 @@ suite "InGrid geometry calculations":
         # different number of clusters
         skippedEvents.add f[0]
 
-    let df = seqsToDf({ "eventIndex" : evIdx,
+    let df = seqsToDf({ "eventIndex" : evIdx.mapIt($it),
                         "eventNumber": evNums,
                         "rotAngDifference" : rotAngDiffs,
                         "meanPropertyDifference" : meanPropDiffs })
     echo pretty(df, -1)
-    ggplot(df, aes("rotAngDifference", "meanPropertyDifference")) +
+    ggplot(df, aes("rotAngDifference", "meanPropertyDifference", color = "eventIndex")) +
       geom_point() +
       ggsave("rotAng_diff_vs_mean_prop_diff.pdf")
 

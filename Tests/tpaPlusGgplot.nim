@@ -3,10 +3,13 @@
 
 import ingrid / tos_helpers
 import sequtils, seqmath, nimhdf5, strutils, tables, persvector
+from json import JsonNode, `[]`, `[]=`, `%`
 import os, sugar
 
 import arraymancer, plotly
 import helpers / utils
+
+import ../Plotting/plotBackgroundClusters/colorMaps
 
 import macros
 
@@ -61,11 +64,20 @@ proc buildSeptemOccupancy(df: DataFrame) =
     occ = occ.clamp(0.0, 100.0)#occ.toRawSeq.filterIt(it > 0.0).percentile(70))
 
     echo "Creating plot"
-    heatmap(occ.toSeq2D)
+    let plt = heatmap(occ.toSeq2D)
       .title($pair)
       .width(1600)
       .height(1600)
-      .show("event_" & $pair[0][1] & ".png")
+      .toPlotJson
+    let fname = "event_" & $pair[0][1]
+    template createPlot(cmap: untyped): untyped =
+      plt.traces[0]["colorscale"] = cmap
+      plt.traces[0]["zmax"] = % 6
+      plt.traces[0]["zauto"] = % false
+      plt.show(fname & "_" & astToStr(cmap) & ".svg")
+    createPlot(viridisPlotly)
+    #createPlot(plasmaPlotly)
+    #createPlot(whiteToBlackPlotly)
     inc xyz
     if xyz > 10:
       quit()

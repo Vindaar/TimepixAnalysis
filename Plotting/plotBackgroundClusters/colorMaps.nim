@@ -1,4 +1,4 @@
-import json, strformat
+import json, strformat, sequtils
 
 let plasmaRaw = @[
   @[5.03832136e-02, 2.98028976e-02, 5.27974883e-01],
@@ -523,6 +523,10 @@ plasmaZeroWhite.add plasmaRaw[1 .. ^1]
 var viridisZeroWhite = @[@[1.0, 1.0, 1.0]]
 viridisZeroWhite.add viridisRaw[1 .. ^1]
 
+let whiteToBlack = toSeq(0 .. 255).mapIt(@[1.0 - it.float / 255.0,
+                                           1.0 - it.float / 255.0,
+                                           1.0 - it.float / 255.0,])
+
 proc makePlotlyMap[T](map: openArray[T]): JsonNode =
   result = newJArray()
   for i, row in map:
@@ -534,3 +538,4 @@ let plasmaPlotly* = makePlotlyMap(plasmaRaw)
 let plasmaZeroWhitePlotly* = makePlotlyMap(plasmaZeroWhite)
 let viridisPlotly* = makePlotlyMap(viridisRaw)
 let viridisZeroWhitePlotly* = makePlotlyMap(viridisZeroWhite)
+let whiteToBlackPlotly* = makePlotlyMap(whiteToBlack)

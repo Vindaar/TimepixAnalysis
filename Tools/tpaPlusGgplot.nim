@@ -7,9 +7,8 @@ from json import JsonNode, `[]`, `[]=`, `%`
 import os, sugar
 
 import arraymancer, plotly
+import plotly / color
 import helpers / utils
-
-import ../Plotting/plotBackgroundClusters/colorMaps
 
 import macros
 
@@ -64,20 +63,18 @@ proc buildSeptemOccupancy(df: DataFrame) =
     occ = occ.clamp(0.0, 100.0)#occ.toRawSeq.filterIt(it > 0.0).percentile(70))
 
     echo "Creating plot"
-    let plt = heatmap(occ.toSeq2D)
+    var plt = heatmap(occ.toSeq2D)
       .title($pair)
       .width(1600)
       .height(1600)
-      .toPlotJson
     let fname = "event_" & $pair[0][1]
     template createPlot(cmap: untyped): untyped =
-      plt.traces[0]["colorscale"] = cmap
-      plt.traces[0]["zmax"] = % 6
-      plt.traces[0]["zauto"] = % false
+      plt = plt.zmax(6)
+        .colormap(cmap)
       plt.show(fname & "_" & astToStr(cmap) & ".svg")
-    createPlot(viridisPlotly)
-    #createPlot(plasmaPlotly)
-    #createPlot(whiteToBlackPlotly)
+    createPlot(Viridis)
+    #createPlot(Plasma)
+    #createPlot(WhiteToBlack)
     inc xyz
     if xyz > 10:
       quit()

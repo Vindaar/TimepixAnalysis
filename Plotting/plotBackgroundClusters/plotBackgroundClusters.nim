@@ -1,10 +1,10 @@
-import plotly, nimhdf5, docopt, arraymancer, seqmath
+import nimhdf5, docopt, arraymancer, seqmath
 import strformat, sequtils, strutils, os
 import helpers / utils
 import ingrid / tos_helpers
 import json
-
-import colorMaps
+import plotly
+import plotly / color
 
 const docStr = """
 Usage:
@@ -89,20 +89,18 @@ proc main =
   let outline = goldRegionOutline(5)
   occ = occ .+ outline
 
-  let plt = heatmap(occ.toSeq2D)
+  var plt = heatmap(occ.toSeq2D)
     .width(1600)
     .height(1600)
-    .toPlotJson
 
   template createPlot(cmap: untyped): untyped =
-    plt.traces[0]["colorscale"] = cmap
-    plt.traces[0]["zmax"] = % 6
-    plt.traces[0]["zauto"] = % false
+    plt = plt.zmax(6)
+    plt = plt.colormap(cmap)
     plt.show(h5file.extractFilename & "_" & astToStr(cmap) & ".svg")
-  createPlot(viridisZeroWhitePlotly)
-  createPlot(viridisPlotly)
-  createPlot(plasmaPlotly)
-  createPlot(plasmaZeroWhitePlotly)
+  createPlot(Viridis)
+  createPlot(ViridisZeroWhite)
+  createPlot(Plasma)
+  createPlot(PlasmaZeroWhite)
 
 when isMainModule:
   main()

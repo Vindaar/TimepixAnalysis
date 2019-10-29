@@ -14,12 +14,12 @@ template shellCheck(actions: untyped): untyped =
     quit("One of the tests of TimepixAnalysis failed!")
 
 shellCheck:
-  nim c "-r --threads:on" `$dir`/Tests/tMatchAnyRunFolder.nim
+  nim c "-r --threads:on" ($dir)/Tests/tMatchAnyRunFolder.nim
 shellCheck:
-  nim c "-r --threads:on" `$dir`/Tests/tOldTosFolder.nim
+  nim c "-r --threads:on" ($dir)/Tests/tOldTosFolder.nim
 shellCheck:
-  nim c "-r --threads:on" `$dir`/Tests/io/tReadFadc.nim
+  nim c "-r --threads:on" ($dir)/Tests/io/tReadFadc.nim
 shellCheck:
-  nim c "-r --threads:on" `$dir`/Tests/io/tReadInGrid.nim
+  nim c "-r --threads:on" ($dir)/Tests/io/tReadInGrid.nim
 shellCheck:
-  nim c "-r --threads:on" `$dir`/Tests/reconstruction/tInGridGeometry.nim
+  nim c "-r --threads:on" ($dir)/Tests/reconstruction/tInGridGeometry.nim

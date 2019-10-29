@@ -17,7 +17,7 @@ template shellCheck(actions: untyped): untyped =
 
 shellCheck:
   one:
-    cd `$dir`/NimUtil
+    cd ($dir)/NimUtil
     nimble develop "-y"
 
 echo "Checking for NLopt"
@@ -67,13 +67,13 @@ if "Error" in mpfitCheck:
 echo "Adding ingridDatabase to nimble"
 shellCheck:
   one:
-    cd `$dir`/InGridDatabase
+    cd ($dir)/InGridDatabase
     nimble develop "-y"
 
 echo "Adding ingrid to nimble"
 shellCheck:
   one:
-    cd `$dir`/Analysis
+    cd ($dir)/Analysis
     nimble develop "-y"
 
 echo "Now add the InGrid-Python module via `setup.py develop` to your " &
@@ -82,26 +82,26 @@ echo "Now add the InGrid-Python module via `setup.py develop` to your " &
 echo "Compiling Nim procs for Python"
 shellCheck:
   one:
-    cd `$dir`/Analysis/ingrid
+    cd ($dir)/Analysis/ingrid
     nim c "-d:release --app:lib --out:procsForPython.so" procsForPython.nim
     mv procsForPython.so `$dir`/"InGrid-Python/ingrid"
 
 echo "Attempt compiling raw_data_manipulation"
 shellCheck:
   one:
-    cd `$dir`/Analysis/ingrid
+    cd ($dir)/Analysis/ingrid
     nim c "-d:release --threads:on" raw_data_manipulation.nim
 
 echo "Attempt compiling reconstruction"
 shellCheck:
   one:
-    cd `$dir`/Analysis/ingrid
+    cd ($dir)/Analysis/ingrid
     nim c "-d:release --threads:on" reconstruction.nim
 
 echo "Attempt compiling likelihood"
 shellCheck:
   one:
-    cd `$dir`/Analysis/ingrid
+    cd ($dir)/Analysis/ingrid
     nim c "-d:release --threads:on" likelihood.nim
 
 echo "Finished building TimepixAnalysis!"

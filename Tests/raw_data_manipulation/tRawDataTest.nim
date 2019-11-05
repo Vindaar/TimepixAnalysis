@@ -50,47 +50,77 @@ proc checkRun_wo_FADC(number: int, name: string): bool =
     result = almostEqual(meanDuration, 2.121233475324665)
   else:
     result = almostEqual(meanDuration, 0.03090720322177823)
-  var outf = open("tot.txt", fmAppend)
-  const occSum240 = @[559605,
-                      564600,
-                      683400,
-                      753375,
-                      731115,
-                      506625,
-                      470745]
-  const occSum241 = @[42790  ,
-                      37884  ,
-                      79640  ,
-                      5604577,
-                      112464 ,
-                      32890  ,
-                      45936  ]
+  const occSum240 = @[37307,
+                      37640,
+                      45560,
+                      50225,
+                      48741,
+                      33775,
+                      31383]
+  const occSum241 = @[3890  ,
+                      3444  ,
+                      7240  ,
+                      509507,
+                      10224 ,
+                      2990  ,
+                      4176  ]
+  const totSum240 = @[53602,
+                      45025,
+                      28457,
+                      55978,
+                      25170,
+                      13452,
+                      23118]
+  const totSum241 = @[37094,
+                      36949,
+                      52573,
+                      37036,
+                      43633,
+                      45386,
+                      917  ]
+  const averageHits240 = @[37.26973026973027,
+                           37.6023976023976 ,
+                           45.51448551448551,
+                           50.17482517482517,
+                           48.69230769230769,
+                           33.741258741258741,
+                           31.35164835164835]
+  const averageHits241 = @[3.886113886113886,
+                           3.44055944055944 ,
+                           7.232767232767233,
+                           508.998001998002 ,
+                           10.21378621378621,
+                           2.987012987012987,
+                           4.171828171828172]
+  const attrs = ["runNumber", "runTime", "runTimeFrames", "numChips", "shutterTime",
+                 "runMode", "fastClock", "externalTrigger", "pathName", "dateTime", "shutterMode"]
   template checkChips(chip, numTot: int): untyped =
     let hits = getDset("chip_" & $chip / "Hits", number)
     result = hits.shape == @[1001, 1]
     let occ = getDset("chip_" & $chip / "Occupancy", number)
     result = occ.shape == @[256, 256]
+    let tot = getDset("chip_" & $chip / "ToT", number)
+    result = hits.shape == @[1001, 1]
+    let raw_x = getDset("chip_" & $chip / "raw_x", number)
+    let raw_y = getDset("chip_" & $chip / "raw_y", number)
+    let raw_ch = getDset("chip_" & $chip / "raw_ch", number)
     if number == 240:
       result = occSum240[chip] == occ[int64].sum
-      echo "??? is ", result, " from ", occSum240[chip], " and ", occ[int64].sum
+      result = totSum240[chip].uint16 == tot[uint16].sum
+      result = averageHits240[chip] == raw_x[special_type(uint8), uint8].mapIt(it.len).sum.float / 1001.0
+      result = averageHits240[chip] == raw_y[special_type(uint8), uint8].mapIt(it.len).sum.float / 1001.0
+      result = averageHits240[chip] == raw_ch[special_type(uint16), uint16].mapIt(it.len).sum.float / 1001.0
     else:
-      echo "ok ", chip
       result = occSum241[chip] == occ[int64].sum
-      echo "??? is ", result
-    let tot = getDset("chip_" & $chip / "ToT", number)
-    outf.write("Tot " & ($chip / $number) & " : " & $tot[uint16].sum & "\n")
-
-    #result = hits.shape == @[1001, 1]
-    #let raw_x = getDset("chip_" & $chip / "raw_x", number)
-    #result = hits.shape == @[1001, 1]
-    #let raw_y = getDset("chip_" & $chip / "raw_y", number)
-    #result = hits.shape == @[1001, 1]
-    #let raw_ch = getDset("chip_" & $chip / "raw_ch", number)
-    #result = hits.shape == @[1001, 1]
+      result = totSum241[chip].uint16 == tot[uint16].sum
+      result = averageHits241[chip] == raw_x[special_type(uint8), uint8].mapIt(it.len).sum.float / 1001.0
+      result = averageHits241[chip] == raw_y[special_type(uint8), uint8].mapIt(it.len).sum.float / 1001.0
+      result = averageHits241[chip] == raw_ch[special_type(uint16), uint16].mapIt(it.len).sum.float / 1001.0
+    let grp = h5f[("runs/run_" & $number).grp_str]
+    for at in attrs:
+      result = at in grp.attrs
   for i in 0 .. 6:
     checkChips(i, 0)
-  outf.close()
-
 
 suite "raw data manipulation":
   ## these tests check whether the raw data manipulation produces HDF5
@@ -107,3 +137,5 @@ suite "raw data manipulation":
         "../../Analysis/ingrid/raw_data_manipulation" ($(dataPwd/r.run)) "--nofadc" "--out" ($r.outName) "--runType" ($r.runType)
       check fileExists(r.outName)
       check checkRun_wo_FADC(r.num, r.outName)
+      shell:
+        rm ($r.outName)

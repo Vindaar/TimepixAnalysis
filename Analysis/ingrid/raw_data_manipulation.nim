@@ -615,7 +615,6 @@ proc initInGridInH5*(h5f: var H5FileObj, runNumber, nChips, batchsize: int) =
                        maxshape = @[int.high, 1],
                        filter = filter)
 
-
   var
     # datasets are chunked in the batchsize we read. Size originally 0
     x_dsets  = mapIt(chip_groups, h5f.datasetCreation(it.name & "/raw_x", ev_type_xy))
@@ -881,7 +880,6 @@ proc writeProcessedRunToH5*(h5f: var H5FileObj, run: ProcessedRun) =
     # Why would there be data in the occupancy dataset for us to read?
     let stackOcc = occDset[int64].toTensor.reshape([256, 256]) .+ occ
     occDset.unsafeWrite(stackOcc.get_data_ptr, stackOcc.size)
-
 
 #proc linkRawToReco(h5f: var H5FileObj, runNumber, nChips: int) =
 #  ## perform linking from raw group to reco group

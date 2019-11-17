@@ -12,5 +12,5 @@ proc toNimSeq*(xOb: PyObject, dtype: typedesc): seq[dtype] =
     elif dtype is seq:
       # use `getInnerType` macro to extract subtype of this sequence
       # defined in `nimhdf5` as well as `utils`
-      type innerDtype = utils.getInnerType(dtype)
+      type innerDtype = utils.getSubType(dtype)
       result.add toNimSeq(x, innerDtype)

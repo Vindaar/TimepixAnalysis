@@ -23,3 +23,5 @@ shellCheck:
   nim c "-r --threads:on" ($dir)/Tests/io/tReadInGrid.nim
 shellCheck:
   nim c "-r --threads:on" ($dir)/Tests/reconstruction/tInGridGeometry.nim
+shellCheck:
+  nim c "-r --threads:on" ($dir)/Tests/tZipEm.nim

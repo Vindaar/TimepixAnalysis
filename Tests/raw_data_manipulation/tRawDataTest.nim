@@ -11,6 +11,8 @@ import shell
 from ggplotnim import almostEqual
 import seqmath
 
+import json
+
 const pwd = currentSourcePath().parentDir
 const dataPwd = pwd / "../../resources/TPAresources/raw_data_manipulation/"
 
@@ -20,7 +22,7 @@ const dataPwd = pwd / "../../resources/TPAresources/raw_data_manipulation/"
 ## commit it was compiled with. We could then compare that with the current commit
 ## of the repo and fail if it doesn't match.
 
-proc checkRun_wo_FADC(number: int, name: string): bool =
+proc checkRun(number: int, name: string, withFadc = false): bool =
   ## helper proc, which checks whether our reduced run 240 HDF5 file actually
   ## looks the way we expect it to, if created with `--nofadc` flag.
   var h5f = H5file(name, "r")
@@ -121,6 +123,25 @@ proc checkRun_wo_FADC(number: int, name: string): bool =
       result = at in grp.attrs
   for i in 0 .. 6:
     checkChips(i, 0)
+  if withFadc:
+    # TODO: create some check for the raw FADC data!
+    let fadcPath = "runs/run_" & $number / "fadc"
+    check fadcPath in h5f
+    var fadcgrp = h5f[fadcPath.grp_str]
+    check fadcPath / "eventNumber" in h5f
+    check fadcPath / "raw_fadc" in h5f
+    check fadcPath / "trigger_record" in h5f
+    let expFadcAttrs = %* {
+      "posttrig": 80,
+      "n_channels": 0,
+      "pedestal_run": 0,
+      "sampling_mode": 0,
+      "frequency": 2,
+      "channel_mask": 15,
+      "pretrig": 15000
+    }
+    let jattrs = fadcgrp.attrsToJson
+    check expFadcAttrs == jattrs
 
 suite "raw data manipulation":
   ## these tests check whether the raw data manipulation produces HDF5
@@ -136,6 +157,15 @@ suite "raw data manipulation":
       let res = shellVerbose:
         "../../Analysis/ingrid/raw_data_manipulation" ($(dataPwd/r.run)) "--nofadc" "--out" ($r.outName) "--runType" ($r.runType)
       check fileExists(r.outName)
-      check checkRun_wo_FADC(r.num, r.outName)
+      check checkRun(r.num, r.outName)
+      shell:
+        rm ($r.outName)
+
+  test "With fadc":
+    for r in runs:
+      let res = shellVerbose:
+        "../../Analysis/ingrid/raw_data_manipulation" ($(dataPwd/r.run)) "--out" ($r.outName) "--runType" ($r.runType)
+      check fileExists(r.outName)
+      check checkRun(r.num, r.outName, withFadc = true)
       shell:
         rm ($r.outName)

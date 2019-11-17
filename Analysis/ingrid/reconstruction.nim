@@ -14,7 +14,7 @@ import tables
 import docopt
 import strutils
 import strformat
-import typetraits
+import typeinfo
 import re
 import times
 import stats
@@ -187,10 +187,8 @@ proc writeRecoRunToH5*[T: SomePix](h5f: var H5FileObj,
   ## outputs: -
   ## throws:
   ##     potentially throws HDF5LibraryError, if a call to the H5 library fails
-
   # now we need to write into reco group for each chip
-  var rawGroup = h5f[
-    getGroupNameRaw(runNumber).grp_str]
+  var rawGroup = h5fraw[getGroupNameRaw(runNumber).grp_str]
   let nChips = rawGroup.attrs["numChips", int]
 
   # for now hardcode the number of chips. easy to change by getting the number
@@ -709,6 +707,64 @@ proc createAndFitFeSpec(h5f: var H5FileObj,
          "more chips. Exception message:\n" & e.msg
   h5fout.fitToFeSpectrum(runNumber, centerChip, fittingOnly)
 
+proc initRecoFadcInH5(h5f, h5fout: var H5FileObj, runNumber, batchsize: int) =
+  # proc to initialize the datasets etc in the HDF5 file for the FADC. Useful
+  # since we don't want to do this every time we call the write function
+  const
+    ch_len = ch_len()
+    all_ch_len = all_ch_len()
+
+  let groupName = fadcRecoPath(runNumber)
+  template datasetCreation(h5f, name, shape, `type`: untyped): untyped =
+    ## inserts the correct data set creation parameters
+    h5f.create_dataset(name,
+                       shape,
+                       dtype = `type`,
+                       chunksize = @[batchsize, shape[1]],
+                       maxshape = @[int.high, shape[1]],
+                       filter = filter)
+  var
+    # NOTE: we initialize all datasets with a size of 0. This means we need to extend
+    # it immediately. However, this allows us to always (!) simply extend and write
+    # the data to dset.len onwards!
+    recoGroup = h5fout.create_group(groupName)
+    fadc_dset        = h5fout.datasetCreation(fadcDataBasename(runNumber), (0, ch_len), float)
+    # dataset of eventNumber
+    eventNumber_dset = h5fout.datasetCreation(eventNumberBasenameReco(runNumber), (0, 1), int)
+    # dataset stores flag whether FADC event was a noisyo one (using our algorithm)
+    noisy_dset       = h5fout.datasetCreation(noiseBasename(runNumber), (0, 1), int)
+    # dataset stores minima of each FADC event, dip voltage
+    minVals_dset     = h5fout.datasetCreation(minValsBasename(runNumber), (0, 1), float)
+
+  # write attributes to FADC groups
+  let fadcRaw = h5f[fadcRawPath(runNumber).grp_str]
+  recoGroup.attrs["posttrig"] = fadcRaw.attrs["posttrig", int64]
+  recoGroup.attrs["pretrig"] = fadcRaw.attrs["pretrig", int64]
+  recoGroup.attrs["n_channels"] = fadcRaw.attrs["n_channels", int64]
+  recoGroup.attrs["channel_mask"] = fadcRaw.attrs["channel_mask", int64]
+  recoGroup.attrs["frequency"] = fadcRaw.attrs["frequency", int64]
+  recoGroup.attrs["sampling_mode"] = fadcRaw.attrs["sampling_mode", int64]
+  recoGroup.attrs["pedestal_run"] = fadcRaw.attrs["pedestal_run", int64]
+
+proc copyOverDataAttrs(h5f, h5fout: var H5FileObj, runNumber: int) =
+  let recoGrp = h5fout[(recoBase() & $runNumber).grp_str]
+  let rawGrp = h5f[(rawDataBase() & $runNumber).grp_str]
+  # copy attributes of `runs/run_XYZ -> reconstruction/run_XYZ`
+  recoGrp.copy_attributes(rawGrp.attrs)
+  template copyOver(path, dtype: untyped): untyped =
+    # don't care for the returned group here
+    discard h5fout.write_dataset(recoBase() & path, h5f[rawDataBase() & path, dtype])
+
+  for dset in items(rawGrp, start_path = rawDataBase()):
+    echo "Copying: ", dset
+    case dset.dtypeAnyKind
+    of akInt64:
+      copyOver($runNumber / dset.name.extractFilename, int64)
+    of akFloat64:
+      copyOver($runNumber / dset.name.extractFilename, float64)
+    else:
+      doAssert false, "Unexpected dataset " & $dset & " with base type " & $dset.dtypeAnyKind
+
 proc calcTriggerFractions(h5f: var H5FileObj, runNumber: int) =
   ## calculates the fraction of events within a given run of events with
   ## - FADC triggers
@@ -754,6 +810,8 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
   let
     raw_data_basename = rawDataBase()
     t0 = epochTime()
+
+  const batchsize = 5000
   var reco_run: seq[FlowVar[ref RecoEvent[Pix]]] = @[]
   let showPlots = if cfShowPlots in cfgFlags: true else: false
 
@@ -785,6 +843,10 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
     if rfReadAllRuns in flags or runNumber == runNumberArg:
       # check if intersection of `flags` with all `"only flags"` is empty
       if (flags * {rfOnlyEnergy .. rfOnlyGainFit}).card == 0:
+        # initialize groups in `h5fout`
+        initRecoFadcInH5(h5f, h5fout, runNumber, batchsize)
+        copyOverDataAttrs(h5f, h5fout, runNumber)
+
         var runGroupForAttrs = h5f[grp.grp_str]
         let nChips = runGroupForAttrs.attrs["numChips", int]
         # TODO: we can in principle perform energy calibration in one go

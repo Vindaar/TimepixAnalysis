@@ -1,10 +1,5 @@
-#import ingrid / ingrid_types
-#import ingrid / tos_helpers
-#import ingridDatabase / databaseDefinitions
 import sequtils, strutils, os, algorithm, strformat
 import unittest
-#import json, sugar
-#from ingrid / reconstruction import recoEvent
 import nimhdf5
 import shell
 
@@ -158,8 +153,9 @@ suite "raw data manipulation":
         "../../Analysis/ingrid/raw_data_manipulation" ($(dataPwd/r.run)) "--nofadc" "--out" ($r.outName) "--runType" ($r.runType)
       check fileExists(r.outName)
       check checkRun(r.num, r.outName)
-      shell:
-        rm ($r.outName)
+      # test does not delete file, is input for ../reconstruction/tReconstruction.nim
+      #shell:
+      #  rm ($r.outName)
 
   test "With fadc":
     for r in runs:
@@ -167,5 +163,6 @@ suite "raw data manipulation":
         "../../Analysis/ingrid/raw_data_manipulation" ($(dataPwd/r.run)) "--out" ($r.outName) "--runType" ($r.runType)
       check fileExists(r.outName)
       check checkRun(r.num, r.outName, withFadc = true)
-      shell:
-        rm ($r.outName)
+      # test does not delete file, is input for ../reconstruction/tReconstruction.nim
+      #shell:
+      #  rm ($r.outName)

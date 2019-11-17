@@ -476,8 +476,10 @@ proc calcGeometry[T: SomePix](cluster: Cluster[T],
   #   echo "std is ", stat_y.variance()
   #   echo "thus filter is ", filterIt(zip(xRot, yRot), distance(it.a, it.b) <= result.rmsTransverse)
   result.lengthDivRmsTrans = result.length / result.rmsTransverse
-  result.fractionInTransverseRms = float(filterIt(zip(xRot, yRot),
-                                                  distance(it.a, it.b) <= result.rmsTransverse).len) / float(npix)
+  result.fractionInTransverseRms = (
+    filterIt(zip(xRot, yRot),
+             distance(it[0], it[1]) <= result.rmsTransverse).len
+  ).float / float(npix)
 
 proc isPixInSearchRadius[T: SomeInteger](p1, p2: Coord[T], search_r: int): bool =
   ## given two pixels, p1 and p2, we check whether p2 is within one square search

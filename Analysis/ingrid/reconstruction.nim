@@ -919,7 +919,8 @@ proc parseTomlConfig(): set[ConfigFlagKind] =
   ## parses our config.toml file and (for now) just returns a set of flags
   ## corresponding to different settings
   # TODO: concat together from `TpxDir`
-  let config = parseToml.parseFile("config.toml")
+  const sourceDir = currentSourcePath().parentDir
+  let config = parseToml.parseFile(sourceDir / "config.toml")
   let showPlot = config["Calibration"]["showPlots"].getBool
   if showPlot:
     result.incl cfShowPlots

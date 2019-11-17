@@ -122,6 +122,8 @@ when isMainModule:
 
 ################################################################################
 
+template ch_len(): int = 2560
+template all_ch_len(): int = ch_len() * 4
 
 template benchmark(num: int, actions: untyped) {.dirty.} =
   for i in 0 ..< num:

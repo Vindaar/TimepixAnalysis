@@ -450,7 +450,7 @@ proc processFadcData(fadcFilesNil: seq[FlowVar[ref FadcFile]]): ProcessedFadcDat
 proc initFadcInH5(h5f: var H5FileObj, runNumber, batchsize: int, filename: string) =
   # proc to initialize the datasets etc in the HDF5 file for the FADC. Useful
   # since we don't want to do this every time we call the write function
-  let
+  const
     ch_len = ch_len()
     all_ch_len = all_ch_len()
 

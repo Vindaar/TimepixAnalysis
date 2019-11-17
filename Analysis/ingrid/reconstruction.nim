@@ -65,22 +65,23 @@ Version: $# built on: $#
 InGrid reconstruction and energy calibration.
 
 Usage:
-  reconstruction <HDF5file> [options]
-  reconstruction <HDF5file> [--out <name>] [--runNumber <number>] [--create_fe_spec] [options]
-  reconstruction <HDF5file> [--runNumber <number>] --only_energy <factor> [options]
-  reconstruction <HDF5file> [--runNumber <number>] --only_energy_from_e [options]
-  reconstruction <HDF5file> [--runNumber <number>] --only_fe_spec [options]
-  reconstruction <HDF5file> [--runNumber <number>] --only_charge [options]
-  reconstruction <HDF5file> [--runNumber <number>] --only_fadc [options]
-  reconstruction <HDF5file> [--runNumber <number>] --only_gas_gain [options]
-  reconstruction <HDF5file> [--runNumber <number>] --only_gain_fit [options]
-  reconstruction <HDF5file> (--create_fe_spec | --calib_energy) [options]
+  reconstruction <HDF5file> --out <name> [options]
+  reconstruction <HDF5file> --out <name> [--runNumber <number>] [--create_fe_spec] [options]
+  reconstruction <HDF5file> --out <name> [--runNumber <number>] --only_energy <factor> [options]
+  reconstruction <HDF5file> --out <name> [--runNumber <number>] --only_energy_from_e [options]
+  reconstruction <HDF5file> --out <name> [--runNumber <number>] --only_fe_spec [options]
+  reconstruction <HDF5file> --out <name> [--runNumber <number>] --only_charge [options]
+  reconstruction <HDF5file> --out <name> [--runNumber <number>] --only_fadc [options]
+  reconstruction <HDF5file> --out <name> [--runNumber <number>] --only_gas_gain [options]
+  reconstruction <HDF5file> --out <name> [--runNumber <number>] --only_gain_fit [options]
+  reconstruction <HDF5file> --out <name> (--create_fe_spec | --calib_energy) [options]
   reconstruction -h | --help
   reconstruction --version
 
 
 Options:
-  --runNumber <number>   Only work on this run
+  --out <name>            Filename and path of output file
+  --runNumber <number>    Only work on this run
   --create_fe_spec        Toggle to create Fe calibration spectrum based on cuts
                           Takes precedence over --calib_energy if set!
   --calib_energy          Toggle to perform energy calibration. Conversion factors needed!
@@ -97,7 +98,6 @@ Options:
   --only_fadc             If this flag is set, the reconstructed FADC data is used to calculate
                           FADC values such as rise and fall times among others, which are written
                           to the H5 file.
-  --out <name>            Filename and path of output file
   -h --help               Show this help
   --version               Show version.
 """

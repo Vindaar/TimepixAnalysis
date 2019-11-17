@@ -26,7 +26,6 @@ import nlopt
 import seqmath
 import nimhdf5
 import parsetoml
-import loopfusion
 import zero_functional
 
 # custom modules
@@ -356,9 +355,9 @@ iterator readDataFromH5*(h5f: var H5FileObj, runNumber: int):
         raw_ch = raw_ch_dset[vlen_ch, uint16]
 
       var runPix = newSeq[(Pixels, int)](raw_x.len)
-      forEach i, x in raw_x, y in raw_y, ch in raw_ch, ev in evNumbers:
-        let rpix = zip(x, y, ch) --> to(seq[(uint8, uint8, uint16)])
-        runPix[i] = (rpix, ev)
+      for i in 0 ..< raw_x.len:
+        let rpix = zipEm(raw_x[i], raw_y[i], raw_ch[i])
+        runPix[i] = (rpix, evNumbers[i])
       # and yield them
       yield (chip_number, run_pix)
 

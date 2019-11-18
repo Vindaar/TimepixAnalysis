@@ -1,0 +1,82 @@
+{
+  "pathName": {
+    "value": "data/runs/Run_240_181021-14-54",
+    "type": "akString"
+  },
+  "szint2TriggerRatio": {
+    "value": 0.1158841158841159,
+    "type": "akFloat64"
+  },
+  "numChips": {
+    "value": 7,
+    "type": "akInt64"
+  },
+  "externalTrigger": {
+    "value": 0,
+    "type": "akInt64"
+  },
+  "nonTrivial_szint2TriggerRatio": {
+    "value": 0.03896103896103896,
+    "type": "akFloat64"
+  },
+  "centerChipName": {
+    "value": "\u0000",
+    "type": "akString"
+  },
+  "shutterMode": {
+    "value": "verylong",
+    "type": "akString"
+  },
+  "rawDataFinished": {
+    "value": "true",
+    "type": "akString"
+  },
+  "runNumber": {
+    "value": 240,
+    "type": "akInt64"
+  },
+  "numEventsStored": {
+    "value": 1001,
+    "type": "akInt64"
+  },
+  "runTimeFrames": {
+    "value": 1,
+    "type": "akInt64"
+  },
+  "dateTime": {
+    "value": "2018-10-21.14:54:08",
+    "type": "akString"
+  },
+  "runMode": {
+    "value": 0,
+    "type": "akInt64"
+  },
+  "runTime": {
+    "value": 0,
+    "type": "akInt64"
+  },
+  "shutterTime": {
+    "value": 30,
+    "type": "akInt64"
+  },
+  "fastClock": {
+    "value": 0,
+    "type": "akInt64"
+  },
+  "fadcTriggerRatio": {
+    "value": 0.1158841158841159,
+    "type": "akFloat64"
+  },
+  "nonTrivial_szint1TriggerRatio": {
+    "value": 0.002997002997002997,
+    "type": "akFloat64"
+  },
+  "szint1TriggerRatio": {
+    "value": 0.01598401598401598,
+    "type": "akFloat64"
+  },
+  "centerChip": {
+    "value": 0,
+    "type": "akInt64"
+  }
+}

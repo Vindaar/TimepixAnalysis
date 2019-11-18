@@ -36,9 +36,9 @@ const DatasetSet = ["skewnessTransverse",
 const ChipGroupsSet = (toSeq(0 .. 6).mapIt("chip_" & $it)).toHashSet
 const RunGroupsSet = toHashSet(["run_240", "run_241"])
 const FadcDatasetSet = toHashSet(["fadc_data",
-                              "minvals",
-                              "noisy",
-                              "eventNumber"])
+                                  "minvals",
+                                  "noisy",
+                                  "eventNumber"])
 
 proc checkContent(h5f: H5FileOBj, runNumber: int, withFadc = false): bool =
   template check(cond: untyped): untyped =
@@ -47,16 +47,25 @@ proc checkContent(h5f: H5FileOBj, runNumber: int, withFadc = false): bool =
     else:
       echo "Failed: ", astToStr(cond), " was ", cond
       return false
+
   check "/reconstruction" in h5f
   let r = "run_" & $runNumber
+  let runAttrs = attrsToJson(h5f[("reconstruction" / r).grp_str], withType = true)
+  # screw it, we compare by string. For some reason it appears `==` for Json doesn't
+  # properly handle comparisons?!
+  check runAttrs.pretty == parseJson(readFile("run_" & $runNumber & ".json")).pretty
   check "/reconstruction" / r in h5f
   for ch in ChipGroupsSet:
     check "/reconstruction" / r / ch in h5f
     for dset in DatasetSet:
       check  "/reconstruction" / r / ch / dset in h5f
+    echo "??!"
     if withFadc:
+      echo "true ", result
       for dset in FadcDatasetSet:
+        echo "check ", dset
         check  "/reconstruction" / r / "fadc" / dset in h5f
+  echo "RESULT!!! ", result
 
 suite "reconstruction":
   const runs = [(inName: "run_240.h5", outName: "reco_240.h5",

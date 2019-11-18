@@ -70,7 +70,7 @@ suite "reconstruction":
                  runType: "rtBackground", num: 241)]
   test "Default args":
     for r in runs:
-      let res = shellVerbose:
+      var res = shellVerbose:
         "../../Analysis/ingrid/reconstruction" ($(dataInPath/r.inName)) "--out" ($r.outName)
       check res[1] == 0
       check fileExists(r.outName)
@@ -80,4 +80,9 @@ suite "reconstruction":
       check checkContent(h5f, r.num, withFadc = true)
       check h5f.close() >= 0
       removeFile(r.inName)
+
+      # now run different command line options
+      res = shellVerbose:
+        "../../Analysis/ingrid/reconstruction" ($(dataInPath/r.inName)) "--out" ($r.outName)
+
       removeFile(r.outName)

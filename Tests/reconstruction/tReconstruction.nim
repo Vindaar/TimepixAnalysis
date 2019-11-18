@@ -59,13 +59,9 @@ proc checkContent(h5f: H5FileOBj, runNumber: int, withFadc = false): bool =
     check "/reconstruction" / r / ch in h5f
     for dset in DatasetSet:
       check  "/reconstruction" / r / ch / dset in h5f
-    echo "??!"
     if withFadc:
-      echo "true ", result
       for dset in FadcDatasetSet:
-        echo "check ", dset
         check  "/reconstruction" / r / "fadc" / dset in h5f
-  echo "RESULT!!! ", result
 
 suite "reconstruction":
   const runs = [(inName: "run_240.h5", outName: "reco_240.h5",
@@ -82,8 +78,6 @@ suite "reconstruction":
       # get all groups and datasets in the files
       var h5f = H5file(r.outName, "r")
       check checkContent(h5f, r.num, withFadc = true)
-      #for grp in items(h5f):
-      #  for dset in items(grp):
-      #    echo dset.name
-      #  echo grp.name
       check h5f.close() >= 0
+      removeFile(r.inName)
+      removeFile(r.outName)

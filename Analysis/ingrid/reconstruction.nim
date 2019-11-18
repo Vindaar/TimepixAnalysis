@@ -969,25 +969,23 @@ proc main() =
 
   var
     flags: set[RecoFlagKind]
-    runNumber = $args["--runNumber"]
+    runNumberArg = $args["--runNumber"]
+    runNumber: Option[int]
+    calibFactorStr = $args["--only_energy"]
+    calibFactor: Option[float]
     outfile = $args["--out"]
-    calib_factor_str = $args["--only_energy"]
-    calib_factor: float = Inf
   if runNumber == "nil":
     flags.incl rfReadAllRuns
-  if outfile == "nil":
-    outfile = "None"
   else:
+    runNumber = some(parseInt(runNumberArg))
+  if outfile != "nil":
     outfile = $args["--out"]
     info &"Set outfile to {outfile}"
-    warn "WARNING: writing to a different H5 file is not quite finished yet."
-    warn "\t The resulting file will miss the attributes of the reco run groups"
-    warn "\t as well as the common datasets like timestamps!"
   if create_fe_arg == "true":
     flags.incl rfCreateFe
-  if calib_factor_str != "nil":
+  if calibFactorStr != "nil":
     flags.incl rfOnlyEnergy
-    calib_factor = parseFloat(calib_factor_str)
+    calibFactor = some(parseFloat(calibFactorStr))
 
   # parse the explicit `--only_...` flags
   flags = flags + parseOnlyFlags(args)
@@ -995,39 +993,43 @@ proc main() =
   # parse config toml file
   let cfgFlags = parseTomlConfig()
 
-  var h5f = H5file(h5f_name, "r")
-  # visit the whole file to read which groups exist
-  h5f.visitFile
-  var h5fout: H5FileObj
-  if outfile != "None":
-    h5fout = H5file(outfile, "rw")
-    h5fout.visitFile
+  # TODO: put such a check back in here!!!
+  #var rawGroup = h5f[rawGroupGrpStr]
+  #if "runType" in rawGroup.attrs:
+  #  runType = parseEnum[RunTypeKind](rawGroup.attrs["runType", string])
+  #  if rfOnlyGainFit in flags and runType != rtCalibration:
+  #    warn "Fit to charge calibration / gas gain only possible for " &
+  #      "calibration runs!"
+  #    return
+  #  elif rfOnlyGainFit in flags:
+  #    h5f.performChargeCalibGasGainFit()
+  #    # return early
+  #    # TODO: move this whole stuff somewhere else! Does not belong into
+  #    # reconstruction like this!
+  #    return
 
-  let raw_data_basename = rawDataBase()
-  if rfReadAllRuns in flags and outfile == "None":
-    reconstructRunsInFile(h5f, flags, cfgFlags, calib_factor = calib_factor)
-  elif rfReadAllRuns notin flags and outfile == "None":
-    reconstructRunsInFile(h5f, flags, cfgFlags, parseInt(runNumber), calib_factor)
-  elif rfReadAllRuns in flags and outfile != "None":
-    reconstructRunsInFile(h5f, h5fout, flags, cfgFlags, calib_factor = calib_factor)
-  elif rfReadAllRuns notin flags and outfile != "None":
-    reconstructRunsInFile(h5f, h5fout, flags, cfgFlags, parseInt(runNumber), calib_factor = calib_factor)
+  if (flags * {rfOnlyEnergy .. rfOnlyGainFit}).card == 0:
+    # `reconstruction` call w/o `--only-*` flag
+    var h5f = H5file(h5f_name, "r")
+    # visit the whole file to read which groups exist
+    h5f.visitFile
+    var h5fout: H5FileObj
+    if outfile != "None":
+      h5fout = H5file(outfile, "rw")
+      h5fout.visitFile
+      reconstructRunsInFile(h5f, h5fout, flags, cfgFlags, runNumber = runNumber,
+                            calibFactor = calibFactor)
 
-  var err: herr_t
-  err = h5f.close()
-  if err != 0:
-    logging.error &"Failed to close H5 file {h5f.name}"
-  if outfile != "None":
+    var err = h5f.close()
+    if err != 0:
+      logging.error &"Failed to close H5 file {h5f.name}"
     err = h5fout.close()
     if err != 0:
       logging.error &"Failed to close H5 file {h5fout.name}"
+  else:
+    var h5f = H5file(h5f_name, "rw")
+    applyCalibrationSteps(h5f, flags, cfgFlags, runNumber, calibFactor)
 
-  # NOTE: there's no point for this anymore, at least not at the moment
-  # # first check whether given folder is valid run folder
-  # let (is_run_folder, contains_run_folder) = isTosRunFolder(folder)
-  # echo "Is run folder       : ", is_run_folder
-  # echo "Contains run folder : ", contains_run_folder
-  # reconstructSingleRun(folder)
 
 when isMainModule:
   main()

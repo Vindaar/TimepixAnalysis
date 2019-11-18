@@ -26,7 +26,6 @@ import nlopt
 import seqmath
 import nimhdf5
 import parsetoml
-import zero_functional
 
 # custom modules
 import tos_helpers
@@ -43,7 +42,7 @@ type
     xy: tuple[x, y: float64]
 
   RecoFlagKind = enum
-    rfNone, rfCreateFe, rfCalibEnergy, rfOnlyEnergy, rfOnlyEnergyElectrons,
+    rfNone, rfCreateFe, rfOnlyEnergy, rfOnlyEnergyElectrons,
     rfOnlyCharge, rfOnlyFeSpec, rfOnlyFadc, rfOnlyGasGain, rfOnlyGainFit,
     rfReadAllRuns
 
@@ -63,17 +62,20 @@ const docTmpl = """
 Version: $# built on: $#
 InGrid reconstruction and energy calibration.
 
+NOTE: When calling `reconstruction` without any of the `--only_*` flags, the input file
+has to be a H5 file resulting from `raw_data_manipulation`. In the other cases the input is
+simply a file resulting from a prior `reconstruction` call!
+
 Usage:
   reconstruction <HDF5file> --out <name> [options]
   reconstruction <HDF5file> --out <name> [--runNumber <number>] [--create_fe_spec] [options]
-  reconstruction <HDF5file> --out <name> [--runNumber <number>] --only_energy <factor> [options]
-  reconstruction <HDF5file> --out <name> [--runNumber <number>] --only_energy_from_e [options]
-  reconstruction <HDF5file> --out <name> [--runNumber <number>] --only_fe_spec [options]
-  reconstruction <HDF5file> --out <name> [--runNumber <number>] --only_charge [options]
-  reconstruction <HDF5file> --out <name> [--runNumber <number>] --only_fadc [options]
-  reconstruction <HDF5file> --out <name> [--runNumber <number>] --only_gas_gain [options]
-  reconstruction <HDF5file> --out <name> [--runNumber <number>] --only_gain_fit [options]
-  reconstruction <HDF5file> --out <name> (--create_fe_spec | --calib_energy) [options]
+  reconstruction <HDF5file> [--runNumber <number>] --only_energy <factor> [options]
+  reconstruction <HDF5file> [--runNumber <number>] --only_energy_from_e [options]
+  reconstruction <HDF5file> [--runNumber <number>] --only_fe_spec [options]
+  reconstruction <HDF5file> [--runNumber <number>] --only_charge [options]
+  reconstruction <HDF5file> [--runNumber <number>] --only_fadc [options]
+  reconstruction <HDF5file> [--runNumber <number>] --only_gas_gain [options]
+  reconstruction <HDF5file> [--runNumber <number>] --only_gain_fit [options]
   reconstruction -h | --help
   reconstruction --version
 
@@ -83,7 +85,6 @@ Options:
   --runNumber <number>    Only work on this run
   --create_fe_spec        Toggle to create Fe calibration spectrum based on cuts
                           Takes precedence over --calib_energy if set!
-  --calib_energy          Toggle to perform energy calibration. Conversion factors needed!
   --only_energy <factor>  Toggle to /only/ perform energy calibration using the given factor.
                           Takes precedence over --create_fe_spec and --calib_energy if set.
                           If no runNumber is given, performs energy calibration on all runs
@@ -882,17 +883,6 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
         # or this is a calibration run, then always create it
         if rfCreateFe in flags or runType == rtCalibration:
           createAndFitFeSpec(h5f, h5fout, runNumber, not showPlots)
-        if rfCalibEnergy in flags:
-          # TODO: assign correct chip for detector
-          # could have a center chip attribute or just iterate over all
-          # chips and check which has a FeSpectrum dataset
-          # NOTE: STILL WIP
-          const centerChip = 3
-          h5fout.fitToFeSpectrum(runNumber, centerChip)
-          echo "Applying energy calib now "
-          #h5fout.applyPixelEnergyCalib(runNumber, 1.1)
-          # THIS DOESN'T MAKE SENSE HERE ANYMORE!
-          #h5fout.calcEnergyFromCharge(runNumber, centerChip)
       else:
         # only perform energy calibration of the reconstructed runs in file
         # check if reconstructed run exists
@@ -902,10 +892,6 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
             h5fout.calcEnergyFromPixels(runNumber, calib_factor)
           if rfOnlyCharge in flags:
             h5fout.applyChargeCalibration(runNumber)
-            # NOTE: STILL WIP
-            #const centerChip = 3
-            # TODO: does not belong here
-            #h5fout.fitToFeSpectrum(runNumber, centerChip)
           if rfOnlyGasGain in flags:
             h5fout.calcGasGain(runNumber, showPlots)
           if rfOnlyFadc in flags:
@@ -1021,7 +1007,6 @@ proc main() =
   if runNumber == "nil":
     flags.incl rfReadAllRuns
   if outfile == "nil":
-    echo &"Currently not implemented. What even for? outfile was {outfile}"
     outfile = "None"
   else:
     outfile = $args["--out"]
@@ -1031,8 +1016,6 @@ proc main() =
     warn "\t as well as the common datasets like timestamps!"
   if create_fe_arg == "true":
     flags.incl rfCreateFe
-  if calib_energy_arg == "true":
-    flags.incl rfCalibEnergy
   if calib_factor_str != "nil":
     flags.incl rfOnlyEnergy
     calib_factor = parseFloat(calib_factor_str)
@@ -1043,7 +1026,7 @@ proc main() =
   # parse config toml file
   let cfgFlags = parseTomlConfig()
 
-  var h5f = H5file(h5f_name, "rw")
+  var h5f = H5file(h5f_name, "r")
   # visit the whole file to read which groups exist
   h5f.visitFile
   var h5fout: H5FileObj

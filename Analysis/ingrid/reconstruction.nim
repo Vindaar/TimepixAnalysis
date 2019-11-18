@@ -332,7 +332,6 @@ iterator readDataFromH5*(h5f: var H5FileObj, runNumber: int):
   ## returns the chip number and a sequence containing the pixel data for this
   ## event and its event number
   var chip_base = rawDataChipBase(runNumber)
-  let raw_data_basename = rawDataBase()
   for grp in keys(h5f.groups):
     # get the event numbers for this run
     if chip_base in grp:
@@ -748,16 +747,18 @@ proc initRecoFadcInH5(h5f, h5fout: var H5FileObj, runNumber, batchsize: int) =
   recoGroup.attrs["pedestal_run"] = fadcRaw.attrs["pedestal_run", int64]
 
 proc copyOverDataAttrs(h5f, h5fout: var H5FileObj, runNumber: int) =
-  let recoGrp = h5fout[(recoBase() & $runNumber).grp_str]
-  let rawGrp = h5f[(rawDataBase() & $runNumber).grp_str]
+  template copyAttrs(pout, pin: untyped): untyped =
+    let recoGrp = h5fout[pout.grp_str]
+    let rawGrp = h5f[pin.grp_str]
+    recoGrp.copy_attributes(rawGrp.attrs)
   # copy attributes of `runs/run_XYZ -> reconstruction/run_XYZ`
-  recoGrp.copy_attributes(rawGrp.attrs)
+  copyAttrs("/reconstruction", "/runs")
+  copyAttrs((recoBase() & $runNumber), (rawDataBase() & $runNumber))
   template copyOver(path, dtype: untyped): untyped =
     # don't care for the returned group here
     discard h5fout.write_dataset(recoBase() & path, h5f[rawDataBase() & path, dtype])
 
   for dset in items(rawGrp, start_path = rawDataBase()):
-    echo "Copying: ", dset
     case dset.dtypeAnyKind
     of akInt64:
       copyOver($runNumber / dset.name.extractFilename, int64)

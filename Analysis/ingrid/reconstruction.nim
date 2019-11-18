@@ -791,41 +791,110 @@ proc calcTriggerFractions(h5f: var H5FileObj, runNumber: int) =
   grp.attrs["nonTrivial_szint1TriggerRatio"] = s1NonTrivial
   grp.attrs["nonTrivial_szint2TriggerRatio"] = s2NonTrivial
 
-proc reconstructRunsInFile(h5f: var H5FileObj,
-                           h5fout: var H5FileObj,
-                           flags: set[RecoFlagKind],
-                           cfgFlags: set[ConfigFlagKind],
-                           runNumberArg: int = -1,
-                           calib_factor: float = 1.0) =
-  ## proc which performs reconstruction of runs in a given file (all by default)
-  ## if the --only_energy command line argument is set, we skip the reconstruction
-  ## and only perform an energy calibration of the existing (!) reconstructed
-  ## runs using the calibration factor given
-  ## inputs:
-  ##   `h5f`: the file from which we read the raw data
-  ##   `h5fout`: the file to which we write the reconstructed data. May be the same file
-  ##   `flags`: stores the command line arguments
-  ##   `runNumberArg`: optional run number, if given only this run is reconstructed
-  ##   `calib_factor`: factor to use to calculate energy of clusters
-  ##   `h5fout`: optional file to which the reconstructed data is written instead
-
-  let
-    raw_data_basename = rawDataBase()
-    t0 = epochTime()
-
-  const batchsize = 5000
-  var reco_run: seq[FlowVar[ref RecoEvent[Pix]]] = @[]
-  let showPlots = if cfShowPlots in cfgFlags: true else: false
-
+template recordIterRuns(body: untyped): untyped =
+  ## Helper template, which iterates all runs in the file, records the runs iterated
+  ## over and injects the current `runNumber` and current `grp` into the calling scope
   # iterate over all raw data groups
   var runNumbersIterated: set[uint16]
   var runNumbersDone: set[uint16]
 
   # check if run type is stored in group, read it
   var runType = rtNone
-  var rawGroup = h5f[rawGroupGrpStr]
-  if "runType" in rawGroup.attrs:
-    runType = parseEnum[RunTypeKind](rawGroup.attrs["runType", string])
+  for num, curGrp in runs(h5f, rawDataBase()):
+    # now read some data. Return value will be added later
+    let grp {.inject.} = curGrp
+    let runNumber {.inject.} = parseInt(num)
+    runNumbersIterated.incl runNumber.uint16
+    body
+    runNumbersDone.incl runNumber.uint16
+
+  info "Reconstruction of all runs in $# with flags: $# took $# seconds" % [$h5f.name,
+                                                                            $flags,
+                                                                            $(epochTime() - t0)]
+  info "Performed reconstruction of the following runs:"
+  info $runNumbersDone
+  info "while iterating over the following:"
+  info $runNumbersIterated
+
+
+proc reconstructRunsInFile(h5f: var H5FileObj,
+                           h5fout: var H5FileObj,
+                           flags: set[RecoFlagKind],
+                           cfgFlags: set[ConfigFlagKind],
+                           runNumberArg: Option[int] = none[int]()) =
+  ## proc which performs reconstruction of runs in a given file (all by default). It only takes
+  ## care of the general purpose conversion from raw data to reconstructed ingrid clusters
+  ## plus FADC data. More complicated calibrations are handled by `applyCalibrationSteps` below.
+  ## inputs:
+  ##   `h5f`: the file from which we read the raw data
+  ##   `h5fout`: the file to which we write the reconstructed data. May be the same file
+  ##   `flags`: stores the command line arguments
+  ##   `runNumberArg`: optional run number, if given only this run is reconstructed
+  ##   `h5fout`: output file to which the reconstructed data is written
+  let t0 = epochTime()
+  const batchsize = 5000
+  var reco_run: seq[FlowVar[ref RecoEvent[Pix]]] = @[]
+  let showPlots = if cfShowPlots in cfgFlags: true else: false
+  recordIterRuns:
+    # check whether all runs are read, if not if this run is correct run number
+    if (runNumberArg.isSome and runNumber == runNumberArg.get) or
+       rfReadAllRuns in flags:
+      # intersection of `flags` with all `"only flags"` has to be empty
+      doAssert (flags * {rfOnlyEnergy .. rfOnlyGainFit}).card == 0:
+      # initialize groups in `h5fout`
+      initRecoFadcInH5(h5f, h5fout, runNumber, batchsize)
+      copyOverDataAttrs(h5f, h5fout, runNumber)
+
+      var runGroupForAttrs = h5f[grp.grp_str]
+      let nChips = runGroupForAttrs.attrs["numChips", int]
+      # TODO: we can in principle perform energy calibration in one go
+      # together with creation of spectrum, if we work as follows:
+      # 1. calibration runs:
+      #    - need to interface with Python code, i.e. call fitting procedure,
+      #      which returns the value to the Nim program as its return value
+      let t1 = epochTime()
+      for chip, pixdata in h5f.readDataFromH5(runNumber):
+        # given single runs pixel data, call reconstruct run proc
+        # NOTE: the data returned from the iterator contains all
+        # events in ascending order of event number, i.e.
+        # [0] -> eventNumber == 0 and so on
+        reco_run.add reconstructSingleChip(pixdata, runNumber, chip)
+        info &"Reco run now contains {reco_run.len} elements"
+      info "Reconstruction of run $# took $# seconds" % [$runNumber, $(epochTime() - t1)]
+      # finished run, so write run to H5 file
+      h5fout.writeRecoRunToH5(h5f, reco_run, runNumber)
+      # now flush both files
+      h5fout.flush
+      h5f.flush
+      # set reco run length back to 0
+      reco_run.setLen(0)
+      # calculate fractions of FADC / Scinti triggers per run
+      h5fout.calcTriggerFractions(runNumber)
+      runNumbersDone.incl runNumber.uint16
+      # now check whether create iron spectrum flag is set
+      # or this is a calibration run, then always create it
+      if rfCreateFe in flags or runType == rtCalibration:
+        createAndFitFeSpec(h5f, h5fout, runNumber, not showPlots)
+
+proc applyCalibrationSteps(h5f: var H5FileObj,
+                           flags: set[RecoFlagKind],
+                           cfgFlags: set[ConfigFlagKind],
+                           runNumberArg: int = -1,
+                           calib_factor: float = 1.0) =
+  ## inputs:
+  ##   `h5f`: the file from which we read the raw data
+  ##   `h5fout`: the file to which we write the reconstructed data. May be the same file
+  ##   `flags`: stores the command line arguments
+  ##   `runNumberArg`: optional run number, if given only this run is reconstructed
+  ##   `calib_factor`: optional factor to use to calculate energy of clusters based on number
+  ##     of pixels in the cluster.
+  ##   `h5fout`: optional file to which the reconstructed data is written instead
+  let showPlots = if cfShowPlots in cfgFlags: true else: false
+  # check if run type is stored in group, read it
+  var runType = rtNone
+  var recoGroup = h5f[recoGroupGrpStr]
+  if "runType" in recoGroup.attrs:
+    runType = parseEnum[RunTypeKind](recoGroup.attrs["runType", string])
     if rfOnlyGainFit in flags and runType != rtCalibration:
       warn "Fit to charge calibration / gas gain only possible for " &
         "calibration runs!"
@@ -837,132 +906,31 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
       # reconstruction like this!
       return
 
-  for num, grp in runs(h5f, rawDataBase()):
-    # now read some data. Return value will be added later
-    let runNumber = parseInt(num)
-    runNumbersIterated.incl runNumber.uint16
-    # check whether all runs are read, if not if this run is correct run number
-    if rfReadAllRuns in flags or runNumber == runNumberArg:
-      # check if intersection of `flags` with all `"only flags"` is empty
-      if (flags * {rfOnlyEnergy .. rfOnlyGainFit}).card == 0:
-        # initialize groups in `h5fout`
-        initRecoFadcInH5(h5f, h5fout, runNumber, batchsize)
-        copyOverDataAttrs(h5f, h5fout, runNumber)
-
-        var runGroupForAttrs = h5f[grp.grp_str]
-        let nChips = runGroupForAttrs.attrs["numChips", int]
-        # TODO: we can in principle perform energy calibration in one go
-        # together with creation of spectrum, if we work as follows:
-        # 1. calibration runs:
-        #    - need to interface with Python code, i.e. call fitting procedure,
-        #      which returns the value to the Nim program as its return value
-        let t1 = epochTime()
-        for chip, pixdata in h5f.readDataFromH5(runNumber):
-          # given single runs pixel data, call reconstruct run proc
-          # NOTE: the data returned from the iterator contains all
-          # events in ascending order of event number, i.e.
-          # [0] -> eventNumber == 0 and so on
-          reco_run.add reconstructSingleChip(pixdata, runNumber, chip)
-          info &"Reco run now contains {reco_run.len} elements"
-
-        info "Reconstruction of run $# took $# seconds" % [$runNumber, $(epochTime() - t1)]
-        # finished run, so write run to H5 file
-        h5fout.writeRecoRunToH5(h5f, reco_run, runNumber)
-
-        # now flush both files
-        h5fout.flush
-        h5f.flush
-        # set reco run length back to 0
-        reco_run.setLen(0)
-
-        # calculate fractions of FADC / Scinti triggers per run
-        h5fout.calcTriggerFractions(runNumber)
-
-        runNumbersDone.incl runNumber.uint16
-
-        # now check whether create iron spectrum flag is set
-        # or this is a calibration run, then always create it
-        if rfCreateFe in flags or runType == rtCalibration:
-          createAndFitFeSpec(h5f, h5fout, runNumber, not showPlots)
-      else:
-        # only perform energy calibration of the reconstructed runs in file
-        # check if reconstructed run exists
-        if hasKey(h5fout.groups, (recoBase & $runNumber)) == true:
-          if rfOnlyEnergy in flags:
-            # TODO: take this out
-            h5fout.calcEnergyFromPixels(runNumber, calib_factor)
-          if rfOnlyCharge in flags:
-            h5fout.applyChargeCalibration(runNumber)
-          if rfOnlyGasGain in flags:
-            h5fout.calcGasGain(runNumber, showPlots)
-          if rfOnlyFadc in flags:
-            h5fout.calcRiseAndFallTimes(runNumber)
-          if rfOnlyFeSpec in flags:
-            createAndFitFeSpec(h5f, h5fout, runNumber, not showPlots)
-        else:
-          warn "No reconstructed run found for $#" % $grp
-
   if rfOnlyEnergyElectrons in flags:
     #h5fout.calcEnergyFromPixels(runNumber, calib_factor)
     h5fout.calcEnergyFromCharge()
 
-  info "Reconstruction of all runs in $# took $# seconds" % [$h5f.name, $(epochTime() - t0)]
-
-  info "Performed reconstruction of the following runs:"
-  info $runNumbersDone
-  info "while iterating over the following:"
-  info $runNumbersIterated
-
-proc reconstructRunsInFile(h5f: var H5FileObj,
-                           flags: set[RecoFlagKind],
-                           cfgFlags: set[ConfigFlagKind],
-                           runNumberArg: int = -1,
-                           calib_factor: float = 1.0) =
-  ## this proc is a wrapper around the one above, which is called in case
-  ## no output H5 file is given. In that case we simply hand the input file
-  ## as the output file to the proc
-  # in case we want to write the reconstructed data to the same file,
-  # simply set h5fout to h5f. This creates a copy of h5f, but we don't care
-  # since it points to the same file and the important group / dset tables
-  # are stored as references anyways
-  reconstructRunsInFile(h5f, h5f, flags, cfgFlags, runNumberArg, calib_factor)
-
-proc reconstructSingleRunFolder(folder: string)
-    {.deprecated: "This proc is deprecated! Run raw_data_manipulation before!".} =
-  ## procedure which receives path to a run folder and reconstructs the objects
-  ## in that folder
-  ## inputs:
-  ##    folder: string = the run folder from which to reconstruct events
-
-  # TODO: Either remove this proc soon or revive it, but with proper run support
-  # and calling the actual reconstruction procs from the data!
-  # Latter might be a good idea actually for quick convenience!
-
-  info "Starting to read list of files"
-  let
-    files = getSortedListOfFiles(folder, EventSortType.inode, EventType.InGridType,
-                                 rfUnknown)
-    f_to_read = if files.high < 30000: files.high else: 30000
-    data = readListOfInGridFiles(files[0..f_to_read], rfUnknown)
-  var
-    min_val = 10.0
-    min_seq = newSeq[seq[float64]](7)
-  apply(min_seq, (x: seq[float64]) -> seq[float64] => newSeqOfCap[float64](files.high))
-  for e in data:
-    let
-      a: Event = (^e)[]
-      chips = a.chips
-    for c in chips:
-      let
-        num: int = c.chip.number
-        cluster = findSimpleCluster(c.pixels)
-      for cl in cluster:
-        #echo "Starting reco of ", a.evHeader["eventNumber"]
-        let ob = recoCluster(cl)
-        if ob.geometry.rotationAngle < min_val:
-          min_val = ob.geometry.rotationAngle
-        min_seq[num].add ob.geometry.rotationAngle
-  dumpRotAngle(min_seq)
+  recordIterRuns:
+    if (runNumberArg.isSome and runNumber == runNumberArg.get) or
+       rfReadAllRuns in flags:
+      # intersection of `flags` with all `"only flags"` must not be empty
+      doAssert (flags * {rfOnlyEnergy .. rfOnlyGainFit}).card > 0
+      # only perform energy calibration of the reconstructed runs in file
+      # check if reconstructed run exists
+      if hasKey(h5fout.groups, (recoBase & $runNumber)) == true:
+        if rfOnlyEnergy in flags:
+          # TODO: take this out
+          h5fout.calcEnergyFromPixels(runNumber, calib_factor)
+        if rfOnlyCharge in flags:
+          h5fout.applyChargeCalibration(runNumber)
+        if rfOnlyGasGain in flags:
+          h5fout.calcGasGain(runNumber, showPlots)
+        if rfOnlyFadc in flags:
+          h5fout.calcRiseAndFallTimes(runNumber)
+        if rfOnlyFeSpec in flags:
+          createAndFitFeSpec(h5f, h5fout, runNumber, not showPlots)
+      else:
+        warn "No reconstructed run found for $#" % $grp
 
 proc parseTomlConfig(): set[ConfigFlagKind] =
   ## parses our config.toml file and (for now) just returns a set of flags

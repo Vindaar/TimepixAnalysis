@@ -651,6 +651,7 @@ proc getCenterChipAndName(run: ProcessedRun): (int, string) =
     warn &"This number of chips ({run.nChips}) currently unsupported for" &
       " `centerChip` determination. Will be set to 0."
   let centerName = run.chips[centerChip].name
+  result = (centerChip, centerName)
 
 proc writeRawAttrs*(h5f: var H5FileObj,
                     run: ProcessedRun,

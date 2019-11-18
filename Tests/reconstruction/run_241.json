@@ -20,7 +20,7 @@
     "type": "akFloat64"
   },
   "centerChipName": {
-    "value": "\u0000",
+    "value": "H 10 W69",
     "type": "akString"
   },
   "shutterMode": {
@@ -76,7 +76,7 @@
     "type": "akFloat64"
   },
   "centerChip": {
-    "value": 0,
+    "value": 3,
     "type": "akInt64"
   }
 }

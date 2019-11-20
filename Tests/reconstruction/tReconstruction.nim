@@ -53,7 +53,8 @@ proc checkContent(h5f: H5FileOBj, runNumber: int, withFadc = false): bool =
   let runAttrs = attrsToJson(h5f[("reconstruction" / r).grp_str], withType = true)
   # screw it, we compare by string. For some reason it appears `==` for Json doesn't
   # properly handle comparisons?!
-  check runAttrs.pretty == parseJson(readFile("run_" & $runNumber & ".json")).pretty
+  #writeFile(&"run_{runNumber}.json", runAttrs.pretty)
+  check runAttrs.pretty == parseJson(readFile(&"run_{runNumber}.json")).pretty
   check "/reconstruction" / r in h5f
   for ch in ChipGroupsSet:
     check "/reconstruction" / r / ch in h5f

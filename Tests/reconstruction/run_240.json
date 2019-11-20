@@ -31,6 +31,10 @@
     "value": "true",
     "type": "akString"
   },
+  "runType": {
+    "value": "rtBackground",
+    "type": "akString"
+  },
   "runNumber": {
     "value": 240,
     "type": "akInt64"

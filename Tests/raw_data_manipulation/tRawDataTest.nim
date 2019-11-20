@@ -2,11 +2,9 @@ import sequtils, strutils, os, algorithm, strformat
 import unittest
 import nimhdf5
 import shell
-
-from ggplotnim import almostEqual
 import seqmath
 
-import json
+import helpers/testUtils
 
 const pwd = currentSourcePath().parentDir
 const dataPwd = pwd / "../../resources/TPAresources/raw_data_manipulation/"
@@ -120,8 +118,14 @@ proc checkRun(number: int, name: string, withFadc = false): bool =
     let grpAttrsJson = grp.attrsToJson(withType = true)
     #writeFile(&"run_{number}_attrs_rawgrp.json", rawAttrsJson.pretty)
     #writeFile(&"run_{number}_attrs_rungrp.json", grpAttrsJson.pretty)
-    check rawAttrsJson.pretty == readFile(&"run_{number}_attrs_rawgrp.json")
-    check grpAttrsJson.pretty == readFile(&"run_{number}_attrs_rungrp.json")
+    check compareJObjects(
+      rawAttrsJson,
+      parseFile(&"run_{number}_attrs_rawgrp.json")
+    )
+    check compareJObjects(
+      grpAttrsJson,
+      parseFile(&"run_{number}_attrs_rungrp.json")
+    )
 
   for i in 0 .. 6:
     checkChips(i, 0)
@@ -142,8 +146,8 @@ proc checkRun(number: int, name: string, withFadc = false): bool =
       "channel_mask": 15,
       "pretrig": 15000
     }
-    let jattrs = fadcgrp.attrsToJson.pretty
-    check expFadcAttrs.pretty == jattrs
+    let jattrs = fadcgrp.attrsToJson
+    check compareJObjects(expFadcAttrs, jattrs)
 
 suite "raw data manipulation":
   ## these tests check whether the raw data manipulation produces HDF5

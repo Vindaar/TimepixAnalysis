@@ -66,16 +66,19 @@ NOTE: When calling `reconstruction` without any of the `--only_*` flags, the inp
 has to be a H5 file resulting from `raw_data_manipulation`. In the other cases the input is
 simply a file resulting from a prior `reconstruction` call!
 
+The `--only_*` flags below are given roughly in the order in which the full analysis chain
+requires them to be run. If unsure on the order, check the runAnalysisChain.nim file.
+
 Usage:
   reconstruction <HDF5file> --out <name> [options]
   reconstruction <HDF5file> --out <name> [--runNumber <number>] [--create_fe_spec] [options]
-  reconstruction <HDF5file> [--runNumber <number>] --only_energy <factor> [options]
-  reconstruction <HDF5file> [--runNumber <number>] --only_energy_from_e [options]
+  reconstruction <HDF5file> [--runNumber <number>] --only_fadc [options]
   reconstruction <HDF5file> [--runNumber <number>] --only_fe_spec [options]
   reconstruction <HDF5file> [--runNumber <number>] --only_charge [options]
-  reconstruction <HDF5file> [--runNumber <number>] --only_fadc [options]
   reconstruction <HDF5file> [--runNumber <number>] --only_gas_gain [options]
   reconstruction <HDF5file> [--runNumber <number>] --only_gain_fit [options]
+  reconstruction <HDF5file> [--runNumber <number>] --only_energy_from_e [options]
+  reconstruction <HDF5file> [--runNumber <number>] --only_energy <factor> [options]
   reconstruction -h | --help
   reconstruction --version
 

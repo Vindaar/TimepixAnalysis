@@ -114,8 +114,15 @@ proc checkRun(number: int, name: string, withFadc = false): bool =
       result = averageHits241[chip] == raw_y[special_type(uint8), uint8].mapIt(it.len).sum.float / 1001.0
       result = averageHits241[chip] == raw_ch[special_type(uint16), uint16].mapIt(it.len).sum.float / 1001.0
     let grp = h5f[("runs/run_" & $number).grp_str]
-    for at in attrs:
-      result = at in grp.attrs
+    let rawGrp = h5f["runs".grp_str]
+    # compare the attributes
+    let rawAttrsJson = rawGrp.attrsToJson(withType = true)
+    let grpAttrsJson = grp.attrsToJson(withType = true)
+    #writeFile(&"run_{number}_attrs_rawgrp.json", rawAttrsJson.pretty)
+    #writeFile(&"run_{number}_attrs_rungrp.json", grpAttrsJson.pretty)
+    check rawAttrsJson.pretty == readFile(&"run_{number}_attrs_rawgrp.json")
+    check grpAttrsJson.pretty == readFile(&"run_{number}_attrs_rungrp.json")
+
   for i in 0 .. 6:
     checkChips(i, 0)
   if withFadc:
@@ -135,8 +142,8 @@ proc checkRun(number: int, name: string, withFadc = false): bool =
       "channel_mask": 15,
       "pretrig": 15000
     }
-    let jattrs = fadcgrp.attrsToJson
-    check expFadcAttrs == jattrs
+    let jattrs = fadcgrp.attrsToJson.pretty
+    check expFadcAttrs.pretty == jattrs
 
 suite "raw data manipulation":
   ## these tests check whether the raw data manipulation produces HDF5

@@ -1,0 +1,66 @@
+{
+  "pathName": {
+    "value": "data/runs/Run_241_181022-16-16",
+    "type": "akString"
+  },
+  "numChips": {
+    "value": 7,
+    "type": "akInt64"
+  },
+  "externalTrigger": {
+    "value": 0,
+    "type": "akInt64"
+  },
+  "centerChipName": {
+    "value": "H 10 W69",
+    "type": "akString"
+  },
+  "shutterMode": {
+    "value": "verylong",
+    "type": "akString"
+  },
+  "rawDataFinished": {
+    "value": "true",
+    "type": "akString"
+  },
+  "runType": {
+    "value": "rtBackground",
+    "type": "akString"
+  },
+  "runNumber": {
+    "value": 241,
+    "type": "akInt64"
+  },
+  "numEventsStored": {
+    "value": 1001,
+    "type": "akInt64"
+  },
+  "runTimeFrames": {
+    "value": 0,
+    "type": "akInt64"
+  },
+  "dateTime": {
+    "value": "2018-10-22.16:16:21",
+    "type": "akString"
+  },
+  "runMode": {
+    "value": 0,
+    "type": "akInt64"
+  },
+  "runTime": {
+    "value": 7200,
+    "type": "akInt64"
+  },
+  "shutterTime": {
+    "value": 30,
+    "type": "akInt64"
+  },
+  "fastClock": {
+    "value": 0,
+    "type": "akInt64"
+  },
+  "centerChip": {
+    "value": 3,
+    "type": "akInt64"
+  }
+}

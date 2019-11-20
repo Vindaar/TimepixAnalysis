@@ -1,0 +1,18 @@
+{
+  "centerChipName": {
+    "value": "H 10 W69",
+    "type": "akString"
+  },
+  "runType": {
+    "value": "rtCalibration",
+    "type": "akString"
+  },
+  "runFolderKind": {
+    "value": "rfNewTos",
+    "type": "akString"
+  },
+  "centerChip": {
+    "value": 3,
+    "type": "akInt64"
+  }
+}

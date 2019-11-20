@@ -666,6 +666,7 @@ proc writeRawAttrs*(h5f: var H5FileObj,
   rawG.attrs["centerChipName"] = centerName
 
 proc writeRunGrpAttrs*(h5f: var H5FileObj, group: var H5Group,
+                       runType: RunTypeKind,
                        run: ProcessedRun) =
   ## writes all attributes to given `group` that can be extracted from
   ## the `ProcessedRun`, `rfKind` and `runType`.
@@ -692,6 +693,7 @@ proc writeRunGrpAttrs*(h5f: var H5FileObj, group: var H5Group,
   group.attrs["centerChip"] = centerChip
   # initialize the attribute for the current number of stored events to 0
   group.attrs["numEventsStored"] = 0
+  group.attrs["runType"] = $runType
 
 proc writeChipAttrs*(h5f: var H5FileObj,
                      chipGroups: var seq[H5Group],
@@ -714,7 +716,7 @@ proc writeInGridAttrs*(h5f: var H5FileObj, run: ProcessedRun,
   # individual run group
   let groupName = getGroupNameRaw(run.runNumber)
   var group = h5f[groupName.grp_str]
-  writeRunGrpAttrs(h5f, group, run)
+  writeRunGrpAttrs(h5f, group, runType, run)
   # chip groups
   var chipGroups = createChipGroups(h5f, run.runNumber, run.nChips)
   writeChipAttrs(h5f, chipGroups, run)

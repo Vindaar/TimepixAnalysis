@@ -31,6 +31,10 @@
     "value": "true",
     "type": "akString"
   },
+  "runType": {
+    "value": "rtCalibration",
+    "type": "akString"
+  },
   "runNumber": {
     "value": 241,
     "type": "akInt64"

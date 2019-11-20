@@ -1,4 +1,4 @@
-import sequtils, strutils, os, algorithm, strformat, sets
+import sequtils, strutils, os, algorithm, strformat, sets, os
 import unittest
 import nimhdf5
 import shell
@@ -63,6 +63,37 @@ proc checkContent(h5f: H5FileOBj, runNumber: int, withFadc = false): bool =
     if withFadc:
       for dset in FadcDatasetSet:
         check  "/reconstruction" / r / "fadc" / dset in h5f
+  if runNumber == 241:
+    # check Fe Spectrum datasets and attributes
+    # for the dataset we're going a different route. We're going to read all data
+    # into a seq[T] and then (if float) round all values to nearest int? 2 digits?
+    # not sure and convert to string. Then we simply calc the sha1 hash as a
+    # checksum for the data and compare that.
+    let FeDsets = ["", "Charge", "ChargePlot", "ChargePlotFit",
+                   "Events", "Indices", "Plot", "PlotFit"].mapIt("FeSpectrum" & it)
+    let runGrp = h5f[(&"/reconstruction/run_{runNumber}").grp_str]
+    let centerChip = runGrp.attrs["centerChip", int]
+    check centerChip == 3
+    for chip in 0 ..< 6:
+      if chip == centerChip:
+        # check for FeSpec related dsets and content
+        check FeDsets.filterIt(
+          runGrp.name / "chip_" & $chip / it in h5f
+        ).len == FeDsets.len
+        # check attributes
+        var feAttrs = newJObject()
+        for dsetName in FeDsets:
+          let dset = h5f[(runGrp.name / "chip_" & $chip / dsetName).dset_str]
+          feAttrs[dsetName] = dset.attrsToJson(withType = true)
+        #gwriteFile(&"fe_spectrum_attributes_run_{runNumber}.json", feAttrs.pretty)
+        check feAttrs.pretty == readFile(&"fe_spectrum_attributes_run_{runNumber}.json")
+      else:
+        check FeDsets.filterIt(
+          runGrp.name / "chip_" & $chip / it notin h5f
+        ).len == FeDsets.len
+
+  # TODO: Write total charge test
+
 
 suite "reconstruction":
   const runs = [(inName: "run_240.h5", outName: "reco_240.h5",
@@ -77,13 +108,23 @@ suite "reconstruction":
       check fileExists(r.outName)
 
       # get all groups and datasets in the files
-      var h5f = H5file(r.outName, "r")
-      check checkContent(h5f, r.num, withFadc = true)
-      check h5f.close() >= 0
-      removeFile(r.inName)
-
-      # now run different command line options
-      res = shellVerbose:
-        "../../Analysis/ingrid/reconstruction" ($(dataInPath/r.inName)) "--out" ($r.outName)
-
+      withH5(r.outName, "r"):
+        check checkContent(h5f, r.num, withFadc = true)
       removeFile(r.outName)
+      # now run different command line options
+      # first of all just check whether all options actually work the way they should
+
+
+      # giving run number should be exactly the same as above
+      #res = shellVerbose:
+      #  "../../Analysis/ingrid/reconstruction" ($(dataInPath/r.inName)) "--out" ($r.outName) "--runNumber" ($r.num)
+      #withH5(r.outName, "r"):
+      #  check checkContent(h5f, r.num, withFadc = true)
+      #removeFile(r.outName)
+
+      #res = shellVerbose:
+      #  "../../Analysis/ingrid/reconstruction" ($(dataInPath/r.inName)) "--out" ($r.outName) "--only_charge"
+      #withH5(r.outName, "r"):
+      #  check checkContent(h5f, r.num, withFadc = true)
+
+      #removeFile(r.inName)

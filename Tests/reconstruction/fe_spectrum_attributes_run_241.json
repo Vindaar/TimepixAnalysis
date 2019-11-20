@@ -1,0 +1,676 @@
+{
+  "FeSpectrum": {
+    "pErr_11": {
+      "value": 1.312171718830986,
+      "type": "akFloat64"
+    },
+    "text_2": {
+      "value": "sigma = 7.23%",
+      "type": "akString"
+    },
+    "p12": {
+      "value": -6.930651996989248,
+      "type": "akFloat64"
+    },
+    "pErr_6": {
+      "value": 11354908088.60131,
+      "type": "akFloat64"
+    },
+    "eV_per_pix": {
+      "value": 21.08074336134771,
+      "type": "akFloat64"
+    },
+    "p9": {
+      "value": 7.023738164642237,
+      "type": "akFloat64"
+    },
+    "pErr_9": {
+      "value": 0.2943872067356151,
+      "type": "akFloat64"
+    },
+    "pErr_12": {
+      "value": 0.0,
+      "type": "akFloat64"
+    },
+    "p13": {
+      "value": 1.041370504762757,
+      "type": "akFloat64"
+    },
+    "text_1": {
+      "value": "21.1ev / pix",
+      "type": "akString"
+    },
+    "p_E_0": {
+      "value": 47.43665737298122,
+      "type": "akFloat64"
+    },
+    "p4": {
+      "value": 9.432849188200985,
+      "type": "akFloat64"
+    },
+    "pErr_4": {
+      "value": 2.591818374528975,
+      "type": "akFloat64"
+    },
+    "p5": {
+      "value": -25.83886372888939,
+      "type": "akFloat64"
+    },
+    "p_E_Err_0": {
+      "value": 0.3037511885689856,
+      "type": "akFloat64"
+    },
+    "p1": {
+      "value": 0.01373708143541795,
+      "type": "akFloat64"
+    },
+    "pErr_0": {
+      "value": 31.87332533429348,
+      "type": "akFloat64"
+    },
+    "pErr_3": {
+      "value": 2.589399265680382,
+      "type": "akFloat64"
+    },
+    "p3": {
+      "value": 136.0683888415293,
+      "type": "akFloat64"
+    },
+    "p8": {
+      "value": 15.05419939661617,
+      "type": "akFloat64"
+    },
+    "pErr_5": {
+      "value": 17798490766.62338,
+      "type": "akFloat64"
+    },
+    "pErr_13": {
+      "value": 0.0,
+      "type": "akFloat64"
+    },
+    "d_eV_per_pix": {
+      "value": 0.0410022618002906,
+      "type": "akFloat64"
+    },
+    "p11": {
+      "value": 19.78981042651253,
+      "type": "akFloat64"
+    },
+    "pErr_14": {
+      "value": 0.0891149273456025,
+      "type": "akFloat64"
+    },
+    "p14": {
+      "value": 0.01,
+      "type": "akFloat64"
+    },
+    "p10": {
+      "value": 273.5766605670894,
+      "type": "akFloat64"
+    },
+    "pErr_8": {
+      "value": 5318.185041177704,
+      "type": "akFloat64"
+    },
+    "p7": {
+      "value": -9.048609808498021,
+      "type": "akFloat64"
+    },
+    "pErr_2": {
+      "value": 0.3364791447754676,
+      "type": "akFloat64"
+    },
+    "pErr_10": {
+      "value": 1.686578993382675,
+      "type": "akFloat64"
+    },
+    "p6": {
+      "value": -4.050160189726355,
+      "type": "akFloat64"
+    },
+    "pErr_1": {
+      "value": 0.3906368415196922,
+      "type": "akFloat64"
+    },
+    "pErr_7": {
+      "value": 7350.384165695446,
+      "type": "akFloat64"
+    },
+    "text_0": {
+      "value": "mu = 273.6pix",
+      "type": "akString"
+    },
+    "p2": {
+      "value": 1.425402455032141,
+      "type": "akFloat64"
+    },
+    "p0": {
+      "value": -5.445676078400029,
+      "type": "akFloat64"
+    }
+  },
+  "FeSpectrumCharge": {
+    "keV_per_electron": {
+      "value": 6.762604443478857e-06,
+      "type": "akFloat64"
+    },
+    "text_1": {
+      "value": "sigma = 8.26%",
+      "type": "akString"
+    },
+    "p_E_0": {
+      "value": 147.872023028686,
+      "type": "akFloat64"
+    },
+    "p4": {
+      "value": 872.381772222164,
+      "type": "akFloat64"
+    },
+    "pErr_4": {
+      "value": 3.900331468350471,
+      "type": "akFloat64"
+    },
+    "p5": {
+      "value": 72.06222240035703,
+      "type": "akFloat64"
+    },
+    "p_E_Err_0": {
+      "value": 0.2106928720475097,
+      "type": "akFloat64"
+    },
+    "p1": {
+      "value": 425.9446657203158,
+      "type": "akFloat64"
+    },
+    "pErr_0": {
+      "value": 0.2795994812139402,
+      "type": "akFloat64"
+    },
+    "pErr_3": {
+      "value": 0.2198055016818513,
+      "type": "akFloat64"
+    },
+    "p3": {
+      "value": 4.593007707971793,
+      "type": "akFloat64"
+    },
+    "pErr_5": {
+      "value": 4.070541132921152,
+      "type": "akFloat64"
+    },
+    "d_keV_per_electron": {
+      "value": 2.030147803284354e-09,
+      "type": "akFloat64"
+    },
+    "pErr_2": {
+      "value": 32.68579645351397,
+      "type": "akFloat64"
+    },
+    "pErr_1": {
+      "value": 28.54090065637111,
+      "type": "akFloat64"
+    },
+    "text_0": {
+      "value": "6.8ev / pix",
+      "type": "akString"
+    },
+    "p2": {
+      "value": 53.38254830638906,
+      "type": "akFloat64"
+    },
+    "p0": {
+      "value": 0.6054191639539502,
+      "type": "akFloat64"
+    }
+  },
+  "FeSpectrumChargePlot": {
+    "p0": {
+      "value": 0.6054191639539502,
+      "type": "akFloat64"
+    },
+    "text_1": {
+      "value": "sigma = 8.26%",
+      "type": "akString"
+    },
+    "p_E_0": {
+      "value": 147.872023028686,
+      "type": "akFloat64"
+    },
+    "p4": {
+      "value": 872.381772222164,
+      "type": "akFloat64"
+    },
+    "pErr_4": {
+      "value": 3.900331468350471,
+      "type": "akFloat64"
+    },
+    "p5": {
+      "value": 72.06222240035703,
+      "type": "akFloat64"
+    },
+    "p_E_Err_0": {
+      "value": 0.2106928720475097,
+      "type": "akFloat64"
+    },
+    "p1": {
+      "value": 425.9446657203158,
+      "type": "akFloat64"
+    },
+    "pErr_0": {
+      "value": 0.2795994812139402,
+      "type": "akFloat64"
+    },
+    "pErr_3": {
+      "value": 0.2198055016818513,
+      "type": "akFloat64"
+    },
+    "p3": {
+      "value": 4.593007707971793,
+      "type": "akFloat64"
+    },
+    "pErr_5": {
+      "value": 4.070541132921152,
+      "type": "akFloat64"
+    },
+    "d_keV_per_electron": {
+      "value": 2.030147803284354e-09,
+      "type": "akFloat64"
+    },
+    "pErr_2": {
+      "value": 32.68579645351397,
+      "type": "akFloat64"
+    },
+    "pErr_1": {
+      "value": 28.54090065637111,
+      "type": "akFloat64"
+    },
+    "text_0": {
+      "value": "6.8ev / pix",
+      "type": "akString"
+    },
+    "keV_per_electron": {
+      "value": 6.762604443478857e-06,
+      "type": "akFloat64"
+    },
+    "p2": {
+      "value": 53.38254830638906,
+      "type": "akFloat64"
+    }
+  },
+  "FeSpectrumChargePlotFit": {
+    "p0": {
+      "value": 0.6054191639539502,
+      "type": "akFloat64"
+    },
+    "text_1": {
+      "value": "sigma = 8.26%",
+      "type": "akString"
+    },
+    "p_E_0": {
+      "value": 147.872023028686,
+      "type": "akFloat64"
+    },
+    "p4": {
+      "value": 872.381772222164,
+      "type": "akFloat64"
+    },
+    "pErr_4": {
+      "value": 3.900331468350471,
+      "type": "akFloat64"
+    },
+    "p5": {
+      "value": 72.06222240035703,
+      "type": "akFloat64"
+    },
+    "p_E_Err_0": {
+      "value": 0.2106928720475097,
+      "type": "akFloat64"
+    },
+    "p1": {
+      "value": 425.9446657203158,
+      "type": "akFloat64"
+    },
+    "pErr_0": {
+      "value": 0.2795994812139402,
+      "type": "akFloat64"
+    },
+    "pErr_3": {
+      "value": 0.2198055016818513,
+      "type": "akFloat64"
+    },
+    "p3": {
+      "value": 4.593007707971793,
+      "type": "akFloat64"
+    },
+    "pErr_5": {
+      "value": 4.070541132921152,
+      "type": "akFloat64"
+    },
+    "d_keV_per_electron": {
+      "value": 2.030147803284354e-09,
+      "type": "akFloat64"
+    },
+    "pErr_2": {
+      "value": 32.68579645351397,
+      "type": "akFloat64"
+    },
+    "pErr_1": {
+      "value": 28.54090065637111,
+      "type": "akFloat64"
+    },
+    "text_0": {
+      "value": "6.8ev / pix",
+      "type": "akString"
+    },
+    "keV_per_electron": {
+      "value": 6.762604443478857e-06,
+      "type": "akFloat64"
+    },
+    "p2": {
+      "value": 53.38254830638906,
+      "type": "akFloat64"
+    }
+  },
+  "FeSpectrumEvents": {},
+  "FeSpectrumIndices": {},
+  "FeSpectrumPlot": {
+    "pErr_11": {
+      "value": 1.312171718830986,
+      "type": "akFloat64"
+    },
+    "text_2": {
+      "value": "sigma = 7.23%",
+      "type": "akString"
+    },
+    "p12": {
+      "value": -6.930651996989248,
+      "type": "akFloat64"
+    },
+    "pErr_6": {
+      "value": 11354908088.60131,
+      "type": "akFloat64"
+    },
+    "eV_per_pix": {
+      "value": 21.08074336134771,
+      "type": "akFloat64"
+    },
+    "p9": {
+      "value": 7.023738164642237,
+      "type": "akFloat64"
+    },
+    "pErr_9": {
+      "value": 0.2943872067356151,
+      "type": "akFloat64"
+    },
+    "pErr_12": {
+      "value": 0.0,
+      "type": "akFloat64"
+    },
+    "p13": {
+      "value": 1.041370504762757,
+      "type": "akFloat64"
+    },
+    "text_1": {
+      "value": "21.1ev / pix",
+      "type": "akString"
+    },
+    "p_E_0": {
+      "value": 47.43665737298122,
+      "type": "akFloat64"
+    },
+    "p4": {
+      "value": 9.432849188200985,
+      "type": "akFloat64"
+    },
+    "pErr_4": {
+      "value": 2.591818374528975,
+      "type": "akFloat64"
+    },
+    "p5": {
+      "value": -25.83886372888939,
+      "type": "akFloat64"
+    },
+    "p_E_Err_0": {
+      "value": 0.3037511885689856,
+      "type": "akFloat64"
+    },
+    "p1": {
+      "value": 0.01373708143541795,
+      "type": "akFloat64"
+    },
+    "pErr_0": {
+      "value": 31.87332533429348,
+      "type": "akFloat64"
+    },
+    "pErr_3": {
+      "value": 2.589399265680382,
+      "type": "akFloat64"
+    },
+    "p3": {
+      "value": 136.0683888415293,
+      "type": "akFloat64"
+    },
+    "p8": {
+      "value": 15.05419939661617,
+      "type": "akFloat64"
+    },
+    "pErr_5": {
+      "value": 17798490766.62338,
+      "type": "akFloat64"
+    },
+    "pErr_13": {
+      "value": 0.0,
+      "type": "akFloat64"
+    },
+    "d_eV_per_pix": {
+      "value": 0.0410022618002906,
+      "type": "akFloat64"
+    },
+    "p11": {
+      "value": 19.78981042651253,
+      "type": "akFloat64"
+    },
+    "pErr_14": {
+      "value": 0.0891149273456025,
+      "type": "akFloat64"
+    },
+    "p14": {
+      "value": 0.01,
+      "type": "akFloat64"
+    },
+    "p10": {
+      "value": 273.5766605670894,
+      "type": "akFloat64"
+    },
+    "pErr_8": {
+      "value": 5318.185041177704,
+      "type": "akFloat64"
+    },
+    "p7": {
+      "value": -9.048609808498021,
+      "type": "akFloat64"
+    },
+    "pErr_2": {
+      "value": 0.3364791447754676,
+      "type": "akFloat64"
+    },
+    "pErr_10": {
+      "value": 1.686578993382675,
+      "type": "akFloat64"
+    },
+    "p6": {
+      "value": -4.050160189726355,
+      "type": "akFloat64"
+    },
+    "pErr_1": {
+      "value": 0.3906368415196922,
+      "type": "akFloat64"
+    },
+    "pErr_7": {
+      "value": 7350.384165695446,
+      "type": "akFloat64"
+    },
+    "text_0": {
+      "value": "mu = 273.6pix",
+      "type": "akString"
+    },
+    "p2": {
+      "value": 1.425402455032141,
+      "type": "akFloat64"
+    },
+    "p0": {
+      "value": -5.445676078400029,
+      "type": "akFloat64"
+    }
+  },
+  "FeSpectrumPlotFit": {
+    "pErr_11": {
+      "value": 1.312171718830986,
+      "type": "akFloat64"
+    },
+    "p0": {
+      "value": -5.445676078400029,
+      "type": "akFloat64"
+    },
+    "p12": {
+      "value": -6.930651996989248,
+      "type": "akFloat64"
+    },
+    "pErr_6": {
+      "value": 11354908088.60131,
+      "type": "akFloat64"
+    },
+    "eV_per_pix": {
+      "value": 21.08074336134771,
+      "type": "akFloat64"
+    },
+    "p9": {
+      "value": 7.023738164642237,
+      "type": "akFloat64"
+    },
+    "pErr_9": {
+      "value": 0.2943872067356151,
+      "type": "akFloat64"
+    },
+    "pErr_12": {
+      "value": 0.0,
+      "type": "akFloat64"
+    },
+    "p13": {
+      "value": 1.041370504762757,
+      "type": "akFloat64"
+    },
+    "text_1": {
+      "value": "21.1ev / pix",
+      "type": "akString"
+    },
+    "p_E_0": {
+      "value": 47.43665737298122,
+      "type": "akFloat64"
+    },
+    "p4": {
+      "value": 9.432849188200985,
+      "type": "akFloat64"
+    },
+    "pErr_4": {
+      "value": 2.591818374528975,
+      "type": "akFloat64"
+    },
+    "p5": {
+      "value": -25.83886372888939,
+      "type": "akFloat64"
+    },
+    "p_E_Err_0": {
+      "value": 0.3037511885689856,
+      "type": "akFloat64"
+    },
+    "p1": {
+      "value": 0.01373708143541795,
+      "type": "akFloat64"
+    },
+    "pErr_0": {
+      "value": 31.87332533429348,
+      "type": "akFloat64"
+    },
+    "pErr_3": {
+      "value": 2.589399265680382,
+      "type": "akFloat64"
+    },
+    "p3": {
+      "value": 136.0683888415293,
+      "type": "akFloat64"
+    },
+    "p8": {
+      "value": 15.05419939661617,
+      "type": "akFloat64"
+    },
+    "pErr_5": {
+      "value": 17798490766.62338,
+      "type": "akFloat64"
+    },
+    "pErr_13": {
+      "value": 0.0,
+      "type": "akFloat64"
+    },
+    "d_eV_per_pix": {
+      "value": 0.0410022618002906,
+      "type": "akFloat64"
+    },
+    "p11": {
+      "value": 19.78981042651253,
+      "type": "akFloat64"
+    },
+    "pErr_14": {
+      "value": 0.0891149273456025,
+      "type": "akFloat64"
+    },
+    "p14": {
+      "value": 0.01,
+      "type": "akFloat64"
+    },
+    "p10": {
+      "value": 273.5766605670894,
+      "type": "akFloat64"
+    },
+    "pErr_8": {
+      "value": 5318.185041177704,
+      "type": "akFloat64"
+    },
+    "p7": {
+      "value": -9.048609808498021,
+      "type": "akFloat64"
+    },
+    "pErr_2": {
+      "value": 0.3364791447754676,
+      "type": "akFloat64"
+    },
+    "pErr_10": {
+      "value": 1.686578993382675,
+      "type": "akFloat64"
+    },
+    "p6": {
+      "value": -4.050160189726355,
+      "type": "akFloat64"
+    },
+    "pErr_1": {
+      "value": 0.3906368415196922,
+      "type": "akFloat64"
+    },
+    "text_2": {
+      "value": "sigma = 7.23%",
+      "type": "akString"
+    },
+    "pErr_7": {
+      "value": 7350.384165695446,
+      "type": "akFloat64"
+    },
+    "text_0": {
+      "value": "mu = 273.6pix",
+      "type": "akString"
+    },
+    "p2": {
+      "value": 1.425402455032141,
+      "type": "akFloat64"
+    }
+  }
+}

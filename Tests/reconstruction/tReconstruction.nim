@@ -81,9 +81,25 @@ proc checkContent(h5f: H5FileOBj, runNumber: int, withFadc = false): bool =
         ).len == FeDsets.len
         # check attributes
         var feAttrs = newJObject()
+        var feDsetHashes = newJObject()
         for dsetName in FeDsets:
           let dset = h5f[(runGrp.name / "chip_" & $chip / dsetName).dset_str]
           feAttrs[dsetName] = dset.attrsToJson(withType = true)
+          # read dset, hash content
+          case dset.dtypeAnyKind
+          of akInt64:
+            let data = dset[int64].mapIt(&"{it}")
+            feDsetHashes[dsetName] = % $secureHash($(% data))
+          of akFloat64:
+            let data = dset[float64].mapIt(&"{it:.8f}")
+            feDsetHashes[dsetName] = % $secureHash($(% data))
+          else:
+            doAssert false, "what " & $dset
+        #writeFile(&"hashes_fe_spetrum_run_{runNumber}.json", feDsetHashes.pretty)
+        check compareJObjects(
+          feDsetHashes,
+          parseFile(&"hashes_fe_spetrum_run_{runNumber}.json")
+        )
         #gwriteFile(&"fe_spectrum_attributes_run_{runNumber}.json", feAttrs.pretty)
         check compareJObjects(
           feAttrs,

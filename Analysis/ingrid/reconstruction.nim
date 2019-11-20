@@ -4,22 +4,15 @@
 #   - calculating properties of Events
 
 # nim stdlib
-import os
-import sequtils, future
+import os, sequtils, future, math, tables, strutils, strformat, macros, options
 #import threadpool
 import threadpool_simple
 import logging
-import math
-import tables
 import docopt
-import strutils
-import strformat
 import typeinfo
-import re
 import times
 import stats
 import sets
-import macros
 
 # external modules
 import nlopt
@@ -696,19 +689,18 @@ proc reconstructSingleChip*(data: seq[(Pixels, int)], run, chip: int): seq[FlowV
 #iterator matchingGroup(h5f: var H5FileObj,
 
 proc createAndFitFeSpec(h5f: var H5FileObj,
-                        h5fout: var H5FileObj,
                         runNumber: int,
                         fittingOnly: bool) =
   ## create the Fe spectrum for the run, apply the charge calibration if possible
-  ## and then fit to the Fe spectrum, writing results to `h5fout`
+  ## and then fit to the Fe spectrum
   var centerChip = h5f.getCenterChip(runNumber)
-  h5fout.createFeSpectrum(runNumber, centerChip)
+  h5f.createFeSpectrum(runNumber, centerChip)
   try:
-    h5fout.applyChargeCalibration(runNumber)
+    h5f.applyChargeCalibration(runNumber)
   except KeyError as e:
     warn "No charge calibration possible for current one or " &
          "more chips. Exception message:\n" & e.msg
-  h5fout.fitToFeSpectrum(runNumber, centerChip, fittingOnly)
+  h5f.fitToFeSpectrum(runNumber, centerChip, fittingOnly)
 
 proc initRecoFadcInH5(h5f, h5fout: var H5FileObj, runNumber, batchsize: int) =
   # proc to initialize the datasets etc in the HDF5 file for the FADC. Useful
@@ -760,7 +752,7 @@ proc copyOverDataAttrs(h5f, h5fout: var H5FileObj, runNumber: int) =
   template copyOver(path, dtype: untyped): untyped =
     # don't care for the returned group here
     discard h5fout.write_dataset(recoBase() & path, h5f[rawDataBase() & path, dtype])
-
+  let rawGrp = h5f[("/runs/run_" / $runNumber).grp_str]
   for dset in items(rawGrp, start_path = rawDataBase()):
     case dset.dtypeAnyKind
     of akInt64:
@@ -797,6 +789,7 @@ proc calcTriggerFractions(h5f: var H5FileObj, runNumber: int) =
 template recordIterRuns(body: untyped): untyped =
   ## Helper template, which iterates all runs in the file, records the runs iterated
   ## over and injects the current `runNumber` and current `grp` into the calling scope
+  let t0 = epochTime()
   # iterate over all raw data groups
   var runNumbersIterated: set[uint16]
   var runNumbersDone: set[uint16]
@@ -834,16 +827,18 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
   ##   `flags`: stores the command line arguments
   ##   `runNumberArg`: optional run number, if given only this run is reconstructed
   ##   `h5fout`: output file to which the reconstructed data is written
-  let t0 = epochTime()
   const batchsize = 5000
   var reco_run: seq[FlowVar[ref RecoEvent[Pix]]] = @[]
   let showPlots = if cfShowPlots in cfgFlags: true else: false
   recordIterRuns:
     # check whether all runs are read, if not if this run is correct run number
+    let runType = parseEnum[RunTypeKind](
+      h5f[recoBase().grp_str].attrs["runType", string]
+    )
     if (runNumberArg.isSome and runNumber == runNumberArg.get) or
        rfReadAllRuns in flags:
       # intersection of `flags` with all `"only flags"` has to be empty
-      doAssert (flags * {rfOnlyEnergy .. rfOnlyGainFit}).card == 0:
+      doAssert (flags * {rfOnlyEnergy .. rfOnlyGainFit}).card == 0
       # initialize groups in `h5fout`
       initRecoFadcInH5(h5f, h5fout, runNumber, batchsize)
       copyOverDataAttrs(h5f, h5fout, runNumber)
@@ -873,17 +868,16 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
       reco_run.setLen(0)
       # calculate fractions of FADC / Scinti triggers per run
       h5fout.calcTriggerFractions(runNumber)
-      runNumbersDone.incl runNumber.uint16
       # now check whether create iron spectrum flag is set
       # or this is a calibration run, then always create it
       if rfCreateFe in flags or runType == rtCalibration:
-        createAndFitFeSpec(h5f, h5fout, runNumber, not showPlots)
+        createAndFitFeSpec(h5fout, runNumber, not showPlots)
 
 proc applyCalibrationSteps(h5f: var H5FileObj,
                            flags: set[RecoFlagKind],
                            cfgFlags: set[ConfigFlagKind],
-                           runNumberArg: int = -1,
-                           calib_factor: float = 1.0) =
+                           runNumberArg = none[int](),
+                           calib_factor = none[float]()) =
   ## inputs:
   ##   `h5f`: the file from which we read the raw data
   ##   `h5fout`: the file to which we write the reconstructed data. May be the same file
@@ -892,27 +886,14 @@ proc applyCalibrationSteps(h5f: var H5FileObj,
   ##   `calib_factor`: optional factor to use to calculate energy of clusters based on number
   ##     of pixels in the cluster.
   ##   `h5fout`: optional file to which the reconstructed data is written instead
+  ## NOTE: While the flags are called "--only*" the ``only`` portion simply refers to
+  ## not converting raw data to reconstructed data. Different flags do not exclude one another!
   let showPlots = if cfShowPlots in cfgFlags: true else: false
-  # check if run type is stored in group, read it
-  var runType = rtNone
-  var recoGroup = h5f[recoGroupGrpStr]
-  if "runType" in recoGroup.attrs:
-    runType = parseEnum[RunTypeKind](recoGroup.attrs["runType", string])
-    if rfOnlyGainFit in flags and runType != rtCalibration:
-      warn "Fit to charge calibration / gas gain only possible for " &
-        "calibration runs!"
-      return
-    elif rfOnlyGainFit in flags:
-      h5f.performChargeCalibGasGainFit()
-      # return early
-      # TODO: move this whole stuff somewhere else! Does not belong into
-      # reconstruction like this!
-      return
-
   if rfOnlyEnergyElectrons in flags:
     #h5fout.calcEnergyFromPixels(runNumber, calib_factor)
-    h5fout.calcEnergyFromCharge()
-
+    h5f.calcEnergyFromCharge()
+  if rfOnlyGainFit in flags:
+    h5f.performChargeCalibGasGainFit()
   recordIterRuns:
     if (runNumberArg.isSome and runNumber == runNumberArg.get) or
        rfReadAllRuns in flags:
@@ -920,18 +901,20 @@ proc applyCalibrationSteps(h5f: var H5FileObj,
       doAssert (flags * {rfOnlyEnergy .. rfOnlyGainFit}).card > 0
       # only perform energy calibration of the reconstructed runs in file
       # check if reconstructed run exists
-      if hasKey(h5fout.groups, (recoBase & $runNumber)) == true:
+      if hasKey(h5f.groups, (recoBase & $runNumber)) == true:
         if rfOnlyEnergy in flags:
           # TODO: take this out
-          h5fout.calcEnergyFromPixels(runNumber, calib_factor)
+          doAssert calib_factor.isSome, "Need calibration factor to calculate " &
+            "energy from number of pixels!"
+          h5f.calcEnergyFromPixels(runNumber, calib_factor.get)
         if rfOnlyCharge in flags:
-          h5fout.applyChargeCalibration(runNumber)
+          h5f.applyChargeCalibration(runNumber)
         if rfOnlyGasGain in flags:
-          h5fout.calcGasGain(runNumber, showPlots)
+          h5f.calcGasGain(runNumber, showPlots)
         if rfOnlyFadc in flags:
-          h5fout.calcRiseAndFallTimes(runNumber)
+          h5f.calcRiseAndFallTimes(runNumber)
         if rfOnlyFeSpec in flags:
-          createAndFitFeSpec(h5f, h5fout, runNumber, not showPlots)
+          createAndFitFeSpec(h5f, runNumber, not showPlots)
       else:
         warn "No reconstructed run found for $#" % $grp
 
@@ -959,6 +942,17 @@ proc parseOnlyFlags(args: DocoptTab): set[RecoFlagKind] =
   if $args["--only_energy_from_e"] == "true":
     result.incl rfOnlyEnergyElectrons
 
+proc flagsValid(h5f: H5FileObj, flags: set[RecoFlagKind]): bool =
+  ## Checks whether the flags are actually valid for the given file
+  let grp = h5f[recoBase().grp_str]
+  result = true
+  if "runType" in grp.attrs:
+    let runType = parseEnum[RunTypeKind](grp.attrs["runType", string])
+    if rfOnlyGainFit in flags and runType != rtCalibration:
+      warn "Fit to charge calibration / gas gain only possible for " &
+        "calibration runs!"
+      return false
+
 proc main() =
 
   # create command line arguments using docopt
@@ -977,7 +971,7 @@ proc main() =
     calibFactorStr = $args["--only_energy"]
     calibFactor: Option[float]
     outfile = $args["--out"]
-  if runNumber == "nil":
+  if runNumberArg == "nil":
     flags.incl rfReadAllRuns
   else:
     runNumber = some(parseInt(runNumberArg))
@@ -998,12 +992,6 @@ proc main() =
 
   # TODO: put such a check back in here!!!
   #var rawGroup = h5f[rawGroupGrpStr]
-  #if "runType" in rawGroup.attrs:
-  #  runType = parseEnum[RunTypeKind](rawGroup.attrs["runType", string])
-  #  if rfOnlyGainFit in flags and runType != rtCalibration:
-  #    warn "Fit to charge calibration / gas gain only possible for " &
-  #      "calibration runs!"
-  #    return
   #  elif rfOnlyGainFit in flags:
   #    h5f.performChargeCalibGasGainFit()
   #    # return early
@@ -1013,15 +1001,14 @@ proc main() =
 
   if (flags * {rfOnlyEnergy .. rfOnlyGainFit}).card == 0:
     # `reconstruction` call w/o `--only-*` flag
-    var h5f = H5file(h5f_name, "r")
     # visit the whole file to read which groups exist
+    var h5f = H5file(h5f_name, "rw")
     h5f.visitFile
     var h5fout: H5FileObj
     if outfile != "None":
       h5fout = H5file(outfile, "rw")
       h5fout.visitFile
-      reconstructRunsInFile(h5f, h5fout, flags, cfgFlags, runNumber = runNumber,
-                            calibFactor = calibFactor)
+      reconstructRunsInFile(h5f, h5fout, flags, cfgFlags, runNumberArg = runNumber)
 
     var err = h5f.close()
     if err != 0:
@@ -1031,7 +1018,8 @@ proc main() =
       logging.error &"Failed to close H5 file {h5fout.name}"
   else:
     var h5f = H5file(h5f_name, "rw")
-    applyCalibrationSteps(h5f, flags, cfgFlags, runNumber, calibFactor)
+    if flagsValid(h5f, flags):
+      applyCalibrationSteps(h5f, flags, cfgFlags, runNumber, calibFactor)
 
 
 when isMainModule:

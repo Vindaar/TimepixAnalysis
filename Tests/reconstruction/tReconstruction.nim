@@ -1,12 +1,11 @@
-import sequtils, strutils, os, algorithm, strformat, sets, os
+import sequtils, strutils, os, algorithm, strformat, sets, os, typeinfo
+import std / sha1
 import unittest
 import nimhdf5
 import shell
-
-from ggplotnim import almostEqual
 import seqmath
 
-import json
+import helpers/testUtils
 
 const pwd = currentSourcePath().parentDir
 # `dataInPath` contains the H5 files created by the tRawDataManipulation.nim test,
@@ -54,7 +53,7 @@ proc checkContent(h5f: H5FileOBj, runNumber: int, withFadc = false): bool =
   # screw it, we compare by string. For some reason it appears `==` for Json doesn't
   # properly handle comparisons?!
   #writeFile(&"run_{runNumber}.json", runAttrs.pretty)
-  check runAttrs.pretty == parseJson(readFile(&"run_{runNumber}.json")).pretty
+  check compareJObjects(runAttrs, parseFile(&"run_{runNumber}.json"))
   check "/reconstruction" / r in h5f
   for ch in ChipGroupsSet:
     check "/reconstruction" / r / ch in h5f
@@ -86,7 +85,10 @@ proc checkContent(h5f: H5FileOBj, runNumber: int, withFadc = false): bool =
           let dset = h5f[(runGrp.name / "chip_" & $chip / dsetName).dset_str]
           feAttrs[dsetName] = dset.attrsToJson(withType = true)
         #gwriteFile(&"fe_spectrum_attributes_run_{runNumber}.json", feAttrs.pretty)
-        check feAttrs.pretty == readFile(&"fe_spectrum_attributes_run_{runNumber}.json")
+        check compareJObjects(
+          feAttrs,
+          parseFile(&"fe_spectrum_attributes_run_{runNumber}.json")
+        )
       else:
         check FeDsets.filterIt(
           runGrp.name / "chip_" & $chip / it notin h5f

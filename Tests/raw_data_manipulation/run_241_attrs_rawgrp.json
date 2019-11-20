@@ -4,7 +4,7 @@
     "type": "akString"
   },
   "runType": {
-    "value": "rtBackground",
+    "value": "rtCalibration",
     "type": "akString"
   },
   "runFolderKind": {

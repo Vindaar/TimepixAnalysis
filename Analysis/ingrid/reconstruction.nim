@@ -752,7 +752,7 @@ proc copyOverDataAttrs(h5f, h5fout: var H5FileObj, runNumber: int) =
   template copyOver(path, dtype: untyped): untyped =
     # don't care for the returned group here
     discard h5fout.write_dataset(recoBase() & path, h5f[rawDataBase() & path, dtype])
-  let rawGrp = h5f[("/runs/run_" / $runNumber).grp_str]
+  let rawGrp = h5f[(rawDataBase() & $runNumber).grp_str]
   for dset in items(rawGrp, start_path = rawDataBase()):
     case dset.dtypeAnyKind
     of akInt64:

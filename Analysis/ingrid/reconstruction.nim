@@ -82,7 +82,7 @@ Options:
   --create_fe_spec        Toggle to create Fe calibration spectrum based on cuts
                           Takes precedence over --calib_energy if set!
   --only_energy <factor>  Toggle to /only/ perform energy calibration using the given factor.
-                          Takes precedence over --create_fe_spec and --calib_energy if set.
+                          Takes precedence over --create_fe_spec if set.
                           If no runNumber is given, performs energy calibration on all runs
                           in the HDF5 file.
   --only_energy_from_e    Toggle to /only/ calculate the energy for each cluster based on
@@ -833,7 +833,7 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
   recordIterRuns:
     # check whether all runs are read, if not if this run is correct run number
     let runType = parseEnum[RunTypeKind](
-      h5f[recoBase().grp_str].attrs["runType", string]
+      h5f[(rawDataBase() & $runNumber).grp_str].attrs["runType", string]
     )
     if (runNumberArg.isSome and runNumber == runNumberArg.get) or
        rfReadAllRuns in flags:
@@ -962,7 +962,6 @@ proc main() =
   let
     h5f_name = $args["<HDF5file>"]
     create_fe_arg = $args["--create_fe_spec"]
-    calib_energy_arg = $args["--calib_energy"]
 
   var
     flags: set[RecoFlagKind]

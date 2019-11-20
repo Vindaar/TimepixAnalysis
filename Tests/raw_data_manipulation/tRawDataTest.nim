@@ -150,9 +150,9 @@ suite "raw data manipulation":
   ## files as we expect them given certain command line arguments
   # first run raw data manipulation
   const runs = [(run: "Run_240_181021-14-54", outName: "run_240.h5",
-                 runType: "rtCalibration", num: 240),
+                 runType: "rtBackground", num: 240),
                 (run: "Run_241_181022-16-16", outName: "run_241.h5",
-                 runType: "rtBackground", num: 241)]
+                 runType: "rtCalibration", num: 241)]
   # first raw data of both
   test "Without fadc: --nofadc":
     for r in runs:

@@ -24,7 +24,7 @@
     "type": "akString"
   },
   "runType": {
-    "value": "rtCalibration",
+    "value": "rtBackground",
     "type": "akString"
   },
   "runNumber": {

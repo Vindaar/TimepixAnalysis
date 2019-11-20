@@ -160,9 +160,8 @@ suite "raw data manipulation":
         "../../Analysis/ingrid/raw_data_manipulation" ($(dataPwd/r.run)) "--nofadc" "--out" ($r.outName) "--runType" ($r.runType)
       check fileExists(r.outName)
       check checkRun(r.num, r.outName)
-      # test does not delete file, is input for ../reconstruction/tReconstruction.nim
-      #shell:
-      #  rm ($r.outName)
+      shell:
+        rm ($r.outName)
 
   test "With fadc":
     for r in runs:

@@ -155,11 +155,11 @@ proc parseTOSDateString*(date_str: string): Time =
 proc parseRunType*(runType: string): RunTypeKind =
   ## given a string describing a run type, return the correct
   ## `RunTypeKind`
-  if runType.normalize in ["calibration", "calib", "c"]:
+  if runType.normalize in ["calibration", "calib", "c", "rtcalibration"]:
     result = rtCalibration
-  elif runType.normalize in ["background", "back", "b"]:
+  elif runType.normalize in ["background", "back", "b", "rtbackground"]:
     result = rtBackground
-  elif runType.normalize in ["xrayfinger", "xray", "x"]:
+  elif runType.normalize in ["xrayfinger", "xray", "x", "rtxray"]:
     result = rtXrayFinger
   else:
     result = rtNone

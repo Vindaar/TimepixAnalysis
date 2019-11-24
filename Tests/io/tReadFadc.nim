@@ -226,3 +226,5 @@ suite "Fadc data":
       geom_line(data = df.filter(f{isNull("xminY") == false}), aes = aes(fallStop ~ xminY),
                 color = color(0.0, 1.0, 0.0)) +
       ggsave(path & plotSuffix)
+    # TODO: compare the output of these plots! Can either be done the same way as we do
+    # in gglotnim repo or via a SHA hash

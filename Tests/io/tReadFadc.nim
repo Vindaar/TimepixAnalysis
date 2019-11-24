@@ -139,7 +139,7 @@ suite "Fadc data":
 
     # Comparison has to be done by hand unfortunately
     let path = pwd / "plots/fadc_spectrum"
-    ggplot(df, aes(x ~ data)) + geom_line() +
+    ggplot(df, aes("x", "data")) + geom_line() +
       geom_point(color = color(0.1, 0.1, 0.1, 0.1)) +
       ggsave(path & plotSuffix)
 
@@ -202,6 +202,10 @@ suite "Fadc data":
     let riseStartX = @[riseStart, riseStart]
     let fallStopX = @[fallStop, fallStop]
 
+
+    # NOTE: regarding this plot. We could also use a combination of `gather` with
+    # `dropNulls = true` and `bind_rows`, but this way it's easier by assigning the
+    # individual data frames for the geoms
     let df = seqsToDf({ "x" : toSeq(0 ..< 2560),
                         "baseline": baselineY,
                         "data": fadc,
@@ -209,17 +213,16 @@ suite "Fadc data":
                         "xminY" : xminlineY,
                         "riseStart" : riseStartX,
                         "fallStop" : fallStopX})
-
     # Comparison has to be done by hand unfortunately
     let path = pwd / "plots/fadc_spectrum_baseline"
     ggplot(df, aes(x ~ data)) + geom_line() +
       geom_point(color = color(0.1, 0.1, 0.1, 0.1)) +
       geom_line(aes(x ~ baseline),
                 color = color(0.0, 0.0)) +
-      geom_line(aes(xminX ~ xminY),
+      geom_line(data = df.filter(f{isNull("xminY") == false}), aes = aes(xminX ~ xminY),
                 color = color(1.0, 0.0, 0.0)) +
-      geom_line(aes(riseStart ~ xminY),
+      geom_line(data = df.filter(f{isNull("xminY") == false}), aes = aes(riseStart ~ xminY),
                 color = color(0.5, 0.0, 1.0)) +
-      geom_line(aes(fallStop ~ xminY),
+      geom_line(data = df.filter(f{isNull("xminY") == false}), aes = aes(fallStop ~ xminY),
                 color = color(0.0, 1.0, 0.0)) +
       ggsave(path & plotSuffix)

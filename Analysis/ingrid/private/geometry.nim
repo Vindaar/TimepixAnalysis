@@ -1,8 +1,8 @@
 import math, stats
-import ../ingrid_types
-import cdl_cuts
+import ingrid / ingrid_types
 import helpers / utils
 import logging
+import ingrid / private / [pure, cdl_cuts]
 
 import seqmath, sequtils, nlopt
 
@@ -20,6 +20,12 @@ type
   FitObject[T: SomePix] = object
     cluster: Cluster[T]
     xy: tuple[x, y: float64]
+
+macro hijackMe(procImpl: untyped): untyped =
+  when defined(activateHijack) and declared(replaceBody):
+    replaceBody(procImpl)
+  else:
+    procImpl
 
 ################################################################################
 ############# Geometry calculation related procs ###############################
@@ -462,14 +468,8 @@ proc eccentricityNloptOptimizer[T: SomePix](fitObject: FitObject[T]):
   result.maxtime  = 1.0
   result.initial_step = 0.02
 
-macro hijackMe(procImpl: untyped): untyped =
-  when defined(activateHijack):
-    replaceBody(procImpl)
-  else:
-    procImpl
-
 proc fitRotAngle*[T: SomePix](cl_obj: ClusterObject[T],
-                             rotAngleEstimate: float): (float, float) {.hijackMe.} =
+                              rotAngleEstimate: float): (float, float) = #{.hijackMe.} =
   ## Performs the fitting of the rotation angle on the given ClusterObject
   ## `cl_obj` and returns the final parameters as well as the minimum
   ## value at those parameters.
@@ -488,3 +488,64 @@ proc fitRotAngle*[T: SomePix](cl_obj: ClusterObject[T],
   destroy(opt)
   # now return the optimized parameters and the corresponding min value
   result = (params[0], min_val)
+
+proc recoCluster*[T: SomePix](c: Cluster[T]): ClusterObject[T] {.gcsafe.} =
+  result = newClusterObject(c)
+  let
+    clustersize: int = len(c)
+    (sum_x, sum_y, sumTotInCluster) = sum(c)
+    # using map and sum[Pix] we can calculate sum of x^2, y^2 and x*y in one line
+    (sum_x2, sum_y2, sum_xy) = sum(c.mapIt((it.x.int * it.x.int,
+                                            it.y.int * it.y.int,
+                                            it.x.int * it.y.int)))
+    #(sum_x2, sum_y2, sum_xy) = sum(map(c, (p: Pix) ->
+    #                               (int, int, int) => (p.x.int * p.x.int,
+    #                                                   p.y.int * p.y.int,
+    #                                                   p.x.int * p.y.int)))
+    pos_x = float64(sum_x) / float64(clustersize)
+    pos_y = float64(sum_y) / float64(clustersize)
+  var
+    rms_x = sqrt(float64(sum_x2) / float64(clustersize) - pos_x * pos_x)
+    rms_y = sqrt(float64(sum_y2) / float64(clustersize) - pos_y * pos_y)
+    rotAngleEstimate = arctan( (float64(sum_xy) / float64(clustersize)) -
+                               pos_x * pos_y / (rms_x * rms_x))
+
+  # set the total "charge" in the cluster (sum of ToT values), can be
+  # converted to electrons with ToT calibration
+  result.sum_tot = sumTotInCluster.int
+  # set number of hits in cluster
+  result.hits = clustersize
+  # set the position
+  (result.centerX, result.centerY) = applyPitchConversion(pos_x, pos_y)
+  #(float(NPIX) - float(pos_x) + 0.5) * PITCH
+  #result.pos_y = (float(pos_y) + 0.5) * PITCH
+  # prepare rot angle fit
+  if rotAngleEstimate < 0:
+    #echo "correcting 1"
+    rotAngleEstimate += 8 * arctan(1.0)
+  if rotAngleEstimate > 4 * arctan(1.0):
+    #echo "correcting 2"
+    rotAngleEstimate -= 4 * arctan(1.0)
+  elif classify(rotAngleEstimate) != fcNormal:
+    warn "Rot angle estimate is NaN, vals are ", $rms_x, " ", $rms_y
+    # what do we do in this case with the geometry?!
+    #raise newException(ValueError, "Rotation angle estimate returned bad value")
+    warn "Fit will probably fail!"
+
+  # else we can minimize the rotation angle and calc the eccentricity
+  let (rot_angle, eccentricity) = fitRotAngle(result, rotAngleEstimate)
+
+  # now we still need to use the rotation angle to calculate the different geometric
+  # properties, i.e. RMS, skewness and kurtosis along the long axis of the cluster
+  result.geometry = calcGeometry(c, result.centerX, result.centerY, rot_angle)
+
+proc recoEvent*[T: SomePix](dat: tuple[pixels: seq[T], eventNumber: int],
+                            chip, run: int): ref RecoEvent[T] {.gcsafe, hijackMe.} =
+  result = new RecoEvent[T]
+  result.event_number = data.eventNumber
+  result.chip_number = chip
+  if data[0].len > 0:
+    let cluster = findSimpleCluster(data.pixels)
+    result.cluster = newSeq[ClusterObject[T]](cluster.len)
+    for i, cl in cluster:
+      result.cluster[i] = recoCluster(cl)

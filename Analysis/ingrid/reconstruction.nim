@@ -431,7 +431,7 @@ proc initRecoFadcInH5(h5f, h5fout: var H5FileObj, runNumber, batchsize: int) =
 
 proc copyOverDataAttrs(h5f, h5fout: var H5FileObj, runNumber: int) =
   template copyAttrs(pout, pin: untyped): untyped =
-    let recoGrp = h5fout[pout.grp_str]
+    let recoGrp = h5fout.create_group(pout) # [pout.grp_str]
     let rawGrp = h5f[pin.grp_str]
     recoGrp.copy_attributes(rawGrp.attrs)
   # copy attributes of `runs/run_XYZ -> reconstruction/run_XYZ`

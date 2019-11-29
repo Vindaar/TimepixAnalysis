@@ -12,7 +12,7 @@ Options:
   --2017       Run 2017 analysis chain
   --2018       Run 2018_2 analysis chain
   --noBack     Do not perform analysis chain on background runs
-  --noCalib    Do not perform analysis chain on caliration runs
+  --noCalib    Do not perform analysis chain on calibration runs
   --noRaw      Do not perform raw data manipulation
   --noReco     Do not perform reconstruction
   -h, --help   Show this help

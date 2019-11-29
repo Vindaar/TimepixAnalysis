@@ -388,10 +388,15 @@ proc createAndFitFeSpec(h5f: var H5FileObj,
 proc initRecoFadcInH5(h5f, h5fout: var H5FileObj, runNumber, batchsize: int) =
   # proc to initialize the datasets etc in the HDF5 file for the FADC. Useful
   # since we don't want to do this every time we call the write function
+
+  if fadcRawPath(runNumber) notin h5f:
+    # means `raw_data_manipulation` was run with `--nofadc` or does not have any
+    # FADC data (e.g. 2014 data)
+    return
+
   const
     ch_len = ch_len()
     all_ch_len = all_ch_len()
-
   let groupName = fadcRecoPath(runNumber)
   template datasetCreation(h5f, name, shape, `type`: untyped): untyped =
     ## inserts the correct data set creation parameters

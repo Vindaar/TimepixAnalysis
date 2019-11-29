@@ -221,7 +221,6 @@ proc writeRecoRunToH5*[T: SomePix](h5f: var H5FileObj,
     x[chip]  = @[]
     y[chip]  = @[]
     ch[chip] = @[]
-
   for event_f in reco_run:
     let
       # get the RecoEvent from the FlowVar ref
@@ -315,7 +314,7 @@ proc writeRecoRunToH5*[T: SomePix](h5f: var H5FileObj,
     chip_groups[ch_numb].attrs["chipName"] = ch_name
 
 iterator readDataFromH5*(h5f: var H5FileObj, runNumber: int):
-         (int, seq[(Pixels, int)]) =
+         tuple[chip: int, eventData: seq[tuple[pixels: Pixels, eventNumber: int]]] =
   ## proc to read data from the HDF5 file from `group`
   ## returns the chip number and a sequence containing the pixel data for this
   ## event and its event number
@@ -341,75 +340,16 @@ iterator readDataFromH5*(h5f: var H5FileObj, runNumber: int):
         raw_ch = raw_ch_dset[vlen_ch, uint16]
 
       var runPix = newSeq[(Pixels, int)](raw_x.len)
-      for i in 0 ..< raw_x.len:
+      for i in 0 ..< runPix.len:
         let rpix = zipEm(raw_x[i], raw_y[i], raw_ch[i])
-        runPix[i] = (rpix, evNumbers[i])
+        runPix[i] = (pixels: rpix, eventNumber: evNumbers[i])
       # and yield them
-      yield (chip_number, run_pix)
-
-proc recoCluster[T: SomePix](c: Cluster[T]): ClusterObject[T] {.gcsafe.} =
-  result = newClusterObject(c)
-  let
-    clustersize: int = len(c)
-    (sum_x, sum_y, sumTotInCluster) = sum(c)
-    # using map and sum[Pix] we can calculate sum of x^2, y^2 and x*y in one line
-    (sum_x2, sum_y2, sum_xy) = sum(c.mapIt((it.x.int * it.x.int,
-                                            it.y.int * it.y.int,
-                                            it.x.int * it.y.int)))
-    #(sum_x2, sum_y2, sum_xy) = sum(map(c, (p: Pix) ->
-    #                               (int, int, int) => (p.x.int * p.x.int,
-    #                                                   p.y.int * p.y.int,
-    #                                                   p.x.int * p.y.int)))
-    pos_x = float64(sum_x) / float64(clustersize)
-    pos_y = float64(sum_y) / float64(clustersize)
-  var
-    rms_x = sqrt(float64(sum_x2) / float64(clustersize) - pos_x * pos_x)
-    rms_y = sqrt(float64(sum_y2) / float64(clustersize) - pos_y * pos_y)
-    rotAngleEstimate = arctan( (float64(sum_xy) / float64(clustersize)) -
-                               pos_x * pos_y / (rms_x * rms_x))
-
-  # set the total "charge" in the cluster (sum of ToT values), can be
-  # converted to electrons with ToT calibration
-  result.sum_tot = sumTotInCluster.int
-  # set number of hits in cluster
-  result.hits = clustersize
-  # set the position
-  (result.centerX, result.centerY) = applyPitchConversion(pos_x, pos_y)
-  #(float(NPIX) - float(pos_x) + 0.5) * PITCH
-  #result.pos_y = (float(pos_y) + 0.5) * PITCH
-  # prepare rot angle fit
-  if rotAngleEstimate < 0:
-    #echo "correcting 1"
-    rotAngleEstimate += 8 * arctan(1.0)
-  if rotAngleEstimate > 4 * arctan(1.0):
-    #echo "correcting 2"
-    rotAngleEstimate -= 4 * arctan(1.0)
-  elif classify(rotAngleEstimate) != fcNormal:
-    warn "Rot angle estimate is NaN, vals are ", $rms_x, " ", $rms_y
-    # what do we do in this case with the geometry?!
-    #raise newException(ValueError, "Rotation angle estimate returned bad value")
-    warn "Fit will probably fail!"
-
-  # else we can minimize the rotation angle and calc the eccentricity
-  let (rot_angle, eccentricity) = fitRotAngle(result, rotAngleEstimate)
-
-  # now we still need to use the rotation angle to calculate the different geometric
-  # properties, i.e. RMS, skewness and kurtosis along the long axis of the cluster
-  result.geometry = calcGeometry(c, result.centerX, result.centerY, rot_angle)
-
-proc recoEvent*[T: SomePix](data: (seq[T], int), chip: int): ref RecoEvent[T] {.gcsafe.} =
-  result = new RecoEvent[T]
-  result.event_number = data[1]
-  result.chip_number = chip
-  if data[0].len > 0:
-    let cluster = findSimpleCluster(data[0])
-    result.cluster = newSeq[ClusterObject[T]](cluster.len)
-    for i, cl in cluster:
-      result.cluster[i] = recoCluster(cl)
+      yield (chip: chip_number, eventData: run_pix)
 
 {.experimental.}
 #proc reconstructSingleChip(data: seq[Pixels], run, chip: int): seq[ref RecoEvent] =
-proc reconstructSingleChip*(data: seq[(Pixels, int)], run, chip: int): seq[FlowVar[ref RecoEvent[Pix]]] =
+proc reconstructSingleChip*(data: seq[tuple[pixels: Pixels, eventNumber: int]],
+                            run, chip: int): seq[FlowVar[ref RecoEvent[Pix]]] =
                            #evNumbers: seq[int]): seq[FlowVar[ref RecoEvent]] =
   ## procedure which receives pixel data for a given chip and run number
   ## and performs the reconstruction on it
@@ -425,7 +365,7 @@ proc reconstructSingleChip*(data: seq[(Pixels, int)], run, chip: int): seq[FlowV
   let p = newThreadPool()
   for event in 0..data.high:
     if event < result.len:
-      result[event] = p.spawn recoEvent(data[event], chip)
+      result[event] = p.spawn recoEvent(data[event], chip, run)
     echoFilesCounted(count, 2500)
   p.sync()
 

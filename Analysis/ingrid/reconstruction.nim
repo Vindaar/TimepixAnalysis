@@ -227,6 +227,7 @@ proc writeRecoRunToH5*[T: SomePix](h5f: var H5FileObj,
       event = (^event_f)[]
       num = event.event_number
       chip = event.chip_number
+
     for i, cl in event.cluster:
       x[chip].add(newSeq[uint8](cl.data.len))
       y[chip].add(newSeq[uint8](cl.data.len))

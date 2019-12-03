@@ -458,7 +458,7 @@ proc eccentricityNloptOptimizer[T: SomePix](fitObject: FitObject[T]):
   # hand the function to fit as well as the data object we need in it
   # NOTE: workaround for https://github.com/nim-lang/Nim/issues/11778
   var varStruct = VarStruct[tFitObj](userFunc: eccentricity, data: fitObject,
-                                     kind: FuncKind.NoGrad)
+                                     kind: nlopt.FuncKind.NoGrad)
   result.setFunction(varStruct)
   # set relative precisions of x and y, as well as limit max time the algorithm
   # should take to 1 second

@@ -1,7 +1,9 @@
-import shell, os, macros, sequtils, tables
+import shell, os, macros, sequtils, tables, algorithm
 import ingrid / ingrid_types
 import nimhdf5, arraymancer
 import locks
+
+import ggplotnim
 ## this is the monkey patched version of ingrid / geometry.nim
 #var L = Lock()
 #L.initLock()
@@ -45,21 +47,6 @@ type
     run: int
     events: seq[MarlinEvent]
 
-proc splitBySame(ev: seq[int]): seq[(int, seq[int])] =
-  ## splits the given sequence by the indices belonging to the same numbers
-  result = newSeqOfCap[(int, seq[int])](ev.len)
-  var old = -1
-  var tmp = newSeq[int]()
-  for i, x in ev:
-    if old > 0 and old == x:
-      tmp.add i
-    else:
-      if tmp.len > 0:
-        result.add (ev[i - 1], tmp)
-      tmp.setLen(0)
-      tmp.add i
-    old = x
-
 proc readClusterData(idx: int): MarlinCluster =
   ## reads the cluster information for the cluster found at the
   ## global index ``idx``.
@@ -77,93 +64,199 @@ proc readClusterData(idx: int): MarlinCluster =
   ## The main problem is these things cannot be done here, since this code
   ## is run at global scope. That means we have to fill in the ToT values
   ## at a later time when we actually work on the data in TPA
+  #echo "READING AT INDEX ", idx
   let x = xVec[idx]
   let y = yVec[idx]
   doAssert x.len == y.len
+  doAssert x.len > 0
   result.data = newSeq[Pix](x.len)
   for i in 0 ..< x.len:
     # NOTE: we leave the charge empty! ToT values will be taken from raw files
     result.data[i] = (x: x[i], y: y[i], ch: 0'u16)
+  doAssert result.data.len > 0
 
-proc buildMarlinEvents(run: int, clusterIdx: seq[int]): seq[MarlinEvent] =
+proc splitBySame(idx: seq[int]): seq[(int, seq[int])] =
+  ## splits the given sequence by the indices belonging to the same numbers
+  result = newSeqOfCap[(int, seq[int])](idx.len)
+  var old = -1
+  var globalIdx = 0
+  var tmp = newSeq[int]()
+  for i, x in idx:
+    if old > 0 and old == x:
+      tmp.add globalIdx
+    else:
+      if tmp.len > 0:
+        result.add (idx[i - 1], tmp)
+      tmp.setLen(0)
+      tmp.add globalIdx
+    old = x
+    inc globalIdx
+
+proc buildMarlinEvents(run: int, clusterIdx, events: seq[int]): seq[MarlinEvent] =
   ## reads all required information for the given event indices for run
   ## `run`
   # start by splitting the clusters by events
-  let eventIdx = splitBySame(clusterIdx)
-  for (eventNumber, indices) in eventIdx:
+  #let eventIdx = splitBySame(clusterIdx)
+  var oldEv = -1
+  var mEvent: MarlinEvent
+  echo "for ", clusterIdx[0..15]
+  echo "!!! ", evs[clusterIdx[0] .. clusterIdx[15]]
+  for cIdx in clusterIdx:
     # for each event now walk all clusters and read data
-    var mEvent = MarlinEvent(eventNumber: eventNumber)
-    for cluster in indices:
-      mEvent.clusters.add readClusterData(cluster)
-    result.add mEvent
+    let evNum = events[cIdx]
+    if cIdx == clusterIdx[clusterIdx.high]:
+      echo "Last event number: ", evNum, " at index ", cIdx, " For run ", run
+    #if run == 245:
+    #  echo "EVENT NUMBER ", evNum, " AND INDEX ", cIdx
+    if evNum == oldEv:
+      doAssert mEvent.clusters.len > 0
+      mEvent.clusters.add readClusterData(cIdx)
+      doAssert mEvent.clusters[^1].data.len > 0, " was " & $evNum & " at " & $cIDx
+      if cIdx == clusterIdx.high:
+        result.add mEvent
+    else:
+      #echo "MEVENT ", mEvent, " for evNum ", evNum, " w/ old ", oldEv
+      if mEvent.clusters.len > 0:
+        result.add mEvent
+      mEvent = MarlinEvent(eventNumber: evNum)
+      mEvent.clusters.add readClusterData(cIdx)
+      doAssert mEvent.clusters[^1].data.len > 0, " was " & $evNum & " at " & $cIDx
+      doAssert mEvent.clusters.len > 0
+
+    oldEv = evNum
 
 proc mapRunsToEvents(runs, evs: seq[int]): Table[int, MarlinRuns] =
   # first split all runs into a bunch of seq[seq[int]] belonging
   # to the same run number
   let runSeqs = splitBySame(runs)
   # iterate all those runs and create a MarlinRuns object for each
-  for (run, events) in runSeqs:
+  for (run, eventForRunIdx) in runSeqs:
     # build the MarlinEvents
-    let mEvents = buildMarlinEvents(run, events)
+    echo "Building run ", run
+    let mEvents = buildMarlinEvents(run, eventForRunIdx, evs)
     result[run] =  MarlinRuns(run: run, events: mEvents)
 
 let mappedRuns = mapRunsToEvents(runs, evs)
+
+#var sortedRuns: seq[MarlinRuns]
+#for run, mrun in mappedRuns:
+#  sortedRuns.add mrun
+#sortedRuns = sortedByIt(sortedRuns, it.run)
 
 template findIt(s: typed, cond: untyped): untyped =
   ## finds the first appearence of `cond` in `s`, returns the element
   type retType = type(s[0])
   var res: retType
+  var found = false
   for i, it {.inject.} in s:
     if cond:
       res = it
+      found = true
       break
+  if not found:
+    echo "!!! coult not find "
+    quit()
   res
 
 proc readMarlinEvent(evNum, run: int): MarlinEvent {.inline.} =
   {.gcsafe.}:
     let mRun = mappedRuns[run]
     result = mRun.events.findIt(it.eventNumber == evNum)
+    #echo "LAST EL ", mRun.events[mRun.events.high], "\n\n\n"
 
-#proc injectMarlinRotAngles(): float =
+var scratchTensor = newTensor[uint16](256, 256)
+var scratchTab = initTable[(uint8, uint8), uint16]()
+
+proc fillEvent(t: var Tensor[uint16], data: seq[Pix]) =
+  ## fills the tensor with data building the full raw data event, from
+  ## which we extract the ToT values
+  #t.apply_inline(0)
+  for (x, y, ch) in data:
+    t[y.int, x.int] = ch
+
+proc fillEvent(t: var Table[(uint8, uint8), uint16], data: seq[Pix]) =
+  ## fills the tensor with data building the full raw data event, from
+  ## which we extract the ToT values
+  #t.clear()
+  for (x, y, ch) in data:
+    t[(y, x)] = ch
+
+proc getClusterData(t: Tensor[uint16], cl: MarlinCluster): seq[Pix] =
+  result = newSeq[Pix](cl.data.len)
+  for i, (x, y, ch) in cl.data:
+    result[i] = (x: x, y: y, ch: t[y.int, x.int])
+
+proc getClusterData(t: Table[(uint8, uint8), uint16], cl: MarlinCluster): seq[Pix] =
+  result = newSeq[Pix](cl.data.len)
+  for i, (x, y, ch) in cl.data:
+    result[i] = (x: x, y: y, ch: t[(y, x)])
+
+var globalMarlinEvCounter = 0
 template injectMarlinClusters() =
+  ## This shit's slow af
   # instead of using our normal cluster finder we read the clusters found by the
   # Marlin algorithm for event number `evNum` instead
   result = new RecoEvent[T]
   static: echo type(dat)
   result.event_number = dat.eventNumber
   result.chip_number = chip
-  if dat[0].len > 0:
+  var mdat = dat[0].filterIt((it.x, it.y) != (167'u8, 200'u8))
+  #echo "MDAT!!!!! ", mdat
+  if mdat.len > 2:
     {.gcsafe.}:
-      echo "Event ", result.eventNumber
       let event = readMarlinEvent(result.eventNumber, run)
+      #let event = readMarlinEvent(globalMarlinEvCounter, run)
       # now build the tensor of the raw event
-      let rawEvent = block:
-        var tmp = newTensor[uint16](256, 256)
-        for (x, y, ch) in dat[0]:
-          tmp[y.int, x.int] = ch
-        tmp
+      scratchTensor.fillEvent(mdat)
+      #echo "RAW EVENT NUMBER ", dat[0]
+      #echo "EVENT EVENT NUMBER ", event#.eventNumber
+      #scratchTab.fillEvent(dat[0])
       result.cluster = newSeq[ClusterObject[T]](event.clusters.len)
       for i, cl in event.clusters:
         # now get the correct data from the raw event for the current cluster
         # and use it for reco
-        var mcl = block:
-          var tmp = cl.data
-          for i, (x, y, ch) in cl.data:
-            tmp[i] = (x: x, y: y, ch: rawEvent[y.int, x.int])
-          tmp
+        #let mcl = getClusterData(scratchTab, cl)
+        let mcl = getClusterData(scratchTensor, cl)
+        #echo "MCL ", mcl
         result.cluster[i] = recoCluster(mcl)
+      let dfRaw = seqsToDf({ "x" : mdat.mapIt(it.x),
+                             "y" : mdat.mapIt(it.y),
+                             "ch" : mdat.mapIt(it.ch) })
+      var
+        xM: seq[uint8]
+        yM: seq[uint8]
+        chM: seq[uint16]
+      if event.clusters.len == 0:
+        echo event
+        echo "ev number ", result.eventNumber
+        echo run
+        quit()
+      for i, cl in event.clusters:
+        xM.add cl.data.mapIt(it.x)
+        echo "Len of xm ", xm.len, " compared ", dfRaw.len
+        yM.add cl.data.mapIt(it.y)
+        chM.add cl.data.mapIt(it.ch)
+      echo "----------------------------"
+      let dfMarlin = seqsToDf({ "x" : xM,
+                                "y" : yM,
+                                "ch" : chM })
+      let df = bind_rows([dfRaw, dfMarlin], id = "from")
+      #echo df
+      if df.len > 2:
+        ggplot(df, aes("x", "y", color = "from")) + geom_point() +
+          ggsave("event_" & $globalMarlinEvCounter & ".pdf")
+
+      inc globalMarlinEvCounter
+      #if globalMarlinEvCounter == 100:
+      #  quit()
 
 proc replaceBody*(procImpl: NimNode): NimNode =
   echo procImpl.repr
   let bod = procImpl.body
   var param = procImpl.params
   let name = postfix(procImpl.name, "*")
-  #var res = nnkTemplateDef.newTree(name, newEmptyNode(),
-  #                                 newEmptyNode(), param,
-  #                                 newEmptyNode(), newEmptyNode())
   var res = procImpl
   let newBody = getAst(injectMarlinClusters())
-  #res.add newBody
   res.body = newBody
   result = res
   echo result.repr

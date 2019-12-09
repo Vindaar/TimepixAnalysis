@@ -542,10 +542,10 @@ proc recoCluster*[T: SomePix](c: Cluster[T]): ClusterObject[T] {.gcsafe.} =
 proc recoEvent*[T: SomePix](dat: tuple[pixels: seq[T], eventNumber: int],
                             chip, run: int): ref RecoEvent[T] {.gcsafe, hijackMe.} =
   result = new RecoEvent[T]
-  result.event_number = data.eventNumber
+  result.event_number = dat.eventNumber
   result.chip_number = chip
-  if data[0].len > 0:
-    let cluster = findSimpleCluster(data.pixels)
+  if dat[0].len > 0:
+    let cluster = findSimpleCluster(dat.pixels)
     result.cluster = newSeq[ClusterObject[T]](cluster.len)
     for i, cl in cluster:
       result.cluster[i] = recoCluster(cl)

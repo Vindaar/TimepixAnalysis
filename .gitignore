@@ -23,3 +23,4 @@ Tests/io/plots/fadc_spectrum[0-9]*.pdf
 Tests/io/plots/fadc_spectrum_baseline[0-9]*.pdf
 Analysis/ingrid/fitparams_*[0-9]*.txt
 Tests/event_[0-9]*.*
+Tools/CompareMarlinTpa/UseMarlinRotAngle/*.pdf

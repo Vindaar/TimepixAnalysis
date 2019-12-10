@@ -332,7 +332,7 @@ proc fitFeSpectrumImpl(hist, binning: seq[float]): seq[float] =
   echoResult(pRes, res = res)
   result = pRes
 
-proc fitFeSpectrum*(data: seq[int]): (seq[float], seq[int], seq[float]) =
+proc fitFeSpectrum*[T: SomeInteger](data: seq[T]): (seq[float], seq[int], seq[float]) =
   ##
   const binSize = 3.0
   let low = -0.5

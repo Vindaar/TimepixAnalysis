@@ -83,7 +83,8 @@ def feSpectrumFuncCharge(x, *p_ar):
 
 def feSpectrumFunc(x, *p_ar):#p_ar):
     # NOTE: should we init with 0? or 1?
-
+    if np.shape(p_ar) == (1, 15):
+        p_ar = p_ar[0]
     parAll = np.zeros(20, dtype = np.float)
     if len(p_ar) != 15:
         print("Lenght of params is ", len(p_ar))

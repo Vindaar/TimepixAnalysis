@@ -636,7 +636,7 @@ proc parseOnlyFlags(args: DocoptTab): set[RecoFlagKind] =
 
 proc flagsValid(h5f: H5FileObj, flags: set[RecoFlagKind]): bool =
   ## Checks whether the flags are actually valid for the given file
-  let grp = h5f[recoBase().grp_str]
+  let grp = h5f[recoGroupGrpStr()]
   result = true
   if "runType" in grp.attrs:
     let runType = parseEnum[RunTypeKind](grp.attrs["runType", string])
@@ -711,6 +711,8 @@ proc main() =
     var h5f = H5file(h5f_name, "rw")
     if flagsValid(h5f, flags):
       applyCalibrationSteps(h5f, flags, cfgFlags, runNumber, calibFactor)
+    else:
+      logging.warn &"Invalid flags given for file {h5f_name}: {flags}"
 
 
 when isMainModule:

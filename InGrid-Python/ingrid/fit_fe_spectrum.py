@@ -139,11 +139,17 @@ def getLines(hist, binning = None):
         print("Binning mu alpha ", mu_kalpha)
     else:
         mu_kalpha = np.argmax(hist)
-    sigma_kalpha = mu_kalpha / 10.0
+    # estimate sigma by getting distance from indices
     n_kalpha = hist[muIdx]
+    halfIdx = np.where(hist > (n_kalpha / 2.0))[0]
+    if binning is not None:
+        sigma_kalpha = (mu_kalpha - binning[halfIdx[0]])
+    else:
+        sigma_kalpha = (mu_kalpha - halfIdx[0])
+    ratio = mu_kalpha / sigma_kalpha
 
     mu_kalpha_esc = mu_kalpha * 2.9/5.75
-    sigma_kalpha_esc = mu_kalpha_esc / 10.0
+    sigma_kalpha_esc = mu_kalpha_esc / ratio #15.0
     n_kalpha_esc = n_kalpha / 10.0
     return mu_kalpha, sigma_kalpha, n_kalpha, mu_kalpha_esc, sigma_kalpha_esc, n_kalpha_esc
 

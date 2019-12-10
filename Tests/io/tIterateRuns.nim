@@ -1,5 +1,6 @@
-import unittest, sets
+import unittest, sets, os
 import ingrid / tos_helpers
+from ingrid / reconstruction import recordIterRuns
 import nimhdf5
 
 #[
@@ -12,14 +13,14 @@ Let's write a test, to avoid such a regression again in the future.
 ]#
 
 suite "Run iteration test":
+  # first create a H5 file with a bunch of groups
+  var h5f = H5file("test.h5", "rw")
+  var groupNames = initHashSet[string]()
+  for i in 0 .. 500:
+    let name = recoBase() & $i
+    groupNames.incl name
+    discard h5f.create_group(name)
   test "Iterate all runs in file":
-    # first create a H5 file with a bunch of groups
-    var h5f = H5file("test.h5", "rw")
-    var groupNames = initHashSet[string]()
-    for i in 0 .. 500:
-      let name = recoBase() & $i
-      groupNames.incl name
-      discard h5f.create_group(name)
 
     var err = h5f.close()
     check err == 0
@@ -47,4 +48,15 @@ suite "Run iteration test":
     err = h5f.close()
     check err == 0
 
-    removeFile("test.h5")
+  test "Iterate using `recordIterRuns` template":
+    var readGroups = initHashSet[string]()
+    var flags = {0} # dummy flags for template
+    h5f = H5file("test.h5", "r")
+    recordIterRuns(recoBase()):
+      readGroups.incl grp
+    check readGroups == groupNames
+
+    let err = h5f.close()
+    check err == 0
+
+  removeFile("test.h5")

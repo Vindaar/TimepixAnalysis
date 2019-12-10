@@ -475,7 +475,7 @@ proc calcTriggerFractions(h5f: var H5FileObj, runNumber: int) =
   grp.attrs["nonTrivial_szint1TriggerRatio"] = s1NonTrivial
   grp.attrs["nonTrivial_szint2TriggerRatio"] = s2NonTrivial
 
-template recordIterRuns(body: untyped): untyped =
+template recordIterRuns*(base: string, body: untyped): untyped =
   ## Helper template, which iterates all runs in the file, records the runs iterated
   ## over and injects the current `runNumber` and current `grp` into the calling scope
   let t0 = epochTime()
@@ -485,7 +485,7 @@ template recordIterRuns(body: untyped): untyped =
 
   # check if run type is stored in group, read it
   var runType = rtNone
-  for num, curGrp in runs(h5f, rawDataBase()):
+  for num, curGrp in runs(h5f, base):
     # now read some data. Return value will be added later
     let grp {.inject.} = curGrp
     let runNumber {.inject.} = parseInt(num)
@@ -519,7 +519,10 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
   const batchsize = 5000
   var reco_run: seq[FlowVar[ref RecoEvent[Pix]]] = @[]
   let showPlots = if cfShowPlots in cfgFlags: true else: false
-  recordIterRuns:
+  recordIterRuns(rawDataBase()):
+    #if (recoBase() & $runNumber) in h5fout:
+    #  # already done this run apparently
+    #  continue
     # check whether all runs are read, if not if this run is correct run number
     let runType = parseEnum[RunTypeKind](
       h5f[(rawDataBase() & $runNumber).grp_str].attrs["runType", string]
@@ -583,7 +586,7 @@ proc applyCalibrationSteps(h5f: var H5FileObj,
     h5f.calcEnergyFromCharge()
   if rfOnlyGainFit in flags:
     h5f.performChargeCalibGasGainFit()
-  recordIterRuns:
+  recordIterRuns(recoBase()):
     if (runNumberArg.isSome and runNumber == runNumberArg.get) or
        rfReadAllRuns in flags:
       # intersection of `flags` with all `"only flags"` must not be empty

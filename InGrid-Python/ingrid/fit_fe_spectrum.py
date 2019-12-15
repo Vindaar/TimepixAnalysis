@@ -145,7 +145,7 @@ def getLines(hist, binning = None):
     if binning is not None:
         sigma_kalpha = (mu_kalpha - binning[halfIdx[0]])
     else:
-        sigma_kalpha = (mu_kalpha - halfIdx[0])
+        sigma_kalpha = (mu_kalpha - halfIdx[0]) * 0.8
     ratio = mu_kalpha / sigma_kalpha
 
     mu_kalpha_esc = mu_kalpha * 2.9/5.75
@@ -286,6 +286,11 @@ def fitFeSpectrumImpl(hist, binning, cuts):
     l_bounds[14] = 0.01
     u_bounds[14] = 0.3
 
+    # modify those bounds, which are lower >= upper
+    print("Bounds for pixel fit: ")
+    for i in range(len(l_bounds)):
+        if l_bounds[i] >= u_bounds[i]:
+            l_bounds[i] = u_bounds[i] - 1e-5
     # this leaves parameter 7 and 8, as well as 12 and 13 without bounds
     # these describe the exponential factors contributing, since they will
     # be small anyways...

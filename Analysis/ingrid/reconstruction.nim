@@ -500,6 +500,7 @@ template recordIterRuns*(base: string, body: untyped): untyped =
   info $runNumbersDone
   info "while iterating over the following:"
   info $runNumbersIterated
+  # add all flags that were processed
 
 
 proc reconstructRunsInFile(h5f: var H5FileObj,
@@ -520,9 +521,13 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
   var reco_run: seq[FlowVar[ref RecoEvent[Pix]]] = @[]
   let showPlots = if cfShowPlots in cfgFlags: true else: false
   recordIterRuns(rawDataBase()):
-    #if (recoBase() & $runNumber) in h5fout:
-    #  # already done this run apparently
-    #  continue
+    if (recoBase() & $runNumber) in h5fout:
+      # check attributes whether this run was actually finished
+      let h5grp = h5fout[(recoBase() & $runNumber).grp_str]
+      if "RawTransferFinished" in h5grp.attrs and
+         h5grp.attrs["RawTransferFinished", string] == "true":
+        continue
+      # else we redo it
     # check whether all runs are read, if not if this run is correct run number
     let runType = parseEnum[RunTypeKind](
       h5f[(rawDataBase() & $runNumber).grp_str].attrs["runType", string]
@@ -564,6 +569,10 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
       # or this is a calibration run, then always create it
       if rfCreateFe in flags or runType == rtCalibration:
         createAndFitFeSpec(h5fout, runNumber, not showPlots)
+
+      # add flag that this run is finished
+      let h5grp = h5fout[(recoBase() & $runNumber).grp_str]
+      h5grp.attrs["RawTransferFinished"] = "true"
 
 proc applyCalibrationSteps(h5f: var H5FileObj,
                            flags: set[RecoFlagKind],

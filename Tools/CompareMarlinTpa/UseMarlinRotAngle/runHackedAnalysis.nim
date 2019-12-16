@@ -29,6 +29,7 @@ proc doUndoBackup(recoPath: string, undo: bool) =
     checkRes res, "removing config.nims failed"
 
 const commonArgs = "-f -d:danger -d:release --threads:on -d:activateHijack"
+#const commonArgs = "-f -d:danger -d:release --threads:on -d:activateHijack -d:hijackRotationAngle"
 proc compileBackground(recoPath: string): int =
   let res = shellVerbose:
     nim c ($commonArgs) "-d:hijackBackground" ($recoPath)/reconstruction.nim

@@ -70,7 +70,8 @@ var
   xVec: seq[seq[uint8]]
   yVec: seq[seq[uint8]]
   evsMarlin: seq[int]
-  #rotAngsMarlin: seq[float32]
+when defined(hijackRotationAngle):
+  var rotVec: seq[float64]
 
 proc readClusterData(idx: int): MarlinCluster =
   ## reads the cluster information for the cluster found at the
@@ -92,6 +93,9 @@ proc readClusterData(idx: int): MarlinCluster =
   #echo "READING AT INDEX ", idx
   let x = xVec[idx]
   let y = yVec[idx]
+  when defined(hijackRotationAngle):
+    let rot = rotVec[idx]
+    result.rotAngle = rot
   doAssert x.len == y.len
   doAssert x.len > 0
   result.data = newSeq[Pix](x.len)
@@ -205,6 +209,8 @@ when defined(hijackBackground):
     evsMarlin = h5fMarlin[grp.name / "EventNumber", float32].mapIt(it.int)
     xVec = h5fMarlin[grp.name / "XCoordinatesVector", specialU8, uint8]
     yVec = h5fMarlin[grp.name / "YCoordinatesVector", specialU8, uint8]
+    when defined(hijackRotationAngle):
+      rotVec = h5fMarlin[grp.name / "RotationAngle", float32].mapIt(it.float64)
     mapRunsToEvents(mappedRuns, runsMarlin, evsMarlin)
 
   # rotAngsMarlin = h5fMarlin[grp.name / "RotationAngle", float32]

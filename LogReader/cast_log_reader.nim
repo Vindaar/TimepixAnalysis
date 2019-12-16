@@ -188,7 +188,7 @@ proc map_log_to_run(logs: seq[TrackingLog], h5file: string): Table[TrackingLog, 
       if run_num.len == 1:
         result[log] = run_num[0]
     else: discard
-      
+
   discard h5f.close()
 
 proc deleteTrackingAttributes(h5file: string) =
@@ -403,7 +403,8 @@ proc read_tracking_logfile(filename: string): TrackingLog =
   # now set the tracking variant object depending on whether tracking took place
   # or not
   if tracking_start == tracking_stop:
-    result.kind = rkNoTracking
+    result = TrackingLog(kind: rkNoTracking,
+                         date: result.date)
   else:
     result.tracking_start = tracking_start
     result.tracking_stop = tracking_stop

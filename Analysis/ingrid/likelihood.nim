@@ -14,7 +14,7 @@ import loopfusion
 import plotly
 import arraymancer
 import ingrid / [ingrid_types, calibration]
-from ingrid / reconstruction import recoEvent
+from ingrid / private / geometry import recoEvent
 import ingridDatabase / [databaseRead, databaseDefinitions]
 
 let doc = """
@@ -623,7 +623,7 @@ proc applySeptemVeto(h5f, h5fout: var H5FileObj,
 
       # given the full frame run through the full reconstruction for this cluster
       # here we give chip number as -1, indicating "Septem"
-      let recoEv = recoEvent((septemFrame, evNum.toInt.int), -1)[]
+      let recoEv = recoEvent((septemFrame, evNum.toInt.int), -1, runNumber)[]
       # calculate log likelihood of all reconstructed clusters
       var passed = false
       var totCharge: float

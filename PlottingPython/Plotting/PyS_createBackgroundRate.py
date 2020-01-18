@@ -146,7 +146,16 @@ def preparePlot(h5file, chip, logY, CK_binning):
     time_back = lhGrp.attrs["totalDuration"]
     shutter_open = 1.0
     baseName = os.path.basename(h5file)
-    if "2014" in baseName:
+    if "2014" in baseName and "TPA" in baseName:
+        year = "TPA"
+        color = next(genColors) #color2014
+    elif "2014" in baseName and "RotAng" in baseName:
+        year = "Clusters+RotAngle"
+        color = next(genColors) #color2014
+    elif "2014" in baseName and "MarlinHijackedCluster" in baseName:
+        year = "MarlinClusters"
+        color = next(genColors) #color2014
+    elif "2014" in baseName:
         year = "2014/15"
         # Christoph 2014 / 15
         #time_back = 4000 * 3600

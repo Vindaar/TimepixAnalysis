@@ -28,8 +28,8 @@ proc doUndoBackup(recoPath: string, undo: bool) =
       rm ($recoPath)/config.nims
     checkRes res, "removing config.nims failed"
 
-const commonArgs = "-f -d:danger -d:release --threads:on -d:activateHijack"
-#const commonArgs = "-f -d:danger -d:release --threads:on -d:activateHijack -d:hijackRotationAngle"
+#const commonArgs = "-f -d:danger -d:release --threads:on -d:activateHijack"
+const commonArgs = "-f -d:danger -d:release --threads:on -d:activateHijack -d:hijackRotationAngle"
 proc compileBackground(recoPath: string): int =
   let res = shellVerbose:
     nim c ($commonArgs) "-d:hijackBackground" ($recoPath)/reconstruction.nim
@@ -44,7 +44,7 @@ proc getFile(prefix: string, raw = false): string =
   if raw:
     result = &"/mnt/1TB/CAST/{prefix}_2014_Raw.h5"
   else:
-    result = &"/mnt/1TB/CAST/{prefix}_2014_MarlinHijackedCluster.h5"
+    result = &"/mnt/1TB/CAST/{prefix}_2014_MarlinHijackedCluster_RotAng.h5"
 
 proc runRawToReco(prefix: string) =
   let infile = getFile(prefix, raw = true)
@@ -55,7 +55,7 @@ proc runRawToReco(prefix: string) =
 
 proc runRecoFlags() =
   const recoOptions = ["--only_charge", "--only_gas_gain",
-                       #"--only_gain_fit",
+                       # "--only_gain_fit",
                        "--only_energy_from_e"]
   const filePrefixes = ["DataRuns"] # ["CalibrationRuns", "DataRuns"]
   for f in filePrefixes:
@@ -66,7 +66,7 @@ proc runRecoFlags() =
       checkRes res, "running reconstruction on " & $infile & " with opt " & $opt & " failed!"
 
 proc runLogReader() =
-  let file = "/mnt/1TB/CAST/DataRuns_2014_MarlinHijackedCluster.h5"
+  let file = "/mnt/1TB/CAST/DataRuns_2014_MarlinHijackedCluster_RotAng.h5"
   let logFolder = "../../../resources/LogFiles/tracking-logs"
   template run(args: string): untyped =
     block:
@@ -79,8 +79,8 @@ proc runLogReader() =
 
 proc runLikelihood() =
   let lPath = "../../../Analysis/ingrid/likelihood"
-  let file = "/mnt/1TB/CAST/DataRuns_2014_MarlinHijackedCluster.h5"
-  let outname = "/mnt/1TB/CAST/LHood_2014_MarlinHijackedCluster.h5"
+  let file = "/mnt/1TB/CAST/DataRuns_2014_MarlinHijackedCluster_RotAng.h5"
+  let outname = "/mnt/1TB/CAST/LHood_2014_MarlinHijackedCluster_RotAng.h5"
   let res = shellVerbose:
     ($lPath) ($file) "--h5out" ($outname)
 
@@ -89,7 +89,7 @@ proc runFull() =
   runRawToReco("DataRuns")
 
 when isMainModule:
-  let isBackground = false
+  let isBackground = true
   let recoPath = "../../../Analysis/ingrid/"
   let toUndo = copyConfigs(recoPath)
   var res: int
@@ -104,8 +104,8 @@ when isMainModule:
       "DataRuns"
     else:
       "CalibrationRuns"
-  #runRawToReco(prefix)
-  #runRecoFlags()
+  runRawToReco(prefix)
+  runRecoFlags()
   #runLogReader()
   runLikelihood()
 

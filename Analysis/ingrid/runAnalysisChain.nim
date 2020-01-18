@@ -48,15 +48,20 @@ proc rawDataManipulation(path, runType, outName: string): bool =
   let outStr = &"--out={outName}"
   info "Running raw_data_manipulation on " & $path & $runTypeStr & $outStr
   let res = shellVerbose:
-    ./raw_data_manipulation `$path` `$runTypeStr` `$outStr`
+    ./raw_data_manipulation ($path) ($runTypeStr) ($outStr)
   info "Last commands output: " & $res[0]
   info "Last commands exit code: " & $res[1]
   result = res[1] == 0
 
-proc reconstruction(path: string, option = ""): bool =
-  info "Running reconstruction on " & $path & $option
-  let res = shellVerbose:
-    ./reconstruction `$path` `$option`
+proc reconstruction(rawName: string, recoName = "", option = ""): bool =
+  info "Running reconstruction on " & $rawName & $option
+  var res: (string, int)
+  if option.len > 0:
+    res = shellVerbose:
+      ./reconstruction ($recoName) ($option)
+  else:
+    res = shellVerbose:
+      ./reconstruction ($rawName) "--out" ($recoName)
   info "Last commands output: " & $res[0]
   info "Last commands exit code: " & $res[1]
   result = res[1] == 0
@@ -82,17 +87,21 @@ proc runChain(path: string, dYear: DataYear, flags: set[AnaFlags]): bool =
 
   # raw data for calibration
   if afNoCalib notin flags and afNoRaw notin flags:
-    tc(rawDataManipulation(path / "CalibrationRuns", "calib", path / &"CalibrationRuns{$dYear}.h5"))
+    tc(rawDataManipulation(path / "CalibrationRuns", "calib", path / &"CalibrationRuns{$dYear}_Raw.h5"))
   # raw data for background
   if afNoBack notin flags and afNoRaw notin flags:
-    tc(rawDataManipulation(path / "DataRuns", "back", path / &"DataRuns{$dYear}.h5"))
+    tc(rawDataManipulation(path / "DataRuns", "back", path / &"DataRuns{$dYear}_Raw.h5"))
 
   # reconstruction for both
   for opt in recoOptions:
     if afNoCalib notin flags and afNoReco notin flags:
-      tc(reconstruction(path / &"CalibrationRuns{$dYear}.h5", opt))
+      tc(reconstruction(path / &"CalibrationRuns{$dYear}_Raw.h5",
+                        path / &"CalibrationRuns{$dYear}_Reco.h5",
+                        opt))
     if opt != "--only_gain_fit" and afNoBack notin flags and afNoReco notin flags:
-      tc(reconstruction(path / &"DataRuns{$dYear}.h5", opt))
+      tc(reconstruction(path / &"DataRuns{$dYear}_Raw.h5",
+                        path / &"DataRuns{$dYear}_Reco.h5",
+                        opt))
   result = toContinue
 
 proc main =

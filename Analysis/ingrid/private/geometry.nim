@@ -489,7 +489,8 @@ proc fitRotAngle*[T: SomePix](cl_obj: ClusterObject[T],
   # now return the optimized parameters and the corresponding min value
   result = (params[0], min_val)
 
-proc recoCluster*[T: SomePix](c: Cluster[T]): ClusterObject[T] {.gcsafe.} =
+proc recoCluster*[T: SomePix](c: Cluster[T]): ClusterObject[T] {.gcsafe, hijackMe.} =
+#proc recoCluster*(c: Cluster[Pix]): ClusterObject[Pix] {.gcsafe.} =
   result = newClusterObject(c)
   let
     clustersize: int = len(c)

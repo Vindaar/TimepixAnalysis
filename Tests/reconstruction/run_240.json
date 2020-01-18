@@ -39,6 +39,10 @@
     "value": 240,
     "type": "akInt64"
   },
+  "RawTransferFinished":{
+    "value": "true",
+    "type":"akString"
+  },
   "numEventsStored": {
     "value": 1001,
     "type": "akInt64"

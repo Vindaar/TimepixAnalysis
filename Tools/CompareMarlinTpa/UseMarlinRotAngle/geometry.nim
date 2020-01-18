@@ -245,6 +245,8 @@ proc readEvByIdx(index, run: int): MarlinEvent {.inline.} =
       globalMarlinEvCounter = 0
       xVec = h5fMarlin[CalibrationRunPrefix % $run / "XCoordinatesVector", specialU8, uint8]
       yVec = h5fMarlin[CalibrationRunPrefix % $run / "YCoordinatesVector", specialU8, uint8]
+      when defined(hijackRotationAngle):
+        rotVec = h5fMarlin[CalibrationRunPrefix % $run / "RotationAngle", float32].mapIt(it.float64)
       mappedRuns = mapRunsToEvents(h5fMarlin, run)
       result = readEvByIdx(globalMarlinEvCounter, run)
 
@@ -485,10 +487,30 @@ template injectMarlinClusters() =
         # and use it for reco
         #let mcl = getClusterData(scratchTab, cl)
         let mcl = getClusterData(scratchTensor, cl)
-        result.cluster[i] = recoCluster(mcl)
+        when defined(hijackRotationAngle):
+          result.cluster[i] = recoCluster(mcl, cl.rotAngle)
+        else:
+          result.cluster[i] = recoCluster(mcl)
 
-#template injectMarlinClusters() =
-#  result = hijackWork(dat, chip, run)
+proc dropRotAngFit(body: NimNode): NimNode =
+  ## drops the following line:
+  ## let (rot_angle, eccentricity) = fitRotAngle(result, rotAngleEstimate)
+  ## from the `recoCluster` proc and hands the correct rotation angle to
+  ## the `result.geometry`
+  # first strip last two lines
+  body.del(body.len - 2, 2)
+  # now replace them
+  result = quote do:
+    `body`
+    # `rotAngle` is an added argument to `recoCluster` performed with the below proc!
+    result.geometry = calcGeometry(c, result.centerX, result.centerY, rotAngle)
+
+proc recoClusterRotAngParam(params: NimNode): NimNode =
+  ## Adds a `rotAngle: float` param to the params of `recoCluster`
+  params.add nnkIdentDefs.newTree(ident"rotAngle",
+                                  ident"float",
+                                  newEmptyNode())
+  result = params
 
 proc replaceBody*(procImpl: NimNode): NimNode =
   echo procImpl.repr
@@ -496,7 +518,17 @@ proc replaceBody*(procImpl: NimNode): NimNode =
   var param = procImpl.params
   let name = postfix(procImpl.name, "*")
   var res = procImpl
-  let newBody = getAst(injectMarlinClusters())
+  # determine correct name based on the proc
+  var newBody: NimNode
+  case procImpl.name.strVal
+  of "recoEvent":
+    newBody = getAst(injectMarlinClusters())
+  of "recoCluster":
+    when defined(hijackRotationAngle):
+      newBody = dropRotAngFit(bod)
+      param = recoClusterRotAngParam(param)
+    else:
+      newBody = bod
   res.body = newBody
   result = res
   echo result.repr

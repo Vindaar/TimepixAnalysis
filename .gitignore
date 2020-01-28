@@ -25,3 +25,5 @@ Analysis/ingrid/fitparams_*[0-9]*.txt
 Tests/event_[0-9]*.*
 Tools/CompareMarlinTpa/UseMarlinRotAngle/*.pdf
 Tools/CompareMarlinTpa/UseMarlinRotAngle/logs/*
+Tests/raw_data_manipulation/*.pdf
+Tests/reconstruction/*.pdf

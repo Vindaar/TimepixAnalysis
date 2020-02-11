@@ -240,7 +240,7 @@ proc readRawInGridData*(listOfFiles: seq[string],
   # split the sorted files into batches, and sort each batch by inode
   result = batchFileReading[Event](files, rfKind)
 
-proc sortReadInGridData(rawIngridNil: seq[FlowVar[ref Event]],
+proc sortReadInGridData(rawInGridNil: seq[FlowVar[ref Event]],
                         rfKind: RunFolderKind): seq[Event] =
   ## sorts the seq of FlowVars according to event numbers again, otherwise
   ## h5 file is all mangled

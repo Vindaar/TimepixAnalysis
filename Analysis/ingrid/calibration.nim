@@ -121,7 +121,7 @@ template fitForNloptLnLikelihood*(name, funcToCall: untyped): untyped =
     var fitY = x.mapIt(`funcToCall`(p, it))
     result = 0.0
     for i in 0 ..< x.len:
-      if fitY[i] > 0.0 and y[i] > 0.0:
+      if fitY[i].float > 0.0 and y[i].float > 0.0:
         result = result + (fitY[i] - y[i] + y[i] * ln(y[i] / fitY[i]))
       else:
         result = result + (fitY[i] - y[i])
@@ -145,7 +145,7 @@ template fitForNloptLnLikelihoodGrad*(name, funcToCall: untyped): untyped =
     proc fnc(x, y, params: seq[float]): float =
       let fitY = x.mapIt(`funcToCall`(params, it))
       for i in 0 ..< x.len:
-        if fitY[i] > 0.0 and y[i] > 0.0:
+        if fitY[i].float > 0.0 and y[i].float > 0.0:
           result = result + (fitY[i] - y[i] + y[i] * ln(y[i] / fitY[i]))
         else:
           result = result + (fitY[i] - y[i])

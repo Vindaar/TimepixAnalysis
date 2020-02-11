@@ -545,6 +545,20 @@ template fitPolyaTmpl(charges,
   # calc reduced Chi^2 from total Chi^2
   result.redChiSq = minVal / (charges.len - p.len).float
 
+proc filterByCharge(charges, counts: seq[float]): (seq[float], seq[float]) =
+  ## filters the given charges and counts seq by the cuts Christoph applied
+  ## (see `getGasGain.C` in `resources` directory as reference)
+  const
+    ChargeLow = 1200.0
+    ChargeHigh = 20_000.0
+  result[0] = newSeqOfCap[float](charges.len)
+  result[1] = newSeqOfCap[float](charges.len)
+  for idx, ch in charges:
+    # get those indices belonging to charges > 1200 e^- and < 20,000 e^-
+    if ch >= ChargeLow and ch <= ChargeHigh:
+      result[0].add ch
+      result[1].add counts[idx]
+
 proc fitPolyaNim*(charges,
                   counts: seq[float],
                   chipNumber, runNumber: int,
@@ -554,16 +568,16 @@ proc fitPolyaNim*(charges,
     # create NLopt optimizer without parameter bounds
     let bounds = @[(-Inf, Inf), (-Inf, Inf), (0.5, 15.0)]
     var opt = newNloptOpt[FitObject](LN_COBYLA, 3, bounds)
+    #var opt = newNloptOpt[FitObject](LD_MMA, 3, bounds)
+    # get charges in the fit range
+    let (chToFit, countsToFit) = filterByCharge(charges, counts)
     # hand the function to fit as well as the data object we need in it
-    var fitObject: FitObject
-    let toFitInds = toSeq(0 ..< charges.len).filterIt(charges[it] > 1200.0)# and charges[it] < 4500.0)
-    let chToFit = toFitInds.mapIt(charges[it])
-    let countsToFit = toFitInds.mapIt(counts[it])
-
-    fitObject.x = chToFit#charges
-    fitObject.y = countsToFit#counts
-    fitObject.yErr = countsToFit.mapIt(if it >= 1.0: sqrt(it) else: Inf)
-    var varStruct = newVarStruct(polya, fitObject)
+    let fitObject = FitObject(
+      x: chToFit,
+      y: countsToFit,
+      yErr: countsToFit.mapIt(if it >= 1.0: sqrt(it) else: Inf)
+    )
+    let varStruct = newVarStruct(polya, fitObject)
     opt.setFunction(varStruct)
     # set relative precisions of x and y, as well as limit max time the algorithm
     # should take to 5 second (will take much longer, time spent in NLopt lib!)

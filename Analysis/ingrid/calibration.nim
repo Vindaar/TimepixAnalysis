@@ -663,7 +663,7 @@ proc cutOnDsets[T](eventNumbers: seq[SomeInteger],
       result[1].add nPix[i]
       result[2].add i.int64
 
-proc cutOnProperties*(h5f: var H5FileObj,
+proc cutOnProperties*(h5f: H5FileObj,
                       group: H5Group,
                       region: ChipRegion,
                       cuts: varargs[tuple[dset: string,
@@ -719,7 +719,7 @@ proc cutOnProperties*(h5f: var H5FileObj,
       # else add this index
       result.add i
 
-proc cutOnProperties*(h5f: var H5FileObj,
+proc cutOnProperties*(h5f: H5FileObj,
                       group: H5Group,
                       cuts: varargs[tuple[dset: string,
                                          lower, upper: float]]): seq[int] {.inline.} =

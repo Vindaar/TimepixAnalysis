@@ -918,12 +918,11 @@ proc applyGasGainCut(h5f: H5FileObj, group: H5Group): seq[int] =
 proc calcGasGain*(h5f: var H5FileObj, runNumber: int, createPlots = false) =
   ## fits the polya distribution to the charge values and writes the
   ## fit parameters (including the gas gain) to the H5 file
-
   const
-    hitLow = 1.5
-    hitHigh = 180.5
-    binCount = 181
-
+    hitLow = 0
+    hitHigh = 300
+    binWidth = 3
+  let totBins = arange(hitLow, hitHigh, binWidth).mapIt(it.float + 0.5)
   var chipBase = recoDataChipBase(runNumber)
   # get the group from file
   echo "Calcing gas gain for run: ", chipBase
@@ -933,8 +932,6 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int, createPlots = false) =
       var group = h5f[grp.grp_str]
       # get the chip number from the attributes of the group
       let chipNumber = group.attrs["chipNumber", int]
-      #if chipNumber != 3:
-      #  continue
       let chipName = group.attrs["chipName", string]
       # get dataset of hits
       var chargeDset = h5f[(grp / "charge").dset_str]
@@ -949,14 +946,12 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int, createPlots = false) =
       # bin the data according to ToT values
       let (a, b, c, t) = getTotCalibParameters(chipName)
       # get bin edges by calculating charge values for all TOT values at TOT's bin edges
-      #let bin_edges = mapIt(linspace(-0.5, 249.5, 251), calibrateCharge(it, a, b, c, t))
-      # skip range from 0 - 1.5 to leave out noisy pixels w/ very low ToT
-      var bin_edges = mapIt(linspace(hitLow, hitHigh, binCount + 1), calibrateCharge(it, a, b, c, t))
+      var bin_edges = mapIt(totBins, calibrateCharge(it, a, b, c, t))
       # the histogram counts are the same for ToT values as well as for charge values,
       # so calculate for ToT
-      let (binned, _) = tots.histogram(bins = binCount, range = (hitLow + 0.5, hitHigh + 0.5))
-
-      # ``NOTE: remove last element from bin_edges to have``
+      let (binned, _) = tots.histogram(bins = totBins,
+                                        range = (totBins.min + 0.5, totBins.max + 0.5))
+      # ``NOTE: remove last element from bin_edges to have:``
       # ``bin_edges.len == binned.len``
       bin_edges = bin_edges[0 .. ^2]
       # given binned histogram, fit polya
@@ -965,9 +960,11 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int, createPlots = false) =
                                   chipNumber, runNumber,
                                   createPlots = createPlots)
       # create dataset for polya histogram
-      var polyaDset = h5f.create_dataset(group.name / "polya", (binCount, 2), dtype = float64,
+      var polyaDset = h5f.create_dataset(group.name / "polya", (binned.len, 2),
+                                         dtype = float64,
                                          overwrite = true)
-      var polyaFitDset = h5f.create_dataset(group.name / "polyaFit", (binCount, 2), dtype = float64,
+      var polyaFitDset = h5f.create_dataset(group.name / "polyaFit", (binned.len, 2),
+                                            dtype = float64,
                                             overwrite = true)
       let polyaData = zip(bin_edges, binned) --> map(@[it[0], it[1].float])
       let polyaFitData = zip(fitResult.x, fitResult.y) --> map(@[it[0], it[1]])

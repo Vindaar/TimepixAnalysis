@@ -903,6 +903,18 @@ proc applyChargeCalibration*(h5f: var H5FileObj, runNumber: int) =
       chargeDset.writeDset(charge)
       totalChargeDset.writeDset(totalCharge)
 
+proc applyGasGainCut(h5f: H5FileObj, group: H5Group): seq[int] =
+  ## Performs the cuts, which are used to select the events which we use
+  ## to perform the polya fit + gas gain determination. This is based on
+  ## C. Krieger's thesis. The cuts are extracted from the `getGasGain.C`
+  ## macro found in `resources`.
+  const cut_rms_trans_low = 0.1
+  const cut_rms_trans_high = 1.5
+  result = cutOnProperties(h5f,
+                           group,
+                           crSilver,
+                           ("rmsTransverse", cut_rms_trans_low, cut_rms_trans_high))
+
 proc calcGasGain*(h5f: var H5FileObj, runNumber: int, createPlots = false) =
   ## fits the polya distribution to the charge values and writes the
   ## fit parameters (including the gas gain) to the H5 file
@@ -928,12 +940,7 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int, createPlots = false) =
       var chargeDset = h5f[(grp / "charge").dset_str]
       var totDset = h5f[(grp / "ToT").dset_str]
 
-      const cut_rms_trans_low = 0.1
-      const cut_rms_trans_high = 1.5
-      let passIdx = cutOnProperties(h5f,
-                                    group,
-                                    crSilver,
-                                    ("rmsTransverse", cut_rms_trans_low, cut_rms_trans_high))
+      let passIdx = applyGasGainCut(h5f, group)
       let vlenInt = special_type(uint16)
       # get all charge values as seq[seq[float]] flatten
       let totsFull = totDset[vlenInt, uint16].flatten

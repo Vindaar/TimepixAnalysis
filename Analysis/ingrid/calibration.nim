@@ -942,10 +942,10 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int, createPlots = false) =
 
       let passIdx = applyGasGainCut(h5f, group)
       let vlenInt = special_type(uint16)
-      # get all charge values as seq[seq[float]] flatten
-      let totsFull = totDset[vlenInt, uint16].flatten
-      let tots = passIdx.mapIt(totsFull[it])
-
+      # get all charge values as seq[seq[float]], ``then`` apply the `passIdx`
+      # and only flatten ``after`` that
+      let totsFull = totDset[vlenInt, uint16]
+      let tots = passIdx.mapIt(totsFull[it]).flatten.mapIt(it.float)
       # bin the data according to ToT values
       let (a, b, c, t) = getTotCalibParameters(chipName)
       # get bin edges by calculating charge values for all TOT values at TOT's bin edges

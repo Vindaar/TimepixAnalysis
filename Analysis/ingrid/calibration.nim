@@ -975,13 +975,17 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int, createPlots = false) =
       template writeAttrs(d: var H5DataSet, fitResult: typed): untyped =
         d.attrs["N"] = fitResult.pRes[0]
         d.attrs["G_fit"] = fitResult.pRes[1]
-        # TODO: Christoph takes the "mean gas gain" by calculating the mean
-        # of the `chargePerPixelAssymBin` histogram instead of `G` into
-        # account. Why?
-        let meanGain = (zip(fitResult.x, fitResult.y) -->>
+        # calculate the mean of the data histogram. This is what Krieger calls
+        # `G_mean` and uses for the rest of the calculation!
+        let meanGain = histMean(binned, bin_edges)
+        # also calculate the mean of the polya fit. This usually is *not* the same
+        # as the `meanGain` (mean of data). `meanGainFit` is what we used errorneously
+        # in the past!
+        let meanGainFit = (zip(fitResult.x, fitResult.y) -->>
                         map(it[0] * it[1]) -->
                         fold(0.0, a + it)) / fitResult.y.sum.float
         d.attrs["G"] = meanGain
+        d.attrs["G_fitmean"] = meanGainFit
         d.attrs["theta"] = fitResult.pRes[2]
         # TODO: get some errors from NLopt?
         #d.attrs["N_err"] = fitResult.pErr[0]

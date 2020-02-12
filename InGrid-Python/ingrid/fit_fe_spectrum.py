@@ -291,20 +291,19 @@ def fitFeSpectrumImpl(hist, binning, cuts):
     for i in range(len(l_bounds)):
         if l_bounds[i] >= u_bounds[i]:
             l_bounds[i] = u_bounds[i] - 1e-5
+        print(l_bounds[i], "  ", u_bounds[i])
+    print("N params for pixel fit: ", len(params))
     # this leaves parameter 7 and 8, as well as 12 and 13 without bounds
     # these describe the exponential factors contributing, since they will
     # be small anyways...
     bounds = (l_bounds, u_bounds)
-    print(len(bounds))
-    print("Bounds for pixel fit: ", bounds)
-    print("N params for pixel fit: ", len(params))
 
     # only fit in range up to 350 hits. Can take index 350 on both, since we
     # created the histogram for a binning with width == 1 pixel per hit
     data_tofit = hist[0:350]
     bins_tofit = binning[0:350]
 
-    result = curve_fit(feSpectrumFunc, bins_tofit, data_tofit, p0=params, bounds = bounds)#, full_output=True)
+    result = curve_fit(feSpectrumFunc, bins_tofit, data_tofit, p0=params, bounds = bounds)
     popt = result[0]
     pcov = result[1]
     # Calculate the reduced Chi^2:
@@ -316,9 +315,6 @@ def fitFeSpectrumImpl(hist, binning, cuts):
     for i, p in enumerate(popt):
         print('p_{} ='.format(i), popt[i], '+-', np.sqrt(pcov[i][i]))
     #print('Chi^2 / dof =', chi_sq)
-
-    print("yay :)")
-
     return popt, pcov
 
 def linear_func(x, a):

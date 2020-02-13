@@ -84,7 +84,7 @@ shellCheck:
   one:
     cd ($dir)/Analysis/ingrid
     nim c "-d:release --app:lib --out:procsForPython.so" procsForPython.nim
-    mv procsForPython.so `$dir`/"InGrid-Python/ingrid"
+    mv procsForPython.so ($dir)/"InGrid-Python/ingrid"
 
 echo "Attempt compiling raw_data_manipulation"
 shellCheck:

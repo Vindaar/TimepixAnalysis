@@ -362,15 +362,12 @@ proc reconstructSingleChip*(data: seq[tuple[pixels: Pixels, eventNumber: int]],
   info &"We have {data.len} events to reconstruct"
   var count = 0
   result = newSeq[FlowVar[ref RecoEvent[Pix]]](data.len)
-  #parallel:
   let p = newThreadPool()
-  for event in 0..data.high:
+  for event in 0 ..< numElems:
     if event < result.len:
       result[event] = p.spawn recoEvent(data[event], chip, run)
     echoFilesCounted(count, 2500)
   p.sync()
-
-#iterator matchingGroup(h5f: var H5FileObj,
 
 proc createAndFitFeSpec(h5f: var H5FileObj,
                         runNumber: int,

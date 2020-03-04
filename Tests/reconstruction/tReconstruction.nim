@@ -173,8 +173,12 @@ suite "reconstruction":
                            "polya" : pFit })
     let dfAlt = bind_rows([("Polya", dfR), ("Fit", dfFit)],
                           id = "From")
-    ggplot(dfAlt, aes("x", "polya", color = "From")) +
-      geom_line() +
+    ggplot(dfAlt, aes("x", "polya")) +
+      geom_histogram(data = dfAlt.filter(fn {"From" == "Polya"}),
+                     stat = "identity",
+                     color = some(ggColorHue(2)[1])) +
+      geom_line(data = dfAlt.filter(fn {"From" == "Fit"}),
+                color = some(ggColorHue(2)[0])) +
       ggsave("gasgain.pdf")
     discard h5f.close()
    # now check the gas gain

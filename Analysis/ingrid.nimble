@@ -9,7 +9,7 @@ skipExt       = @["h5"]
 
 # Dependencies
 
-requires "nim >= 0.19.0"
+requires "nim >= 1.0.0"
 requires "loopfusion#head"
 requires "arraymancer#head"
 requires "https://github.com/vindaar/seqmath >= 0.1.5"

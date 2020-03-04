@@ -46,6 +46,8 @@ Options:
   --scintiveto           If flag is set, we use the scintillators as a veto
   --fadcveto             If flag is set, we use the FADC as a veto
   --septemveto           If flag is set, we use the Septemboard as a veto
+  --createRocCurve       If flag is set, we create ROC curves for all energy bins. This
+                         requires the input to already have a `likelihood` dataset!
   -h --help              Show this help
   --version              Show version.
 """
@@ -70,7 +72,7 @@ type
   histTuple = tuple[bins: seq[float64], hist: seq[float64]]
 
   FlagKind = enum
-    fkTracking, fkFadc, fkScinti, fkSeptem
+    fkTracking, fkFadc, fkScinti, fkSeptem, fkRocCurve
 
   YearKind = enum
     yr2014 = "2014"
@@ -89,14 +91,14 @@ proc calcLikelihoodDataset(h5f: var H5FileObj, refFile: string,
 
 proc buildLogLHist(cdlFile, refFile, dset: string,
                    year: YearKind,
-                   region: ChipRegion = crGold): seq[float] =
+                   region: ChipRegion = crGold): tuple[logL, energy: seq[float]] =
   ## given a file `h5file` containing a CDL calibration dataset
   ## `dset` apply the cuts on all events and build the logL distribution
-  ## for the energy range
+  ## for the energy range.
   ## `dset` needs to be of the elements contained in the returned map
   ## of tos_helpers.`getXrayRefTable`
   ## Default `region` is the gold region
-  result = @[]
+  ## Returns a tuple of the actual `logL` values and the corresponding `energy`.
   var grp_name = cdlPrefix($year) & dset
   # create global vars for xray and normal cuts table to avoid having
   # to recreate them each time
@@ -166,6 +168,9 @@ proc buildLogLHist(cdlFile, refFile, dset: string,
       # get the cut values for this dataset
       cuts = cutsTab[dset]
       xrayCuts = xrayCutsTab[dset]
+
+    result[0] = newSeqOfCap[float](energy.len)
+    result[1] = newSeqOfCap[float](energy.len)
     for i in 0 .. energy.high:
       let
         # first apply Xray cuts (see C. Krieger PhD Appendix B & C)
@@ -185,10 +190,11 @@ proc buildLogLHist(cdlFile, refFile, dset: string,
       # add event to likelihood if all cuts passed
       if allIt([regionCut, xRmsCut, xLengthCut, xEccCut, chargeCut, rmsCut, lengthCut, pixelCut], it):
         if logL[i] != Inf:
-          result.add logL[i]
+          result[0].add logL[i]
+          result[1].add energy[i]
 
   # now create plots of all ref likelihood distributions
-  echo "max is inf ? ", min(result), " ", max(result)
+  echo "max is inf ? ", min(result[0]), " ", max(result[0])
   #if "4kV" in dset or "0.6kV" in dset:
   #  let binSize = (30.0 + 0.0) / 200.0
   #  histPlot(result)
@@ -228,7 +234,9 @@ proc calcCutValueTab(cdlFile, refFile: string, yearKind: YearKind,
       # get the raw log likelihood histograms (seq of individual values). Takes into account
       # cuts on properties and chip region
       rawLogHists = mapIt(toSeq(values(xray_ref)),
-                          buildLogLHist(cdlFile, refFile, it, yearKind, region))
+                          # build hist and get `[0]` to only get `logL` values
+                          buildLogLHist(cdlFile, refFile, it, yearKind, region)[0]
+      )
       # given raw log histograms, create the correctly binned histograms from it
       logHists = mapIt(rawLogHists, histogram(it, nbins, logLrange)[0])
       # get the cut value for a software efficiency of 80%
@@ -927,6 +935,141 @@ proc extractEvents(h5f: var H5FileObj, extractFrom, outfolder: string) =
         if fadcExists:
           copyFile(infile & "-fadc", outfile & "-fadc")
 
+proc readLikelihoodDsets(h5f: H5FileObj): DataFrame =
+  ## reads all likelihood data in the given `h5f` file as well as the
+  ## corresponding energies. Flattened to a 1D seq.
+  ## This proc is for TPA generated H5 files! (i.e. containing run_* groups, ...)
+  # iterate over all groups, read all likelihood and energy dsets
+  var energies = newSeqOfCap[float](1_000_000)
+  var logLs = newSeqOfCap[float](1_000_000)
+  for run, grp in runs(h5f):
+    let group = h5f[grp.grp_str]
+    let centerChip = "chip_" & $group.attrs["centerChip", int]
+    doAssert grp / centerChip / "likelihood" in h5f[(group.name / centerChip).grp_str],
+      "likelihood dataset must exist in input H5 file!"
+    let energy = h5f[grp / centerChip / "energyFromCharge", float64]
+    let logL = h5f[grp / centerChip / "likelihood", float64]
+    doAssert energy.len == logL.len
+    energies.add energy
+    logLs.add logL
+  let bin_back = energies.mapIt(it.toRefDset)
+  result = seqsToDf({ "Bin" : bin_back,
+                      "Energy" : energies,
+                      "Likelihood" : logLs })
+  echo result
+
+proc readLikelihoodDsetsCdl(cdlFile, refFile: string,
+                            yearKind: YearKind,
+                            region: ChipRegion): DataFrame =
+  ## reads a CDL like H5 file and returns a DataFrame of the energies,
+  ## likelihood values and categories (of the energy bin)
+  # iterate over all groups, read all likelihood and energy dsets
+  const xray_ref = getXrayRefTable()
+  var
+    energies: seq[float]
+    logLs: seq[float]
+    bins: seq[string]
+  for bin in values(xray_ref):
+    let (logL, energy) = buildLogLHist(cdlFile, refFile, bin, yearKind, region)
+    logLs.add logL
+    energies.add energy
+    bins.add sequtils.repeat(bin, energy.len)
+  result = seqsToDf({ "Bin" : bins,
+                      "Energy" : energies,
+                      "Likelihood" : logLs })
+  when false:
+    # code to simply read all data w/o filtering.
+    var energies = newSeqOfCap[float32](1_000_000)
+    var logLs = newSeqOfCap[float32](1_000_000)
+    var bins = newSeqOfCap[string](1_000_000)
+    for grp in items(h5f):
+      let energy = h5f[grp.name / "EnergyFromCharge", float32]
+      let logL = h5f[grp.name / "LikelihoodMarlin", float32]
+      doAssert energy.len == logL.len
+      energies.add energy
+      logLs.add logL
+      proc removePref(s, prefix: string): string =
+        result = s
+        result.removePrefix(prefix)
+      bins.add repeat(removePref(grp.name, "/" & cdlPrefix("2014")),
+                      energy.len)
+    let bin_back = energies.mapIt(it.toRefDset)
+    result = seqsToDf({ "energy" : energies,
+                        "logL" : logLs,
+                        "bin" : bin_back })
+
+proc determineEff(logLs: seq[float], cutVal: float,
+                  isBackground = true): float =
+  ## returns the efficiency given the sorted (!) `logLs`, a
+  ## cut value `cutVal` and whether it's background or signal
+  let cutIdx = logLs.lowerBound(cutVal)
+  result = cutIdx.float / logLs.len.float
+  if isBackground:
+    result = 1.0 - result
+
+proc calcSigEffBackRej(df: DataFrame, logLBins: seq[float],
+                       isBackground = true): DataFrame =
+  ## returns the signal eff and backround rej for all logLBins of the
+  ## given data frame, split by the `bins` column (that is CDL classes)
+  let dfG = df.group_by("Bin")
+  for (pair, subDf) in groups(dfG):
+    let logL = subDf["Likelihood"].vToSeq.mapIt(it.toFloat).sorted
+    var effs = newSeqOfCap[float](logLBins.len)
+    for l in logLBins:
+      let eff = determineEff(logL, l, isBackground = isBackground)
+      effs.add eff
+    echo pair
+    let binConst = toSeq(0 ..< effs.len).mapIt(pair[0][1].toStr)
+    let effDf = seqsToDf({ "eff" : effs,
+                           "cutVals" : logLBins,
+                           "bin" : binConst })
+    result.add effDf
+  echo result
+
+proc calcRocCurve(dfSignal, dfBackground: DataFrame): DataFrame =
+  # now use both to determine signal and background efficiencies
+  # essentially have to generate some binning in `logL` we deem appropriate,
+  const LogLBins = 500
+  let logLBins = linspace(0.0, 40.0, LogLBins)
+  let sigEffDf = calcSigEffBackRej(dfSignal, logLBins, isBackground = false)
+    .rename(f{"sigEff" ~ "eff"})
+  let backRejDf = calcSigEffBackRej(dfBackground, logLBins, isBackground = true)
+    .rename(f{"backRej" ~ "eff"})
+  result = innerJoin(sigEffDf, backRejDf, by = "cutVals")
+  echo result
+
+proc createRocCurves(h5Back: H5FileObj,
+                     cdlFile, refFile: string,
+                     yearKind: YearKind,
+                     region: ChipRegion) =
+  ## generates all ROC curves for the given two H5 files and the
+  ## histograms of the likelihood distributions for the CDL data and
+  ## the given background file.
+  ## By default the file containing signal like events will be
+  ## the X-ray reference file.
+  let dfSignal = readLikelihoodDsetsCdl(cdlFile, refFile, yearKind, region)
+  let dfBack = readLikelihoodDsets(h5Back)
+    .filter(f{"Likelihood" != Inf})
+  ggplot(dfBack, aes("Likelihood", fill = "Bin")) +
+    geom_histogram(binWidth = 0.2) +
+    ggsave("backgroundLogL.pdf")
+  ggplot(dfSignal, aes("Likelihood", fill = "Bin")) +
+    geom_histogram(binWidth = 0.2) +
+    ggsave("signalLogL.pdf")
+
+  ## TODO: IMPORTANT the results are still wrong!!! Especially the `0.9 Cu EPIC` line
+  ## still is lower than it should be!
+  # then determine efficiency in both signal and background
+  # for computational efficiency reason only use raw, sorted `seq[float]`
+  let res = calcRocCurve(dfSignal, dfBack)
+  ggplot(res, aes("sigEff", "backRej", color = "bin")) +
+    geom_line() +
+    ggtitle("ROC curves for likelihood method, 2014 data") +
+    ggsave("roc_curves.pdf")
+  #ggplot(effDf, aes("sigEff", "backRej")) +
+  #  geom_line() +
+  #  ggsave("roc_curve_full_range.pdf")
+
 proc main() =
   # create command line arguments
   let args = docopt(doc)
@@ -940,6 +1083,7 @@ proc main() =
   if $args["--scintiveto"] == "true": flags.incl fkScinti
   if $args["--fadcveto"] == "true": flags.incl fkFadc
   if $args["--septemveto"] == "true": flags.incl fkSeptem
+  if $args["--createRocCurve"] == "true": flags.incl fkRocCurve
 
   let cdlFile = if $args["--altCdlFile"] != "nil":
                   $args["--altCdlFile"]
@@ -968,7 +1112,11 @@ proc main() =
   var h5f = H5file(h5f_file, "rw")
   h5f.visitFile
 
-  if extractFrom == "nil":
+  if fkRocCurve in flags:
+    ## create the ROC curves and likelihood distributios. This requires to
+    ## previously run this tool with the default parameters
+    createRocCurves(h5f, cdlFile, refFile, year, region)
+  elif extractFrom == "nil":
     var h5fout: H5FileObj
     if h5foutfile != "":
       h5fout = H5file(h5foutfile, "rw")

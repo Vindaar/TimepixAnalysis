@@ -6,7 +6,6 @@ import websocket, asynchttpserver, asyncnet, asyncdispatch
 
 import shell
 import arraymancer
-import loopfusion
 import zero_functional
 import nimhdf5
 import seqmath
@@ -828,7 +827,7 @@ proc buildEvents[T, U](x, y: seq[seq[T]], ch: seq[seq[U]],
         xi = x[i]
         yi = y[i]
         chi = ch[i]
-      forZip ix in xi, iy in yi, ich in chi:
+      for (ix, iy, ich) in zip(xi, yi, chi):
         result[i, iy.int, ix.int] = ich.float
 
 proc readEvent*(h5f: var H5FileObj, run, chip: int, idx: seq[int]): Tensor[float] =

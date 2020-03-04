@@ -419,7 +419,7 @@ proc filterTrackingEvents*(h5f: var H5FileObj, group: H5Group, tracking_inds: se
     evNumbers = h5f[(group.name / "eventNumber").dset_str][int64]
   result = filterTrackingEvents(evNumbers, tracking_inds)
 
-iterator runs*(h5f: var H5FileObj, data_basename = recoBase()): (string, string) =
+iterator runs*(h5f: H5FileObj, data_basename = recoBase()): (string, string) =
   ## simple iterator, which yields the run number and group name of runs in the file.
   ## If reco is true (default) we yield reconstruction groups, else raw groups
   ## Iterator saves the state of `h5f` during the first call to this iterator! If

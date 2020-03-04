@@ -97,24 +97,25 @@ def feSpectrumFunc(x, *p_ar):#p_ar):
     # the escape peaks
     # see fitFeSpectrum() (where bounds are set) for discussion of different
     # parameters
+    # Kalpha escape peak
     parAll[0] = p_ar[0]
     parAll[1] = p_ar[1]
     parAll[2] = p_ar[2]
     parAll[3] = p_ar[3]
     parAll[4] = p_ar[4]
-
+    # Kbeta escape peak
     parAll[5] = p_ar[5]
     parAll[6] = p_ar[6]
     parAll[7] = p_ar[14]*p_ar[2]
     parAll[8] = 3.5/2.9*p_ar[3]
     parAll[9] = p_ar[4]
-
+    # Kalpha peak
     parAll[10] = p_ar[7]
     parAll[11] = p_ar[8]
     parAll[12] = p_ar[9]
     parAll[13] = p_ar[10]
     parAll[14] = p_ar[11]
-
+    # Kbeta peak
     parAll[15] = p_ar[12]
     parAll[16] = p_ar[13]
     parAll[17] = p_ar[14]*p_ar[9]

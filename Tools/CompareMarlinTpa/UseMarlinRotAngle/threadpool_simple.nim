@@ -2,7 +2,7 @@ type
   ThreadPool* = object
     discard
 
-  FlowVar*[T] = object
+  FlowVar*[T] = ref object
     when T isnot void:
       v: T
 

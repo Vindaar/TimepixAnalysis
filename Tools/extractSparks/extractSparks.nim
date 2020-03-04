@@ -1,6 +1,6 @@
 import ingrid / tos_helpers
 import plotly, sequtils, strutils, os
-import nimhdf5, loopfusion, arraymancer, seqmath, docopt
+import nimhdf5, arraymancer, seqmath, docopt
 
 when defined(linux):
   const commitHash = staticExec("git rev-parse --short HEAD")
@@ -39,7 +39,7 @@ proc buildEvent[T, U](x, y: seq[T], ch: seq[U]): Tensor[float] =
   ## takes all events via their *indices* (not real event numbers) and returns
   ## a (256, 256) tensor for each event
   result = newTensor[float]([NPix, NPix])
-  forZip ix in x, iy in y, ich in ch:
+  for (ix, iy, ich) in zipEm(x, y, ch):
     result[iy.int, ix.int] = ich.float
 
 proc nonZero(t: Tensor[float]): bool =

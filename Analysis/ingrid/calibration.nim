@@ -161,6 +161,8 @@ template fitForNloptLnLikelihoodGrad*(name, funcToCall: untyped): untyped =
       # ignore empty data and model points
     result = (res, gradRes)
 
+#fitForNloptLnLikelihoodGrad(polya, polyaImpl)
+#fitForNloptLnLikelihood(polya, polyaImpl)
 fitForNlopt(polya, polyaImpl)
 
 func sCurveFunc(p: seq[float], x: float): float =

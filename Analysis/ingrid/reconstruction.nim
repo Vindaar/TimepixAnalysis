@@ -361,7 +361,8 @@ proc reconstructSingleChip*(data: seq[tuple[pixels: Pixels, eventNumber: int]],
   info &"Working on chip {chip} in run {run}"
   info &"We have {data.len} events to reconstruct"
   var count = 0
-  result = newSeq[FlowVar[ref RecoEvent[Pix]]](data.len)
+  let numElems = data.len
+  result = newSeq[FlowVar[ref RecoEvent[Pix]]](numElems)
   let p = newThreadPool()
   for event in 0 ..< numElems:
     if event < result.len:

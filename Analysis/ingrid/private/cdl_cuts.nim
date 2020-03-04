@@ -235,14 +235,15 @@ func getRegionCut*(region: ChipRegion): CutsRegion =
                         radius: 0.0)
 
 when isMainModule:
+  import sequtils
   let energies = @[0.1, 0.0, 12.4, 4.4, 2.3, 2.0]
   let inds = [0, 0, 7, 5, 4, 3]
   let refs = ["C-EPIC-0.6kV", "C-EPIC-0.6kV", "Cu-Ni-15kV", "Ti-Ti-9kV", "Ag-Ag-6kV", "Al-Al-4kV"]
   let xray_table = getXrayRefTable()
   let binning = getEnergyBinning()
-  forEach e in energies, i in inds, r in refs:
-    assert(binning.lowerBound(e) == i)
-    assert(toRefDset(e) == r)
+  for i in 0 ..< energies.len:
+    assert(binning.lowerBound(energies[i]) == inds[i])
+    assert(toRefDset(energies[i]) == refs[i])
 
 
   echo "All tests passed!"

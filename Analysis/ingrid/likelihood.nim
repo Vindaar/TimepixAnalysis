@@ -10,7 +10,6 @@ import tos_helpers
 import helpers/utils
 import sequtils
 import seqmath
-import loopfusion
 import plotly
 import arraymancer
 import ingrid / [ingrid_types, calibration]
@@ -402,9 +401,6 @@ proc calcLogLikelihood*(h5f: var H5FileObj,
                                                                  float64))
     # write the data to the file
     echo &"Writing data of run {group} to file {h5f.name}"
-    #echo logL_dsets
-    # forEach dset in var logL_dsets, logL in var logL_chips:
-    #   dset[dset.all] = logL
     for tup in zip(logL_dsets, logL_chips):
       var (dset, logL) = tup
       dset[dset.all] = logL

@@ -11,7 +11,6 @@ import strutils, strformat
 import seqmath
 import docopt
 import algorithm
-import loopfusion
 import plotly
 import nimhdf5
 
@@ -224,7 +223,7 @@ proc workOnRunFolder(rf: string): (seq[int64], seq[int64]) =
       if existsOrCreateDir(outfolder):
         echo "Folder already existed"
 
-    forZip f in files, ffadc in filesFadc:
+    for (f, ffadc) in zip(files, filesFadc):
       let fd = joinPath(outfolder, extractFilename(f))
       let fdFadc = joinPath(outfolder, extractFilename(ffadc))
       echo &"Copying file {f} to {fd}"
@@ -242,7 +241,7 @@ proc workOnRunFolder(rf: string): (seq[int64], seq[int64]) =
   if outfile.len > 0:
     var outf = open(outfile, fmWrite)
     defer: outf.close()
-    forZip f in files, ffadc in filesFadc:
+    for (f, ffadc) in zip(files, filesFadc):
       outf.write(f & "\n")
       outf.write(ffadc & "\n")
 

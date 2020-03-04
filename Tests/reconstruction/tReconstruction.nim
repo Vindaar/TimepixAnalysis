@@ -201,20 +201,22 @@ suite "reconstruction":
                            "polya" : pFit })
     let dfAlt = bind_rows([("Polya", dfR), ("Fit", dfFit)],
                           id = "From")
-
+      # filter to max 2e4 electrons
+      .filter(fn {"x" <= 2.0e4})
     let dsetFit = h5f[("reconstruction/run_" & $525 / "chip_0/polyaFit").dset_str]
     let attrs = dsetFit.attrsToJson
     echo attrs.pretty
     let G = attrs["G"].getFloat
     let G_fit = attrs["G_fit"].getFloat
     let G_fitmean = attrs["G_fitmean"].getFloat
-    #echo dfAlt.filter(fn {"x" > 1000.0})
+
+
     ggplot(dfAlt, aes("x", "polya")) +
       geom_histogram(data = dfAlt.filter(fn {"From" == "Polya"}),
                      stat = "identity",
-                     color = ggColorHue(2)[1]) +
+                     color = some(ggColorHue(2)[1])) +
       geom_line(data = dfAlt.filter(fn {"From" == "Fit"}),
-                color = ggColorHue(2)[0]) +
+                color = some(ggColorHue(2)[0])) +
       ggtitle(&"Polya fit of run 525; G = {G:.1f}, G_fit = {G_fit:.1f}, " &
         &"G_fitMean = {G_fitmean:.1f}") +
       ggsave("gasgain_2014.pdf")

@@ -353,4 +353,57 @@ when isMainModule:
   where we can see that all parameters of the first `expGauss` are still free and
   those of the second `expGauss` have either been fixed, are free or are tied to
   parameters of the first gauss.
+  In order to fit or plot this function, we need some sensible parameters (or start
+  parameters for a fit).
+  For this we use the `FitFuncArgs` type. One element for each of the terms of the
+  function.
   ]#
+  let paramsFfa = @[
+    FitFuncArgs(
+      name: "Mn-Kalpha-esc",
+      kind: ffExpGauss,
+      ea: 1e-4,
+      eb: 1e-5,
+      eN: 500.0,
+      emu: 95.0,
+      es: 15.0),
+    FitFuncArgs(
+      name: "Mn-Kbeta-esc",
+      kind: ffExpGauss,
+      ea: 1e-4,
+      eb: 1e-5,
+      eN: fixed,
+      emu: fixed,
+      es: fixed), # additional parameters fixed, `fixed` is just an overload for `NaN`
+    FitFuncArgs(
+      name: "Mn-Kalpha",
+      kind: ffExpGauss,
+      ea: 1e-4,
+      eb: 1e-5,
+      eN: 2500.0,
+      emu: 220.0,
+      es: 15.0),
+    FitFuncArgs(
+      name: "Mn-Kbeta",
+      kind: ffExpGauss,
+      ea: 1e-4,
+      eb: 1e-5,
+      eN: fixed,
+      emu: fixed,
+      es: fixed) # additional parameters fixed
+  ]
+  # with this seq we can now generate a `seq[float]` by calling `serialize`:
+  var params = paramsFfa.serialize
+  #[ However, in the above declaration of our fitting function, we make use of
+  an additional parameter 15, namely `p_ar[14]`. If we just serialize all `fixed`
+  arguments will be removed (`params.len == 14` now). So we have to add an additional
+  dummy parameter ]#
+  # ratio of NAlpha/NBeta
+  params.add 17.0 / 150.0
+  # with this in hand we can now plot the function
+  let x = linspace(0, 400, 1000)
+  let y = x.mapIt(feSpecFunc(params, it))
+  let df = seqsToDf(x, y)
+  ggplot(df, aes("x", "y")) +
+    geom_line() +
+    ggsave("feSpecFuncTest.pdf")

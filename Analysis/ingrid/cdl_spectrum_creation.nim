@@ -1,12 +1,13 @@
-import parsecsv, os, streams, strutils, strformat, nimhdf5, tables, sequtils, macros
+import parsecsv, os, streams, strutils, strformat, tables, sequtils, macros, fenv
 import seqmath, algorithm, times, strscans, typeinfo
-import plotly, mpfit, nlopt, nimpy
-import ingrid / [ingrid_types, tos_helpers, calibration]
+import plotly, mpfit, nlopt, nimhdf5
+import ingrid / [ingrid_types, tos_helpers]
+import ingrid / calibration
+import ingrid / calibration / fit_functions
 import cdlFitting / cdlFitMacro
 import docopt
 import helpers / utils
 import chroma
-import nimsvg, ospaths, random, xmlparser, xmltree
 
 const docStr = """
 Usage:

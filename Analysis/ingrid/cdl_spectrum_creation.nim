@@ -882,6 +882,48 @@ proc calcfitcurve(minbin: float, maxbin: float,
     yvals = range.mapIt(cdlFitFunc(fitparams, it))
   result = (range, yvals)
 
+proc calcfit(dataseq: seq[SomeNumber],
+             cdlFitFunc: CdlFitFunc,
+             binSize: float,
+             tfKind: TargetFilterKind,
+             dKind: DataKind): (seq[float], seq[float], float, float) =
+  let (histdata, bins) = histoCdl(dataseq, binSize, dKind)
+  let (pStart, pRes, fitBins, fitHist, errorres) = fitCdlImpl(histdata, bins, tfKind, dKind)
+  var bounds: seq[tuple[l, u:float]]
+  case dKind
+  of Dhits:
+    bounds = getbounds(tfKind)
+  of Dcharge:
+    bounds = getboundsCharge(tfKind)
+  doassert pStart.len == bounds.len
+  #echo "P start len ", pStart.len
+  #echo "Bounds len ", bounds.len
+  #var opt = newNloptOpt(LD_TNEWTON_PRECOND, pStart.len, bounds)
+  fitForNlopt(convertNlopt, cdlFitFunc,
+              nfKind = nfMleGrad,
+              toExport = false)
+  var fitObj = FitObject(x: fitBins, y: fitHist) #, yErr: fitHist.mapIt(sqrt(it)))
+  var vstruct = newVarStruct(convertNlopt, fitObj)
+  #
+  var opt = newNloptOpt[type(fitObj)](LD_MMA, pStart.len, bounds)
+  opt.setFunction(vstruct)
+  opt.xtol_rel = 1e-10
+  opt.ftol_rel = 1e-10
+  #opt.xtol_abs = 1e-14
+  #opt.ftol_abs = 1e-14
+  opt.maxtime  = 20.0
+  #opt.maxEval  = 2000
+  #opt.initialStep = 1
+  let (paramsN, minN) = opt.optimize(pStart)
+  nlopt_destroy(opt.optimizer)
+
+  let minbin = fitBins.min
+  let maxbin = fitBins.max
+  result = (pRes, paramsN, minbin, maxbin)
+  #echo "fit start params ", pStart
+  #echo "fit pRes ", pRes
+  #echo "fit paramsN ", paramsN
+
 proc fitAndPlot[T: SomeNumber](h5f: var H5FileObj, fitParamsFname: string,
                                tfKind: TargetFilterKind, dKind: DataKind):
                (seq[float], seq[float], seq[float], seq[float]) =
@@ -924,48 +966,6 @@ proc fitAndPlot[T: SomeNumber](h5f: var H5FileObj, fitParamsFname: string,
       let Cdlseq = h5f[grp.name / "CdlSpectrumCharge", T]
       rawseq.add(RawDataseq)
       cutseq.add(Cdlseq)
-
-  proc calcfit(dataseq: seq[SomeNumber],
-               cdlFitFunc: CdlFitFunc,
-               binSize: float,
-               tfKind: TargetFilterKind,
-               dKind: DataKind): (seq[float], seq[float], float, float) =
-    let (histdata, bins) = histoCdl(dataseq, binSize, dKind)
-    let (pStart, pRes, fitBins, fitHist, errorres) = fitCdlImpl(histdata, bins, tfKind, dKind)
-    #fitForNlopt(convertNlopt, cdlFitFunc)
-    #fitForNloptLnLikelihood(convertNlopt, cdlFitFunc)
-    fitForNloptLnLikelihoodGrad(convertNlopt, cdlFitFunc)
-    var bounds: seq[tuple[l, u:float]]
-    case dKind
-    of Dhits:
-      bounds = getbounds(tfKind)
-    of Dcharge:
-      bounds = getboundsCharge(tfKind)
-    doassert pStart.len == bounds.len
-    #echo "P start len ", pStart.len
-    #echo "Bounds len ", bounds.len
-    #var opt = newNloptOpt(LD_TNEWTON_PRECOND, pStart.len, bounds)
-    var fitObj = FitObject(x: fitBins, y: fitHist) #, yErr: fitHist.mapIt(sqrt(it)))
-    var vstruct = newVarStruct(convertNlopt, fitObj)
-
-    var opt = newNloptOpt[type(fitObj)](LD_MMA, pStart.len, bounds)
-    opt.setFunction(vstruct)
-    opt.xtol_rel = 1e-10
-    opt.ftol_rel = 1e-10
-    #opt.xtol_abs = 1e-14
-    #opt.ftol_abs = 1e-14
-    opt.maxtime  = 20.0
-    #opt.maxEval  = 2000
-    #opt.initialStep = 1
-    let (paramsN, minN) = opt.optimize(pStart)
-    nlopt_destroy(opt.optimizer)
-
-    let minbin = fitBins.min
-    let maxbin = fitBins.max
-    result = (pRes, paramsN, minbin, maxbin)
-    #echo "fit start params ", pStart
-    #echo "fit pRes ", pRes
-    #echo "fit paramsN ", paramsN
 
   let (histdata, bins) = histoCdl(cutseq, binsizeplot, dKind)
   let (pStart, pRes, fitBins, fitHist, errorsres) = fitCdlImpl(histdata, bins, tfKind, dKind)

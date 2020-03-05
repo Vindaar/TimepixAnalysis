@@ -1,5 +1,7 @@
 import macros, strutils, tables, math
 
+import seqmath
+
 type
   FitFuncKind* = enum
     ffConst, ffPol1, ffPol2, ffGauss, ffExpGauss
@@ -25,6 +27,20 @@ type
       es*: float
 
 const fixed* = NaN
+
+proc expGauss*(p: seq[float], x: float): float =
+  # exponential * times (?!) from Christoph's expogaus.c
+  if len(p) != 5:
+    return Inf
+  let p_val = 2.0 * (p[1] * pow(p[4], 2.0) - p[3])
+  let q_val = 2.0 * pow(p[4], 2.0) * p[0] + pow(p[3], 2.0) - ln(p[2]) * 2.0 * pow(p[4], 2.0)
+
+  let threshold = - p_val / 2.0 - sqrt( pow(p_val, 2.0) / 4.0 - q_val )
+
+  if x < threshold:
+    result = exp(p[0] + p[1] * x)
+  else:
+    result = p[2] * gauss(x, p[3], p[4])
 
 proc genFitFuncImpl(idx: var int, xNode,
                     pFitNode: NimNode, paramsNode: seq[NimNode]): NimNode =
@@ -108,7 +124,7 @@ proc resolveNode(n: NimNode, tab: OrderedTable[string, NimNode]): NimNode =
       of nnkCall:
         # resolve calls (my contain e.g. `emu("Mn-Kalpha")` etc.
         result[i] = resolveCall(tab, result[i])
-      of nnkInfix:
+      of nnkInfix, nnkPar:
         # infix, recurse
         result[i] = resolveNode(result[i], tab)
       else:
@@ -304,7 +320,7 @@ func filterNaN(s: openArray[float]): seq[float] =
     if classify(x) != fcNaN:
       result.add x
 
-proc serialize(parts: seq[FitFuncArgs]): seq[float] =
+proc serialize*(parts: seq[FitFuncArgs]): seq[float] =
   for p in parts:
     case p.kind
     of ffConst:

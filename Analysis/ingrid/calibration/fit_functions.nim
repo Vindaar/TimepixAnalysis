@@ -25,20 +25,6 @@ func totCalibFunc*(p: seq[float], x: float): float =
   ## p = [a, b, c, t]
   result = p[0] * x + p[1] - p[2] / (x - p[3])
 
-proc expGauss*(p: seq[float], x: float): float =
-  # exponential * times (?!) from Christoph's expogaus.c
-  if len(p) != 5:
-    return Inf
-  let p_val = 2.0 * (p[1] * pow(p[4], 2.0) - p[3])
-  let q_val = 2.0 * pow(p[4], 2.0) * p[0] + pow(p[3], 2.0) - ln(p[2]) * 2.0 * pow(p[4], 2.0)
-
-  let threshold = - p_val / 2.0 - sqrt( pow(p_val, 2.0) / 4.0 - q_val )
-
-  if x < threshold:
-    result = exp(p[0] + p[1] * x)
-  else:
-    result = p[2] * gauss(x, p[3], p[4])
-
 ## Define the `feSpectrumFunc`. Total parameters: 15.
 ## 14 from 4 ffExpGauss and 1 additional (`p_ar[14]`).
 declareFitFunc(feSpectrum):

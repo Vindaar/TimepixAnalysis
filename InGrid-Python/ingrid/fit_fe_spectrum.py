@@ -71,6 +71,11 @@ def expGauss(x_ar, p):
 
 def feSpectrumFuncCharge(x, *p_ar):
     ## the fitting function used for the Fe spectrum with charge bins, see `XrayCalib.c`
+    # a wrapper around 4 Gaussians.
+    # It's a mixture of the K_alpha, K_beta lines as well as the escape peaks.
+    # However the K_beta lines are not fitted, but just set in relation to the
+    # K_alpha lines.
+    # parameter names
     # fix N_Kbeta/N_Kalpha to theoretical value from XDB
     p6 = 17.0 / 150.0
     t1 = p_ar[0] * np.exp(-(x - p_ar[1]) * (x - p_ar[1]) / (2 * p_ar[2] * p_ar[2]))

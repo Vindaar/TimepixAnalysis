@@ -1,0 +1,421 @@
+#[
+Contains all logic that handles the fitting routines.
+This module does ``not`` interact with HDF5 files. All routines take
+data perform a fit either with Nlopt or mpfit and return data.
+The actual functions to be fitted are found in `fit_functions.nim`
+]#
+
+import seqmath, sequtils, stats, strformat
+import nlopt, mpfit
+
+import .. / ingrid_types
+import fit_functions
+
+################################################################################
+########## Timepix calibration related fitting routines ########################
+################################################################################
+
+const
+  NTestPulses = 1000.0
+  ScalePulses = 1.01
+  CurveHalfWidth = 15
+
+func findDrop(thl: seq[int], count: seq[float]): (float, int, int) =
+  ## search for the drop of the SCurve, i.e.
+  ##
+  ##    ___/\__
+  ## __/       \__
+  ## 0123456789ABC
+  ## i.e. the location of feature A (the center of it)
+  ## returns the thl value at the center of the drop
+  ## and the ranges to be used for the fit (min and max
+  ## as indices for the thl and count seqs)
+  # zip thl and count
+  let
+    mthl = thl.mapIt(it.float)
+    mcount = count.mapIt(it.float)
+    thlZipped = zip(toSeq(0 .. mthl.high), mthl)
+    thlCount = zip(thlZipped, mcount)
+    # helper, which is the scaled bound to check whether we need
+    # to tighten the view on the valid THLs
+    scaleBound = NTestPulses * ScalePulses
+
+  # extract all elements  of thlCount where count larger than 500, return
+  # the largest element
+  let
+    drop = thlCount.filterIt(it[1] > (NTestPulses / 2.0))[^1]
+    (pCenterInd, pCenter) = drop[0]
+
+  var minIndex = max(pCenterInd - CurveHalfWidth, 0)
+  # test the min index
+  if mcount[minIndex.int] > scaleBound:
+    # in that case get the first index larger than minIndex, which
+    # is smaller than the scaled test pulses
+    let
+      thlView = thlCount[minIndex.int .. thlCount.high]
+      thlSmallerBound = thlView.filterIt(it[1] < scaleBound)
+    # from all elements smaller than  the bound, extract the index,
+    # [0][0][0]:
+    # - [0]: want element at position 0, contains smallest THL values
+    # - [0]: above results in ( (`int`, `float`), `float` ), get first tupl
+    # - [0]: get `int` from above, which corresponds to indices of THL
+    minIndex = thlSmallerBound[0][0][0]
+  let maxIndex = min(pCenterInd + CurveHalfWidth, thl.high)
+
+  # index is thl of ind
+  result = (pCenter, minIndex, maxIndex)
+
+
+proc fitToTCalib*(tot: Tot, startFit = 0.0): FitResult =
+  var
+    # local mutable variables to potentially remove unwanted data for fit
+    mPulses = tot.pulses.mapIt(it.float)
+    mMean = tot.mean
+    mStd = tot.std
+
+  # define the start parameters. Use a good guess...
+  let p = [0.4, 64.0, 1000.0, -20.0] # [0.149194, 23.5359, 205.735, -100.0]
+  #var pLimitBare: mp_par
+  var pLimits = @[(l: -Inf, u: Inf),
+                 (l: -Inf, u: Inf),
+                 (l: -Inf, u: Inf),
+                 (l: -100.0, u: 0.0)]
+
+  if startFit > 0:
+    # in this case cut away the undesired parameters
+    let ind = mPulses.find(startFit) - 1
+    if ind > 0:
+      mPulses.delete(0, ind)
+      mMean.delete(0, ind)
+      mStd.delete(0, ind)
+
+  #let p = [0.549194, 23.5359, 50.735, -1.0]
+  let (pRes, res) = fit(totCalibFunc,
+                        p,
+                        mPulses,
+                        mMean,
+                        mStd,
+                        bounds = pLimits) #@[pLimitBare, pLimitBare, pLimitBare, pLimit])
+  echoResult(pRes, res = res)
+
+  # the plot of the fit is performed to the whole pulses range anyways, even if
+  result.x = linspace(tot.pulses[0].float, tot.pulses[^1].float, 100)
+  result.y = result.x.mapIt(totCalibFunc(pRes, it))
+  result.pRes = pRes
+  result.pErr = res.error
+  result.redChiSq = res.reducedChiSq
+
+proc fitSCurve*(curve: SCurve): FitResult =
+  ## performs the fit of the `sCurveFunc` to the given `thl` and `hits`
+  ## fields of the `SCurve` object. Returns a `FitScurve` object of the fit result
+  const pSigma = 5.0
+  let
+    (pCenter, minIndex, maxIndex) = findDrop(curve.thl, curve.hits)
+    err = curve.thl.mapIt(1.0)
+    p = @[NTestPulses, pCenter.float, pSigma]
+
+  let
+    thlCut = curve.thl[minIndex .. maxIndex].mapIt(it.float)
+    countCut = curve.hits[minIndex .. maxIndex].mapIt(it.float)
+
+    (pRes, res) = fit(sCurveFunc,
+                      p,
+                      thlCut,
+                      countCut,
+                      err)
+  echoResult(pRes, res = res)
+  # create data to plot fit as result
+  result.x = linspace(curve.thl[minIndex].float, curve.thl[maxIndex].float, 1000)
+  result.y = result.x.mapIt(sCurveFunc(pRes, it))
+  result.pRes = pRes
+  result.pErr = res.error
+  result.redChiSq = res.reducedChiSq
+
+proc fitSCurve*[T](thl, count: seq[T], voltage: int): FitResult =
+  when T isnot float:
+    let
+      mthl = mapIt(thl.float)
+      mhits = mapIt(count.float)
+    let curve = SCurve(thl: mthl, hits: mhits, voltage: voltage)
+  else:
+    let curve = SCurve(thl: thl, hits: count, voltage: voltage)
+  result = fitSCurve(curve)
+
+proc fitThlCalib*(charge, thl, thlErr: seq[float]): FitResult =
+
+  # determine start parameters
+  let p = @[0.0, (thl[1] - thl[0]) / (charge[1] - charge[0])]
+
+  echo "Fitting ", charge, " ", thl, " ", thlErr
+
+  let (pRes, res) = fit(thlCalibFunc, p, charge, thl, thlErr)
+  # echo parameters
+  echoResult(pRes, res = res)
+
+  result.x = linspace(charge[0], charge[^1], 100)
+  result.y = result.x.mapIt(thlCalibFunc(pRes, it))
+  result.pRes = pRes
+  result.pErr = res.error
+  result.redChiSq = res.reducedChiSq
+
+################################################################################
+########## Fe calibration spectra related fitting routines #####################
+################################################################################
+
+proc getLines(hist, binning: seq[float]): (float, float, float, float, float, float) =
+  # define center, std and amplitude of K_alpha line
+  # as well as escape peak
+  let muIdx = argmax(hist)
+  var mu_kalpha = 0.0
+  if binning.len > 0:
+    mu_kalpha = binning[muIdx]
+    echo "Binning mu alpha ", mu_kalpha
+  else:
+    mu_kalpha = argmax(hist).float
+  let sigma_kalpha = mu_kalpha / 10.0
+  let n_kalpha = hist[muIdx]
+
+  let mu_kalpha_esc = mu_kalpha * 2.9/5.75
+  let sigma_kalpha_esc = mu_kalpha_esc / 10.0
+  let n_kalpha_esc = n_kalpha / 10.0
+  result = (mu_kalpha, sigma_kalpha, n_kalpha, mu_kalpha_esc, sigma_kalpha_esc, n_kalpha_esc)
+
+proc getBoundsList(n: int): seq[tuple[l, u: float]] =
+  for i in 0 ..< n:
+    result.add (l: -Inf, u: Inf)
+
+proc fitFeSpectrumImpl(hist, binning: seq[float]): seq[float] =
+  # given our histogram and binning data
+  # for fit := (y / x) data
+  # fit a double gaussian to the data
+  let (mu_kalpha, sigma_kalpha, n_kalpha, mu_kalpha_esc,
+       sigma_kalpha_esc, n_kalpha_esc) = getLines(hist, binning)
+
+  var params = newSeq[float](15)
+  params[2] = n_kalpha_esc
+  params[3] = mu_kalpha_esc
+  params[4] = sigma_kalpha_esc
+
+  params[9] = n_kalpha
+  params[10] = mu_kalpha
+  params[11] = sigma_kalpha
+
+  params[14] = 17.0 / 150.0
+
+  var bounds = getBoundsList(15)
+  # set bound on paramerters
+  # constrain amplitude of K_beta to some positive value
+  bounds[2].l = 0
+  bounds[2].u = 10000
+  # constrain amplitude of K_alpha to some positive value
+  bounds[9].l = 0
+  bounds[9].u = 10000
+
+  # location of K_alpha escape peak, little more than half of K_alpha location
+  bounds[3].l = mu_kalpha_esc * 0.8
+  bounds[3].u = mu_kalpha_esc * 1.2
+
+  # bounds for center of K_alpha peak (should be at around 220 electrons, hits)
+  bounds[10].l = mu_kalpha*0.8
+  bounds[10].u = mu_kalpha*1.2
+
+  # some useful bounds for K_alpha escape peak width
+  bounds[4].l = sigma_kalpha_esc*0.5
+  bounds[4].u = sigma_kalpha_esc*1.5
+
+  # some useful bounds for K_alpha width
+  bounds[11].l = sigma_kalpha*0.5
+  bounds[11].u = sigma_kalpha*1.5
+  # param 14: "N_{K_{#beta}}/N_{K_{#alpha}}"
+  # known ratio of two K_alpha and K_beta, should be in some range
+  bounds[14].l = 0.01
+  bounds[14].u = 0.3
+
+  # this leaves parameter 7 and 8, as well as 12 and 13 without bounds
+  # these describe the exponential factors contributing, since they will
+  # be small anyways...
+  echo "Len of bounds: ", bounds
+  echo "Bounds for pixel fit: ", bounds
+  echo "N params for pixel fit: ", len(params)
+
+  # only fit in range up to 350 hits. Can take index 350 on both, since we
+  # created the histogram for a binning with width == 1 pixel per hit
+  let idx_tofit = toSeq(0 .. binning.high).filterIt(binning[it] >= 0 and binning[it] < 350)
+  let data_tofit = idx_tofit.mapIt(hist[it])
+  let bins_tofit = idx_tofit.mapIt(binning[it])
+  let err = data_tofit.mapIt(1.0)
+
+  let (pRes, res) = fit(feSpectrumfunc,
+                        params,
+                        bins_tofit,
+                        data_tofit,
+                        err)
+
+  #result = curve_fit(feSpectrumFunc, bins_tofit, data_tofit, p0=params, bounds = bounds)#, full_output=True)
+  #popt = result[0]
+  #pcov = result[1]
+  echoResult(pRes, res = res)
+  result = pRes
+
+proc fitFeSpectrum*[T: SomeInteger](data: seq[T]): (seq[float], seq[int], seq[float]) =
+  ##
+  const binSize = 3.0
+  let low = -0.5
+  var high = max(data).float + 0.5
+  let nbins = (ceil((high - low) / binSize)).int
+  # using correct nBins, determine actual high
+  high = low + binSize * nbins.float
+  let (hist, bin_edges) = data.histogram(bins = nbins + 1, range = (low, high))
+
+  echo bin_edges.len
+  echo hist.len
+  echo bin_edges
+
+  #let hist = histogram(data, binning)
+  # return data as tuple (bin content / binning)
+  # we remove the last element due to the way we create the bins
+  result[2] = fitFeSpectrumImpl(hist.mapIt(it.float), bin_edges[0 .. ^1])
+  result[0] = bin_edges[0 .. ^1]
+  result[1] = hist
+
+################################################################################
+######################## Gas gain related fitting routines #####################
+################################################################################
+
+template fitPolyaTmpl(charges,
+                      counts: seq[float],
+                      chipNumber, runNumber: int,
+                      actions: untyped): untyped =
+  ## template which wraps the boilerplate code around the fitting implementation
+  ## chosen
+  ## proc to fit a polya distribution to the charge values of the
+  ## reconstructed run. Called if `reconstruction` ran with --only_charge.
+  ## After charge calc from TOT calib, this proc calculates the gas gain
+  ## for this run.
+  ## NOTE: charges has 1 element more than counts, due to representing the
+  ## bin edges!
+  # determine start parameters
+  # estimate of 3000 or gas gain
+  # TODO: test again with mpfit. Possible to get it working?
+  # start parameters
+  let
+    # typical gain
+    gain = 3500.0
+    # start parameter for p[0] (scaling) is gas gain * max count value / 2.0
+    # as good guess
+    scaling = max(counts) * gain / 2.0
+    # factor 23.0 found by trial and error! Works
+    rms = standardDeviation(counts) / 25.0
+    # combine paramters, 3rd arg from `polya.C` ROOT script by Lucian
+    p {.inject.} = @[scaling, gain, 1.0] #gain * gain / (rms * rms) - 1.0]
+
+  ## code will be inserted here
+  actions
+
+  # set ``x``, ``y`` result and use to create plot
+  # TODO: replace by just using charges directly
+  result.x = linspace(charges[0], charges[^1], counts.len)
+  result.y = result.x.mapIt(polyaImpl(params, it))
+
+  result.pRes = params
+  # calc reduced Chi^2 from total Chi^2
+  result.redChiSq = minVal / (charges.len - p.len).float
+
+proc filterByCharge(charges, counts: seq[float]): (seq[float], seq[float]) =
+  ## filters the given charges and counts seq by the cuts Christoph applied
+  ## (see `getGasGain.C` in `resources` directory as reference)
+  const
+    ChargeLow = 1200.0
+    ChargeHigh = 20_000.0
+  result[0] = newSeqOfCap[float](charges.len)
+  result[1] = newSeqOfCap[float](charges.len)
+  for idx, ch in charges:
+    # get those indices belonging to charges > 1200 e^- and < 20,000 e^-
+    if ch >= ChargeLow and ch <= ChargeHigh:
+      result[0].add ch
+      result[1].add counts[idx]
+
+proc fitPolyaNim*(charges,
+                  counts: seq[float],
+                  chipNumber, runNumber: int): FitResult =
+  fitPolyaTmpl(charges, counts, chipNumber, runNumber):
+    # set ``x``, ``y`` result and use to create plot
+    # create NLopt optimizer without parameter bounds
+    let bounds = @[(-Inf, Inf), (-Inf, Inf), (0.5, 15.0)]
+    var opt = newNloptOpt[FitObject](LN_COBYLA, 3, bounds)
+    #var opt = newNloptOpt[FitObject](LD_MMA, 3, bounds)
+    # get charges in the fit range
+    let (chToFit, countsToFit) = filterByCharge(charges, counts)
+    # hand the function to fit as well as the data object we need in it
+    let fitObject = FitObject(
+      x: chToFit,
+      y: countsToFit,
+      yErr: countsToFit.mapIt(if it >= 1.0: sqrt(it) else: Inf)
+    )
+    let varStruct = newVarStruct(polya, fitObject)
+    opt.setFunction(varStruct)
+    # set relative precisions of x and y, as well as limit max time the algorithm
+    # should take to 5 second (will take much longer, time spent in NLopt lib!)
+    # these default values have proven to be working
+    opt.xtol_rel = 1e-10
+    opt.ftol_rel = 1e-10
+    opt.maxtime  = 5.0
+    # start actual optimization
+    let (params, minVal) = opt.optimize(p)
+    if opt.status < NLOPT_SUCCESS:
+      echo opt.status
+      echo "nlopt failed!"
+    # clean up optimizer
+    nlopt_destroy(opt.optimizer)
+    echo &"Result of gas gain opt for chip {chipNumber} and run {runNumber}: "
+    echo "\t ", params, " at chisq ", minVal
+
+#proc fitPolyaPython*(charges,
+#                     counts: seq[float],
+#                     chipNumber, runNumber: int): FitResult =
+#  fitPolyaTmpl(charges, counts, chipNumber, runNumber):
+#    # set ``x``, ``y`` result and use to create plot
+#    #echo "Charges ", charges
+#    #let preX = linspace(min(charges), max(charges), 100)
+#    #let preY = preX.mapIt(polyaImpl(p, it))
+#    #let preTr = getTrace(preX, preY, "gas gain pre fit")
+#    #echo preY
+#    #plotGasGain(@[trData, preTr], chipNumber, runNumber, false)
+#    # create NLopt optimizer without parameter bounds
+#    let toFitInds = toSeq(0 ..< counts.len).filterIt(charges[it] > 1200.0)# and charges[it] < 4500.0)
+#    let chToFit = toFitInds.mapIt(charges[it])
+#    let countsToFit = toFitInds.mapIt(counts[it])
+#    # try to fit using scipy.optimize.curve_fit
+#    let bPy = @[@[-Inf, -Inf, 0.5], @[Inf, Inf, 15.0]]
+#    let scipyOpt = pyImport("scipy.optimize")
+#    let pyRes = scipyOpt.curve_fit(polyaPython, chToFit, countsToFit,
+#                                   p0=p, bounds = bPy)
+#    var params = newSeq[float](p.len)
+#    var count = 0
+#    for resP in pyRes[0]:
+#      params[count] = resP.to(float)
+#      inc count
+#    let minVal = 0.0
+#    echo &"Result of gas gain opt for chip {chipNumber} and run {runNumber}: "
+#    echo "\t ", params, " at chisq `not available`"#, minVal
+
+################################################################################
+##################### Full dataset fitting routines ############################
+################################################################################
+# the routines in this block have to make use of full datasets, e.g.
+# `CalibrationRuns.h5 + DataRuns.h5` in its entirety
+
+proc fitChargeCalibVsGasGain*(gain, calib, calibErr: seq[float]): FitResult =
+  ## fits a linear function to the relation between gas gain and the
+  ## calibration factor of the charge Fe spectrum
+  # approximate start parameters
+  let p = @[30.0,
+            (max(calib) - min(calib)) / (max(gain) - min(gain))]
+  let (pRes, res) = fit(linearFunc, p, gain, calib, calibErr)
+  # echo parameters
+  echoResult(pRes, res = res)
+  result.x = linspace(min(gain), max(gain), 100)
+  result.y = result.x.mapIt(linearFunc(pRes, it))
+  result.pRes = pRes
+  result.pErr = res.error
+  result.redChiSq = res.reducedChiSq

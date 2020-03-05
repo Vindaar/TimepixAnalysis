@@ -1,5 +1,9 @@
-import math, seqmath, sequtils
+import math, seqmath, sequtils, fenv, macros
 import ../cdlFitting/cdlFitMacro
+
+type
+  NloptFitKind* = enum
+    nfChiSq, nfMle, nfMleGrad
 
 func sCurveFunc*(p: seq[float], x: float): float =
   ## we fit the complement of a cumulative distribution function
@@ -61,74 +65,102 @@ type
     y*: seq[float]
     yErr*: seq[float]
 
-template fitForNlopt*(name, funcToCall: untyped): untyped =
-  proc `name`*(p: seq[float], fitObj: FitObject): float =
-    # TODO: add errors, proper chi^2 intead of unscaled values,
-    # which results in huge chi^2 despite good fit
-    let x = fitObj.x
-    let y = fitObj.y
-    let yErr = fitObj.yErr
-    var fitY = x.mapIt(`funcToCall`(p, it))
-    var diff = newSeq[float](x.len)
-    result = 0.0
-    for i in 0 .. x.high:
-      diff[i] = (y[i] - fitY[i]) / yErr[i]
-      result += pow(diff[i], 2.0)
-    result = result / (x.len - p.len).float
+template chiSquareNoGrad(funcToCall: untyped): untyped {.dirty.} =
+  ## Chi^2 estimator for no gradient based algorithms
+  # TODO: add errors, proper chi^2 intead of unscaled values,
+  # which results in huge chi^2 despite good fit
+  let x = fitObj.x
+  let y = fitObj.y
+  let yErr = fitObj.yErr
+  var fitY = x.mapIt(`funcToCall`(p, it))
+  var diff = newSeq[float](x.len)
+  result = 0.0
+  for i in 0 .. x.high:
+    diff[i] = (y[i] - fitY[i]) / yErr[i]
+    result += pow(diff[i], 2.0)
+  result = result / (x.len - p.len).float
 
-template fitForNloptLnLikelihood*(name, funcToCall: untyped): untyped =
-  proc `name`*(p: seq[float], fitObj: FitObject): float =
-    ## Maximum Likelihood Estimator
-    ## the Chi Square of a Poisson distributed log Likelihood
-    ## Chi^2_\lambda, P = 2 * \sum_i y_i - n_i + n_i * ln(n_i / y_i)
-    ## n_i = number of events in bin i
-    ## y_i = model prediction for number of events in bin i
-    ## derived from likelihood ratio test theorem
-    let x = fitObj.x
-    let y = fitObj.y
-    var fitY = x.mapIt(`funcToCall`(p, it))
-    result = 0.0
+template mleLnLikelihoodNoGrad(funcToCall: untyped): untyped {.dirty.} =
+  ## Maximum Likelihood Estimator
+  ## the Chi Square of a Poisson distributed log Likelihood
+  ## Chi^2_\lambda, P = 2 * \sum_i y_i - n_i + n_i * ln(n_i / y_i)
+  ## n_i = number of events in bin i
+  ## y_i = model prediction for number of events in bin i
+  ## derived from likelihood ratio test theorem
+  let x = fitObj.x
+  let y = fitObj.y
+  var fitY = x.mapIt(`funcToCall`(p, it))
+  result = 0.0
+  for i in 0 ..< x.len:
+    if fitY[i].float > 0.0 and y[i].float > 0.0:
+      result = result + (fitY[i] - y[i] + y[i] * ln(y[i] / fitY[i]))
+    else:
+      result = result + (fitY[i] - y[i])
+    # ignore empty data and model points
+  result = 2 * result
+
+template mleLnLikelihoodGrad(funcToCall: untyped): untyped {.dirty.} =
+  ## Maximum Likelihood Estimator for gradient based algorithms
+  ## the Chi Square of a Poisson distributed log Likelihood
+  ## Chi^2_\lambda, P = 2 * \sum_i y_i - n_i + n_i * ln(n_i / y_i)
+  ## n_i = number of events in bin i
+  ## y_i = model prediction for number of events in bin i
+  ## derived from likelihood ratio test theorem
+  # NOTE: do not need last gradients
+  let xD = fitObj.x
+  let yD = fitObj.y
+  var gradRes = newSeq[float](p.len)
+  var res = 0.0
+  var h: float
+  proc fnc(x, y, params: seq[float]): float =
+    let fitY = x.mapIt(`funcToCall`(params, it))
     for i in 0 ..< x.len:
       if fitY[i].float > 0.0 and y[i].float > 0.0:
         result = result + (fitY[i] - y[i] + y[i] * ln(y[i] / fitY[i]))
       else:
         result = result + (fitY[i] - y[i])
-      # ignore empty data and model points
-    result = 2 * result
+  res = 2 * fnc(xD, yD, p)
+  for i in 0 ..< gradRes.len:
+    h = p[i] * sqrt(epsilon(float64))
+    var
+      modParsUp = p
+      modParsDown = p
+    modParsUp[i] = p[i] + h
+    modParsDown[i] = p[i] - h
+    gradRes[i] = (fnc(xD, yD, modParsUp) - fnc(xD, yD, modParsDown)) / (2.0 * h)
+    # ignore empty data and model points
+  result = (res, gradRes)
 
-template fitForNloptLnLikelihoodGrad*(name, funcToCall: untyped): untyped =
-  proc `name`*(p: seq[float], fitObj: FitObject): (float, seq[float]) =
-    ## Maximum Likelihood Estimator
-    ## the Chi Square of a Poisson distributed log Likelihood
-    ## Chi^2_\lambda, P = 2 * \sum_i y_i - n_i + n_i * ln(n_i / y_i)
-    ## n_i = number of events in bin i
-    ## y_i = model prediction for number of events in bin i
-    ## derived from likelihood ratio test theorem
-    # NOTE: do not need last gradients
-    let xD = fitObj.x
-    let yD = fitObj.y
-    var gradRes = newSeq[float](p.len)
-    var res = 0.0
-    var h: float
-    proc fnc(x, y, params: seq[float]): float =
-      let fitY = x.mapIt(`funcToCall`(params, it))
-      for i in 0 ..< x.len:
-        if fitY[i].float > 0.0 and y[i].float > 0.0:
-          result = result + (fitY[i] - y[i] + y[i] * ln(y[i] / fitY[i]))
-        else:
-          result = result + (fitY[i] - y[i])
-    res = 2 * fnc(xD, yD, p)
-    for i in 0 ..< gradRes.len:
-      h = p[i] * sqrt(epsilon(float64))
-      var
-        modParsUp = p
-        modParsDown = p
-      modParsUp[i] = p[i] + h
-      modParsDown[i] = p[i] - h
-      gradRes[i] = (fnc(xD, yD, modParsUp) - fnc(xD, yD, modParsDown)) / (2.0 * h)
-      # ignore empty data and model points
-    result = (res, gradRes)
+macro fitForNlopt*(name, funcToCall: untyped,
+                   nfKind: static NloptFitKind,
+                   toExport: static bool = true): untyped =
+  let pArg = ident"p"
+  let fobj = ident"fitObj"
+  var body: NimNode
+  var retType: NimNode
+  case nfKind
+  of nfChiSq:
+    body = getAst(chiSquareNoGrad(funcToCall))
+    retType = ident"float"
+  of nfMle:
+    body = getAst(mleLnLikelihoodNoGrad(funcToCall))
+    retType = ident"float"
+  of nfMleGrad:
+    body = getAst(mleLnLikelihoodGrad(funcToCall))
+    retType = nnkPar.newTree(ident"float",
+                             nnkBracketExpr.newTree(ident"seq",
+                                                    ident"float"))
+  if toExport:
+    result = quote do:
+      proc `name`*(`pArg`: seq[float], `fobj`: FitObject): `retType` =
+        `body`
+  else:
+    result = quote do:
+      proc `name`(`pArg`: seq[float], `fobj`: FitObject): `retType` =
+        `body`
+  echo result.treeRepr
+  echo result.repr
 
 #fitForNloptLnLikelihoodGrad(polya, polyaImpl)
 #fitForNloptLnLikelihood(polya, polyaImpl)
-fitForNlopt(polya, polyaImpl)
+fitForNlopt(polya, polyaImpl, nfKind = nfChiSq, toExport = true)

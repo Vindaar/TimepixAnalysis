@@ -1,4 +1,4 @@
-import macros, strutils, tables
+import macros, strutils, tables, math
 
 type
   FitFuncKind* = enum
@@ -23,6 +23,8 @@ type
       eN*: float
       emu*: float
       es*: float
+
+const fixed* = NaN
 
 proc genFitFuncImpl(idx: var int, xNode,
                     pFitNode: NimNode, paramsNode: seq[NimNode]): NimNode =
@@ -249,7 +251,7 @@ proc buildFitFunc(name, parts: NimNode): NimNode =
     procBody.add genFitFuncImpl(i, xNode, p, params)
 
   # now define the result variable as a new proc
-  result = newProc(name = name,
+  result = newProc(name = nnkPostfix.newTree(ident"*", name),
                    params = [retType, retParNode, retXNode],
                    body = procBody,
                    procType = nnkFuncDef)
@@ -296,8 +298,29 @@ macro declareFitFunc*(name, stmts: untyped): untyped =
   result = buildFitFunc(funcId, ffSeq)
   echo result.repr
 
+func filterNaN(s: openArray[float]): seq[float] =
+  result = newSeqOfCap[float](s.len)
+  for x in s:
+    if classify(x) != fcNaN:
+      result.add x
+
+proc serialize(parts: seq[FitFuncArgs]): seq[float] =
+  for p in parts:
+    case p.kind
+    of ffConst:
+      result.add filterNaN([p.c])
+    of ffPol1:
+      result.add filterNaN([p.cp])
+    of ffPol2:
+      result.add filterNaN([p.cpp])
+    of ffGauss:
+      result.add filterNaN([p.gN, p.gmu, p.gs])
+    of ffExpGauss:
+      result.add filterNaN([p.ea, p.eb, p.eN, p.emu, p.es])
+
 when isMainModule:
   import ingrid / calibration
+  import ggplotnim, sequtils, seqmath
   # an example on how to define and use the above macro
 
   # start by declaring the fit function desired

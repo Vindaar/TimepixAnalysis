@@ -609,7 +609,7 @@ proc applyCalibrationSteps(h5f: var H5FileObj,
         if rfOnlyCharge in flags:
           h5f.applyChargeCalibration(runNumber)
         if rfOnlyGasGain in flags:
-          h5f.calcGasGain(runNumber, showPlots)
+          h5f.calcGasGain(runNumber)
         if rfOnlyFadc in flags:
           h5f.calcRiseAndFallTimes(runNumber)
         if rfOnlyFeSpec in flags:

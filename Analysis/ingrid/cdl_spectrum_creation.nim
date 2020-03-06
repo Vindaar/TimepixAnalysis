@@ -739,7 +739,6 @@ proc cutAndWrite(h5file: string) =
   for r in runs:
     #if r.number != 315:
       #continue
-    sleep 500
     case r.runType
     of rtXrayFinger:
       let grp = h5f[(recoDataChipBase(r.number) & chipnumber).grp_str]
@@ -883,11 +882,11 @@ proc calcfitcurve(minbin: float, maxbin: float,
     yvals = range.mapIt(cdlFitFunc(fitparams, it))
   result = (range, yvals)
 
-proc calcfit(dataseq: seq[SomeNumber],
-             cdlFitFunc: CdlFitFunc,
-             binSize: float,
-             tfKind: TargetFilterKind,
-             dKind: DataKind): (seq[float], seq[float], float, float) =
+proc calcFit[T: SomeNumber](dataseq: seq[T],
+                            cdlFitFunc: CdlFitFunc,
+                            binSize: float,
+                            tfKind: TargetFilterKind,
+                            dKind: DataKind): (seq[float], seq[float], float, float) =
   let (histdata, bins) = histoCdl(dataseq, binSize, dKind)
   let (pStart, pRes, fitBins, fitHist, errorres) = fitCdlImpl(histdata, bins, tfKind, dKind)
   var bounds: seq[tuple[l, u:float]]
@@ -897,15 +896,16 @@ proc calcfit(dataseq: seq[SomeNumber],
   of Dcharge:
     bounds = getboundsCharge(tfKind)
   doassert pStart.len == bounds.len
-  #echo "P start len ", pStart.len
-  #echo "Bounds len ", bounds.len
   #var opt = newNloptOpt(LD_TNEWTON_PRECOND, pStart.len, bounds)
   fitForNlopt(convertNlopt, cdlFitFunc,
               nfKind = nfMleGrad,
               toExport = false)
+  # have to mixin the `convertNlopt` name, since generic symbol resolution
+  # happens before macro call (so `convertNlopt` isn't known yet)
+  mixin convertNlopt
   var fitObj = FitObject(x: fitBins, y: fitHist) #, yErr: fitHist.mapIt(sqrt(it)))
   var vstruct = newVarStruct(convertNlopt, fitObj)
-  #
+
   var opt = newNloptOpt[type(fitObj)](LD_MMA, pStart.len, bounds)
   opt.setFunction(vstruct)
   opt.xtol_rel = 1e-10
@@ -917,13 +917,9 @@ proc calcfit(dataseq: seq[SomeNumber],
   #opt.initialStep = 1
   let (paramsN, minN) = opt.optimize(pStart)
   nlopt_destroy(opt.optimizer)
-
   let minbin = fitBins.min
   let maxbin = fitBins.max
   result = (pRes, paramsN, minbin, maxbin)
-  #echo "fit start params ", pStart
-  #echo "fit pRes ", pRes
-  #echo "fit paramsN ", paramsN
 
 proc fitAndPlot[T: SomeNumber](h5f: var H5FileObj, fitParamsFname: string,
                                tfKind: TargetFilterKind, dKind: DataKind):
@@ -1327,7 +1323,6 @@ proc generateXrayReferenceFile(h5file: string, year: YearKind,
   discard h5f.close()
 
 proc main =
-  #echo "OK"
   let args = docopt(doc)
   echo "ARGS", args
 

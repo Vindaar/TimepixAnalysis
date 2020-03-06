@@ -10,6 +10,7 @@ import nlopt, mpfit
 
 import .. / ingrid_types
 import fit_functions
+import .. / cdlFitting / cdlFitMacro
 
 ################################################################################
 ########## Timepix calibration related fitting routines ########################

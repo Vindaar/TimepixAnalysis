@@ -45,6 +45,23 @@ declareFitFunc(feSpectrum):
     emu = emu("Mn-Kalpha") * 6.35 / 5.75 # lock to relation to `Mn-Kalpha` arg
     es = es("Mn-Kalpha") # lock to `es` of `Mn-Kalpha`
 
+## Define the `feSpectrumFuncCharge`. Total parameters: .
+## 14 from 4 ffExpGauss and 1 additional (`p_ar[14]`).
+declareFitFunc(feSpectrumCharge):
+  ffGauss: "Mn-Kalpha-esc"
+  ffGauss: "Mn-Kalpha"
+  ffGauss:
+    name = "Mn-Kbeta-esc"
+    gN = gN("Mn-Kalpha-esc") * (17.0 / 150.0)# lock to Kalpha escape peak
+    gmu = gmu("Mn-Kalpha-esc") * (3.53 / 2.94)
+    gs = gs("Mn-Kalpha-esc") # lock to Kalpha escape peak
+  ffGauss:
+    name = "Mn-Kbeta"
+    gN = gN("Mn-Kalpha") * (17.0 / 150.0) # lock to Kalpha escape peak
+    gmu = gmu("Mn-Kalpha") * (6.49 / 5.90)
+    gs = gs("Mn-Kalpha") # lock to Kalpha escape peak
+
+
 func polyaImpl*(p: seq[float], x: float): float =
   ## Polya function to fit to TOT histogram / charge in electrons of a
   ## run. This is the actual implementation of the polya distribution.

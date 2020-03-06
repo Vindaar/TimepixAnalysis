@@ -166,72 +166,174 @@ proc fitThlCalib*(charge, thl, thlErr: seq[float]): FitResult =
 proc getLines(hist, binning: seq[float]): (float, float, float, float, float, float) =
   # define center, std and amplitude of K_alpha line
   # as well as escape peak
-  let muIdx = argmax(hist)
-  var mu_kalpha = 0.0
-  if binning.len > 0:
-    mu_kalpha = binning[muIdx]
-    echo "Binning mu alpha ", mu_kalpha
-  else:
-    mu_kalpha = argmax(hist).float
-  let sigma_kalpha = mu_kalpha / 10.0
-  let n_kalpha = hist[muIdx]
+  doAssert binning.len > 0
+  let peakIdx = argMax(hist)
+  let halfIdx = toSeq(0 ..< hist.len).filterIt(hist[it] > (hist[peakIdx] / 2.0))[0]
+  let mu_Kalpha = binning[peakIdx]
 
-  let mu_kalpha_esc = mu_kalpha * 2.9/5.75
-  let sigma_kalpha_esc = mu_kalpha_esc / 10.0
+  let sigma_Kalpha = (muKalpha - binning[halfIdx]) * 0.8
+  let n_kalpha = hist[peakIdx]
+
+  let ratio = mu_Kalpha / sigma_Kalpha
+
+  let mu_kalpha_esc = mu_kalpha * 2.9 / 5.75
+  let sigma_kalpha_esc = mu_kalpha_esc / ratio
   let n_kalpha_esc = n_kalpha / 10.0
   result = (mu_kalpha, sigma_kalpha, n_kalpha, mu_kalpha_esc, sigma_kalpha_esc, n_kalpha_esc)
+
+func getFeSpectrumParams(hist, binning: seq[float]): seq[float] =
+  ## Returns suitable start parameters for the `FeSpectrumFunc` fit function
+  ## This includes the 4 peaks we fit with fixed parameters and the additional
+  ## 15th parameter for the ratio of the alpha to beta peaks.
+  let (mu_kalpha,
+       sigma_kalpha,
+       n_kalpha,
+       mu_kalpha_esc,
+       sigma_kalpha_esc,
+       n_kalpha_esc) = getLines(hist, binning)
+  let params = @[
+    FitFuncArgs(
+      name: "Mn-Kalpha-esc",
+      kind: ffExpGauss,
+      ea: 1e-4,
+      eb: 1e-5,
+      eN: n_kalpha_esc,
+      emu: mu_Kalpha * 2.9 / 5.75,
+      es: sigma_kalpha_esc),
+    FitFuncArgs(
+      name: "Mn-Kbeta-esc",
+      kind: ffExpGauss,
+      ea: 1e-4,
+      eb: 1e-5,
+      eN: fixed,
+      emu: fixed,
+      es: fixed), # additional parameters fixed, `fixed` is just an overload for `NaN`
+    FitFuncArgs(
+      name: "Mn-Kalpha",
+      kind: ffExpGauss,
+      ea: 1e-4,
+      eb: 1e-5,
+      eN: n_kalpha,
+      emu: mu_Kalpha, # since we count single electrons, index equals number electrons!
+      es: sigma_Kalpha), # sigma is approxed to 0.8 times the half width
+    FitFuncArgs(
+      name: "Mn-Kbeta",
+      kind: ffExpGauss,
+      ea: 1e-4,
+      eb: 1e-5,
+      eN: fixed,
+      emu: fixed,
+      es: fixed) # additional parameters fixed
+  ]
+  # serialize them to a `seq[float]` params
+  result = params.serialize
+  # add the final parameter 15 for the NKalpha/NKbeta ratio
+  result.add 17.0 / 150.0
+
+func getFeSpectrumChargeParams(hist, binning: seq[float]): seq[float] =
+  ## Returns suitable start parameters for the `FeSpectrumChargeFunc` fit function
+  ## This includes the 4 peaks we fit with fixed parameters where 2 peaks are completely
+  ## fixed.
+  let (mu_kalpha,
+       sigma_kalpha,
+       n_kalpha,
+       mu_kalpha_esc,
+       sigma_kalpha_esc,
+       n_kalpha_esc) = getLines(hist, binning)
+  let params = @[
+    FitFuncArgs(
+      name: "Mn-Kalpha-esc",
+      kind: ffGauss,
+      gN: n_kalpha_esc,
+      gmu: mu_Kalpha * 2.9 / 5.75,
+      gs: sigma_kalpha_esc),
+    FitFuncArgs(
+      name: "Mn-Kbeta-esc",
+      kind: ffGauss,
+      gN: fixed,
+      gmu: fixed,
+      gs: fixed), # additional parameters fixed, `fixed` is just an overload for `NaN`
+    FitFuncArgs(
+      name: "Mn-Kalpha",
+      kind: ffGauss,
+      gN: n_kalpha,
+      gmu: mu_Kalpha, # since we count single electrons, index equals number electrons!
+      gs: sigma_Kalpha), # sigma is approxed to 0.8 times the half width
+    FitFuncArgs(
+      name: "Mn-Kbeta",
+      kind: ffGauss,
+      gN: fixed,
+      gmu: fixed,
+      gs: fixed) # additional parameters fixed
+  ]
+  # serialize them to a `seq[float]` params
+  result = params.serialize
 
 proc getBoundsList(n: int): seq[tuple[l, u: float]] =
   for i in 0 ..< n:
     result.add (l: -Inf, u: Inf)
 
+func getFeSpectrumBounds(hist, binning: seq[float]): seq[tuple[l, u: float]] =
+  let (mu_kalpha,
+       sigma_kalpha,
+       n_kalpha,
+       mu_kalpha_esc,
+       sigma_kalpha_esc,
+       n_kalpha_esc) = getLines(hist, binning)
+  var result = getBoundsList(15)
+  # set bound on paramerters
+  # constrain amplitude of K_beta to some positive value
+  result[2].l = 0
+  result[2].u = 10000
+  # constrain amplitude of K_alpha to some positive value
+  result[9].l = 0
+  result[9].u = 10000
+
+  # location of K_alpha escape peak, little more than half of K_alpha location
+  result[3].l = mu_kalpha_esc * 0.8
+  result[3].u = mu_kalpha_esc * 1.2
+
+  # result for center of K_alpha peak (should be at around 220 electrons, hits)
+  result[10].l = mu_kalpha*0.8
+  result[10].u = mu_kalpha*1.2
+
+  # some useful bound for K_alpha escape peak width
+  result[4].l = sigma_kalpha_esc*0.5
+  result[4].u = sigma_kalpha_esc*1.5
+
+  # some useful bound for K_alpha width
+  result[11].l = sigma_kalpha*0.5
+  result[11].u = sigma_kalpha*1.5
+  # param 14: "N_{K_{#beta}}/N_{K_{#alpha}}"
+  # known ratio of two K_alpha and K_beta, should be in some range
+  result[14].l = 0.01
+  result[14].u = 0.3
+
+func getFeSpectrumChargeBounds(): seq[tuple[l, u: float]] =
+  result = getBoundsList(6)
+  # NOTE: Bounds for this fit seem unnecessary. Fit converges just fine
+  # This way we get the Chi^2/dof
+  # result[0].l = 0
+  # result[0].u = 10000
+  # result[3].l = 0
+  # result[3].u = 10000
+  #
+  # result[1].l = mkalpha_esc*0.8
+  # result[1].u = mkalpha_esc*1.2
+  # result[4].l = mkalpha*0.8
+  # result[4].u = mkalpha*1.2
+  #
+  # result[2].l = sigma_kalpha_esc*0.5
+  # result[2].u = sigma_kalpha_esc*1.5
+  # result[5].l = sigma_kalpha*0.5
+  # result[5].u = sigma_kalpha*1.5
+
 proc fitFeSpectrumImpl(hist, binning: seq[float]): seq[float] =
   # given our histogram and binning data
   # for fit := (y / x) data
   # fit a double gaussian to the data
-  let (mu_kalpha, sigma_kalpha, n_kalpha, mu_kalpha_esc,
-       sigma_kalpha_esc, n_kalpha_esc) = getLines(hist, binning)
-
-  var params = newSeq[float](15)
-  params[2] = n_kalpha_esc
-  params[3] = mu_kalpha_esc
-  params[4] = sigma_kalpha_esc
-
-  params[9] = n_kalpha
-  params[10] = mu_kalpha
-  params[11] = sigma_kalpha
-
-  params[14] = 17.0 / 150.0
-
-  var bounds = getBoundsList(15)
-  # set bound on paramerters
-  # constrain amplitude of K_beta to some positive value
-  bounds[2].l = 0
-  bounds[2].u = 10000
-  # constrain amplitude of K_alpha to some positive value
-  bounds[9].l = 0
-  bounds[9].u = 10000
-
-  # location of K_alpha escape peak, little more than half of K_alpha location
-  bounds[3].l = mu_kalpha_esc * 0.8
-  bounds[3].u = mu_kalpha_esc * 1.2
-
-  # bounds for center of K_alpha peak (should be at around 220 electrons, hits)
-  bounds[10].l = mu_kalpha*0.8
-  bounds[10].u = mu_kalpha*1.2
-
-  # some useful bounds for K_alpha escape peak width
-  bounds[4].l = sigma_kalpha_esc*0.5
-  bounds[4].u = sigma_kalpha_esc*1.5
-
-  # some useful bounds for K_alpha width
-  bounds[11].l = sigma_kalpha*0.5
-  bounds[11].u = sigma_kalpha*1.5
-  # param 14: "N_{K_{#beta}}/N_{K_{#alpha}}"
-  # known ratio of two K_alpha and K_beta, should be in some range
-  bounds[14].l = 0.01
-  bounds[14].u = 0.3
-
+  let params = getFeSpectrumParams(hist, binning)
+  let bounds = getFeSpectrumBounds(hist, binning)
   # this leaves parameter 7 and 8, as well as 12 and 13 without bounds
   # these describe the exponential factors contributing, since they will
   # be small anyways...
@@ -258,6 +360,32 @@ proc fitFeSpectrumImpl(hist, binning: seq[float]): seq[float] =
   echoResult(pRes, res = res)
   result = pRes
 
+proc fitFeSpectrumChargeImpl(hist, binning: seq[float]): seq[float] =
+  # given our histogram and binning data
+  # for fit := (y / x) data
+  # fit a double gaussian to the data
+  let params = getFeSpectrumChargeParams(hist, binning)
+  let bounds = getFeSpectrumChargeBounds()
+  echo "Len of bounds: ", bounds
+  echo "Bounds for pixel fit: ", bounds
+  echo "N params for pixel fit: ", len(params)
+  # only fit in range up to 350 hits. Can take index 350 on both, since we
+  # created the histogram for a binning with width == 1 pixel per hit
+  let idx_tofit = toSeq(0 .. binning.high).filterIt(binning[it] >= 200 and binning[it] < 4000)
+  let data_tofit = idx_tofit.mapIt(hist[it])
+  let bins_tofit = idx_tofit.mapIt(binning[it])
+  let err = data_tofit.mapIt(1.0)
+
+  let (pRes, res) = fit(feSpectrumChargeFunc,
+                        params,
+                        bins_tofit,
+                        data_tofit,
+                        err)
+  #popt = result[0]
+  #pcov = result[1]
+  echoResult(pRes, res = res)
+  result = pRes
+
 proc fitFeSpectrum*[T: SomeInteger](data: seq[T]): (seq[float], seq[int], seq[float]) =
   ##
   const binSize = 3.0
@@ -275,8 +403,8 @@ proc fitFeSpectrum*[T: SomeInteger](data: seq[T]): (seq[float], seq[int], seq[fl
   #let hist = histogram(data, binning)
   # return data as tuple (bin content / binning)
   # we remove the last element due to the way we create the bins
-  result[2] = fitFeSpectrumImpl(hist.mapIt(it.float), bin_edges[0 .. ^1])
-  result[0] = bin_edges[0 .. ^1]
+  result[2] = fitFeSpectrumImpl(hist.mapIt(it.float), bin_edges[0 .. ^2])
+  result[0] = bin_edges[0 .. ^2]
   result[1] = hist
 
 ################################################################################

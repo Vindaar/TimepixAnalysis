@@ -199,7 +199,7 @@ proc fillParamsTable(tab: var OrderedTable[string, NimNode],
       of nnkIdent, nnkIntLit .. nnkFloatLit, nnkInfix, nnkCall:
         let id = x[0].strVal & "_" & lineName
         tab[id] = x[1]
-      else: error("Unsupported kind " & $x[1].kind)
+      else: error("Unsupported kind " & $x[1].kind & " of val: " & $x[1].repr)
 
   # Now walk over the table with the parameters of the current line
   # and either enter the correct `p_ar[idx]` field as the value in

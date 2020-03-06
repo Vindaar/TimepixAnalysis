@@ -175,8 +175,8 @@ macro fitForNlopt*(name, funcToCall: untyped,
     result = quote do:
       proc `name`(`pArg`: seq[float], `fobj`: FitObject): `retType` =
         `body`
-  echo result.treeRepr
-  echo result.repr
+  #echo result.treeRepr
+  #echo result.repr
 
 #fitForNloptLnLikelihoodGrad(polya, polyaImpl)
 #fitForNloptLnLikelihood(polya, polyaImpl)

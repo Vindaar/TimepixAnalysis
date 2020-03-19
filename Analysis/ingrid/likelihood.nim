@@ -13,6 +13,7 @@ import seqmath
 import plotly
 import arraymancer
 import ingrid / [ingrid_types, calibration]
+import ingrid/calibration/fit_functions
 from ingrid / private / geometry import recoEvent
 import ingridDatabase / [databaseRead, databaseDefinitions]
 
@@ -1048,10 +1049,30 @@ proc createRocCurves(h5Back: H5FileObj,
     .filter(f{"Likelihood" != Inf})
   ggplot(dfBack, aes("Likelihood", fill = "Bin")) +
     geom_histogram(binWidth = 0.2) +
+    ggtitle("-LnL distributions of non-tracking background, stacked",
+            titlefont = font(11.0)) +
     ggsave("backgroundLogL.pdf")
   ggplot(dfSignal, aes("Likelihood", fill = "Bin")) +
     geom_histogram(binWidth = 0.2) +
+    ggtitle("-LnL distributions of cdl calibration data, stacked",
+            titlefont = font(11.0)) +
     ggsave("signalLogL.pdf")
+
+  ggplot(dfBack, aes("Likelihood", fill = "Bin")) +
+    geom_freqpoly(binWidth = 0.2,
+                  position = "identity",
+                  alpha = some(0.3)) +
+    ggtitle("-LnL distributions of non tracking background as polygons, identity position",
+            titlefont = font(11.0)) +
+    ggsave("backgroundLogL_freqPoly.pdf")
+  ggplot(dfSignal, aes("Likelihood", fill = "Bin")) +
+    geom_freqpoly(binWidth = 0.2,
+                  position = "identity",
+                  alpha = some(0.3)) +
+    ggtitle("-LnL distributions of cdl calibration data as polygons, identity position",
+            titlefont = font(11.0)) +
+    ggsave("signalLogL_freqPoly.pdf")
+
 
   ## TODO: IMPORTANT the results are still wrong!!! Especially the `0.9 Cu EPIC` line
   ## still is lower than it should be!

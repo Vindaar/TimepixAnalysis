@@ -343,7 +343,7 @@ proc fitFeSpectrumImpl(hist, binning: seq[float]): seq[float] =
 
   # only fit in range up to 350 hits. Can take index 350 on both, since we
   # created the histogram for a binning with width == 1 pixel per hit
-  let idx_tofit = toSeq(0 .. binning.high).filterIt(binning[it] >= 0 and binning[it] < 350)
+  let idx_tofit = toSeq(0 .. binning.high).filterIt(binning[it] < 350)
   let data_tofit = idx_tofit.mapIt(hist[it])
   let bins_tofit = idx_tofit.mapIt(binning[it])
   let err = data_tofit.mapIt(1.0)

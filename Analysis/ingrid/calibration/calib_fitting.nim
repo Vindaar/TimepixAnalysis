@@ -388,13 +388,13 @@ proc fitFeSpectrumChargeImpl(hist, binning: seq[float]): seq[float] =
 
 proc fitFeSpectrum*[T: SomeInteger](data: seq[T]): (seq[float], seq[int], seq[float]) =
   ##
-  const binSize = 3.0
+  const binSize = 1.0
   let low = -0.5
   var high = max(data).float + 0.5
   let nbins = (ceil((high - low) / binSize)).int
   # using correct nBins, determine actual high
   high = low + binSize * nbins.float
-  let (hist, bin_edges) = data.histogram(bins = nbins + 1, range = (low, high))
+  let (hist, bin_edges) = data.histogram(bins = nbins, range = (low, high))
 
   echo bin_edges.len
   echo hist.len

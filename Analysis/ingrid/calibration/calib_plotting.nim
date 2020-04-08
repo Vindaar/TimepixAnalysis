@@ -20,7 +20,7 @@ proc plotGasGain*[T](charge, counts: seq[T],
                       ("Fit", dfFit)],
                      id = "Type")
     # filter to max 2.5e4 electrons
-    .filter(fn {"charge / e-" <= 2.5e4})
+    .filter(fn {c"charge / e-" <= 2.5e4})
   let G = histMean(counts, charge)
   ggplot(df, aes("charge / e-", "counts", color = "Type", fill = "Type")) +
     geom_histogram(data = df.filter(f{"Type" == "Polya"}),

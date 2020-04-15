@@ -3,7 +3,7 @@ import ../cdlFitting/cdlFitMacro
 
 type
   NloptFitKind* = enum
-    nfChiSq, nfMle, nfMleGrad
+    nfChiSq, nfChiSqGrad, nfMle, nfMleGrad
 
 func sCurveFunc*(p: seq[float], x: float): float =
   ## we fit the complement of a cumulative distribution function
@@ -82,6 +82,7 @@ type
     y*: seq[float]
     yErr*: seq[float]
 
+import ggplotnim, os
 template chiSquareNoGrad(funcToCall: untyped): untyped {.dirty.} =
   ## Chi^2 estimator for no gradient based algorithms
   # TODO: add errors, proper chi^2 intead of unscaled values,
@@ -92,10 +93,48 @@ template chiSquareNoGrad(funcToCall: untyped): untyped {.dirty.} =
   var fitY = x.mapIt(`funcToCall`(p, it))
   var diff = newSeq[float](x.len)
   result = 0.0
+
+  #let df = seqsToDf({ "x" : x,
+  #                    "y" : y,
+  #                    "yFit" : fitY })
+  #ggplot(df, aes("x", "y")) +
+  #  geom_histogram(stat = "identity") +
+  #  geom_line(aes(y = "yFit")) +
+  #  ggsave("/tmp/fit_progress.pdf")
+
   for i in 0 .. x.high:
     diff[i] = (y[i] - fitY[i]) / yErr[i]
     result += pow(diff[i], 2.0)
   result = result / (x.len - p.len).float
+
+template chiSquareGrad(funcToCall: untyped): untyped {.dirty.} =
+  ## Chi^2 estimator for gradient based algorithms
+  # TODO: add errors, proper chi^2 intead of unscaled values,
+  # which results in huge chi^2 despite good fit
+  let xD = fitObj.x
+  let yD = fitObj.y
+  let yErr = fitObj.yErr
+  var gradRes = newSeq[float](p.len)
+  var res = 0.0
+  var h: float
+
+  proc fnc(x, y, params: seq[float]): float =
+    let fitY = x.mapIt(`funcToCall`(params, it))
+    var diff: float
+    for i in 0 ..< x.len:
+      diff = (y[i] - fitY[i]) / yErr[i]
+      result += pow(diff, 2.0)
+  res = fnc(xD, yD, p)
+  for i in 0 ..< gradRes.len:
+    h = if p[i] != 0.0: p[i] * sqrt(epsilon(float64)) else: sqrt(epsilon(float64))
+    var
+      modParsUp = p
+      modParsDown = p
+    modParsUp[i] = p[i] + h
+    modParsDown[i] = p[i] - h
+    gradRes[i] = (fnc(xD, yD, modParsUp) - fnc(xD, yD, modParsDown)) / (2.0 * h)
+    # ignore empty data and model points
+  result = (res / (xD.len - p.len).float, gradRes)
 
 template mleLnLikelihoodNoGrad(funcToCall: untyped): untyped {.dirty.} =
   ## Maximum Likelihood Estimator
@@ -107,6 +146,16 @@ template mleLnLikelihoodNoGrad(funcToCall: untyped): untyped {.dirty.} =
   let x = fitObj.x
   let y = fitObj.y
   var fitY = x.mapIt(`funcToCall`(p, it))
+
+  #let df = seqsToDf({ "x" : x,
+  #                    "y" : y,
+  #                    "yFit" : fitY })
+  #ggplot(df, aes("x", "y")) +
+  #  geom_histogram(stat = "identity") +
+  #  geom_line(aes(y = "yFit")) +
+  #  ggsave("/tmp/fit_progress_mle_nograd.pdf")
+  #sleep(50)
+
   result = 0.0
   for i in 0 ..< x.len:
     if fitY[i].float > 0.0 and y[i].float > 0.0:
@@ -129,8 +178,18 @@ template mleLnLikelihoodGrad(funcToCall: untyped): untyped {.dirty.} =
   var gradRes = newSeq[float](p.len)
   var res = 0.0
   var h: float
+
   proc fnc(x, y, params: seq[float]): float =
     let fitY = x.mapIt(`funcToCall`(params, it))
+
+    #let df = seqsToDf({ "x" : x,
+    #                    "y" : y,
+    #                    "yFit" : fitY })
+    #ggplot(df, aes("x", "y")) +
+    #  geom_histogram(stat = "identity") +
+    #  geom_line(aes(y = "yFit")) +
+    #  ggsave("/tmp/fit_progress_mle_grad.pdf")
+    #sleep(50)
     for i in 0 ..< x.len:
       if fitY[i].float > 0.0 and y[i].float > 0.0:
         result = result + (fitY[i] - y[i] + y[i] * ln(y[i] / fitY[i]))
@@ -159,6 +218,11 @@ macro fitForNlopt*(name, funcToCall: untyped,
   of nfChiSq:
     body = getAst(chiSquareNoGrad(funcToCall))
     retType = ident"float"
+  of nfChiSqGrad:
+    body = getAst(chiSquareGrad(funcToCall))
+    retType = nnkPar.newTree(ident"float",
+                             nnkBracketExpr.newTree(ident"seq",
+                                                    ident"float"))
   of nfMle:
     body = getAst(mleLnLikelihoodNoGrad(funcToCall))
     retType = ident"float"

@@ -340,6 +340,53 @@ func getFeSpectrumChargeBounds(): seq[tuple[l, u: float]] =
   # result[5].l = sigma_kalpha*0.5
   # result[5].u = sigma_kalpha*1.5
 
+template fitNlopt*(xData, yData, errData: seq[float],
+                   bounds: seq[tuple[l, u: float]],
+                   algorithm: nlopt_algorithm,
+                   params: seq[float],
+                   fn: untyped,
+                   body: untyped
+              ): untyped =
+  doAssert xData.len == yData.len
+  echo "START PARAMS : ", params
+  var opt = newNloptOpt[FitObject](algorithm, params.len, bounds)
+  # get charges in the fit range
+  # hand the function to fit as well as the data object we need in it
+  # rebin the data
+  #var xm = xData.rebin(3)
+  #let xm = linspace(xData.min, xData.max, xData.len div 3)
+  #var ym = yData.rebin(3).mapIt(it / 3.0)
+  #var yErrM = errData.rebin(3)
+
+  let fitObject = FitObject(
+    x: xData,
+    y: yData,
+    yErr: errData
+  )
+  fitForNlopt(fnNlopt, fn, nfChiSq, toExport = false)
+  let varStruct = newVarStruct(fnNlopt, fitObject)
+  opt.setFunction(varStruct)
+  # set relative precisions of x and y, as well as limit max time the algorithm
+  # should take to 5 second (will take much longer, time spent in NLopt lib!)
+  # these default values have proven to be working
+  opt.xtol_rel = 1e-10
+  opt.ftol_rel = 1e-10
+  opt.maxtime  = 5.0
+  opt.initialStep *= 2.0
+  # start actual optimization
+  let nloptRes {.inject.} = opt.optimize(params)
+
+  body
+
+  if opt.status < NLOPT_SUCCESS:
+    echo opt.status
+    echo "nlopt failed!"
+  else:
+    echo "Nlopt successfully exited with ", opt.status
+  # clean up optimizer
+  nlopt_destroy(opt.optimizer)
+
+import ggplotnim, os
 proc fitFeSpectrumImpl(hist, binning: seq[float]): seq[float] =
   # given our histogram and binning data
   # for fit := (y / x) data

@@ -292,7 +292,7 @@ func getFeSpectrumBounds(hist, binning: seq[float]): seq[tuple[l, u: float]] =
        mu_kalpha_esc,
        sigma_kalpha_esc,
        n_kalpha_esc) = getLines(hist, binning)
-  var result = getBoundsList(15)
+  result = getBoundsList(15)
   # set bound on paramerters
   # constrain amplitude of K_beta to some positive value
   result[2].l = 0

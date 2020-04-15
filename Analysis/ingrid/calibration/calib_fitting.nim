@@ -5,7 +5,7 @@ data perform a fit either with Nlopt or mpfit and return data.
 The actual functions to be fitted are found in `fit_functions.nim`
 ]#
 
-import seqmath, sequtils, stats, strformat
+import seqmath, sequtils, stats, strformat, fenv
 import nlopt, mpfit
 
 import .. / ingrid_types
@@ -195,32 +195,40 @@ func getFeSpectrumParams(hist, binning: seq[float]): seq[float] =
     FitFuncArgs(
       name: "Mn-Kalpha-esc",
       kind: ffExpGauss,
-      ea: 1e-4,
-      eb: 1e-5,
+      #ea: 1e-4,
+      ea: 0.0,
+      #eb: 1e-5,
+      eb: 0.0,
       eN: n_kalpha_esc,
       emu: mu_Kalpha * 2.9 / 5.75,
       es: sigma_kalpha_esc),
     FitFuncArgs(
       name: "Mn-Kbeta-esc",
       kind: ffExpGauss,
-      ea: 1e-4,
-      eb: 1e-5,
+      #ea: 1e-4,
+      ea: 0.0,
+      #eb: 1e-5,
+      eb: 0.0,
       eN: fixed,
       emu: fixed,
       es: fixed), # additional parameters fixed, `fixed` is just an overload for `NaN`
     FitFuncArgs(
       name: "Mn-Kalpha",
       kind: ffExpGauss,
-      ea: 1e-4,
-      eb: 1e-5,
+      #ea: 1e-4,
+      ea: 0.0,
+      #eb: 1e-5,
+      eb: 0.0,
       eN: n_kalpha,
       emu: mu_Kalpha, # since we count single electrons, index equals number electrons!
       es: sigma_Kalpha), # sigma is approxed to 0.8 times the half width
     FitFuncArgs(
       name: "Mn-Kbeta",
       kind: ffExpGauss,
-      ea: 1e-4,
-      eb: 1e-5,
+      #ea: 1e-4,
+      ea: 0.0,
+      #eb: 1e-5,
+      eb: 0.0,
       eN: fixed,
       emu: fixed,
       es: fixed) # additional parameters fixed

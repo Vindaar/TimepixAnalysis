@@ -26,7 +26,7 @@ import protocol, common_types
 
 type
   # for clarity define a type for the Docopt argument table
-  DocoptTab = Table[string, Value]
+  DocoptTab = Table[string, docopt.Value]
 
 template canImport(x: untyped): bool =
   compiles:

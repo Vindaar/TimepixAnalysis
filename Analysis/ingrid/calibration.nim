@@ -16,7 +16,6 @@ import helpers/utils
 import ingrid_types
 import ingridDatabase / [databaseRead, databaseDefinitions]
 import ingrid / calibration / [fit_functions, calib_fitting, calib_plotting]
-import procsForPython
 from ingridDatabase/databaseWrite import writeCalibVsGasGain
 
 proc cutOnDsets[T](eventNumbers: seq[SomeInteger],

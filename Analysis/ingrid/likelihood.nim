@@ -10,7 +10,6 @@ import tos_helpers
 import helpers/utils
 import sequtils
 import seqmath
-import plotly
 import arraymancer
 import ingrid / [ingrid_types, calibration]
 import ingrid/calibration/fit_functions
@@ -195,13 +194,6 @@ proc buildLogLHist(cdlFile, refFile, dset: string,
 
   # now create plots of all ref likelihood distributions
   echo "max is inf ? ", min(result[0]), " ", max(result[0])
-  #if "4kV" in dset or "0.6kV" in dset:
-  #  let binSize = (30.0 + 0.0) / 200.0
-  #  histPlot(result)
-  #    .binRange(0.0, 30.0)
-  #    .binSize(binSize)
-  #    .title(dset & " for region: " & $region)
-  #    .show()
 
 proc determineCutValue[T](hist: seq[T], eff: float): int =
   ## given a histogram `hist`, determine the correct bin to cut at to achieve
@@ -866,19 +858,6 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj,
         # finally add totalDuration to total duration vars
         totalDurations[chipNumber] += totalDurationRun
         totalDurationsPassed[chipNumber] += totalDurationRunPassed
-
-  #let binSize = (30.0 + 0.0) / 200.0
-  #let bins = (0.0, 30.0)
-  #histPlot(logLSeq)
-  #  .binRange(bins[0], bins[1])
-  #  .binSize(binSize)
-  #  .title("Background logL for all runs 4kV Al")
-  #  .show()
-  #histPlot(logLSeqLow)
-  #  .binRange(bins[0], bins[1])
-  #  .binSize(binSize)
-  #  .title("Background logL for all runs 0.6kV C")
-  #  .show()
 
   # once done write total duration as attributes to `likelihood` group
   var lhGrp = h5fout[likelihoodGroupGrpStr()]

@@ -279,11 +279,11 @@ func getFeSpectrumChargeParams(hist, binning: seq[float]): seq[float] =
 
 proc getBoundsList(n: int): seq[tuple[l, u: float]] =
   for i in 0 ..< n:
-    #result.add (l: -Inf, u: Inf)
+    result.add (l: -Inf, u: Inf)
     # use this (or some other value for lower upper, just not `Inf`
     # to use global fitting routines of NLOPT, which require bounds for
     # all parameters
-    result.add (l: -100.0, u: 100.0)
+    #result.add (l: -100.0, u: 100.0)
 
 func getFeSpectrumBounds(hist, binning: seq[float]): seq[tuple[l, u: float]] =
   let (mu_kalpha,

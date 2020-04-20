@@ -455,8 +455,12 @@ proc writeFeDset(h5f: var H5FileObj,
   result[1] = createWriteDset(feFitX, feFitY, "FeSpectrum" & $suffix & "PlotFit")
 
 proc buildTextForFeSpec(feSpec: FeSpecFitData,
-                        ecData: EnergyCalibFitData): seq[string] =
-  result.add &"mu = {feSpec.k_alpha:.1f} pix"
+                        ecData: EnergyCalibFitData,
+                        isPixel = true): seq[string] =
+  if isPixel:
+    result.add &"mu = {feSpec.k_alpha:.1f} pix"
+  else:
+    result.add &"mu = {feSpec.k_alpha:.1f}e3 e^-"
   result.add &"{ecData.aInv:.1f} ev / pix"
   result.add &"sigma = {feSpec.sigma_kalpha / feSpec.k_alpha * 100.0:.2f} %"
 
@@ -525,9 +529,9 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
       totChDset = h5f.write_dataset(groupName / "FeSpectrumCharge", totChSpec)
     let feSpecCharge = fitFeSpectrumCharge(totChSpec)
     let ecDataCharge = fitEnergyCalib(feSpecCharge, isPixel = false)
-    let textsCharge = buildTextForFeSpec(feSpecCharge, ecDataCharge)
+    let textsCharge = buildTextForFeSpec(feSpecCharge, ecDataCharge, isPixel = false)
     plotFeSpectrum(feSpecCharge, runNumber, chipNumber,
-                   texts, isPixel = false)
+                   textsCharge, isPixel = false)
     plotFeEnergyCalib(ecDataCharge, runNumber, isPixel = false)
 
     # given resCharge, need to write the result of that fit to H5 file, analogous to

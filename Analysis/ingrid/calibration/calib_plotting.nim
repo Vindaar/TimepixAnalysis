@@ -46,22 +46,25 @@ proc plotFeSpectrum*(feSpec: FeSpecFitData,
   var
     xLabel: string
     yLabel: string
+    suffix: string
   if isPixel:
     xLabel = "# of pixels"
     yLabel = "counts"
   else:
-    xLabel = "charge / # of e¯"
+    xLabel = "charge / 10^3 e¯"
     yLabel = "counts"
+    suffix = "_charge"
+
   ggplot(df, aes("bins")) +
     geom_histogram(aes(y = "hist"), stat = "identity") +
     geom_line(aes("bins", y = "fit"),
-              color = some(parseHex("AA00AA"))) +
+              color = some(parseHex("FF00FF"))) +
     xlab(xlabel) +
     ylab(ylabel) +
     annotate(texts.join("\n"),
              left = 0.02,
-             bottom = 0.5) +
-    ggsave(&"out/fe_spec_run_{runNumber}_chip_{chipNumber}.pdf")
+             bottom = 0.15) +
+    ggsave(&"out/fe_spec_run_{runNumber}_chip_{chipNumber}{suffix}.pdf")
 
 proc plotFeEnergyCalib*(ecData: EnergyCalibFitData,
                         runNumber: int,

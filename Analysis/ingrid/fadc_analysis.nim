@@ -8,7 +8,6 @@ import nimhdf5
 import tables
 import times
 import future
-import typetraits
 
 import arraymancer
 import seqmath

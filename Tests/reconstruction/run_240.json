@@ -1,90 +1,90 @@
 {
   "pathName": {
     "value": "data/runs/Run_240_181021-14-54",
-    "type": "akString"
+    "type": "dkString"
   },
   "szint2TriggerRatio": {
     "value": 0.1158841158841159,
-    "type": "akFloat64"
+    "type": "dkFloat64"
   },
   "numChips": {
     "value": 7,
-    "type": "akInt64"
+    "type": "dkInt64"
   },
   "externalTrigger": {
     "value": 0,
-    "type": "akInt64"
+    "type": "dkInt64"
   },
   "nonTrivial_szint2TriggerRatio": {
     "value": 0.03896103896103896,
-    "type": "akFloat64"
+    "type": "dkFloat64"
   },
   "centerChipName": {
     "value": "H 10 W69",
-    "type": "akString"
+    "type": "dkString"
   },
   "shutterMode": {
     "value": "verylong",
-    "type": "akString"
+    "type": "dkString"
   },
   "rawDataFinished": {
     "value": "true",
-    "type": "akString"
+    "type": "dkString"
   },
   "runType": {
     "value": "rtBackground",
-    "type": "akString"
+    "type": "dkString"
   },
   "runNumber": {
     "value": 240,
-    "type": "akInt64"
+    "type": "dkInt64"
   },
   "RawTransferFinished":{
     "value": "true",
-    "type":"akString"
+    "type":"dkString"
   },
   "numEventsStored": {
     "value": 1001,
-    "type": "akInt64"
+    "type": "dkInt64"
   },
   "runTimeFrames": {
     "value": 1,
-    "type": "akInt64"
+    "type": "dkInt64"
   },
   "dateTime": {
     "value": "2018-10-21.14:54:08",
-    "type": "akString"
+    "type": "dkString"
   },
   "runMode": {
     "value": 0,
-    "type": "akInt64"
+    "type": "dkInt64"
   },
   "runTime": {
     "value": 0,
-    "type": "akInt64"
+    "type": "dkInt64"
   },
   "shutterTime": {
     "value": 30,
-    "type": "akInt64"
+    "type": "dkInt64"
   },
   "fastClock": {
     "value": 0,
-    "type": "akInt64"
+    "type": "dkInt64"
   },
   "fadcTriggerRatio": {
     "value": 0.1158841158841159,
-    "type": "akFloat64"
+    "type": "dkFloat64"
   },
   "nonTrivial_szint1TriggerRatio": {
     "value": 0.002997002997002997,
-    "type": "akFloat64"
+    "type": "dkFloat64"
   },
   "szint1TriggerRatio": {
     "value": 0.01598401598401598,
-    "type": "akFloat64"
+    "type": "dkFloat64"
   },
   "centerChip": {
     "value": 3,
-    "type": "akInt64"
+    "type": "dkInt64"
   }
 }

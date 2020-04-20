@@ -1,676 +1,688 @@
 {
   "FeSpectrum": {
     "pErr_11": {
-      "value": 1.260715272835578,
-      "type": "akFloat64"
+      "value": 0.0,
+      "type": "dkFloat64"
     },
     "text_2": {
-      "value": "sigma = 6.61%",
-      "type": "akString"
+      "value": "sigma = 6.60 %",
+      "type": "dkString"
     },
     "p12": {
-      "value": -6.92809910557136,
-      "type": "akFloat64"
+      "value": -2.971728214389711,
+      "type": "dkFloat64"
     },
     "pErr_6": {
-      "value": 2.481784750288704e-16,
-      "type": "akFloat64"
+      "value": 0.0,
+      "type": "dkFloat64"
     },
     "eV_per_pix": {
-      "value": 21.1643387012147,
-      "type": "akFloat64"
+      "value": 21.12430933491545,
+      "type": "dkFloat64"
     },
     "p9": {
-      "value": 7.038573608647387,
-      "type": "akFloat64"
+      "value": 7.076426207501364,
+      "type": "dkFloat64"
     },
     "pErr_9": {
-      "value": 0.2834149641919377,
-      "type": "akFloat64"
+      "value": 0.2501138012273461,
+      "type": "dkFloat64"
     },
     "pErr_12": {
       "value": 0.0,
-      "type": "akFloat64"
+      "type": "dkFloat64"
     },
     "p13": {
-      "value": 0.07315816803382702,
-      "type": "akFloat64"
+      "value": 0.0108990549881451,
+      "type": "dkFloat64"
     },
     "text_1": {
-      "value": "21.2ev / pix",
-      "type": "akString"
+      "value": "21.1 ev / pix",
+      "type": "dkString"
     },
     "p_E_0": {
-      "value": 47.24929108900561,
-      "type": "akFloat64"
+      "value": 47.33882581179323,
+      "type": "dkFloat64"
     },
     "p4": {
-      "value": 8.909061662438905,
-      "type": "akFloat64"
+      "value": 8.743646352496095,
+      "type": "dkFloat64"
     },
     "pErr_4": {
-      "value": 2.391975202325162,
-      "type": "akFloat64"
+      "value": 2.136505084523328,
+      "type": "dkFloat64"
     },
     "p5": {
-      "value": -17.29576349640714,
-      "type": "akFloat64"
+      "value": 0.0,
+      "type": "dkFloat64"
     },
     "p_E_Err_0": {
-      "value": 0.2718431801355467,
-      "type": "akFloat64"
+      "value": 0.1662521515568537,
+      "type": "dkFloat64"
     },
     "p1": {
-      "value": 0.01314114097707889,
-      "type": "akFloat64"
+      "value": 0.004418322498915026,
+      "type": "dkFloat64"
     },
     "pErr_0": {
-      "value": 31.72518558949879,
-      "type": "akFloat64"
+      "value": 9.172379003186585,
+      "type": "dkFloat64"
     },
     "pErr_3": {
-      "value": 2.524103274110939,
-      "type": "akFloat64"
+      "value": 2.226306550099543,
+      "type": "dkFloat64"
     },
     "p3": {
-      "value": 135.6611742354376,
-      "type": "akFloat64"
+      "value": 135.5469387837444,
+      "type": "dkFloat64"
     },
     "p8": {
-      "value": 0.5406069883983573,
-      "type": "akFloat64"
+      "value": 0.04284232650668976,
+      "type": "dkFloat64"
     },
     "pErr_5": {
-      "value": 7.608063565230141e-16,
-      "type": "akFloat64"
+      "value": 0.0,
+      "type": "dkFloat64"
     },
     "pErr_13": {
       "value": 0.0,
-      "type": "akFloat64"
+      "type": "dkFloat64"
     },
     "d_eV_per_pix": {
-      "value": 0.03310139451914054,
-      "type": "akFloat64"
+      "value": 0.07418776906391519,
+      "type": "dkFloat64"
     },
     "p11": {
       "value": 18.0,
-      "type": "akFloat64"
+      "type": "dkFloat64"
     },
     "pErr_14": {
-      "value": 0.08847513790960131,
-      "type": "akFloat64"
+      "value": 0.04623065048350789,
+      "type": "dkFloat64"
     },
     "p14": {
-      "value": 0.09036421160942608,
-      "type": "akFloat64"
+      "value": 0.07878071826494108,
+      "type": "dkFloat64"
     },
     "p10": {
-      "value": 272.4088419412989,
-      "type": "akFloat64"
+      "value": 272.7226955567897,
+      "type": "dkFloat64"
     },
     "pErr_8": {
-      "value": 1.121273905029917e-26,
-      "type": "akFloat64"
+      "value": 0.02534771978426729,
+      "type": "dkFloat64"
     },
     "p7": {
-      "value": 7.473890694952547,
-      "type": "akFloat64"
+      "value": -10.13284889032834,
+      "type": "dkFloat64"
     },
     "pErr_2": {
-      "value": 0.3495911502543595,
-      "type": "akFloat64"
+      "value": 0.3139989300335242,
+      "type": "dkFloat64"
     },
     "pErr_10": {
-      "value": 1.552830862425679,
-      "type": "akFloat64"
+      "value": 0.9804561155736758,
+      "type": "dkFloat64"
     },
     "p6": {
-      "value": 7.877773183974045,
-      "type": "akFloat64"
+      "value": 0.0,
+      "type": "dkFloat64"
     },
     "pErr_1": {
-      "value": 0.387941731102541,
-      "type": "akFloat64"
+      "value": 0.1284470531379226,
+      "type": "dkFloat64"
     },
     "pErr_7": {
-      "value": 4.933670460860532e-16,
-      "type": "akFloat64"
+      "value": 5.725368910687819,
+      "type": "dkFloat64"
     },
     "text_0": {
-      "value": "mu = 272.4pix",
-      "type": "akString"
+      "value": "mu = 272.7 pix",
+      "type": "dkString"
     },
     "p2": {
-      "value": 1.464495767850202,
-      "type": "akFloat64"
+      "value": 1.455263024938104,
+      "type": "dkFloat64"
     },
     "p0": {
-      "value": -5.429734810503679,
-      "type": "akFloat64"
+      "value": -4.021686415987368,
+      "type": "dkFloat64"
     }
   },
   "FeSpectrumCharge": {
     "keV_per_electron": {
-      "value": 6.762605041677024e-06,
-      "type": "akFloat64"
+      "value": 6.762179825413191e-06,
+      "type": "dkFloat64"
     },
     "text_1": {
-      "value": "sigma = 8.26%",
-      "type": "akString"
+      "value": "6.8 ev / pix",
+      "type": "dkString"
     },
     "p_E_0": {
-      "value": 147.8720099484052,
-      "type": "akFloat64"
+      "value": 147.8813083677343,
+      "type": "dkFloat64"
     },
     "p4": {
-      "value": 872.3816934742837,
-      "type": "akFloat64"
+      "value": 872.4360854377057,
+      "type": "dkFloat64"
     },
     "pErr_4": {
-      "value": 3.900012798492056,
-      "type": "akFloat64"
+      "value": 3.066556176382577,
+      "type": "dkFloat64"
     },
     "p5": {
-      "value": 72.06063437363085,
-      "type": "akFloat64"
+      "value": 72.12908739767033,
+      "type": "dkFloat64"
     },
     "p_E_Err_0": {
-      "value": 0.2106834999950792,
-      "type": "akFloat64"
+      "value": 0.5185900819550597,
+      "type": "dkFloat64"
     },
     "p1": {
-      "value": 425.9452659944225,
-      "type": "akFloat64"
+      "value": 426.3845951965897,
+      "type": "dkFloat64"
     },
     "pErr_0": {
-      "value": 0.2796223095364787,
-      "type": "akFloat64"
+      "value": 0.2202630678022524,
+      "type": "dkFloat64"
     },
     "pErr_3": {
-      "value": 0.2198179783098062,
-      "type": "akFloat64"
+      "value": 0.1720507510291927,
+      "type": "dkFloat64"
     },
     "p3": {
-      "value": 4.593063282828766,
-      "type": "akFloat64"
+      "value": 4.576231834891663,
+      "type": "dkFloat64"
     },
     "pErr_5": {
-      "value": 4.070209045822943,
-      "type": "akFloat64"
+      "value": 3.200379314103186,
+      "type": "dkFloat64"
     },
     "d_keV_per_electron": {
-      "value": 2.029967556127748e-09,
-      "type": "akFloat64"
+      "value": 2.371360808585471e-08,
+      "type": "dkFloat64"
     },
     "pErr_2": {
-      "value": 32.6821486268528,
-      "type": "akFloat64"
+      "value": 25.03869334249677,
+      "type": "dkFloat64"
     },
     "pErr_1": {
-      "value": 28.53783395438316,
-      "type": "akFloat64"
+      "value": 21.98467819604219,
+      "type": "dkFloat64"
+    },
+    "text_2": {
+      "value": "sigma = 8.27 %",
+      "type": "dkString"
     },
     "text_0": {
-      "value": "6.8ev / pix",
-      "type": "akString"
+      "value": "mu = 872.4 pix",
+      "type": "dkString"
     },
     "p2": {
-      "value": 53.38755152708449,
-      "type": "akFloat64"
+      "value": 52.62767418759786,
+      "type": "dkFloat64"
     },
     "p0": {
-      "value": 0.6053888477916946,
-      "type": "akFloat64"
+      "value": 0.6084799547104218,
+      "type": "dkFloat64"
     }
   },
   "FeSpectrumChargePlot": {
     "p0": {
-      "value": 0.6053888477916946,
-      "type": "akFloat64"
+      "value": 0.6084799547104218,
+      "type": "dkFloat64"
     },
     "text_1": {
-      "value": "sigma = 8.26%",
-      "type": "akString"
+      "value": "6.8 ev / pix",
+      "type": "dkString"
     },
     "p_E_0": {
-      "value": 147.8720099484052,
-      "type": "akFloat64"
+      "value": 147.8813083677343,
+      "type": "dkFloat64"
     },
     "p4": {
-      "value": 872.3816934742837,
-      "type": "akFloat64"
+      "value": 872.4360854377057,
+      "type": "dkFloat64"
     },
     "pErr_4": {
-      "value": 3.900012798492056,
-      "type": "akFloat64"
+      "value": 3.066556176382577,
+      "type": "dkFloat64"
     },
     "p5": {
-      "value": 72.06063437363085,
-      "type": "akFloat64"
+      "value": 72.12908739767033,
+      "type": "dkFloat64"
     },
     "p_E_Err_0": {
-      "value": 0.2106834999950792,
-      "type": "akFloat64"
+      "value": 0.5185900819550597,
+      "type": "dkFloat64"
     },
     "p1": {
-      "value": 425.9452659944225,
-      "type": "akFloat64"
+      "value": 426.3845951965897,
+      "type": "dkFloat64"
     },
     "pErr_0": {
-      "value": 0.2796223095364787,
-      "type": "akFloat64"
+      "value": 0.2202630678022524,
+      "type": "dkFloat64"
     },
     "pErr_3": {
-      "value": 0.2198179783098062,
-      "type": "akFloat64"
+      "value": 0.1720507510291927,
+      "type": "dkFloat64"
     },
     "p3": {
-      "value": 4.593063282828766,
-      "type": "akFloat64"
+      "value": 4.576231834891663,
+      "type": "dkFloat64"
     },
     "pErr_5": {
-      "value": 4.070209045822943,
-      "type": "akFloat64"
+      "value": 3.200379314103186,
+      "type": "dkFloat64"
     },
     "d_keV_per_electron": {
-      "value": 2.029967556127748e-09,
-      "type": "akFloat64"
+      "value": 2.371360808585471e-08,
+      "type": "dkFloat64"
     },
     "pErr_2": {
-      "value": 32.6821486268528,
-      "type": "akFloat64"
+      "value": 25.03869334249677,
+      "type": "dkFloat64"
     },
     "pErr_1": {
-      "value": 28.53783395438316,
-      "type": "akFloat64"
+      "value": 21.98467819604219,
+      "type": "dkFloat64"
+    },
+    "text_2": {
+      "value": "sigma = 8.27 %",
+      "type": "dkString"
     },
     "text_0": {
-      "value": "6.8ev / pix",
-      "type": "akString"
+      "value": "mu = 872.4 pix",
+      "type": "dkString"
     },
     "keV_per_electron": {
-      "value": 6.762605041677024e-06,
-      "type": "akFloat64"
+      "value": 6.762179825413191e-06,
+      "type": "dkFloat64"
     },
     "p2": {
-      "value": 53.38755152708449,
-      "type": "akFloat64"
+      "value": 52.62767418759786,
+      "type": "dkFloat64"
     }
   },
   "FeSpectrumChargePlotFit": {
     "p0": {
-      "value": 0.6053888477916946,
-      "type": "akFloat64"
+      "value": 0.6084799547104218,
+      "type": "dkFloat64"
     },
     "text_1": {
-      "value": "sigma = 8.26%",
-      "type": "akString"
+      "value": "6.8 ev / pix",
+      "type": "dkString"
     },
     "p_E_0": {
-      "value": 147.8720099484052,
-      "type": "akFloat64"
+      "value": 147.8813083677343,
+      "type": "dkFloat64"
     },
     "p4": {
-      "value": 872.3816934742837,
-      "type": "akFloat64"
+      "value": 872.4360854377057,
+      "type": "dkFloat64"
     },
     "pErr_4": {
-      "value": 3.900012798492056,
-      "type": "akFloat64"
+      "value": 3.066556176382577,
+      "type": "dkFloat64"
     },
     "p5": {
-      "value": 72.06063437363085,
-      "type": "akFloat64"
+      "value": 72.12908739767033,
+      "type": "dkFloat64"
     },
     "p_E_Err_0": {
-      "value": 0.2106834999950792,
-      "type": "akFloat64"
+      "value": 0.5185900819550597,
+      "type": "dkFloat64"
     },
     "p1": {
-      "value": 425.9452659944225,
-      "type": "akFloat64"
+      "value": 426.3845951965897,
+      "type": "dkFloat64"
     },
     "pErr_0": {
-      "value": 0.2796223095364787,
-      "type": "akFloat64"
+      "value": 0.2202630678022524,
+      "type": "dkFloat64"
     },
     "pErr_3": {
-      "value": 0.2198179783098062,
-      "type": "akFloat64"
+      "value": 0.1720507510291927,
+      "type": "dkFloat64"
     },
     "p3": {
-      "value": 4.593063282828766,
-      "type": "akFloat64"
+      "value": 4.576231834891663,
+      "type": "dkFloat64"
     },
     "pErr_5": {
-      "value": 4.070209045822943,
-      "type": "akFloat64"
+      "value": 3.200379314103186,
+      "type": "dkFloat64"
     },
     "d_keV_per_electron": {
-      "value": 2.029967556127748e-09,
-      "type": "akFloat64"
+      "value": 2.371360808585471e-08,
+      "type": "dkFloat64"
     },
     "pErr_2": {
-      "value": 32.6821486268528,
-      "type": "akFloat64"
+      "value": 25.03869334249677,
+      "type": "dkFloat64"
     },
     "pErr_1": {
-      "value": 28.53783395438316,
-      "type": "akFloat64"
+      "value": 21.98467819604219,
+      "type": "dkFloat64"
+    },
+    "text_2": {
+      "value": "sigma = 8.27 %",
+      "type": "dkString"
     },
     "text_0": {
-      "value": "6.8ev / pix",
-      "type": "akString"
+      "value": "mu = 872.4 pix",
+      "type": "dkString"
     },
     "keV_per_electron": {
-      "value": 6.762605041677024e-06,
-      "type": "akFloat64"
+      "value": 6.762179825413191e-06,
+      "type": "dkFloat64"
     },
     "p2": {
-      "value": 53.38755152708449,
-      "type": "akFloat64"
+      "value": 52.62767418759786,
+      "type": "dkFloat64"
     }
   },
   "FeSpectrumEvents": {},
   "FeSpectrumIndices": {},
   "FeSpectrumPlot": {
     "pErr_11": {
-      "value": 1.260715272835578,
-      "type": "akFloat64"
+      "value": 0.0,
+      "type": "dkFloat64"
     },
     "text_2": {
-      "value": "sigma = 6.61%",
-      "type": "akString"
+      "value": "sigma = 6.60 %",
+      "type": "dkString"
     },
     "p12": {
-      "value": -6.92809910557136,
-      "type": "akFloat64"
+      "value": -2.971728214389711,
+      "type": "dkFloat64"
     },
     "pErr_6": {
-      "value": 2.481784750288704e-16,
-      "type": "akFloat64"
+      "value": 0.0,
+      "type": "dkFloat64"
     },
     "eV_per_pix": {
-      "value": 21.1643387012147,
-      "type": "akFloat64"
+      "value": 21.12430933491545,
+      "type": "dkFloat64"
     },
     "p9": {
-      "value": 7.038573608647387,
-      "type": "akFloat64"
+      "value": 7.076426207501364,
+      "type": "dkFloat64"
     },
     "pErr_9": {
-      "value": 0.2834149641919377,
-      "type": "akFloat64"
+      "value": 0.2501138012273461,
+      "type": "dkFloat64"
     },
     "pErr_12": {
       "value": 0.0,
-      "type": "akFloat64"
+      "type": "dkFloat64"
     },
     "p13": {
-      "value": 0.07315816803382702,
-      "type": "akFloat64"
+      "value": 0.0108990549881451,
+      "type": "dkFloat64"
     },
     "text_1": {
-      "value": "21.2ev / pix",
-      "type": "akString"
+      "value": "21.1 ev / pix",
+      "type": "dkString"
     },
     "p_E_0": {
-      "value": 47.24929108900561,
-      "type": "akFloat64"
+      "value": 47.33882581179323,
+      "type": "dkFloat64"
     },
     "p4": {
-      "value": 8.909061662438905,
-      "type": "akFloat64"
+      "value": 8.743646352496095,
+      "type": "dkFloat64"
     },
     "pErr_4": {
-      "value": 2.391975202325162,
-      "type": "akFloat64"
+      "value": 2.136505084523328,
+      "type": "dkFloat64"
     },
     "p5": {
-      "value": -17.29576349640714,
-      "type": "akFloat64"
+      "value": 0.0,
+      "type": "dkFloat64"
     },
     "p_E_Err_0": {
-      "value": 0.2718431801355467,
-      "type": "akFloat64"
+      "value": 0.1662521515568537,
+      "type": "dkFloat64"
     },
     "p1": {
-      "value": 0.01314114097707889,
-      "type": "akFloat64"
+      "value": 0.004418322498915026,
+      "type": "dkFloat64"
     },
     "pErr_0": {
-      "value": 31.72518558949879,
-      "type": "akFloat64"
+      "value": 9.172379003186585,
+      "type": "dkFloat64"
     },
     "pErr_3": {
-      "value": 2.524103274110939,
-      "type": "akFloat64"
+      "value": 2.226306550099543,
+      "type": "dkFloat64"
     },
     "p3": {
-      "value": 135.6611742354376,
-      "type": "akFloat64"
+      "value": 135.5469387837444,
+      "type": "dkFloat64"
     },
     "p8": {
-      "value": 0.5406069883983573,
-      "type": "akFloat64"
+      "value": 0.04284232650668976,
+      "type": "dkFloat64"
     },
     "pErr_5": {
-      "value": 7.608063565230141e-16,
-      "type": "akFloat64"
+      "value": 0.0,
+      "type": "dkFloat64"
     },
     "pErr_13": {
       "value": 0.0,
-      "type": "akFloat64"
+      "type": "dkFloat64"
     },
     "d_eV_per_pix": {
-      "value": 0.03310139451914054,
-      "type": "akFloat64"
+      "value": 0.07418776906391519,
+      "type": "dkFloat64"
     },
     "p11": {
       "value": 18.0,
-      "type": "akFloat64"
+      "type": "dkFloat64"
     },
     "pErr_14": {
-      "value": 0.08847513790960131,
-      "type": "akFloat64"
+      "value": 0.04623065048350789,
+      "type": "dkFloat64"
     },
     "p14": {
-      "value": 0.09036421160942608,
-      "type": "akFloat64"
+      "value": 0.07878071826494108,
+      "type": "dkFloat64"
     },
     "p10": {
-      "value": 272.4088419412989,
-      "type": "akFloat64"
+      "value": 272.7226955567897,
+      "type": "dkFloat64"
     },
     "pErr_8": {
-      "value": 1.121273905029917e-26,
-      "type": "akFloat64"
+      "value": 0.02534771978426729,
+      "type": "dkFloat64"
     },
     "p7": {
-      "value": 7.473890694952547,
-      "type": "akFloat64"
+      "value": -10.13284889032834,
+      "type": "dkFloat64"
     },
     "pErr_2": {
-      "value": 0.3495911502543595,
-      "type": "akFloat64"
+      "value": 0.3139989300335242,
+      "type": "dkFloat64"
     },
     "pErr_10": {
-      "value": 1.552830862425679,
-      "type": "akFloat64"
+      "value": 0.9804561155736758,
+      "type": "dkFloat64"
     },
     "p6": {
-      "value": 7.877773183974045,
-      "type": "akFloat64"
+      "value": 0.0,
+      "type": "dkFloat64"
     },
     "pErr_1": {
-      "value": 0.387941731102541,
-      "type": "akFloat64"
+      "value": 0.1284470531379226,
+      "type": "dkFloat64"
     },
     "pErr_7": {
-      "value": 4.933670460860532e-16,
-      "type": "akFloat64"
+      "value": 5.725368910687819,
+      "type": "dkFloat64"
     },
     "text_0": {
-      "value": "mu = 272.4pix",
-      "type": "akString"
+      "value": "mu = 272.7 pix",
+      "type": "dkString"
     },
     "p2": {
-      "value": 1.464495767850202,
-      "type": "akFloat64"
+      "value": 1.455263024938104,
+      "type": "dkFloat64"
     },
     "p0": {
-      "value": -5.429734810503679,
-      "type": "akFloat64"
+      "value": -4.021686415987368,
+      "type": "dkFloat64"
     }
   },
   "FeSpectrumPlotFit": {
     "pErr_11": {
-      "value": 1.260715272835578,
-      "type": "akFloat64"
+      "value": 0.0,
+      "type": "dkFloat64"
     },
     "p0": {
-      "value": -5.429734810503679,
-      "type": "akFloat64"
+      "value": -4.021686415987368,
+      "type": "dkFloat64"
     },
     "p12": {
-      "value": -6.92809910557136,
-      "type": "akFloat64"
+      "value": -2.971728214389711,
+      "type": "dkFloat64"
     },
     "pErr_6": {
-      "value": 2.481784750288704e-16,
-      "type": "akFloat64"
+      "value": 0.0,
+      "type": "dkFloat64"
     },
     "eV_per_pix": {
-      "value": 21.1643387012147,
-      "type": "akFloat64"
+      "value": 21.12430933491545,
+      "type": "dkFloat64"
     },
     "p9": {
-      "value": 7.038573608647387,
-      "type": "akFloat64"
+      "value": 7.076426207501364,
+      "type": "dkFloat64"
     },
     "pErr_9": {
-      "value": 0.2834149641919377,
-      "type": "akFloat64"
+      "value": 0.2501138012273461,
+      "type": "dkFloat64"
     },
     "pErr_12": {
       "value": 0.0,
-      "type": "akFloat64"
+      "type": "dkFloat64"
     },
     "p13": {
-      "value": 0.07315816803382702,
-      "type": "akFloat64"
+      "value": 0.0108990549881451,
+      "type": "dkFloat64"
     },
     "text_1": {
-      "value": "21.2ev / pix",
-      "type": "akString"
+      "value": "21.1 ev / pix",
+      "type": "dkString"
     },
     "p_E_0": {
-      "value": 47.24929108900561,
-      "type": "akFloat64"
+      "value": 47.33882581179323,
+      "type": "dkFloat64"
     },
     "p4": {
-      "value": 8.909061662438905,
-      "type": "akFloat64"
+      "value": 8.743646352496095,
+      "type": "dkFloat64"
     },
     "pErr_4": {
-      "value": 2.391975202325162,
-      "type": "akFloat64"
+      "value": 2.136505084523328,
+      "type": "dkFloat64"
     },
     "p5": {
-      "value": -17.29576349640714,
-      "type": "akFloat64"
+      "value": 0.0,
+      "type": "dkFloat64"
     },
     "p_E_Err_0": {
-      "value": 0.2718431801355467,
-      "type": "akFloat64"
+      "value": 0.1662521515568537,
+      "type": "dkFloat64"
     },
     "p1": {
-      "value": 0.01314114097707889,
-      "type": "akFloat64"
+      "value": 0.004418322498915026,
+      "type": "dkFloat64"
     },
     "pErr_0": {
-      "value": 31.72518558949879,
-      "type": "akFloat64"
+      "value": 9.172379003186585,
+      "type": "dkFloat64"
     },
     "pErr_3": {
-      "value": 2.524103274110939,
-      "type": "akFloat64"
+      "value": 2.226306550099543,
+      "type": "dkFloat64"
     },
     "p3": {
-      "value": 135.6611742354376,
-      "type": "akFloat64"
+      "value": 135.5469387837444,
+      "type": "dkFloat64"
     },
     "p8": {
-      "value": 0.5406069883983573,
-      "type": "akFloat64"
+      "value": 0.04284232650668976,
+      "type": "dkFloat64"
     },
     "pErr_5": {
-      "value": 7.608063565230141e-16,
-      "type": "akFloat64"
+      "value": 0.0,
+      "type": "dkFloat64"
     },
     "pErr_13": {
       "value": 0.0,
-      "type": "akFloat64"
+      "type": "dkFloat64"
     },
     "d_eV_per_pix": {
-      "value": 0.03310139451914054,
-      "type": "akFloat64"
+      "value": 0.07418776906391519,
+      "type": "dkFloat64"
     },
     "p11": {
       "value": 18.0,
-      "type": "akFloat64"
+      "type": "dkFloat64"
     },
     "pErr_14": {
-      "value": 0.08847513790960131,
-      "type": "akFloat64"
+      "value": 0.04623065048350789,
+      "type": "dkFloat64"
     },
     "p14": {
-      "value": 0.09036421160942608,
-      "type": "akFloat64"
+      "value": 0.07878071826494108,
+      "type": "dkFloat64"
     },
     "p10": {
-      "value": 272.4088419412989,
-      "type": "akFloat64"
+      "value": 272.7226955567897,
+      "type": "dkFloat64"
     },
     "pErr_8": {
-      "value": 1.121273905029917e-26,
-      "type": "akFloat64"
+      "value": 0.02534771978426729,
+      "type": "dkFloat64"
     },
     "p7": {
-      "value": 7.473890694952547,
-      "type": "akFloat64"
+      "value": -10.13284889032834,
+      "type": "dkFloat64"
     },
     "pErr_2": {
-      "value": 0.3495911502543595,
-      "type": "akFloat64"
+      "value": 0.3139989300335242,
+      "type": "dkFloat64"
     },
     "pErr_10": {
-      "value": 1.552830862425679,
-      "type": "akFloat64"
+      "value": 0.9804561155736758,
+      "type": "dkFloat64"
     },
     "p6": {
-      "value": 7.877773183974045,
-      "type": "akFloat64"
+      "value": 0.0,
+      "type": "dkFloat64"
     },
     "pErr_1": {
-      "value": 0.387941731102541,
-      "type": "akFloat64"
+      "value": 0.1284470531379226,
+      "type": "dkFloat64"
     },
     "text_2": {
-      "value": "sigma = 6.61%",
-      "type": "akString"
+      "value": "sigma = 6.60 %",
+      "type": "dkString"
     },
     "pErr_7": {
-      "value": 4.933670460860532e-16,
-      "type": "akFloat64"
+      "value": 5.725368910687819,
+      "type": "dkFloat64"
     },
     "text_0": {
-      "value": "mu = 272.4pix",
-      "type": "akString"
+      "value": "mu = 272.7 pix",
+      "type": "dkString"
     },
     "p2": {
-      "value": 1.464495767850202,
-      "type": "akFloat64"
+      "value": 1.455263024938104,
+      "type": "dkFloat64"
     }
   }
 }

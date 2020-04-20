@@ -9,7 +9,6 @@ import os, sequtils, sugar, math, tables, strutils, strformat, macros, options
 import threadpool_simple
 import logging
 import docopt
-import typeinfo
 import times
 import sets
 
@@ -442,9 +441,9 @@ proc copyOverDataAttrs(h5f, h5fout: var H5FileObj, runNumber: int) =
   let rawGrp = h5f[(rawDataBase() & $runNumber).grp_str]
   for dset in items(rawGrp, start_path = rawDataBase()):
     case dset.dtypeAnyKind
-    of akInt64:
+    of dkInt64:
       copyOver($runNumber / dset.name.extractFilename, int64)
-    of akFloat64:
+    of dkFloat64:
       copyOver($runNumber / dset.name.extractFilename, float64)
     else:
       doAssert false, "Unexpected dataset " & $dset & " with base type " & $dset.dtypeAnyKind

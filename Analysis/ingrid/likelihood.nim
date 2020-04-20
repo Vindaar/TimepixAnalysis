@@ -1,5 +1,5 @@
 import os
-import docopt
+import docopt except Value
 import tables
 import strutils, strformat, ospaths
 import algorithm

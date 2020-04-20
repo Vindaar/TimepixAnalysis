@@ -64,15 +64,6 @@ proc traverseTree(input: NimNode): NimNode =
     else:
       error("Unsupported type: " & $input.kind)
 
-macro getSubType*(TT: typed): untyped =
-  ## macro to get the subtype of a nested type by iterating
-  ## the AST
-  # traverse the AST
-  let res = traverseTree(TT.getTypeInst)
-  # assign symbol to result
-  result = quote do:
-    `res`
-
 proc findReplace(cImpl: NimNode, assgn: NimNode): NimNode =
   ## iterates through `cImpl`, looks for the assignment in `assgn`
   ## and if found replaces the value within. If not found appends
@@ -393,33 +384,6 @@ template getDateSyntax*(): string =
   ## to parse a thusly created string
   # "yyyy-MM-dd'T'HH-mm-sszzz"
   "yyyy-MM-dd\'T\'HH:mm:sszzz"
-
-macro zipEm*(seqs: varargs[typed]): untyped =
-  ## zips up all given `seqs` and returns a seq of `tuple[type(seqs[0]), ...]`
-  ## All given seqs must have the same length! Otherwise bad things can happen...
-  # get types
-  result = newStmtList()
-  var tupType = nnkPar.newTree()
-  var tupCreate = nnkPar.newTree()
-  let length = genSym(nskVar, "length")
-  let forIdx = genSym(nskForVar, "idx")
-  let res = genSym(nskVar, "res")
-  result.add quote do:
-    var `length`: int
-  for s in seqs:
-    tupType.add nnkCall.newTree(ident"getSubType", s)
-    tupCreate.add nnkCall.newTree(ident"[]", s, forIdx)
-    result.add quote do:
-      `length` = max(`s`.len, `length`)
-  result.add quote do:
-    var `res` = newSeq[`tupType`](`length`)
-  result.add quote do:
-    for `forIdx` in 0 ..< `length`:
-      `res`[`forIdx`] = `tupCreate`
-  result = quote do:
-    block:
-      `result`
-      `res`
 
 # import the arraymancer related procs only if the `-d:pure` flag is not
 # set. This allows us to keep this dependency out, if desired

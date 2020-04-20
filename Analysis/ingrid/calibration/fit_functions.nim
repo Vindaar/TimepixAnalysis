@@ -16,6 +16,9 @@ func sCurveFunc*(p: seq[float], x: float): float =
 func linearFunc*(p: seq[float], x: float): float =
   result = p[0] + x * p[1]
 
+func linearFuncNoOffset*(p: seq[float], x: float): float =
+  result = x * p[0]
+
 proc thlCalibFunc*(p: seq[float], x: float): float =
   ## we fit a linear function to the charges and mean thl values
   ## of the SCurves

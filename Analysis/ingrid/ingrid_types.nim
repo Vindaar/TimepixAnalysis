@@ -243,6 +243,33 @@ type
     # if e.g. FeSpec not available yet, we can just call the
     # procedure to create it for us
 
+type
+  FeSpecFitData* = object
+    hist*: seq[float]
+    binning*: seq[float]
+    idx_kalpha*: int
+    idx_sigma*: int
+    kalpha*: float
+    sigma_kalpha*: float
+    pRes*: seq[float]
+    pErr*: seq[float]
+    xFit*: seq[float]
+    yFit*: seq[float]
+    chiSq*: float
+    nDof*: int
+
+  EnergyCalibFitData* = object
+    energies*: seq[float]
+    peaks*: seq[float]
+    peaksErr*: seq[float]
+    pRes*: seq[float]
+    pErr*: seq[float]
+    xFit*: seq[float]
+    yFit*: seq[float]
+    aInv*: float
+    aInvErr*: float
+    chiSq*: float
+    nDof*: int
 
 const TosDateString* = "yyyy-MM-dd'.'hh:mm:ss"
 
@@ -315,3 +342,50 @@ when not defined(pure) and not defined(js):
       #eventNumber for FADC
       eventNumber: seq[int],
     ]
+
+
+
+proc initFeSpecData*(hist: seq[float],
+                     binning: seq[float],
+                     idx_kalpha: int,
+                     idx_sigma: int,
+                     pRes: seq[float],
+                     pErr: seq[float],
+                     xFit: seq[float],
+                     yFit: seq[float],
+                     chiSq: float,
+                     nDof: int): FeSpecFitData =
+  result = FeSpecFitData(hist: hist,
+                         binning: binning,
+                         idx_kalpha: idx_kalpha,
+                         kalpha: pRes[idx_kalpha],
+                         idx_sigma: idx_sigma,
+                         sigma_kalpha: pRes[idx_sigma],
+                         pRes: pRes,
+                         pErr: pErr,
+                         xFit: xFit,
+                         yFit: yFit,
+                         chiSq: chiSq,
+                         nDof: nDof)
+
+proc initEnergyCalibData*(energies: seq[float],
+                          peaks: seq[float],
+                          peaksErr: seq[float],
+                          pRes: seq[float],
+                          pErr: seq[float],
+                          xFit: seq[float],
+                          yFit: seq[float],
+                          chiSq: float,
+                          nDof: int): EnergyCalibFitData =
+  let aInv = 1.0 / pRes[0] * 1000
+  result = EnergyCalibFitData(energies: energies,
+                              peaks: peaks,
+                              peaksErr: peaksErr,
+                              pRes: pRes,
+                              pErr: pErr,
+                              xFit: xFit,
+                              yFit: yFit,
+                              aInv: aInv,
+                              aInvErr: aInv * pErr[0] / pRes[0],
+                              chiSq: chiSq,
+                              nDof: nDof)

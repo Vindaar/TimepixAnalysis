@@ -387,7 +387,7 @@ template fitNlopt*(xData, yData, errData: seq[float],
   nlopt_destroy(opt.optimizer)
 
 import ggplotnim, os
-proc fitFeSpectrumImpl(hist, binning: seq[float]): seq[float] =
+proc fitFeSpectrumImpl(hist, binning: seq[float]): FeSpecFitData =
   # given our histogram and binning data
   # for fit := (y / x) data
   # fit a double gaussian to the data
@@ -407,19 +407,36 @@ proc fitFeSpectrumImpl(hist, binning: seq[float]): seq[float] =
   let bins_tofit = idx_tofit.mapIt(binning[it])
   let err = data_tofit.mapIt(1.0)
 
+  #var cfg = MpConfig(xtol: 1e-30,
+  #                   ftol: 1e-30,
+  #                   gtol: 1e-30,
+  #                   maxIter: 10000,
+  #                   stepFactor: 100.0)
+  #
   let (pRes, res) = fit(feSpectrumfunc,
                         params,
                         bins_tofit,
                         data_tofit,
-                        err)
+                        err,
+                        bounds = bounds)
+                        #config = some(cfg))
 
-  #result = curve_fit(feSpectrumFunc, bins_tofit, data_tofit, p0=params, bounds = bounds)#, full_output=True)
-  #popt = result[0]
-  #pcov = result[1]
   echoResult(pRes, res = res)
-  result = pRes
+  let chiSq = res.chiSq
+  let nDof = bins_to_fit.len - params.len
+  let yFit = bins_to_fit.mapIt(feSpectrumFunc(pRes, it))
+  result = initFeSpecData(data_to_fit,
+                          bins_to_fit,
+                          idx_kalpha = 10,
+                          idx_sigma = 11,
+                          pRes = pRes,
+                          pErr = res.error,
+                          xFit = bins_to_fit,
+                          yFit = yFit,
+                          chiSq = chiSq,
+                          nDof = nDof)
 
-proc fitFeSpectrumChargeImpl(hist, binning: seq[float]): seq[float] =
+proc fitFeSpectrumChargeImpl(hist, binning: seq[float]): FeSpecFitData =
   # given our histogram and binning data
   # for fit := (y / x) data
   # fit a double gaussian to the data
@@ -434,19 +451,27 @@ proc fitFeSpectrumChargeImpl(hist, binning: seq[float]): seq[float] =
   let data_tofit = idx_tofit.mapIt(hist[it])
   let bins_tofit = idx_tofit.mapIt(binning[it])
   let err = data_tofit.mapIt(1.0)
-
   let (pRes, res) = fit(feSpectrumChargeFunc,
                         params,
                         bins_tofit,
                         data_tofit,
                         err)
-  #popt = result[0]
-  #pcov = result[1]
   echoResult(pRes, res = res)
-  result = pRes
+  let chiSq = res.chiSq
+  let nDof = bins_to_fit.len - params.len
+  let yFit = bins_to_fit.mapIt(feSpectrumChargeFunc(pRes, it))
+  result = initFeSpecData(data_to_fit,
+                          bins_to_fit,
+                          idx_kalpha = 4,
+                          idx_sigma = 5,
+                          pRes = pRes,
+                          pErr = res.error,
+                          xFit = bins_to_fit,
+                          yFit = yFit,
+                          chiSq = chiSq,
+                          nDof = nDof)
 
-proc fitFeSpectrum*[T: SomeInteger](data: seq[T]): (seq[float], seq[int], seq[float]) =
-  ##
+proc fitFeSpectrum*[T: SomeInteger](data: seq[T]): FeSpecFitData =
   const binSize = 1.0
   let low = -0.5
   var high = max(data).float + 0.5
@@ -454,17 +479,56 @@ proc fitFeSpectrum*[T: SomeInteger](data: seq[T]): (seq[float], seq[int], seq[fl
   # using correct nBins, determine actual high
   high = low + binSize * nbins.float
   let (hist, bin_edges) = data.histogram(bins = nbins, range = (low, high))
+  result = fitFeSpectrumImpl(hist.mapIt(it.float), bin_edges[0 .. ^2])
 
-  echo bin_edges.len
-  echo hist.len
-  echo bin_edges
+proc fitFeSpectrumCharge*[T](data: seq[T]): FeSpecFitData =
+  # divide data (number of electrons) by 1000
+  let dataPer1000 = data.mapIt(it.float / 1000.0)
+  let (hist, bin_edges) = dataPer1000.histogram(bins = 300)
+  result = fitFeSpectrumChargeImpl(hist.mapIt(it.float), bin_edges[0 .. ^2])
 
-  #let hist = histogram(data, binning)
-  # return data as tuple (bin content / binning)
-  # we remove the last element due to the way we create the bins
-  result[2] = fitFeSpectrumImpl(hist.mapIt(it.float), bin_edges[0 .. ^2])
-  result[0] = bin_edges[0 .. ^2]
-  result[1] = hist
+proc fitEnergyCalib*(x_ph, x_esc, x_ph_err, x_esc_err: float,
+                     energies: array[2, float]): EnergyCalibFitData =
+  ## before we plot the Fe spectrum, perform the calculations and fit of
+  ## the fit to the spectrum peaks
+  ## now we can fit the energy calibration function
+  let energies = @energies
+  let pixels_peaks = @[x_esc, x_ph]
+  let pixels_err = @[x_esc_err, x_ph_err]
+  let (pRes, res) = fit(linearFuncNoOffset,
+                        @[1.0],
+                        energies,
+                        pixels_peaks,
+                        pixels_err)
+  echoResult(pRes, res = res)
+  let E_calc = linspace(2.0, 7.0, 1000)
+  let H_calc = E_calc.mapIt(linearFuncNoOffset(pRes, it))
+
+  let ecData = initEnergyCalibData(energies, pixels_peaks, pixels_err, pRes, res.error,
+                                   xFit = E_calc,
+                                   yFit = H_calc,
+                                   chiSq = res.chiSq,
+                                   nDof = res.nfunc - res.nfree)
+  let chiSq = res.reducedChiSq
+  echo &"a^-1 = {ecData.aInv} +- {ecData.aInvErr}"
+  echo "Chi^2 / dof = ", chiSq
+  result = ecData
+
+proc fitEnergyCalib*(feSpec: FeSpecFitData,
+                     isPixel = true): EnergyCalibFitData =
+  ## before we plot the Fe spectrum, perform the calculations and fit of
+  ## the fit to the spectrum peaks
+  ## now we can fit the energy calibration function
+  if isPixel:
+    const energies = [2.925, 5.755]
+    result = fitEnergyCalib(feSpec.kalpha, feSpec.pRes[3],
+                            feSpec.pErr[10], feSpec.pErr[3],
+                            energies = energies)
+  else:
+    const energies = [2.942, 5.899]
+    result = fitEnergyCalib(feSpec.kalpha, feSpec.pRes[1],
+                            feSpec.pErr[4], feSpec.pErr[1],
+                            energies = energies)
 
 ################################################################################
 ######################## Gas gain related fitting routines #####################

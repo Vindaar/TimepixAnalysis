@@ -19,9 +19,6 @@ import ingrid / calibration / [fit_functions, calib_fitting, calib_plotting]
 import procsForPython
 from ingridDatabase/databaseWrite import writeCalibVsGasGain
 
-## need nimpy to call python functions
-import nimpy
-
 proc cutOnDsets[T](eventNumbers: seq[SomeInteger],
                    region: ChipRegion,
                    posX, posY: seq[T],
@@ -402,17 +399,17 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int) =
 
 proc writeFeFitParameters(dset: var H5DataSet,
                           popt, popt_E: seq[float],
-                          pcov, pcov_E: seq[seq[float]]) =
+                          pErr, pErr_E: seq[float]) =
   ## writes the fit parameters obtained via a call to `scipy.curve_fit` to
   ## the attributes of the dataset ``dset``, which should be the corresponding
   ## FeSpectrum[Charge] dataset
   proc writeAttrs(dset: var H5DataSet, name: string,
-                  p: seq[float], c: seq[seq[float]]) =
+                  p: seq[float], c: seq[float]) =
     for i in 0 .. p.high:
       dset.attrs[name & $i] = p[i]
-      dset.attrs[name & "Err_" & $i] = sqrt(c[i][i])
-  dset.writeAttrs("p", popt, pcov)
-  dset.writeAttrs("p_E_", popt_E, pcov_E)
+      dset.attrs[name & "Err_" & $i] = c[i]
+  dset.writeAttrs("p", popt, pErr)
+  dset.writeAttrs("p_E_", popt_E, pErr_E)
 
 proc writeEnergyPerAttrs(dset: var H5DataSet,
                          key: string,
@@ -438,15 +435,15 @@ proc writeTextFields(dset: var H5DataSet,
 
 proc writeFeDset(h5f: var H5FileObj,
                  group, suffix: string,
-                 feSpec, ecData: PyObject): (H5DataSet, H5DataSet) =
+                 feSpec: FeSpecFitData): (H5DataSet, H5DataSet) =
   ## writes the dataset for the given FeSpectrum (either FeSpectrum
   ## or FeSpectrumCharge), i.e. the actual data points for the plots
   ## created by the Python functions
   let
-    feCounts = feSpec.hist.toNimSeq(float)
-    feBins = feSpec.binning.toNimSeq(float)
-    feFitX = feSpec.x_pl.toNimSeq(float)
-    feFitY = feSpec.y_pl.toNimSeq(float)
+    feCounts = feSpec.hist
+    feBins = feSpec.binning
+    feFitX = feSpec.xFit
+    feFitY = feSpec.yFit
   template createWriteDset(x, y: seq[float], name: string): untyped =
     var dset = h5f.create_dataset(group / name,
                                   (x.len, 2),
@@ -456,6 +453,12 @@ proc writeFeDset(h5f: var H5FileObj,
     dset
   result[0] = createWriteDset(feBins, feCounts, "FeSpectrum" & $suffix & "Plot")
   result[1] = createWriteDset(feFitX, feFitY, "FeSpectrum" & $suffix & "PlotFit")
+
+proc buildTextForFeSpec(feSpec: FeSpecFitData,
+                        ecData: EnergyCalibFitData): seq[string] =
+  result.add &"mu = {feSpec.k_alpha:.1f} pix"
+  result.add &"{ecData.aInv:.1f} ev / pix"
+  result.add &"sigma = {feSpec.sigma_kalpha / feSpec.k_alpha * 100.0:.2f} %"
 
 proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
                       fittingOnly = false, outfiles: seq[string] = @[],
@@ -468,63 +471,41 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
   ## is to be called if the H5 file is opened read only to reproduce
   ## the results, but not rewrite them to the file (used in `plotData`)
 
-  let pyFitFe = pyImport("ingrid.fit_fe_spectrum")
   # get the fe spectrum for the run
   let groupName = recoDataChipBase(runNumber) & $chipNumber
   var feDset = h5f[(groupName / "FeSpectrum").dsetStr]
   let feData = feDset[int64]
-  # call python function with data
-  let res = block:
-    if outfiles.len == 0:
-      discard existsOrCreateDir("out")
-      pyFitFe.fitAndPlotFeSpectrum([feData], "", "out", runNumber,
-                                   fittingOnly)
-    else:
-      pyFitFe.fitAndPlotFeSpectrum([feData], "", ".", runNumber,
-                                   fittingOnly, outfiles)
+  # create directory for plots if it doesn't exist
+  discard existsOrCreateDir("out")
+  let feSpec = fitFeSpectrum(feData)
+  let ecData = fitEnergyCalib(feSpec, isPixel = true)
 
-  # NOTE: this is a workaround for a weird bug we're seeing. If we don't close the
-  # library here, we get an error in a call to `deleteAttribute` from within
-  # `writeFeFitParameters`, line 738
-  # If we just reopen the file we get an error from `existsAttribute` from line
-  # 739
-  # only if we also revisit the file it works. And this ONLY happens from the
-  # `plotData` script, not from the `reconstruction` program.
-  # discard h5f.close()
-  # h5f = H5file(h5f.name, "rw")
-  # h5f.visit_file()
-
-  proc removePref(s: string, pref: string): string =
-    result = s
-    result.removePrefix(pref)
+  let texts = buildTextForFeSpec(feSpec, ecData)
+  plotFeSpectrum(feSpec, runNumber, chipNumber,
+                 texts, isPixel = true)
+  plotFeEnergyCalib(ecData, runNumber, isPixel = true)
 
   proc extractAndWriteAttrs(h5f: var H5FileObj,
                             dset: var H5DataSet,
                             scaling: float,
-                            res: PyObject,
+                            feSpec: FeSpecFitData,
+                            ecData: EnergyCalibFitData,
+                            texts: seq[string],
                             key: string,
                             suffix = "") =
-    let
-      popt = res[0].popt.toNimSeq(float)
-      pcov = res[0].pcov.toNimSeq(seq[float])
-      popt_E = res[1].popt.toNimSeq(float)
-      pcov_E = res[1].pcov.toNimSeq(seq[float])
-      texts = res[2].toNimSeq(string)
-    dset.writeFeFitParameters(popt, popt_E, pcov, pcov_E)
-
+    dset.writeFeFitParameters(feSpec.pRes, ecData.pRes, feSpec.pErr, ecData.pErr)
     writeEnergyPerAttrs(dset, key,
                         scaling,
-                        popt_E[0],
-                        pcov_E[0][0])
+                        ecData.pRes[0],
+                        ecData.pErr[0])
     dset.writeTextFields(texts)
-
-    var (grp1, grp2) = h5f.writeFeDset(dset.parent, suffix, res[0], res[1])
+    var (grp1, grp2) = h5f.writeFeDset(dset.parent, suffix, feSpec = feSpec)
     grp1.copy_attributes(dset.attrs)
     grp2.copy_attributes(dset.attrs)
 
   const eVperPixelScaling = 1e3
   if writeToFile:
-    h5f.extractAndWriteAttrs(feDset, eVperPixelScaling, res, "eV_per_pix")
+    h5f.extractAndWriteAttrs(feDset, eVperPixelScaling, feSpec, ecData, texts, "eV_per_pix")
 
   # run might not have ``totalCharge`` dset, if no ToT calibration is available,
   # but user wishes Fe spectrum fit to # hit pixels
@@ -542,17 +523,23 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
     var totChDset: H5DataSet
     if writeToFile:
       totChDset = h5f.write_dataset(groupName / "FeSpectrumCharge", totChSpec)
-    let resCharge = pyFitFe.fitAndPlotFeSpectrumCharge([totChSpec], "", ".",
-                                                       runNumber, fittingOnly,
-                                                       outfilesCharge)
+    let feSpecCharge = fitFeSpectrumCharge(totChSpec)
+    let ecDataCharge = fitEnergyCalib(feSpecCharge, isPixel = false)
+    let textsCharge = buildTextForFeSpec(feSpecCharge, ecDataCharge)
+    plotFeSpectrum(feSpecCharge, runNumber, chipNumber,
+                   texts, isPixel = false)
+    plotFeEnergyCalib(ecDataCharge, runNumber, isPixel = false)
+
     # given resCharge, need to write the result of that fit to H5 file, analogous to
     # `writeFitParametersH5` in Python
     const keVPerElectronScaling = 1e-3
     if writeToFile:
       h5f.extractAndWriteAttrs(totChDset, keVPerElectronScaling,
-                               resCharge, "keV_per_electron",
+                               feSpecCharge,
+                               ecDataCharge,
+                               textsCharge,
+                               "keV_per_electron",
                                "Charge")
-
   else:
     echo "Warning: `totalCharge` dataset does not exist in file. No fit to " &
       "charge Fe spectrum will be performed!"

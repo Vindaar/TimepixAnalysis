@@ -151,7 +151,7 @@
   },
   "FeSpectrumCharge": {
     "keV_per_electron": {
-      "value": 6.762179825413191e-06,
+      "value": 6.762604930212707e-06,
       "type": "dkFloat64"
     },
     "text_1": {
@@ -159,77 +159,77 @@
       "type": "dkString"
     },
     "p_E_0": {
-      "value": 147.8813083677343,
+      "value": 147.8720123856986,
       "type": "dkFloat64"
     },
     "p4": {
-      "value": 872.4360854377057,
+      "value": 872.3816729239848,
       "type": "dkFloat64"
     },
     "pErr_4": {
-      "value": 3.066556176382577,
+      "value": 3.059324667875802,
       "type": "dkFloat64"
     },
     "p5": {
-      "value": 72.12908739767033,
+      "value": 72.06025482024577,
       "type": "dkFloat64"
     },
     "p_E_Err_0": {
-      "value": 0.5185900819550597,
+      "value": 0.5174179214497987,
       "type": "dkFloat64"
     },
     "p1": {
-      "value": 426.3845951965897,
+      "value": 425.9428237397895,
       "type": "dkFloat64"
     },
     "pErr_0": {
-      "value": 0.2202630678022524,
+      "value": 0.2193183818160711,
       "type": "dkFloat64"
     },
     "pErr_3": {
-      "value": 0.1720507510291927,
+      "value": 0.172439712306443,
       "type": "dkFloat64"
     },
     "p3": {
-      "value": 4.576231834891663,
+      "value": 4.593076577192626,
       "type": "dkFloat64"
     },
     "pErr_5": {
-      "value": 3.200379314103186,
+      "value": 3.192833609789103,
       "type": "dkFloat64"
     },
     "d_keV_per_electron": {
-      "value": 2.371360808585471e-08,
+      "value": 2.366298348229711e-08,
       "type": "dkFloat64"
     },
     "pErr_2": {
-      "value": 25.03869334249677,
+      "value": 25.64752742886959,
       "type": "dkFloat64"
     },
     "pErr_1": {
-      "value": 21.98467819604219,
+      "value": 22.39384047000935,
       "type": "dkFloat64"
     },
     "text_2": {
-      "value": "sigma = 8.27 %",
+      "value": "sigma = 8.26 %",
       "type": "dkString"
     },
     "text_0": {
-      "value": "mu = 872.4 pix",
+      "value": "mu = 872.4e3 e^-",
       "type": "dkString"
     },
     "p2": {
-      "value": 52.62767418759786,
+      "value": 53.38266574003902,
       "type": "dkFloat64"
     },
     "p0": {
-      "value": 0.6084799547104218,
+      "value": 0.6054188315932291,
       "type": "dkFloat64"
     }
   },
   "FeSpectrumChargePlot": {
     "p0": {
-      "value": 0.6084799547104218,
+      "value": 0.6054188315932291,
       "type": "dkFloat64"
     },
     "text_1": {
@@ -237,77 +237,77 @@
       "type": "dkString"
     },
     "p_E_0": {
-      "value": 147.8813083677343,
+      "value": 147.8720123856986,
       "type": "dkFloat64"
     },
     "p4": {
-      "value": 872.4360854377057,
+      "value": 872.3816729239848,
       "type": "dkFloat64"
     },
     "pErr_4": {
-      "value": 3.066556176382577,
+      "value": 3.059324667875802,
       "type": "dkFloat64"
     },
     "p5": {
-      "value": 72.12908739767033,
+      "value": 72.06025482024577,
       "type": "dkFloat64"
     },
     "p_E_Err_0": {
-      "value": 0.5185900819550597,
+      "value": 0.5174179214497987,
       "type": "dkFloat64"
     },
     "p1": {
-      "value": 426.3845951965897,
+      "value": 425.9428237397895,
       "type": "dkFloat64"
     },
     "pErr_0": {
-      "value": 0.2202630678022524,
+      "value": 0.2193183818160711,
       "type": "dkFloat64"
     },
     "pErr_3": {
-      "value": 0.1720507510291927,
+      "value": 0.172439712306443,
       "type": "dkFloat64"
     },
     "p3": {
-      "value": 4.576231834891663,
+      "value": 4.593076577192626,
       "type": "dkFloat64"
     },
     "pErr_5": {
-      "value": 3.200379314103186,
+      "value": 3.192833609789103,
       "type": "dkFloat64"
     },
     "d_keV_per_electron": {
-      "value": 2.371360808585471e-08,
+      "value": 2.366298348229711e-08,
       "type": "dkFloat64"
     },
     "pErr_2": {
-      "value": 25.03869334249677,
+      "value": 25.64752742886959,
       "type": "dkFloat64"
     },
     "pErr_1": {
-      "value": 21.98467819604219,
+      "value": 22.39384047000935,
       "type": "dkFloat64"
     },
     "text_2": {
-      "value": "sigma = 8.27 %",
+      "value": "sigma = 8.26 %",
       "type": "dkString"
     },
     "text_0": {
-      "value": "mu = 872.4 pix",
+      "value": "mu = 872.4e3 e^-",
       "type": "dkString"
     },
     "keV_per_electron": {
-      "value": 6.762179825413191e-06,
+      "value": 6.762604930212707e-06,
       "type": "dkFloat64"
     },
     "p2": {
-      "value": 52.62767418759786,
+      "value": 53.38266574003902,
       "type": "dkFloat64"
     }
   },
   "FeSpectrumChargePlotFit": {
     "p0": {
-      "value": 0.6084799547104218,
+      "value": 0.6054188315932291,
       "type": "dkFloat64"
     },
     "text_1": {
@@ -315,71 +315,71 @@
       "type": "dkString"
     },
     "p_E_0": {
-      "value": 147.8813083677343,
+      "value": 147.8720123856986,
       "type": "dkFloat64"
     },
     "p4": {
-      "value": 872.4360854377057,
+      "value": 872.3816729239848,
       "type": "dkFloat64"
     },
     "pErr_4": {
-      "value": 3.066556176382577,
+      "value": 3.059324667875802,
       "type": "dkFloat64"
     },
     "p5": {
-      "value": 72.12908739767033,
+      "value": 72.06025482024577,
       "type": "dkFloat64"
     },
     "p_E_Err_0": {
-      "value": 0.5185900819550597,
+      "value": 0.5174179214497987,
       "type": "dkFloat64"
     },
     "p1": {
-      "value": 426.3845951965897,
+      "value": 425.9428237397895,
       "type": "dkFloat64"
     },
     "pErr_0": {
-      "value": 0.2202630678022524,
+      "value": 0.2193183818160711,
       "type": "dkFloat64"
     },
     "pErr_3": {
-      "value": 0.1720507510291927,
+      "value": 0.172439712306443,
       "type": "dkFloat64"
     },
     "p3": {
-      "value": 4.576231834891663,
+      "value": 4.593076577192626,
       "type": "dkFloat64"
     },
     "pErr_5": {
-      "value": 3.200379314103186,
+      "value": 3.192833609789103,
       "type": "dkFloat64"
     },
     "d_keV_per_electron": {
-      "value": 2.371360808585471e-08,
+      "value": 2.366298348229711e-08,
       "type": "dkFloat64"
     },
     "pErr_2": {
-      "value": 25.03869334249677,
+      "value": 25.64752742886959,
       "type": "dkFloat64"
     },
     "pErr_1": {
-      "value": 21.98467819604219,
+      "value": 22.39384047000935,
       "type": "dkFloat64"
     },
     "text_2": {
-      "value": "sigma = 8.27 %",
+      "value": "sigma = 8.26 %",
       "type": "dkString"
     },
     "text_0": {
-      "value": "mu = 872.4 pix",
+      "value": "mu = 872.4e3 e^-",
       "type": "dkString"
     },
     "keV_per_electron": {
-      "value": 6.762179825413191e-06,
+      "value": 6.762604930212707e-06,
       "type": "dkFloat64"
     },
     "p2": {
-      "value": 52.62767418759786,
+      "value": 53.38266574003902,
       "type": "dkFloat64"
     }
   },

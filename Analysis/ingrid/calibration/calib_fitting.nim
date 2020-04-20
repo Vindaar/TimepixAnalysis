@@ -407,6 +407,22 @@ proc fitFeSpectrumImpl(hist, binning: seq[float]): FeSpecFitData =
   let bins_tofit = idx_tofit.mapIt(binning[it])
   let err = data_tofit.mapIt(1.0)
 
+  when false:
+    let df = seqsToDf({ "x" : bins_to_fit,
+                        "y" : data_to_fit,
+                        "yFit" : bins_to_fit.mapIt(feSpectrumFunc(params, it))})
+    ggplot(df, aes("x", "y")) +
+      geom_histogram(stat = "identity") +
+      geom_line(aes(y = "yFit")) +
+      ggsave("/tmp/start_params.pdf")
+
+    var pResNlopt: seq[float]
+    fitNlopt(bins_tofit, data_tofit, err, bounds, LN_COBYLA, params,
+             feSpectrumFunc):
+      echo nloptRes[0]
+      echo nloptRes[1]
+      pResNlopt = nloptRes[0]
+
   #var cfg = MpConfig(xtol: 1e-30,
   #                   ftol: 1e-30,
   #                   gtol: 1e-30,

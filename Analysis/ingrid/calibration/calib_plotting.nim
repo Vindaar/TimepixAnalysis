@@ -1,7 +1,9 @@
 import strformat
+import hashes
 import strutils
 import seqmath
 import ggplotnim
+import sequtils
 import ../ingrid_types
 
 #[
@@ -93,3 +95,32 @@ proc plotFeEnergyCalib*(ecData: EnergyCalibFitData,
      ylab(yLabel) +
      ggtitle("Detector response to X-rays of energies `E`") +
      ggsave(&"out/energy_calib_run_{runNumber}{suffix}.pdf")
+
+proc plotGasGainVsChargeCalib*(gainVals, calib, calibErr: seq[float],
+                               fitResult: FitResult) =
+  # now that we have all, plot them first
+  let dfData = seqsToDf({ "Gain" : gainVals,
+                          "Calib" : calib,
+                          "CalibErr" : calibErr })
+
+  # TODO: refactor the following by creating a function which takes care of
+  # boilerplate in the whole file here
+  let dfFit = seqsToDf({ "Gain" : fitResult.x,
+                         "Calib" : fitResult.y })
+  let df = bind_rows(("Data", dfData), ("Fit", dfFit), id = "Type")
+  # write results to ingrid database
+
+  # use the data to which we fit to create a hash value. That way we only overwrite the file
+  # in case we plot the same data
+  let fnameHash = concat(gainVals, calib).hash
+  ggplot(df, aes("Gain", "Calib")) +
+    geom_point(data = df.filter(f{`Type` == "Data"})) +
+    geom_errorbar(data = df.filter(f{`Type` == "Data"}),
+                  aes = aes(yMin = f{`Calib` - `CalibErr`},
+                            yMax = f{`Calib` + `CalibErr`})) +
+    geom_line(data = dfFit, color = some(parseHex("FF00FF"))) +
+    annotate(&"χ²/dof = {fitResult.redChiSq:.2f}", left = 0.75, bottom = 0.1) +
+    xlab("Gas gain `G`") +
+    ylab("Calibration factor `a^{-1}` [1e-6 keV / e]") +
+    ggtitle("Charge calibration factors vs gas gain. y errors magnified * 100") +
+    ggsave(&"out/gasgain_vs_calibration_charge_{fnameHash}.pdf")

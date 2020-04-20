@@ -1,5 +1,4 @@
 import sequtils, strutils, strformat
-import hashes
 import os, ospaths
 import future
 import seqmath, fenv
@@ -8,7 +7,6 @@ import tables
 import mpfit
 import zero_functional
 import math
-import plotly
 import chroma
 
 import tos_helpers
@@ -614,36 +612,10 @@ proc performChargeCalibGasGainFit*(h5f: var H5FileObj) =
       x = perc10
   doAssert calibErr.allIt(it >= perc10)
 
-  # now that we have all, plot them first
-  let chGainTrace = Trace[float64](mode: PlotMode.Markers, `type`: PlotType.Scatter)
-  chGainTrace.xs = gainVals
-  chGainTrace.ys = calib
-  chGainTrace.ys_err = newErrorBar(calibErr,
-                                   color = Color(r: 0.5, g: 0.5, b: 0.5, a: 1.0))
-  chGainTrace.name = "Charge calibration factors vs gas gain"
-
-  # TODO: refactor the following by creating a function which takes care of
-  # boilerplate in the whole file here
-  let
-    fitResult = fitChargeCalibVsGasGain(gainVals, calib, calibErr)
-    fitTrace = Trace[float64](mode: PlotMode.Lines, `type`: PlotType.Scatter,
-                              xs: fitResult.x,
-                              ys: fitResult.y,
-                              name: "ChiSq: " & $fitResult.redChiSq)
-
-  # write results to ingrid database
+  let fitResult = fitChargeCalibVsGasGain(gainVals, calib, calibErr)
   writeCalibVsGasGain(gainVals, calib, calibErr, fitResult, centerChipName)
-
-  let
-    lo = Layout(title: "Charge calibration factors vs gas gain. y errors magnified * 100",
-                width: 1200, height: 800,
-                xaxis: Axis(title: "Gas gain `G`"),
-                yaxis: Axis(title: "Calibration factor `a^{-1}` [1e-6 keV / e]"))
-    p = Plot[float64](layout: lo, traces: @[chGainTrace, fitTrace])
-  # use the data to which we fit to create a hash value. That way we only overwrite the file
-  # in case we plot the same data
-  let fnameHash = concat(gainVals, calib).hash
-  p.show(&"out/gasgain_vs_calibration_charge_{fnameHash}.svg")
+  # and create the plot
+  plotGasGainVsChargeCalib(gainVals, calib, calibErr, fitResult)
 
 proc calcEnergyFromPixels*(h5f: var H5FileObj, runNumber: int, calib_factor: float) =
   ## proc which applies an energy calibration based on the number of hit pixels in an event

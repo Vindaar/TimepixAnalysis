@@ -46,6 +46,10 @@ macro `+`*[N, M: int](a: array[N, string], b: array[M, string]): untyped =
     tree
   )
 
+proc removePref*(s: string, pref: string): string =
+  result = s
+  result.removePrefix(pref)
+
 template asType*[T](s: seq[T], dtype: typedesc): untyped =
   ## convenience template to convert type of a `seq` to a different type,
   ## if possible

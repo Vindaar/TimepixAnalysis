@@ -1,4 +1,4 @@
-import sequtils, strutils, os, algorithm, strformat, sets, os, typeinfo
+import sequtils, strutils, os, algorithm, strformat, sets, os
 import std / sha1
 import unittest
 import nimhdf5
@@ -93,10 +93,10 @@ proc checkContent(h5f: H5FileObj, runNumber: int, withFadc = false): bool =
           feAttrs[dsetName] = dset.attrsToJson(withType = true)
           # read dset, hash content
           case dset.dtypeAnyKind
-          of akInt64:
+          of dkInt64:
             let data = dset[int64].mapIt(&"{it}")
             feDsetHashes[dsetName] = % $secureHash($(% data))
-          of akFloat64:
+          of dkFloat64:
             let data = dset[float64].mapIt(&"{it:.1f}")
             feDsetHashes[dsetName] = % $secureHash($(% data))
           else:
@@ -120,9 +120,9 @@ proc checkContent(h5f: H5FileObj, runNumber: int, withFadc = false): bool =
 
 suite "reconstruction":
   const runs = [(inName: "run_240.h5", outName: "reco_240.h5",
-                 runType: "rtCalibration", num: 240),
+                 runType: "rtBackground", num: 240),
                 (inName: "run_241.h5", outName: "reco_241.h5",
-                 runType: "rtBackground", num: 241)]
+                 runType: "rtCalibration", num: 241)]
   test "Default args":
     for r in runs:
       check fileExists(dataInPath/r.inName)
@@ -174,10 +174,10 @@ suite "reconstruction":
     let dfAlt = bind_rows([("Polya", dfR), ("Fit", dfFit)],
                           id = "From")
     ggplot(dfAlt, aes("x", "polya")) +
-      geom_histogram(data = dfAlt.filter(fn {"From" == "Polya"}),
+      geom_histogram(data = dfAlt.filter(fn {c"From" == "Polya"}),
                      stat = "identity",
                      color = some(ggColorHue(2)[1])) +
-      geom_line(data = dfAlt.filter(fn {"From" == "Fit"}),
+      geom_line(data = dfAlt.filter(fn {c"From" == "Fit"}),
                 color = some(ggColorHue(2)[0])) +
       ggsave("gasgain.pdf")
     discard h5f.close()
@@ -206,7 +206,7 @@ suite "reconstruction":
     let dfAlt = bind_rows([("Polya", dfR), ("Fit", dfFit)],
                           id = "From")
       # filter to max 2e4 electrons
-      .filter(fn {"x" <= 2.0e4})
+      .filter(fn {c"x" <= 2.0e4})
     let dsetFit = h5f[("reconstruction/run_" & $525 / "chip_0/polyaFit").dset_str]
     let attrs = dsetFit.attrsToJson
     echo attrs.pretty
@@ -216,10 +216,10 @@ suite "reconstruction":
 
 
     ggplot(dfAlt, aes("x", "polya")) +
-      geom_histogram(data = dfAlt.filter(fn {"From" == "Polya"}),
+      geom_histogram(data = dfAlt.filter(fn {c"From" == "Polya"}),
                      stat = "identity",
                      color = some(ggColorHue(2)[1])) +
-      geom_line(data = dfAlt.filter(fn {"From" == "Fit"}),
+      geom_line(data = dfAlt.filter(fn {c"From" == "Fit"}),
                 color = some(ggColorHue(2)[0])) +
       ggtitle(&"Polya fit of run 525; G = {G:.1f}, G_fit = {G_fit:.1f}, " &
         &"G_fitMean = {G_fitmean:.1f}") +

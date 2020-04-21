@@ -13,10 +13,13 @@ import geometry, arraymancer_utils
 macro echoType(x: typed): untyped =
   echo x.treeRepr
 
+type SupportedRead = SomeFloat | SomeInteger | string | bool | Value
+
+
 proc getDf*(h5f: var H5FileObj, path: string, keys: varargs[string]): DataFrame =
   ## read the datasets form `path` in the `h5f` file and combine them to a single
   ## DataFrame
-  var data: OrderedTable[string, seq[Value]]
+  result = newDataFrame()
   var size = 0
   for key in keys:
     static:
@@ -25,9 +28,8 @@ proc getDf*(h5f: var H5FileObj, path: string, keys: varargs[string]): DataFrame 
     if size == 0:
       size = dsetH5.shape[0]
     withDset(dsetH5):
-      data[key] = %~ dset
-  result = toDf(data)
-  result.len = size
+      when type(dset) is SupportedRead:
+        result[key] = dset
 
 iterator getDataframes*(h5f: var H5FileObj): DataFrame =
   for num, group in runs(h5f):
@@ -45,7 +47,10 @@ proc getSeptemDataFrame*(h5f: var H5FileObj, runNumber: int): DataFrame =
   ## Returns a subset data frame of the given `runNumber` and `chipNumber`, which
   ## contains only the zero suppressed event data
   var
-    xs, ys, chs, evs, chips: seq[Value]
+    xs, ys: seq[uint8]
+    chs: seq[float]
+    evs: seq[int]
+    chips: seq[int]
   let group = recoBase() & $runNumber
   for grp in items(h5f, group):
     if "fadc" notin grp.name:
@@ -70,12 +75,11 @@ proc getSeptemDataFrame*(h5f: var H5FileObj, runNumber: int): DataFrame =
         let event = eventNumbersSingle[i]
         let eventCol = toSeq(0 ..< x[i].len).mapIt(event.int)
         eventNumbers.add eventCol
-
-      xs.add(%~ xAll)
-      ys.add(%~ yAll)
-      chs.add(%~ chAll)
-      evs.add(%~ eventNumbers)
-      chips.add(%~ chipNumCol)
+      xs.add(xAll)
+      ys.add(yAll)
+      chs.add(chAll)
+      evs.add(eventNumbers)
+      chips.add(chipNumCol)
 
   result = seqsToDf({"eventNumber" : evs, "x" : xs, "y" : ys, "charge" : chs,
                      "chipNumber" : chips})
@@ -85,19 +89,19 @@ proc getSeptemEventDF*(h5f: var H5FileObj, runNumber: int): DataFrame =
   ## the event number and the chip number. This way we can easily extract
   ## which chips had activity on the same event.
   var
-    evs, chips, evIdx: seq[Value]
+    evs, chips, evIdx: seq[int]
   let group = recoBase() & $runNumber
   for grp in items(h5f, group):
     if "fadc" notin grp.name:
       let chipNum = grp.attrs["chipNumber", int]
       echo "Reading chip ", chipNum, " of run ", runNumber
       let
-        eventNumbers = h5f[grp.name / "eventNumber", int64]
+        eventNumbers = h5f[grp.name / "eventNumber", int]
         chipNumCol = toSeq(0 ..< eventNumbers.len).mapIt(chipNum)
         evIndex = toSeq(0 ..< eventNumbers.len)
-      evs.add(%~ eventNumbers)
-      chips.add(%~ chipNumCol)
-      evIdx.add(%~ evIndex)
+      evs.add(eventNumbers)
+      chips.add(chipNumCol)
+      evIdx.add(evIndex)
 
   result = seqsToDf({"eventIndex" : evIdx, "eventNumber" : evs, "chipNumber" : chips})
 
@@ -146,15 +150,18 @@ proc addChipToSeptemEvent*(occ: var Tensor[float], df: DataFrame, chipNumber: ra
   doAssert zDset in df, "DataFrame has no key " & $zDset
   # now add values to correct places in tensor
   withSeptemXY(chipNumber):
+    let xDf = df["x"].toTensor(int)
+    let yDf = df["y"].toTensor(int)
+    let zDf = df[zDset].toTensor(float)
     for i in 0 ..< df.len:
       var xIdx, yIdx: int64
       case chipNumber
       of 0, 1, 2, 3, 4:
-        xIdx = x0 + df["x"][i].toInt
-        yIdx = y0 + df["y"][i].toInt
+        xIdx = x0 + xDf[i]
+        yIdx = y0 + yDf[i]
       of 5, 6:
-        xIdx = x0 - df["x"][i].toInt
-        yIdx = y0 - df["y"][i].toInt
-      occ[yIdx.int, xIdx.int] += df[zDset][i].toFloat
+        xIdx = x0 - xDf[i]
+        yIdx = y0 - yDf[i]
+      occ[yIdx.int, xIdx.int] += zDf[i]
     #for i in 0 ..< chip.len:
     # instead of using the data frame, create fake data for now to test arrangment

@@ -108,7 +108,8 @@ template chiSquareNoGrad(funcToCall: untyped): untyped {.dirty.} =
   for i in 0 .. x.high:
     diff[i] = (y[i] - fitY[i]) / yErr[i]
     result += pow(diff[i], 2.0)
-  result = result / (x.len - p.len).float
+  # return `Chi^2` (and not reduced `Chi^2`!
+  result = result
 
 template chiSquareGrad(funcToCall: untyped): untyped {.dirty.} =
   ## Chi^2 estimator for gradient based algorithms
@@ -137,7 +138,8 @@ template chiSquareGrad(funcToCall: untyped): untyped {.dirty.} =
     modParsDown[i] = p[i] - h
     gradRes[i] = (fnc(xD, yD, modParsUp) - fnc(xD, yD, modParsDown)) / (2.0 * h)
     # ignore empty data and model points
-  result = (res / (xD.len - p.len).float, gradRes)
+  # return `Chi^2` (and not reduced `Chi^2`!
+  result = (res, gradRes)
 
 template mleLnLikelihoodNoGrad(funcToCall: untyped): untyped {.dirty.} =
   ## Maximum Likelihood Estimator

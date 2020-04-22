@@ -163,7 +163,7 @@ suite "Comparison of Fe spectrum fitting in Nim and Python":
     # roughly compare energy caibration fits
     # fit parameters for fe spec are "very" different
     for i in 0 ..< resNim.pRes.len:
-      check abs(resNim.pRes[i] - res[0].popt[i].to(float)) < 5.0
+      check abs(resNim.pRes[i] - res[0].popt[i].to(float)) < 0.2
     # location of peaks is pretty good though, so energy calib yields satisfying
     # results
     for i in 0 ..< resEnergy.pRes.len:

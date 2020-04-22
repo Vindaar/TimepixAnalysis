@@ -259,7 +259,6 @@ proc applyChargeCalibration*(h5f: var H5FileObj, runNumber: int) =
       except ValueError as e:
           raise newException(KeyError, &"No entry for chip {chipName} in InGrid " &
             "database!")
-
       # get dataset of hits
       let
         totDset = h5f[(grp / "ToT").dset_str]
@@ -310,8 +309,8 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int) =
   ## fits the polya distribution to the charge values and writes the
   ## fit parameters (including the gas gain) to the H5 file
   const
-    hitLow = 0
-    hitHigh = 300
+    hitLow = 2 # start at 2 to avoid noisy pixels w/ 1 hit
+    hitHigh = 302
     binWidth = 3
   let totBins = arange(hitLow, hitHigh, binWidth).mapIt(it.float + 0.5)
   var chipBase = recoDataChipBase(runNumber)
@@ -341,7 +340,7 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int) =
       # the histogram counts are the same for ToT values as well as for charge values,
       # so calculate for ToT
       let (binned, _) = tots.histogram(bins = totBins,
-                                        range = (totBins.min + 0.5, totBins.max + 0.5))
+                                       range = (totBins.min + 0.5, totBins.max + 0.5))
       # ``NOTE: remove last element from bin_edges to have:``
       # ``bin_edges.len == binned.len``
       bin_edges = bin_edges[0 .. ^2]
@@ -356,7 +355,6 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int) =
                   G_fit = fitResult.pRes[1],
                   chiSq = fitResult.redChiSq,
                   chipNumber, runNumber)
-
       # create dataset for polya histogram
       var polyaDset = h5f.create_dataset(group.name / "polya", (binned.len, 2),
                                          dtype = float64,
@@ -368,7 +366,6 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int) =
       let polyaFitData = zip(fitResult.x, fitResult.y) --> map(@[it[0], it[1]])
       polyaDset[polyaDset.all] = polyaData
       polyaFitDset[polyaFitDset.all] = polyaFitData
-
       # now write resulting fit parameters as attributes
       template writeAttrs(d: var H5DataSet, fitResult: typed): untyped =
         d.attrs["N"] = fitResult.pRes[0]

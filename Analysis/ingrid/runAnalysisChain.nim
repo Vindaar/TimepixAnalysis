@@ -21,7 +21,8 @@ Options:
 const doc = withDocopt(docStr)
 
 const subPaths = ["2014_15", "2017", "2018_2"]
-const recoOptions = ["", "--only_fadc", "--only_charge", "--only_gas_gain",
+const recoOptions = ["", "--only_fadc", "--only_charge",
+                     "--only_gas_gain",
                      "--only_gain_fit", "--only_energy_from_e"]
 const relIDPath = "../../InGridDatabase/src/resources"
 
@@ -98,6 +99,10 @@ proc runChain(path: string, dYear: DataYear, flags: set[AnaFlags]): bool =
       tc(reconstruction(path / &"CalibrationRuns{$dYear}_Raw.h5",
                         path / &"CalibrationRuns{$dYear}_Reco.h5",
                         opt))
+      # if done gas gain fit, copy database back
+      if opt == "--only_gain_fit":
+        # copy ingridDatabase file back to ingridDatabase{$dyear}.h5
+        copyFile(relIdPath / "ingridDatabase.h5", relIDPath / &"ingridDatabase{$dYear}.h5")
     if opt != "--only_gain_fit" and afNoBack notin flags and afNoReco notin flags:
       tc(reconstruction(path / &"DataRuns{$dYear}_Raw.h5",
                         path / &"DataRuns{$dYear}_Reco.h5",

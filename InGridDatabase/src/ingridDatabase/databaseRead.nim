@@ -107,4 +107,3 @@ proc inDatabase*(chipName: string): bool =
   withDatabase:
     h5f.visitFile()
     result = chipNameToGroup(chipName) in h5f
-    discard h5f.close()

@@ -10,11 +10,13 @@ template withDatabase*(actions: untyped): untyped =
   ## This allows to have nested calls of `withDebug` without
   ## any issues (otherwise we get will end up trying to close
   ## already closed objects)
+  var openedHere = false
   when not declaredInScope(h5f):
     echo "Opening db at ", dbPath
     var h5f {.inject.} = H5File(dbPath, "r")
+    openedHere = true
   actions
-  when not declaredInScope(h5f):
+  if openedHere:
     let err = h5f.close()
     if err < 0:
       echo "Could not properly close database! err = ", err

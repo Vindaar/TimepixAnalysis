@@ -1,6 +1,6 @@
 import plotly, ggplotnim
 import os except FileInfo
-import strutils, strformat, times, sequtils, math, macros, algorithm, sets, stats
+import strutils, strformat, times, sequtils, math, macros, algorithm, sets, stats, base64
 import options, logging, typeinfo, json
 import websocket, asynchttpserver, asyncnet, asyncdispatch
 
@@ -1698,7 +1698,7 @@ proc createPlot*(h5f: var H5FileObj,
   savePlot(result[1], result[0], fullPath = true)
 
 
-proc createOrg(outfile: string) =
+proc createOrg(outfile, fileType: string) =
   ## creates a simple org file consisting of headings and images
   ## SVGs are implemented using raw inline SVG
   const header = """
@@ -1719,8 +1719,24 @@ $2
     if im.len > 0:
       info &"Adding image {im} and {im.repr}"
       let (dir, name, ext) = im.splitFile()
-      let data = readFile(im)
-      orgStr = orgStr & tmpl % [name, data]
+      if fileType == "svg":
+        let data = readFile(im)
+        orgStr = orgStr & tmpl % [name, data]
+      elif fileType == "pdf":
+        orgStr = orgStr & tmpl % [
+          name,
+          &"""<embed src="{im}" width="{FigWidth}px" height="{FigHeight * 1.1}px"/>"""
+        ]
+      elif fileType == "png":
+        # encode via base64
+        let data = readFile(im)
+        orgStr = orgStr & tmpl % [
+          name,
+          &"""<img alt="My Image" src="data:image/png;base64,{encode(data)}" />"""
+        ]
+
+      else: doAssert false, "Invalid filetype: " & $filetype
+
   var f = open(outfile, fmWrite)
   f.write(orgStr)
   f.close()
@@ -1786,7 +1802,7 @@ proc handleOutput(basename: string, flags: set[ConfigFlagKind]): string =
   case outfileKind
   of ofOrg:
     result &= ".org"
-    createOrg(result)
+    createOrg(result, fileType)
   of ofJson:
     result &= ".json"
     discard jsonDump(result)

@@ -71,6 +71,7 @@ proc plotFeSpectrum*(feSpec: FeSpecFitData,
     annotate(texts.join("\n"),
              left = 0.02,
              bottom = 0.15) +
+    ggtitle(&"Fe spectrum for run: {runNumber}") +
     ggsave(&"{pathPrefix}/fe_spec_run_{runNumber}_chip_{chipNumber}{suffix}.pdf")
 
 proc plotFeEnergyCalib*(ecData: EnergyCalibFitData,
@@ -100,7 +101,7 @@ proc plotFeEnergyCalib*(ecData: EnergyCalibFitData,
      scale_y_continuous() +
      xlab("E / keV") +
      ylab(yLabel) +
-     ggtitle("Detector response to X-rays of energies `E`") +
+     ggtitle(&"Detector response to X-rays of energies `E` for run: {runNumber}") +
      ggsave(&"{pathPrefix}/energy_calib_run_{runNumber}{suffix}.pdf")
 
 proc plotGasGainVsChargeCalib*(gainVals, calib, calibErr: seq[float],

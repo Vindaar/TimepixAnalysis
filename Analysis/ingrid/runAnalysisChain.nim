@@ -50,7 +50,7 @@ proc rawDataManipulation(path, runType, outName: string): bool =
   info "Running raw_data_manipulation on " & $path & $runTypeStr & $outStr
   let res = shellVerbose:
     ./raw_data_manipulation ($path) ($runTypeStr) ($outStr)
-  info "Last commands output: " & $res[0]
+  #info "Last commands output: " & $res[0]
   info "Last commands exit code: " & $res[1]
   result = res[1] == 0
 
@@ -63,7 +63,7 @@ proc reconstruction(rawName: string, recoName = "", option = ""): bool =
   else:
     res = shellVerbose:
       ./reconstruction ($rawName) "--out" ($recoName)
-  info "Last commands output: " & $res[0]
+  #info "Last commands output: " & $res[0]
   info "Last commands exit code: " & $res[1]
   result = res[1] == 0
 

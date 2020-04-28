@@ -134,3 +134,32 @@ proc plotGasGainVsChargeCalib*(gainVals, calib, calibErr: seq[float],
     ylab("Calibration factor `a^{-1}` [1e-6 keV / e]") +
     ggtitle("Charge calibration factors vs gas gain. y errors magnified * 100") +
     ggsave(&"{pathPrefix}/gasgain_vs_calibration_charge_{fnameHash}.pdf")
+
+proc plotFeSpectrumInfoFacet*(pos_x, pos_y, ecc, rms_trans: seq[float],
+                              hits: seq[int64],
+                              runNumber: int,
+                              chipNumber: int,
+                              pathPrefix: string) =
+  ## plots a helper overview of the data going into the Fe spectrum cut. Useful to get a
+  ## look at the run
+  let hitsf = hits.mapIt(it.float64)
+  let df = seqsToDf(pos_x, pos_y, ecc, rms_trans, hitsf)
+  #df.write_csv("/tmp/run_305_tpa_data.csv")
+  #echo "ELEMENTS ", ecc.len
+  #let x_dset = h5f[(group.name / "x").dset_str]
+  #let y_dset = h5f[(group.name / "y").dset_str]
+  #let xdata = x_dset[special_type(uint8), uint8]
+  #let ydata = y_dset[special_type(uint8), uint8]
+  #for i in 0 ..< df.len:
+  #  echo "I ", i
+  #  let dfEv = seqsToDf({"x" : xdata[i], "y" : ydata[i]})
+  #  ggplot(dfEv, aes("x", "y")) +
+  #    geom_point() + ggsave("/tmp/event_" & $i & ".pdf")
+  #  copyFile("/tmp/event_" & $i & ".pdf", "/tmp/event.pdf")
+
+  let dfGath = df.gather(getKeys(df), key = "Property", value = "Value")
+  ggplot(dfGath, aes("Value")) +
+    facet_wrap("Property", scales = "free") +
+    geom_histogram(bins = 100, position = "identity", binBy = "subset") +
+    ggtitle(&"Facet overview of variables used for Fe spectrum, run {runNumber}") +
+    ggsave(&"{pathPrefix}/fe_spec_facet_run_{runNumber}_chip_{chipNumber}.pdf")

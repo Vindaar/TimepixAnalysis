@@ -198,6 +198,12 @@ proc createFeSpectrum*(h5f: var H5FileObj, runNumber, centerChip: int) =
     event_num = event_num_dset[int64]
     hits = hits_dset[int64]
 
+  info "Plotting facet for variables used for Fe spectrum for run: " & $runNumber
+  plotFeSpectrumInfoFacet(pos_x, pos_y, ecc, rms_trans, hits,
+                          runNumber = runNumber,
+                          chipNumber = chipNumber,
+                          pathPrefix = h5f.attrs[plotDirPrefixAttr, string])
+
   # given this data, filter all events which don't conform
   let (eventSpectrum,
        hitsSpectrum,

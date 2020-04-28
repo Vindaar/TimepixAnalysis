@@ -1288,31 +1288,30 @@ proc handleFeVsTime(h5f: var H5FileObj,
   const kalphaPix = 10
   const kalphaCharge = 4
   var kalphaIdx: int
+  var dset: string
   case pd.plotKind
-  of pkFeVsTime: kalphaIdx = kalphaPix
-  of pkFeChVsTime: kalphaIdx = kalphaCharge
+  of pkFeVsTime:
+    kalphaIdx = kalphaPix
+    dset = "FeSpectrum"
+  of pkFeChVsTime:
+    kalphaIdx = kalphaCharge
+    dset = "FeSpectrumCharge"
   else: doAssert false, "Invalid for handle fe vs time!"
   const parPrefix = "p"
   const dateStr = "yyyy-MM-dd'.'HH:mm:ss" # example: 2017-12-04.13:39:45
   var
     pixSeq: seq[float]
     dates: seq[float] #string]#Time]
+
   let title = buildTitle(pd)
   result[0] = buildOutfile(pd, fileDir, fileType)
   for r in pd.runs:
     let group = h5f[(recoBase & $r).grp_str]
     let chpGrpName = group.name / "chip_" & $pd.chip
     if pd.splitBySec == 0:
-      case pd.plotKind
-      of pkFeVsTime:
-        pixSeq.add h5f[(chpGrpName / "FeSpectrum").dset_str].attrs[
-          parPrefix & $kalphaIdx, float
-        ]
-      of pkFeChVsTime:
-        pixSeq.add h5f[(chpGrpName / "FeSpectrumCharge").dset_str].attrs[
-          parPrefix & $kalphaIdx, float
-        ]
-      else: doAssert false, "not possible"
+      pixSeq.add h5f[(chpGrpName / dset).dset_str].attrs[
+        parPrefix & $kalphaIdx, float
+      ]
       dates.add parseTime(group.attrs["dateTime", string],
                           dateStr,
                           utc()).toUnix.float
@@ -1342,8 +1341,9 @@ proc handleFeVsTime(h5f: var H5FileObj,
             .map(x => x.FeSpectrum.int)
             .collect()
         else:
+
           let hitsTensor = joined.filter(fn {int: `timestamp` >= slStart and
-                                             `timestamp` < slStop})["FeSpectrum"]
+                                                  `timestamp` < slStop})[dset]
             .toTensor(int)
           var hits: seq[int]
           if hitsTensor.size > 0:
@@ -1375,7 +1375,7 @@ proc handleFeVsTime(h5f: var H5FileObj,
 
         #let pyRes = pyFitFe.fitAndPlotFeSpectrum([hits], "", ".", r,
         #                                         true)
-        let kalphaLoc = res.pRes[kalphaIdx]
+        let kalphaLoc = res.kalpha
         let tstamp = (slStop + slStart).float / 2.0
         pixSeq.add kalphaLoc
         dates.add tstamp

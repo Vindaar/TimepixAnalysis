@@ -510,7 +510,9 @@ proc fitEnergyCalib*(x_ph, x_esc, x_ph_err, x_esc_err: float,
   ## now we can fit the energy calibration function
   let energies = @energies
   let pixels_peaks = @[x_esc, x_ph]
-  let pixels_err = @[x_esc_err, x_ph_err]
+  var pixels_err = @[x_esc_err, x_ph_err]
+  # modify errors due to possibly, increase to 1.0 if they are 0
+  pixels_err.applyIt(if it == 0.0: 1.0 else: it)
   let (pRes, res) = fit(linearFuncNoOffset,
                         @[1.0],
                         energies,

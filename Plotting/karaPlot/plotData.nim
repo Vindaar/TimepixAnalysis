@@ -1702,11 +1702,11 @@ proc createOrg(outfile, fileType: string) =
   ## creates a simple org file consisting of headings and images
   ## SVGs are implemented using raw inline SVG
   const header = """
-* $1
+* =$1=
 
 """
   const tmpl = """
-** $1
+** =$1=
 
 #+BEGIN_EXPORT html
 $2

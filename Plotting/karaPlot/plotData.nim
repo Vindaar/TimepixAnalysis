@@ -1,4 +1,4 @@
-import plotly
+import plotly, ggplotnim
 import os except FileInfo
 import strutils, strformat, times, sequtils, math, macros, algorithm, sets, stats
 import options, logging, typeinfo, json
@@ -14,12 +14,13 @@ import nimpy
 import docopt
 import chroma
 import parsetoml
-import nimdata
+# import nimdata
 
 import dataset_helpers
 import ingrid/ingrid_types
 import ingrid/tos_helpers
-import ingrid/calibration
+import ingrid / calibration
+import ingrid / calibration / calib_fitting
 import helpers/utils
 import ingridDatabase / [databaseDefinitions, databaseRead]
 import protocol, common_types
@@ -92,7 +93,7 @@ type
     cfNone, cfNoFadc, cfNoInGrid, cfNoOccupancy, cfNoPolya, cfNoFeSpectrum, cfProvideServer
 
   BackendKind* = enum
-    bNone, bMpl, bPlotly
+    bNone, bMpl, bPlotly, bGgPlot
 
   Scatter[T] = object
     case kind: BackendKind
@@ -120,6 +121,11 @@ type
       plLayout*: Layout
       plPlot*: Plot[float]
       plPlotJson*: PlotJson
+    of bGgPlot:
+      pltGg*: GgPlot[DataFrame]
+      width*: float
+      height*: float
+      theme*: Theme
     else: discard
 
   ShapeKind = enum
@@ -217,6 +223,9 @@ proc savePlot(p: PlotV, outfile: string, fullPath = false) =
       discard callMethod(p.plt, "show")
     else:
       discard callMethod(p.plt, "close", "all")
+  of bGgPlot:
+    if p.kind == bGgPlot: # if plot was not initialized
+      p.pltGg.ggsave(fname, p.width, p.height)
   else: discard
 
 proc importPyplot(): PyObject =
@@ -254,6 +263,13 @@ proc initPlotV(title: string, xlabel: string, ylabel: string, shape = ShapeKind.
                    plt: plt,
                    fig: fig,
                    ax: ax)
+  of bGgPlot:
+    result = PlotV(kind: bGgPlot,
+                   theme: Theme(title: some(title),
+                                xlabel: some(xlabel),
+                                ylabel: some(ylabel)),
+                   width: width.float,
+                   height: FigHeight)
   else: discard
 
 proc read*(h5f: var H5FileObj,
@@ -267,27 +283,25 @@ proc read*(h5f: var H5FileObj,
   ## (potentially) converted to ``dtype``
   var dset: H5DataSet
   if isFadc:
-    dset = h5f[(fadcRunPath(runNumber) / dsetName).dset_str]
+    dset = h5f[(fadcRecoPath(runNumber) / dsetName).dset_str]
   else:
     dset = h5f[(recoPath(runNumber, chipNumber).string / dsetName).dset_str]
   when dtype is SomeNumber:
     if idx.len == 0:
-      let convert = dset.convertType(dtype)
-      result = dset.convert
+      result = dset.readAs(dtype)
     else:
       # manual conversion required
-      result = dset.readConvert(idx, dtype)
+      result = dset.readAs(idx, dtype)
   else:
-    type subtype = utils.getInnerType(dtype)
+    type subtype = getInnerType(dtype)
     # NOTE: only support 2D seqs
-    let convert = dset.convertType(subtype)
     when subType isnot SomeNumber:
       raise newException(Exception, "Cannot convert N-D sequence to type: " &
         subtype.name)
     else:
       if idx.len == 0:
         # convert to subtype and reshape to dsets shape
-        result = dset.convert.reshape2D(dset.shape)
+        result = dset.readAs(subtype).reshape2D(dset.shape)
       else:
         # manual conversion required
         result = dset[idx, subtype].reshape2D(dset.shape)
@@ -364,6 +378,12 @@ proc plotHist[T](xIn: seq[T], title, dset, outfile: string,
     discard result.ax.hist(xs,
                          bins = nbins,
                          range = binRange)
+  of bGgPlot:
+    let df = seqsToDf(xs).filter(fn {float: `xs` >= binRange[0] and
+                                            `xs` <= binRange[1]})
+    result.pltGg = ggplot(df, aes("xs")) +
+        geom_histogram(binWidth = binSize) +
+        result.theme # just add the theme directly
   else: discard
 
 proc plotBar[T](binsIn, countsIn: seq[seq[T]], title: string,
@@ -374,40 +394,57 @@ proc plotBar[T](binsIn, countsIn: seq[seq[T]], title: string,
   let counts = countsIn.mapIt(it.mapIt(it.float))
   result = initPlotV(title, xlabel, "#")
   var traces: seq[Trace[float]]
-  for i in 0 .. bins.high:
-    case BKind
-    of bPlotly:
-      let
-        bin = bins[i]
-        count = counts[i]
-        dset = dsets[i]
-      traces.add Trace[float](`type`: PlotType.Bar,
-                              xs: bin,
-                              ys: count,
-                              name: dset,
-                              autoWidth: true)
-      result.plPlot = Plot[float](layout: result.plLayout, traces: traces)
-      if drawPlots:
-        result.plPlot.show()
-    of bMpl:
-      let
-        # cut of last bin edge in matplotlib case. Expects same shape for edges
-        # and counts
-        bin = bins[i][0 .. ^2]
-        count = counts[i]
-        dset = dsets[i]
-      let width = toSeq(0 ..< bins[i].high).mapIt(bins[i][it + 1] - bins[i][it])
-      discard result.ax.bar(bin,
-                            count,
-                            align = "edge",
-                            width = width,
-                            label = dset)
-      # we cannot call `show` directly, because the Nim compiler tries to
-      # call the Nim `show` procedure and fails
-      if drawPlots:
-        discard callMethod(result.plt, "show")
-
-    else: discard
+  if BKind in {bPlotly, bMpl}:
+    for i in 0 .. bins.high:
+      case BKind
+      of bPlotly:
+        let
+          bin = bins[i]
+          count = counts[i]
+          dset = dsets[i]
+        traces.add Trace[float](`type`: PlotType.Bar,
+                                xs: bin,
+                                ys: count,
+                                name: dset,
+                                autoWidth: true)
+        result.plPlot = Plot[float](layout: result.plLayout, traces: traces)
+        if drawPlots:
+          result.plPlot.show()
+      of bMpl:
+        let
+          # cut of last bin edge in matplotlib case. Expects same shape for edges
+          # and counts
+          bin = bins[i][0 .. ^2]
+          count = counts[i]
+          dset = dsets[i]
+        let width = toSeq(0 ..< bins[i].high).mapIt(bins[i][it + 1] - bins[i][it])
+        discard result.ax.bar(bin,
+                              count,
+                              align = "edge",
+                              width = width,
+                              label = dset)
+        # we cannot call `show` directly, because the Nim compiler tries to
+        # call the Nim `show` procedure and fails
+        if drawPlots:
+          discard callMethod(result.plt, "show")
+      else: doAssert false
+  else:
+    var df = newDataFrame()
+    # stack all data frames
+    for i in 0 .. bins.high:
+      let ldf = seqsToDf({ "bins" : binsIn[i],
+                           "counts" : countsIn[i],
+                           "dset" : constantColumn(dsets[i], binsIn[i].len) })
+      df.add ldf
+    if bins.len > 1:
+      result.pltGg = ggplot(df, aes("bins", "counts")) +
+          geom_histogram(aes(fill = "dset"), stat = "identity") +
+          result.theme # just add the theme directly
+    else:
+      # don't classify by `dset`
+      result.pltGg = ggplot(df, aes("bins", "counts")) +
+          geom_histogram(stat = "identity") +
+          result.theme # just add the theme directly
 
 iterator chips(group: var H5Group): (int, H5Group) =
   ## returns all chip groups within the given Run group
@@ -545,10 +582,27 @@ proc plotHist2D(data: Tensor[float], title, outfile: string): PlotV =
     discard result.plt.imshow(data.toRawSeq.reshape2D([NPix, NPix]),
                        cmap = "viridis")
     discard result.plt.colorbar()
+  of bGgPlot:
+    # inefficient so far!
+    # build 3 cols, x, y, z
+    var
+      x = newTensorUninit[int](data.shape[0])
+      y = newTensorUninit[int](data.shape[0])
+      z = newTensorUninit[float](data.shape[0])
+    var i = 0
+    for idx, val in data:
+      x[i] = idx[0]
+      y[i] = idx[1]
+      z[i] = val
+    let df = seqsToDf(x, y, z)
+    result.pltGg = ggplot(df, aes("x", "y", fill = "z")) +
+        geom_tile() +
+        result.theme # just add the theme directly
   else:
     discard
 
-proc plotScatter(pltV: PlotV, x, y: seq[float], name, outfile: string) =
+proc plotScatter(pltV: var PlotV, x, y: seq[float], name, outfile: string,
+                 isNew = false) =
   case BKind
   of bPlotly:
     # in this case plot is defined
@@ -563,14 +617,30 @@ proc plotScatter(pltV: PlotV, x, y: seq[float], name, outfile: string) =
                          y,
                          label = name,
                          color = "r")
+  of bGgPlot:
+    let df = seqsToDf(x, y)
+    if not isNew:
+      # in this case a plot already exists!
+      pltV.pltGg = pltV.pltGg +
+        geom_line(data = df, aes = aes("x", "y"),
+                  color = some(parseHex("FF00FF"))) +
+        pltV.theme # just add the theme directly
+    else:
+      # in this case a plot already exists!
+      pltV.pltGg = ggplot(df, aes("x", "y")) +
+        geom_line() +
+        pltV.theme # just add the theme directly
   else:
     warn &"Unsupported backend kind: {BKind}"
 
 proc plotScatter(x, y: seq[float], title, name, outfile: string): PlotV =
   ## wrapper around the above if no `PlotV` yet defined
   result = initPlotV(title, "x", "y", ShapeKind.Rectangle)
-  result.plPlot = Plot[float](layout: result.plLayout, traces: @[])
-  result.plotScatter(x, y, name, outfile)
+  case BKind
+  of bPlotly:
+    result.plPlot = Plot[float](layout: result.plLayout, traces: @[])
+  else: discard
+  result.plotScatter(x, y, name, outfile, isNew = true)
 
 proc makeSubplot(pd: PlotDescriptor, plts: seq[PlotV]): PlotV =
   result = initPlotV(pd.title, pd.xlabel, pd.ylabel)
@@ -708,6 +778,11 @@ proc plotDates[T, U](x: seq[U], y: seq[T],
     let dtm = pyImport("datetime")
     let xP = x.mapIt(dtm.datetime.utcfromtimestamp(int(it)))
     discard result.ax.plot_date(xP, y, label = title)
+  of bGgPlot:
+    let df = seqsToDf(x, y)
+    result.pltGg = ggplot(df, aes("x", "y")) +
+        geom_point() +
+        result.theme # just add the theme directly
   else:
     discard
 
@@ -827,7 +902,7 @@ proc buildEvents[T, U](x, y: seq[seq[T]], ch: seq[seq[U]],
         xi = x[i]
         yi = y[i]
         chi = ch[i]
-      for (ix, iy, ich) in zip(xi, yi, chi):
+      for (ix, iy, ich) in zipEm(xi, yi, chi):
         result[i, iy.int, ix.int] = ich.float
 
 proc readEvent*(h5f: var H5FileObj, run, chip: int, idx: seq[int]): Tensor[float] =
@@ -844,6 +919,22 @@ proc readEvent*(h5f: var H5FileObj, run, chip: int, idx: seq[int]): Tensor[float
                       chipNumber = chip,
                       dtype = uint16, idx = idx)
   result = buildEvents(x, y, ch, toOrderedSet(@[0]))
+
+proc readEventSparse*(h5f: var H5FileObj, run, chip: int, idx: int): DataFrame =
+  ## helper proc to read data for given indices of events `idx` and
+  ## builds a tensor of `idx.len` events.
+  let
+    x = h5f.readVlen(run, "x",
+                     chipNumber = chip,
+                     dtype = uint8, idx = @[idx])
+    y = h5f.readVlen(run, "y",
+                     chipNumber = chip,
+                     dtype = uint8, idx = @[idx])
+    ch = h5f.readVlen(run, "ToT",
+                      chipNumber = chip,
+                      dtype = uint16, idx = @[idx])
+  result = seqsToDf({"x" : x[0], "y" : y[0], "ch" : ch[0]})
+
 
 proc createEventDisplayPlots(h5f: var H5FileObj,
                              run: int,
@@ -980,7 +1071,7 @@ template createFeVsTimeDataFrame(h5f: var H5FileObj,
   ## Nor can it be a normal template due to a `cannot instantiate DynamicStackArray`
   ## from the joinTheta call for the 3rd argument.
   ## Put everything in a block to manually create some hygiene
-  block:
+  when false:
     const feSchema = [
       intCol("FeSpectrum"),
       intCol("FeSpectrumEvents")
@@ -1006,8 +1097,20 @@ template createFeVsTimeDataFrame(h5f: var H5FileObj,
       (a, b) => mergeTuple(a, b, ["eventNumber"])
     )
     joined
+  else:
+    # implement ggplotnim DF usage
+    var path = group.name
+    let evNum = h5f[path / "eventNumber", int]
+    let tstamp = h5f[path / "timestamp", int]
+    let dfEv = seqsToDf({ "eventNumber" : evNum, "timestamp" : tstamp })
+    path &= "/chip_" & $pd.chip
+    let feSpec = h5f[path / "FeSpectrum", int]
+    let feSpecEvNum = h5f[path / "FeSpectrumEvents", int]
+    let dfFeSpec = seqsToDf({ "eventNumber" : feSpecEvNum, "FeSpectrum" : feSpec })
+    # return the joined df from template
+    inner_join(dfEv, dfFeSpec, by = "eventNumber")
 
-proc determineStartStopFeVsTime[T](df: DataFrame[T]): (BiggestInt, BiggestInt) =
+proc determineStartStopFeVsTime(df: DataFrame): (BiggestInt, BiggestInt) =
   ## returns the start and stop times of a dataframe with timestamps
   # now get timeslice from dataframe
   when false:
@@ -1021,10 +1124,10 @@ proc determineStartStopFeVsTime[T](df: DataFrame[T]): (BiggestInt, BiggestInt) =
       .collect()
     let tStart = tStartDf[0].timestamp
   else:
-    let cc = df.collect()
-    let tStart = cc[0].timestamp
-    let tStop = cc[^1].timestamp
-  result = (tStart, tStop)
+    #let cc = df.collect()
+    let tStart = df["timestamp"][0, int]
+    let tStop = df["timestamp"][df.high, int]
+  result = (tStart.BiggestInt, tStop.BiggestInt)
 
 proc determineNumBatchesFeVsTime(length: int, pd: PlotDescriptor): int =
   result = length div pd.splitBySec
@@ -1055,7 +1158,7 @@ proc handleInGridDset(h5f: var H5FileObj,
       allData.add idx.mapIt(data[it])
     else:
       allData.add data
-  result[0] = buildOutfile(pd)
+  result[0] = buildOutfile(pd, fileDir, fileType)
   let title = buildTitle(pd)
   result[1] = plotHist(allData, title, pd.name, result[0], pd.binSize, pd.binRange)
 
@@ -1077,7 +1180,7 @@ proc handleFadcDset(h5f: var H5FileObj,
     let idxFadc = (toSeq(0 .. evNumFadc.high)) --> filter(evNumFadc[it] in inGridSet)
     let data = h5f.read(r, pd.name, pd.chip, isFadc = true, dtype = float)
     allData.add idxFadc --> map(data[it])
-  result[0] = buildOutfile(pd)
+  result[0] = buildOutfile(pd, fileDir, fileType)
   let title = buildTitle(pd)
   result[1] = plotHist(allData, title, pd.name, result[0], pd.binSize, pd.binRange)
 
@@ -1095,7 +1198,7 @@ proc handleOccupancy(h5f: var H5FileObj,
     # stack this run onto the full data tensor
     occFull = occFull .+ occ
   let title = buildTitle(pd)
-  result[0] = buildOutfile(pd)
+  result[0] = buildOutfile(pd, fileDir, fileType)
   result[1] = plotHist2D(occFull, title, result[0])
 
 proc handleOccCluster(h5f: var H5FileObj,
@@ -1113,13 +1216,13 @@ proc handleOccCluster(h5f: var H5FileObj,
     # stack this run onto the full data tensor
     occFull = occFull .+ occ
   let title = buildTitle(pd)
-  result[0] = buildOutfile(pd)
+  result[0] = buildOutfile(pd, fileDir, fileType)
   result[1] = plotHist2D(occFull, title, result[0])
 
 proc handleBarScatter(h5f: var H5FileObj,
                       fileInfo: FileInfo,
                       pd: PlotDescriptor): (string, PlotV) =
-  result[0] = buildOutfile(pd)
+  result[0] = buildOutfile(pd, fileDir, fileType)
   let xlabel = pd.xlabel
   let title = buildTitle(pd)
   let (bins, counts, binsFit, countsFit) = h5f.readPlotFit(pd)
@@ -1136,7 +1239,7 @@ proc handleCombPolya(h5f: var H5FileObj,
     countsSeq: seq[seq[float]]
     dsets: seq[string]
   let title = buildTitle(pd)
-  result[0] = buildOutfile(pd)
+  result[0] = buildOutfile(pd, fileDir, fileType)
   for ch in pd.chipsCP:
     # get a local PlotDescriptor, which has this chip number
     let localPd = block:
@@ -1160,7 +1263,7 @@ proc handleFeVsTime(h5f: var H5FileObj,
     pixSeq: seq[float]
     dates: seq[float] #string]#Time]
   let title = buildTitle(pd)
-  result[0] = buildOutfile(pd)
+  result[0] = buildOutfile(pd, fileDir, fileType)
   for r in pd.runs:
     let group = h5f[(recoBase & $r).grp_str]
     let chpGrpName = group.name / "chip_" & $pd.chip
@@ -1191,10 +1294,15 @@ proc handleFeVsTime(h5f: var H5FileObj,
         echo "Starting from ", slStart
         echo "Stopping at ", slStop
 
-        let hits = joined.map(x => x.projectTo(FeSpectrum, timestamp))
-          .filter(x => (x.timestamp >= slStart and x.timestamp < slStop))
-          .map(x => x.FeSpectrum.int)
-          .collect()
+        when false:
+          let hits = joined.map(x => x.projectTo(FeSpectrum, timestamp))
+            .filter(x => (x.timestamp >= slStart and x.timestamp < slStop))
+            .map(x => x.FeSpectrum.int)
+            .collect()
+        else:
+          let hits = joined.filter(fn {int: `timestamp` >= slStart and
+                                       `timestamp` < slStop})["FeSpectrum"]
+            .toTensor(int).clone.toRawSeq
 
         let res = fitFeSpectrum(hits)
         #let res0 = res[0].mapIt(it.float)
@@ -1214,7 +1322,7 @@ proc handleFeVsTime(h5f: var H5FileObj,
 
         #let pyRes = pyFitFe.fitAndPlotFeSpectrum([hits], "", ".", r,
         #                                         true)
-        let kalphaLoc = res[2][kalphaPix]
+        let kalphaLoc = res.pRes[kalphaPix]
         let tstamp = (slStop + slStart).float / 2.0
         pixSeq.add kalphaLoc
         dates.add tstamp
@@ -1224,20 +1332,37 @@ proc handleFeVsTime(h5f: var H5FileObj,
     stdPeak = standardDeviation(pixSeq)
     xloc = max(dates)
     yloc = max(pixSeq)
-    stdAnn = Annotation(x: xloc,
-                        y: yloc,
-                        text: &"Peak variation σ: {stdPeak:.2f}")
     # calculate mean of peak location
   let meanPeak = mean(pixSeq)
-  let meanAnn = replace(stdAnn):
-    y = yloc - (yloc - min(pixSeq)) * 0.05
-    text = &"Mean location µ: {meanPeak:.2f}"
-  # now plot
-  result[1] = plotDates(dates, pixSeq,
-                        title = title,
-                        xlabel = pd.xlabel,
-                        outfile = result[0])
-  result[1].plPlot.layout.annotations.add [stdAnn, meanAnn]
+  case BKind
+  of bPlotly:
+    # now plot
+    result[1] = plotDates(dates, pixSeq,
+                          title = title,
+                          xlabel = pd.xlabel,
+                          outfile = result[0])
+    let stdAnn = plotly.Annotation(x: xloc,
+                                   y: yloc,
+                                   text: &"Peak variation σ: {stdPeak:.2f}")
+    let meanAnn = replace(stdAnn):
+      y = yloc - (yloc - min(pixSeq)) * 0.05
+      text = &"Mean location µ: {meanPeak:.2f}"
+    result[1].plPlot.layout.annotations.add [stdAnn, meanAnn]
+  of bGgPlot:
+    let stdAnn = ggplotnim.Annotation(x: some(xloc),
+                                      y: some(yloc),
+                                      text: &"Peak variation σ: {stdPeak:.2f}")
+    let meanAnn = replace(stdAnn):
+      x = some(yloc - (yloc - min(pixSeq)) * 0.05)
+      text = &"Mean location µ: {meanPeak:.2f}"
+    # now plot
+    result[1] = plotDates(dates, pixSeq,
+                          title = title,
+                          xlabel = pd.xlabel,
+                          outfile = result[0])
+    result[1].pltGg.annotations.add @[stdAnn, meanAnn]
+  else: echo "WARNING: annotations unsupported on backend: " & $BKind
+
 
 proc handleFePixDivChVsTime(h5f: var H5FileObj,
                             fileInfo: FileInfo,
@@ -1251,7 +1376,7 @@ proc handleFePixDivChVsTime(h5f: var H5FileObj,
     chSeq: seq[float]
     dates: seq[float] #string]#Time]
   let title = buildTitle(pd)
-  result[0] = buildOutfile(pd)
+  result[0] = buildOutfile(pd, fileDir, fileType)
   for r in pd.runs:
     let group = h5f[(recoBase & $r).grp_str]
     let chpGrpName = group.name / "chip_" & $pd.chip
@@ -1303,7 +1428,7 @@ proc handleOuterChips(h5f: var H5FileObj,
   result[0] = pd.title
   const binSize = 3.0
   const binRange = (0.0, 400.0)
-  let outfile = buildOutfile(pd)
+  let outfile = buildOutfile(pd, fileDir, fileType)
   result[1] = plotHist(data, pd.title, pd.name, pd.title, binSize, binRange)
 
 iterator ingridEventIter(h5f: var H5FileObj,
@@ -1324,7 +1449,8 @@ iterator ingridEventIter(h5f: var H5FileObj,
                       chipNumber = chip)
     evTab = initTable[int, int]()
     for i, ev in evNums:
-      evTab[ev] = i
+      evTab[i] = ev
+      events.add ev
     lastRun = run
 
   events.setLen(0)
@@ -1343,16 +1469,21 @@ iterator ingridEventIter(h5f: var H5FileObj,
       texts.add s
 
     let title = buildTitle(pd)
-    var outfile = buildOutfile(pd)
+    var outfile = buildOutfile(pd, fileDir, fileType)
     var pltV = plotHist2D(ev[i,_,_].squeeze.clone, title, outfile)
     case BKind
     of bPlotly:
       for i, a in texts:
-        pltV.plPlot.layout.annotations.add Annotation(x: 0.0,
-                                                      y: 0.0,
-                                                      xshift: 800.0,
-                                                      yshift: 600.0 - (i.float * 20.0),
-                                                      text: texts[i])
+        pltV.plPlot.layout.annotations.add plotly.Annotation(x: 0.0,
+                                                             y: 0.0,
+                                                             xshift: 800.0,
+                                                             yshift: 600.0 - (i.float * 20.0),
+                                                             text: texts[i])
+    of bGgPlot:
+      for i, a in texts:
+        pltV.pltGg.annotations.add ggplotnim.Annotation(left: some(0.1),
+                                                        bottom: some(0.9 - i.float * 0.05),
+                                                        text: texts[i])
     else:
       echo "InGrid Event property annotations not supported on " &
         "Matplotlib backend yet!"
@@ -1381,7 +1512,7 @@ iterator fadcEventIter(h5f: var H5FileObj,
     events.add evTab[pd.event]
 
   let
-    dset = h5f[(fadcRunPath(run) / "fadc_data").dset_str]
+    dset = h5f[(fadcRecoPath(run) / "fadc_data").dset_str]
     fadc = dset.read_hyperslab(float64, @[events[0], 0], @[events.len, 2560])
     fShape = [fadc.len div 2560, 2560]
     fTensor = fadc.toTensor.reshape(fShape)
@@ -1397,18 +1528,24 @@ iterator fadcEventIter(h5f: var H5FileObj,
 
     let xFadc = toSeq(0 ..< 2560).mapIt(it.float)
     let title = buildTitle(pd)
-    var outfile = buildOutfile(pd)
+    var outfile = buildOutfile(pd, fileDir, fileType)
     let yFadc = fTensor[i,_].squeeze.clone.toRawSeq
     var pltV = plotScatter(xFadc, yFadc, title, title, outfile)
     case BKind
     of bPlotly:
       pltV.plPlot = pltV.plPlot.mode(PlotMode.Lines).lineWidth(1)
       for i, a in texts:
-        pltV.plPlot.layout.annotations.add Annotation(x: 0.0,
-                                                      y: 0.0,
-                                                      xshift: 1100.0,
-                                                      yshift: 600.0 - (i.float * 20.0),
-                                                      text: texts[i])
+        pltV.plPlot.layout.annotations.add plotly.Annotation(x: 0.0,
+                                                             y: 0.0,
+                                                             xshift: 1100.0,
+                                                             yshift: 600.0 - (i.float * 20.0),
+                                                             text: texts[i])
+      pltV.annotations = texts
+    of bGgPlot:
+      for i, a in texts:
+        pltV.pltGg.annotations.add ggplotnim.Annotation(left: some(0.1),
+                                                        bottom: some(0.9 - (i.float * 0.05)),
+                                                        text: texts[i])
       pltV.annotations = texts
     else:
       echo "FADC property annotations not supported on Matplotlib backend yet!"
@@ -1536,7 +1673,7 @@ $2
   f.close()
 
   shell:
-    emacs `$outfile` "--batch -f org-html-export-to-html --kill"
+    emacs ($outfile) "--batch -f org-html-export-to-html --kill"
 
 proc clearPlots() =
   ## clears the imageSet as well as the JsonNode for plotly
@@ -1614,6 +1751,8 @@ proc plotsFromPds(h5f: var H5FileObj,
     of bPlotly:
       if fileInfo.plotlySaveSvg:
         imageSet.incl fileF
+    of bGgPlot:
+      imageSet.incl fileF
     else: discard
 
 proc serveNewClient(): bool =
@@ -1758,7 +1897,7 @@ proc createBackgroundPlots(h5file: string,
   # energyCalib(h5f) # ???? plot of gas gain vs charge?!
   pds.add histograms(h5f, runType, fInfoConfig, flags) # including fadc
 
-  pds.add createCustomPlots(fInfoConfig)
+  # pds.add createCustomPlots(fInfoConfig)
 
   if cfProvideServer in flags:
     serveRequests(h5f, fileInfo, pds)
@@ -1803,15 +1942,17 @@ proc handlePlotTypes(h5file: string,
     # JSON
     let filecall = &"--file:{outfile}"
     shell:
-      ./karaRun "-r" `$filecall` staticClient.nim
+      ./karaRun "-r" ($filecall) staticClient.nim
 
 proc parseBackendType(backend: string): BackendKind =
   ## given a string describing a run type, return the correct
   ## `RunTypeKind`
   if backend.normalize in ["python", "py", "matplotlib", "mpl"]:
     result = bMpl
-  elif backend.normalize in ["nim", "plotly"]:
+  elif backend.normalize in ["plotly"]:
     result = bPlotly
+  elif backend.normalize in ["nim", "ggplot"]:
+    result = bGgPlot
   else:
     result = bNone
 
@@ -1959,6 +2100,9 @@ proc plotData*() =
   let args = docopt(doc)
   info &"Received arguments:\n  {args}"
   let h5file = $args["<H5file>"]
+  fileDir = genPlotDirName(h5file, "figs")
+  fileType = parseToml.parseFile("config.toml")["General"]["filetype"].getStr
+  discard existsOrCreateDir(fileDir)
   let runTypeStr = $args["--runType"]
   let backendStr = $args["--backend"]
   let evDisplayStr = $args["--eventDisplay"]

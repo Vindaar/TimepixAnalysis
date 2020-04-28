@@ -1,6 +1,7 @@
 import karax / kbase
 export kbase
-import sets, strutils, strformat, sequtils, sugar
+import sets, strutils, strformat, sequtils, sugar, times
+from os import splitFile
 
 when defined(js):
   import karax / jjson
@@ -332,7 +333,7 @@ proc getRunsStr*(runs: seq[int]): kstring =
   else:
     result = runs.foldl($a & " " & $b, "").strip(chars = {' '})
 
-proc buildOutfile*(pd: PlotDescriptor): kstring =
+proc buildOutfile*(pd: PlotDescriptor, prefix, filetype: string): kstring =
   var name = ""
   let runsStr = getRunsStr(pd.runs)
   case pd.plotKind
@@ -384,13 +385,12 @@ proc buildOutfile*(pd: PlotDescriptor): kstring =
 
   of pkSubPlots:
     for p in pd.plots:
-      name &= pd.buildOutfile()
+      name &= pd.buildOutfile("", "")
   of pkOuterChips:
     name &= OuterChipFnameTemplate %% [$pd.runType]
   else:
     discard
-  echo "Result ", $name
-  result = &"figs/{name}.svg"
+  result = &"{prefix}/{name}.{filetype}"
 
 proc buildTitle*(pd: PlotDescriptor): kstring =
   var runsStr = ""

@@ -165,6 +165,16 @@ var fL = newFileLogger("logs/plotData.log", fmtStr = verboseFmtStr)
 addHandler(L)
 addHandler(fL)
 
+proc genPlotDirname(h5name, outdir: string): string =
+  ## generates unique name for the given input file based on its name and
+  ## the current time
+  let (_, name, _) = splitFile(h5name)
+  let timeStr = format(now(), "yyyy-MM-dd'_'HH-mm-ss")
+  result = outdir / name & "_" & timeStr
+
+## is the directory for the current input file to store the plots
+var fileDir: string
+var fileType: string
 
 # karax client
 # - static table of

@@ -314,6 +314,8 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int) =
     binWidth = 3
   let totBins = arange(hitLow, hitHigh, binWidth).mapIt(it.float + 0.5)
   var chipBase = recoDataChipBase(runNumber)
+  let plotPath = h5f.attrs[plotDirPrefixAttr, string]
+
   # get the group from file
   echo "Calcing gas gain for run: ", chipBase
   for grp in keys(h5f.groups):
@@ -354,7 +356,8 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int) =
                   fitResult.x, fitResult.y,
                   G_fit = fitResult.pRes[1],
                   chiSq = fitResult.redChiSq,
-                  chipNumber, runNumber)
+                  chipNumber, runNumber,
+                  pathPrefix = plotPath)
       # create dataset for polya histogram
       var polyaDset = h5f.create_dataset(group.name / "polya", (binned.len, 2),
                                          dtype = float64,
@@ -472,16 +475,17 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
   # get the fe spectrum for the run
   let groupName = recoDataChipBase(runNumber) & $chipNumber
   var feDset = h5f[(groupName / "FeSpectrum").dsetStr]
+  let plotPath = h5f.attrs[plotDirPrefixAttr, string]
   let feData = feDset[int64]
-  # create directory for plots if it doesn't exist
-  discard existsOrCreateDir("out")
   let feSpec = fitFeSpectrum(feData)
   let ecData = fitEnergyCalib(feSpec, isPixel = true)
 
   let texts = buildTextForFeSpec(feSpec, ecData)
   plotFeSpectrum(feSpec, runNumber, chipNumber,
-                 texts, isPixel = true)
-  plotFeEnergyCalib(ecData, runNumber, isPixel = true)
+                 texts, isPixel = true,
+                 pathPrefix = plotPath)
+  plotFeEnergyCalib(ecData, runNumber, isPixel = true,
+                    pathPrefix = plotPath)
 
   proc extractAndWriteAttrs(h5f: var H5FileObj,
                             dset: var H5DataSet,
@@ -525,8 +529,10 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
     let ecDataCharge = fitEnergyCalib(feSpecCharge, isPixel = false)
     let textsCharge = buildTextForFeSpec(feSpecCharge, ecDataCharge, isPixel = false)
     plotFeSpectrum(feSpecCharge, runNumber, chipNumber,
-                   textsCharge, isPixel = false)
-    plotFeEnergyCalib(ecDataCharge, runNumber, isPixel = false)
+                   textsCharge, isPixel = false,
+                   pathPrefix = plotPath)
+    plotFeEnergyCalib(ecDataCharge, runNumber, isPixel = false,
+                      pathPrefix = plotPath)
 
     # given resCharge, need to write the result of that fit to H5 file, analogous to
     # `writeFitParametersH5` in Python
@@ -549,6 +555,7 @@ proc performChargeCalibGasGainFit*(h5f: var H5FileObj) =
   ## - for all runs the Fe spectrum was calculated and fitted
   ## writes the resulting fit data to the ingridDatabase
   # iterate over all runs, extract center chip grou
+  let plotPath = h5f.attrs[plotDirPrefixAttr, string]
   var
     calib = newSeq[float64]()
     calibErr = newSeq[float64]()
@@ -612,7 +619,8 @@ proc performChargeCalibGasGainFit*(h5f: var H5FileObj) =
   let fitResult = fitChargeCalibVsGasGain(gainVals, calib, calibErr)
   writeCalibVsGasGain(gainVals, calib, calibErr, fitResult, centerChipName)
   # and create the plot
-  plotGasGainVsChargeCalib(gainVals, calib, calibErr, fitResult)
+  plotGasGainVsChargeCalib(gainVals, calib, calibErr, fitResult,
+                           pathPrefix = plotPath)
 
 proc calcEnergyFromPixels*(h5f: var H5FileObj, runNumber: int, calib_factor: float) =
   ## proc which applies an energy calibration based on the number of hit pixels in an event

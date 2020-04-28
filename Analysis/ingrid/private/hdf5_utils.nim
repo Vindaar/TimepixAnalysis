@@ -10,6 +10,8 @@ import pure
 # Procs describing the data layout in the HDF5 file #
 #####################################################
 
+const plotDirPrefixAttr* = "plotDirPrefix"
+
 func cdlGroupName*(tfKindStr, year, dset: string): string =
   let dsetName = dset.extractFilename
   var myr = ""

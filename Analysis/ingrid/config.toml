@@ -3,3 +3,4 @@
 
 [Calibration]
         showPlots = false
+        plotDirectory = "out"

@@ -5,6 +5,7 @@ import seqmath
 import ggplotnim
 import sequtils
 import ../ingrid_types
+import os
 
 #[
 Contains all routines that create plots related to InGrid calibration.
@@ -13,9 +14,11 @@ Contains all routines that create plots related to InGrid calibration.
 proc plotGasGain*[T](charge, counts: seq[T],
                      fitX, fitY: seq[T],
                      G_fit, chiSq: float,
-                     chipNumber, runNumber: int) =
+                     chipNumber, runNumber: int,
+                     pathPrefix: string) =
   ## given a seq of traces (polya distributions for gas gain) plot
   ## the data and the fit, save plots as svg.
+  discard existsOrCreateDir(pathPrefix)
   let dfRaw = seqsToDf({ "charge / e-" : charge,
                          "counts" : counts })
   let dfFit = seqsToDf({ "charge / e-" : fitX,
@@ -33,14 +36,16 @@ proc plotGasGain*[T](charge, counts: seq[T],
               color = some(parseHex("FF00FF"))) +
     ggtitle(&"Polya fit of chip {chipNumber}, run {runNumber}: " &
             &"G = {G:.1f}, G_fit = {G_fit:.1f}, χ²/dof = {chiSq:.2f}") +
-    ggsave(&"out/gas_gain_run_{runNumber}_chip_{chipNumber}.pdf")
+    ggsave(&"{pathPrefix}/gas_gain_run_{runNumber}_chip_{chipNumber}.pdf")
 
 ## TODO: Put "Charge calibration factors vs gas gain. y errors magnified * 100"" into this module!
 
 proc plotFeSpectrum*(feSpec: FeSpecFitData,
                      runNumber: int, chipNumber: int,
                      texts: seq[string],
-                     isPixel = true) =
+                     isPixel = true,
+                     pathPrefix: string) =
+  discard existsOrCreateDir(pathPrefix)
   doAssert feSpec.binning == feSpec.xFit
   let df = seqsToDf({ "hist" : feSpec.hist,
                       "bins" : feSpec.binning,
@@ -66,11 +71,13 @@ proc plotFeSpectrum*(feSpec: FeSpecFitData,
     annotate(texts.join("\n"),
              left = 0.02,
              bottom = 0.15) +
-    ggsave(&"out/fe_spec_run_{runNumber}_chip_{chipNumber}{suffix}.pdf")
+    ggsave(&"{pathPrefix}/fe_spec_run_{runNumber}_chip_{chipNumber}{suffix}.pdf")
 
 proc plotFeEnergyCalib*(ecData: EnergyCalibFitData,
                         runNumber: int,
-                        isPixel = true) =
+                        isPixel = true,
+                        pathPrefix: string) =
+  discard existsOrCreateDir(pathPrefix)
   let dfEnergy = seqsToDf({ "E" : ecData.energies,
                             "H" : ecData.peaks,
                             "H_err" : ecData.peaksErr })
@@ -94,11 +101,13 @@ proc plotFeEnergyCalib*(ecData: EnergyCalibFitData,
      xlab("E / keV") +
      ylab(yLabel) +
      ggtitle("Detector response to X-rays of energies `E`") +
-     ggsave(&"out/energy_calib_run_{runNumber}{suffix}.pdf")
+     ggsave(&"{pathPrefix}/energy_calib_run_{runNumber}{suffix}.pdf")
 
 proc plotGasGainVsChargeCalib*(gainVals, calib, calibErr: seq[float],
-                               fitResult: FitResult) =
+                               fitResult: FitResult,
+                               pathPrefix: string) =
   # now that we have all, plot them first
+  discard existsOrCreateDir(pathPrefix)
   let dfData = seqsToDf({ "Gain" : gainVals,
                           "Calib" : calib,
                           "CalibErr" : calibErr })
@@ -123,4 +132,4 @@ proc plotGasGainVsChargeCalib*(gainVals, calib, calibErr: seq[float],
     xlab("Gas gain `G`") +
     ylab("Calibration factor `a^{-1}` [1e-6 keV / e]") +
     ggtitle("Charge calibration factors vs gas gain. y errors magnified * 100") +
-    ggsave(&"out/gasgain_vs_calibration_charge_{fnameHash}.pdf")
+    ggsave(&"{pathPrefix}/gasgain_vs_calibration_charge_{fnameHash}.pdf")

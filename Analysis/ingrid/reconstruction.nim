@@ -616,15 +616,16 @@ proc applyCalibrationSteps(h5f: var H5FileObj,
       else:
         warn "No reconstructed run found for $#" % $grp
 
-proc parseTomlConfig(): set[ConfigFlagKind] =
-  ## parses our config.toml file and (for now) just returns a set of flags
-  ## corresponding to different settings
+proc parseTomlConfig(): (TomlValueRef, set[ConfigFlagKind]) =
+  ## parses our config.toml file and returns a set of flags
+  ## corresponding to different settings and the full toml table
   # TODO: concat together from `TpxDir`
   const sourceDir = currentSourcePath().parentDir
   let config = parseToml.parseFile(sourceDir / "config.toml")
-  let showPlot = config["Calibration"]["showPlots"].getBool
-  if showPlot:
-    result.incl cfShowPlots
+  var flags: set[ConfigFlagKind]
+  if config["Calibration"]["showPlots"].getBool:
+    flags.incl cfShowPlots
+  result = (config, flags)
 
 proc parseOnlyFlags(args: DocoptTab): set[RecoFlagKind] =
   if $args["--only_charge"] == "true":
@@ -650,6 +651,19 @@ proc flagsValid(h5f: H5FileObj, flags: set[RecoFlagKind]): bool =
       warn "Fit to charge calibration / gas gain only possible for " &
         "calibration runs!"
       return false
+
+proc genPlotDirname(h5f: H5FileObj, outpath: string)=
+  ## generates a unique name for the directory in which all plots for this H5
+  ## file will be created.
+  # first check whether this file already has such a name stored in its attributes
+  if plotDirPrefixAttr in h5f.attrs:
+    # nothing to do
+    discard
+  else:
+    # generate a new one. base filename w/o file extension and current date
+    let (_, name, _) = splitFile(h5f.name)
+    let timeStr = format(now(), "yyyy-MM-dd'_'HH-mm-ss")
+    h5f.attrs[plotDirPrefixAttr] = outpath / name & "_" & timeStr
 
 proc main() =
 
@@ -685,7 +699,7 @@ proc main() =
   flags = flags + parseOnlyFlags(args)
 
   # parse config toml file
-  let cfgFlags = parseTomlConfig()
+  let (cfgTable, cfgFlags) = parseTomlConfig()
 
   # TODO: put such a check back in here!!!
   #var rawGroup = h5f[rawGroupGrpStr]
@@ -696,16 +710,22 @@ proc main() =
   #    # reconstruction like this!
   #    return
 
+  let plotOutPath = cfgTable["Calibration"]["plotDirectory"].getStr
+  var h5f = H5file(h5f_name, "rw")
+  h5f.genPlotDirname(plotOutPath)
+
   if (flags * {rfOnlyEnergy .. rfOnlyGainFit}).card == 0:
     # `reconstruction` call w/o `--only-*` flag
     # visit the whole file to read which groups exist
-    var h5f = H5file(h5f_name, "rw")
     h5f.visitFile
     var h5fout: H5FileObj
     if outfile != "None":
       h5fout = H5file(outfile, "rw")
       h5fout.visitFile
-      reconstructRunsInFile(h5f, h5fout, flags, cfgFlags, runNumberArg = runNumber)
+      # copy over `plotDirPrefixAttr` to h5fout
+      h5fout.attrs[plotDirPrefixAttr] = h5f.attrs[plotDirPrefixAttr, string]
+      reconstructRunsInFile(h5f, h5fout, flags, cfgFlags,
+                            runNumberArg = runNumber)
 
     var err = h5f.close()
     if err != 0:
@@ -716,7 +736,9 @@ proc main() =
   else:
     var h5f = H5file(h5f_name, "rw")
     if flagsValid(h5f, flags):
-      applyCalibrationSteps(h5f, flags, cfgFlags, runNumber, calibFactor)
+      applyCalibrationSteps(h5f, flags, cfgFlags,
+                            runNumberArg = runNumber,
+                            calibFactor = calibFactor)
     else:
       logging.warn &"Invalid flags given for file {h5f_name}: {flags}"
 

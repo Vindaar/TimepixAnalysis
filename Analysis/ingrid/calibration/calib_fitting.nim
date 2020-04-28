@@ -602,7 +602,8 @@ proc fitPolyaNim*(charges,
   fitPolyaTmpl(charges, counts, chipNumber, runNumber):
     # set ``x``, ``y`` result and use to create plot
     # create NLopt optimizer without parameter bounds
-    let bounds = @[(-Inf, Inf), (-Inf, Inf), (0.5, 15.0)]
+    let maxP0 = max(counts) * 5000
+    let bounds = @[(0.0, maxP0), (1000.0, 8000.0), (0.5, 15.0)]
     var opt = newNloptOpt[FitObject](LN_COBYLA, 3, bounds)
     #var opt = newNloptOpt[FitObject](LD_MMA, 3, bounds)
     # get charges in the fit range

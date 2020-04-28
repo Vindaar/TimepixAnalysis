@@ -831,6 +831,12 @@ proc feSpectrum(h5f: var H5FileObj, runType: RunTypeKind,
                                    runs: fileInfo.runs,
                                    chip: fileInfo.centerChip,
                                    plotKind: pkFeVsTime)
+  let photoChVsTime = PlotDescriptor(runType: runType,
+                                     name: "PhotoPeakChargeVsTime",
+                                     xlabel: "Time / unix",
+                                     runs: fileInfo.runs,
+                                     chip: fileInfo.centerChip,
+                                     plotKind: pkFeChVsTime)
   let phPixDivChVsTime = PlotDescriptor(runType: runType,
                                    name: "PhotoPixDivChVsTime",
                                    xlabel: "Time / unix",
@@ -838,7 +844,7 @@ proc feSpectrum(h5f: var H5FileObj, runType: RunTypeKind,
                                    chip: fileInfo.centerChip,
                                    plotKind: pkFePixDivChVsTime)
   let photoVsTimeHalfH = PlotDescriptor(runType: runType,
-                                        name: "PhotoPeakVsTime",
+                                        name: "PhotoPeakVsTimeHalfHour",
                                         xlabel: "Time / unix",
                                         runs: fileInfo.runs,
                                         chip: fileInfo.centerChip,
@@ -846,8 +852,17 @@ proc feSpectrum(h5f: var H5FileObj, runType: RunTypeKind,
                                         splitBySec: 1800,
                                         lastSliceError: 0.2,
                                         dropLastSlice: false)
+  let photoChVsTimeHalfH = PlotDescriptor(runType: runType,
+                                          name: "PhotoPeakChargeVsTimeHalfHour",
+                                          xlabel: "Time / unix",
+                                          runs: fileInfo.runs,
+                                          chip: fileInfo.centerChip,
+                                          plotKind: pkFeChVsTime,
+                                          splitBySec: 1800,
+                                          lastSliceError: 0.2,
+                                          dropLastSlice: false)
   let phPixDivChVsTimeHalfH = PlotDescriptor(runType: runType,
-                                             name: "PhotoPixDivChVsTime",
+                                             name: "PhotoPixDivChVsTimeHalfHour",
                                              xlabel: "Time / unix",
                                              runs: fileInfo.runs,
                                              chip: fileInfo.centerChip,
@@ -856,6 +871,7 @@ proc feSpectrum(h5f: var H5FileObj, runType: RunTypeKind,
                                              lastSliceError: 0.2,
                                              dropLastSlice: false)
   result.add @[photoVsTime, phPixDivChVsTime,
+               photoChVsTime, photoChVsTimeHalfH,
                photoVsTimeHalfH, phPixDivChVsTimeHalfH]
   #for runNumber, grpName in runs(h5f):
   #  var group = h5f[grpName.grp_str]
@@ -1115,8 +1131,11 @@ template createFeVsTimeDataFrame(h5f: var H5FileObj,
     let dfEv = seqsToDf({ "eventNumber" : evNum, "timestamp" : tstamp })
     path &= "/chip_" & $pd.chip
     let feSpec = h5f[path / "FeSpectrum", int]
+    let feSpecCh = h5f[path / "FeSpectrumCharge", float]
     let feSpecEvNum = h5f[path / "FeSpectrumEvents", int]
-    let dfFeSpec = seqsToDf({ "eventNumber" : feSpecEvNum, "FeSpectrum" : feSpec })
+    let dfFeSpec = seqsToDf({ "eventNumber" : feSpecEvNum,
+                              "FeSpectrum" : feSpec,
+                              "FeSpectrumCharge" : feSpecCh})
     # return the joined df from template
     inner_join(dfEv, dfFeSpec, by = "eventNumber")
 
@@ -1267,6 +1286,12 @@ proc handleFeVsTime(h5f: var H5FileObj,
                     fileInfo: FileInfo,
                     pd: PlotDescriptor): (string, PlotV) =
   const kalphaPix = 10
+  const kalphaCharge = 4
+  var kalphaIdx: int
+  case pd.plotKind
+  of pkFeVsTime: kalphaIdx = kalphaPix
+  of pkFeChVsTime: kalphaIdx = kalphaCharge
+  else: doAssert false, "Invalid for handle fe vs time!"
   const parPrefix = "p"
   const dateStr = "yyyy-MM-dd'.'HH:mm:ss" # example: 2017-12-04.13:39:45
   var
@@ -1278,9 +1303,16 @@ proc handleFeVsTime(h5f: var H5FileObj,
     let group = h5f[(recoBase & $r).grp_str]
     let chpGrpName = group.name / "chip_" & $pd.chip
     if pd.splitBySec == 0:
-      pixSeq.add h5f[(chpGrpName / "FeSpectrum").dset_str].attrs[
-        parPrefix & $kalphaPix, float
-      ]
+      case pd.plotKind
+      of pkFeVsTime:
+        pixSeq.add h5f[(chpGrpName / "FeSpectrum").dset_str].attrs[
+          parPrefix & $kalphaIdx, float
+        ]
+      of pkFeChVsTime:
+        pixSeq.add h5f[(chpGrpName / "FeSpectrumCharge").dset_str].attrs[
+          parPrefix & $kalphaIdx, float
+        ]
+      else: doAssert false, "not possible"
       dates.add parseTime(group.attrs["dateTime", string],
                           dateStr,
                           utc()).toUnix.float
@@ -1310,11 +1342,22 @@ proc handleFeVsTime(h5f: var H5FileObj,
             .map(x => x.FeSpectrum.int)
             .collect()
         else:
-          let hits = joined.filter(fn {int: `timestamp` >= slStart and
-                                       `timestamp` < slStop})["FeSpectrum"]
-            .toTensor(int).clone.toRawSeq
+          let hitsTensor = joined.filter(fn {int: `timestamp` >= slStart and
+                                             `timestamp` < slStop})["FeSpectrum"]
+            .toTensor(int)
+          var hits: seq[int]
+          if hitsTensor.size > 0:
+            hits = hitsTensor.clone.toRawSeq
+          else:
+            # skip this batch
+            echo "WARNING: Skipping empty batch!"
+            continue
 
-        let res = fitFeSpectrum(hits)
+        var res: FeSpecFitData
+        case pd.plotKind
+        of pkFeVsTime: res = fitFeSpectrum(hits)
+        of pkFeChVsTime: res = fitFeSpectrumCharge(hits)
+        else: doAssert false, "not possible"
         #let res0 = res[0].mapIt(it.float)
         #let res1 = res[1].mapIt(it.float)
 
@@ -1332,7 +1375,7 @@ proc handleFeVsTime(h5f: var H5FileObj,
 
         #let pyRes = pyFitFe.fitAndPlotFeSpectrum([hits], "", ".", r,
         #                                         true)
-        let kalphaLoc = res.pRes[kalphaPix]
+        let kalphaLoc = res.pRes[kalphaIdx]
         let tstamp = (slStop + slStart).float / 2.0
         pixSeq.add kalphaLoc
         dates.add tstamp
@@ -1627,7 +1670,7 @@ proc createPlot*(h5f: var H5FileObj,
     result = handleBarScatter(h5f, fileInfo, pd)
   of pkCombPolya:
     result = handleCombPolya(h5f, fileInfo, pd)
-  of pkFeVsTime:
+  of pkFeVsTime, pkFeChVsTime:
     result = handleFeVsTime(h5f, fileInfo, pd)
   of pkFePixDivChVsTime:
     result = handleFePixDivChVsTime(h5f, fileInfo, pd)

@@ -16,7 +16,8 @@ type
     pkEnergyCalib          # Energy calibration from Fe pixel spectrum
     pkFeSpecCharge         # Fe charge (or different) spectrum
     pkEnergyCalibCharge    # Energy calibration from Fe charge spectrum
-    pkFeVsTime             # Evolution of Fe pix peak location vs tim
+    pkFeVsTime             # Evolution of Fe pix peak location vs time
+    pkFeChVsTime           # Evolution of Fe charge peak location vs time
     pkFePixDivChVsTime     # Evolution of Fe (pix peak / charge peak) location vs time"
     pkInGridEvent          # Individual InGrid event
     pkFadcEvent            # Individual FADC event
@@ -79,7 +80,7 @@ type
     of pkInGridEvent, pkFadcEvent:
       # events*: OrderedSet[int] # events to plot (indices at the moment, not event numbers)
       event*: int # the current event being plotted
-    of pkFeVsTime, pkFePixDivChVsTime:
+    of pkFeVsTime, pkFeChVsTime, pkFePixDivChVsTime:
       # If unequal to 0 will create the plot not just split by runs, but rather split the
       # calib data for each run in pieces of `splitBySec` seconds of time slices.
       splitBySec*: int

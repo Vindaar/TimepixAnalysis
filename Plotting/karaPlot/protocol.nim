@@ -75,7 +75,8 @@ const FeSpecChargeFnameTemplate* = "fe_charge_spectrum_run$1"
 const FeSpecTitleTemplate* = "Fe pixel spectrum of run $1 for chip $2"
 const FeSpecChargeTitleTemplate* = "Fe charge spectrum of run $1 for chip $2"
 const EnergyCalibFnameTemplate* = "fe_energy_calib_run$1"
-const PhotoVsTimeFnameTemplate* = "photopeak_vs_time_runs$1"
+const PhotoVsTimeFnameTemplate* = "photopeak_vs_time_runs$1_$2"
+const PhotoChargeVsTimeFnameTemplate* = "photopeak_charge_vs_time_runs$1_$2"
 const PhotoVsTimeTitleTemplate* = "Photopeak pixel peak position of Fe spectra (runs $1) vs time"
 const PhotoPixDivChVsTimeFnameTemplate* = "photopeak_pix_div_charge_pos_vs_time_runs$1"
 const PhotoPixDivChVsTimeTitleTemplate* = "Photopeak pix / charge of Fe spectra (runs $1) vs time"
@@ -372,7 +373,11 @@ proc buildOutfile*(pd: PlotDescriptor, prefix, filetype: string): kstring =
   of pkFeSpecCharge:
     name = FeSpecChargeFnameTemplate %% [runsStr]
   of pkFeVsTime:
-    name = PhotoVsTimeFnameTemplate %% [runsStr]
+    name = PhotoVsTimeFnameTemplate %% [runsStr,
+                                        $pd.splitBySec]
+  of pkFeChVsTime:
+    name = PhotoChargeVsTimeFnameTemplate %% [runsStr,
+                                              $pd.splitBySec]
   of pkFePixDivChVsTime:
     name = PhotoPixDivChVsTimeFnameTemplate %% [runsStr]
   of pkInGridEvent:

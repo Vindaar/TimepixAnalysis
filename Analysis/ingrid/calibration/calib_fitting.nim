@@ -147,8 +147,6 @@ proc fitThlCalib*(charge, thl, thlErr: seq[float]): FitResult =
   # determine start parameters
   let p = @[0.0, (thl[1] - thl[0]) / (charge[1] - charge[0])]
 
-  echo "Fitting ", charge, " ", thl, " ", thlErr
-
   let (pRes, res) = fit(thlCalibFunc, p, charge, thl, thlErr)
   # echo parameters
   echoResult(pRes, res = res)
@@ -348,7 +346,6 @@ template fitNlopt*(xData, yData, errData: seq[float],
                    body: untyped
               ): untyped =
   doAssert xData.len == yData.len
-  echo "START PARAMS : ", params
   var opt = newNloptOpt[FitObject](algorithm, params.len, bounds)
   # get charges in the fit range
   # hand the function to fit as well as the data object we need in it
@@ -396,9 +393,6 @@ proc fitFeSpectrumImpl(hist, binning: seq[float]): FeSpecFitData =
   # this leaves parameter 7 and 8, as well as 12 and 13 without bounds
   # these describe the exponential factors contributing, since they will
   # be small anyways...
-  echo "Len of bounds: ", bounds
-  echo "Bounds for pixel fit: ", bounds
-  echo "N params for pixel fit: ", len(params)
 
   # only fit in range up to 350 hits. Can take index 350 on both, since we
   # created the histogram for a binning with width == 1 pixel per hit
@@ -458,9 +452,6 @@ proc fitFeSpectrumChargeImpl(hist, binning: seq[float]): FeSpecFitData =
   # fit a double gaussian to the data
   let params = getFeSpectrumChargeParams(hist, binning)
   let bounds = getFeSpectrumChargeBounds()
-  echo "Len of bounds: ", bounds
-  echo "Bounds for pixel fit: ", bounds
-  echo "N params for pixel fit: ", len(params)
   # only fit in range up to 350 hits. Can take index 350 on both, since we
   # created the histogram for a binning with width == 1 pixel per hit
   let idx_tofit = toSeq(0 .. binning.high).filterIt(binning[it] >= 200 and binning[it] < 4000)

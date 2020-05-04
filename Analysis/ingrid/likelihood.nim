@@ -561,7 +561,7 @@ proc applySeptemVeto(h5f, h5fout: var H5FileObj,
   #echo septemDf
 
   # now filter events for `centerChip` from and compare with `passedInds`
-  let centerDf = septemDf.filter(f{"chipNumber" == centerChip})
+  let centerDf = septemDf.filter(f{int: `chipNumber` == centerChip})
   #echo "Center df ", centerDf
   let passedEvs = passedInds.mapIt(centerDf["eventNumber", it]).sorted.toOrderedSet
   #echo passedEvs
@@ -989,10 +989,10 @@ proc calcSigEffBackRej(df: DataFrame, logLBins: seq[float],
   ## given data frame, split by the `bins` column (that is CDL classes)
   let dfG = df.group_by("Bin")
   for (pair, subDf) in groups(dfG):
-    let logL = subDf["Likelihood"].vToSeq.mapIt(it.toFloat).sorted
+    let logL = subDf["Likelihood"].toTensor(float).sorted
     var effs = newSeqOfCap[float](logLBins.len)
     for l in logLBins:
-      let eff = determineEff(logL, l, isBackground = isBackground)
+      let eff = determineEff(logL.toRawSeq, l, isBackground = isBackground)
       effs.add eff
     echo pair
     let binConst = toSeq(0 ..< effs.len).mapIt(pair[0][1].toStr)
@@ -1008,9 +1008,9 @@ proc calcRocCurve(dfSignal, dfBackground: DataFrame): DataFrame =
   const LogLBins = 500
   let logLBins = linspace(0.0, 40.0, LogLBins)
   let sigEffDf = calcSigEffBackRej(dfSignal, logLBins, isBackground = false)
-    .rename(f{"sigEff" ~ "eff"})
+    .rename(f{"sigEff" <- "eff"})
   let backRejDf = calcSigEffBackRej(dfBackground, logLBins, isBackground = true)
-    .rename(f{"backRej" ~ "eff"})
+    .rename(f{"backRej" <- "eff"})
   result = innerJoin(sigEffDf, backRejDf, by = "cutVals")
   echo result
 
@@ -1025,7 +1025,7 @@ proc createRocCurves(h5Back: H5FileObj,
   ## the X-ray reference file.
   let dfSignal = readLikelihoodDsetsCdl(cdlFile, refFile, yearKind, region)
   let dfBack = readLikelihoodDsets(h5Back)
-    .filter(f{"Likelihood" != Inf})
+    .filter(f{float: `Likelihood` != Inf})
   ggplot(dfBack, aes("Likelihood", fill = "Bin")) +
     geom_histogram(binWidth = 0.2) +
     ggtitle("-LnL distributions of non-tracking background, stacked",

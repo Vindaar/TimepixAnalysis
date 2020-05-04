@@ -320,24 +320,28 @@ func getFeSpectrumBounds(hist, binning: seq[float]): seq[tuple[l, u: float]] =
   result[14].l = 0.01
   result[14].u = 0.3
 
-func getFeSpectrumChargeBounds(): seq[tuple[l, u: float]] =
+func getFeSpectrumChargeBounds(hist, binning: seq[float]): seq[tuple[l, u: float]] =
   result = getBoundsList(6)
-  # NOTE: Bounds for this fit seem unnecessary. Fit converges just fine
-  # This way we get the Chi^2/dof
-  # result[0].l = 0
-  # result[0].u = 10000
-  # result[3].l = 0
-  # result[3].u = 10000
-  #
-  # result[1].l = mkalpha_esc*0.8
-  # result[1].u = mkalpha_esc*1.2
-  # result[4].l = mkalpha*0.8
-  # result[4].u = mkalpha*1.2
-  #
-  # result[2].l = sigma_kalpha_esc*0.5
-  # result[2].u = sigma_kalpha_esc*1.5
-  # result[5].l = sigma_kalpha*0.5
-  # result[5].u = sigma_kalpha*1.5
+  let (mu_kalpha,
+       sigma_kalpha,
+       n_kalpha,
+       mu_kalpha_esc,
+       sigma_kalpha_esc,
+       n_kalpha_esc) = getLines(hist, binning)
+  result[0].l = 0
+  result[0].u = 10000
+  result[3].l = 0
+  result[3].u = 10000
+
+  result[1].l = mu_kalpha_esc*0.8
+  result[1].u = mu_kalpha_esc*1.2
+  result[4].l = mu_kalpha*0.8
+  result[4].u = mu_kalpha*1.2
+
+  result[2].l = sigma_kalpha_esc*0.5
+  result[2].u = sigma_kalpha_esc*1.5
+  result[5].l = sigma_kalpha*0.5
+  result[5].u = sigma_kalpha*1.5
 
 template fitNlopt*(xData, yData, errData: seq[float],
                    bounds: seq[tuple[l, u: float]],
@@ -457,7 +461,7 @@ proc fitFeSpectrumChargeImpl(hist, binning: seq[float]): FeSpecFitData =
   # for fit := (y / x) data
   # fit a double gaussian to the data
   let params = getFeSpectrumChargeParams(hist, binning)
-  let bounds = getFeSpectrumChargeBounds()
+  let bounds = getFeSpectrumChargeBounds(hist, binning)
   # only fit in range up to 350 hits. Can take index 350 on both, since we
   # created the histogram for a binning with width == 1 pixel per hit
   let idx_tofit = toSeq(0 .. binning.high).filterIt(binning[it] >= 200 and binning[it] < 4000)

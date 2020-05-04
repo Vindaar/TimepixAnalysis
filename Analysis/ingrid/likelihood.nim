@@ -1082,7 +1082,7 @@ proc createRocCurves(h5Back: H5FileObj,
   ## still is lower than it should be!
   # then determine efficiency in both signal and background
   # for computational efficiency reason only use raw, sorted `seq[float]`
-  let res = calcRocCurve(dfSignal, dfBack)
+  let res = calcRocCurve(dfSignal, readLikelihoodDsets(h5Back))
   ggplot(res, aes("sigEff", "backRej", color = "bin")) +
     geom_line() +
     ggtitle("ROC curves for likelihood method, 2014 data") +

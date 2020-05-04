@@ -1165,14 +1165,14 @@ proc generateCdlCalibrationFile(h5file: string, year: YearKind,
         if outname notin h5fout:
           # create dataset first
           case dset.dtypeAnyKind
-          of akSequence:
+          of dkSequence:
             # keep their base type and create special type
             case dset.dtypeBaseKind
-            of akUint8:
+            of dkUint8:
               createAndWrite(h5f, h5fout, uint8, dset, outname)
-            of akUint16:
+            of dkUint16:
               createAndWrite(h5f, h5fout, uint16, dset, outname)
-            of akFloat64:
+            of dkFloat64:
               # charge
               createAndWrite(h5f, h5fout, float64, dset, outname)
             else:
@@ -1184,14 +1184,14 @@ proc generateCdlCalibrationFile(h5file: string, year: YearKind,
           # append to dataset
           var outDset = h5fout[outname.dset_str]
           case outDset.dtypeAnyKind
-          of akSequence:
+          of dkSequence:
             # keep their base type and create special type
             case outDset.dtypeBaseKind
-            of akUint8:
+            of dkUint8:
               getAndAdd(h5f, h5fout, dset, uint8, outDset)
-            of akUint16:
+            of dkUint16:
               getAndAdd(h5f, h5fout, dset, uint16, outDset)
-            of akFloat64:
+            of dkFloat64:
               getAndAdd(h5f, h5fout, dset, float64, outDset)
             else:
               raise newException(Exception, "??? " & $dset)
@@ -1259,7 +1259,7 @@ proc generateXrayReferenceFile(h5file: string, year: YearKind,
         # given passIdx, now read each dataset iteratively and apply cuts
         for dset in mgrp:
           case dset.dtypeAnyKind
-          of akSequence:
+          of dkSequence:
             # variable length data, x, y, charge, will be dropped in conversion
             discard
           else:
@@ -1303,7 +1303,7 @@ proc generateXrayReferenceFile(h5file: string, year: YearKind,
         # given passIdx, now read each dataset iteratively and apply cuts
         for dset in mgrp:
           case dset.dtypeAnyKind
-          of akSequence:
+          of dkSequence:
             # variable length data, x, y, charge, will be dropped in conversion
             discard
           else:

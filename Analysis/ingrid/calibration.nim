@@ -369,7 +369,6 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int) =
       let fitResult = fitPolyaNim(bin_edges,
                                   binned.asType(float64),
                                   chipNumber, runNumber)
-
       # create plots if desired
       info "Plotting polya of run: ", runNumber, " and chip: ", chipNumber
       plotGasGain(bin_edges, binned.asType(float64),

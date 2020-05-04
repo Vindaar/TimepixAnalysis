@@ -7,6 +7,7 @@ The actual functions to be fitted are found in `fit_functions.nim`
 
 import seqmath, sequtils, stats, strformat, fenv
 import nlopt, mpfit
+import ggplotnim
 
 import .. / ingrid_types
 import fit_functions
@@ -383,7 +384,19 @@ template fitNlopt*(xData, yData, errData: seq[float],
   # clean up optimizer
   nlopt_destroy(opt.optimizer)
 
-import ggplotnim, os
+proc dumpStartParamsPlot(bins_to_fit, data_to_fit: seq[float],
+                         params: seq[float],
+                         fn: proc(p_ar: seq[float], x: float): float) =
+  ## generates a plot of rhte data and the start parameters
+  let df = seqsToDf({ "x" : bins_to_fit,
+                      "y" : data_to_fit,
+                      "yFit" : bins_to_fit.mapIt(fn(params, it))})
+  echo df.pretty(-1)
+  ggplot(df, aes("x", "y")) +
+    geom_histogram(stat = "identity") +
+    geom_line(aes(y = "yFit")) +
+    ggsave("/tmp/start_params.pdf")
+
 proc fitFeSpectrumImpl(hist, binning: seq[float]): FeSpecFitData =
   # given our histogram and binning data
   # for fit := (y / x) data
@@ -402,14 +415,7 @@ proc fitFeSpectrumImpl(hist, binning: seq[float]): FeSpecFitData =
   let err = data_tofit.mapIt(1.0)
 
   when false:
-    let df = seqsToDf({ "x" : bins_to_fit,
-                        "y" : data_to_fit,
-                        "yFit" : bins_to_fit.mapIt(feSpectrumFunc(params, it))})
-    ggplot(df, aes("x", "y")) +
-      geom_histogram(stat = "identity") +
-      geom_line(aes(y = "yFit")) +
-      ggsave("/tmp/start_params.pdf")
-
+    dumpStartParamsPlot(bins_to_fit, data_to_fit, params, feSpectrumFunc)
     var pResNlopt: seq[float]
     fitNlopt(bins_tofit, data_tofit, err, bounds, LN_COBYLA, params,
              feSpectrumFunc):
@@ -458,6 +464,10 @@ proc fitFeSpectrumChargeImpl(hist, binning: seq[float]): FeSpecFitData =
   let data_tofit = idx_tofit.mapIt(hist[it])
   let bins_tofit = idx_tofit.mapIt(binning[it])
   let err = data_tofit.mapIt(1.0)
+
+  when false:
+    dumpStartParamsPlot(bins_to_fit, data_to_fit, params, feSpectrumChargeFunc)
+
   let (pRes, res) = fit(feSpectrumChargeFunc,
                         params,
                         bins_tofit,

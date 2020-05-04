@@ -1052,6 +1052,31 @@ proc createRocCurves(h5Back: H5FileObj,
             titlefont = font(11.0)) +
     ggsave("signalLogL_freqPoly.pdf")
 
+  let xrayRef = getXrayRefTable()
+  var labelOrder = initTable[Value, int]()
+  for idx, el in xrayRef:
+    labelOrder[%~ el] = idx
+  ggplot(dfBack, aes("Likelihood", fill = "Bin")) +
+    geom_histogram(binWidth = 0.2,
+                   position = "identity",
+                   alpha = some(0.5)) +
+    ggridges("Bin", overlap = 2.0,
+             labelOrder = labelOrder) +
+    ggtitle("-LnL distributions of non tracking background as ridgeline",
+            titlefont = font(11.0)) +
+    ggsave("backgroundLogL_ridgeline.pdf",
+           height = 600.0)
+  ggplot(dfSignal, aes("Likelihood", fill = "Bin")) +
+    geom_histogram(binWidth = 0.2,
+                   position = "identity",
+                   alpha = some(0.5)) +
+    ggridges("Bin", overlap = 2.0,
+             labelOrder = labelOrder) +
+    ggtitle("-LnL distributions of cdl calibration data as ridgeline",
+            titlefont = font(11.0)) +
+    ggsave("signalLogL_ridgeline.pdf",
+           height = 600.0)
+
 
   ## TODO: IMPORTANT the results are still wrong!!! Especially the `0.9 Cu EPIC` line
   ## still is lower than it should be!

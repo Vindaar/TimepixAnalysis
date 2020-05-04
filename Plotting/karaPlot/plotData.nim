@@ -95,18 +95,6 @@ type
   BackendKind* = enum
     bNone, bMpl, bPlotly, bGgPlot
 
-  Scatter[T] = object
-    case kind: BackendKind
-    of bMpl:
-      x: PyObject
-      y: PyObject
-      xerr: PyObject
-      yerr: PyObject
-    of bPlotly:
-      # for plotly we store everything in a trace already
-      tr: Trace[T]
-    else: discard
-
   # variant object for the layout combining both
   # TODO: make generic or always use float?
   PlotV* = object
@@ -1331,6 +1319,10 @@ proc handleFeVsTime(h5f: var H5FileObj,
                        i * pd.splitBySec + length mod pd.splitBySec + tStart
                      else:
                        (i + 1) * pd.splitBySec + tStart
+        if slStop - slStart < 300:
+          echo "Skipping last batch of less than 5 min length: ",
+            (slStop - slStart), " seconds."
+          continue
         echo "Run: ", r, " in batch ", i
         echo "Starting from ", slStart
         echo "Stopping at ", slStop
@@ -1341,7 +1333,6 @@ proc handleFeVsTime(h5f: var H5FileObj,
             .map(x => x.FeSpectrum.int)
             .collect()
         else:
-
           let hitsTensor = joined.filter(fn {int: `timestamp` >= slStart and
                                                   `timestamp` < slStop})[dset]
             .toTensor(int)

@@ -167,10 +167,10 @@ proc getLines(hist, binning: seq[float]): (float, float, float, float, float, fl
   # as well as escape peak
   doAssert binning.len > 0
   let peakIdx = argMax(hist)
-  let halfIdx = toSeq(0 ..< hist.len).filterIt(hist[it] > (hist[peakIdx] / 2.0))[0]
+  let halfIdxS = toSeq(0 ..< hist.len).filterIt(hist[it] > (hist[peakIdx] / 2.0))
+  let sigma_Kalpha = (binning[halfIdxS[^1]] - binning[halfIdxS[0]]) / 2.0
   let mu_Kalpha = binning[peakIdx]
 
-  let sigma_Kalpha = (muKalpha - binning[halfIdx]) * 0.8
   let n_kalpha = hist[peakIdx]
 
   let ratio = mu_Kalpha / sigma_Kalpha

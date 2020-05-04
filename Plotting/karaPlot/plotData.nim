@@ -77,8 +77,8 @@ const doc = docTmpl % [commitHash, currentDate]
 
 const
   GoldenMean = (sqrt(5.0) - 1.0) / 2.0  # Aesthetic ratio
-  FigWidth = 1200.0                     # width in inches
-  FigHeight = FigWidth * GoldenMean     # height in inches
+  FigWidth = 800.0                      # width in pixels
+  FigHeight = FigWidth * GoldenMean     # height in pixels
 
   InGridDsets = ["length", "width", "skewnessLongitudinal", "skewnessTransverse",
                  "kurtosisLongitudinal", "kurtosisTransverse", "rotationAngle",

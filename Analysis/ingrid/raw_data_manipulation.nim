@@ -54,14 +54,8 @@ const FILE_BUFSIZE = 25000
 ##############################
 # create globals for 2014/15 run list
 ##############################
-# TOD: should this actually be in here?
-const OldTosRunlist = "Runlist-CAST-D03-W0063.csv"
-const AppDir = getProjectPath()
-var TpxDir {.compileTime.} = ""
-static:
-  discard parseUntil(AppDir, TpxDir, "TimepixAnalysis")
-  TpxDir = TpxDir / "TimepixAnalysis/resources/" / OldTosRunList
-const OldTosRunListPath = TpxDir
+# projectDefs contains `OldTosRunListPath` among others
+import projectDefs
 when fileExists(OldTosRunListPath):
   let oldTosCalibRuns = parseOldTosRunlist(OldTosRunListPath, rtCalibration)
   let oldTosBackRuns  = parseOldTosRunlist(OldTosRunListPath, rtBackground)

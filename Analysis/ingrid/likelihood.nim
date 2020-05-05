@@ -109,40 +109,23 @@ proc buildLogLHist(cdlFile, refFile, dset: string,
   of yr2018:
     cutsTab = getEnergyBinMinMaxVals2018()
 
+  var frameworkKind = fkMarlin
+
   echo "Opening file to build LogL from ", cdlFile
   withH5(cdlFile, "rw"):
+    if "FrameworkKind" in h5f.attrs:
+      frameworkKind = parseEnum[FrameworkKind](h5f.attrs["FrameworkKind", string])
     # open h5 file using template
-    var
-      energyStr = ""
-      logLStr = ""
-      centerXStr = ""
-      centerYStr = ""
-      eccStr = ""
-      lengthStr = ""
-      chargeStr = ""
-      rmsTransStr = ""
-      npixStr = ""
-    case year
-    of yr2014:
-      energyStr = "EnergyFromCharge"
-      logLStr = "LikelihoodMarlin"
-      centerXStr = "PositionX"
-      centerYStr = "PositionY"
-      eccStr = "Excentricity"
-      lengthStr = "Length"
-      chargeStr = "TotalCharge"
-      rmsTransStr = "RmsTransverse"
-      npixStr = "NumberOfPixels"
-    of yr2018:
-      energyStr = "energyFromCharge"
-      logLStr = "likelihood"
-      centerXStr = "centerX"
-      centerYStr = "centerY"
-      eccStr = "eccentricity"
-      lengthStr = "length"
-      chargeStr = "totalCharge"
-      rmsTransStr = "rmsTransverse"
-      npixStr = "hits"
+    let
+      energyStr = igEnergyFromCharge.toDset(frameworkKind)
+      logLStr = igLikelihood.toDset(frameworkKind)
+      centerXStr = igCenterX.toDset(frameworkKind)
+      centerYStr = igCenterY.toDset(frameworkKind)
+      eccStr = igEccentricity.toDset(frameworkKind)
+      lengthStr = igLength.toDset(frameworkKind)
+      chargeStr = igTotalCharge.toDset(frameworkKind)
+      rmsTransStr = igRmsTransverse.toDset(frameworkKind)
+      npixStr = igHits.toDset(frameworkKind)
 
     # for likelihood dataset: aside from `resources/calibration-cdl.h5`, every other file
     # may not yet have access to the likelihood dataset. So we have to check for that and
@@ -167,7 +150,6 @@ proc buildLogLHist(cdlFile, refFile, dset: string,
       # get the cut values for this dataset
       cuts = cutsTab[dset]
       xrayCuts = xrayCutsTab[dset]
-
     result[0] = newSeqOfCap[float](energy.len)
     result[1] = newSeqOfCap[float](energy.len)
     for i in 0 .. energy.high:
@@ -256,24 +238,23 @@ proc readRefDsets(refFile: string, yearKind: YearKind): tuple[ecc, ldivRms, frac
   # create a table, which stores the reference datasets from the ref file
   const xray_ref = getXrayRefTable()
 
+  # check if `FrameworkKind` defined in root of `h5ref` and if it is use the naming
+  # scheme from there, otherwise use fkMarlin
+  var frameworkKind: FrameworkKind = fkMarlin
+  if "FrameworkKind" in h5ref.attrs:
+    frameworkKind = parseEnum[FrameworkKind](h5ref.attrs["FrameworkKind", string])
+
   var
     ecc_ref = initTable[string, histTuple]()
     lengthDivRmsTrans_ref = initTable[string, histTuple]()
     fracRmsTrans_ref = initTable[string, histTuple]()
   for dset_name in values(xray_ref):
-    var
-      eccStr = ""
-      ldivrmsStr = ""
-      frmstStr = ""
-    case yearKind
-    of yr2014:
-      eccStr = "excentricity"
-      ldivrmsStr = "lengthdivbyrmsy"
-      frmstStr = "fractionwithinrmsy"
-    of yr2018:
-      eccStr = "eccentricity"
-      ldivrmsStr = "lengthDivRmsTrans"
-      frmstStr = "fractionInTransverseRms"
+    # naming scheme does not depend on the actual data being processed, but only on what was used to
+    # generate the `XrayReferenceFile.h5`
+    let
+      eccStr = igEccentricity.toDset(frameworkKind)
+      ldivrmsStr = igLengthDivRmsTrans.toDset(frameworkKind)
+      frmstStr = igFractionInTransverseRms.toDset(frameworkKind)
     var
       ecc = h5ref[(dset_name / eccStr).dset_str]
       ldivrms = h5ref[(dset_name / ldivrmsStr).dset_str]
@@ -337,7 +318,6 @@ proc calcLikelihoodDataset(h5f: var H5FileObj,
     result[i] = logL
     # if logL != Inf:
     #   discard
-
 
 proc writeLogLDsetAttributes[T: H5DataSet | H5Group](dset: var T,
                              cdlFile, refFile: string,

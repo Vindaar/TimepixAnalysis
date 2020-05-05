@@ -43,6 +43,13 @@ const filename = TpxDir / "resources/cdl_runs_2014.org"
 #actually cutparams isn't necessary since cuts are choosen in tos helpers
 const outdate = &"2019"
 const chipnumber = "3"
+# this global can be changed to create the XrayReferenceFile.h5 using the
+# 2014 naming scheme (default TPA naming)
+const XrayRefGenerateNamingScheme = fkTpa
+# this global can be changed to create the calibration-cdl.h5 using the
+# 2014 naming scheme (default TPA naming)
+const CdlGenerateNamingScheme = fkTpa
+
 
 ## some different color definitions
 const Color1 = color(1.0, 0.0, 102.0 / 256.0)
@@ -1098,17 +1105,18 @@ proc cdlToXrayTransform(h5fout: var H5FileObj,
   of yr2018:
     (numBins, minVal, maxVal) = cdlToXrayBinning2018(outname)
   # given passing data, calculate histogram and write to file
-  let (hist, bins) = histogram(passedData,
-                               numBins,
-                               range = (minVal, maxVal),
-                               upperRangeBinRight = false)
-  # combine the hist bins data to a seq2D
-  let histBins = @[bins[0 .. ^2], hist.mapIt(it.float)].transpose
-  # create dataset
-  let dsetToWrite = h5fout.create_dataset((tfKindStr / outname),
-                                          histBins.shape,
-                                          float)
-  dsetToWrite[dsetToWrite.all] = histBins
+  if numBins > 0: # means its a dataset that will show up in the resulting file
+    let (hist, bins) = histogram(passedData,
+                                 numBins,
+                                 range = (minVal, maxVal),
+                                 upperRangeBinRight = false)
+    # combine the hist bins data to a seq2D
+    let histBins = @[bins[0 .. ^2], hist.mapIt(it.float)].transpose
+    # create dataset
+    let dsetToWrite = h5fout.create_dataset((tfKindStr / outname),
+                                            histBins.shape,
+                                            float)
+    dsetToWrite[dsetToWrite.all] = histBins
 
 proc readAndFilter(h5f: var H5FileObj,
                    dsetName: string,
@@ -1198,6 +1206,8 @@ proc generateCdlCalibrationFile(h5file: string, year: YearKind,
               raise newException(Exception, "??? " & $dset)
           else:
             outDset.add h5f.readAs(dset.name, float)
+
+  h5fout.attrs["FrameworkKind"] = $CdlGenerateNamingScheme
   discard h5f.close()
   discard h5fout.close()
 
@@ -1210,6 +1220,11 @@ proc generateXrayReferenceFile(h5file: string, year: YearKind,
   # then we apply the charge cuts and bin the data by N bins
   # the result is written to the new file as (N, 2) datasets
   var h5f = H5file(h5file, "r")
+  # read framework kind from `h5f`
+  var frameworkKind = fkMarlin
+  if "FrameworkKind" in h5f.attrs:
+    frameworkKind = parseEnum[FrameworkKind](h5f.attrs["FrameworkKind", string])
+
   if "reconstruction" in h5f:
     # is a raw file, first create the CDL calibration file
     discard h5f.close()
@@ -1232,51 +1247,46 @@ proc generateXrayReferenceFile(h5file: string, year: YearKind,
     xrayRefCuts = getEnergyBinMinMaxVals2018()
 
   var h5fout = H5file(outfile & $year & ".h5", "rw")
-
   for group in h5f:
     var mgrp = group
     echo group.name
     if scanf(group.name, "/calibration-cdl-$+-$+kV", date, tfKindStr):
-      case date
-      of "apr2014":
-        doAssert year == yr2014
-        # now perform cuts on datasets
-        doAssert tfKindStr & "kV" in xrayRefCuts
-        let cut = xrayRefCuts[tfKindStr & "kV"]
-        let passIdx = cutOnProperties(h5f,
-                                      group,
-                                      crSilver, # try cutting to silver
-                                      ("RmsTransverse", cut.minRms, cut.maxRms),
-                                      ("Length", 0.0, cut.maxLength),
-                                      ("NumberOfPixels", cut.minPix, Inf),
-                                      ("TotalCharge", cut.minCharge, cut.maxCharge))
-        echo "Number of passing indices ", passIdx.len
-        #let pix = h5f.readAs(group.name / "NumberOfPixels", float)
-        #let pixReduced = passIdx.mapIt(pix[it])
-        #let dfRaw = seqsToDf({"pix" : pix})
-        #let dfReduced = seqsToDf({"pix" : pixReduced})
-        #ggplot(dfRaw, aes("pix")) + geom_histogram(bins = 300) + ggsave("test_" & $tfKindStr & ".pdf")
-        #ggplot(dfReduced, aes("pix")) + geom_histogram(bins = 300) + ggsave("test_cut_" & $tfKindStr & ".pdf")
-        # given passIdx, now read each dataset iteratively and apply cuts
-        for dset in mgrp:
-          case dset.dtypeAnyKind
-          of dkSequence:
-            # variable length data, x, y, charge, will be dropped in conversion
-            discard
-          else:
-            # get the name of the dataset in the output
-            let dsetName = dset.name.extractFilename
-            var outname = ""
-            if dsetName.inCdl2014:
-              outname = cdlToXray2014(dsetName)
-            elif dsetName.inCdl2018:
-              # if 2014 data reconstructed with TPA, we'll end up here
-              outname = dsetName # use dataset name as is
-            if outname.len > 0: # skip if outname in neither of the two CDL dset names
-              # float32 data
-              let passedData = readAndFilter(h5f, dset.name, passIdx)
-              cdlToXrayTransform(h5fout, passedData, tfKindStr & "kV", outname, year)
-        # 2014 dataset does not contain `lengthdivbyrmsy` in the calibration file
+      doAssert year == yr2014 or year == yr2018
+      # now perform cuts on datasets
+      doAssert tfKindStr & "kV" in xrayRefCuts
+      let cut = xrayRefCuts[tfKindStr & "kV"]
+      let passIdx = cutOnProperties(
+        h5f,
+        group,
+        crSilver, # try cutting to silver
+        (toDset(igRmsTransverse, frameworkKind), cut.minRms, cut.maxRms),
+        (toDset(igLength, frameworkKind), 0.0, cut.maxLength),
+        (toDset(igHits, frameworkKind), cut.minPix, Inf),
+        (toDset(igTotalCharge, frameworkKind), cut.minCharge, cut.maxCharge))
+      echo "Number of passing indices ", passIdx.len
+      # given passIdx, now read each dataset iteratively and apply cuts
+      for dset in mgrp:
+        case dset.dtypeAnyKind
+        of dkSequence:
+          # variable length data, x, y, charge, will be dropped in conversion
+          discard
+        else:
+          # get the name of the dataset in the output
+          let dsetName = dset.name.extractFilename
+          var outname = ""
+          case frameworkKind
+          of fkMarlin:
+            outname = cdlToXray2014(dsetName)
+          of fkTpa:
+            # if 2014 data reconstructed with TPA, we'll end up here
+            outname = dsetName # use dataset name as is
+          doAssert outname.len > 0, "Not possible anymore"
+          # parse outname and check if it is in `XrayReferenceDsets`
+          if outname.toInGridDset in XrayReferenceDsets:
+            let passedData = readAndFilter(h5f, dset.name, passIdx)
+            cdlToXrayTransform(h5fout, passedData, tfKindStr & "kV", outname, year)
+      if frameworkKind == fkMarlin:
+        # data generated by Marlin does not contain `lengthdivbyrmsy` in the calibration file
         # create that manually
         let length = readAndFilter(h5f, mgrp.name / "Length", passIdx)
         let rmsTrans = readAndFilter(h5f, mgrp.name / "RmsTransverse", passIdx)
@@ -1289,37 +1299,12 @@ proc generateXrayReferenceFile(h5file: string, year: YearKind,
                            tfKindStr & "kV",
                            "lengthdivbyrmsy",
                            year)
-      of "feb2019":
-        doAssert year == yr2018
-        # now perform cuts on datasets
-        doAssert tfKindStr & "kV" in xrayRefCuts
-        let cut = xrayRefCuts[tfKindStr & "kV"]
-        let passIdx = cutOnProperties(h5f,
-                                      group,
-                                      ("rmsTransverse", cut.minRms, cut.maxRms),
-                                      ("length", 0.0, cut.maxLength),
-                                      ("hits", cut.minPix, Inf),
-                                      ("totalCharge", cut.minCharge, cut.maxCharge))
-        echo "Number of passing indices ", passIdx.len
-        # given passIdx, now read each dataset iteratively and apply cuts
-        for dset in mgrp:
-          case dset.dtypeAnyKind
-          of dkSequence:
-            # variable length data, x, y, charge, will be dropped in conversion
-            discard
-          else:
-            # output name as as input for 2018
-            let dsetName = dset.name.extractFilename
-            if dsetName.inCdl2018: # else skip this dset
-              # float64 data
-              let passedData = readAndFilter(h5f, dset.name, passIdx)
-              cdlToXrayTransform(h5fout, passedData, tfKindStr & "kV", dsetName, year)
-      else:
-        raise newException(ValueError, "Invalid year string for calibration: " &
-          $date)
     else:
       raise newException(ValueError, "Could not match calibration group in " &
         $h5file & ", group name was " & $group.name)
+  # finally add the type of reference file to the root group of the output,
+  # which indicates which naming scheme is used
+  h5fout.attrs["FrameworkKind"] = $XrayRefGenerateNamingScheme
   discard h5fout.close()
   discard h5f.close()
 

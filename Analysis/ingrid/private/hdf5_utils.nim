@@ -193,61 +193,65 @@ func cdlGroupName*(tfKindStr, year, dset: string): string =
     myr = "feb2019"
   result = &"calibration-cdl-{myr}-{tfKindStr}/{dsetName}"
 
-func cdlToXrayBinning2014Map(): Table[string, tuple[bins: int, min, max: float]] =
+func cdlToXrayBinning2014Map(): Table[InGridDsetKind, tuple[bins: int, min, max: float]] =
   ## Maps the names of the `XrayReferenceDataSet.h5` (2014) to the
   ## number of bins and min, max values that must be given to the histogram function
   ## to arrive at the result from the `calibration-cdl.h5` (2014) file.
-  result = { "lengthdivbyradius" : (bins: 100, min: 0.9950000047683716, max: 1.985000014305115),
-             "skewnessl" : (bins: 100, min: -5.050000190734863, max: 4.849999904632568),
-             "skewnesst" : (bins: 100, min: -5.050000190734863, max: 4.849999904632568),
-             "rmsy" : (bins: 150, min: -0.01666666753590107, max: 4.949999809265137),
-             "excentricity" : (bins: 150, min: 0.9700000286102295, max: 9.909999847412109),
-             "pixels" : (bins: 250, min: -0.5, max: 497.5),
-             "kurtosisl" : (bins: 100, min: -5.050000190734863, max: 4.849999904632568),
-             "kurtosist" : (bins: 100, min: -5.050000190734863, max: 4.849999904632568),
-             "length" : (bins: 200, min: -0.05000000074505806, max: 19.85000038146973),
-             "xrayperevent" : (bins: 6, min: -1.0, max: 4.0),
-             "fractionwithin0.5radius" : (bins: 100, min: -0.004999999888241291, max: 0.9850000143051147),
-             "radiusdivbyrmsy" : (bins: 100, min: -0.05000000074505806, max: 9.850000381469727),
-             "balance" : (bins: 500, min: -0.0003999999898951501, max: 0.3987999856472015),
-             "width" : (bins: 100, min: -0.05000000074505806, max: 9.850000381469727),
-             "rmsx" : (bins: 150, min: -0.01666666753590107, max: 4.949999809265137),
-             "lengthdivbyrmsy" : (bins: 150, min: -0.1000000014901161, max: 29.70000076293945),
-             "rotAngle" : (bins: 100, min: -0.0157079640775919, max: 3.094468832015991),
-             "energy" : (bins: 100, min: -0.05000000074505806, max: 9.850000381469727),
-             "likelihood" : (bins: 200, min: -40.125, max: 9.625),
-             "radius" : (bins: 100, min: -0.02500000037252903, max: 4.925000190734863),
-             "fractionwithinrmsy" : (bins: 100, min: -0.004999999888241291, max: 0.9850000143051147),
-             "charge" : (bins: 200, min: -6250.0, max: 2481250.0) }.toTable
+  result = { igLengthDivRadius : (bins: 100, min: 0.9950000047683716, max: 1.985000014305115),
+             igSkewnessLongitudinal : (bins: 100, min: -5.050000190734863, max: 4.849999904632568),
+             igSkewnessTransverse : (bins: 100, min: -5.050000190734863, max: 4.849999904632568),
+             igRmsTransverse : (bins: 150, min: -0.01666666753590107, max: 4.949999809265137),
+             igEccentricity : (bins: 150, min: 0.9700000286102295, max: 9.909999847412109),
+             igHits : (bins: 250, min: -0.5, max: 497.5),
+             igKurtosisLongitudinal : (bins: 100, min: -5.050000190734863, max: 4.849999904632568),
+             igKurtosisTransverse : (bins: 100, min: -5.050000190734863, max: 4.849999904632568),
+             igLength : (bins: 200, min: -0.05000000074505806, max: 19.85000038146973),
+             igNumClusters : (bins: 6, min: -1.0, max: 4.0),
+             igFractionInHalfRadius : (bins: 100, min: -0.004999999888241291, max: 0.9850000143051147),
+             igRadiusDivRmsTrans : (bins: 100, min: -0.05000000074505806, max: 9.850000381469727),
+             igBalance : (bins: 500, min: -0.0003999999898951501, max: 0.3987999856472015),
+             igWidth : (bins: 100, min: -0.05000000074505806, max: 9.850000381469727),
+             igRmsLongitudinal : (bins: 150, min: -0.01666666753590107, max: 4.949999809265137),
+             igLengthDivRmsTrans : (bins: 150, min: -0.1000000014901161, max: 29.70000076293945),
+             igRotationAngle : (bins: 100, min: -0.0157079640775919, max: 3.094468832015991),
+             igEnergyFromCharge : (bins: 100, min: -0.05000000074505806, max: 9.850000381469727),
+             igLikelihood : (bins: 200, min: -40.125, max: 9.625),
+             igRadius : (bins: 100, min: -0.02500000037252903, max: 4.925000190734863),
+             igFractionInTransverseRms : (bins: 100, min: -0.004999999888241291, max: 0.9850000143051147),
+             igTotalCharge : (bins: 200, min: -6250.0, max: 2481250.0) }.toTable
 
 func cdlToXrayBinning2014*(name: string): tuple[bins: int, min, max: float] =
   const map = cdlToXrayBinning2014Map()
-  result = map[name]
+  let nameIgKind = name.toIngridDset
+  if nameIgKind in map:
+    result = map[nameIgKind]
 
-func cdlToXrayBinning2018Map(): Table[string, tuple[bins: int, min, max: float]] =
+func cdlToXrayBinning2018Map(): Table[InGridDsetKind, tuple[bins: int, min, max: float]] =
   ## Maps the names of the `XrayReferenceDataSet.h5` (2019) to the
   ## number of bins and min, max values that must be given to the histogram function
   ## to arrive at the result equivalent to the `calibration-cdl.h5` (2019) file.
-  result = { "skewnessLongitudinal" : (bins: 100, min: -5.050000190734863, max: 4.849999904632568),
-             "skewnessTransverse" : (bins: 100, min: -5.050000190734863, max: 4.849999904632568),
-             "rmsTransverse" : (bins: 150, min: -0.01666666753590107, max: 4.949999809265137),
-             "eccentricity" : (bins: 150, min: 0.9700000286102295, max: 9.909999847412109),
-             "hits" : (bins: 250, min: -0.5, max: 497.5),
-             "kurtosisLongitudinal" : (bins: 100, min: -5.050000190734863, max: 4.849999904632568),
-             "kurtosisTransverse" : (bins: 100, min: -5.050000190734863, max: 4.849999904632568),
-             "length" : (bins: 200, min: -0.05000000074505806, max: 19.85000038146973),
-             "width" : (bins: 100, min: -0.05000000074505806, max: 9.850000381469727),
-             "rmsLongitudinal" : (bins: 150, min: -0.01666666753590107, max: 4.949999809265137),
-             "lengthDivRmsTrans" : (bins: 150, min: -0.1000000014901161, max: 29.70000076293945),
-             "rotationAngle" : (bins: 100, min: -0.0157079640775919, max: 3.094468832015991),
-             "energyFromCharge" : (bins: 100, min: -0.05000000074505806, max: 9.850000381469727),
-             "likelihood" : (bins: 200, min: -40.125, max: 9.625),
-             "fractionInTransverseRms" : (bins: 100, min: -0.004999999888241291, max: 0.9850000143051147),
-             "totalCharge" : (bins: 200, min: -6250.0, max: 2481250.0) }.toTable
+  result = { igSkewnessLongitudinal : (bins: 100, min: -5.050000190734863, max: 4.849999904632568),
+             igSkewnessTransverse : (bins: 100, min: -5.050000190734863, max: 4.849999904632568),
+             igRmsTransverse : (bins: 150, min: -0.01666666753590107, max: 4.949999809265137),
+             igEccentricity : (bins: 150, min: 0.9700000286102295, max: 9.909999847412109),
+             igHits : (bins: 250, min: -0.5, max: 497.5),
+             igKurtosisLongitudinal : (bins: 100, min: -5.050000190734863, max: 4.849999904632568),
+             igKurtosisTransverse : (bins: 100, min: -5.050000190734863, max: 4.849999904632568),
+             igLength : (bins: 200, min: -0.05000000074505806, max: 19.85000038146973),
+             igWidth : (bins: 100, min: -0.05000000074505806, max: 9.850000381469727),
+             igRmsLongitudinal : (bins: 150, min: -0.01666666753590107, max: 4.949999809265137),
+             igLengthDivRmsTrans : (bins: 150, min: -0.1000000014901161, max: 29.70000076293945),
+             igRotationAngle : (bins: 100, min: -0.0157079640775919, max: 3.094468832015991),
+             igEnergyFromCharge : (bins: 100, min: -0.05000000074505806, max: 9.850000381469727),
+             igLikelihood : (bins: 200, min: -40.125, max: 9.625),
+             igFractionInTransverseRms : (bins: 100, min: -0.004999999888241291, max: 0.9850000143051147),
+             igTotalCharge : (bins: 200, min: -6250.0, max: 2481250.0) }.toTable
 
 func cdlToXrayBinning2018*(name: string): tuple[bins: int, min, max: float] =
   const map = cdlToXrayBinning2018Map()
-  result = map[name]
+  let nameIgKind = name.toIngridDset
+  if nameIgKind in map:
+    result = map[nameIgKind]
 
 func inCdl2018*(name: string): bool =
   const dsetSet = [ "skewnessLongitudinal",
@@ -298,7 +302,7 @@ func cdlToXray2014Map(): Table[string, string] =
   ## be calculated from the existing other datasets:
   ## - "xrayperevent"
   ## - "lengthdivbyradius"
-  ## - "lengthdivbyrmsy"
+  ## - "lengthdivbyrmsy" # <- exists in TPA
   ## - "fractionwithin0.5radius"
   ## - "radiusdivbyrmsy"
   ## - "balance"

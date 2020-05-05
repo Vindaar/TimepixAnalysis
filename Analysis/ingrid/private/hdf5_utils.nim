@@ -68,6 +68,120 @@ const XrayReferenceDsets* = {
   igFractionInTransverseRms,
   igTotalCharge}
 
+proc toDset*(igKind: InGridDsetKind, frameworkKind: FrameworkKind): string =
+  ## Converts a InGridDsetKind enum element to the string representation given
+  ## the framework the data was created with
+  case igKind
+  of igInvalid: doAssert false, "Invalid dataset kind!"
+  of igCenterX:
+    case frameworkKind
+    of fkTpa: result = "centerX"
+    of fkMarlin: result = "PositionX"
+  of igCenterY:
+    case frameworkKind
+    of fkTpa: result = "centerY"
+    of fkMarlin: result = "PositionY"
+  of igEventNumber:
+    case frameworkKind
+    of fkTpa: result = "eventNumber"
+    of fkMarlin: result = "EventNumber"
+  of igHits:
+    case frameworkKind
+    of fkTpa: result = "hits"
+    of fkMarlin: result = "NumberOfPixels"
+  of igEccentricity:
+    case frameworkKind
+    of fkTpa: result = "eccentricity"
+    of fkMarlin: result = "Excentricity"
+  of igSkewnessLongitudinal:
+    case frameworkKind
+    of fkTpa: result = "skewnessLongitudinal"
+    of fkMarlin: result = "SkewnessLongitudinal"
+  of igSkewnessTransverse:
+    case frameworkKind
+    of fkTpa: result = "skewnessTransverse"
+    of fkMarlin: result = "SkewnessTransverse"
+  of igRmsTransverse:
+    case frameworkKind
+    of fkTpa: result = "rmsTransverse"
+    of fkMarlin: result = "RmsTransverse"
+  of igRmsLongitudinal:
+    case frameworkKind
+    of fkTpa: result = "rmsLongitudinal"
+    of fkMarlin: result = "RmsLongitudinal"
+  of igKurtosisLongitudinal:
+    case frameworkKind
+    of fkTpa: result = "kurtosisLongitudinal"
+    of fkMarlin: result = "KurtosisLongitudinal"
+  of igKurtosisTransverse:
+    case frameworkKind
+    of fkTpa: result = "kurtosisTransverse"
+    of fkMarlin: result = "KurtosisLongitudinal"
+  of igLength:
+    case frameworkKind
+    of fkTpa: result = "length"
+    of fkMarlin: result = "Length"
+  of igWidth:
+    case frameworkKind
+    of fkTpa: result = "width"
+    of fkMarlin: result = "Width"
+  of igLengthDivRmsTrans:
+    case frameworkKind
+    of fkTpa: result = "lengthDivRmsTrans"
+    of fkMarlin: doAssert false, "Does not exist as a dataset in Marlin. Is calculated!"
+  of igRotationAngle:
+    case frameworkKind
+    of fkTpa: result = "rotationAngle"
+    of fkMarlin: result = "RotationAngle"
+  of igEnergyFromCharge:
+    case frameworkKind
+    of fkTpa: result = "energyFromCharge"
+    of fkMarlin: result = "EnergyFromCharge"
+  of igLikelihood:
+    case frameworkKind
+    of fkTpa: result = "likelihood"
+    of fkMarlin: result = "LikelihoodMarlin"
+  of igFractionInTransverseRms:
+    case frameworkKind
+    of fkTpa: result = "fractionInTransverseRms"
+    of fkMarlin: result = "FractionWithinRmsTransverse"
+  of igTotalCharge:
+    case frameworkKind
+    of fkTpa: result = "totalCharge"
+    of fkMarlin: result = "TotalCharge"
+  of igNumClusters, igFractionInHalfRadius, igRadiusDivRmsTrans,
+     igRadius, igBalance, igLengthDivRadius:
+    doAssert false, "Only exists in 2014 XrayReferenceFile.h5: " & $igKind
+
+proc toIngridDset*(dset: string): InGridDsetKind =
+  ## Converts a InGridDsetKind enum element to the string representation given
+  ## the framework the data was created with
+  if dset in ["hits", "NumberOfPixels"]: result = igHits
+  elif dset == "centerX": result = igCenterX
+  elif dset == "centerY": result = igCenterY
+  elif dset in ["eventNumber", "EventNumber"]:  result = igEventNumber
+  elif dset in ["eccentricity", "Excentricity"] : result = igEccentricity
+  elif dset in ["skewnessLongitudinal", "SkewnessLongitudinal"]: result = igSkewnessLongitudinal
+  elif dset in ["skewnessTransverse", "SkewnessTransverse"]: result = igSkewnessTransverse
+  elif dset in ["rmsLongitudinal", "RmsLongitudinal"]: result = igRmsLongitudinal
+  elif dset in ["rmsTransverse", "RmsTransverse"]: result = igRmsTransverse
+  elif dset in ["kurtosisLongitudinal", "KurtosisLongitudinal"]: result = igKurtosisLongitudinal
+  elif dset in ["kurtosisTransverse", "KurtosisTransverse"]: result = igKurtosisTransverse
+  elif dset in ["length", "Length"]: result = igLength
+  elif dset in ["width", "Width"]: result = igWidth
+  elif dset == "lengthDivRmsTrans": result = igLengthDivRmsTrans
+  elif dset in ["rotationAngle", "RotationAngle"]: result = igRotationAngle
+  elif dset in ["energyFromCharge", "EnergyFromCharge"]: result = igEnergyFromCharge
+  elif dset in ["likelihood", "LikelihoodMarlin"]: result = igLikelihood
+  elif dset in ["fractionInTransverseRms", "FractionWithinRmsTransverse"]: result = igFractionInTransverseRms
+  elif dset in ["totalCharge", "TotalCharge"]: result = igTotalCharge
+  elif dset == "xrayperevent": result = igNumClusters
+  elif dset == "fractionwithin0.5radius": result = igFractionInHalfRadius
+  elif dset == "radiusdivbyrmsy": result = igRadiusDivRmsTrans
+  elif dset == "radius": result = igRadius
+  elif dset == "balance": result = igBalance
+  elif dset == "lengthdivbyradius": result = igLengthDivRadius
+  else: result = igInvalid
 
 func cdlGroupName*(tfKindStr, year, dset: string): string =
   let dsetName = dset.extractFilename

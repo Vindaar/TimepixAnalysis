@@ -37,7 +37,8 @@ Options:
 const doc = withDocopt(docStr)
 
 ##some constants depending on the run
-const filename = "../../resources/cdl_runs_2019.org"
+import projectDefs
+const filename = TpxDir / "resources/cdl_runs_2014.org"
 #const cutparams = "../../resources/cutparams.org"
 #actually cutparams isn't necessary since cuts are choosen in tos helpers
 const outdate = &"2019"

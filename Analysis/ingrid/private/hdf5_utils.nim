@@ -43,6 +43,31 @@ type
     fkTpa, fkMarlin
 
 const plotDirPrefixAttr* = "plotDirPrefix"
+const XrayReferenceDsets* = {
+  igHits,
+  igLengthDivRadius,
+  igSkewnessLongitudinal,
+  igSkewnessTransverse,
+  igRmsTransverse,
+  igEccentricity,
+  igHits,
+  igKurtosisLongitudinal,
+  igKurtosisTransverse,
+  igLength,
+  igNumClusters,
+  igFractionInHalfRadius,
+  igRadiusDivRmsTrans,
+  igBalance,
+  igWidth,
+  igRmsLongitudinal,
+  igLengthDivRmsTrans,
+  igRotationAngle,
+  igEnergyFromCharge,
+  igLikelihood,
+  igRadius,
+  igFractionInTransverseRms,
+  igTotalCharge}
+
 
 func cdlGroupName*(tfKindStr, year, dset: string): string =
   let dsetName = dset.extractFilename

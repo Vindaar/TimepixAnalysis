@@ -10,6 +10,38 @@ import pure
 # Procs describing the data layout in the HDF5 file #
 #####################################################
 
+type
+  InGridDsetKind* = enum
+    igInvalid, # invalid dataset
+    igCenterX,
+    igCenterY,
+    igHits, # hits, NumberOfPixels
+    igEventNumber,
+    igEccentricity, # eccentricity, excentricity
+    igSkewnessLongitudinal, # skewnessLongitudinal, SkewnessLongitudinal
+    igSkewnessTransverse, # skewnesssTransverse, SkewnessTransverse
+    igKurtosisLongitudinal, # kurtosisLongitudinal, KurtosisLongitudinal
+    igKurtosisTransverse, # kurtosisTransverse, KurtosisTransverse
+    igLength, # length, Length
+    igWidth, # width, Width
+    igRmsLongitudinal, # rmsLongitudinal, RmsLongitudinal
+    igRmsTransverse, # rmsTransverse, RmsTransverse
+    igLengthDivRmsTrans, # lengthDivRmsTrans,
+    igRotationAngle, # rotationAngle, RotationAngle
+    igEnergyFromCharge, # energyFromCharge, Energy
+    igLikelihood, # likelihood, LikelihoodMarlin
+    igFractionInTransverseRms, # fractionInTransverseRms, FractionWithinRmsTransverse
+    igTotalCharge, # totalCharge, TotalCharge
+    igNumClusters, # number of clusters in a single event; Marlin: xrayperevent
+    igFractionInHalfRadius, # fraction of pixels in half the radius
+    igRadiusDivRmsTrans, # "radiusdivbyrmsy"
+    igRadius, # radius of cluster
+    igBalance, # balance ?
+    igLengthDivRadius
+
+  FrameworkKind* = enum
+    fkTpa, fkMarlin
+
 const plotDirPrefixAttr* = "plotDirPrefix"
 
 func cdlGroupName*(tfKindStr, year, dset: string): string =

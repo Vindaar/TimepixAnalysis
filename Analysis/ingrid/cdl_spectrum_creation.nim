@@ -1,6 +1,6 @@
 import parsecsv, os, streams, strutils, strformat, tables, sequtils, macros, fenv
 import seqmath, algorithm, times, strscans, typeinfo
-import plotly, mpfit, nlopt, nimhdf5
+import mpfit, nlopt, nimhdf5
 import ingrid / [ingrid_types, tos_helpers]
 import ingrid / calibration
 import ingrid / calibration / [fit_functions, calib_fitting]
@@ -781,46 +781,37 @@ proc cutAndWrite(h5file: string) =
     else:
       discard
 
-proc energycurve(energyResHits: seq[float], energyResCharge: seq[float], errorHits: seq[float], errorCharge: seq[float]) =
-  #var energyval = @[15.0, 12.0, 9.0, 6.0, 4.0, 2.0, 0.9, 0.6]
-  var energyval = @[8.048, 5.899, 4.511, 2.984, 1.487, 0.930, 0.525, 0.277]
-  let energyplotHits = scatterPlot(energyval, energyResHits)
-  let energyplotCharge = scatterPlot(energyval, energyResCharge)
-  let errorbarHits = newErrorbar(errorHits)
-  let errorbarCharge = newErrorbar(errorCharge)
-  let energyplot = energyplotHits.addTrace(energyplotCharge.traces[0])
-    .legendLocation(x = 0.8, y = 0.9)
-    #.legendBgColor(ColorTHGrau)
-    .backgroundColor(ColorTHGrau)
-    .gridColor(color())
-  energyplot.layout.showlegend = true
-  energyplot.layout.title = "Energy resolution plot"
-  energyplot.layout.xaxis.title = "Energy in keV"
-  energyplot.layout.yaxis.title = "Energy resolution"
-  energyplot.traces[0].name = "number of hits"
-  energyplot.traces[0].marker = Marker[float](color: @[ColorTDBlau])#, size: @[8.0])
-  energyplot.traces[0].ys_err = errorbarHits
-  energyplot.traces[1].name = "total charge"
-  energyplot.traces[1].marker = Marker[float](color: @[ColorTGelb])#, size: @[8.0])
-  energyplot.traces[1].ys_err = errorbarCharge
-  energyplot.show(&"energyresoplot-{outdate}.svg", onlySave = true)
+proc energyResolution(energyResHits, energyResCharge,
+                      errorHits, errorCharge: seq[float]) =
+  ## Creates the plot of the energy resolution for both the pixel and charge
+  ## spectra
+  const energies = @[8.048, 5.899, 4.511, 2.984, 1.487, 0.930, 0.525, 0.277]
+  let dfPix = seqsToDf({ "Energy" : energies, "Resolution" : energyResHits,
+                         "ResErr" : errorHits })
+  let dfCh = seqsToDf({ "Energy" : energies, "Resolution" : energyResCharge,
+                        "ResErr" : errorCharge })
+  let df = bind_rows([("Pixels", dfPix), ("Charge", dfCh)], id = "Type")
+  ggplot(df, aes("Energy", "Resolution", color = "Type")) +
+    geom_point() +
+    geom_errorbar(aes(yMin = f{`Resolution` - `ResErr`},
+                      yMax = f{`Resolution` + `ResErr`})) +
+    xlab("Energy / keV") +
+    ylab("Energy resolution / %") +
+    ggtitle("Energy resolution plot") +
+    ggsave(&"energyresoplot-{outdate}.pdf")
 
-proc peakfit(peakpos: seq[float], name: string, error: seq[float]) =
-  var energyval = @[8.048, 5.899, 4.511, 2.984, 1.487, 0.930, 0.525, 0.277]
-  let peakfit = scatterPlot(energyval, peakpos)
-    .legendLocation(x = 0.1, y = 0.9)
-    #.legendBgColor(ColorTHGrau)
-    .backgroundColor(ColorTHGrau)
-    .gridColor(color())
-  let errorbar = newErrorbar(error)
-  peakfit.layout.showlegend = true
-  peakfit.layout.title = name
-  peakfit.traces[0].name = &"{name}"
-  peakfit.traces[0].marker = Marker[float](color: @[ColorTDBlau])
-  peakfit.traces[0].ys_err = errorbar
-  peakfit.layout.xaxis.title = "Energy in keV"
-  peakfit.layout.yaxis.title = &"Peakposition for {name}"
-  peakfit.show(&"{name}.svg", onlySave = true)
+proc peakFit(peakPos: seq[float], name: string, error: seq[float]) =
+  const energies = @[8.048, 5.899, 4.511, 2.984, 1.487, 0.930, 0.525, 0.277]
+  let df = seqsToDf({ "Energy" : energies, "PeakPos" : peakPos,
+                      "PeakErr" : error })
+  ggplot(df, aes("Energy", "PeakPos")) +
+    geom_point() +
+    geom_errorbar(aes(yMin = f{`PeakPos` - `PeakErr`},
+                      yMax = f{`PeakPos` + `PeakErr`})) +
+    xlab("Energy / keV") +
+    ylab(&"Peak position for {name}") +
+    ggtitle("Peak position of all targets") +
+    ggsave(&"{name}.pdf")
 
 proc dumpFitParameters(outfile, svgFname: string,
                        params: seq[float], errors: seq[float],
@@ -977,35 +968,37 @@ proc fitAndPlot[T: SomeNumber](h5f: var H5FileObj, fitParamsFname: string,
   echo "fitresults nlopt", fitresults[1]
   ##get the interesting fit params
 
-  ##some sketchy work around for errors
-  let cumu = cumsum(histdata)
-  let sum = sum(histdata)
-  let quotient = cumu.mapIt(it/sum)
-  let lowIdx = quotient.lowerBound(0.0005)
-  let highIdx = quotient.lowerBound(0.98)
-  let passbin = bins[lowIdx .. highIdx]
-  let passhist = histdata[lowIdx .. highIdx]
-  let passIdx = toSeq(0 .. passhist.high).filterIt(passhist[it] > 0)
-  let fitBinserr = passIdx.mapIt(passbin[it])
-  let fitHisterr = passIdx.mapIt(passhist[it])
-  let err = fitHist.mapIt(1.0)# / sqrt(it))
+  ## TODO: FIX ME!
+  let
+    cumu = cumsum(histdata)
+    sum = sum(histdata)
+    quotient = cumu.mapIt(it/sum)
+    lowIdx = quotient.lowerBound(0.0005)
+    highIdx = quotient.lowerBound(0.98)
+    passbin = bins[lowIdx .. highIdx]
+    passhist = histdata[lowIdx .. highIdx]
+    passIdx = toSeq(0 .. passhist.high).filterIt(passhist[it] > 0)
+    fitBinserr = passIdx.mapIt(passbin[it])
+    fitHisterr = passIdx.mapIt(passhist[it])
+    err = fitHist.mapIt(1.0)# / sqrt(it))
 
   let (FitError, mpfitError) = fit(fitfunc, fitresults[1], fitBinserr, fitHisterr, err)
   echo "fit errors: ", mpfitError.error
   ploterror = mpfitError.error
 
+  ## TODO: FIX ME!
+  var
+    fitmu: float
+    fitsig: float
+    fitmuerr: float
+    fitsigerr: float
+    energyres: float
+    museq: seq[float]
+    sigseq: seq[float]
+    energyseq: seq[float]
+    energyreserr: float
+    energyseqerr: seq[float]
 
-  var fitmu: float
-  var fitsig: float
-  var fitmuerr: float
-  var fitsigerr: float
-  var energyres: float
-  var museq: seq[float]
-  var sigseq: seq[float]
-  var energyseq: seq[float]
-  var energyreserr: float
-  var energyseqerr: seq[float]
-  #echo "lines ", lines[0].kind
   case lines[0].kind
   of ffGauss:
     fitmu = fitresults[1][1]
@@ -1021,14 +1014,11 @@ proc fitAndPlot[T: SomeNumber](h5f: var H5FileObj, fitParamsFname: string,
     museq.add(fitmu)
   else:
     discard
-  #echo "fitmu ", fitmu
-  #echo "fitsig ", fitsig
-  #echo "fitmuseq ", museq
   energyres = fitsig / fitmu
   energyreserr = sqrt(pow((fitsigerr / fitmu), 2) + pow((fitsig * fitmuerr / pow(fitmu,2)),2) )
   energyseqerr.add(energyreserr)
   energyseq.add(energyres)
-  echo "energyres ", energyres
+
   result[0].add(fitmu)
   result[1].add(energyres)
   result[2].add(fitmuerr)
@@ -1037,9 +1027,13 @@ proc fitAndPlot[T: SomeNumber](h5f: var H5FileObj, fitParamsFname: string,
   let mpfitres = calcfitcurve(fitresults[2], fitresults[3], fitfunc, fitresults[0])
   let nloptres = calcfitcurve(fitresults[2], fitresults[3], fitfunc, fitresults[1])
   let startval = calcfitcurve(fitresults[2], fitresults[3], fitfunc, pStart)
-  let cdlPlot = scatterPlot(mpfitres[0], mpfitres[1]).mode(PlotMode.Lines)
-  let cdlPlotNlopt = scatterPlot(nloptres[0], nloptres[1]).mode(PlotMode.Lines)
-  let startPlot = scatterPlot(startval[0], startval[1]).mode(PlotMode.Lines)
+  let df = bind_rows([("MPFIT", toTab({ "Energy" : mpfitres[0],
+                                       "Counts" : mpfitres[1] })),
+                      ("NLopt", toTab({ "Energy" : nloptres[0],
+                                       "Counts" : nloptres[1] })),
+                      ("Start", toTab({ "Energy" : startval[0],
+                                       "Counts" : startval[1] }))],
+                     id = "Type")
 
   ##plot of hits and charge
   # modify bin range if necessary
@@ -1048,40 +1042,22 @@ proc fitAndPlot[T: SomeNumber](h5f: var H5FileObj, fitParamsFname: string,
   elif fitmu > binrangeplot / 2.0:
     binrangeplot = binrangeplot * 1.5
 
-  let hitsRaw = histPlot(rawseq.mapIt(it.float64))
-    .binSize(binsizeplot)
-    .binRange(0.0, binrangeplot)
-  let hitsCut = histPlot(cutseq.mapIt(it.float64))
-    .binSize(binsizeplot)
-    .binRange(0.0, binrangeplot)
-  hitsRaw.layout.barMode = BarMode.Overlay
-  let plt = hitsRaw.addTrace(hitsCut.traces[0])
-    #.addTrace(cdlPlot.traces[0])
-    .addTrace(cdlPlotNlopt.traces[0])
-    #.addTrace(startPlot.traces[0])
-    .legendLocation(x = 0.8, y = 0.9)
-    #.legendBgColor(ColorTHGrau)
-    .backgroundColor(ColorTHGrau)
-    .gridColor(color())
-  plt.layout.title = &"target: {tfKind}"
-  plt.layout.showlegend = true
-  #plt.legendBgColor(ColorTB)
-  plt.traces[0].opacity = 1.0
-  plt.traces[0].name = "raw data"
-  plt.traces[0].marker = Marker[float](color: @[ColorTGrau])
-  plt.traces[1].name = "data with cuts"
-  plt.traces[1].marker = Marker[float](color: @[ColorTDBlau])
-  plt.traces[1].opacity = 1.0
-  plt.traces[2].name = "fit curve nlopt"
-  plt.traces[2].marker = Marker[float](color: @[ColorTGelb])
-  #plt.traces[3].name = "fit start"
-  #plt.traces[3].marker = Marker[float](color: @[black])
-  plt.layout.yaxis.title = "Occurence"
-  plt.layout.xaxis.title = xtitle
-  #plt.layout.annotations.add [testanno]
-
-  let fname = &"{outname}-{outdate}.svg"
-  plt.show(fname, onlySave = true)
+  let dfRaw = bind_rows([("RawData", toTab({ "Counts" : rawSeq })),
+                         ("CutData", toTab({ "Counts" : cutSeq }))],
+                         id = "Cut")
+  let fname = &"{outname}-{outdate}.pdf"
+  ggplot(df, aes("Energy", "Counts")) +
+    geom_histogram(data = dfRaw.filter(f{float: `Counts` < binRangePlot}),
+                   aes = aes("Counts", fill = "Cut"),
+                   position = "identity",
+                   alpha = some(0.5),
+                   binWidth = binSizePlot) +
+    geom_line(aes(color = "Type")) +
+    xlab(xtitle) +
+    #xlim(0.0, binrangeplot) +
+    ylab("Counts") +
+    ggtitle(&"target: {tfKind}") +
+    ggsave(fname)
 
   # now dump the fit results, SVG filename and correct parameter names to a file
   dumpFitParameters(fitParamsFname, fname, fitresults[1], ploterror, tfKind, dKind)
@@ -1371,9 +1347,9 @@ proc main =
       peakChargeErr.add(energyCharge[2])
       energyChargeErr.add(energyCharge[3])
     discard h5f.close()
-    energycurve(energyResHits, energyResCharge, energyHitsErr, energyChargeErr)
-    peakfit(peakposHits, "Hits", peakHitsErr)
-    peakfit(peakposCharge, "Charge", peakChargeErr)
+    energyResolution(energyResHits, energyResCharge, energyHitsErr, energyChargeErr)
+    peakFit(peakposHits, "Hits", peakHitsErr)
+    peakFit(peakposCharge, "Charge", peakChargeErr)
 
 when isMainModule:
   main()

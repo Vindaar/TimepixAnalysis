@@ -3,7 +3,7 @@ import seqmath, algorithm, times, strscans, typeinfo
 import plotly, mpfit, nlopt, nimhdf5
 import ingrid / [ingrid_types, tos_helpers]
 import ingrid / calibration
-import ingrid / calibration / fit_functions
+import ingrid / calibration / [fit_functions, calib_fitting]
 import cdlFitting / cdlFitMacro
 import docopt
 import helpers / utils
@@ -113,125 +113,125 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
   ## this is a runtime generator for the correct fitting function prototype,
   ## i.e. it returns a seq of parts, which need to be combined to the complete
   ## function at runtime
-  let muIdx = argmax(hist)
+  let (mu_main, sigma_main, n_main, _, _, _) = getLines(hist, binning)
   case tfKind
   of tfCuNi15:
     result.add FitFuncArgs(name: "Cu-Kalpha",
                           kind: ffExpGauss,
-                          ea: hist[muIdx] * 1e-10,
-                          eb: hist[muIdx] * 1e-12,
-                          eN: hist[muIdx] / 30.0,
-                          emu: 250.0, #binning[muIdx], #200.0
-                          es: hist[muIdx] / 30.0) #13.0
+                          ea: n_main * 1e-10,
+                          eb: n_main * 1e-12,
+                          eN: n_main / 1.5,
+                          emu: mu_main, #200.0
+                          es: sigma_main) #13.0
     result.add FitFuncArgs(name: "Cu-esc",
                           kind: ffExpGauss,
-                          ea: hist[muIdx] *  1e-10,
-                          eb: hist[muIdx] * 1e-12,
-                          eN: hist[muIdx] / 10.0, #100.0
-                          emu: 150.0, #binning[muIdx],# / 2.0,  #100.0
-                          es: hist[muIdx]) # / 2.0) #/ 15.0) #16.0
+                          ea: n_main *  1e-10,
+                          eb: n_main * 1e-12,
+                          eN: n_main / 10.0, #100.0
+                          emu: mu_main / 1.5,  #100.0
+                          es: sigma_main) # / 2.0) #/ 15.0) #16.0
   of tfMnCr12:
     result.add FitFuncArgs(name: "Mn-Kalpha",
                           kind: ffExpGauss,
-                          ea: hist[muIdx] * 1e-10,
-                          eb: hist[muIdx] * 1e-12,
-                          eN: hist[muIdx],# / 10.0, #30.0
-                          emu: 197.0, #binning[muIdx], #200.0
-                          es: hist[muIdx] / 15.0) # 13.0
+                          ea: n_main * 1e-10,
+                          eb: n_main * 1e-12,
+                          eN: n_main,# / 10.0, #30.0
+                          emu: mu_main, #200.0
+                          es: sigma_main) # 13.0
     result.add FitFuncArgs(name: "Mn-esc",
                           kind: ffExpGauss,
-                          ea: hist[muIdx]  * 1e-10,
-                          eb: hist[muIdx]  * 1e-12,
-                          eN: hist[muIdx] / 10.0, #120
-                          emu: 95.0, #binning[muIdx], #100.0
-                          es: hist[muIdx] / 15.0) #16.0
+                          ea: n_main  * 1e-10,
+                          eb: n_main  * 1e-12,
+                          eN: n_main / 10.0, #120
+                          emu: mu_main / 2.0, #100.0
+                          es: sigma_main) #16.0
   of tfTiTi9:
     result.add FitFuncArgs(name: "Ti-Kalpha",
                           kind: ffExpGauss,
-                          ea: hist[muIdx] * 1e-10,
-                          eb: hist[muIdx] * 1e-12,
-                          eN: hist[muIdx],# / 10.0,
-                          emu: binning[muIdx],
-                          es: hist[muIdx] / 30.0)
+                          ea: n_main * 1e-10,
+                          eb: n_main * 1e-12,
+                          eN: n_main / 2.0,
+                          emu: mu_main,
+                          es: sigma_main)
     result.add FitFuncArgs(name: "Ti-esc-alpha",
                           kind: ffGauss,
-                          gN: hist[muIdx] / 20.0,
-                          gmu: binning[muIdx] / 2.0,
-                          gs: hist[muIdx] / 15.0)
+                          gN: n_main / 20.0,
+                          gmu: mu_main / 2.0,
+                          gs: sigma_main)
     result.add FitFuncArgs(name: "Ti-esc-beta",
                           kind: ffGauss,
-                          gN: hist[muIdx],# / 20.0,
-                          gmu: fixed, #binning[muIdx],
-                          gs: fixed) #hist[muIdx] / 15.0)
+                          gN: n_main / 20.0,# / 20.0,
+                          gmu: fixed, #mu_main,
+                          gs: fixed) #n_main / 15.0)
     result.add FitFuncArgs(name: "Ti-Kbeta",
                           kind: ffGauss,
-                          gN: hist[muIdx],# / 10.0,
-                          gmu: fixed, #binning[muIdx],
-                          gs: fixed) #hist[muIdx] / 15.0)
+                          gN: n_main / 2.0,# / 10.0,
+                          gmu: fixed, #mu_main,
+                          gs: fixed) #n_main / 15.0)
   of tfAgAg6:
     result.add FitFuncArgs(name: "Ag-Lalpha",
                           kind: ffExpGauss,
-                          ea: hist[muIdx] * 1e-10,
-                          eb: hist[muIdx] * 1e-12,
-                          eN: hist[muIdx], # / 10.0,
-                          emu: binning[muIdx],
-                          es: hist[muIdx] / 30.0) ##30.0
+                          ea: n_main * 1e-10,
+                          eb: n_main * 1e-12,
+                          eN: n_main, # / 10.0,
+                          emu: mu_main,
+                          es: sigma_main) ##30.0
     result.add FitFuncArgs(name: "Ag-Lbeta",
                           kind: ffGauss,
-                          gN: fixed, #binning[muIdx] / 3.0,
-                          gmu: fixed, #hist[muIdx],
-                          gs: fixed) #hist[muIdx] / 10.0)
+                          gN: fixed, #mu_main / 3.0,
+                          gmu: fixed, #n_main,
+                          gs: fixed) #n_main / 10.0)
   of tfAlAl4:
     result.add FitFuncArgs(name: "Al-Kalpha",
                           kind: ffExpGauss,
-                          ea: hist[muIdx] * 1e-10,
-                          eb: hist[muIdx] * 1e-12,
-                          eN: hist[muIdx],# / 10.0,
-                          emu: binning[muIdx],
-                          es: hist[muIdx] / 80.0) ##30.0
+                          ea: n_main * 1e-10,
+                          eb: n_main * 1e-12,
+                          eN: n_main,# / 10.0,
+                          emu: mu_main,
+                          es: sigma_main) ##30.0
   of tfCuEpic2:
     result.add FitFuncArgs(name: "Cu-Lalpha",
                           kind: ffGauss,
-                          gN: hist[muIdx],
-                          gmu: binning[muIdx],# / 4.0,
-                          gs: hist[muIdx])# / 10.0)
+                          gN: n_main / 1.5,
+                          gmu: mu_main,# / 4.0,
+                          gs: sigma_main)# / 10.0)
     result.add FitFuncArgs(name: "Cu-Lbeta",
                           kind: ffGauss,
-                          gN: hist[muIdx] / 10.0,
-                          gmu: binning[muIdx],
-                          gs: hist[muIdx]  / 40.0)
+                          gN: n_main / 10.0,
+                          gmu: mu_main,
+                          gs: sigma_main)
   of tfCuEpic0_9:
     result.add FitFuncArgs(name: "O-Kalpha",
                           kind: ffGauss,
-                          gN: hist[muIdx],# / 1.5,
-                          gmu: binning[muIdx],# * 2.0,
-                          gs: hist[muIdx] / 100.0)
+                          gN: n_main,# / 1.5,
+                          gmu: mu_main,# * 2.0,
+                          gs: sigma_main)
     #result.add FitFuncArgs(name: "C-Kalpha",
     #                      kind: ffGauss,
-    #                      gN: hist[muIdx] / 100.0,
-    #                      gmu: fixed, #binning[muIdx], # / 2.0,
-    #                      gs: fixed) #hist[muIdx] / 30.0)
+    #                      gN: n_main / 100.0,
+    #                      gmu: fixed, #mu_main, # / 2.0,
+    #                      gs: fixed) #n_main / 30.0)
     #result.add FitFuncArgs(name: "Fe-Lalphabeta",
     #                      kind: ffGauss,
-    #                      gN: hist[muIdx] / 10.0,
-    #                      gmu: fixed, #binning[muIdx],
-    #                      gs: fixed) #hist[muIdx] )
+    #                      gN: n_main / 10.0,
+    #                      gmu: fixed, #mu_main,
+    #                      gs: fixed) #n_main )
     #result.add FitFuncArgs(name: "Ni-Lalphabeta",
     #                      kind: ffGauss,
-    #                      gN: hist[muIdx] / 10.0,
-    #                      gmu: fixed, #binning[muIdx],
-    #                      gs: fixed) #hist[muIdx] )
+    #                      gN: n_main / 10.0,
+    #                      gmu: fixed, #mu_main,
+    #                      gs: fixed) #n_main )
   of tfCEpic0_6:
     result.add FitFuncArgs(name: "C-Kalpha",
                           kind: ffGauss,
-                          gN: hist[muIdx],# / 100.0,# / 4.0,
-                          gmu: binning[muIdx], # * 2.0,
-                          gs: hist[muIdx])# *  2.0)
+                          gN: n_main,# / 100.0,# / 4.0,
+                          gmu: mu_main, # * 2.0,
+                          gs: sigma_main)# *  2.0)
     result.add FitFuncArgs(name: "O-Kalpha",
                           kind: ffGauss,
-                          gN: hist[muIdx] / 100.0,# / 10.0,
-                          gmu: fixed, #binning[muIdx],
-                          gs: fixed) #hist[muIdx])
+                          gN: n_main / 100.0,# / 10.0,
+                          gmu: fixed, #mu_main,
+                          gs: fixed) #n_main)
 
 func getbounds(tfKind:TargetFilterKind): seq[tuple[l, u:float]] =
   case tfKind
@@ -305,128 +305,128 @@ func getLinesCharge(hist, binning: seq[float], tfKind: TargetFilterKind): seq[Fi
   ## this is a runtime generator for the correct fitting function prototype,
   ## i.e. it returns a seq of parts, which need to be combined to the complete
   ## function at runtime
-  let muIdx = argmax(hist)
+  let (mu_main, sigma_main, n_main, _, _, _) = getLines(hist, binning)
   case tfKind
   of tfCuNi15:
     result.add FitFuncArgs(name: "Cu-Kalpha",
                           kind: ffGauss,
-                          gN: hist[muIdx],
-                          gmu: 1700.0e3, #binning[muIdx],
-                          gs: hist[muIdx] * 1.5e3)
+                          gN: n_main,
+                          gmu: mu_main,
+                          gs: sigma_main)
     result.add FitFuncArgs(name: "Cu-esc",
                           kind: ffGauss,
-                          gN: hist[muIdx] / 10.0,
-                          gmu: 1070.0e3, #binning[muIdx] / 2.0,
-                          gs: hist[muIdx] * 1e3)
+                          gN: n_main / 5.0,
+                          gmu: mu_main / 1.5,
+                          gs: sigma_main)
   of tfMnCr12:
     result.add FitFuncArgs(name: "Mn-Kalpha",
                           kind: ffGauss,
-                          gN: hist[muIdx] / 4.0,
-                          gmu: binning[muIdx],
-                          gs: hist[muIdx] * 2.0e3)
+                          gN: n_main,
+                          gmu: mu_main,
+                          gs: sigma_main)
     result.add FitFuncArgs(name: "Mn-esc",
                           kind: ffGauss,
-                          gN: hist[muIdx] / 10.0,
-                          gmu: binning[muIdx] / 2.0,
-                          gs: hist[muIdx] * 1.0e3)
+                          gN: n_main / 10.0,
+                          gmu: mu_main / 2.0,
+                          gs: sigma_main)
     #result.add FitFuncArgs(name: "p0",
     #                      kind: ffConst,
-    #                      c: -hist[muIdx])
+    #                      c: -n_main)
     #result.add FitFuncArgs(name: "p1",
     #                      kind: ffPol1,
-    #                      cp: hist[muIdx])
+    #                      cp: n_main)
     #result.add FitFuncArgs(name: "p2",
     #                      kind: ffPol2,
-    #                      cpp: -hist[muIdx])
+    #                      cpp: -n_main)
   of tfTiTi9:
     result.add FitFuncArgs(name: "Ti-Kalpha",
                           kind: ffGauss,
-                          gN: hist[muIdx],# / 10.0,
-                          gmu: binning[muIdx] , #1140.0e3,
-                          gs: hist[muIdx] * 4e2)
+                          gN: n_main,# / 10.0,
+                          gmu: mu_main , #1140.0e3,
+                          gs: sigma_main)
     result.add FitFuncArgs(name: "Ti-esc-alpha",
                           kind: ffGauss,
-                          gN: hist[muIdx] / 20.0,
-                          gmu: binning[muIdx] / 3.0, #400.0e3,
-                          gs: hist[muIdx] * 1e2)
+                          gN: n_main / 20.0,
+                          gmu: mu_main / 3.0, #400.0e3,
+                          gs: sigma_main)
     result.add FitFuncArgs(name: "Ti-esc-beta",
                           kind: ffGauss,
-                          gN: hist[muIdx] / 30.0,
-                          gmu: fixed, #binning[muIdx] ,
-                          gs: fixed) #hist[muIdx] * 1e3)
+                          gN: n_main / 30.0,
+                          gmu: fixed, #mu_main ,
+                          gs: fixed) #n_main * 1e3)
     result.add FitFuncArgs(name: "Ti-Kbeta",
                           kind: ffGauss,
-                          gN: hist[muIdx] / 30.0,
-                          gmu: fixed, #binning[muIdx], #* 1e5,
-                          gs: fixed) #hist[muIdx] * 1e3)
+                          gN: n_main / 30.0,
+                          gmu: fixed, #mu_main, #* 1e5,
+                          gs: fixed) #n_main * 1e3)
   of tfAgAg6:
     result.add FitFuncArgs(name: "Ag-Lalpha",
                           kind: ffGauss,
-                          gN: hist[muIdx],# / 2.0,
-                          gmu: binning[muIdx],# * 1e3,
-                          gs: hist[muIdx] * 1e2)# * 10)
+                          gN: n_main,# / 2.0,
+                          gmu: mu_main,# * 1e3,
+                          gs: sigma_main)# * 10)
     result.add FitFuncArgs(name: "Ag-Lbeta",
                           kind: ffGauss,
-                          gN: fixed, #hist[muIdx] / 10.0,
-                          gmu: fixed, #binning[muIdx],
-                          gs: fixed) #hist[muIdx] * 1.5e3)
+                          gN: fixed, #n_main / 10.0,
+                          gmu: fixed, #mu_main,
+                          gs: fixed) #n_main * 1.5e3)
     #result.add FitFuncArgs(name: "p0",
     #                      kind: ffConst,
-    #                      c: hist[muIdx] * 1e-3)
+    #                      c: n_main * 1e-3)
     #result.add FitFuncArgs(name: "p1",
     #                      kind: ffPol1,
-    #                      cp: hist[muIdx] * 1e-3)
+    #                      cp: n_main * 1e-3)
     #result.add FitFuncArgs(name: "p2",
     #                      kind: ffPol2,
-    #                      cpp: hist[muIdx] * 1e-3)
+    #                      cpp: n_main * 1e-3)
   of tfAlAl4:
     result.add FitFuncArgs(name: "Ag-Kalpha",
                           kind: ffGauss,
-                          gN: hist[muIdx],# / 2.0,
-                          gmu: binning[muIdx],# 350.0e3
-                          gs: hist[muIdx] * 1e2)# * 10)
+                          gN: n_main,# / 2.0,
+                          gmu: mu_main,# 350.0e3
+                          gs: sigma_main)# * 10)
     #result.add FitFuncArgs(name: "p0",
     #                      kind: ffConst,
-    #                      c: -hist[muIdx])
+    #                      c: -n_main)
     #result.add FitFuncArgs(name: "p1",
     #                      kind: ffPol1,
-    #                      cp: hist[muIdx])
+    #                      cp: n_main)
     #result.add FitFuncArgs(name: "p2",
     #                      kind: ffPol2,
-    #                      cpp: -hist[muIdx])
+    #                      cpp: -n_main)
   of tfCuEpic2:
     result.add FitFuncArgs(name: "Cu-Lalpha",
                           kind: ffGauss,
-                          gN: hist[muIdx],# / 20.0,
-                          gmu: binning[muIdx], #* 0.5e3,
-                          gs: hist[muIdx] * 2e2)
+                          gN: n_main / 2.0,# / 20.0,
+                          gmu: mu_main, #* 0.5e3,
+                          gs: sigma_main)
     result.add FitFuncArgs(name: "Cu-Lbeta",
                           kind: ffGauss,
-                          gN: hist[muIdx],# / 50.0,
-                          gmu: binning[muIdx],
-                          gs: hist[muIdx] * 0.5e2)
+                          gN: n_main / 2.0,# / 50.0,
+                          gmu: mu_main,
+                          gs: sigma_main)
   of tfCuEpic0_9:
     result.add FitFuncArgs(name: "O-Kalpha",
                           kind: ffGauss,
-                          gN: hist[muIdx],# / 4.0,
-                          gmu: binning[muIdx],
-                          gs: hist[muIdx] * 1e2)
+                          gN: n_main / 2.0,# / 4.0,
+                          gmu: mu_main,
+                          gs: sigma_main)
     result.add FitFuncArgs(name: "C-Kalpha",
                           kind: ffGauss,
-                          gN: hist[muIdx],# / 4.0,
-                          gmu: binning[muIdx],
-                          gs: hist[muIdx] * 1e3)
+                          gN: n_main / 2.0,# / 4.0,
+                          gmu: mu_main,
+                          gs: sigma_main)
   of tfCEpic0_6:
     result.add FitFuncArgs(name: "C-Kalpha",
                           kind: ffGauss,
-                          gN: hist[muIdx],# / 4.0,
-                          gmu: binning[muIdx],
-                          gs: hist[muIdx]  * 1e2)
+                          gN: n_main,# / 4.0,
+                          gmu: mu_main,
+                          gs: sigma_main)
     result.add FitFuncArgs(name: "O-Kalpha",
                           kind: ffGauss,
-                          gN: hist[muIdx],# / 10.0,
-                          gmu: fixed, #binning[muIdx], #* 1e3,
-                          gs: fixed) #hist[muIdx]  * 1e3)
+                          gN: n_main,# / 10.0,
+                          gmu: fixed, #mu_main, #* 1e3,
+                          gs: fixed) #sigma_main  * 1e3)
 
 func getboundsCharge(tfKind:TargetFilterKind): seq[tuple[l, u:float]] =
   case tfKind
@@ -633,7 +633,6 @@ macro genTfToFitFunc(pname: untyped): untyped =
 # generate the =getCdlFitFunc= used to get the correct fit function
 # based on a `TargetKind` and `FilterKind`
 genTfToFitFunc(getCdlFitFunc)
-
 
 proc histoCdl(data: seq[SomeNumber], binSize: float = 3.0, dKind: DataKind): (seq[float], seq[float]) =
   let low = -0.5 * binSize

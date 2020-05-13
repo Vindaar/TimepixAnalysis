@@ -621,6 +621,7 @@ proc fitPolyaNim*(charges,
     let maxP0 = max(counts) * 5000
     let bounds = @[(0.0, maxP0), (1000.0, 8000.0), (0.5, 15.0)]
     var opt = newNloptOpt[FitObject](LN_COBYLA, 3, bounds)
+    #var opt = newNloptOpt[FitObject](GN_DIRECT_L, 3, bounds)
     #var opt = newNloptOpt[FitObject](LD_MMA, 3, bounds)
     # get charges in the fit range
     let (chToFit, countsToFit) = filterByCharge(charges, counts)

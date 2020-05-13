@@ -896,7 +896,7 @@ proc calcFit[T: SomeNumber](dataseq: seq[T],
   doassert pStart.len == bounds.len
   #var opt = newNloptOpt(LD_TNEWTON_PRECOND, pStart.len, bounds)
   fitForNlopt(convertNlopt, cdlFitFunc,
-              nfKind = nfMleGrad,
+              nfKind = nfMle,
               toExport = false)
   # have to mixin the `convertNlopt` name, since generic symbol resolution
   # happens before macro call (so `convertNlopt` isn't known yet)
@@ -904,7 +904,8 @@ proc calcFit[T: SomeNumber](dataseq: seq[T],
   var fitObj = FitObject(x: fitBins, y: fitHist) #, yErr: fitHist.mapIt(sqrt(it)))
   var vstruct = newVarStruct(convertNlopt, fitObj)
 
-  var opt = newNloptOpt[type(fitObj)](LD_MMA, pStart.len, bounds)
+  #var opt = newNloptOpt[type(fitObj)](LD_MMA, pStart.len, bounds)
+  var opt = newNloptOpt[type(fitObj)](LN_COBYLA, pStart.len, bounds)
   opt.setFunction(vstruct)
   opt.xtol_rel = 1e-10
   opt.ftol_rel = 1e-10
@@ -1060,6 +1061,7 @@ proc fitAndPlot[T: SomeNumber](h5f: var H5FileObj, fitParamsFname: string,
     ggsave(fname)
 
   # now dump the fit results, SVG filename and correct parameter names to a file
+  ## TODO: add fit parameters as annotation to plot!!
   dumpFitParameters(fitParamsFname, fname, fitresults[1], ploterror, tfKind, dKind)
 
 proc cdlToXrayTransform(h5fout: var H5FileObj,

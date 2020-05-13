@@ -162,12 +162,14 @@ proc fitThlCalib*(charge, thl, thlErr: seq[float]): FitResult =
 ########## Fe calibration spectra related fitting routines #####################
 ################################################################################
 
-proc getLines(hist, binning: seq[float]): (float, float, float, float, float, float) =
+proc getLines*(hist, binning: seq[float]): (float, float, float, float, float, float) =
   # define center, std and amplitude of K_alpha line
   # as well as escape peak
   doAssert binning.len > 0
+  doAssert hist.len == binning.len
   let peakIdx = argMax(hist)
-  let halfIdxS = toSeq(0 ..< hist.len).filterIt(hist[it] > (hist[peakIdx] / 2.0))
+  let halfIdxS = toSeq(0 ..< hist.len).filterIt(hist[it] >= (hist[peakIdx] / 2.0))
+
   let sigma_Kalpha = (binning[halfIdxS[^1]] - binning[halfIdxS[0]]) / 2.0
   let mu_Kalpha = binning[peakIdx]
 

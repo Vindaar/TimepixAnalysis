@@ -381,6 +381,7 @@ proc plotHist[T](xIn: seq[T], title, dset, outfile: string,
                                             `xs` <= binRange[1]})
     result.pltGg = ggplot(df, aes("xs")) +
         geom_histogram(binWidth = binSize) +
+        scale_x_continuous() +
         result.theme # just add the theme directly
   else: discard
 

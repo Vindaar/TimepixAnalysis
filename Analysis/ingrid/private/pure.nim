@@ -477,7 +477,7 @@ proc getOldRunInformation*(folder: string, runNumber: int, rfKind: RunFolderKind
       # get upper limit of number of events based on last event number
       let totalEvents = files[^1][0]
       let oldTosRunDescriptor = re(oldTosRunDescriptorPrefix & oldVirtexRunRegex)
-      var runStart = DateTime(month: mJan, monthday: 01, year: 1970)
+      var runStart = fromUnix(0).inZone(utc())
       if folder =~ oldTosRunDescriptor:
         runStart = matches[1].parse("yyMMdd")
         runStart.hour = matches[2].parseInt

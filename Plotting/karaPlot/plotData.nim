@@ -110,7 +110,7 @@ type
       plPlot*: Plot[float]
       plPlotJson*: PlotJson
     of bGgPlot:
-      pltGg*: GgPlot[DataFrame]
+      pltGg*: GgPlot
       width*: float
       height*: float
       theme*: Theme

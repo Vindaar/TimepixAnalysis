@@ -1170,7 +1170,7 @@ proc handleInGridDset(h5f: var H5FileObj,
     let data = h5f.read(r, pd.name, pd.chip, dtype = float)
     # perform cut on range
     let group = h5f[recoPath(r, pd.chip)]
-    if pd.range[0] != -Inf and pd.range[1] != Inf:
+    if pd.range[0] != -Inf and pd.range[1] != Inf and "energyFromCharge" in group:
       let idx = cutOnProperties(h5f, group,
                     ("energyFromCharge", pd.range[0], pd.range[1]))
       allData.add idx.mapIt(data[it])
@@ -1187,9 +1187,11 @@ proc handleFadcDset(h5f: var H5FileObj,
   var allData: seq[float]
   for r in pd.runs:
     let group = h5f[recoPath(r, fileInfo.centerChip)]
-    let idx = cutOnProperties(h5f, group,
-                  ("energyFromCharge", pd.range[0], pd.range[1]))
     let evNumInGrid = h5f.read(r, "eventNumber", fileInfo.centerChip, dtype = int)
+    let idx = if "energyFromCharge" in group:
+                 cutOnProperties(h5f, group,
+                  ("energyFromCharge", pd.range[0], pd.range[1]))
+              else: toSeq(0 ..< evNumInGrid.len)
     # filter out correct indices passing cuts
     var inGridSet = initSet[int]()
     for i in idx:

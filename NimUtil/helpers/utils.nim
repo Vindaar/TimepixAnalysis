@@ -374,9 +374,9 @@ proc getDaysHoursMinutes*(dur: Duration): string =
   ## n days HH:MM
   ## based on a `Duration`
   let
-    days = dur.days
-    hours = dur.hours - convert(Days, Hours, dur.days)
-    minutes = dur.minutes - convert(Days, Minutes, dur.days) - convert(Hours, Minutes, hours)
+    days = dur.inDays
+    hours = dur.inHours - convert(Days, Hours, dur.inDays)
+    minutes = dur.inMinutes - convert(Days, Minutes, dur.inDays) - convert(Hours, Minutes, hours)
   result = &"{days} days {hours:02}:{minutes:02}"
 
 template getDateSyntax*(): string =

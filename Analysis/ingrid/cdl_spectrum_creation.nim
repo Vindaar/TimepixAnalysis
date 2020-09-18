@@ -759,7 +759,7 @@ proc cutAndWrite(h5file: string) =
                                    ("eccentricity", 0.0, cut.maxEccentricity))
       let nevents = passIdx.len
 
-      proc writeDset(dsetWrite, dsetRead: string, datatype: typedesc) =
+      proc writeDset(r: CDLRun, dsetWrite, dsetRead: string, datatype: typedesc) =
         var
           dset = h5f.create_dataset(grp.name / dsetWrite, (nevents, 1),
                                     datatype)
@@ -771,10 +771,10 @@ proc cutAndWrite(h5file: string) =
         dset.attrs["Target"] = $r.target
         dset.attrs["Filter"] = $r.filter
         dset.attrs["HV"] = $r.hv
-      writeDset("CdlSpectrumIndices", "", int64)
-      writeDset("CdlSpectrum", "hits", int64)
-      writeDset("CdlSpectrumEvents", "eventNumber", int64)
-      writeDset("CdlSpectrumCharge", "totalCharge", float64)
+      writeDset(r, "CdlSpectrumIndices", "", int64)
+      writeDset(r, "CdlSpectrum", "hits", int64)
+      writeDset(r, "CdlSpectrumEvents", "eventNumber", int64)
+      writeDset(r, "CdlSpectrumCharge", "totalCharge", float64)
 
       let runnum = h5f[(recoBase() & $r.number).grp_str]
       runnum.attrs["tfKind"] = $r.toCutStr

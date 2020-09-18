@@ -69,9 +69,9 @@ type
   SlowControlLog = object
     # store date of log file as string or Time?
     date: Time
-    # time of day, stored as time interval starting from date
+    # time of day, stored as time duration starting from date
     # each log starts at 12am
-    times: seq[TimeInterval]
+    times: seq[Duration]
     # pressures relevant for InGrid
     pmm, p3, p3_ba: seq[float]
     # magnet current
@@ -95,7 +95,7 @@ type
       tracking_start, tracking_stop: Time
 
 proc newSlowControlLog(): SlowControlLog =
-  result.date = fromSeconds(0)
+  result.date = fromUnix(0)
   result.times = @[]
   result.pmm = @[]
   result.p3 = @[]
@@ -113,11 +113,11 @@ proc hash(x: TrackingLog): Hash =
   ## needed to store it in a hash Table
   var h: Hash = 0
   # can use hashing of Time
-  h = h !& hash(x.date.toSeconds)
+  h = h !& hash(x.date.toUnix)
   case x.kind
   of rkTracking:
-    h = h !& hash(x.tracking_start.toSeconds)
-    h = h !& hash(x.tracking_stop.toSeconds)
+    h = h !& hash(x.tracking_start.toUnix)
+    h = h !& hash(x.tracking_stop.toUnix)
   else: discard
   result = !$h
 
@@ -131,12 +131,12 @@ proc `==`(x, y: TrackingLog): bool =
     result = result and (x.tracking_start == y.tracking_start)
     result = result and (x.tracking_stop == y.tracking_stop)
 
-proc parse_time(time_str: string): TimeInterval =
+proc parse_time(time_str: string): Duration =
   ## proc to parse the time from a string hh:mm:ss returned as a
-  ## time interval from midnight
+  ## time duration from midnight
   let t = time_str.split(":")
   # create the time interval based on the date given
-  result = initInterval(hours = parseInt(t[0]), minutes = parseInt(t[1]), seconds = parseInt(t[2]))
+  result = initDuration(hours = parseInt(t[0]), minutes = parseInt(t[1]), seconds = parseInt(t[2]))
 
 proc is_magnet_moving(h_me, v_me: (int, int)): bool {.inline.} =
   ## determine whether magnet is moving horizontally and (!) vertically
@@ -160,8 +160,8 @@ proc map_log_to_run(logs: seq[TrackingLog], h5file: string): Table[TrackingLog, 
   var h5f = H5File(h5file, "r")
 
   var run_times = initTable[int, (int, int)]()
-  for grp in items(h5f, "/runs", depth = 1):
-    if "/runs/run" in grp.name:
+  for grp in items(h5f, "/reconstruction", depth = 1):
+    if "/reconstruction/run" in grp.name:
       # given a run, check its start and end time
       var tstamp = h5f[(grp.name & "/timestamp").dset_str]
       let
@@ -180,46 +180,52 @@ proc map_log_to_run(logs: seq[TrackingLog], h5file: string): Table[TrackingLog, 
     of rkTracking:
       # now given start time, look for run for which it fits. Filter elements
       # where run covers tracking start - end
-      let run_num = filter(toSeq(run_times.keys)) do (r: int) -> bool:
-        let
-          t_start = int(log.tracking_start.toSeconds)
-          t_stop  = int(log.tracking_stop.toSeconds)
-        if run_times[r][0] < t_start and run_times[r][1] > t_stop: true else: false
-      if run_num.len == 1:
-        result[log] = run_num[0]
+      proc filterRuns(runs: seq[int], log: TrackingLog): int =
+        result = -1
+        for r in runs:
+          let
+            t_start = int(log.tracking_start.toUnix)
+            t_stop  = int(log.tracking_stop.toUnix)
+          if run_times[r][0] < t_start and run_times[r][1] > t_stop:
+            doAssert result < 0, "There are multiple trackings? Something is wrong. " & $result & " and " & $r
+            result = r
+      let run_num = filterRuns(toSeq(run_times.keys), log)
+      if run_num > 0:
+        result[log] = run_num
     else: discard
-
   discard h5f.close()
 
 proc deleteTrackingAttributes(h5file: string) =
   ## proc to delete all tracking related attributes in a H5 file
-  let groups = @["/runs", "/reconstruction"]
   withH5(h5file, "rw"):
-    for base_grp in groups:
-      for grp in items(h5f, base_grp, depth = 1):
-        if base_grp / "run" in grp.name:
-          # get number of tracking related attributes
-          # for now need mutable attributes object to access
-          var attrs = grp.attrs
-          var num_tr = 0
-          var mgrp = grp
-          try:
-            num_tr = attrs["num_trackings", int]
-          except KeyError:
-            # no trackings, continue
-            continue
-          for i in 0 ..< num_tr:
-            var deleted = false
-            let
-              attr_start = "tracking_start_$#" % $i
-              attr_stop  = "tracking_stop_$#" % $i
-              attr_num   = "num_trackings"
-            deleted = mgrp.deleteAttribute(attr_start)
-            deleted = mgrp.deleteAttribute(attr_stop)
-            deleted = mgrp.deleteAttribute(attr_num)
-            if deleted == false:
-              echo "Could not delete one of " &
-                "$#, $# or $# in group $#" % [$attr_start, $attr_stop, $attr_num, $mgrp.name]
+    let baseName = if "/runs" in h5f: rawDataBase()
+                   elif "/reconstruction" in h5f: recoBase()
+                   else: raise newException(IOError, "Invalid input file " &
+        $h5file & ". It contains neither `runs` nor `reconstruction` group!")
+    for grp in items(h5f, baseName, depth = 1):
+      if baseName / "run" in grp.name:
+        # get number of tracking related attributes
+        # for now need mutable attributes object to access
+        var attrs = grp.attrs
+        var num_tr = 0
+        var mgrp = grp
+        try:
+          num_tr = attrs["num_trackings", int]
+        except KeyError:
+          # no trackings, continue
+          continue
+        for i in 0 ..< num_tr:
+          var deleted = false
+          let
+            attr_start = "tracking_start_$#" % $i
+            attr_stop  = "tracking_stop_$#" % $i
+            attr_num   = "num_trackings"
+          deleted = mgrp.deleteAttribute(attr_start)
+          deleted = mgrp.deleteAttribute(attr_stop)
+          deleted = mgrp.deleteAttribute(attr_num)
+          if deleted == false:
+            echo "Could not delete one of " &
+              "$#, $# or $# in group $#" % [$attr_start, $attr_stop, $attr_num, $mgrp.name]
 
 proc write_tracking_h5(trck_tab: Table[TrackingLog, int], h5file: string) =
   ## proc to write the mapping of tracking logs to run numbers to the appropriate
@@ -239,30 +245,26 @@ proc write_tracking_h5(trck_tab: Table[TrackingLog, int], h5file: string) =
       inc(runTab, runNumber)
       let num = runTab[runNumber]
 
+      let baseName = if "/runs" in h5f: rawDataBase()
+                     elif "/reconstruction" in h5f: recoBase()
+                     else: raise newException(IOError, "Invalid input file " &
+          $h5file & ". It contains neither `runs` nor `reconstruction` group!")
       # take run number, build group name and add attributes
-      let
-        raw_name = rawDataBase() & $run_number
-        reco_name = recoBase() & $run_number
-      var
-        raw_grp = h5f[raw_name.grp_str]
-        reco_grp = h5f[reco_name.grp_str]
+      let runName = baseName & $run_number
+      var runGrp = h5f[runName.grp_str]
       # check if there is a number of trackings already
 
-      if "num_trackings" notin raw_grp.attrs:
-        raw_grp.attrs["num_trackings"] = 1
-        reco_grp.attrs["num_trackings"] = 1
+      if "num_trackings" notin runGrp.attrs:
+        runGrp.attrs["num_trackings"] = 1
       else:
-        raw_grp.attrs["num_trackings"] = num
-        reco_grp.attrs["num_trackings"] = num
+        runGrp.attrs["num_trackings"] = num
 
       # store trackings zero indexed
       let numIdx = num - 1
 
       # add tracking. Trackings will be zero indexed
-      raw_grp.attrs["tracking_start_$#" % $numIdx] = $log.tracking_start
-      raw_grp.attrs["tracking_stop_$#" % $numIdx] = $log.tracking_stop
-      reco_grp.attrs["tracking_start_$#" % $numIdx] = $log.tracking_start
-      reco_grp.attrs["tracking_stop_$#" % $numIdx] = $log.tracking_stop
+      runGrp.attrs["tracking_start_$#" % $numIdx] = $log.tracking_start
+      runGrp.attrs["tracking_stop_$#" % $numIdx] = $log.tracking_stop
 
 proc sortTrackingLogs(tr_logs: seq[TrackingLog], order = SortOrder.Ascending): seq[TrackingLog] =
   ## proc to sort a sequence of tracking logs by date
@@ -359,12 +361,11 @@ proc read_tracking_logfile(filename: string): TrackingLog =
     h_me_p = 0
     v_me_p = 0
     tracking_p = false
-    tracking_start = fromSeconds(0)
-    tracking_stop = fromSeconds(0)
+    tracking_start = fromUnix(0)
+    tracking_stop = fromUnix(0)
     # helper bool, needed because some tracking logs start
     # before midnight
     date_set = false
-
   for line in splitLines(file):
     if count < 2:
       # skip header
@@ -373,16 +374,17 @@ proc read_tracking_logfile(filename: string): TrackingLog =
     if line.len == 0:
       break
     let d = line.splitWhitespace
-    if count > 1 and date_set == false:
+    if count > 1 and not date_set:
       # parse the date
       let date = toTime(parse(d[date_i], "MM/dd/yy"))
       # check whether this date is at the end of day from the
       # previous log file or already past midnight
-      if toTimeInterval(date).hours > 23:
+      if date.utc().hour > 23:
         continue
       else:
         # set the date of the tracking log
         result.date = date
+        date_set = true
     let
       h_me = int(parseFloat(d[h_me]))
       v_me = int(parseFloat(d[v_me]))
@@ -392,12 +394,12 @@ proc read_tracking_logfile(filename: string): TrackingLog =
     let move = is_magnet_moving((h_me, h_me_p), (v_me, v_me_p))
     h_me_p = h_me
     v_me_p = v_me
-    if tracking_p == false and tracking == true:
+    if not tracking_p and tracking:
       tracking_start = result.date + timestamp
-      tracking_p = true
-    elif tracking_p == true and tracking == false:
+      tracking_p = not tracking_p
+    elif tracking_p and not tracking:
       tracking_stop = result.date + timestamp
-      tracking_p = false
+      tracking_p = not tracking_p
     inc count
 
   # now set the tracking variant object depending on whether tracking took place

@@ -1002,14 +1002,14 @@ proc fitAndPlot[T: SomeNumber](h5f: var H5FileObj, fitParamsFname: string,
 
   case lines[0].kind
   of ffGauss:
-    fitmu = fitresults[1][1]
-    fitsig = fitresults[1][2]
+    fitmu = FitError[1] #fitresults[1][1]
+    fitsig = FitError[2] #fitresults[1][2]
     fitmuerr = ploterror[1]
     fitsigerr = ploterror[2]
     museq.add(fitmu)
   of ffExpGauss:
-    fitmu = fitresults[1][3]
-    fitsig = fitresults[1][4]
+    fitmu = FitError[3] #fitresults[1][3]
+    fitsig = FitError[4] #fitresults[1][4]
     fitmuerr = ploterror[3]
     fitsigerr = ploterror[4]
     museq.add(fitmu)
@@ -1062,7 +1062,7 @@ proc fitAndPlot[T: SomeNumber](h5f: var H5FileObj, fitParamsFname: string,
 
   # now dump the fit results, SVG filename and correct parameter names to a file
   ## TODO: add fit parameters as annotation to plot!!
-  dumpFitParameters(fitParamsFname, fname, fitresults[1], ploterror, tfKind, dKind)
+  dumpFitParameters(fitParamsFname, fname, FitError, ploterror, tfKind, dKind)
 
 proc cdlToXrayTransform(h5fout: var H5FileObj,
                         passedData: seq[float],

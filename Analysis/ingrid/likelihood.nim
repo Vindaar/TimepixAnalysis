@@ -969,7 +969,7 @@ proc calcSigEffBackRej(df: DataFrame, logLBins: seq[float],
   ## given data frame, split by the `bins` column (that is CDL classes)
   let dfG = df.group_by("Bin")
   for (pair, subDf) in groups(dfG):
-    let logL = subDf["Likelihood"].toTensor(float).sorted
+    let logL = subDf.arrange("Likelihood")["Likelihood"].toTensor(float)
     var effs = newSeqOfCap[float](logLBins.len)
     for l in logLBins:
       let eff = determineEff(logL.toRawSeq, l, isBackground = isBackground)

@@ -3,7 +3,7 @@ import ggplotnim, seqmath, sequtils, tables, os, options
 import ingrid / [tos_helpers]
 from arraymancer import tensor
 
-import nlopt, nimhdf5
+import nlopt, nimhdf5, numericalnim
 import shell, strutils
 
 import cligen
@@ -289,13 +289,21 @@ proc main(backFiles, candFiles: seq[string], axionModel: string) =
   opt.addInequalityConstraint(constrainVarStruct)
   #opt.xtol_rel = 1e-10
   #opt.ftol_rel = 1e-10
-  opt.maxtime = 600.0
-  opt.initialStep *= 1e-10
-  let optRes = opt.optimize(@[2.1e-9])
+  opt.maxtime = 30.0
+  opt.initialStep = 1e-10
+  let optRes = opt.optimize(@[2.1e-10])
   echo opt.status
 
   echo optRes
   destroy(opt)
+
+  #for h5f in concat(h5Backs, h5Cands):
+  #  discard h5f.close()
+
+  # finally run root as comp:
+  let res = shellVerbose:
+    "../../../mclimit/tools/calcLimit /tmp/current_data.csv"
+
 
 when isMainModule:
   dispatch(main, echoResult = false, noAutoEcho = true)

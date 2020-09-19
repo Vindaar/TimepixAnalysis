@@ -245,19 +245,6 @@ proc main(backFiles, candFiles: seq[string], axionModel: string) =
     let lhGrp = h5f["/likelihood".grp_str]
     result = lhGrp.attrs["totalDuration", float]
 
-  let trackingTime = h5Cands.mapIt(it.readDuration).sum / 10.0
-  echo "Total tracking time ", trackingTime / 3600.0, " h"
-  let secondsOfSim = N_sim.float / totalFluxPerYear * 86400 * 365
-  echo &"secondsOfSim = {secondsOfSim}"
-  let areaBore = PI * pow(2.15, 2.0) # area of bore in cm²
-  echo &"areaBore = {areaBore} cm²"
-  # - calculate how much more time is in tracking than simulation
-  # - convert from m² to cm²
-  # - multiply by area of bore
-  let scale = trackingTime.float / secondsOfSim / (100 * 100) * areaBore
-  echo &"Scale = {scale}"
-  let gaeDf = readAxModel(axionModel, scale)
-
   # var backH = backHI
   # var candH = candHI
   #let backH = scaleDset(h5Back, backHI)
@@ -268,6 +255,25 @@ proc main(backFiles, candFiles: seq[string], axionModel: string) =
                                  # only required for poisson sampled candidates
   backHist.counts = backHist.counts.map_inline(x.float / trackToBackRatio)
   backHist.err = backHist.err.map_inline(x.float / trackToBackRatio)
+
+  let backTime = h5Backs.mapIt(it.readDuration).sum
+  let trackingTime = backTime / trackToBackRatio
+  echo "Total background time ", backTime / 3600.0, " h"
+  echo "Total tracking time ", trackingTime / 3600.0, " h"
+  let secondsOfSim = N_sim.float / totalFluxPerYear * 86400 * 365
+  echo &"secondsOfSim = {secondsOfSim}"
+  let areaBore = PI * pow(2.15, 2.0) # area of bore in cm²
+  echo &"areaBore = {areaBore} cm²"
+  # - calculate how much more time is in tracking than simulation
+  # - convert from m² to cm²
+  # - multiply by area of bore
+  #let scale = totalFluxPerYear / N_sim.float * 5.0 / (100 * 100) * areaBore * (trackingTime / (86400 * 365))
+  let scale = trackingTime.float / secondsOfSim / (100 * 100) * areaBore
+
+  echo &"Scale = {scale}"
+  let gaeDf = readAxModel(axionModel, scale)
+
+
 
   #let candHist = toHisto(candH, binsC[0 .. ^2])
   let candHist = backHist.drawExpCand()

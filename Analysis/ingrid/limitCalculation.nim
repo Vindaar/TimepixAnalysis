@@ -20,11 +20,13 @@ func toTensor[T](t: Tensor[T]): Tensor[T] = t
 template toHisto(arg, binsArg: typed): untyped =
   let counts = arg.toTensor.asType(float)
   # why cannot directly map_inline with sqrt :(
-  let err = counts.toRawSeq.mapIt(it.sqrt).toTensor
+  var err = newSeq[float](counts.len)
+  for i in 0 ..< counts.len:
+    err[i] = sqrt(counts[i])
   Histogram(ndim: 1,
             bins: binsArg.toTensor.asType(float),
             counts: counts,
-            err: err)
+            err: err.toTensor)
 
 proc readDsets(h5f: H5FileObj, names: varargs[string]): DataFrame =
   ## reads all likelihood data in the given `h5f` file as well as the

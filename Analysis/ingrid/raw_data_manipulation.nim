@@ -32,7 +32,6 @@ import ingrid_types
 import seqmath
 import nimhdf5
 import arraymancer
-import zero_functional
 
 # global experimental pragma to use parallel: statement in readRawInGridData()
 {.experimental.}
@@ -371,9 +370,9 @@ proc processRawInGridData(run: Run): ProcessedRun =
   result.chips = run.chips
   result.nChips = nChips
   result.events = events
-  result.tots = tot_run -->> map(it -->
-                                 flatten().
-                                 to(seq[uint16])) --> to(seq[seq[uint16]])# flatten 1 level
+  result.tots = newSeq[seq[uint16]](nChips)
+  for i, tot in tot_run:
+    result.tots[i] = concat tot
   result.hits = hits
   result.occupancies = occ
 

@@ -38,9 +38,13 @@ proc readDsets(h5f: H5FileObj, names: varargs[string]): DataFrame =
     var data = newSeq[float]()
     for run, grp in runs(h5f, likelihoodBase()):
       let group = h5f[grp.grp_str]
-      let centerChip = "chip_" & $group.attrs["centerChip", int]
-      doAssert grp / centerChip / name in h5f[(group.name / centerChip).grp_str]
-      data.add h5f[grp / centerChip / name, float64]
+      let centerChip = if "centerChip" in group.attrs: "chip_" & $group.attrs["centerChip", int]
+                       else: "chip_3"
+      if grp / centerChip in h5f:
+        doAssert grp / centerChip / name in h5f[(group.name / centerChip).grp_str]
+        data.add h5f[grp / centerChip / name, float64]
+      else:
+        echo &"INFO: Run {run} does not have any candidates"
     result[name] = toColumn data
 
 proc rescale(flux: var Tensor[float], gae_new, gae_current: float) =

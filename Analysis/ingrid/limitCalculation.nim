@@ -245,7 +245,7 @@ proc main(backFiles, candFiles: seq[string], axionModel: string) =
     let lhGrp = h5f["/likelihood".grp_str]
     result = lhGrp.attrs["totalDuration", float]
 
-  let trackingTime = h5Cands.mapIt(it.readDuration).sum / 10.0
+  let trackingTime = h5Cands.mapIt(it.readDuration).sum
   echo "Total tracking time ", trackingTime / 3600.0, " h"
   let secondsOfSim = N_sim.float / totalFluxPerYear * 86400 * 365
   echo &"secondsOfSim = {secondsOfSim}"

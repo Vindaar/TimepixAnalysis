@@ -15,6 +15,8 @@ type
     axModel: DataFrame
     gae: ptr float
     rnd: ptr Random
+    obsCLs: ptr float
+    obsCLb: ptr float
 
 func toTensor[T](t: Tensor[T]): Tensor[T] = t
 template toHisto(arg, binsArg: typed): untyped =
@@ -110,43 +112,56 @@ proc runLimitCalc(p: float, data: FitObject) =
   flux.rescale(param, data.gae[])
   data.gae[] = param
 
-  #var obsCLs: float
-  #var obsCLb: float
+  var
+    obsCLs: float
+    obsCLb: float
   when not defined(useRoot):
     let sigHist = toHisto(flux, energy)
     let ch = mclimit.Channel(sig: sigHist, back: backHist, cand: candHist,
-                     systErr: { "Tel" : SystematicError(cand: 0.1, back: 0.0),
-                                "Rad" : SystematicError(cand: 0.2, back: 0.0) }.toOrderedTable)
+                     systErr: { "Software" : SystematicError(cand: 0.05, back: 0.05),
+                                "Stat" :  SystematicError(cand: 0.3, back: 0.1),
+                                "Tel" : SystematicError(cand: 0.05, back: 0.05),
+                                "Window" : SystematicError(cand: 0.10, back: 0.10)
+                              }.toOrderedTable)
     var rand = wrap(initMersenneTwister(49))
     let limit = computeLimit(@[ch], rand, stat = false, nmc = nmc,
                              verbose = false)
     obsCLs = limit.CLs()
     obsCLb = limit.CLb()
+    echo "CLs+b = ", limit.CLsb()
+    echo "<CLb> = ", limit.getExpectedCLb_b()
+    echo "<CLsb> = ", limit.getExpectedCLsb_b()
+    echo "<CLs> = ", limit.getExpectedCLs_b()
   else:
     let res = shellVerbose:
       "../../../mclimit/tools/calcLimit /tmp/current_data.csv true"
     obsCLs = res[0].splitLines[^2].parseFloat
     obsCLb = res[0].splitLines[^1].parseFloat
 
+  data.obsCLs[] = obsCLs
+  data.obsCLb[] = obsCLb
   block Plot:
     # plot current model
     drawLimitPlot(flux, energy, param, backHist, candHist, true)
     drawLimitPlot(flux, energy, param, backHist, candHist, false)
 
 proc calcCL95(p: seq[float], data: FitObject): float =
+  runLimitCalc(p[0], data)
   var
-    obsCLs: float
-    obsCLb: float
-  runLimitCalc(p[0], data, obsCLs, obsCLb)
+    obsCLs = data.obsCLs[]
+    obsCLb = data.obsCLb[]
   result = obsCLs
 
 proc constrainCL95(p: seq[float], data: FitObject): float =
+  ## TODO: instead of calling runLimitCalc again here, we should add
+  ## the results to the FitObject and then just read them here
   var
-    obsCLs: float
-    obsCLb: float
-  runLimitCalc(p[0], data, obsCLs, obsCLb)
-  result = abs(obsCLs - 0.5 - 1e-3) - 1e-3
-  echo result, " at a CLs: ", obsCLs, "  and CLb  ", obsCLb, " for param ", p
+    obsCLs = data.obsCLs[]
+    obsCLb = data.obsCLb[]
+  result = abs(obsCLs - 0.05 - 1e-3) + 1e-3
+  echo result, " at a param ", p
+  echo "CLb: ", obsCLb
+  echo "CLs: ", obsCLs
 
 proc readAxModel(f: string): DataFrame =
   let
@@ -202,11 +217,15 @@ proc main(backFile, candFile, axionModel: string) =
 
   # 1e-13 is the value, which was used to calculate the currently used flux
   var gae = 1e-13
+  var obsCLs: float
+  var obsCLb: float
   let fitObj = FitObject(back: backHist, cand: candHist,
                          axModel: gaeDf,
                          gae: gae.addr,
-                         rnd: rnd.addr)
-  var opt = newNloptOpt[FitObject](LN_COBYLA, 1, @[(l: 1e-12, u: 1e-8)])
+                         rnd: rnd.addr,
+                         obsCLs: obsCLs.addr,
+                         obsCLb: obsCLb.addr)
+  var opt = newNloptOpt[FitObject](LN_COBYLA, 1, @[(l: 1e-14, u: 1e-8)])
   let varStruct = newVarStruct(calcCL95, fitObj)
   opt.setFunction(varStruct)
   var constrainVarStruct = newVarStruct(constrainCL95, fitObj)

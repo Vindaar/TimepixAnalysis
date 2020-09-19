@@ -180,17 +180,44 @@ proc readAxModel(f: string, scale: float): DataFrame =
   result = seqsToDf({ "Energy" : bins[0 .. ^2],
                       "Flux" : flux })
 
-proc main(backFile, candFile, axionModel: string) =
+proc drawExpCand(h: Histogram): Histogram =
+  ## given a histogram as input, draws a new histogram using Poisson
+  ## statistics
+  var pois: Poisson
+  var rnd = wrap(initMersenneTwister(0x1337))
+  result = h.clone()
+  for i in 0 ..< h.counts.len:
+    let cnt = h.counts[i]
+    pois = poisson(cnt)
+    let cntDraw = rnd.sample(pois)
+    result.counts[i] = cntDraw
+    result.err[i] = sqrt(cntDraw)
 
-  echo "file: ", backFile, " exists? ", existsFile(backFile)
-  let h5Back = H5File(backFile, "r")
-  let h5Cand = H5File(candFile, "r")
-  let gaeDf = readAxModel(axionModel)
-  echo gaeDf
+proc main(backFiles, candFiles: seq[string], axionModel: string) =
+  var
+    h5Backs = backFiles.mapIt(H5File(it, "r"))
+    h5Cands = candFiles.mapIt(H5File(it, "r"))
+  let searchStr = "flux_after_exp_N_"
+  let idxN = find(axionModel, searchStr) + searchStr.len
+  let N_sim = parseInt(axionModel[idxN ..< ^4])
+
+  # FIX ME! has to be cleaned up
+  let resPath = "../../../AxionElectronLimit"
+  let diffFluxDf = toDf(readCsv(resPath / "axion_diff_flux_gae_1e-13_gagamma_1e-12.csv"))
+  let totalFluxPerYear = simpson(diffFluxDf["Flux / keV⁻¹ m⁻² yr⁻¹"].toTensor(float).toRawSeq,
+                                 diffFluxDf["Energy / eV"].toTensor(float).map_inline(x * 1e-3).toRawSeq)
 
   #let gaeRawDf = toDf(readCsv(axionModel)).rename(f{"Energy" <- "Axion energy [keV]"})
-  let backEnergy = h5Back.readDsets("energyFromCharge").rename(f{"Energy" <- "energyFromCharge"})
-  let candEnergy = h5Cand.readDsets("energyFromCharge").rename(f{"Energy" <- "energyFromCharge"})
+  proc flatten(dfs: seq[DataFrame]): DataFrame =
+    ## flatten a seq of DFs, which are identical by stacking them
+    for df in dfs:
+      result.add df.clone
+  let backEnergy = h5Backs.mapIt(
+    it.readDsets("energyFromCharge")
+      .rename(f{"Energy" <- "energyFromCharge"})).flatten
+  let candEnergy = h5Cands.mapIt(
+    it.readDsets("energyFromCharge")
+      .rename(f{"Energy" <- "energyFromCharge"})).flatten
   let ratePlot = bind_rows([("back", backEnergy), ("cand", candEnergy)], "Type")
   ggplot(ratePlot, aes(Energy, fill = "Type")) +
     geom_histogram(bin_width = 0.2, position = "identity", alpha = some(0.5)) +
@@ -206,6 +233,7 @@ proc main(backFile, candFile, axionModel: string) =
   proc scaleDset(h5f: H5FileObj, data: seq[int]): seq[float] =
     let lhGrp = h5f["/likelihood".grp_str]
     let time_back = lhGrp.attrs["totalDuration", float]
+    echo time_back
     let area = pow(0.95 - 0.45, 2)
     const bin_width = 0.392
     const shutter_open = 1.0
@@ -213,14 +241,10 @@ proc main(backFile, candFile, axionModel: string) =
     let scale = factor / (time_back * shutter_open * area * bin_width) * 86400 #* 1e5
     result = data.mapIt(it.float * scale)
 
-  # NOTE: scaling ``before`` running the calculation does not make sense!
-  # We need the counts for the poisson statistics / smearing.
-  let backH = backHI#scaleDset(h5Back, backHI)
-  let candH = candHI#scaleDset(h5Cand, candHI)
+  proc readDuration(h5f: H5FileObj): float =
+    let lhGrp = h5f["/likelihood".grp_str]
+    result = lhGrp.attrs["totalDuration", float]
 
-  let backHist = toHisto(backH, binsB[0 .. ^2])
-  let candHist = toHisto(candH, binsC[0 .. ^2])
-  #let trackingTime = 209 * 3600 # seconds of tracking
   let trackingTime = h5Cands.mapIt(it.readDuration).sum / 10.0
   echo "Total tracking time ", trackingTime / 3600.0, " h"
   let secondsOfSim = N_sim.float / totalFluxPerYear * 86400 * 365
@@ -233,7 +257,20 @@ proc main(backFile, candFile, axionModel: string) =
   let scale = trackingTime.float / secondsOfSim / (100 * 100) * areaBore
   echo &"Scale = {scale}"
   let gaeDf = readAxModel(axionModel, scale)
-  echo gaeDf
+
+  # var backH = backHI
+  # var candH = candHI
+  #let backH = scaleDset(h5Back, backHI)
+  #let candH = scaleDset(h5Cand, candHI)
+  var backHist = toHisto(backHI, binsB[0 .. ^2])
+  const trackToBackRatio = 19.56 # this is the ratio of background to
+                                 # tracking time in the combined Run 2 and 3
+                                 # only required for poisson sampled candidates
+  backHist.counts = backHist.counts.map_inline(x.float / trackToBackRatio)
+  backHist.err = backHist.err.map_inline(x.float / trackToBackRatio)
+
+  #let candHist = toHisto(candH, binsC[0 .. ^2])
+  let candHist = backHist.drawExpCand()
 
   # 1e-13 is the value, which was used to calculate the currently used flux
   var gae = 1e-13

@@ -163,14 +163,20 @@ proc constrainCL95(p: seq[float], data: FitObject): float =
   echo "CLb: ", obsCLb
   echo "CLs: ", obsCLs
 
-proc readAxModel(f: string): DataFrame =
+proc readAxModel(f: string, scale: float): DataFrame =
+  ## scale is the scaling required from a purely weight based flux
+  ## to one corresponding to the tracking time. The flux by itself is
+  ## essentially corresponding to a fixed, very short time, based on the
+  ## number of axions being simulated. For a fixed coupling constant we get
+  ## a fixed number of axions per year and cm²
   let
     gaeDf = toDf(readCsv(f))
     energy = gaeDf["Axion energy [keV]"].toTensor(float).toRawSeq
     weights = gaeDf["Flux after experiment"].toTensor(float).toRawSeq
     (val, bins) = histogram(energy, weights = weights, range = (0.0, 10.2), bins = 51)
   var flux = val.toTensor
-  flux.rescale(1e6, 1.0)
+  # scale to tracking time
+  flux.apply_inline(x * scale)
   result = seqsToDf({ "Energy" : bins[0 .. ^2],
                       "Flux" : flux })
 
@@ -214,6 +220,20 @@ proc main(backFile, candFile, axionModel: string) =
 
   let backHist = toHisto(backH, binsB[0 .. ^2])
   let candHist = toHisto(candH, binsC[0 .. ^2])
+  #let trackingTime = 209 * 3600 # seconds of tracking
+  let trackingTime = h5Cands.mapIt(it.readDuration).sum / 10.0
+  echo "Total tracking time ", trackingTime / 3600.0, " h"
+  let secondsOfSim = N_sim.float / totalFluxPerYear * 86400 * 365
+  echo &"secondsOfSim = {secondsOfSim}"
+  let areaBore = PI * pow(2.15, 2.0) # area of bore in cm²
+  echo &"areaBore = {areaBore} cm²"
+  # - calculate how much more time is in tracking than simulation
+  # - convert from m² to cm²
+  # - multiply by area of bore
+  let scale = trackingTime.float / secondsOfSim / (100 * 100) * areaBore
+  echo &"Scale = {scale}"
+  let gaeDf = readAxModel(axionModel, scale)
+  echo gaeDf
 
   # 1e-13 is the value, which was used to calculate the currently used flux
   var gae = 1e-13

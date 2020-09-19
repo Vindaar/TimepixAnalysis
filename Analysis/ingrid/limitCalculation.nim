@@ -51,7 +51,53 @@ proc rescale(flux: var Tensor[float], gae_new, gae_current: float) =
   echo "gae current ", gae_current
   flux.apply_inline(x * pow(gae_new / gae_current, 2.0))
 
-proc runLimitCalc(p: float, data: FitObject, obsCLs, obsCLb: var float) =
+proc drawLimitPlot(flux, energy: Tensor[float], param: float,
+                   backHist, candHist: Histogram,
+                   fIsSB: bool) =
+  # TODO: get rid of hardcoded value here!
+  const g_agamma = 1e-12
+  let fluxPlot = if fIsSB: flux +. backHist.counts else: flux
+  let axLab = if fIsSB: "ax. sig+back" else: "axion signal"
+  var df = seqsToDf({ axLab : fluxPlot,
+                      "Energy" : energy,
+                      "background" : backHist.counts,
+                      "exp. cand." : candHist.counts })
+  template cc(h, df, col, op): untyped =
+    let x = df[col].toTensor(float)
+    let err = h.err
+    var res = zeros[float](df.len)
+    for i in 0 ..< df.len:
+      res[i] = op(x[i], err[i])
+    res
+  df.write_csv("/tmp/current_data.csv")
+
+  var yMin = zeros[float](df.len * 3)
+  yMin[0 ..< df.len] = cc(backHist, df, "background", `-`)
+  yMin[df.len ..< 2 * df.len] = cc(candHist, df, "exp. cand.", `-`)
+  var yMax = zeros[float](df.len * 3)
+  yMax[0 ..< df.len] = cc(backHist, df, "background", `+`)
+  yMax[df.len ..< 2 * df.len] = cc(candHist, df, "exp. cand.", `+`)
+  df = df.gather(["background", "exp. cand.", axLab], "Type", "y")
+  df["yMin"] = yMin.map_inline(
+    if x < 0.0: 0.0
+    else: x
+  )
+  df["yMax"] = yMax
+  # echo df.pretty(-1)
+  let suff = if fIsSB: "_sb" else: ""
+  ggplot(df, aes(Energy, "y", fill = "Type", color = "Type")) +
+    geom_histogram(stat = "identity", position = "identity", alpha = some(0.5)) +
+    geom_point(binPosition = "center") +
+    geom_errorbar(data = df.filter(f{`Type` == "background"}),
+                  aes = aes(yMin = "yMin", yMax = "yMax"), binPosition = "center") +
+    ylab("#") +
+    xlab("Energy [keV]") +
+    # ggtitle(&"Expected g_ae·g_aγ = {param * g_agamma:.2e}, CLs = {obsCLs:.4f}, CLb = {obsCLb:.4f}") +
+    ggtitle(&"Expected g_ae·g_aγ = {param * g_agamma:.2e} GeV⁻¹ at 95% CLs") +
+    ggsave(&"/tmp/current_flux{suff}.pdf")
+
+
+proc runLimitCalc(p: float, data: FitObject) =
   const nmc = 100_000
   var (backHist, candHist, rnd) = (data.back, data.cand, data.rnd)
 
@@ -84,19 +130,8 @@ proc runLimitCalc(p: float, data: FitObject, obsCLs, obsCLb: var float) =
 
   block Plot:
     # plot current model
-    var df = seqsToDf({ "Flux" : flux,
-                        "Energy" : energy,
-                        "back" : backHist.counts,
-                        "cand" : candHist.counts })
-    df.write_csv("/tmp/current_data.csv")
-
-    df = df.gather(["Flux", "back", "cand"], "Type", "y")
-    #echo df.pretty(-1)
-    ggplot(df, aes(Energy, "y", color = "Type")) +
-      geom_point() +
-      ylab("#") +
-      ggtitle(&"Current g_ae = {param:.2e}, CLs = {obsCLs:.4f}, CLb = {obsCLb:.4f}") +
-      ggsave("/tmp/current_flux.pdf")
+    drawLimitPlot(flux, energy, param, backHist, candHist, true)
+    drawLimitPlot(flux, energy, param, backHist, candHist, false)
 
 proc calcCL95(p: seq[float], data: FitObject): float =
   var

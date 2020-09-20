@@ -11,13 +11,9 @@ import algorithm
 import sequtils, future
 import strutils
 import hashes
+import ggplotnim
 
-
-template canImport(name: untyped): untyped =
-  compiles:
-    import nimhdf5
-
-when canImport(nimhdf5):
+when not defined(pure):
   import nimhdf5
 
 import ingrid/tos_helpers
@@ -28,11 +24,12 @@ let doc = """
 CAST log file reader. Reads log files (Slow Control or Tracking Logs)
 and outputs information about the files.
 
+Note: This tool can be compiled with the `-d:pure` flag to avoid pulling
+in the HDF5 dependency.
+
 Usage:
-  cast_log_reader <folder> [options]
-  cast_log_reader <folder> --h5out <h5file> [options]
-  cast_log_reader --sc <sc_log> [options]
-  cast_log_reader --tracking <tracking_log> [options]
+  cast_log_reader --sc <path> [options]
+  cast_log_reader --tracking <path> [options]
   cast_log_reader --sc <sc_log> --tracking <tracking_log> [options]
   cast_log_reader <h5file> --delete
 
@@ -51,9 +48,8 @@ Options:
 
 
 Description:
-  If only a folder is given, it is expected that it contains tracking log
-  files. In that case (without an output H5 file) we simply print information
-  about trackings.
+  The user has to supply either the `--sc` flag or the `--tracking` flag
+  in addition to a folder or single log file.
 
   If this tool is run with a single slow control and / or tracking log
   file (i.e. not a folder containing several log files), the tool only
@@ -61,16 +57,22 @@ Description:
   the start and end date of a contained tracking (if any). For the slow
   control log currently no useful output is produced.
 
-  If a path to tracking log files is given, a H5 file is needed, which
-  contains InGrid data for the (some of) the times covered by the log
-  files being read. The start and end times of a run will be added to
-  the attributes to the TOS runs contained within.
+  If a path to tracking log files is given, and a H5 file is given via
+  the `--h5out` option, which  InGrid data for the (some of) the times
+  covered by the log files being read. The start and end times of a run
+  will be added to the attributes to the TOS runs contained within.
+
+  If only a single H5 file is given together with the `--delete` argument
+  all tracking information will be deleted from the attributes in the file.
 """
 
 type
   TrackingKind = enum
     rkTracking, # if tracking took place in this log
     rkNoTracking # if no tracking took place in this log
+
+  LogFileKind = enum
+    lkSlowControl, lkTracking
   # object storing all slow control log data
   SlowControlLog = object
     # store date of log file as string or Time?
@@ -80,9 +82,9 @@ type
     times: seq[Duration]
     # pressures relevant for InGrid
     pmm, p3, p3_ba: seq[float]
-    # magnet current
-    # seems like magnet current is not actually part of the sc log file?
-    # I_magnet: seq[float]
+    # what's called `I_magnet` which is ``not`` the current, but the
+    # magnetic field in tesla!
+    B_magnet: seq[float]
     # environmental ambient temperature
     T_env: seq[float]
     # pointing positions as angles
@@ -106,7 +108,7 @@ proc newSlowControlLog(): SlowControlLog =
   result.pmm = @[]
   result.p3 = @[]
   result.p3_ba = @[]
-  #result.I_magnet = @[]
+  result.B_magnet = @[]
   result.T_env = @[]
   result.h_angle = @[]
   result.v_angle = @[]
@@ -150,7 +152,7 @@ proc is_magnet_moving(h_me, v_me: (int, int)): bool {.inline.} =
   result = if h_me[0] != h_me[1] and v_me[0] != v_me[1]: true else: false
 
 
-when canImport(nimhdf5):
+when not defined(pure):
   proc map_log_to_run(logs: seq[TrackingLog], h5file: string): Table[TrackingLog, int] =
     ## maps a sequence of tracking logs to run numbers given in a H5 file
     ## inputs:
@@ -298,9 +300,6 @@ proc read_sc_logfile(filename: string): SlowControlLog =
   ## outputs:
   ##    SlowControlLog = an object storing the data from a slow control
   ##    log file.
-
-  let file = readFile filename
-
   # define the indices for each data column. See the ./sc_log_understand.org file
   const
     date_i = 0
@@ -309,7 +308,7 @@ proc read_sc_logfile(filename: string): SlowControlLog =
     pmm_i = 14
     p3_i = 17
     p3ba_i = 18
-    #Imag_i = 25
+    Imag_i = 24 # is actually the magnetic field in ``T``
     tenv_i = 52
     mm_gas_i = 76
     hang_i = 103
@@ -318,44 +317,52 @@ proc read_sc_logfile(filename: string): SlowControlLog =
     vme_i = 107
 
   result = newSlowControlLog()
-
   var count = 0
-  for line in splitLines(file):
-    if count == 0:
-      # skip the first line (header)
+  ## NOTE: instead of parsing manually, we could in principle also use
+  ## ggplotnim's `read_csv` to parse it into a df!
+  for line in lines(filename):
+    # skip the first line (header)
+    if line.startsWith("#"):
+      continue
+    elif line.strip.startsWith("DATE"):
       inc count
       continue
     elif line.len == 0:
       # indicates we reached end of file, empty line
       break
+
     # else add the data to the SlowControlLog object
     let d = line.splitWhitespace
     if count == 1:
       # set date based on first row
-      result.date = toTime(parse(d[date_i], "MM/dd/yyyy"))
-    result.times.add parse_time(d[time_i])
-    result.pmm.add parseFloat(d[pmm_i])
-    result.p3.add parseFloat(d[p3_i])
-    result.p3_ba.add parseFloat(d[p3ba_i])
-    #result.I_magnet.add parseFloat(d[Imag_i])
-    result.T_env.add parseFloat(d[tenv_i])
-    result.h_angle.add parseFloat(d[hang_i])
-    result.v_angle.add parseFloat(d[vang_i])
-    result.h_encoder.add uint16(parseInt(d[hme_i]))
-    result.v_encoder.add uint16(parseInt(d[vme_i]))
-    let mm_gas_b = if d[mm_gas_i] == "0": false else: true
-    result.mm_gas.add mm_gas_b
+      try:
+        result.date = toTime(parse(d[date_i], "MM/dd/yyyy"))
+      except TimeParseError:
+        echo "Failed to parse the following date line: ", d[date_i]
+        echo "Full line: ", d
+        echo "At index ", count
+        echo "In file ", filename
+    if d.len > 107:
+      ## NOTE: there are a number of lines in a few files with miss
+      ## some colums. E.g.
+      ## `SCDV4.00_2017-07-14.daq`
+      ## at some points only has 87 instead of 108 columns
+      result.times.add parse_time(d[time_i])
+      result.pmm.add parseFloat(d[pmm_i])
+      result.p3.add parseFloat(d[p3_i])
+      result.p3_ba.add parseFloat(d[p3ba_i])
+      result.B_magnet.add parseFloat(d[Imag_i])
+      result.T_env.add parseFloat(d[tenv_i])
+      result.h_angle.add parseFloat(d[hang_i])
+      result.v_angle.add parseFloat(d[vang_i])
+      result.h_encoder.add uint16(parseInt(d[hme_i]))
+      result.v_encoder.add uint16(parseInt(d[vme_i]))
+      let mm_gas_b = if d[mm_gas_i] == "0": false else: true
+      result.mm_gas.add mm_gas_b
 
 proc read_tracking_logfile(filename: string): TrackingLog =
   ## reads a tracking log file and returns an object, which stores
   ## the relevant data
-  let file = readFile filename
-
-  # TrackingLog = object
-  #   case kind: TrackingKind
-  #   of rkNoTracking: discard
-  #   of rkTracking:
-  #     tracking_start, tracking_stop: Time
   const
     tracking_i = 0
     date_i = 6
@@ -373,7 +380,7 @@ proc read_tracking_logfile(filename: string): TrackingLog =
     # helper bool, needed because some tracking logs start
     # before midnight
     date_set = false
-  for line in splitLines(file):
+  for line in lines(filename):
     if count < 2:
       # skip header
       inc count
@@ -417,23 +424,6 @@ proc read_tracking_logfile(filename: string): TrackingLog =
   else:
     result.tracking_start = tracking_start
     result.tracking_stop = tracking_stop
-
-proc single_file() =
-  ## proc called, if a single file is being worked on
-  let args = docopt(doc)
-
-  let
-    file_sc = $args["--sc"]
-    file_tr = $args["--tracking"]
-
-  if file_sc != "nil":
-    let sc = read_sc_logfile(file_sc)
-    echo sc
-
-  if file_tr != "nil":
-    let t = read_tracking_logfile(file_tr)
-    echo t
-
 
 proc split_tracking_logs(logs: seq[TrackingLog]): (seq[TrackingLog], seq[TrackingLog]) =
   ## given a sequence of sorted tracking logs, splits them by `kind`, i.e.
@@ -480,7 +470,7 @@ proc print_tracking_logs(logs: seq[TrackingLog], print_type: TrackingKind, sorte
   of rkNoTracking:
     echo &"There are {s_logs.len} runs without solar tracking found in the log file directory"
 
-proc read_log_folder(log_folder: string): seq[TrackingLog] =
+proc read_tracking_log_folder(log_folder: string): seq[TrackingLog] =
   ## reads all log files from `log_folder` and returns a tuple of sorted `TrackingLog`
   ## objects, one set for logs w/ tracking, others without
   ## inputs:
@@ -509,29 +499,75 @@ proc read_log_folder(log_folder: string): seq[TrackingLog] =
 
   result = sortTrackingLogs(tracking_logs)
 
-proc process_log_folder() =
+proc read_sc_log_folder(log_folder: string) =
+  ## reads all slow contro log files from `log_folder` and (at the moment)
+  ## determines the time the magnet was turned on in total during the time
+  ## covered in all the log files in the folder.
+  # for each file in log_folder we perform a check of which run corresponds
+  # to the date of this tracking log
+  var dfDir = newDataFrame()
+  echo log_folder
+  for log_p in walkDir(log_folder):
+    case log_p.kind
+    of pcFile:
+      let log = log_p.path
+      # check whether actual log file (extension fits)
+      let (dir, fn, ext) = splitFile(log)
+      echo "File ", log, " and ext ", ext
+      if ext == ".daq":
+        let sc = read_sc_logfile(log)
+        var df = seqsToDf({ "Time / s" : sc.times.mapIt(it.inSeconds),
+                            "B / T" : sc.B_magnet })
+        df["Date"] = constantColumn(sc.date.toUnix, df.len)
+        dfDir.add df
+      else:
+        # skipping files other than log files
+        echo "Skipping file ", log_p
+        continue
+    else: discard
 
-  let args = docopt(doc)
+  ## NOTE: we assume that each row in the slow control file covers 1 minute,
+  ## because normally the slow control software updates once a minute and writes
+  ## at that interval. A more thorough student should make sure the time duration
+  ## between each line is roughly 1 minute each!
+  if dfDir.len > 0:
+    dfDir = dfDir.arrange("Date", SortOrder.Ascending)
+      .filter(f{c"Date" != 0})
 
-  let
-    log_folder = $args["<folder>"]
-    h5file = $args["--h5out"]
-    tracking_logs = read_log_folder(log_folder)
-    (trk, notrk) = split_tracking_logs(tracking_logs)
+    dfDir = dfDir.mutate(f{"Timestamp / s" ~ `Date` + c"Time / s"})
+    ggplot(dfDir, aes("Timestamp / s", "B / T")) +
+      geom_point() +
+      ggsave("/tmp/B_against_time.png", width = 1920, height = 1080)
 
-  echo "No tracking days : "
-  print_tracking_logs(notrk, rkNoTracking)
-  echo "Tracking days :"
-  print_tracking_logs(trk, rkTracking)
+    let firstDate = fromUnix(dfDir["Date"][0, int] + dfDir["Time / s"][0, int])
+    let lastDate = fromUnix(dfDir["Date"][dfDir.high, int] + dfDir["Time / s"][dfDir.high, int])
+    echo firstDate
+    echo lastDate
+    let nRowsActive = dfDir.filter(f{c"B / T" > 8.0}).len
+    echo &"Magnet was turned on for: {nRowsActive.float / 60.0} h between " &
+         &"{$firstDate} and {$lastDate}."
 
-  when canImport(nimhdf5):
-    # given the H5 file, create a referential table connecting
-    # the trackings with run numbers
-    let trackmap = map_log_to_run(trk, h5file)
+proc process_log_folder(folder: string, logKind: LogFileKind,  h5file = "") =
+  case logKind
+  of lkSlowControl:
+    read_sc_log_folder(folder)
+  of lkTracking:
+    let
+      tracking_logs = read_tracking_log_folder(folder)
+      (trk, notrk) = split_tracking_logs(tracking_logs)
+    echo "No tracking days : "
+    print_tracking_logs(notrk, rkNoTracking)
+    echo "Tracking days :"
+    print_tracking_logs(trk, rkTracking)
 
-    # given mapping of tracking logs to run numbers, finally
-    # add tracking information to H5 file
-    write_tracking_h5(trackmap, h5file)
+    when not defined(pure):
+      # given the H5 file, create a referential table connecting
+      # the trackings with run numbers
+      let trackmap = map_log_to_run(trk, h5file)
+
+      # given mapping of tracking logs to run numbers, finally
+      # add tracking information to H5 file
+      write_tracking_h5(trackmap, h5file)
 
 when isMainModule:
   # parse docopt string and determine
@@ -539,13 +575,35 @@ when isMainModule:
   let args = docopt(doc)
   echo args
 
-  let folder = $args["<folder>"]
-  if folder != "nil":
-    process_log_folder()
+  let h5file = $args["--h5out"]
+  let scPath = $args["--sc"]
+  let trackingPath = $args["--tracking"]
+  if scPath.len > 0 and scPath != "nil":
+    # check whether actual log file (extension fits)
+    let (dir, fn, ext) = splitFile(scPath)
+    if ext == ".daq":
+      # single slow control file
+      let sc = read_sc_logfile(scPath)
+      echo "Parsed log file: ", sc
+      echo "Lot's of useless output, huh?"
+    else:
+      doAssert ext.len == 0, "Invalid slow control with extension " & $ext &
+        ". Instead we expect .daq"
+      process_log_folder(scPath, lkSlowControl, h5file)
+  elif trackingPath.len > 0 and trackingPath != "nil":
+    # check whether actual log file (extension fits)
+    let (dir, fn, ext) = splitFile(trackingPath)
+    if ext == ".log":
+      # single tracking file
+      let t = read_tracking_logfile(trackingPath)
+      echo "Parsed slow control file: ", t
+      echo "Lot's of useless output, huh?"
+    else:
+      doAssert ext.len == 0, "Invalid tracking with extension " & $ext &
+        ". Instead we expect .log"
+      process_log_folder(trackingPath, lkTracking, h5file)
   elif $args["--delete"] != "nil":
-    when canImport(nimhdf5):
+    when not defined(pure):
       deleteTrackingAttributes($args["<h5file>"])
     else:
       discard
-  else:
-    single_file()

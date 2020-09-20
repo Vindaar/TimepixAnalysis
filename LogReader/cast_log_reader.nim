@@ -12,9 +12,15 @@ import sequtils, future
 import strutils
 import hashes
 
-import ingrid/tos_helpers
 
-import nimhdf5
+template canImport(name: untyped): untyped =
+  compiles:
+    import nimhdf5
+
+when canImport(nimhdf5):
+  import nimhdf5
+
+import ingrid/tos_helpers
 
 {.deadCodeElim: on.}
 
@@ -144,127 +150,128 @@ proc is_magnet_moving(h_me, v_me: (int, int)): bool {.inline.} =
   result = if h_me[0] != h_me[1] and v_me[0] != v_me[1]: true else: false
 
 
-proc map_log_to_run(logs: seq[TrackingLog], h5file: string): Table[TrackingLog, int] =
-  ## maps a sequence of tracking logs to run numbers given in a H5 file
-  ## inputs:
-  ##   logs: seq[TrackingLog] = tracking logs to map
-  ##   h5file: string = path to H5 file containing runs
-  ## outputs:
-  ##   Table[TrackingLog, int] = table mapping each tracking log to the
-  ##     run number in which the tracking is contained
-  ## throws:
-  ##   HDF5LibraryError = if a call to the H5 library fails
+when canImport(nimhdf5):
+  proc map_log_to_run(logs: seq[TrackingLog], h5file: string): Table[TrackingLog, int] =
+    ## maps a sequence of tracking logs to run numbers given in a H5 file
+    ## inputs:
+    ##   logs: seq[TrackingLog] = tracking logs to map
+    ##   h5file: string = path to H5 file containing runs
+    ## outputs:
+    ##   Table[TrackingLog, int] = table mapping each tracking log to the
+    ##     run number in which the tracking is contained
+    ## throws:
+    ##   HDF5LibraryError = if a call to the H5 library fails
 
-  result = initTable[TrackingLog, int]()
+    result = initTable[TrackingLog, int]()
 
-  var h5f = H5File(h5file, "r")
+    var h5f = H5File(h5file, "r")
 
-  var run_times = initTable[int, (int, int)]()
-  for grp in items(h5f, "/reconstruction", depth = 1):
-    if "/reconstruction/run" in grp.name:
-      # given a run, check its start and end time
-      var tstamp = h5f[(grp.name & "/timestamp").dset_str]
-      let
-        t_start = tstamp[0, int]
-        t_stop  = tstamp[tstamp.high, int]
-      # for now need mutable attributes object to access
-      var attrs = grp.attrs
-      let run_num = attrs["runNumber", int]
-      # add start and end time to table of run times
-      run_times[run_num] = (t_start, t_stop)
-
-  # now iterate over tracking logs and for each log determine in which run
-  # it fits
-  for log in logs:
-    case log.kind
-    of rkTracking:
-      # now given start time, look for run for which it fits. Filter elements
-      # where run covers tracking start - end
-      proc filterRuns(runs: seq[int], log: TrackingLog): int =
-        result = -1
-        for r in runs:
-          let
-            t_start = int(log.tracking_start.toUnix)
-            t_stop  = int(log.tracking_stop.toUnix)
-          if run_times[r][0] < t_start and run_times[r][1] > t_stop:
-            doAssert result < 0, "There are multiple trackings? Something is wrong. " & $result & " and " & $r
-            result = r
-      let run_num = filterRuns(toSeq(run_times.keys), log)
-      if run_num > 0:
-        result[log] = run_num
-    else: discard
-  discard h5f.close()
-
-proc deleteTrackingAttributes(h5file: string) =
-  ## proc to delete all tracking related attributes in a H5 file
-  withH5(h5file, "rw"):
-    let baseName = if "/runs" in h5f: rawDataBase()
-                   elif "/reconstruction" in h5f: recoBase()
-                   else: raise newException(IOError, "Invalid input file " &
-        $h5file & ". It contains neither `runs` nor `reconstruction` group!")
-    for grp in items(h5f, baseName, depth = 1):
-      if baseName / "run" in grp.name:
-        # get number of tracking related attributes
+    var run_times = initTable[int, (int, int)]()
+    for grp in items(h5f, "/reconstruction", depth = 1):
+      if "/reconstruction/run" in grp.name:
+        # given a run, check its start and end time
+        var tstamp = h5f[(grp.name & "/timestamp").dset_str]
+        let
+          t_start = tstamp[0, int]
+          t_stop  = tstamp[tstamp.high, int]
         # for now need mutable attributes object to access
         var attrs = grp.attrs
-        var num_tr = 0
-        var mgrp = grp
-        try:
-          num_tr = attrs["num_trackings", int]
-        except KeyError:
-          # no trackings, continue
-          continue
-        for i in 0 ..< num_tr:
-          var deleted = false
-          let
-            attr_start = "tracking_start_$#" % $i
-            attr_stop  = "tracking_stop_$#" % $i
-            attr_num   = "num_trackings"
-          deleted = mgrp.deleteAttribute(attr_start)
-          deleted = mgrp.deleteAttribute(attr_stop)
-          deleted = mgrp.deleteAttribute(attr_num)
-          if deleted == false:
-            echo "Could not delete one of " &
-              "$#, $# or $# in group $#" % [$attr_start, $attr_stop, $attr_num, $mgrp.name]
+        let run_num = attrs["runNumber", int]
+        # add start and end time to table of run times
+        run_times[run_num] = (t_start, t_stop)
 
-proc write_tracking_h5(trck_tab: Table[TrackingLog, int], h5file: string) =
-  ## proc to write the mapping of tracking logs to run numbers to the appropriate
-  ## groups of the H5 file
-  ## inputs:
-  ##   trck_tab: Table[TrackingLog, int] = table mapping tracking logs to run numbers
-  ##   h5file: string = h5 file in which to write the information
-  ## throws:
-  ##   HDF5LibraryError = if a call to the H5 library fails
+    # now iterate over tracking logs and for each log determine in which run
+    # it fits
+    for log in logs:
+      case log.kind
+      of rkTracking:
+        # now given start time, look for run for which it fits. Filter elements
+        # where run covers tracking start - end
+        proc filterRuns(runs: seq[int], log: TrackingLog): int =
+          result = -1
+          for r in runs:
+            let
+              t_start = int(log.tracking_start.toUnix)
+              t_stop  = int(log.tracking_stop.toUnix)
+            if run_times[r][0] < t_start and run_times[r][1] > t_stop:
+              doAssert result < 0, "There are multiple trackings? Something is wrong. " & $result & " and " & $r
+              result = r
+        let run_num = filterRuns(toSeq(run_times.keys), log)
+        if run_num > 0:
+          result[log] = run_num
+      else: discard
+    discard h5f.close()
 
-
-  var runTab = initCountTable[int]()
-
-  withH5(h5file, "rw"):
-    for log, run_number in trck_tab:
-      # increment run table of current run number
-      inc(runTab, runNumber)
-      let num = runTab[runNumber]
-
+  proc deleteTrackingAttributes(h5file: string) =
+    ## proc to delete all tracking related attributes in a H5 file
+    withH5(h5file, "rw"):
       let baseName = if "/runs" in h5f: rawDataBase()
                      elif "/reconstruction" in h5f: recoBase()
                      else: raise newException(IOError, "Invalid input file " &
           $h5file & ". It contains neither `runs` nor `reconstruction` group!")
-      # take run number, build group name and add attributes
-      let runName = baseName & $run_number
-      var runGrp = h5f[runName.grp_str]
-      # check if there is a number of trackings already
+      for grp in items(h5f, baseName, depth = 1):
+        if baseName / "run" in grp.name:
+          # get number of tracking related attributes
+          # for now need mutable attributes object to access
+          var attrs = grp.attrs
+          var num_tr = 0
+          var mgrp = grp
+          try:
+            num_tr = attrs["num_trackings", int]
+          except KeyError:
+            # no trackings, continue
+            continue
+          for i in 0 ..< num_tr:
+            var deleted = false
+            let
+              attr_start = "tracking_start_$#" % $i
+              attr_stop  = "tracking_stop_$#" % $i
+              attr_num   = "num_trackings"
+            deleted = mgrp.deleteAttribute(attr_start)
+            deleted = mgrp.deleteAttribute(attr_stop)
+            deleted = mgrp.deleteAttribute(attr_num)
+            if deleted == false:
+              echo "Could not delete one of " &
+                "$#, $# or $# in group $#" % [$attr_start, $attr_stop, $attr_num, $mgrp.name]
 
-      if "num_trackings" notin runGrp.attrs:
-        runGrp.attrs["num_trackings"] = 1
-      else:
-        runGrp.attrs["num_trackings"] = num
+  proc write_tracking_h5(trck_tab: Table[TrackingLog, int], h5file: string) =
+    ## proc to write the mapping of tracking logs to run numbers to the appropriate
+    ## groups of the H5 file
+    ## inputs:
+    ##   trck_tab: Table[TrackingLog, int] = table mapping tracking logs to run numbers
+    ##   h5file: string = h5 file in which to write the information
+    ## throws:
+    ##   HDF5LibraryError = if a call to the H5 library fails
 
-      # store trackings zero indexed
-      let numIdx = num - 1
 
-      # add tracking. Trackings will be zero indexed
-      runGrp.attrs["tracking_start_$#" % $numIdx] = $log.tracking_start
-      runGrp.attrs["tracking_stop_$#" % $numIdx] = $log.tracking_stop
+    var runTab = initCountTable[int]()
+
+    withH5(h5file, "rw"):
+      for log, run_number in trck_tab:
+        # increment run table of current run number
+        inc(runTab, runNumber)
+        let num = runTab[runNumber]
+
+        let baseName = if "/runs" in h5f: rawDataBase()
+                       elif "/reconstruction" in h5f: recoBase()
+                       else: raise newException(IOError, "Invalid input file " &
+            $h5file & ". It contains neither `runs` nor `reconstruction` group!")
+        # take run number, build group name and add attributes
+        let runName = baseName & $run_number
+        var runGrp = h5f[runName.grp_str]
+        # check if there is a number of trackings already
+
+        if "num_trackings" notin runGrp.attrs:
+          runGrp.attrs["num_trackings"] = 1
+        else:
+          runGrp.attrs["num_trackings"] = num
+
+        # store trackings zero indexed
+        let numIdx = num - 1
+
+        # add tracking. Trackings will be zero indexed
+        runGrp.attrs["tracking_start_$#" % $numIdx] = $log.tracking_start
+        runGrp.attrs["tracking_stop_$#" % $numIdx] = $log.tracking_stop
 
 proc sortTrackingLogs(tr_logs: seq[TrackingLog], order = SortOrder.Ascending): seq[TrackingLog] =
   ## proc to sort a sequence of tracking logs by date
@@ -517,13 +524,14 @@ proc process_log_folder() =
   echo "Tracking days :"
   print_tracking_logs(trk, rkTracking)
 
-  # given the H5 file, create a referential table connecting
-  # the trackings with run numbers
-  let trackmap = map_log_to_run(trk, h5file)
+  when canImport(nimhdf5):
+    # given the H5 file, create a referential table connecting
+    # the trackings with run numbers
+    let trackmap = map_log_to_run(trk, h5file)
 
-  # given mapping of tracking logs to run numbers, finally
-  # add tracking information to H5 file
-  write_tracking_h5(trackmap, h5file)
+    # given mapping of tracking logs to run numbers, finally
+    # add tracking information to H5 file
+    write_tracking_h5(trackmap, h5file)
 
 when isMainModule:
   # parse docopt string and determine
@@ -535,6 +543,9 @@ when isMainModule:
   if folder != "nil":
     process_log_folder()
   elif $args["--delete"] != "nil":
-    deleteTrackingAttributes($args["<h5file>"])
+    when canImport(nimhdf5):
+      deleteTrackingAttributes($args["<h5file>"])
+    else:
+      discard
   else:
     single_file()

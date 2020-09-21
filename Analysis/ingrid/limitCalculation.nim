@@ -59,12 +59,13 @@ proc drawLimitPlot(flux, energy: Tensor[float], param: float,
                    fIsSB: bool) =
   # TODO: get rid of hardcoded value here!
   const g_agamma = 1e-12
-  let fluxPlot = if fIsSB: flux +. backHist.counts else: flux
+  let fluxPlot = if fIsSB: flux +. backHist.counts else: flux.clone
   let axLab = if fIsSB: "ax. sig+back" else: "axion signal"
   var df = seqsToDf({ axLab : fluxPlot,
                       "Energy" : energy,
                       "background" : backHist.counts,
                       "exp. cand." : candHist.counts })
+  let suff = if fIsSB: "_sb" else: ""
   template cc(h, df, col, op): untyped =
     let x = df[col].toTensor(float)
     let err = h.err
@@ -72,7 +73,7 @@ proc drawLimitPlot(flux, energy: Tensor[float], param: float,
     for i in 0 ..< df.len:
       res[i] = op(x[i], err[i])
     res
-  df.write_csv("/tmp/current_data.csv")
+  df.write_csv(&"/tmp/current_data{suff}.csv")
 
   var yMin = zeros[float](df.len * 3)
   yMin[0 ..< df.len] = cc(backHist, df, "background", `-`)
@@ -87,7 +88,6 @@ proc drawLimitPlot(flux, energy: Tensor[float], param: float,
   )
   df["yMax"] = yMax
   # echo df.pretty(-1)
-  let suff = if fIsSB: "_sb" else: ""
   ggplot(df, aes(Energy, "y", fill = "Type", color = "Type")) +
     geom_histogram(stat = "identity", position = "identity", alpha = some(0.5)) +
     geom_point(binPosition = "center") +

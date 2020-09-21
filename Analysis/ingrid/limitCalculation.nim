@@ -108,7 +108,7 @@ proc runLimitCalc(p: float, data: FitObject) =
   var (flux, energy) = (axModel["Flux"].toTensor(float), axModel["Energy"].toTensor(float))
 
   let param = if classify(p) != fcNan: p else: 1e-22
-  echo "Scaling to ", param
+  echo "Scaling to ", param, " from ", data.gae[]
   # now rescale the flux
   flux.rescale(param, data.gae[])
   data.gae[] = param
@@ -130,10 +130,10 @@ proc runLimitCalc(p: float, data: FitObject) =
                              verbose = false)
     obsCLs = limit.CLs()
     obsCLb = limit.CLb()
-    echo "CLs+b = ", limit.CLsb()
-    echo "<CLb> = ", limit.getExpectedCLb_b()
+    obsCLsb = limit.CLsb()
+    echo "<CLb>  = ", limit.getExpectedCLb_b()
     echo "<CLsb> = ", limit.getExpectedCLsb_b()
-    echo "<CLs> = ", limit.getExpectedCLs_b()
+    echo "<CLs>  = ", limit.getExpectedCLs_b()
   else:
     let res = shellVerbose:
       "../../../mclimit/tools/calcLimit /tmp/current_data.csv true"
@@ -163,8 +163,9 @@ proc constrainCL95(p: seq[float], data: FitObject): float =
     obsCLb = data.obsCLb[]
   result = abs(obsCLs - 0.05 - 1e-3) + 1e-3
   echo result, " at a param ", p
-  echo "CLb: ", obsCLb
-  echo "CLs: ", obsCLs
+  echo "CLb    = ", obsCLb
+  echo "CLs    = ", obsCLs
+  echo "CLsb   = ", obsCLsb
 
 proc readAxModel(f: string, scale: float): DataFrame =
   ## scale is the scaling required from a purely weight based flux

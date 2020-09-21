@@ -18,6 +18,12 @@ type
     obsCLs: ptr float
     obsCLb: ptr float
     obsCLsb: ptr float
+    opKind: OptimizeByKind
+
+  OptimizeByKind = enum
+    opCLs = "CLs"
+    opCLb = "CLb" ## NOTE: optimizing by this probably does not make sense in most use cases!
+    opCLsb = "CLsb"
 
 func toTensor[T](t: Tensor[T]): Tensor[T] = t
 template toHisto(arg, binsArg: typed): untyped =
@@ -141,21 +147,23 @@ proc runLimitCalc(p: float, data: FitObject) =
       "../../../mclimit/tools/calcLimit /tmp/current_data.csv true"
     obsCLs = res[0].splitLines[^2].parseFloat
     obsCLb = res[0].splitLines[^1].parseFloat
-
   data.obsCLs[] = obsCLs
   data.obsCLb[] = obsCLb
   data.obsCLsb[] = obsCLsb
   block Plot:
     # plot current model
-    drawLimitPlot(flux, energy, param, backHist, candHist, true)
-    drawLimitPlot(flux, energy, param, backHist, candHist, false)
+    drawLimitPlot(flux, energy, data.gae[], backHist, candHist, true)
+    drawLimitPlot(flux, energy, data.gae[], backHist, candHist, false)
 
 proc calcCL95(p: seq[float], data: FitObject): float =
   runLimitCalc(p[0], data)
-  var
-    obsCLs = data.obsCLs[]
-    obsCLb = data.obsCLb[]
-  result = obsCLs
+  case data.opKind
+  of opCLs:
+    result = data.obsCLs[]
+  of opCLb:
+    result = data.obsCLb[]
+  of opCLsb:
+    result = data.obsCLsb[]
 
 proc constrainCL95(p: seq[float], data: FitObject): float =
   ## TODO: instead of calling runLimitCalc again here, we should add
@@ -163,7 +171,14 @@ proc constrainCL95(p: seq[float], data: FitObject): float =
   var
     obsCLs = data.obsCLs[]
     obsCLb = data.obsCLb[]
-  result = abs(obsCLs - 0.05 - 1e-3) + 1e-3
+    obsCLsb = data.obsCLsb[]
+  case data.opKind
+  of opCLs:
+    result = abs(obsCLs - 0.05 - 1e-3) + 1e-3
+  of opCLb:
+    result = abs(obsCLb - 0.05 - 1e-3) + 1e-3
+  of opCLsb:
+    result = abs(obsCLsb - 0.05 - 1e-3) + 1e-3
   echo result, " at a param ", p
   echo "CLb    = ", obsCLb
   echo "CLs    = ", obsCLs
@@ -199,7 +214,8 @@ proc drawExpCand(h: Histogram): Histogram =
     result.counts[i] = cntDraw
     result.err[i] = sqrt(cntDraw)
 
-proc main(backFiles, candFiles: seq[string], axionModel: string) =
+proc main(backFiles, candFiles: seq[string], axionModel: string,
+          optimizeBy: string = $opCLs) =
   var
     h5Backs = backFiles.mapIt(H5File(it, "r"))
     h5Cands = candFiles.mapIt(H5File(it, "r"))
@@ -295,14 +311,13 @@ proc main(backFiles, candFiles: seq[string], axionModel: string) =
                          rnd: rnd.addr,
                          obsCLs: obsCLs.addr,
                          obsCLb: obsCLb.addr,
-                         obsCLsb: obsCLsb.addr)
+                         obsCLsb: obsCLsb.addr,
+                         opKind: parseEnum[OptimizeByKind](optimizeBy))
   var opt = newNloptOpt[FitObject](LN_COBYLA, 1, @[(l: 1e-14, u: 1e-8)])
   let varStruct = newVarStruct(calcCL95, fitObj)
   opt.setFunction(varStruct)
   var constrainVarStruct = newVarStruct(constrainCL95, fitObj)
   opt.addInequalityConstraint(constrainVarStruct)
-  #opt.xtol_rel = 1e-10
-  #opt.ftol_rel = 1e-10
   opt.maxtime = 30.0
   opt.initialStep = 1e-10
   let optRes = opt.optimize(@[2.1e-10])
@@ -311,6 +326,7 @@ proc main(backFiles, candFiles: seq[string], axionModel: string) =
   echo optRes
   destroy(opt)
 
+  ## TODO: closing produces attribute closing errors, investigate!
   #for h5f in concat(h5Backs, h5Cands):
   #  discard h5f.close()
 

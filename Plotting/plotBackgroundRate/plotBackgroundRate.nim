@@ -1,0 +1,128 @@
+import ggplotnim, seqmath, sequtils, os, sugar, strscans, strformat
+import ingrid / [tos_helpers]
+from arraymancer import tensor
+
+import nimhdf5
+
+import cligen
+
+const Data2014 = "../../resources/background-rate-gold.2014+2015.dat"
+const Ecol = "Energy"
+const Ccol = "Counts"
+const Rcol = "Rate"
+
+type
+  LogLFile = object
+    name: string
+    year: int
+    totalTime: float
+    df: DataFrame
+
+proc scaleDset(data: Column, totalTime: float, log = false): Column =
+  ## scales the data in `data` according to the area of the gold region,
+  ## total time and bin width. The data has to be pre binned of course!
+  let area = pow(0.95 - 0.45, 2) # area of gold region!
+  const bin_width = 0.2 # 0.392
+  const shutter_open = 1.0 # Does not play any role, because totalDuration takes
+                           # this into account already!
+  let factor = if log: 1.0 else: 1e5
+  let scale = factor / (totalTime * shutter_open * area * bin_width) #* 1e5
+  result = toColumn data.toTensor(float).map_inline(x * scale)
+
+proc readTime(h5f: H5FileObj): float =
+  let lhGrp = h5f["/likelihood".grp_str]
+  result = lhGrp.attrs["totalDuration", float]
+
+proc scaleDset(h5f: H5FileObj, data: Column, log = false): Column =
+  result = scaleDset(data, h5f.readTime(), log)
+
+proc extractYear(f: string): int =
+  ## We assume the filenames
+  ## - always contain a year
+  ## - always separated by underscores
+  let fname = f.extractFilename
+  var dummy: string
+  if fname.scanf("$*_$i_$*", dummy, result, dummy):
+    echo "found a year ", result
+
+proc readFiles(files: seq[string]): seq[LogLFile] =
+  ## reads all H5 files given and stacks them to a single
+  ## DF. An additional column is added, which corresponds to
+  ## the filename. That way one can later differentiate which
+  ## events belong to what and decide if data is supposed to
+  ## be accumulated or not
+  for file in files:
+    let h5f = H5File(file, "r")
+    var df = h5f.readDsets(likelihoodBase(), 3, "energyFromCharge")
+      .rename(f{Ecol <- "energyFromCharge"})
+    let fname = file.extractFilename
+    df["File"] = constantColumn(fname, df.len)
+    result.add LogLFile(name: fname,
+                        totalTime: readTime(h5f),
+                        df: df,
+                        year: extractYear(fname))
+    discard h5f.close()
+
+proc histogram(df: DataFrame): DataFrame =
+  ## Calculates the histogam of the energy data in the `df` and returns
+  ## a histogram of the binned data
+  ## TODO: allow to do this by combining different `File` values
+  let (hist, bins) = histogram(df[Ecol].toTensor(float).toRawSeq,
+                               range = (0.0, 10.2), bins = 51)
+  result = seqsToDf({ Ecol : bins[0 .. ^2], Ccol : hist })
+
+template sumIt(s: seq[typed], body: untyped): untyped =
+  var res: float
+  for it {.inject.} in s:
+    res += body
+  res
+
+proc flatScale(files: seq[LogLFile]): DataFrame =
+  var df: DataFrame
+  for f in files:
+    df.add f.df
+  result = df.histogram()
+  result[Rcol] = result[Ccol].scaleDset(files.sumIt(it.totalTime))
+  result["Dataset"] = constantColumn("2017/18", result.len)
+  result = result.mutate(f{"yMin" ~ `Rate` - sqrt(`Rate`)}, f{"yMax" ~ `Rate` + sqrt(`Rate`)})
+  result["yMin"] = result["yMin"].toTensor(float).map_inline:
+    if x >= 0.0: x
+    else: 0.0
+  result.drop("Counts")
+
+proc main(files: seq[string], log = false, title = "", show2014 = false) =
+  discard existsOrCreateDir("plots")
+  let logLFiles = readFiles(files)
+  var df = flatScale(logLFiles)
+
+  if show2014:
+    df.drop(Ccol)
+    var df2014 = toDf(readCsv(Data2014, sep = ' ', header = "#"))
+      .rename(f{Rcol <- "Rate[/keV/cm²/s]"}, f{"yMax" <- "dRateUp"},
+              f{"yMin" <- "dRateDown"}, f{Ecol <- "E[keV]"})
+    if not log:
+      df2014 = df2014.mutate(f{Rcol ~ 1e5 * `Rate`}, f{"yMin" ~ 1e5 * `yMin`},
+                             f{"yMax" ~ 1e5 * `yMax`})
+    df2014 = df2014.mutate(f{"yMin" ~ `Rate` - `yMin`}, f{"yMax" ~ `Rate` + `yMax`},
+                           f{Ecol ~ `Energy` - 0.1})
+    df2014["Dataset"] = constantColumn("2014/15", df2014.len)
+    df.add df2014
+
+  df = df.filter(f{`Rate` < 10.0})
+
+  let suffix = logLFiles.mapIt($it.year).join("_") & "_show2014_" & $show2014
+  let transparent = color(0.0, 0.0, 0.0, 0.0)
+  ggplot(df, aes(Ecol, Rcol, fill = "Dataset")) +
+    geom_histogram(stat = "identity", position = "identity", alpha = some(0.5)) +
+    #               color = some(transparent)) +
+    geom_point(binPosition = "center", position = "identity") +
+    geom_errorbar(binPosition = "center",
+                  aes = aes(yMin = "yMin", yMax = "yMax")) +
+    xlab("Energy [keV]") +
+    ylab("Rate [10⁵ keV⁻¹ cm⁻² s⁻¹]") +
+    xlim(0, 10.0) +
+    ggtitle("Background rate of Run 2 & 3 (2017/18) compared to 2014/15") +
+    ggsave(&"plots/background_rate_{suffix}.pdf")
+
+when isMainModule:
+  dispatch main

@@ -17,6 +17,7 @@ type
     rnd: ptr Random
     obsCLs: ptr float
     obsCLb: ptr float
+    obsCLsb: ptr float
 
 func toTensor[T](t: Tensor[T]): Tensor[T] = t
 template toHisto(arg, binsArg: typed): untyped =
@@ -115,6 +116,7 @@ proc runLimitCalc(p: float, data: FitObject) =
   var
     obsCLs: float
     obsCLb: float
+    obsCLsb: float
   when not defined(useRoot):
     let sigHist = toHisto(flux, energy)
     let ch = mclimit.Channel(sig: sigHist, back: backHist, cand: candHist,
@@ -140,6 +142,7 @@ proc runLimitCalc(p: float, data: FitObject) =
 
   data.obsCLs[] = obsCLs
   data.obsCLb[] = obsCLb
+  data.obsCLsb[] = obsCLsb
   block Plot:
     # plot current model
     drawLimitPlot(flux, energy, param, backHist, candHist, true)
@@ -282,12 +285,14 @@ proc main(backFiles, candFiles: seq[string], axionModel: string) =
   var gae = 1e-13
   var obsCLs: float
   var obsCLb: float
+  var obsCLsb: float
   let fitObj = FitObject(back: backHist, cand: candHist,
                          axModel: gaeDf,
                          gae: gae.addr,
                          rnd: rnd.addr,
                          obsCLs: obsCLs.addr,
-                         obsCLb: obsCLb.addr)
+                         obsCLb: obsCLb.addr,
+                         obsCLsb: obsCLsb.addr)
   var opt = newNloptOpt[FitObject](LN_COBYLA, 1, @[(l: 1e-14, u: 1e-8)])
   let varStruct = newVarStruct(calcCL95, fitObj)
   opt.setFunction(varStruct)

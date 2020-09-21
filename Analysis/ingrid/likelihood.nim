@@ -252,6 +252,11 @@ proc readRefDsets(refFile: string, yearKind: YearKind): tuple[ecc, ldivRms, frac
     # naming scheme does not depend on the actual data being processed, but only on what was used to
     # generate the `XrayReferenceFile.h5`
     let
+      ## TODO: the following uses the `toDset` proc, which does not make sense for the original
+      ## `XrayReferenceFile.h5` file, since that uses notation different from both normal Marlin
+      ## and TPA. Also the `toDset` proc correctly fails for `igLengthDivRmsTrans` field, because
+      ## it does not exist in Marlin. That of course is not the case for the reference file, where
+      ## it is stored as ``lengthdivbyrmsy``.
       eccStr = igEccentricity.toDset(frameworkKind)
       ldivrmsStr = igLengthDivRmsTrans.toDset(frameworkKind)
       frmstStr = igFractionInTransverseRms.toDset(frameworkKind)

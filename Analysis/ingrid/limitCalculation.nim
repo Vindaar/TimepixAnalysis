@@ -105,6 +105,8 @@ proc runLimitCalc(p: float, data: FitObject) =
   var (backHist, candHist, rnd) = (data.back, data.cand, data.rnd)
 
   let axModel = data.axModel
+  # NOTE: since the flux tensor is a reference it's enough to change it. We don't have
+  # to reassign it as a Column to the DF
   var (flux, energy) = (axModel["Flux"].toTensor(float), axModel["Energy"].toTensor(float))
 
   let param = if classify(p) != fcNan: p else: 1e-22

@@ -128,7 +128,7 @@ proc toDset*(igKind: InGridDsetKind, frameworkKind: FrameworkKind): string =
   of igLengthDivRmsTrans:
     case frameworkKind
     of fkTpa: result = "lengthDivRmsTrans"
-    of fkMarlin: doAssert false, "Does not exist as a dataset in Marlin. Is calculated!"
+    of fkMarlin: doAssert false, "`igLengthDivRmsTrans` does not exist as a dataset in Marlin. Is calculated!"
   of igRotationAngle:
     case frameworkKind
     of fkTpa: result = "rotationAngle"

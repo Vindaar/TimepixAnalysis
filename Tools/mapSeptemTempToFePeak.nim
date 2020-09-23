@@ -16,6 +16,9 @@ var dfTemp = toDf(readCsv(TempFile))
   .filter(f{c"Temp / °" != "-"})
 dfTemp["Timestamp"] = dfTemp["Date"].toTensor(string).map_inline(parseTime(x, OrgFormat, utc()).toUnix)
 
+const Peak = "μ/μ_max"
+const TempPeak = "(μ/T) / max"
+
 proc readFePeaks(files: seq[string], feKind: FeFileKind = fePixel): DataFrame =
   const kalphaPix = 10
   const kalphaCharge = 4
@@ -49,7 +52,7 @@ proc readFePeaks(files: seq[string], feKind: FeFileKind = fePixel): DataFrame =
       dateSeq.add parseTime(group.attrs["dateTime", string],
                             dateStr,
                             utc()).toUnix.float
-  result = seqsToDf({ "PeakPos" : peakSeq,
+  result = seqsToDf({ Peak : peakSeq,
                       "Timestamp" : dateSeq })
     .arrange("Timestamp", SortOrder.Ascending)
 
@@ -74,7 +77,7 @@ proc findTemp(d: int, dates: seq[int], temps: Tensor[float]): float =
 proc main(calibFiles: seq[string]) =
 
   var dfPeaks = readFePeaks(calibFiles)
-  ggplot(dfPeaks, aes("Timestamp", "PeakPos")) +
+  ggplot(dfPeaks, aes("Timestamp", "Normed")) +
     geom_point() +
     ggsave("/tmp/time_vs_peak_pos.pdf")
 
@@ -82,7 +85,7 @@ proc main(calibFiles: seq[string]) =
   let temps = dfTemp["Temp / °"].toTensor(float)
   let dates = dfTemp["Timestamp"].toTensor(int).toRawSeq
   let feDates = dfPeaks["Timestamp"].toTensor(int)
-  let peaks = dfPeaks["PeakPos"].toTensor(float)
+  let peaks = dfPeaks[Peak].toTensor(float)
   var peakNorm = newSeq[float](peaks.size)
 
   var idx = 0
@@ -91,18 +94,21 @@ proc main(calibFiles: seq[string]) =
     peakNorm[idx] = peaks[idx] / (temp + 273.15)
     echo "Temp ", temp, " peak ", peaks[idx], " norm ", peakNorm[idx]
     inc idx
-  var df = seqsToDf({ "PeakNorm" : peakNorm, "Timestamp" : feDates })
-  ggplot(df, aes(Timestamp, PeakNorm)) +
+  var df = seqsToDf({ TempPeak : peakNorm, "Timestamp" : feDates })
+  ggplot(df, aes(Timestamp, TempPeak)) +
     geom_point() +
     ggsave("/tmp/time_vs_peak_norm_by_temp.pdf")
 
   # finally combine the twe into one plot
-  dfPeaks = dfPeaks.mutate(f{`PeakPos` ~ `PeakPos` / max(`PeakPos`)})
-  df = df.mutate(f{`PeakNorm` ~ `PeakNorm` / max(`PeakNorm`)})
-  df = innerJoin(df, dfPeaks, by = "Timestamp").gather(["PeakNorm", "PeakPos"], "Type", "peak")
-  ggplot(df, aes(Timestamp, peak, color = "Type")) +
+  dfPeaks = dfPeaks.mutate(f{Peak ~ df[Peak][idx] / max(df[Peak])})
+  df = df.mutate(f{TempPeak ~ df[TempPeak][idx] / max(df[TempPeak])})
+  df = innerJoin(df, dfPeaks, by = "Timestamp").gather([TempPeak, Peak], "Normalization", "peak")
+  ggplot(df, aes(Timestamp, peak, color = "Normalization")) +
     geom_point() +
-    ggsave("/tmp/time_vs_peak_temp_normed_comparison.pdf")
+    ylab("Normalized ⁵⁵Fe peak position") +
+    ggtitle("Variation of peak position of ⁵⁵Fe peak over time, normalized by temperature") +
+    # ggsave("/tmp/time_vs_peak_temp_normed_comparison.pdf")
+    ggsave("/tmp/time_vs_peak_temp_normed_comparison.pdf", width = 800, height = 480)
 
 
 when isMainModule:

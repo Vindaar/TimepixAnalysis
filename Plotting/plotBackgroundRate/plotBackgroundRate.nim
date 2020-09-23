@@ -111,6 +111,7 @@ proc main(files: seq[string], log = false, title = "", show2014 = false) =
   df = df.filter(f{`Rate` < 10.0})
 
   let suffix = logLFiles.mapIt($it.year).join("_") & "_show2014_" & $show2014
+  let titleSuff = if show2014: " compared to 2014/15" else: ""
   let transparent = color(0.0, 0.0, 0.0, 0.0)
   ggplot(df, aes(Ecol, Rcol, fill = "Dataset")) +
     geom_histogram(stat = "identity", position = "identity", alpha = some(0.5)) +
@@ -121,8 +122,8 @@ proc main(files: seq[string], log = false, title = "", show2014 = false) =
     xlab("Energy [keV]") +
     ylab("Rate [10⁵ keV⁻¹ cm⁻² s⁻¹]") +
     xlim(0, 10.0) +
-    ggtitle("Background rate of Run 2 & 3 (2017/18) compared to 2014/15") +
-    ggsave(&"plots/background_rate_{suffix}.pdf")
+    ggtitle(&"Background rate of Run 2 & 3 (2017/18){titleSuff}") +
+    ggsave(&"plots/background_rate_{suffix}.pdf", width = 800, height = 480)
 
 when isMainModule:
   dispatch main

@@ -27,14 +27,14 @@ type
 
 func toTensor[T](t: Tensor[T]): Tensor[T] = t
 template toHisto(arg, binsArg: typed): untyped =
-  let counts = arg.toTensor.asType(float)
+  var counts = arg.toTensor.asType(float)
   # why cannot directly map_inline with sqrt :(
   var err = newSeq[float](counts.len)
   for i in 0 ..< counts.len:
     err[i] = sqrt(counts[i])
   Histogram(ndim: 1,
             bins: binsArg.toTensor.asType(float),
-            counts: counts,
+            counts: concat([counts, zeros[float](1)], axis = 0),
             err: err.toTensor)
 
 proc readDsets(h5f: H5FileObj, names: varargs[string]): DataFrame =
@@ -103,7 +103,7 @@ proc drawLimitPlot(flux, energy: Tensor[float], param: float,
     xlab("Energy [keV]") +
     # ggtitle(&"Expected g_ae·g_aγ = {param * g_agamma:.2e}, CLs = {obsCLs:.4f}, CLb = {obsCLb:.4f}") +
     ggtitle(&"Expected g_ae·g_aγ = {param * g_agamma:.2e} GeV⁻¹ at 95% CLs") +
-    ggsave(&"/tmp/current_flux{suff}.pdf")
+    ggsave(&"/tmp/current_flux{suff}.pdf", width = 800, height = 480)
 
 
 proc runLimitCalc(p: float, data: FitObject) =
@@ -184,7 +184,7 @@ proc constrainCL95(p: seq[float], data: FitObject): float =
   echo "CLs    = ", obsCLs
   echo "CLsb   = ", obsCLsb
 
-proc readAxModel(f: string, scale: float): DataFrame =
+proc readAxModel(f: string, scale: float, limit2013 = false): DataFrame =
   ## scale is the scaling required from a purely weight based flux
   ## to one corresponding to the tracking time. The flux by itself is
   ## essentially corresponding to a fixed, very short time, based on the
@@ -194,12 +194,22 @@ proc readAxModel(f: string, scale: float): DataFrame =
     gaeDf = toDf(readCsv(f))
     energy = gaeDf["Axion energy [keV]"].toTensor(float).toRawSeq
     weights = gaeDf["Flux after experiment"].toTensor(float).toRawSeq
-    (val, bins) = histogram(energy, weights = weights, range = (0.0, 10.2), bins = 51)
-  var flux = val.toTensor
+  var
+    val, bins: seq[float]
+  if limit2013:
+    (val, bins) = histogram(energy, weights = weights, range = (0.8, 6.2285), bins = 20)
+  else:
+    (val, bins) = histogram(energy, weights = weights, range = (0.0, 10.0), bins = 50)
+    #(val, bins) = histogram(energy, range = (0.0, 10.2), bins = 51)
+  val.add 0.0
+  var flux = val.toTensor.asType(float)
   # scale to tracking time
   flux.apply_inline(x * scale)
-  result = seqsToDf({ "Energy" : bins[0 .. ^2],
+  result = seqsToDf({ "Energy" : bins[0 .. ^1],
                       "Flux" : flux })
+  ggplot(result, aes("Energy", "Flux")) +
+    geom_histogram(stat = "identity") +
+    ggsave("/tmp/axionModel.pdf")
 
 proc drawExpCand(h: Histogram): Histogram =
   ## given a histogram as input, draws a new histogram using Poisson
@@ -215,7 +225,8 @@ proc drawExpCand(h: Histogram): Histogram =
     result.err[i] = sqrt(cntDraw)
 
 proc main(backFiles, candFiles: seq[string], axionModel: string,
-          optimizeBy: string = $opCLs) =
+          optimizeBy: string = $opCLs,
+          limit2013: bool = false) =
   var
     h5Backs = backFiles.mapIt(H5File(it, "r"))
     h5Cands = candFiles.mapIt(H5File(it, "r"))
@@ -240,6 +251,9 @@ proc main(backFiles, candFiles: seq[string], axionModel: string,
   let candEnergy = h5Cands.mapIt(
     it.readDsets("energyFromCharge")
       .rename(f{"Energy" <- "energyFromCharge"})).flatten
+
+  let df2013 = toDf(readCsv("../../resources/background_rate_cast_gae_2013.csv"))
+
   let ratePlot = bind_rows([("back", backEnergy), ("cand", candEnergy)], "Type")
   ggplot(ratePlot, aes(Energy, fill = "Type")) +
     geom_histogram(bin_width = 0.2, position = "identity", alpha = some(0.5)) +
@@ -249,36 +263,42 @@ proc main(backFiles, candFiles: seq[string], axionModel: string,
   var rnd = wrap(initMersenneTwister(49))
   let back = backEnergy["Energy"].toTensor(float).toRawSeq
   let cand = candEnergy["Energy"].toTensor(float).toRawSeq
-  let (backHI, binsB) = histogram(back, range = (0.0, 10.2), bins = 51)
-  let (candHI, binsC) = histogram(cand, range = (0.0, 10.2), bins = 51)
-
-  proc scaleDset(h5f: H5FileObj, data: seq[int]): seq[float] =
-    let lhGrp = h5f["/likelihood".grp_str]
-    let time_back = lhGrp.attrs["totalDuration", float]
-    echo time_back
-    let area = pow(0.95 - 0.45, 2)
-    const bin_width = 0.392
-    const shutter_open = 1.0
-    const factor = 1.0
-    let scale = factor / (time_back * shutter_open * area * bin_width) * 86400 #* 1e5
-    result = data.mapIt(it.float * scale)
+  let (backHI, binsB) = histogram(back, range = (0.0, 10.0), bins = 50)
+  let (candHI, binsC) = histogram(cand, range = (0.0, 10.0), bins = 50)
 
   proc readDuration(h5f: H5FileObj): float =
     let lhGrp = h5f["/likelihood".grp_str]
     result = lhGrp.attrs["totalDuration", float]
 
-  # var backH = backHI
-  # var candH = candHI
-  #let backH = scaleDset(h5Back, backHI)
-  #let candH = scaleDset(h5Cand, candHI)
-  var backHist = toHisto(backHI, binsB[0 .. ^2])
-  const trackToBackRatio = 19.56 # this is the ratio of background to
-                                 # tracking time in the combined Run 2 and 3
-                                 # only required for poisson sampled candidates
-  backHist.counts = backHist.counts.map_inline(x.float / trackToBackRatio)
-  backHist.err = backHist.err.map_inline(x.float / trackToBackRatio)
+  var
+    backHist: Histogram
+    candHist: Histogram
+    backTime: float
+    trackToBackRatio: float
+  if limit2013:
+    backHist = toHisto(df2013["Background"].toTensor(float).toRawSeq,
+                           df2013["Energy"].toTensor(float).toRawSeq)
+    backHist.err = backHist.err.map_inline(x.float / 4.0)
 
-  let backTime = h5Backs.mapIt(it.readDuration).sum
+    backTime = 1890 * 3600 # background time of 2013 paper
+    trackToBackRatio = backTime / (197 * 3600)
+    candHist = toHisto(df2013["Candidates"].toTensor(float).toRawSeq,
+                       df2013["Energy"].toTensor(float).toRawSeq)
+  else:
+    # var backH = backHI
+    # var candH = candHI
+    backHist = toHisto(backHI, binsB)
+    trackToBackRatio = 19.56 # this is the ratio of background to
+                                   # tracking time in the combined Run 2 and 3
+                                   # only required for poisson sampled candidates
+    backHist.counts = backHist.counts.map_inline(x.float / trackToBackRatio)
+    backHist.err = backHist.err.map_inline(x.float / trackToBackRatio)
+
+    backTime = h5Backs.mapIt(it.readDuration).sum
+    #let candHist = toHisto(candH, binsC)
+    candHist = backHist.drawExpCand()
+
+  # compute signal
   let trackingTime = backTime / trackToBackRatio
   echo "Total background time ", backTime / 3600.0, " h"
   echo "Total tracking time ", trackingTime / 3600.0, " h"
@@ -293,12 +313,7 @@ proc main(backFiles, candFiles: seq[string], axionModel: string,
   let scale = trackingTime.float / secondsOfSim / (100 * 100) * areaBore
 
   echo &"Scale = {scale}"
-  let gaeDf = readAxModel(axionModel, scale)
-
-
-
-  #let candHist = toHisto(candH, binsC[0 .. ^2])
-  let candHist = backHist.drawExpCand()
+  let gaeDf = readAxModel(axionModel, scale, limit2013)
 
   # 1e-13 is the value, which was used to calculate the currently used flux
   var gae = 1e-13

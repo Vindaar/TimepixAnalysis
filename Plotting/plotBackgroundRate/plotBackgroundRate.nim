@@ -18,14 +18,13 @@ type
     totalTime: float
     df: DataFrame
 
-proc scaleDset(data: Column, totalTime: float, log = false): Column =
+proc scaleDset(data: Column, totalTime, factor: float): Column =
   ## scales the data in `data` according to the area of the gold region,
   ## total time and bin width. The data has to be pre binned of course!
   let area = pow(0.95 - 0.45, 2) # area of gold region!
   const bin_width = 0.2 # 0.392
   const shutter_open = 1.0 # Does not play any role, because totalDuration takes
                            # this into account already!
-  let factor = if log: 1.0 else: 1e5
   let scale = factor / (totalTime * shutter_open * area * bin_width) #* 1e5
   result = toColumn data.toTensor(float).map_inline(x * scale)
 
@@ -33,8 +32,8 @@ proc readTime(h5f: H5FileObj): float =
   let lhGrp = h5f["/likelihood".grp_str]
   result = lhGrp.attrs["totalDuration", float]
 
-proc scaleDset(h5f: H5FileObj, data: Column, log = false): Column =
-  result = scaleDset(data, h5f.readTime(), log)
+proc scaleDset(h5f: H5FileObj, data: Column, factor: float): Column =
+  result = scaleDset(data, h5f.readTime(), factor)
 
 proc extractYear(f: string): int =
   ## We assume the filenames
@@ -68,8 +67,8 @@ proc histogram(df: DataFrame): DataFrame =
   ## a histogram of the binned data
   ## TODO: allow to do this by combining different `File` values
   let (hist, bins) = histogram(df[Ecol].toTensor(float).toRawSeq,
-                               range = (0.0, 10.2), bins = 51)
-  result = seqsToDf({ Ecol : bins[0 .. ^2], Ccol : hist })
+                               range = (0.0, 10.0), bins = 50)
+  result = seqsToDf({ Ecol : bins, Ccol : concat(hist, @[0]) })
 
 template sumIt(s: seq[typed], body: untyped): untyped =
   var res: float
@@ -77,12 +76,12 @@ template sumIt(s: seq[typed], body: untyped): untyped =
     res += body
   res
 
-proc flatScale(files: seq[LogLFile]): DataFrame =
+proc flatScale(files: seq[LogLFile], factor: float): DataFrame =
   var df: DataFrame
   for f in files:
     df.add f.df
   result = df.histogram()
-  result[Rcol] = result[Ccol].scaleDset(files.sumIt(it.totalTime))
+  result[Rcol] = result[Ccol].scaleDset(files.sumIt(it.totalTime), factor)
   result["Dataset"] = constantColumn("2017/18", result.len)
   result = result.mutate(f{"yMin" ~ `Rate` - sqrt(`Rate`)}, f{"yMax" ~ `Rate` + sqrt(`Rate`)})
   result["yMin"] = result["yMin"].toTensor(float).map_inline:
@@ -93,23 +92,27 @@ proc flatScale(files: seq[LogLFile]): DataFrame =
 proc main(files: seq[string], log = false, title = "", show2014 = false) =
   discard existsOrCreateDir("plots")
   let logLFiles = readFiles(files)
-  var df = flatScale(logLFiles)
+  let factor = if log: 1.0 else: 1e5
+  var df = flatScale(logLFiles, factor)
 
   if show2014:
     df.drop(Ccol)
     var df2014 = toDf(readCsv(Data2014, sep = ' ', header = "#"))
       .rename(f{Rcol <- "Rate[/keV/cm²/s]"}, f{"yMax" <- "dRateUp"},
               f{"yMin" <- "dRateDown"}, f{Ecol <- "E[keV]"})
+    let lastLine = seqsToDf({ Ecol : @[10.1], Rcol : @[0.0], "yMin" : @[0.0], "yMax" : @[0.0] })
+    df2014.add lastLine
     if not log:
       df2014 = df2014.mutate(f{Rcol ~ 1e5 * `Rate`}, f{"yMin" ~ 1e5 * `yMin`},
                              f{"yMax" ~ 1e5 * `yMax`})
     df2014 = df2014.mutate(f{"yMin" ~ `Rate` - `yMin`}, f{"yMax" ~ `Rate` + `yMax`},
                            f{Ecol ~ `Energy` - 0.1})
     df2014["Dataset"] = constantColumn("2014/15", df2014.len)
+
+    echo df2014
     df.add df2014
 
-  df = df.filter(f{`Rate` < 10.0})
-
+  #df = df.filter(f{c"Energy" < 10.0})
   let suffix = logLFiles.mapIt($it.year).join("_") & "_show2014_" & $show2014
   let titleSuff = if show2014: " compared to 2014/15" else: ""
   let transparent = color(0.0, 0.0, 0.0, 0.0)

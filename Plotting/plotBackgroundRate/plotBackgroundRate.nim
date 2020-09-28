@@ -2,7 +2,7 @@ import ggplotnim, seqmath, sequtils, os, sugar, strscans, strformat
 import ingrid / [tos_helpers]
 from arraymancer import tensor
 
-import nimhdf5
+import nimhdf5, numericalnim
 
 import cligen
 
@@ -89,11 +89,28 @@ proc flatScale(files: seq[LogLFile], factor: float): DataFrame =
     else: 0.0
   result.drop("Counts")
 
+proc calcIntegratedBackgroundRate(df: DataFrame, factor: float): float =
+  ## returns the integrated background rate given by the Rate
+  ## stored in the given DataFrame, integrated over the energy
+  ## range stored in the DF (typically that should be 0 - 10 keV)
+  ##
+  ## It is assumed that the energy is given in keV and the rate in
+  ## keV⁻¹ cm⁻² s⁻¹.
+  let energies = df[Ecol].toTensor(float)
+  let rate = df[Rcol].toTensor(float)
+  result = simpson(rate.toRawSeq, energies.toRawSeq) / factor
+
 proc main(files: seq[string], log = false, title = "", show2014 = false) =
   discard existsOrCreateDir("plots")
   let logLFiles = readFiles(files)
   let factor = if log: 1.0 else: 1e5
   var df = flatScale(logLFiles, factor)
+
+  ## NOTE: this has to be calculated before we add 2014 data if we do, of course,
+  ## because otherwise we have everything duplicated!
+  let intBackRate = calcIntegratedBackgroundRate(df, factor)
+  echo &"Integrated background rate: {intBackRate:.4e} cm⁻² s⁻¹"
+  echo &"Integrated background rate/keV: {intBackRate / 10.0:.4e} keV⁻² cm⁻² s⁻¹"
 
   if show2014:
     df.drop(Ccol)

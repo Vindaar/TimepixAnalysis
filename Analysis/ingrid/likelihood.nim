@@ -284,6 +284,59 @@ proc readRefDsets(refFile: string, yearKind: YearKind): tuple[ecc, ldivRms, frac
     lengthDivRmsTrans_ref[dset_name] = ldivrms.readAs(float64).reshape2D(ldivrms.shape).splitSeq(float64)
     fracRmsTrans_ref[dset_name] = frmst.readAs(float64).reshape2D(frmst.shape).splitSeq(float64)
 
+    var dfDset = seqsToDf({ "Eccentricity" : ecc_ref[dset_name].bins, "Ecc #" : ecc_ref[dset_name].hist,
+                            "L / RMS_trans" : lengthDivRmsTrans_ref[dset_name].bins,
+                            "L / RMS_trans #" : lengthDivRmsTrans_ref[dset_name].hist,
+                            "fracRmsTrans" : fracRmsTrans_ref[dset_name].bins,
+                            "fracRmsTrans #" : fracRmsTrans_ref[dset_name].hist })
+    dfDset["Dset"] = constantColumn(dset_name, dfDset.len)
+    df.add dfDset
+
+  block RefPlots:
+    echo df.pretty(-1)
+    ggplot(df, aes("Eccentricity", "Ecc #", fill = "Dset")) +
+      geom_histogram(stat = "identity", position = "identity", alpha = some(0.5)) +
+      ggtitle(&"Eccentricity of reference file, year: {yearKind}") +
+      ggsave(&"out/eccentricity_{refFile.extractFilename}_{yearKind}.pdf",
+              width = 800, height = 480)
+    ggplot(df, aes("L / RMS_trans", "L / RMS_trans #", fill = "Dset")) +
+      geom_histogram(stat = "identity", position = "identity", alpha = some(0.5)) +
+      ggtitle(&"L / RMS_trans of reference file, year: {yearKind}") +
+      ggsave(&"out/lengthDivRmsTrans_{refFile.extractFilename}_{yearKind}.pdf",
+              width = 800, height = 480)
+    ggplot(data = df.filter(f{Value: isNull(df["fracRmsTrans"][idx]) == (%~ false)}),
+           aes("fracRmsTrans", "fracRmsTrans #", fill = "Dset")) +
+      geom_histogram(stat = "identity", position = "identity", alpha = some(0.5)) +
+      ggtitle(&"fracRmsTrans of reference file, year: {yearKind}") +
+      ggsave(&"out/fracRmsTrans_{refFile.extractFilename}_{yearKind}.pdf",
+              width = 800, height = 480)
+
+    let xrayRef = getXrayRefTable()
+    var labelOrder = initTable[Value, int]()
+    for idx, el in xrayRef:
+      labelOrder[%~ el] = idx
+
+    ggplot(df, aes("Eccentricity", "Ecc #", fill = "Dset")) +
+      ggridges("Dset", overlap = 1.75, labelOrder = labelOrder) +
+      geom_histogram(stat = "identity", position = "identity") +
+      ggtitle(&"Eccentricity of reference file, year: {yearKind}") +
+      ggsave(&"out/eccentricity_ridgeline_{refFile.extractFilename}_{yearKind}.pdf",
+              width = 800, height = 480)
+    ggplot(df, aes("L / RMS_trans", "L / RMS_trans #", fill = "Dset")) +
+      ggridges("Dset", overlap = 1.75, labelOrder = labelOrder) +
+      geom_histogram(stat = "identity", position = "identity") +
+      ggtitle(&"L / RMS_trans of reference file, year: {yearKind}") +
+      ggsave(&"out/lengthDivRmsTrans_ridgeline_{refFile.extractFilename}_{yearKind}.pdf",
+              width = 800, height = 480)
+    ggplot(data = df.filter(f{Value: isNull(df["fracRmsTrans"][idx]) == (%~ false)}),
+           aes("fracRmsTrans", "fracRmsTrans #", fill = "Dset")) +
+      ggridges("Dset", overlap = 1.75, labelOrder = labelOrder) +
+      geom_histogram(stat = "identity", position = "identity") +
+      ggtitle(&"fracRmsTrans of reference file, year: {yearKind}") +
+      ggsave(&"out/fracRmsTrans_ridgeline_{refFile.extractFilename}_{yearKind}.pdf",
+              width = 800, height = 480)
+
+
   result = (ecc: ecc_ref, ldivRms: lengthDivRmsTrans_ref, fracRms: fracRmsTrans_ref)
 
 proc readLogLVariableData(h5f: var H5FileObj,

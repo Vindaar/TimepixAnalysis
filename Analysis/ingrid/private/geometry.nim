@@ -415,7 +415,7 @@ proc findSimpleCluster*[T: SomePix](pixels: seq[T]): seq[Cluster[T]] =
   else:
     let
       search_r = 50
-      cutoff_size = 5
+      cutoff_size = 2
 
   # add the first pixel of the given sequence to have a starting pixel, from which we
   # look for other pixels in the cluster

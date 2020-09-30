@@ -1,30 +1,35 @@
- | Run # | Type         | FADC? | Target | Filter | HV / kV |
- |-------+--------------+-------+--------+--------+---------|
- |     1 | rtXrayFinger | n     | Mn     | Cr     |    12.0 |
- |     2 | rtXrayFinger | n     | Mn     | Cr     |    12.0 |
- |     3 | rtXrayFinger | n     | Mn     | Cr     |    12.0 |
- |     4 | rtXrayFinger | n     | Mn     | Cr     |    12.0 |
- |     5 | rtXrayFinger | n     | Mn     | Cr     |    12.0 |
- |     6 | rtXrayFinger | n     | Mn     | Cr     |    12.0 |
- |     9 | rtXrayFinger | n     | Cu     | Ni     |    15.0 |
- |    10 | rtXrayFinger | n     | Cu     | Ni     |    15.0 |
- |    11 | rtXrayFinger | n     | Cu     | Ni     |    15.0 |
- |    12 | rtXrayFinger | n     | Cu     | Ni     |    15.0 |
- |    13 | rtXrayFinger | n     | Cu     | Ni     |    15.0 |
- |    15 | rtXrayFinger | n     | Ti     | Ti     |     9.0 |
- |    16 | rtXrayFinger | n     | Ti     | Ti     |     9.0 |
- |    17 | rtXrayFinger | n     | Ti     | Ti     |     9.0 |
- |    18 | rtXrayFinger | n     | Ti     | Ti     |     9.0 |
- |    19 | rtXrayFinger | n     | Ti     | Ti     |     9.0 |
- |    21 | rtXrayFinger | n     | Ag     | Ag     |     6.0 |
- |    22 | rtXrayFinger | n     | Ag     | Ag     |     6.0 |
- |    24 | rtXrayFinger | n     | Al     | Al     |     4.0 |
- |    25 | rtXrayFinger | n     | Al     | Al     |     4.0 |
- |    26 | rtXrayFinger | n     | Al     | Al     |     4.0 |
- |    33 | rtXrayFinger | n     | Cu     | EPIC   |     2.0 |
- |    34 | rtXrayFinger | n     | Cu     | EPIC   |     2.0 |
- |    35 | rtXrayFinger | n     | Cu     | EPIC   |     2.0 |
- |    38 | rtXrayFinger | n     | Cu     | EPIC   |     0.9 |
- |    39 | rtXrayFinger | n     | Cu     | EPIC   |     0.9 |
- |    40 | rtXrayFinger | n     | Cu     | EPIC   |     0.9 |
- |    43 | rtXrayFinger | n     | C      | EPIC   |     0.6 |
+| Run # | Type         | FADC? | Target | Filter | HV / kV |
+|-------+--------------+-------+--------+--------+---------|
+|     1 | rtXrayFinger | n     | Mn     | Cr     |      12 |
+|     2 | rtXrayFinger | n     | Mn     | Cr     |      12 |
+|     3 | rtXrayFinger | n     | Mn     | Cr     |      12 |
+|     4 | rtXrayFinger | n     | Mn     | Cr     |      12 |
+|     5 | rtXrayFinger | n     | Mn     | Cr     |      12 |
+|     6 | rtXrayFinger | n     | Mn     | Cr     |      12 |
+|     8 | rtXrayFinger | n     | Cu     | Ni     |      15 |
+|     9 | rtXrayFinger | n     | Cu     | Ni     |      15 |
+|    10 | rtXrayFinger | n     | Cu     | Ni     |      15 |
+|    11 | rtXrayFinger | n     | Cu     | Ni     |      15 |
+|    12 | rtXrayFinger | n     | Cu     | Ni     |      15 |
+|    13 | rtXrayFinger | n     | Cu     | Ni     |      15 |
+|    15 | rtXrayFinger | n     | Ti     | Ti     |       9 |
+|    16 | rtXrayFinger | n     | Ti     | Ti     |       9 |
+|    17 | rtXrayFinger | n     | Ti     | Ti     |       9 |
+|    18 | rtXrayFinger | n     | Ti     | Ti     |       9 |
+|    19 | rtXrayFinger | n     | Ti     | Ti     |       9 |
+|    21 | rtXrayFinger | n     | Ag     | Ag     |       6 |
+|    22 | rtXrayFinger | n     | Ag     | Ag     |       6 |
+|    24 | rtXrayFinger | n     | Al     | Al     |       4 |
+|    25 | rtXrayFinger | n     | Al     | Al     |       4 |
+|    26 | rtXrayFinger | n     | Al     | Al     |       4 |
+|    33 | rtXrayFinger | n     | Cu     | EPIC   |       2 |
+|    34 | rtXrayFinger | n     | Cu     | EPIC   |       2 |
+|    35 | rtXrayFinger | n     | Cu     | EPIC   |       2 |
+|    38 | rtXrayFinger | n     | Cu     | EPIC   |     0.9 |
+|    39 | rtXrayFinger | n     | Cu     | EPIC   |     0.9 |
+|    40 | rtXrayFinger | n     | Cu     | EPIC   |     0.9 |
+|    43 | rtXrayFinger | n     | C      | EPIC   |     0.6 |
+|    44 | rtXrayFinger | n     | C      | EPIC   |     0.6 |
+|    45 | rtXrayFinger | n     | C      | EPIC   |     0.6 |
+|    46 | rtXrayFinger | n     | C      | EPIC   |     0.6 |
+|    47 | rtXrayFinger | n     | C      | EPIC   |     0.6 |

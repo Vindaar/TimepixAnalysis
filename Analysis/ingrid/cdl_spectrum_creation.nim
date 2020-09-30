@@ -782,7 +782,8 @@ proc cutAndWrite(h5file: string) =
       discard
 
 proc energyResolution(energyResHits, energyResCharge,
-                      errorHits, errorCharge: seq[float]) =
+                      errorHits, errorCharge: seq[float],
+                      pathPrefix: string) =
   ## Creates the plot of the energy resolution for both the pixel and charge
   ## spectra
   const energies = @[8.048, 5.899, 4.511, 2.984, 1.487, 0.930, 0.525, 0.277]
@@ -798,9 +799,9 @@ proc energyResolution(energyResHits, energyResCharge,
     xlab("Energy / keV") +
     ylab("Energy resolution / %") +
     ggtitle("Energy resolution plot") +
-    ggsave(&"energyresoplot-{outdate}.pdf")
+    ggsave(&"{pathPrefix}/energyresoplot-{outdate}.pdf", width = 800, height = 480)
 
-proc peakFit(peakPos: seq[float], name: string, error: seq[float]) =
+proc peakFit(peakPos: seq[float], name: string, error: seq[float], pathPrefix: string) =
   const energies = @[8.048, 5.899, 4.511, 2.984, 1.487, 0.930, 0.525, 0.277]
   let df = seqsToDf({ "Energy" : energies, "PeakPos" : peakPos,
                       "PeakErr" : error })
@@ -811,7 +812,7 @@ proc peakFit(peakPos: seq[float], name: string, error: seq[float]) =
     xlab("Energy / keV") +
     ylab(&"Peak position for {name}") +
     ggtitle("Peak position of all targets") +
-    ggsave(&"{name}.pdf")
+    ggsave(&"{pathPrefix}/{name}.pdf", width = 800, height = 480)
 
 proc dumpFitParameters(outfile, svgFname: string,
                        params: seq[float], errors: seq[float],
@@ -924,6 +925,8 @@ proc fitAndPlot[T: SomeNumber](h5f: var H5FileObj, fitParamsFname: string,
                                tfKind: TargetFilterKind, dKind: DataKind):
                (seq[float], seq[float], seq[float], seq[float]) =
   let runs = readRuns(filename)
+  let plotPath = h5f.attrs[plotDirPrefixAttr, string]
+
   var ploterror: seq[float]
   var rawseq: seq[T]
   var cutseq: seq[T]
@@ -1046,7 +1049,7 @@ proc fitAndPlot[T: SomeNumber](h5f: var H5FileObj, fitParamsFname: string,
   let dfRaw = bind_rows([("RawData", toTab({ "Counts" : rawSeq })),
                          ("CutData", toTab({ "Counts" : cutSeq }))],
                          id = "Cut")
-  let fname = &"{outname}-{outdate}.pdf"
+  let fname = &"{plotPath}/{outname}-{outdate}.pdf"
   ggplot(df, aes("Energy", "Counts")) +
     geom_histogram(data = dfRaw.filter(f{float: `Counts` < binRangePlot}),
                    aes = aes("Counts", fill = "Cut"),
@@ -1058,8 +1061,7 @@ proc fitAndPlot[T: SomeNumber](h5f: var H5FileObj, fitParamsFname: string,
     #xlim(0.0, binrangeplot) +
     ylab("Counts") +
     ggtitle(&"target: {tfKind}") +
-    ggsave(fname)
-
+    ggsave(fname, width = 800, height = 480)
   # now dump the fit results, SVG filename and correct parameter names to a file
   ## TODO: add fit parameters as annotation to plot!!
   dumpFitParameters(fitParamsFname, fname, FitError, ploterror, tfKind, dKind)
@@ -1348,10 +1350,11 @@ proc main =
       energyResCharge.add(energyCharge[1])
       peakChargeErr.add(energyCharge[2])
       energyChargeErr.add(energyCharge[3])
+    let plotPath = h5f.attrs[plotDirPrefixAttr, string]
     discard h5f.close()
-    energyResolution(energyResHits, energyResCharge, energyHitsErr, energyChargeErr)
-    peakFit(peakposHits, "Hits", peakHitsErr)
-    peakFit(peakposCharge, "Charge", peakChargeErr)
+    energyResolution(energyResHits, energyResCharge, energyHitsErr, energyChargeErr, plotPath)
+    peakFit(peakposHits, "Hits", peakHitsErr, plotPath)
+    peakFit(peakposCharge, "Charge", peakChargeErr, plotPath)
 
 when isMainModule:
   main()

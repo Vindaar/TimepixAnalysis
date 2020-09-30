@@ -6,7 +6,6 @@
 |     4 | rtXrayFinger | n     | Mn     | Cr     |      12 |
 |     5 | rtXrayFinger | n     | Mn     | Cr     |      12 |
 |     6 | rtXrayFinger | n     | Mn     | Cr     |      12 |
-|     8 | rtXrayFinger | n     | Cu     | Ni     |      15 |
 |     9 | rtXrayFinger | n     | Cu     | Ni     |      15 |
 |    10 | rtXrayFinger | n     | Cu     | Ni     |      15 |
 |    11 | rtXrayFinger | n     | Cu     | Ni     |      15 |

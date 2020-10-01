@@ -91,7 +91,7 @@ proc plotDf(df: DataFrame, interval: float, titleSuff: string) =
 
   ggplot(df, aes("meanCharge")) +
     geom_histogram() +
-    ggtitle(&"Histogram of binned mean of charge, within {interval:.1f} min") +
+    ggtitle(&"Histogram of binned mean charge, within {interval:.1f} min, {titleSuff}") +
     ggsave(&"{outpath}/background_histo_mean_binned_{interval:.1f}_min_{nameSuff}.pdf",
             width = 800, height = 480)
 

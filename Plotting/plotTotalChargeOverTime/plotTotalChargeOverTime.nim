@@ -41,6 +41,7 @@ proc readFiles(files: seq[string]): DataFrame =
     let h5f = H5File(file, "r")
     result.add readTstampDf(h5f)
     discard h5f.close()
+  result = result.arrange("timestamp")
 
 proc caclulateMeanDf(df: DataFrame, interval: float): DataFrame =
   ## interval: time in minutes

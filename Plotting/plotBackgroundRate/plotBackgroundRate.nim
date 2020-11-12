@@ -52,7 +52,7 @@ proc readFiles(files: seq[string]): seq[LogLFile] =
   ## be accumulated or not
   for file in files:
     let h5f = H5File(file, "r")
-    var df = h5f.readDsets(likelihoodBase(), 3, "energyFromCharge")
+    var df = h5f.readDsets(likelihoodBase(), (3, "energyFromCharge"))
       .rename(f{Ecol <- "energyFromCharge"})
     let fname = file.extractFilename
     df["File"] = constantColumn(fname, df.len)
@@ -138,9 +138,10 @@ proc main(files: seq[string], log = false, title = "", show2014 = false) =
     #               color = some(transparent)) +
     geom_point(binPosition = "center", position = "identity") +
     geom_errorbar(binPosition = "center",
-                  aes = aes(yMin = "yMin", yMax = "yMax")) +
+                  aes = aes(yMin = "yMin", yMax = "yMax"),
+                  errorBarKind = ebLines) +
     xlab("Energy [keV]") +
-    ylab("Rate [10⁵ keV⁻¹ cm⁻² s⁻¹]") +
+    ylab("Rate [10⁻⁵ keV⁻¹ cm⁻² s⁻¹]") +
     xlim(0, 10.0) +
     ggtitle(&"Background rate of Run 2 & 3 (2017/18){titleSuff}") +
     ggsave(&"plots/background_rate_{suffix}.pdf", width = 800, height = 480)

@@ -31,14 +31,19 @@ proc getDf*(h5f: var H5FileObj, path: string, keys: varargs[string]): DataFrame 
       when type(dset) is SupportedRead:
         result[key] = dset
 
-proc readDsets*(h5f: H5FileObj, path = recoBase(), chip: int, names: varargs[string]): DataFrame =
+proc readDsets*(h5f: H5FileObj, path = recoBase(),
+                names: varargs[tuple[chip: int, dset: string]]): DataFrame =
   ## reads all datasets with `names` in the given `h5f` file of `chip` under the
   ## given `path`. The result is returned as a `DataFrame`
   for run, grp in runs(h5f, path):
     var df = newDataFrame()
-    for name in names:
+    for (chip, name) in names:
       let group = h5f[grp.grp_str]
-      let dsetName = grp / "chip_" & $chip / name
+      var dsetName = ""
+      if chip >= 0:
+        dsetName = grp / "chip_" & $chip / name
+      else:
+        dsetName = grp / name
       if dsetName in h5f:
         let dsetH5 = h5f[dsetName.dset_str]
         withDset(dsetH5):

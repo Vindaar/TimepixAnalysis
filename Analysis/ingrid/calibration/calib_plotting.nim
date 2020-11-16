@@ -130,8 +130,8 @@ proc plotGasGainVsChargeCalib*(gainVals, calib, calibErr: seq[float],
                             yMax = f{`Calib` + `CalibErr`})) +
     geom_line(data = dfFit, color = some(parseHex("FF00FF"))) +
     annotate(&"χ²/dof = {fitResult.redChiSq:.2f}", left = 0.75, bottom = 0.1) +
-    xlab("Gas gain `G`") +
-    ylab("Calibration factor `a^{-1}` [1e-6 keV / e]") +
+    xlab("Gas gain G") +
+    ylab("Calibration factor a⁻¹ [10⁻⁶ keV / e]") +
     ggtitle("Charge calibration factors vs gas gain. y errors magnified * 100") +
     ggsave(&"{pathPrefix}/gasgain_vs_calibration_charge_{fnameHash}.pdf")
 

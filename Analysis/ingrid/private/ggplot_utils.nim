@@ -1,4 +1,4 @@
-import macros, tables, strutils, os, sequtils, strformat
+import macros, tables, strutils, os, sequtils, strformat, options
 
 import ggplotnim
 export ggplotnim
@@ -31,26 +31,58 @@ proc getDf*(h5f: var H5FileObj, path: string, keys: varargs[string]): DataFrame 
       when type(dset) is SupportedRead:
         result[key] = dset
 
+proc readDsets*(h5f: H5FileObj, df: var DataFrame, names: seq[string], baseName: string) =
+  ## reads the given datasets `names` from `baseName` into the existing `df`
+  for name in names:
+    let dsetName = baseName / name
+    if dsetName in h5f:
+      let dsetH5 = h5f[dsetName.dset_str]
+      withDset(dsetH5):
+        when type(dset) is seq[SupportedRead]:
+          df[name] = dset
+        else:
+          doAssert false, "Invalid datatype for DataFrame! Dtype is " & $(type(dset))
+    else:
+      echo &"INFO: Run {baseName} does not have any data for dataset {name}"
+
 proc readDsets*(h5f: H5FileObj, path = recoBase(),
-                names: varargs[tuple[chip: int, dset: string]]): DataFrame =
-  ## reads all datasets with `names` in the given `h5f` file of `chip` under the
-  ## given `path`. The result is returned as a `DataFrame`
+                chipDsets = none[tuple[chip: int, dsets: seq[string]]](),
+                commonDsets: openArray[string] = @[]): DataFrame =
+  ## reads all desired datasets `chipDsets, commonDsets` in the given `h5f`
+  ## file of `chip` under the given `path`. The result is returned as a
+  ## `DataFrame`.
+  ##
+  ## `chipDsets` are datasets from the chip groups, whereas `commonDsets` are
+  ## those from the run group (timestamp, FADC datasets etc)
+  ## If input for both is given they are read as individual dataframes, which
+  ## are then joined using the eventNumber dataset (which thus will always be
+  ## read).
+  let readChip = chipDsets.isSome
+  var
+    chipDsetNames: seq[string]
+    chip: int
+    commonDsets = @commonDsets
+    evNumDset = "eventNumber"
+  if readChip:
+    chipDsetNames = chipDsets.get.dsets
+    if evNumDset notin chipDsetNames and commonDsets.len > 0:
+      chipDsetNames.add evNumDset
+    if commonDsets.len > 0 and evNumDset notin commonDsets:
+      commonDsets.add evNumDset
+    chip = chipDsets.get.chip
   for run, grp in runs(h5f, path):
-    var df = newDataFrame()
-    for (chip, name) in names:
-      let group = h5f[grp.grp_str]
-      var dsetName = ""
-      if chip >= 0:
-        dsetName = grp / "chip_" & $chip / name
-      else:
-        dsetName = grp / name
-      if dsetName in h5f:
-        let dsetH5 = h5f[dsetName.dset_str]
-        withDset(dsetH5):
-          when type(dset) is seq[SupportedRead]:
-            df[name] = dset
-      else:
-        echo &"INFO: Run {run} does not have any data for dataset {name}"
+    var dfChip = newDataFrame()
+    var dfAll = newDataFrame()
+    if readChip:
+      h5f.readDsets(dfChip, chipDsetNames, grp / "chip_" & $chip)
+    h5f.readDsets(dfAll, commonDsets, grp)
+    var df = if dfChip.len > 0 and dfAll.len > 0:
+               innerJoin(dfChip, dfAll, evNumDset)
+             elif dfChip.len > 0:
+               dfChip
+             else: #elif dfAll.len > 0:
+               dfAll
+    df["runNumber"] = constantColumn(run.parseInt, df.len)
     if df.len > 0:
       result.add df
 

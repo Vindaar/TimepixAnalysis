@@ -311,6 +311,49 @@ proc applyChargeCalibration*(h5f: var H5FileObj, runNumber: int) =
       chargeDset.writeDset(charge)
       totalChargeDset.writeDset(totalCharge)
 
+proc writePolyaDsets(h5f: H5FileObj, group: H5Group,
+                     chargeDset: H5DataSet,
+                     binned: seq[int], bin_edges: seq[float],
+                     fitResult: FitResult,
+                     dsetSuffix: string) =
+  # create dataset for polya histogram
+  var polyaDset = h5f.create_dataset(group.name / &"polya{dsetSuffix}",
+                                     (binned.len, 2),
+                                     dtype = float64,
+                                     overwrite = true)
+  var polyaFitDset = h5f.create_dataset(group.name / &"polyaFit{dsetSuffix}",
+                                        (binned.len, 2),
+                                        dtype = float64,
+                                        overwrite = true)
+  let polyaData = zip(bin_edges, binned) --> map(@[it[0], it[1].float])
+  let polyaFitData = zip(fitResult.x, fitResult.y) --> map(@[it[0], it[1]])
+  polyaDset[polyaDset.all] = polyaData
+  polyaFitDset[polyaFitDset.all] = polyaFitData
+  # now write resulting fit parameters as attributes
+  template writeAttrs(d: H5DataSet, fitResult: typed): untyped =
+    d.attrs["N"] = fitResult.pRes[0]
+    d.attrs["G_fit"] = fitResult.pRes[1]
+    # calculate the mean of the data histogram. This is what Krieger calls
+    # `G_mean` and uses for the rest of the calculation!
+    let meanGain = histMean(binned, bin_edges)
+    # also calculate the mean of the polya fit. This usually is *not* the same
+    # as the `meanGain` (mean of data). `meanGainFit` is what we used errorneously
+    # in the past!
+    let meanGainFit = (zip(fitResult.x, fitResult.y) -->>
+                    map(it[0] * it[1]) -->
+                    fold(0.0, a + it)) / fitResult.y.sum.float
+    d.attrs["G"] = meanGain
+    d.attrs["G_fitmean"] = meanGainFit
+    d.attrs["theta"] = fitResult.pRes[2]
+    # TODO: get some errors from NLopt?
+    #d.attrs["N_err"] = fitResult.pErr[0]
+    #d.attrs["G_err"] = fitResult.pErr[1]
+    #d.attrs["theta_err"] = fitResutl.pErr[2]
+    d.attrs["redChiSq"] = fitResult.redChiSq
+  writeAttrs(chargeDset, fitResult)
+  writeAttrs(polyaDset, fitResult)
+  writeAttrs(polyaFitDset, fitResult)
+
 proc applyGasGainCut(h5f: H5FileObj, group: H5Group): seq[int] =
   ## Performs the cuts, which are used to select the events which we use
   ## to perform the polya fit + gas gain determination. This is based on
@@ -322,6 +365,36 @@ proc applyGasGainCut(h5f: H5FileObj, group: H5Group): seq[int] =
                            group,
                            crSilver,
                            ("rmsTransverse", cut_rms_trans_low, cut_rms_trans_high))
+
+proc gasGainHistoAndFit(data: seq[float], totBins: seq[float],
+                        chipName: string, chipNumber, runNumber: int,
+                        plotPath: string): (seq[int], FitResult) =
+  ## performs the binning of `data` (should be charges in electron converted from the
+  ## ToT values in `calcGasGain`) according to `totBins` and fits the
+  # bin the data according to ToT values
+  let (a, b, c, t) = getTotCalibParameters(chipName)
+  # get bin edges by calculating charge values for all TOT values at TOT's bin edges
+  var bin_edges = mapIt(totBins, calibrateCharge(it, a, b, c, t))
+  # the histogram counts are the same for ToT values as well as for charge values,
+  # so calculate for ToT
+  let (binned, _) = data.histogram(bins = totBins,
+                                   range = (totBins.min + 0.5, totBins.max + 0.5))
+  # ``NOTE: remove last element from bin_edges to have:``
+  # ``bin_edges.len == binned.len``
+  bin_edges = bin_edges[0 .. ^2]
+  # given binned histogram, fit polya
+  info "Fitting polya to run: ", runNumber, " and chip: ", chipNumber
+  let fitResult = fitPolyaNim(bin_edges,
+                              binned.asType(float64),
+                              chipNumber, runNumber)
+  # create plots if desired
+  info "Plotting polya of run: ", runNumber, " and chip: ", chipNumber
+  plotGasGain(bin_edges, binned.asType(float64),
+              fitResult.x, fitResult.y,
+              G_fit = fitResult.pRes[1],
+              chiSq = fitResult.redChiSq,
+              chipNumber, runNumber,
+              pathPrefix = plotPath)
 
 proc calcGasGain*(h5f: var H5FileObj, runNumber: int) =
   ## fits the polya distribution to the charge values and writes the
@@ -348,70 +421,16 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int) =
       var totDset = h5f[(grp / "ToT").dset_str]
 
       let passIdx = applyGasGainCut(h5f, group)
-      let vlenInt = special_type(uint16)
       # get all charge values as seq[seq[float]], ``then`` apply the `passIdx`
       # and only flatten ``after`` that
-      let totsFull = totDset[vlenInt, uint16]
-      let tots = passIdx.mapIt(totsFull[it]).flatten.mapIt(it.float)
-      # bin the data according to ToT values
-      let (a, b, c, t) = getTotCalibParameters(chipName)
-      # get bin edges by calculating charge values for all TOT values at TOT's bin edges
-      var bin_edges = mapIt(totBins, calibrateCharge(it, a, b, c, t))
-      # the histogram counts are the same for ToT values as well as for charge values,
-      # so calculate for ToT
-      let (binned, _) = tots.histogram(bins = totBins,
-                                       range = (totBins.min + 0.5, totBins.max + 0.5))
-      # ``NOTE: remove last element from bin_edges to have:``
-      # ``bin_edges.len == binned.len``
-      bin_edges = bin_edges[0 .. ^2]
-      # given binned histogram, fit polya
-      info "Fitting polya to run: ", runNumber, " and chip: ", chipNumber
-      let fitResult = fitPolyaNim(bin_edges,
-                                  binned.asType(float64),
-                                  chipNumber, runNumber)
-      # create plots if desired
-      info "Plotting polya of run: ", runNumber, " and chip: ", chipNumber
-      plotGasGain(bin_edges, binned.asType(float64),
-                  fitResult.x, fitResult.y,
-                  G_fit = fitResult.pRes[1],
-                  chiSq = fitResult.redChiSq,
-                  chipNumber, runNumber,
-                  pathPrefix = plotPath)
-      # create dataset for polya histogram
-      var polyaDset = h5f.create_dataset(group.name / "polya", (binned.len, 2),
-                                         dtype = float64,
-                                         overwrite = true)
-      var polyaFitDset = h5f.create_dataset(group.name / "polyaFit", (binned.len, 2),
-                                            dtype = float64,
-                                            overwrite = true)
-      let polyaData = zip(bin_edges, binned) --> map(@[it[0], it[1].float])
-      let polyaFitData = zip(fitResult.x, fitResult.y) --> map(@[it[0], it[1]])
-      polyaDset[polyaDset.all] = polyaData
-      polyaFitDset[polyaFitDset.all] = polyaFitData
-      # now write resulting fit parameters as attributes
-      template writeAttrs(d: var H5DataSet, fitResult: typed): untyped =
-        d.attrs["N"] = fitResult.pRes[0]
-        d.attrs["G_fit"] = fitResult.pRes[1]
-        # calculate the mean of the data histogram. This is what Krieger calls
-        # `G_mean` and uses for the rest of the calculation!
-        let meanGain = histMean(binned, bin_edges)
-        # also calculate the mean of the polya fit. This usually is *not* the same
-        # as the `meanGain` (mean of data). `meanGainFit` is what we used errorneously
-        # in the past!
-        let meanGainFit = (zip(fitResult.x, fitResult.y) -->>
-                        map(it[0] * it[1]) -->
-                        fold(0.0, a + it)) / fitResult.y.sum.float
-        d.attrs["G"] = meanGain
-        d.attrs["G_fitmean"] = meanGainFit
-        d.attrs["theta"] = fitResult.pRes[2]
-        # TODO: get some errors from NLopt?
-        #d.attrs["N_err"] = fitResult.pErr[0]
-        #d.attrs["G_err"] = fitResult.pErr[1]
-        #d.attrs["theta_err"] = fitResutl.pErr[2]
-        d.attrs["redChiSq"] = fitResult.redChiSq
-      writeAttrs(chargeDset, fitResult)
-      writeAttrs(polyaDset, fitResult)
-      writeAttrs(polyaFitDset, fitResult)
+      let totsFull = totDset.readVlen(uint16)
+      let tots = passIdx.mapIt(totsFull[it])
+      let (binned, fitResult) = gasGainHistoAndFit(tots, totBins,
+                                                   chipName,
+                                                   chipNumber, runNumber,
+                                                   plotPath)
+
+      h5f.writePolyaDsets(group, chargeDset, binned, totBins, fitResult, "")
 
 proc writeFeFitParameters(dset: var H5DataSet,
                           popt, popt_E: seq[float],
@@ -632,7 +651,6 @@ proc performChargeCalibGasGainFit*(h5f: var H5FileObj) =
       calib.add keVPerE * 1e6
       calibErr.add dkeVPerE * 1e8 # increase errors by factor 100 for better visibility
       gainVals.add gain
-
 
   # increase smallest errors to lower 10 percentile errors
   let perc10 = calibErr.percentile(1)

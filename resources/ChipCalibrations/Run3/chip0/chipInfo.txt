@@ -1,0 +1,4 @@
+chipName: E6 W69
+board: SeptemH
+chipNumber: 0
+Info: This calibration data is valid for Run 3 starting Oct 2018!

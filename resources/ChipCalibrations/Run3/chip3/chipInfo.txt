@@ -1,0 +1,4 @@
+chipName: H10 W69
+board: SeptemH
+chipNumber: 3
+Info: This calibration data is valid for Run 3 starting Oct 2018!

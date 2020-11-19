@@ -1,0 +1,3 @@
+chipName: D3 W63
+board: SingleChipChristoph
+chipNumber: 0

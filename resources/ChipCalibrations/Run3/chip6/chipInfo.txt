@@ -1,4 +1,5 @@
 chipName: L8 W69
+runPeriod: Run3
 board: SeptemH
 chipNumber: 6
 Info: This calibration data is valid for Run 3 starting Oct 2018!

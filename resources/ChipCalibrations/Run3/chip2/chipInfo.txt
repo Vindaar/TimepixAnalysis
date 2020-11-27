@@ -1,4 +1,5 @@
 chipName: H9 W69
+runPeriod: Run3
 board: SeptemH
 chipNumber: 2
 Info: This calibration data is valid for Run 3 starting Oct 2018!

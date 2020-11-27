@@ -1,3 +1,4 @@
 chipName: D3 W63
+runPeriod: Run1
 board: SingleChipChristoph
 chipNumber: 0

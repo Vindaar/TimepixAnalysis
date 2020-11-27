@@ -1,4 +1,5 @@
 chipName: G10 W69
+runPeriod: Run2
 board: SeptemH
 chipNumber: 4
 Info: This calibration data is valid for Run 2 starting until March 2018!

@@ -204,7 +204,7 @@ proc readListOfFilesAndGetTimes*(path: string, list_of_files: seq[string]): seq[
     if date_str != "":
       result.add(parseTOSDateString(date_str))
     if i mod 500 == 0:
-      echoFilesCounted(i, msg = " read files and parsed times.")
+      echoCounted(i, msg = " read files and parsed times.")
     i += 1
   return result
 
@@ -220,7 +220,7 @@ proc walkRunFolderAndGetTimes*(folder: string): seq[Time] =
       if date_str != "":
         result.add(parseTOSDateString(date_str))
       if i mod 500 == 0:
-        echoFilesCounted(i, msg = " files walked and parsed times.")
+        echoCounted(i, msg = " files walked and parsed times.")
       i += 1
   return result
 
@@ -1212,7 +1212,7 @@ proc readListOfFiles*[T](list_of_files: seq[string],
           result[i] = p.spawn processEventWrapper(s, rfKind)
         elif T is FadcFile:
           result[i] = p.spawn readFadcFile(s)
-      echoFilesCounted(f_count)
+      echoCounted(f_count)
     p.sync()
   elif T is FadcFile and fadcMemFiles:
     # should be faster than not using memory mapping
@@ -1222,7 +1222,7 @@ proc readListOfFiles*[T](list_of_files: seq[string],
       # loop over each file and call work on data function
       if i < len(result):
         result[i] = p.spawn readFadcFileMem(f)
-      echoFilesCounted(f_count)
+      echoCounted(f_count)
     echo "Now sync"
     p.sync()
     echo "Done syncing"

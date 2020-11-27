@@ -362,7 +362,7 @@ proc processRawInGridData(run: Run): ProcessedRun =
             hits[num][i] = n_pix
         else:
           hits[num][i] = n_pix
-    echoFilesCounted(count, msg = " files processed.")
+    echoCounted(count, msg = " files processed.")
 
   # use first event of run to fill event header. Fine, because event
   # header is contained in every file

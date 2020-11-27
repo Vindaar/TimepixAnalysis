@@ -220,6 +220,8 @@ proc writeRecoRunToH5*[T: SomePix](h5f: var H5FileObj,
     x[chip]  = @[]
     y[chip]  = @[]
     ch[chip] = @[]
+  var count = 0
+  var tUnpack = epochTime()
   for event_f in reco_run:
     let
       # get the RecoEvent from the FlowVar ref
@@ -244,6 +246,7 @@ proc writeRecoRunToH5*[T: SomePix](h5f: var H5FileObj,
       # add event number individually, since it's not part of some object we can
       # use our macro for
       int_data_tab["eventNumber"][chip].add num
+    echoBenchCounted(count, tUnpack, 5000, msg = " clusters unpacked from FlowVars")
 
   # now that we have the data and now how many elements each type has
   # we can create the datasets
@@ -366,7 +369,7 @@ proc reconstructSingleChip*(data: seq[tuple[pixels: Pixels, eventNumber: int]],
   for event in 0 ..< numElems:
     if event < result.len:
       result[event] = p.spawn recoEvent(data[event], chip, run)
-    echoFilesCounted(count, 2500)
+    echoCounted(count, 5000, msg = " clusters reconstructed")
   p.sync()
 
 proc createAndFitFeSpec(h5f: var H5FileObj,

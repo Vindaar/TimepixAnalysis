@@ -276,7 +276,8 @@ proc getPeriods(df: DataFrame): OrderedTable[int, string] =
 
 proc main(files: seq[string],
           calibFiles: seq[string],
-          interval, cutoffCharge, cutoffHits: float,
+          interval, cutoffHits: float,
+          cutoffCharge: float = 0.0,
           createSpectra: bool = false) =
   ## Input should be both H5 `DataRuns*_reco.h5` data files
   ## `interval` is the time to average per bin in minutes
@@ -285,6 +286,7 @@ proc main(files: seq[string],
   let interval = interval * 60.0 # convert to seconds
   let dfBack = readFiles(files, "background")
   let dfCalib = readFiles(calibFiles, "acalibration")
+  ## check if there are additional files in the toml file
 
   block TimeSeriesPlots:
     template all(arg1, arg2: DataFrame): untyped =

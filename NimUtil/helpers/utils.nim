@@ -364,7 +364,17 @@ proc removeFolder*(folderpath: string): bool =
   else:
     result = false
 
-template echoFilesCounted*(count: int, modby = 500, msg = " files read.") =
+proc echoBenchCounted*(count: var int,
+                  t: var float,
+                  modby = 500, msg = " files read.") =
+  inc count
+  if count mod modby == 0:
+    echo $count & msg
+    let t1 = epochTime()
+    echo "Took ", t1 - t, " s"
+    t = t1
+
+proc echoCounted*(count: var int, modby = 500, msg = " files read.") =
   inc count
   if count mod modby == 0:
     echo $count & msg

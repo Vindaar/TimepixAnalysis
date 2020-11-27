@@ -1,4 +1,5 @@
-import nimhdf5, re, strutils
+import nimhdf5, re, strutils, times
+import parsetoml
 
 import databaseDefinitions
 
@@ -32,9 +33,56 @@ proc parseChipName*(chipName: string): ChipName =
   else:
     raise newException(ValueError, "Bad chip name: $#" % chipName)
 
-proc chipNameToGroup*(chipName: string): string =
+proc inRunPeriod(chip: string, grp: H5Group): bool =
+  let chips = grp.attrs[RunPeriodChipsAttr, seq[string]]
+  echo chips
+  result = chip in chips
+
+proc inRunPeriod(run: int, grp: H5Group): bool =
+  let runs = grp[RunPeriodRunsAvailable.dset_str][int]
+  result = run in runs
+
+proc findRunPeriodFor*(h5f: H5FileObj, chipName: string, run: int): string =
+  ## returns the ``first`` run period that matches the condition
+  ## `contains chipName and run in validRuns`
+  for grp in items(h5f, start_path = "/", depth = 1):
+    echo grp.name
+    if chipName.inRunPeriod(grp) and
+       run.inRunPeriod(grp):
+      return grp.name
+  if result.len == 0:
+    raise newException(ValueError, "Cannot find any run period matching run " & $run)
+
+proc chipNameToGroup*(chipName: string, period: string): string =
   ## given a `chipName` will return the correct name of the corresponding
-  ## chip's group
+  ## chip's group within the given run `period` of the database.
   ## done by parsing the given string to a `ChipName` and using `ChipNames`
-  ## `$` proc.
-  result = "/" & $(parseChipName(chipName))
+  ## `$` proc and prepending the `period`.
+  result = "/" & period & "/" & $(parseChipName(chipName))
+
+proc parseTomlTime*(t: TomlValueRef): DateTime =
+  case t.kind
+  of TomlValueKind.Date:
+    let d = t.dateVal
+    result = initDateTime(monthday = d.day, month = Month(d.month), year = d.year,
+                          hour = 0, minute = 0, second = 0, zone = utc())
+  of TomlValueKind.Time:
+    raise newException(ValueError, "Invalid time found in toml file! Time needs " &
+      "to include a full date, not only a time!")
+  of TomlValueKind.Datetime:
+    let dt = t.dateTimeVal
+    let d = dt.date
+    let t = dt.time
+    result = initDateTime(monthday = d.day, month = Month(d.month), year = d.year,
+                          hour = t.hour, minute = t.minute, second = t.second,
+                          zone = utc())
+  else:
+    doAssert false, "Invalid TOML kind for time"
+  echo result
+
+proc checkAndGetInt*(it: TomlValueRef): int =
+  if not (it.kind == TomlValueKind.Int):
+    raise newException(ValueError, "Runs in `runsAvailable` have to be integers!")
+  result = it.getInt
+  if result < 0:
+    raise newException(ValueError, "Runs in `runsAvailable` have to positive numbers!")

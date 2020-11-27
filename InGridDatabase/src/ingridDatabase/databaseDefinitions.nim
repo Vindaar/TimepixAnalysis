@@ -1,4 +1,5 @@
-import strutils, ospaths, re, tables, macros, os
+import strutils, ospaths, re, tables, macros, os, times
+import parsetoml
 
 # helper proc to remove the ``src`` which is part of `nimble path`s output
 # this is a bug, fix it.
@@ -48,13 +49,25 @@ const
   StartTotRead* = 20.0
   ChargeCalibGasGain* = "chargeCalibGasGain"
 
+  RunPeriodStart* = "start"
+  RunPeriodStartTimestamp* = "startTimestamp"
+  RunPeriodStop* = "stop"
+  RunPeriodStopTimestamp* = "stopTimestamp"
+  RunPeriodFirstRun* = "firstRun"
+  RunPeriodLastRun* = "lastRun"
+  RunPeriodRunsAvailable* = "validRuns"
+  RunPeriodRunDset* = "runs"
+  RunPeriodChipsAttr* = "chipsInRunPeriod"
+  RunPeriodAttr* = "runPeriod" # run period of chip, just the parent group essentially
+
   # defines the "center" chips of different detectors, which are natively supported
   # by the ingrid database. However, this is only for reference.
   centerChip2014* = "D03W63"
   centerChip2017* = "H10W69"
 
 let
-  ChipNameLineReg* = re(r"chipName:")
+  ChipNameLineReg* = "chipName:"
+  RunPeriodLineReg* = "runPeriod:"
   ChipNameReg* = re(r".*([A-Z])\s*([0-9]+)\s*W\s*([0-9]{2}).*")
   FsrReg* = re(FsrPrefix & r"([0-9])\.txt")
   FsrContentReg* = re(r"(\w+)\s([0-9]+)")
@@ -69,6 +82,7 @@ type
 
   Chip* = object
     name*: ChipName
+    run*: string # name of run period (has to exist in file!)
     info*: Table[string, string]
 
   TotType* = object
@@ -79,6 +93,15 @@ type
   TypeCalibrate* {.pure.} = enum
     TotCalibrate = "tot"
     SCurveCalibrate = "scurve"
+
+  RunPeriod* = object
+    name*: string
+    start*: DateTime
+    stop*: DateTime
+    validRuns*: seq[int]
+    firstRun*: int
+    lastRun*: int
+    additionalInfo*: Table[string, TomlValueRef]
 
 proc `$`*(chip: ChipName): string =
   result = $chip.col & $chip.row & " W" & $chip.wafer

@@ -8,9 +8,9 @@ import ingrid/ingrid_types
 
 
 # procs to get data from the file
-proc getTotCalib*(chipName: string): Tot =
+proc getTotCalib*(chipName: string, runPeriod: string): Tot =
   ## reads the TOT calibration data from the database for `chipName`
-  let dsetName = joinPath(chipNameToGroup(chipName), TotPrefix)
+  let dsetName = joinPath(chipNameToGroup(chipName, runPeriod), TotPrefix)
   withDatabase:
     var dset = h5f[dsetName.dset_str]
     let data = dset[float64].reshape2D(dset.shape).transpose
@@ -18,13 +18,20 @@ proc getTotCalib*(chipName: string): Tot =
     result.mean = data[1]
     result.std = data[2]
 
+proc getTotCalib*(chipName: string, run: int): Tot =
+  var runPeriod: string
+  withDatabase:
+    runPeriod = h5f.findRunPeriodFor(chipName, run)
+  result = getTotCalib(chipName, runPeriod)
+
 proc getScurve*[T: SomeInteger](h5f: var H5FileObj,
                                 chipName: string,
+                                runPeriod: string,
                                 voltage: T):
                                   SCurve =
   ## reads the given voltages' SCurve for `chipName`
   result.name = SCurvePrefix & $voltage
-  let dsetName = joinPath(joinPath(chipNameToGroup(chipName),
+  let dsetName = joinPath(joinPath(chipNameToGroup(chipName, runPeriod),
                                    SCurveFolder),
                           result.name)
   result.voltage = voltage
@@ -33,40 +40,60 @@ proc getScurve*[T: SomeInteger](h5f: var H5FileObj,
   result.thl = data[0].asType(int)
   result.hits = data[1]
 
-proc getScurve*(chipName: string, voltage: int): SCurve =
+proc getScurve*[T: SomeInteger](h5f: var H5FileObj,
+                                chipName: string,
+                                run: int,
+                                voltage: T):
+                                  SCurve =
+  let runPeriod = h5f.findRunPeriodFor(chipName, run)
+  result = h5f.getScurve(chipName, runPeriod, voltage)
+
+proc getScurve*(chipName: string,
+                run: int,
+                voltage: int): SCurve =
   ## reads the given voltages' SCurve for `chipName`
   ## overload of above for the case of non opened H5 file
   withDatabase:
-    result = h5f.getScurve(chipName, voltage)
+    result = h5f.getScurve(chipName, run, voltage)
 
-proc getScurveSeq*(chipName: string): SCurveSeq =
+proc getScurve*(chipName: string,
+                runPeriod: string,
+                voltage: int): SCurve =
+  ## reads the given voltages' SCurve for `chipName`
+  ## overload of above for the case of non opened H5 file
+  withDatabase:
+    result = h5f.getScurve(chipName, runPeriod, voltage)
+
+proc getScurveSeq*(chipName: string, run: int): SCurveSeq =
   ## read all SCurves of `chipName` and return an `SCurveSeq`
-  # init result seqs (for some reason necessary?!)
-  result.files = @[]
-  result.curves = @[]
-  var groupName = joinPath(chipNameToGroup(chipName),
-                           SCurveFolder)
-  echo "done ", groupName
   withDatabase:
     h5f.visitFile()
-    groupName = joinPath(chipNameToGroup(chipName),
-                         SCurveFolder)
+    let runPeriod = h5f.findRunPeriodFor(chipName, run)
+    var groupName = joinPath(chipNameToGroup(chipName, runPeriod),
+                             SCurveFolder)
     var grp = h5f[groupName.grp_str]
     for dset in grp:
       var mdset = dset
       let voltage = mdset.attrs["voltage", int64].int
-      let curve = h5f.getSCurve(chipName, voltage)
+      let curve = h5f.getSCurve(chipName, runPeriod, voltage)
       result.files.add dset.name
       result.curves.add curve
 
-proc getThreshold*(chipName: string): Threshold =
+proc getThreshold*(chipName: string, runPeriod: string): Threshold =
   ## reads the threshold matrix of `chipName`
   withDatabase:
-    let dsetName = joinPath(chipNameToGroup(chipName), ThresholdPrefix)
+    let dsetName = joinPath(chipNameToGroup(chipName, runPeriod), ThresholdPrefix)
     var dset = h5f[dsetName.dset_str]
     result = dset[int64].toTensor.reshape(256, 256).asType(int)
 
-proc getTotCalibParameters*(chipName: string):
+proc getThreshold*(chipName: string, run: int): Threshold =
+  ## reads the threshold matrix of `chipName`
+  var runPeriod: string
+  withDatabase:
+    runPeriod = h5f.findRunPeriodFor(chipName, run)
+  result = getThreshold(chipName, runPeriod)
+
+proc getTotCalibParameters*(chipName: string, run: int):
                           (float, float, float, float)
     {.raises: [KeyError, IOError, Exception].} =
   ## returns the factors of the TOT calibration result:
@@ -74,7 +101,8 @@ proc getTotCalibParameters*(chipName: string):
   ## may raise a `KeyError` if the calibration wasn't performed
   ## for the given chip
   withDatabase:
-    let groupName = chipNameToGroup(chipName).grp_str
+    let runPeriod = h5f.findRunPeriodFor(chipName, run)
+    let groupName = chipNameToGroup(chipName, runPeriod).grp_str
     var grp = h5f[groupName]
     let
       a = grp.attrs["a", float64]
@@ -83,12 +111,13 @@ proc getTotCalibParameters*(chipName: string):
       t = grp.attrs["t", float64]
     result = (a, b, c, t)
 
-proc getCalibVsGasGainFactors*(chipName: string): (float, float) =
+proc getCalibVsGasGainFactors*(chipName: string, run: int): (float, float) =
   ## returns the fit parameters (no errors) for the given chip
   ## of the calibration of Fe charge spectrum vs gas gain
   withDatabase:
     h5f.visitFile()
-    let grpName = chipNameToGroup(chipName)
+    let runPeriod = h5f.findRunPeriodFor(chipName, run)
+    let grpName = chipNameToGroup(chipName, runPeriod)
     if hasKey(h5f.datasets, grpName / ChargeCalibGasGain):
       var dset = h5f[(grpName / ChargeCalibGasGain).dset_str]
       let

@@ -34,29 +34,33 @@ else:
 # get date using `CompileDate` magic
 const currentDate = CompileDate & " at " & CompileTime
 
+## TODO: replace by ggplotnim plots!
+
 const docTmpl = """
 Version: $# built on: $#
 A simple tool to plot SCurves or ToT calibrations.
 
 Usage:
-  plotCalibration (--scurve | --tot) (--db=chip | --file=FILE | --folder=FOLDER) [options]
+  plotCalibration (--scurve | --tot) (--db=chip --runPeriod=period | --file=FILE | --folder=FOLDER) [options]
 
 Options:
-  --scurve         If set, perform SCurve analysis
-  --tot            If set, perform ToT calibration analysis
-  --db=chip        If given will read information from InGrid database, if
-                   available. Either chip number or chip name supported.
-                   NOTE: if a chip number is used, it is assumed that it
-                   corresponds to said chip on the Septem H board!
-  --file=FILE      If given will read from a single file
-  --folder=FOLDER  If given will read all voltage files from the given folder
-  --chip=NUMBER    The number of this chip
-  --startFit=FIT   Start the TOT fit from this measurement. If differs from
-                   StartToT constant in source code (or the --startTot value),
-                   the other datapoints will still be plotted.
-  --startTot=TOT   Read the ToT file from this pulse height
-  -h, --help       Show this help
-  --version        Show the version number
+  --scurve              If set, perform SCurve analysis
+  --tot                 If set, perform ToT calibration analysis
+  --db=chip             If given will read information from InGrid database, if
+                        available. Either chip number or chip name supported.
+                        NOTE: if a chip number is used, it is assumed that it
+                        corresponds to said chip on the Septem H board!
+  --runPeriod=period    Required if a chip name is given. The run period we want
+                        to plot the calibrations for.
+  --file=FILE           If given will read from a single file
+  --folder=FOLDER       If given will read all voltage files from the given folder
+  --chip=NUMBER         The number of this chip
+  --startFit=FIT        Start the TOT fit from this measurement. If differs from
+                        StartToT constant in source code (or the --startTot value),
+                        the other datapoints will still be plotted.
+  --startTot=TOT        Read the ToT file from this pulse height
+  -h, --help            Show this help
+  --version             Show the version number
 """
 const doc = docTmpl % [commitHash, currentDate]
 
@@ -165,10 +169,11 @@ iterator sCurves(args: DocoptTab): SCurve =
   let file = $args["--file"]
   let folder = $args["--folder"]
   let db = $args["--db"]
+  let runPeriod = $args["--runPeriod"]
   if db != "nil":
     when declared(ingridDatabase):
       let chipName = parseDbChipArg(db)
-      let scurves = getScurveSeq(chipName)
+      let scurves = getScurveSeq(chipName, runPeriod)
       for curve in scurves.curves:
         yield curve
     else:
@@ -237,6 +242,7 @@ proc parseTotInput(args: DocoptTab, startTot = 0.0): (int, string, Tot) =
   let file = $args["--file"]
   let folder = $args["--folder"]
   let db = $args["--db"]
+  let runPeriod = $args["--runPeriod"]
 
   var chip = 0
   var tot: Tot
@@ -245,7 +251,7 @@ proc parseTotInput(args: DocoptTab, startTot = 0.0): (int, string, Tot) =
   if db != "nil":
     when declared(ingridDatabase):
       chipName = parseDbChipArg(db)
-      tot = getTotCalib(chipName)
+      tot = getTotCalib(chipName, runPeriod)
   elif file != "nil":
     (chip, tot) = readToTFile(file, startTot)
 

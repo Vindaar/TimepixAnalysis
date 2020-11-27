@@ -756,6 +756,11 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj,
 
   var logLSeq = newSeq[float64]()
   var logLSeqLow = newSeq[float64]()
+  var
+    totalScintiRemoveCount = 0
+    totalScintiRemovedNotLogRemoved = 0
+    totalEvCount = 0
+    totalLogLCount = 0
   for num, group in runs(h5f):
     echo &"Start logL cutting of run {group}"
     # get number of chips from attributes
@@ -831,6 +836,8 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj,
 
       # get all events part of tracking (non tracking)
       let indicesInTracking = filterTrackingEvents(evNumbers, eventsInTracking)
+      if chipNumber == centerChip:
+        totalEvCount += indicesInTracking.len
 
       if chipNumber == 0:
         for i, e in energy:
@@ -878,7 +885,16 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj,
             totalDurationRunPassed += evDurations[ind]
           passedInds.incl ind
 
+        if logL[ind] <= cutTab[dset] and inCutRegion and rmsTrans[ind] <= RmsCleaningCut and
+           scintiVeto and chipNumber == centerChip:
+          # only those events that otherwise wouldn't have made it by logL only
+          inc totalScintiRemovedNotLogRemoved
+
+
       chpGrp.writeVetoInfos(fadcVetoCount, scintiVetoCount, flags)
+      if chipNumber == centerChip:
+        totalScintiRemoveCount += scintiVetoCount
+
       # create dataset to store it
       if passedInds.card > 0:
         # now in a second pass perform a septem veto if desired
@@ -896,6 +912,9 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj,
                                 chipNumber,
                                 cutTab,
                                 passedInds)
+
+        if chipNumber == centerChip:
+          totalLogLCount += passedInds.card
 
         when false:
           (totalDurationRun, totalDurationRunPassed)
@@ -919,6 +938,10 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj,
   else:
     # simply take full duration of all events
     lhGrp.attrs["totalDuration"] = totalDuration
+    lhGrp.attrs["totalEvents"] = totalEvCount
+    lhGrp.attrs["totalPassedEvents"] = totalLogLCount
+    lhGrp.attrs["totalCutByScinti"] = totalScintiRemoveCount
+    lhGrp.attrs["onlyCutByScinti"] = totalScintiRemovedNotLogRemoved
 
   # write year and CDL and reference file used
   lhGrp.writeLogLDsetAttributes(cdlFile, refFile, year)

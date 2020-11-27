@@ -210,7 +210,9 @@ proc plotDf(df: DataFrame, interval: float, titleSuff: string,
                     width = 1920, height = 1080)
 
   for (k, name) in CommonDsets:
-    let df = df.filter(f{`L_div_RMS_trans` < 1e13 and `eccentricity` < 1e13})
+    let df = df.filter(f{float -> bool: `L_div_RMS_trans` < 1e13 and
+                         `eccentricity` < 1e13 and
+                         df[name][idx] > 0.0})
     if name == "eccentricity":
       echo "NOW ", titleSuff
     var pltTmp = ggplot(df, aes("timestamp", name, color = "runType")) +

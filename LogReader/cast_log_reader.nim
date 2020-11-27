@@ -67,11 +67,11 @@ Description:
 """
 
 type
-  TrackingKind = enum
+  TrackingKind* = enum
     rkTracking, # if tracking took place in this log
     rkNoTracking # if no tracking took place in this log
 
-  LogFileKind = enum
+  LogFileKind* = enum
     lkSlowControl, lkTracking
   # object storing all slow control log data
   SlowControlLog = object
@@ -94,13 +94,19 @@ type
     # MM gas alarm (if on, gas supply closed!)
     mm_gas: seq[bool]
   # object storing the tracking log data
-  TrackingLog = object
+  TrackingLog* = object
     # date the tracking log covers
-    date: Time
-    case kind: TrackingKind
+    date*: Time
+    case kind*: TrackingKind
     of rkNoTracking: discard
     of rkTracking:
-      tracking_start, tracking_stop: Time
+      tracking_start*, tracking_stop*: Time
+    # and the line based data
+    timestamps*: seq[int]
+    #speedH: seq[float]
+    #speedV: seq[float]
+    isMoving*: seq[bool]
+    isTracking*: seq[bool]
 
 proc newSlowControlLog(): SlowControlLog =
   result.date = fromUnix(0)
@@ -360,7 +366,11 @@ proc read_sc_logfile(filename: string): SlowControlLog =
       let mm_gas_b = if d[mm_gas_i] == "0": false else: true
       result.mm_gas.add mm_gas_b
 
-proc read_tracking_logfile(filename: string): TrackingLog =
+proc parseDateTime(date, time: string): Time =
+  result = toTime(parse(date, "MM/dd/yy"))
+  result += parseTime(time)
+
+proc read_tracking_logfile*(filename: string): TrackingLog =
   ## reads a tracking log file and returns an object, which stores
   ## the relevant data
   const
@@ -414,6 +424,11 @@ proc read_tracking_logfile(filename: string): TrackingLog =
     elif tracking_p and not tracking:
       tracking_stop = result.date + timestamp
       tracking_p = not tracking_p
+
+    # append seq data
+    result.timestamps.add parseDateTime(d[date_i], d[time_i]).toUnix.int
+    result.isMoving.add move
+    result.isTracking.add tracking
     inc count
 
   # now set the tracking variant object depending on whether tracking took place

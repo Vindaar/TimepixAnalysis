@@ -271,12 +271,12 @@ proc applyChargeCalibration*(h5f: var H5FileObj, runNumber: int) =
       let chipName = group.attrs["chipName", string]
       try:
         # `contains` calls `parseChipName`, which might throw a ValueError
-        if not inDatabase(chipName):
+        if not inDatabase(chipName, runNumber):
           raise newException(KeyError, &"No entry for chip {chipName} in InGrid " &
             "database!")
       except ValueError as e:
           raise newException(KeyError, &"No entry for chip {chipName} in InGrid " &
-            "database!")
+            "database! Internal exception message " & e.msg)
       # get dataset of hits
       let
         totDset = h5f[(grp / "ToT").dset_str]
@@ -286,7 +286,7 @@ proc applyChargeCalibration*(h5f: var H5FileObj, runNumber: int) =
         sumTots = sumTotDset[int64]
       # now calculate charge in electrons for all TOT values
       # need calibration factors from InGrid database for that
-      let (a, b, c, t) = getTotCalibParameters(chipName)
+      let (a, b, c, t) = getTotCalibParameters(chipName, runNumber)
       #mapIt(it.mapIt(calibrateCharge(it.float, a, b, c, t)))
       var charge = newSeqWith(tots.len, newSeq[float]())
       var totalCharge = newSeq[float](sumTots.len)
@@ -662,7 +662,7 @@ proc performChargeCalibGasGainFit*(h5f: var H5FileObj) =
 
   info "Fit charge calibration vs gas gain for file: " & $h5f.name
   let fitResult = fitChargeCalibVsGasGain(gainVals, calib, calibErr)
-  writeCalibVsGasGain(gainVals, calib, calibErr, fitResult, centerChipName)
+  writeCalibVsGasGain(gainVals, calib, calibErr, fitResult, centerChipName, runPeriod)
   # and create the plot
   info "Plot charge calibration vs gas gain for file: " & $h5f.name
   plotGasGainVsChargeCalib(gainVals, calib, calibErr, fitResult,
@@ -755,7 +755,7 @@ proc calcEnergyFromCharge*(h5f: var H5FileObj) =
       # get center chip name to be able to read fit parameters
       chipName = group.attrs["centerChipName", string]
       # get parameters during first iter...
-      (b, m) = getCalibVsGasGainFactors(chipName)
+      (b, m) = getCalibVsGasGainFactors(chipName, num.parseInt)
 
     # now iterate over chips in this run
     for chipGrp in items(h5f, start_path = group.name):

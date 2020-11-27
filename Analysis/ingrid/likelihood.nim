@@ -634,8 +634,8 @@ proc applySeptemVeto(h5f, h5fout: var H5FileObj,
   let chips = toSeq(0 .. 6)
   let gains = chips.mapIt(h5f[(group.name / "chip_" & $it / "charge").dset_str].attrs["G", float64])
   let septemHChips = chips.mapIt(getSeptemHChip(it))
-  let toTCalibParams = septemHChips.mapIt(getTotCalibParameters(it))
-  let (b, m) = getCalibVsGasGainFactors(septemHChips[centerChip])
+  let toTCalibParams = septemHChips.mapIt(getTotCalibParameters(it, runNumber))
+  let (b, m) = getCalibVsGasGainFactors(septemHChips[centerChip], runNumber)
   var rs: RunningStat
 
   # for the `passedEvs` we have to read all data from all chips

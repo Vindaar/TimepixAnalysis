@@ -129,10 +129,11 @@ proc getCalibVsGasGainFactors*(chipName: string, run: int): (float, float) =
       raise newException(Exception, "Charge calibration vs gas gain dataset " &
                          &"does not exist for chip {parseChipName(chipName)}")
 
-proc inDatabase*(chipName: string): bool =
+proc inDatabase*(chipName: string, run: int): bool =
   ## used to check whether a chip is contained in the InGridDatabase
   if chipName == SrsDefaultChipName:
     return false
   withDatabase:
     h5f.visitFile()
-    result = chipNameToGroup(chipName) in h5f
+    let runPeriod = h5f.findRunPeriodFor(chipName, run)
+    result = chipNameToGroup(chipName, runPeriod) in h5f

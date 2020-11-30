@@ -234,7 +234,7 @@ proc calcCutValueTab(cdlFile, refFile: string, yearKind: YearKind,
 
 proc readRefDsets(refFile: string, yearKind: YearKind): tuple[ecc, ldivRms, fracRms: Table[string, histTuple]] =
   ## reads the reference datasets from the `refFile` and returns them.
-  var h5ref = H5file(refFile, "r")
+  var h5ref = H5open(refFile, "r")
   # create a table, which stores the reference datasets from the ref file
   const xray_ref = getXrayRefTable()
 
@@ -1117,6 +1117,10 @@ proc createRocCurves(h5Back: H5FileObj,
     ggtitle("-LnL distributions of non tracking background as polygons, identity position",
             titlefont = font(11.0)) +
     ggsave("backgroundLogL_freqPoly.pdf")
+
+  when false:
+    # write the dfSignal data frame to file
+    dfSignal.writeCsv("/tmp/dfSignal.csv")
   ggplot(dfSignal, aes("Likelihood", fill = "Bin")) +
     geom_freqpoly(binWidth = 0.2,
                   position = "identity",
@@ -1158,6 +1162,7 @@ proc createRocCurves(h5Back: H5FileObj,
   let res = calcRocCurve(dfSignal, readLikelihoodDsets(h5Back))
   ggplot(res, aes("sigEff", "backRej", color = "bin")) +
     geom_line() +
+    #ylim(0.8, 1.0) +
     ggtitle("ROC curves for likelihood method, 2014 data") +
     ggsave("roc_curves.pdf")
   #ggplot(effDf, aes("sigEff", "backRej")) +
@@ -1203,7 +1208,7 @@ proc main() =
   if $args["--h5out"] != "nil":
     h5foutfile = $args["--h5out"]
 
-  var h5f = H5file(h5f_file, "rw")
+  var h5f = H5open(h5f_file, "rw")
   h5f.visitFile
 
   if fkRocCurve in flags:
@@ -1213,7 +1218,7 @@ proc main() =
   elif extractFrom == "nil":
     var h5fout: H5FileObj
     if h5foutfile != "":
-      h5fout = H5file(h5foutfile, "rw")
+      h5fout = H5open(h5foutfile, "rw")
     else:
       # in case no outfile given, we write to the same file
       h5fout = h5f

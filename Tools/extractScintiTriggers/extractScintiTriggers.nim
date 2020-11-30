@@ -95,7 +95,7 @@ proc readRunFolder*(runFolder: string): (Table[string, int], Table[string, int])
     quit()
 
 proc readScintFromH5(h5file: string, runNumber = 0, allRuns = false): (seq[int64], seq[int64]) =
-  var h5f = H5file(h5file, "r")
+  var h5f = H5open(h5file, "r")
 
   if allRuns == true:
     for num, grp in runs(h5f, rawDataBase()):

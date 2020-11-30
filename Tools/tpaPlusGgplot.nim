@@ -80,7 +80,7 @@ proc buildSeptemOccupancy(df: DataFrame) =
       quit()
 
 proc main(fname: string) =
-  var h5f = H5file(fname, "r")
+  var h5f = H5open(fname, "r")
   defer: discard h5f.close()
 
   for df in getSeptemDataFrame(h5f):

@@ -228,8 +228,8 @@ proc main(backFiles, candFiles: seq[string], axionModel: string,
           optimizeBy: string = $opCLs,
           limit2013: bool = false) =
   var
-    h5Backs = backFiles.mapIt(H5File(it, "r"))
-    h5Cands = candFiles.mapIt(H5File(it, "r"))
+    h5Backs = backFiles.mapIt(H5open(it, "r"))
+    h5Cands = candFiles.mapIt(H5open(it, "r"))
   let searchStr = "flux_after_exp_N_"
   let idxN = find(axionModel, searchStr) + searchStr.len
   let N_sim = parseInt(axionModel[idxN ..< ^4])

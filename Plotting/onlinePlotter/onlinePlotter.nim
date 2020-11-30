@@ -117,7 +117,7 @@ proc initialRead(h5file: string,
                  path: string,
                  runNumber: int,
                  rfKind: RunFolderKind): seq[InGridFile] =
-  var h5f = H5file(h5file, "rw")
+  var h5f = H5open(h5file, "rw")
   # first get list of files; snapshot at this point in time
   var files = getSortedListOfFiles(path,
                                    EventSortType.fname,
@@ -132,7 +132,7 @@ proc initialRead(h5file: string,
 
 proc initialReco(h5file: string, runNumber: int, chip: int): int =
   ## intial reconstruction of all events already written to disk
-  var h5f = H5file(h5file, "rw")
+  var h5f = H5open(h5file, "rw")
   h5f.visit_file()
   var reco_run: seq[FlowVar[ref RecoEvent]]
   for ch, pixdata in h5f.readDataFromH5(runNumber):
@@ -429,7 +429,7 @@ proc worker(h5file, path: string,
   onPlt.processed = initialReco(h5file, runNumber, onPlt.chip)
 
   # open file and send first plot
-  var h5f = H5file(h5file, "rw")
+  var h5f = H5open(h5file, "rw")
   createPlots(onPlt, h5f)
   channel.sendPacket(onPlt)
   # now watch channel for new data

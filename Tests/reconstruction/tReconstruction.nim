@@ -160,7 +160,7 @@ suite "reconstruction":
       "../../Analysis/ingrid/reconstruction reco_241_full.h5 --only_charge"
       "../../Analysis/ingrid/reconstruction reco_241_full.h5 --only_gas_gain"
 
-    var h5f = H5file("reco_241_full.h5", "r")
+    var h5f = H5open("reco_241_full.h5", "r")
     let shapePolya = h5f[("reconstruction/run_" & $241 / "chip_3/polya").dset_str].shape
     let polya = h5f["reconstruction/run_" & $r.num / "chip_3/polya", float64].reshape2D(shapePolya)
     let polyaF = h5f["reconstruction/run_" & $r.num / "chip_3/polyaFit", float64].reshape2D(shapePolya)
@@ -192,7 +192,7 @@ suite "reconstruction":
       "../../Analysis/ingrid/reconstruction reco_525_full.h5 --only_charge"
       "../../Analysis/ingrid/reconstruction reco_525_full.h5 --only_gas_gain"
 
-    var h5f = H5file("reco_525_full.h5", "r")
+    var h5f = H5open("reco_525_full.h5", "r")
     let shapePolya = h5f[("reconstruction/run_" & $525 / "chip_0/polya").dset_str].shape
     let polya = h5f["reconstruction/run_" & $525 / "chip_0/polya", float64].reshape2D(shapePolya)
     let polyaF = h5f["reconstruction/run_" & $525 / "chip_0/polyaFit", float64].reshape2D(shapePolya)

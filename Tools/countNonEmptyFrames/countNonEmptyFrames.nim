@@ -4,7 +4,7 @@ import os
 import ggplotnim
 
 proc main(fname: string) =
-  var h5f = H5file(fname, "r")
+  var h5f = H5open(fname, "r")
   defer: discard h5f.close()
   var
     totDuration = 0.0

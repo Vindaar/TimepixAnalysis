@@ -100,7 +100,7 @@ proc main() =
     plothigh_num = $args["--plot_high"]
     plotlow_num = $args["--plot_low"]
 
-  var h5f = H5file(h5file, "rw")
+  var h5f = H5open(h5file, "rw")
   h5f.visit_file
   var runNumint: int
   var chipNumint: int

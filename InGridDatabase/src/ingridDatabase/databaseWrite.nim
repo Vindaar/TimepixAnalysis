@@ -41,7 +41,7 @@ proc writeCalibVsGasGain*(gain, calib, calibErr: seq[float64],
                           runPeriod: string) =
   ## writes the fit data and results of the Fe charge spectrum vs gas gain
   ## fit to the database.
-  var db = H5File(dbPath, "rw")
+  var db = H5open(dbPath, "rw")
   defer: discard db.close()
   let grpName = chipNameToGroup(chipName, runPeriod)
   var mgrp = db[grpName.grp_str]
@@ -80,7 +80,7 @@ proc addChipToH5*(chip: Chip,
                   threshold: Threshold,
                   thresholdMeans: ThresholdMeans) =
   ## adds the given chip to the InGrid database H5 file
-  var h5f = H5File(dbPath, "rw")
+  var h5f = H5open(dbPath, "rw")
   if chip.run notin h5f:
     raise newException(ValueError, "Assigned run period " & chip.run & " does " &
       "not exist in the IngridDatabase yet. Add it using `--addPeriod`!")
@@ -115,7 +115,6 @@ proc addChipToH5*(chip: Chip,
   if tot.pulses.len > 0:
     # TODO: replace the TOT write by a compound data type using TotType
     # that allows us to easily name the columns too!
-    echo sizeof(TotType)
     var totDset = h5f.create_dataset(joinPath(chipGroup.name, TotPrefix),
                                      (tot.pulses.len, 3),
                                      dtype = float)
@@ -139,7 +138,7 @@ proc addChipToH5*(chip: Chip,
 
 proc addRunPeriod*(runs: seq[RunPeriod]) =
   ## Adds the given run periods to the Ingrid Database
-  var h5f = H5File(dbPath, "rw")
+  var h5f = H5open(dbPath, "rw")
   for run in runs:
     # check if the run group already exists in file, if not add
     var grp: H5Group

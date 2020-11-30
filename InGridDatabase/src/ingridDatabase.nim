@@ -59,7 +59,7 @@ proc calibrateType(tcKind: TypeCalibrate) =
   ## calibrates the given type and stores the fit results as attributes
   ## of each chip with valid data for calibration
   # open H5 file with write access
-  var h5f = H5file(dbPath, "rw")
+  var h5f = H5open(dbPath, "rw")
   case tcKind
   of TotCalibrate:
     # perform TOT calibration for all chips, which contain a TOT

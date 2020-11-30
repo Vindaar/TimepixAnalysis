@@ -18,7 +18,7 @@ const dataPwd = pwd / "../../resources/TPAresources/raw_data_manipulation/"
 proc checkRun(number: int, name: string, withFadc = false): bool =
   ## helper proc, which checks whether our reduced run 240 HDF5 file actually
   ## looks the way we expect it to, if created with `--nofadc` flag.
-  var h5f = H5file(name, "r")
+  var h5f = H5open(name, "r")
   defer: discard h5f.close()
   # first check that "reconstruction" is no longer part of this file
   result = "reconstruction" notin h5f

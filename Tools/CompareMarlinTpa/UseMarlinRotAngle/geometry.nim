@@ -199,7 +199,7 @@ let specialU8 = special_type(uint8)
 #let specialU16 = special_type(uint16)
 
 when defined(hijackBackground):
-  var h5fMarlin {.global.} = H5file("/mnt/1TB/CAST/2014_15/oldBackground/background_splitted.2014+2015.h5", "r") #H5file("../../../resources/background_splitted.2014+2015.h5", "r")
+  var h5fMarlin {.global.} = H5open("/mnt/1TB/CAST/2014_15/oldBackground/background_splitted.2014+2015.h5", "r") #H5file("../../../resources/background_splitted.2014+2015.h5", "r")
   # iterate all groups and read data for each
   #let grp = h5fMarlin[(BackgroundRunPath).grp_str]
   mappedRuns = newTable[int, MarlinRuns]()
@@ -215,7 +215,7 @@ when defined(hijackBackground):
 
   # rotAngsMarlin = h5fMarlin[grp.name / "RotationAngle", float32]
 elif defined(hijackCalibration):
-  var h5fMarlin {.global.} = H5file("../../../resources/calibration-fe55-splitted.2014+2015.h5", "r")
+  var h5fMarlin {.global.} = H5open("../../../resources/calibration-fe55-splitted.2014+2015.h5", "r")
   mappedRuns = newTable[int, MarlinRuns]()
 else:
   static: error("Either define `-d:hijackBackground` or `-d:hijackCalibration`!")

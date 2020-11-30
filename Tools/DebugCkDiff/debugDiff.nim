@@ -54,7 +54,7 @@ proc extractFromGroup(h5f: var H5FileObj, groupName: string) =
               "EventNumber" : "eventNumber",
               "Timestamp" : "timestamp" }.toTable()
 
-  var h5out = H5File("raw_from_cdl.h5", "rw")
+  var h5out = H5open("raw_from_cdl.h5", "rw")
 
   # determine run number from run number dataset
   let runNumberDset = h5f[(groupName / "RunNumber").dset_str]
@@ -201,8 +201,8 @@ proc compareToFile(h5Marlin, h5TpAnalysis: string) =
   ## properties
   echo "h5f ", h5TpAnalysis
   var
-    h5M = H5file(h5Marlin, "r")
-    h5Tp = H5file(h5TpAnalysis, "r")
+    h5M = H5open(h5Marlin, "r")
+    h5Tp = H5open(h5TpAnalysis, "r")
 
   for run, grp in runs(h5Tp):
     let tpGroupRun = h5Tp[grp.grp_str]
@@ -234,9 +234,9 @@ proc readAllRuns(h5f: var H5FileObj,
 proc compareToPath(h5Marlin, tpAnaPath: string) =
   ## create comparison plots for ``calibration-cdl.h5`` vs reconstructed
   ## data from raw data
-  var h5M = H5File(h5Marlin, "r")
+  var h5M = H5open(h5Marlin, "r")
   for grp in h5M:
-    var h5Tp = H5file(tpAnaPath / grp.name & ".h5", "r")
+    var h5Tp = H5open(tpAnaPath / grp.name & ".h5", "r")
     let
       # filter out run 8 because it doesn't exist in raw data
       runNumberAll = h5M[grp.name / "RunNumber", float32]
@@ -261,7 +261,7 @@ proc main =
   let compareTo = $args["--compare"]
 
   if extract:
-    var h5f = H5file(h5file, "r")
+    var h5f = H5open(h5file, "r")
     for grp in h5f:
       echo "Reading group ", grp.name
       h5f.extractFromGroup(grp.name)

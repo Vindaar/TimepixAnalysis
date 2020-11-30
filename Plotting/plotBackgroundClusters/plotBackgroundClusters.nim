@@ -61,7 +61,7 @@ proc main =
   let args = docopt(doc)
   let h5file = $args["<likelihoodFile>"]
 
-  var h5f = H5file(h5file, "r")
+  var h5f = H5open(h5file, "r")
 
   var
     cX: seq[float]

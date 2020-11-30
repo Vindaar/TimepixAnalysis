@@ -27,8 +27,8 @@ proc main =
 
   # walk RefTPA, check if dataset found in RefMarlin, then read
   # both datasets and compare
-  var h5tpa = H5file(tpa, "r")
-  var h5marlin = H5file(marlin, "r")
+  var h5tpa = H5open(tpa, "r")
+  var h5marlin = H5open(marlin, "r")
 
   for grp in h5tpa:
     var mgrp = grp

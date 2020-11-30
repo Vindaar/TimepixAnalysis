@@ -14,7 +14,7 @@ template withDatabase*(actions: untyped): untyped =
   var openedHere = false
   when not declaredInScope(h5f):
     echo "Opening db at ", dbPath
-    var h5f {.inject.} = H5File(dbPath, "r")
+    var h5f {.inject.} = H5open(dbPath, "r")
     openedHere = true
   actions
   if openedHere:

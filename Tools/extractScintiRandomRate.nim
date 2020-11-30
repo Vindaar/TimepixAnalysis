@@ -74,7 +74,7 @@ proc calcScinti(df: DataFrame, scinti: string, runNumber: int): float =
   result = nonMainTriggers.float / deltaT
 
 proc main(fname: string, runNumber: int) =
-  var h5f = H5file(fname, "r")
+  var h5f = H5open(fname, "r")
   defer: discard h5f.close()
 
   let df = getScintiFadcDataFrame(h5f, runNumber)

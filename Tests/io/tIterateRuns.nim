@@ -14,7 +14,7 @@ Let's write a test, to avoid such a regression again in the future.
 
 suite "Run iteration test":
   # first create a H5 file with a bunch of groups
-  var h5f = H5file("test.h5", "rw")
+  var h5f = H5open("test.h5", "rw")
   var groupNames = initHashSet[string]()
   for i in 0 .. 500:
     let name = recoBase() & $i
@@ -26,7 +26,7 @@ suite "Run iteration test":
     check err == 0
 
     ## now reopen the file and first check if all groups exist
-    h5f = H5file("test.h5", "r")
+    h5f = H5open("test.h5", "r")
     # first check if all groups exist
     for grp in groupNames:
       check grp in h5f
@@ -37,7 +37,7 @@ suite "Run iteration test":
     # finally reopen for the last time and iterate groups again.
     # Create second set and compare sets
     var readGroups = initHashSet[string]()
-    h5f = H5file("test.h5", "r")
+    h5f = H5open("test.h5", "r")
 
     for (num, grp) in runs(h5f):
       readGroups.incl grp
@@ -51,7 +51,7 @@ suite "Run iteration test":
   test "Iterate using `recordIterRuns` template":
     var readGroups = initHashSet[string]()
     var flags = {0} # dummy flags for template
-    h5f = H5file("test.h5", "r")
+    h5f = H5open("test.h5", "r")
     recordIterRuns(recoBase()):
       readGroups.incl grp
     check readGroups == groupNames

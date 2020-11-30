@@ -35,8 +35,8 @@ proc readCdlDsets(h5f: H5FileObj, fwKind: static FrameworkKind): DataFrame =
 
 proc main(marlin, tpa: string) =
   discard existsOrCreateDir("out")
-  let marH5 = H5file(marlin, "r")
-  let tpaH5 = H5file(tpa, "r")
+  let marH5 = H5open(marlin, "r")
+  let tpaH5 = H5open(tpa, "r")
 
   var df = marH5.readCdlDsets(fkMarlin)
   df.add tpaH5.readCdlDsets(fkTpa)

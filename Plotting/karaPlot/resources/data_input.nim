@@ -1,1 +1,1 @@
-const fname = "/home/basti/CastData/ExternCode/TimepixAnalysis/Plotting/karaPlot/eventDisplay.json"
+const fname = "/home/basti/CastData/ExternCode/TimepixAnalysis/Plotting/karaPlot/background_0_cfNoFadc_cfNoPolya_cfNoFeSpectrum.org"

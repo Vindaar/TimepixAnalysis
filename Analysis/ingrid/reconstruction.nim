@@ -714,7 +714,7 @@ proc main() =
   #    return
 
   let plotOutPath = cfgTable["Calibration"]["plotDirectory"].getStr
-  var h5f = H5file(h5f_name, "rw")
+  var h5f = H5open(h5f_name, "rw")
   h5f.genPlotDirname(plotOutPath)
 
   if (flags * {rfOnlyEnergy .. rfOnlyGainFit}).card == 0:
@@ -723,7 +723,7 @@ proc main() =
     h5f.visitFile
     var h5fout: H5FileObj
     if outfile != "None":
-      h5fout = H5file(outfile, "rw")
+      h5fout = H5open(outfile, "rw")
       h5fout.visitFile
       # copy over `plotDirPrefixAttr` to h5fout
       h5fout.attrs[plotDirPrefixAttr] = h5f.attrs[plotDirPrefixAttr, string]
@@ -737,7 +737,7 @@ proc main() =
     if err != 0:
       logging.error &"Failed to close H5 file {h5fout.name}"
   else:
-    var h5f = H5file(h5f_name, "rw")
+    var h5f = H5open(h5f_name, "rw")
     if flagsValid(h5f, flags):
       applyCalibrationSteps(h5f, flags, cfgFlags,
                             runNumberArg = runNumber,

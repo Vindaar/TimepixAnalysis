@@ -1100,7 +1100,7 @@ proc main() =
     # hand H5FileObj to processSingleRun, because we need to write intermediate
     # steps to the H5 file for the FADC, otherwise we use too much RAM
     # in order to write the processed run and FADC data to file, open the HDF5 file
-    var h5f = H5file(outfile, "rw")
+    var h5f = H5open(outfile, "rw")
     case rfKind
     of rfOldTos:
       case runType
@@ -1136,9 +1136,9 @@ proc main() =
     # open H5 output file to check if run already exists
     var h5f: H5FileObj
     if fileExists(outfile):
-      h5f = H5file(outfile, "r")
+      h5f = H5open(outfile, "r")
     else:
-      h5f = H5file(outfile, "rw")
+      h5f = H5open(outfile, "rw")
     for kind, path in walkDir(folder):
       case kind
       of pcDir, pcLinkToDir:
@@ -1166,7 +1166,7 @@ proc main() =
             quit("Subprocess failed with " & $errC)
 
           # reopen the hdf5 file
-          h5f = H5file(outfile, "r")
+          h5f = H5open(outfile, "r")
 
           # TODO: the following is the normal code. However, it leaks memory. That's
           # why we currently just call this script on the subfolder

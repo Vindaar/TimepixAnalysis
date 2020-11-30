@@ -34,7 +34,7 @@ const Color2 = color(0.0, 153.0 / 256.0, 204 / 256.0)
 
 proc makeOuterChipPlot(fname: string, runType: RunTypeKind,
                        cutRange: CutRange): PlotV =
-  var h5f = H5file(fname, "r")
+  var h5f = H5open(fname, "r")
   let fInfo = getFileInfo(h5f)
   let pds = createOuterChipHistograms(h5f,
                                       runType = runType,
@@ -46,9 +46,9 @@ proc makeOuterChipPlot(fname: string, runType: RunTypeKind,
 proc makeOuterChipPlotLhood(fname, lhoodFname: string) =
   ## creates a similar plot to the one in `makeOuterChipPlot`, but performs
   ## a cut on the events passing the likelihood cut
-  var h5f = H5file(fname, "r")
+  var h5f = H5open(fname, "r")
   let fInfo = getFileInfo(h5f)
-  var h5L = H5file(lhoodFname, "r")
+  var h5L = H5open(lhoodFname, "r")
   let fLhoodInfo = getFileInfo(h5L, likelihoodGroupGrpStr())
   var data: seq[int]
   for r in fLhoodInfo.runs:

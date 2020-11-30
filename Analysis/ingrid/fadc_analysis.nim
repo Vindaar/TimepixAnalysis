@@ -326,7 +326,7 @@ proc main() =
     run_number = $args["--run_number"]
 
 
-  var h5f = H5File(h5file, "rw")
+  var h5f = H5open(h5file, "rw")
   if run_number != "nil":
     calcRiseAndFallTimes(h5f, parseInt(run_number))
   elif $args["--noise_analysis"] != "nil":

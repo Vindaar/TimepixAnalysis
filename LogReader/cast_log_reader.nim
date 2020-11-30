@@ -172,7 +172,7 @@ when not defined(pure):
 
     result = initTable[TrackingLog, int]()
 
-    var h5f = H5File(h5file, "r")
+    var h5f = H5open(h5file, "r")
 
     var run_times = initTable[int, (int, int)]()
     for grp in items(h5f, "/reconstruction", depth = 1):

@@ -51,7 +51,7 @@ proc readFiles(files: seq[string]): seq[LogLFile] =
   ## events belong to what and decide if data is supposed to
   ## be accumulated or not
   for file in files:
-    let h5f = H5File(file, "r")
+    let h5f = H5open(file, "r")
     var df = h5f.readDsets(likelihoodBase(), (3, "energyFromCharge"))
       .rename(f{Ecol <- "energyFromCharge"})
     let fname = file.extractFilename

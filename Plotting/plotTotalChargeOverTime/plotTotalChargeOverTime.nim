@@ -48,7 +48,7 @@ proc readCdl(): DataFrame =
   if existsFile(path):
     const group = "/calibration-cdl-feb2019-Mn-Cr-12kV"
     const dsets = ["CdlSpectrum", "CdlSpectrumEvents", "CdlSpectrumCharge"]
-    var h5f = H5file(path, "r")
+    var h5f = H5open(path, "r")
     for name in dsets:
       let dsetName = group / name
       let dsetH5 = h5f[dsetName.dset_str]
@@ -69,7 +69,7 @@ proc readFiles(files: seq[string], runType: string): DataFrame =
   ## events belong to what and decide if data is supposed to
   ## be accumulated or not
   for file in files:
-    let h5f = H5File(file, "r")
+    let h5f = H5open(file, "r")
     result.add readTstampDf(h5f)
     discard h5f.close()
   result = result.arrange("timestamp")

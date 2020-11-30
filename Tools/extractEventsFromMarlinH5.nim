@@ -154,7 +154,7 @@ proc bindToDf[T](df: var DataFrame, clusters: seq[ClusterObject[T]]) =
 
 proc main =
 
-  var h5f = H5file(path, "r")
+  var h5f = H5open(path, "r")
   defer: discard h5f.close()
   var showPlots = false
   var numEvents = NumEvents
@@ -217,7 +217,7 @@ proc main =
 
   if copyRaw:
     const dataPath = "/data/CAST/2014_15/DataRuns"
-    var h5f = H5File(dataPath.parentDir / "DataRuns2014.h5", "r")
+    var h5f = H5open(dataPath.parentDir / "DataRuns2014.h5", "r")
     for (runNumber, r) in recos:
       # get the index of the event
       # NOTE: this is ``*not*`` the event number due to how MarlinTPC counts the

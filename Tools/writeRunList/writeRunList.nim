@@ -67,7 +67,7 @@ func determineType(runInfo: RunInfo): RunTypeKind =
     result = rtNone
 
 proc createRunList(fname: string, runType: RunTypeKind): RunList =
-  var h5f = H5File(fname, "r")
+  var h5f = H5open(fname, "r")
   let fInfo = getFileInfo(h5f)
   for r in fInfo.runs:
     result.add getExtendedRunInfo(h5f, r, runType)

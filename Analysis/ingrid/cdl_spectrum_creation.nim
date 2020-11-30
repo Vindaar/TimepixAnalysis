@@ -740,7 +740,7 @@ iterator tfRuns(h5f: var H5FileObj, tfKind: TargetFilterKind): H5Group =
 
 proc cutAndWrite(h5file: string) =
   let runs = readRuns(filename)
-  var h5f = H5file(h5file, "rw")
+  var h5f = H5open(h5file, "rw")
   defer: discard h5f.close()
   let cutTab = getXraySpectrumCutVals()
   for r in runs:
@@ -1130,8 +1130,8 @@ proc generateCdlCalibrationFile(h5file: string, year: YearKind,
   ## all CDL runs. Supports either 2014 CDL data or 2019 CDL data.
   # walk all runs corresponding to a single `TargetFilterKind` and
   # combine the datasets into the output files
-  var h5f = H5file(h5file, "r")
-  var h5fout = H5file(&"{outfile}-{year}.h5", "rw")
+  var h5f = H5open(h5file, "r")
+  var h5fout = H5open(&"{outfile}-{year}.h5", "rw")
   let runs = readRuns(filename)
   for tfKind in TargetFilterKind:
     for grp in tfRuns(h5f, tfKind):
@@ -1198,7 +1198,7 @@ proc generateXrayReferenceFile(h5file: string, year: YearKind,
   # file, else it skips the first step)
   # then we apply the charge cuts and bin the data by N bins
   # the result is written to the new file as (N, 2) datasets
-  var h5f = H5file(h5file, "r")
+  var h5f = H5open(h5file, "r")
   # read framework kind from `h5f`
   var frameworkKind = fkMarlin
   if "FrameworkKind" in h5f.attrs:
@@ -1209,7 +1209,7 @@ proc generateXrayReferenceFile(h5file: string, year: YearKind,
     discard h5f.close()
     let cdlOut = "auto_calibration-cdl_" & $year
     generateCdlCalibrationFile(h5file, year, cdlOut)
-    h5f = H5file(cdlOut, "r")
+    h5f = H5open(cdlOut, "r")
 
   # now walk all groups in root of h5f, read the datasets required for
   # charge cuts, write all passing indices back to file as binned
@@ -1225,7 +1225,7 @@ proc generateXrayReferenceFile(h5file: string, year: YearKind,
   of yr2018:
     xrayRefCuts = getEnergyBinMinMaxVals2018()
 
-  var h5fout = H5file(outfile & $year & ".h5", "rw")
+  var h5fout = H5open(outfile & $year & ".h5", "rw")
   for group in h5f:
     var mgrp = group
     echo group.name
@@ -1337,7 +1337,7 @@ proc main =
     var energyChargeErr: seq[float]
     #let a = fitAndPlot[int64](h5file, tfCuEpic0_9, Dhits)
     #let b = fitAndPlot[float64](h5file, tfCuEpic0_9, Dcharge)
-    var h5f = H5file(h5file, "rw")
+    var h5f = H5open(h5file, "rw")
     for tfkind in TargetFilterKind:
       let energyHits = fitAndPlot[int64](h5f, fitParamsFname, tfkind, Dhits)
       peakposHits.add(energyHits[0])

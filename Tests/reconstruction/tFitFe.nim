@@ -11,7 +11,7 @@ import ingrid / calibration / [calib_fitting, calib_plotting]
 suite "Comparison of Fe spectrum fitting in Nim and Python":
   const runNumber = 241
   const chipNumber = 3
-  var h5f = H5file("reco_241_full.h5", "r")
+  var h5f = H5open("reco_241_full.h5", "r")
   # only nim
   let groupName = "/reconstruction/run_" & $runNumber & "/chip_" & $chipNumber & "/FeSpectrum"
   let groupNameCh = "/reconstruction/run_" & $runNumber & "/chip_" & $chipNumber & "/FeSpectrumCharge"

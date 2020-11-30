@@ -33,7 +33,7 @@ proc main =
     quit()
 
   let h5file = paramStr(1)
-  var h5f = H5file(h5file, "r")
+  var h5f = H5open(h5file, "r")
   defer: discard h5f.close()
 
   const groups = ["Cu-EPIC-0.9kV", "Mn-Cr-12kV"]

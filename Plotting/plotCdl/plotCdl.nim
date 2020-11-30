@@ -54,7 +54,7 @@ proc classifyClusters(df: var DataFrame) =
 proc readFiles(files: seq[string], runType: string,
                dsets: seq[string]): DataFrame =
   for file in files:
-    let h5f = H5File(file, "r")
+    let h5f = H5open(file, "r")
     result.add readData(h5f, dsets)
     discard h5f.close()
   result = result.arrange("timestamp")
@@ -81,7 +81,7 @@ proc readRefDsets(refFile: string,
                   dkKind: InGridDsetKind,
                   yearKind: YearKind): DataFrame =
   ## reads the reference datasets from the `refFile` and returns them.
-  var h5ref = H5file(refFile, "r")
+  var h5ref = H5open(refFile, "r")
   # create a table, which stores the reference datasets from the ref file
   let dset = dkKind.toDset(fkTpa)
   var tab = initTable[string, HistTuple]()

@@ -1893,7 +1893,7 @@ proc eventDisplay(h5file: string,
                   bKind: BackendKind,
                   flags: set[ConfigFlagKind]): string =
   ## use as event display tool
-  var h5f = H5file(h5file, "r")
+  var h5f = H5open(h5file, "r")
   let fileInfo = getFileInfo(h5f)
   let fInfoConfig = fileInfo.appliedConfig()
   let events = toOrderedSet(toSeq(0 .. 50))#initOrderedSet[int]())
@@ -1913,7 +1913,7 @@ proc createCalibrationPlots(h5file: string,
                             runType: RunTypeKind,
                             flags: set[ConfigFlagKind]): string =
   ## creates QA plots for calibration runs
-  var h5f = H5file(h5file, "r")
+  var h5f = H5open(h5file, "r")
   var fileInfo = getFileInfo(h5f)
   let fInfoConfig = fileInfo.appliedConfig()
   # var imageSet = initOrderedSet[string]()
@@ -1947,7 +1947,7 @@ proc createBackgroundPlots(h5file: string,
                            runType: RunTypeKind,
                            flags: set[ConfigFlagKind]): string =
   ## creates QA plots for calibration runs
-  var h5f = H5file(h5file, "r")
+  var h5f = H5open(h5file, "r")
   var fileInfo = getFileInfo(h5f)
   let fInfoConfig = fileInfo.appliedConfig()
   var pds: seq[PlotDescriptor]

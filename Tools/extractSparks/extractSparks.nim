@@ -54,7 +54,7 @@ proc main =
 
   let args = docopt(doc)
   let runFile = $args["<H5file>"]
-  var h5f = H5file(runFile, "r")
+  var h5f = H5open(runFile, "r")
   let fInfo = getFileInfo(h5f)
 
   var count = 0

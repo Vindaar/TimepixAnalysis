@@ -35,7 +35,6 @@ proc parseChipName*(chipName: string): ChipName =
 
 proc inRunPeriod(chip: string, grp: H5Group): bool =
   let chips = grp.attrs[RunPeriodChipsAttr, seq[string]]
-  echo chips
   result = chip in chips
 
 proc inRunPeriod(run: int, grp: H5Group): bool =
@@ -46,7 +45,6 @@ proc findRunPeriodFor*(h5f: H5FileObj, chipName: string, run: int): string =
   ## returns the ``first`` run period that matches the condition
   ## `contains chipName and run in validRuns`
   for grp in items(h5f, start_path = "/", depth = 1):
-    echo grp.name
     if chipName.inRunPeriod(grp) and
        run.inRunPeriod(grp):
       return grp.name
@@ -78,7 +76,6 @@ proc parseTomlTime*(t: TomlValueRef): DateTime =
                           zone = utc())
   else:
     doAssert false, "Invalid TOML kind for time"
-  echo result
 
 proc checkAndGetInt*(it: TomlValueRef): int =
   if not (it.kind == TomlValueKind.Int):

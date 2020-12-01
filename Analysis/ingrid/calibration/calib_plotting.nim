@@ -13,12 +13,13 @@ Contains all routines that create plots related to InGrid calibration.
 
 proc plotGasGain*[T](charge, counts: seq[T],
                      fitX, fitY: seq[T],
+                     xMin, xMax: float,
                      G_fit, chiSq: float,
                      chipNumber, runNumber: int,
-                     pathPrefix: string) =
+                     pathPrefix: string,
+                     gasGainInterval = none[GasGainIntervalData]()) =
   ## given a seq of traces (polya distributions for gas gain) plot
   ## the data and the fit, save plots as svg.
-  discard existsOrCreateDir(pathPrefix)
   let dfRaw = seqsToDf({ "charge / e-" : charge,
                          "counts" : counts })
   let dfFit = seqsToDf({ "charge / e-" : fitX,
@@ -28,15 +29,36 @@ proc plotGasGain*[T](charge, counts: seq[T],
                      id = "Type")
     # filter to max 2.5e4 electrons
     .filter(fn {c"charge / e-" <= 2.5e4})
+    .mutate(f{float -> bool: "FitRange" ~ c"charge / e-" >= xMin})
   let G = histMean(counts, charge)
+  var
+    intTitle: string
+    suffix: string
+  if gasGainInterval.isSome:
+    let g = gasGainInterval.get
+    intTitle = " " & $g
+    suffix = toPathSuffix g
+
+  createDir(&"/tmp/{path_prefix}/")
+  when false:
+    df.write_csv(&"/tmp/{path_prefix}/gas_gain_run_{runNumber}_chip_{chipNumber}{suffix}.csv")
+    echo xMin
+    echo df.filter(f{Value -> bool: c"Type" == %~ "Fit" and c"FitRange" == %~ false})
+    echo df.filter(f{string -> bool: c"Type" == "Fit"})
   ggplot(df, aes("charge / e-", "counts")) +
     geom_histogram(data = df.filter(f{c"Type" == "Polya"}),
                    stat = "identity") +
-    geom_line(data = df.filter(f{c"Type" == "Fit"}),
+    geom_line(data = df.filter(f{Value -> bool: c"Type" == %~ "Fit" and c"FitRange" == %~ true}),
               color = some(parseHex("FF00FF"))) +
-    ggtitle(&"Polya fit of chip {chipNumber}, run {runNumber}: " &
-            &"G = {G:.1f}, G_fit = {G_fit:.1f}, χ²/dof = {chiSq:.2f}") +
-    ggsave(&"{pathPrefix}/gas_gain_run_{runNumber}_chip_{chipNumber}.pdf")
+    geom_line(data = df.filter(f{Value -> bool: c"Type" == %~ "Fit" and c"FitRange" == %~ false}),
+              color = some(parseHex("FF00FF")),
+              lineType = some(ltDashed)) +
+              #alpha = some(0.8)) +
+    margin(top = 2) +
+    ggtitle(&"Polya chip {chipNumber}, run {runNumber}: " &
+            &"G = {G:.1f}, G_fit = {G_fit:.1f}, χ²/dof = {chiSq:.2f}" &
+            intTitle) +
+    ggsave(&"{pathPrefix}/gas_gain_run_{runNumber}_chip_{chipNumber}{suffix}.pdf")
 
 ## TODO: Put "Charge calibration factors vs gas gain. y errors magnified * 100"" into this module!
 

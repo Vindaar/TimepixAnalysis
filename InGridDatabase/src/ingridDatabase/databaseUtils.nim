@@ -33,12 +33,14 @@ proc parseChipName*(chipName: string): ChipName =
   else:
     raise newException(ValueError, "Bad chip name: $#" % chipName)
 
+proc formatChipName(name: string): string = $(name.parseChipName)
+
 proc inRunPeriod(chip: string, grp: H5Group): bool =
   let chips = grp.attrs[RunPeriodChipsAttr, seq[string]]
-  result = chip in chips
+  result = chip.formatChipName in chips
 
 proc inRunPeriod(run: int, grp: H5Group): bool =
-  let runs = grp[RunPeriodRunsAvailable.dset_str][int]
+  let runs = grp[RunPeriodRunDset.dset_str][int]
   result = run in runs
 
 proc findRunPeriodFor*(h5f: H5FileObj, chipName: string, run: int): string =

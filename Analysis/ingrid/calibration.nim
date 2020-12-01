@@ -315,14 +315,24 @@ proc writePolyaDsets(h5f: H5FileObj, group: H5Group,
                      chargeDset: H5DataSet,
                      binned: seq[int], bin_edges: seq[float],
                      fitResult: FitResult,
-                     dsetSuffix: string) =
+                     gasGainInterval = none[GasGainIntervalData]()) =
   # create dataset for polya histogram
+  let dsetSuffix = if gasGainInterval.isSome:
+                     gasGainInterval.get.toDsetSuffix
+                   else: ""
+  let
+    pName = group.name / &"polya{dsetSuffix}"
+    pFitName = group.name / &"polyaFit{dsetSuffix}"
+  if pName in h5f:
+    doAssert h5f.delete(pName)
+  if pFitName in h5f:
+    doAssert h5f.delete(pFitName)
   var polyaDset = h5f.create_dataset(group.name / &"polya{dsetSuffix}",
                                      (binned.len, 2),
                                      dtype = float64,
                                      overwrite = true)
   var polyaFitDset = h5f.create_dataset(group.name / &"polyaFit{dsetSuffix}",
-                                        (binned.len, 2),
+                                        (fitResult.x.len, 2),
                                         dtype = float64,
                                         overwrite = true)
   let polyaData = zip(bin_edges, binned) --> map(@[it[0], it[1].float])
@@ -330,26 +340,37 @@ proc writePolyaDsets(h5f: H5FileObj, group: H5Group,
   polyaDset[polyaDset.all] = polyaData
   polyaFitDset[polyaFitDset.all] = polyaFitData
   # now write resulting fit parameters as attributes
+  let bin_edges = bin_edges[0 .. ^2]
+  # calculate the mean of the data histogram. This is what Krieger calls
+  # `G_mean` and uses for the rest of the calculation!
+  let meanGain = histMean(binned, bin_edges)
+  # also calculate the mean of the polya fit. This usually is *not* the same
+  # as the `meanGain` (mean of data). `meanGainFit` is what we used errorneously
+  # in the past!
+  let meanGainFit = (zip(fitResult.x, fitResult.y) -->>
+                  map(it[0] * it[1]) -->
+                  fold(0.0, a + it)) / fitResult.y.sum.float
+
   template writeAttrs(d: H5DataSet, fitResult: typed): untyped =
-    d.attrs["N"] = fitResult.pRes[0]
-    d.attrs["G_fit"] = fitResult.pRes[1]
-    # calculate the mean of the data histogram. This is what Krieger calls
-    # `G_mean` and uses for the rest of the calculation!
-    let meanGain = histMean(binned, bin_edges)
-    # also calculate the mean of the polya fit. This usually is *not* the same
-    # as the `meanGain` (mean of data). `meanGainFit` is what we used errorneously
-    # in the past!
-    let meanGainFit = (zip(fitResult.x, fitResult.y) -->>
-                    map(it[0] * it[1]) -->
-                    fold(0.0, a + it)) / fitResult.y.sum.float
-    d.attrs["G"] = meanGain
-    d.attrs["G_fitmean"] = meanGainFit
-    d.attrs["theta"] = fitResult.pRes[2]
+    var gidx: string
+    if gasGainInterval.isSome:
+      let g = gasGainInterval.get
+      gidx = g.toAttrPrefix()
+      d.attrs[g.toSliceStartAttr()] = g.tstart
+      d.attrs[g.toSliceStopAttr()] = g.tstop
+      d.attrs[gidx & "length"] = g.interval
+      d.attrs[gidx[0 ..< ^1]] = $g
+
+    d.attrs[gidx & "N"] = fitResult.pRes[0]
+    d.attrs[gidx & "G_fit"] = fitResult.pRes[1]
+    d.attrs[gidx & "G"] = meanGain
+    d.attrs[gidx & "G_fitmean"] = meanGainFit
+    d.attrs[gidx & "theta"] = fitResult.pRes[2]
     # TODO: get some errors from NLopt?
     #d.attrs["N_err"] = fitResult.pErr[0]
     #d.attrs["G_err"] = fitResult.pErr[1]
     #d.attrs["theta_err"] = fitResutl.pErr[2]
-    d.attrs["redChiSq"] = fitResult.redChiSq
+    d.attrs[gidx & "redChiSq"] = fitResult.redChiSq
   writeAttrs(chargeDset, fitResult)
   writeAttrs(polyaDset, fitResult)
   writeAttrs(polyaFitDset, fitResult)
@@ -366,22 +387,36 @@ proc applyGasGainCut(h5f: H5FileObj, group: H5Group): seq[int] =
                            crSilver,
                            ("rmsTransverse", cut_rms_trans_low, cut_rms_trans_high))
 
-proc gasGainHistoAndFit(data: seq[float], totBins: seq[float],
-                        chipName: string, chipNumber, runNumber: int,
-                        plotPath: string): (seq[int], FitResult) =
+proc applyGasGainCut(df: DataFrame): DataFrame =
+  ## Performs the cuts, which are used to select the events which we use
+  ## to perform the polya fit + gas gain determination. This is based on
+  ## C. Krieger's thesis. The cuts are extracted from the `getGasGain.C`
+  ## macro found in `resources`.
+  const cut_rms_trans_low = 0.1
+  const cut_rms_trans_high = 1.5
+  doAssert "rmsTransverse" in df
+  doAssert "centerX" in df
+  doAssert "centerY" in df
+  result = df
+  result["passIdx"] = arange(0, result.len)
+  echo result
+  result = result.filter(f{float -> bool:
+    `rmsTransverse` >= cut_rms_trans_low and
+    `rmsTransverse` <= cut_rms_trans_high and
+    inRegion(df["centerX"][idx], df["centerY"][idx], crSilver)})
+
+proc gasGainHistoAndFit(data: seq[float], bin_edges: seq[float],
+                        chipNumber, runNumber: int,
+                        plotPath: string,
+                        gasGainInterval = none[GasGainIntervalData]()):
+                          (seq[int], FitResult) =
   ## performs the binning of `data` (should be charges in electron converted from the
   ## ToT values in `calcGasGain`) according to `totBins` and fits the
-  # bin the data according to ToT values
-  let (a, b, c, t) = getTotCalibParameters(chipName)
-  # get bin edges by calculating charge values for all TOT values at TOT's bin edges
-  var bin_edges = mapIt(totBins, calibrateCharge(it, a, b, c, t))
-  # the histogram counts are the same for ToT values as well as for charge values,
-  # so calculate for ToT
-  let (binned, _) = data.histogram(bins = totBins,
-                                   range = (totBins.min + 0.5, totBins.max + 0.5))
+  # compute histogram according to the unequal width bin edges
+  let (binned, _) = data.histogram(bins = bin_edges)
   # ``NOTE: remove last element from bin_edges to have:``
   # ``bin_edges.len == binned.len``
-  bin_edges = bin_edges[0 .. ^2]
+  let bin_edges = bin_edges[0 .. ^2]
   # given binned histogram, fit polya
   info "Fitting polya to run: ", runNumber, " and chip: ", chipNumber
   let fitResult = fitPolyaNim(bin_edges,
@@ -391,14 +426,86 @@ proc gasGainHistoAndFit(data: seq[float], totBins: seq[float],
   info "Plotting polya of run: ", runNumber, " and chip: ", chipNumber
   plotGasGain(bin_edges, binned.asType(float64),
               fitResult.x, fitResult.y,
+              fitResult.xMin, fitResult.xMax,
               G_fit = fitResult.pRes[1],
               chiSq = fitResult.redChiSq,
               chipNumber, runNumber,
-              pathPrefix = plotPath)
+              pathPrefix = plotPath,
+              gasGainInterval = gasGainInterval)
+  result = (binned, fitResult)
 
-proc calcGasGain*(h5f: var H5FileObj, runNumber: int) =
+proc readGasGainDf*(h5f: H5FileObj, grp: string, chip: int,
+                    addDsets: seq[string]): DataFrame =
+  var dfChip = newDataFrame()
+  var dfAll = newDataFrame()
+  h5f.readDsets(dfChip, concat(@["eventNumber"], addDsets), grp)
+  echo dfChip
+  #dfChip["clusterIdx"] = arange(0, dfChip.len)
+  h5f.readDsets(dfAll, @["timestamp", "eventNumber"], grp.parentDir)
+  result = innerJoin(dfChip, dfAll, "eventNumber")
+
+iterator iterGainSlices(df: DataFrame,
+                        interval: float): (GasGainIntervalData, Slice[int]) =
+  let tstamps = df["timestamp"].toTensor(float)
+  # determine the start time
+  var tStart = tstamps[0]
+  var idxOld = 0
+  var idx = 0
+  for i in 0 ..< tstamps.size:
+    if (tstamps[i] - tStart) >= (interval * 60.0): # convert interval in minutes to seconds
+      ## TODO:
+      ## We might want to think about making interval adaptive? That is to demand
+      ## we have a certain number of entries in `data` to have good enough statistics
+      ## (useful for calibration runs for outer chips!)
+      # run over bin range
+      let g = initInterval(idx, interval, tStart.float, tstamps[i])
+      yield (g, idxOld ..< min(i, tstamps.size - 1))
+      tStart = tstamps[i]
+      idxOld = i
+      inc idx
+  let g = initInterval(idx, interval, tStart, tstamps[tstamps.size - 1])
+  yield (g, idxOld ..< tstamps.size)
+
+iterator iterGainSlicesFromAttrs*(dset: H5DataSet,
+                                  df: DataFrame,
+                                  interval: float): (GasGainIntervalData, Slice[int]) =
+  let numSlices = dset.attrs["numGasGainSlices", int]
+  let tstamps = df["timestamp"].toTensor(int)
+  # determine the start time
+  var tStart = tstamps[0]
+  var idxOld = 0
+  var idx = 0
+  proc initFromDset(d: H5DataSet, idx: int, interval: float): GasGainIntervalData =
+    result = initInterval(idx, interval)
+    result.tStart = dset.attrs[result.toSliceStartAttr(), int]
+    result.tStop = dset.attrs[result.toSliceStopAttr(), int]
+  var g = dset.initFromDset(idx, interval)
+
+  for i in 0 ..< tstamps.size:
+    if tstamps[i] >= g.tStop:
+      yield (g, idxOld ..< min(i, tstamps.size - 1))
+      idxOld = i
+      inc idx
+      if idx == numSlices - 1:
+        break
+      g = dset.initFromDset(idx, interval)
+  g = dset.initFromDset(idx, interval)
+  yield (g, idxOld ..< tstamps.size)
+
+proc deleteAllAttrStartingWith(dset: H5DataSet, start: string) =
+  ## deletes all attributes starting with string
+  dset.attrs.read_all_attributes()
+  for key in dset.attrs.attr_tab.keys:
+    if key.startsWith(start):
+      echo "Deleting ", key
+      discard dset.deleteAttribute(key)
+
+proc calcGasGain*(h5f: var H5FileObj, runNumber: int,
+                  interval: float) =
   ## fits the polya distribution to the charge values and writes the
   ## fit parameters (including the gas gain) to the H5 file
+  ## `interval` is the time interval width on which we apply the binning
+  ## of each run in minutes
   const
     hitLow = 2 # start at 2 to avoid noisy pixels w/ 1 hit
     hitHigh = 302
@@ -407,6 +514,20 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int) =
   var chipBase = recoDataChipBase(runNumber)
   let plotPath = h5f.attrs[plotDirPrefixAttr, string]
 
+  ## TODO:
+  ## - 1. make sure histogram works well with unequal bin widths (write test
+  ##      comparing the output using ToT and charge!
+  ##     DONE
+  ## - 2. compute bins needed for unequal from totBins and applying calibrateCharge
+  ##     DONE in test / above proc
+  ## - 3. use readDsets to read the totalCharge dataset and hits, divide one another
+  ##     cannot really do that, need individual pixel charge for more statistics
+
+  ## - have to filter by gas gain cuts
+  ## - need to merge timestamps and charge datasets (at least event number + indices)
+  ## -
+
+  ## TODO: make sure to delete all iterGainSlice attributes first? overwriting is super slow!
   # get the group from file
   info "Calulating gas gain for run: ", runNumber
   for grp in keys(h5f.groups):
@@ -416,21 +537,60 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int) =
       # get the chip number from the attributes of the group
       let chipNumber = group.attrs["chipNumber", int]
       let chipName = group.attrs["chipName", string]
+      let (a, b, c, t) = getTotCalibParameters(chipName, runNumber)
+      # get bin edges by calculating charge values for all TOT values at TOT's bin edges
+      let bin_edges = mapIt(totBins, calibrateCharge(it, a, b, c, t))
       # get dataset of hits
-      var chargeDset = h5f[(grp / "charge").dset_str]
-      var totDset = h5f[(grp / "ToT").dset_str]
-
-      let passIdx = applyGasGainCut(h5f, group)
+      let chargeDset = h5f[(grp / "charge").dset_str]
+      chargeDset.deleteAllAttrStartingWith("interval_")
       # get all charge values as seq[seq[float]], ``then`` apply the `passIdx`
       # and only flatten ``after`` that
-      let totsFull = totDset.readVlen(uint16)
-      let tots = passIdx.mapIt(totsFull[it])
-      let (binned, fitResult) = gasGainHistoAndFit(tots, totBins,
-                                                   chipName,
-                                                   chipNumber, runNumber,
-                                                   plotPath)
+      let chFull = chargeDset.readVlen(float)
+      when not defined(fullRunGasGain):
+        # read required data for gas gain cuts & to map clusters to timestamps
+        let df = h5f.readGasGainDf(grp, chipNumber, @["centerX", "centerY", "rmsTransverse"])
+          .applyGasGainCut()
+        let passIdx = df["passIdx"].toTensor(int).toRawSeq
+        let chs = passIdx.mapIt(chFull[it])
 
-      h5f.writePolyaDsets(group, chargeDset, binned, totBins, fitResult, "")
+        ## TODO
+        ## instead of returning sliced data.
+        ## - return only valid indices of the full dataset (a HSlice)
+        ## - keep passed indices around as a hashset
+        ## - walk hslice as a sequence, extract the data from the slice that is in
+        ##   passed seq set as the data we will use
+        ## CANNOT work, cause we end up with empty last sequence
+
+        ## alternative: we have to just use the timestamps from the attributes instead
+        ## and fill up the last timestamp to the end of the run
+        ## need iterator which is similar, but returns slices based on attributes
+        ## in gas gain calc have to add an attribute for the number of slices in total
+        ##
+
+        var sliceCount = 0
+        for (gasGainInterval, slice) in iterGainSlices(df, interval):
+          echo $gasGainInterval
+          let chSlice = chs[slice].flatten
+          let (binned, fitResult) = gasGainHistoAndFit(
+            chSlice, bin_edges, #totBins, # chipName,
+            chipNumber, runNumber,
+            plotPath,
+            gasGainInterval = some(gasGainInterval))
+
+          h5f.writePolyaDsets(group, chargeDset, binned, bin_edges, fitResult,
+                              some(gasGainInterval))
+          inc sliceCount
+        chargeDset.attrs["numGasGainSlices"] = sliceCount
+      else:
+          let passIdx = applyGasGainCut(h5f, group)
+          let chs = passIdx.mapIt(chFull[it])
+          let (binned, fitResult) = gasGainHistoAndFit(chs, bin_edges, #totBins,
+                                                       # chipName,
+                                                       chipNumber, runNumber,
+                                                       plotPath)
+
+          h5f.writePolyaDsets(group, chargeDset, binned, bin_edges, fitResult)
+
 
 proc writeFeFitParameters(dset: var H5DataSet,
                           popt, popt_E: seq[float],
@@ -601,6 +761,7 @@ proc performChargeCalibGasGainFit*(h5f: var H5FileObj) =
   ## writes the resulting fit data to the ingridDatabase
   # iterate over all runs, extract center chip grou
   let plotPath = h5f.attrs[plotDirPrefixAttr, string]
+  let runPeriod = h5f.attrs[RunPeriodAttr, string]
   var
     calib = newSeq[float64]()
     calibErr = newSeq[float64]()
@@ -698,6 +859,7 @@ proc calcEnergyFromPixels*(h5f: var H5FileObj, runNumber: int, calib_factor: flo
       energy_dset.attrs["conversionFactorUsed"] = calib_factor
 
 proc calcEnergyFromCharge*(h5f: var H5FileObj, chipGrp: H5Group,
+                           interval: float,
                            b, m: float) =
   ## performs the actual energy calculation, based on the fit parameters of
   ## `b` and `m` on the group `chipGrp`. This includes wirting the energy
@@ -705,22 +867,58 @@ proc calcEnergyFromCharge*(h5f: var H5FileObj, chipGrp: H5Group,
   # get the chip number from the attributes of the group
   var mchpGrp = chipGrp
   let chipNumber = mchpGrp.attrs["chipNumber", int]
-  # get dataset of total charge
+
+  # get dataset of charge (contains all fit parameters for the gas gain fits)
   var chargeDset = h5f[(mchpGrp.name / "charge").dset_str]
-  var gain: float
-  if "G" in chargeDset.attrs:
-    gain = chargeDset.attrs["G", float64]
-  else:
-    # TODO: good idea? or just call calc gas gain?
-    discard h5f.close()
-    raise newException(Exception, "Gas gain not yet calculated for " &
-      "run " & $mchpGrp.name)
-  let totCharge = h5f[(mchpGrp.name / "totalCharge"), float64]
-  # remove correction factor of 1e6
-  let calibFactor = linearFunc(@[b, m], gain) * 1e-6
-  # now calculate energy for all hits
-  let energy = mapIt(totCharge, it * calibFactor)
-  # create dataset for energy
+
+  ## TODO
+  ## - write / reuse iterator for time slices like for gas gain intervals
+  ## - read all total charges (argument for iterator)
+  ## - iterator yields slices of total charge and correct gas gain? or just gasGainInterval
+  ##   and we use GasGainIntervalData to read correct H5 attributes?
+  ##   latter more complex but cleaner
+  ## - calc energy on slices, append energy to `energies` sequence
+  ## - only write at very end
+  let df = h5f.readGasGainDf(chipGrp.name, chipNumber, @["totalCharge"])
+  let chs = df["totalCharge"].toTensor(float).clone.toRawSeq ## NOTE: WARNING raw seq is longer!!!
+  var energy = newSeqOfCap[float](chs.len)
+  var intCount = 0
+  var allIdx = initHashSet[int]()
+  for (gasGainInterval, slice) in iterGainSlicesFromAttrs(chargeDset, df, interval):
+    echo $gasGainInterval
+    if gasGainInterval.toGainAttr notin chargeDset.attrs:
+      raise newException(Exception, "Gas gain not yet calculated for " &
+        "run " & $mchpGrp.name & " for the given interval of " &
+        $(interval.int) & " min")
+    block SanityCheck:
+      for s in slice:
+        doAssert s notin allIdx
+        allIdx.incl s
+    let chSlice = chs[slice]
+    let gain = chargeDset.attrs[gasGainInterval.toGainAttr, float64]
+    # remove correction factor of 1e6
+    let calibFactor = linearFunc(@[b, m], gain) * 1e-6
+    # now calculate energy for all hits
+    energy.add mapIt(chSlice, it * calibFactor)
+    inc intCount
+  doAssert energy.len == chs.len, "Invalid calculation, only " & $energy.len &
+    " energies for " & $(chs.len) & " cluster!"
+  doAssert allIdx.card == energy.len and allIdx.toSeq.max == energy.high
+
+
+  when false:
+    var gain: float
+    if "G" in chargeDset.attrs:
+      gain = chargeDset.attrs["G", float64]
+    else:
+      raise newException(Exception, "Gas gain not yet calculated for " &
+        "run " & $mchpGrp.name)
+    let totCharge = h5f[(mchpGrp.name / "totalCharge"), float64]
+    # remove correction factor of 1e6
+    let calibFactor = linearFunc(@[b, m], gain) * 1e-6
+    # now calculate energy for all hits
+    let energy = mapIt(totCharge, it * calibFactor)
+    # create dataset for energy
   var energy_dset = h5f.create_dataset(mchpGrp.name / "energyFromCharge",
                                        energy.len, dtype = float,
                                        overwrite = true)
@@ -730,7 +928,11 @@ proc calcEnergyFromCharge*(h5f: var H5FileObj, chipGrp: H5Group,
   energy_dset.attrs["calib_b"] = b
   energy_dset.attrs["calib_m"] = m
 
-proc calcEnergyFromCharge*(h5f: var H5FileObj) =
+  # store the interval length used to calculate the energies
+  energy_dset.attrs["Gas gain interval length"] = interval
+  energy_dset.attrs["Number of gas gain intervals"] = intCount
+
+proc calcEnergyFromCharge*(h5f: var H5FileObj, interval: float) =
   ## proc which applies an energy calibration based on the number of electrons in a cluster
   ## using a conversion factor of unit 1e6 keV / electron to the run given by runNumber contained
   ## in file h5f
@@ -761,4 +963,4 @@ proc calcEnergyFromCharge*(h5f: var H5FileObj) =
     for chipGrp in items(h5f, start_path = group.name):
       if "fadc" in chipGrp.name:
         continue
-      h5f.calcEnergyFromCharge(chipGrp, b, m)
+      h5f.calcEnergyFromCharge(chipGrp, interval, b, m)

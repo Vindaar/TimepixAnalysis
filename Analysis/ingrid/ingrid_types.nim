@@ -1,7 +1,7 @@
 # module which contains the used type definitions in the InGrid module
 when not defined(js):
   import times
-import tables
+import tables, strformat
 import karax / kbase
 
 type
@@ -221,6 +221,8 @@ type
 
   # type to store results of fitting with mpfit / NLopt / Python
   FitResult* = object
+    xMin*: float # the actual fit range minimum
+    xMax*: float # the actual fit range maximum
     x*: seq[float]
     y*: seq[float]
     pRes*: seq[float]
@@ -244,6 +246,15 @@ type
     # procedure to create it for us
 
 type
+  ## GasGainIntervalData stores the information about binning the data for the
+  ## calculation of the gas gain in a run by a fixed time interval, e.g.
+  ## 100 minutes
+  GasGainIntervalData* = object
+    idx*: int # index
+    interval*: float # interval length in minutes
+    tStart*: int # timestamp of interval start
+    tStop*: int # timestamp of interval stop
+
   FeSpecFitData* = object
     hist*: seq[float]
     binning*: seq[float]
@@ -389,3 +400,32 @@ proc initEnergyCalibData*(energies: seq[float],
                               aInvErr: aInv * pErr[0] / pRes[0],
                               chiSq: chiSq,
                               nDof: nDof)
+
+proc initInterval*(idx: int, interval: float,
+                   tStart = 0.0, tStop = 0.0): GasGainIntervalData =
+  result = GasGainIntervalData(idx: idx,
+                               interval: interval,
+                               tStart: tStart.int,
+                               tStop: tStop.int)
+
+proc `$`*(g: GasGainIntervalData): string =
+  let tStamp = $(g.tStart.fromUnix.utc)
+  result = &"idx = {g.idx}, interval = {g.interval} min, start = {tStamp}"
+
+proc toAttrPrefix*(g: GasGainIntervalData): string =
+  result = "interval_" & $g.idx & "_"
+
+proc toGainAttr*(g: GasGainIntervalData): string =
+  result = g.toAttrPrefix & "G"
+
+proc toSliceStartAttr*(g: GasGainIntervalData): string =
+  result = g.toAttrPrefix & "tstart"
+
+proc toSliceStopAttr*(g: GasGainIntervalData): string =
+  result = g.toAttrPrefix & "tstop"
+
+proc toPathSuffix*(g: GasGainIntervalData): string =
+  result = &"_{g.idx}_{g.interval.int}_min_{g.tstart}"
+
+proc toDsetSuffix*(g: GasGainIntervalData): string =
+  result = &"_{g.idx}_{g.interval.int}"

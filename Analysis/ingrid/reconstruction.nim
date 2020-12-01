@@ -577,6 +577,7 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
 proc applyCalibrationSteps(h5f: var H5FileObj,
                            flags: set[RecoFlagKind],
                            cfgFlags: set[ConfigFlagKind],
+                           cfgTable: TomlValueRef,
                            runNumberArg = none[int](),
                            calib_factor = none[float]()) =
   ## inputs:
@@ -592,7 +593,8 @@ proc applyCalibrationSteps(h5f: var H5FileObj,
   let showPlots = if cfShowPlots in cfgFlags: true else: false
   if rfOnlyEnergyElectrons in flags:
     #h5fout.calcEnergyFromPixels(runNumber, calib_factor)
-    h5f.calcEnergyFromCharge()
+    let interval = cfgTable["Calibration"]["gasGainInterval"].getFloat
+    h5f.calcEnergyFromCharge(interval)
   if rfOnlyGainFit in flags:
     h5f.performChargeCalibGasGainFit()
   recordIterRuns(recoBase()):
@@ -611,7 +613,8 @@ proc applyCalibrationSteps(h5f: var H5FileObj,
         if rfOnlyCharge in flags:
           h5f.applyChargeCalibration(runNumber)
         if rfOnlyGasGain in flags:
-          h5f.calcGasGain(runNumber)
+          let interval = cfgTable["Calibration"]["gasGainInterval"].getFloat
+          h5f.calcGasGain(runNumber, interval)
         if rfOnlyFadc in flags:
           h5f.calcRiseAndFallTimes(runNumber)
         if rfOnlyFeSpec in flags:
@@ -739,7 +742,7 @@ proc main() =
   else:
     var h5f = H5open(h5f_name, "rw")
     if flagsValid(h5f, flags):
-      applyCalibrationSteps(h5f, flags, cfgFlags,
+      applyCalibrationSteps(h5f, flags, cfgFlags, cfgTable,
                             runNumberArg = runNumber,
                             calibFactor = calibFactor)
     else:

@@ -4,3 +4,4 @@
 [Calibration]
         showPlots = false
         plotDirectory = "out"
+        gasGainInterval = 30.0 # minutes for binning of gas gain

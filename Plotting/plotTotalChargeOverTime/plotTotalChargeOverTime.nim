@@ -1,5 +1,5 @@
-import nimhdf5, ggplotnim, os, strformat, strutils, sequtils, algorithm
-import ingrid / tos_helpers, times, os
+import nimhdf5, ggplotnim, os, strformat, strutils, sequtils, algorithm, times, os
+import ingrid / [tos_helpers, ingrid_types]
 
 import cligen
 
@@ -15,12 +15,31 @@ const CommonDsets = { "energyFromCharge" : "energy",
                       "lengthDivRmsTrans" : "L_div_RMS_trans",
                       "eccentricity" : "eccentricity" }
 
+
 proc genNames(): seq[string] {.compileTime.} =
-  result = @["totalCharge", "eventNumber", "hits"]
+  result = @["totalCharge", "eventNumber", "hits", "centerX", "centerY", "rmsTransverse"]
   for (d, v) in CommonDsets:
     result.add d
 
-proc readTstampDf(h5f: H5FileObj): DataFrame =
+proc applyGasGainCut(df: DataFrame): DataFrame =
+  ## Performs the cuts, which are used to select the events which we use
+  ## to perform the polya fit + gas gain determination. This is based on
+  ## C. Krieger's thesis. The cuts are extracted from the `getGasGain.C`
+  ## macro found in `resources`.
+  const cut_rms_trans_low = 0.1
+  const cut_rms_trans_high = 1.5
+  doAssert "rmsTransverse" in df
+  doAssert "centerX" in df
+  doAssert "centerY" in df
+  result = df
+  result["passIdx"] = arange(0, result.len)
+  echo result
+  result = result.filter(f{float -> bool:
+    `rmsTransverse` >= cut_rms_trans_low and
+    `rmsTransverse` <= cut_rms_trans_high and
+    inRegion(df["centerX"][idx], df["centerY"][idx], crSilver)})
+
+proc readTstampDf(h5f: H5FileObj, applyRegionCut: bool): DataFrame =
   const evNames = genNames()
   const allNames = ["timestamp", "eventNumber"]
 
@@ -37,6 +56,8 @@ proc readTstampDf(h5f: H5FileObj): DataFrame =
     var dfAll = newDataFrame()
     let group = h5f[grp.grp_str]
     readIt(evNames, grp / "chip_3", dfEv)
+    if applyRegionCut:
+      dfEv = dfEv.applyGasGainCut
     readIt(allNames, grp, dfAll)
     var dfJoined = inner_join(dfEv, dfAll, "eventNumber")
     dfJoined["runNumber"] = constantColumn(run.parseInt, dfJoined.len)
@@ -62,7 +83,8 @@ proc readCdl(): DataFrame =
                            f{"eventNumber" <- "CdlSpectrumEvents"})
     discard h5f.close()
 
-proc readFiles(files: seq[string], runType: string): DataFrame =
+proc readFiles(files: seq[string], runType: string,
+               applyRegionCut: bool): DataFrame =
   ## reads all H5 files given and stacks them to a single
   ## DF. An additional column is added, which corresponds to
   ## the filename. That way one can later differentiate which
@@ -70,7 +92,7 @@ proc readFiles(files: seq[string], runType: string): DataFrame =
   ## be accumulated or not
   for file in files:
     let h5f = H5open(file, "r")
-    result.add readTstampDf(h5f)
+    result.add readTstampDf(h5f, applyRegionCut = applyRegionCut)
     discard h5f.close()
   result = result.arrange("timestamp")
   result["runType"] = constantColumn(runType, result.len)
@@ -185,10 +207,13 @@ proc formatTime(v: float): string =
 
 proc plotDf(df: DataFrame, interval: float, titleSuff: string,
             useLog = true,
+            applyRegionCut = false,
             outpath = "out") =
   let interval = interval / 60.0 # convert back to minutes for title
   createDir(outpath)
-  let nameSuff = if titleSuff == "all data": "all" else: "filtered"
+  var nameSuff = if titleSuff == "all data": "all" else: "filtered"
+  if applyRegionCut:
+    nameSuff.add "_crSilver"
   var pltSum = ggplot(df, aes("timestamp", "sumCharge", color = "runType")) +
     facet_wrap("runPeriods", scales = "free") +
     geom_point(alpha = some(0.5)) +
@@ -278,14 +303,15 @@ proc main(files: seq[string],
           calibFiles: seq[string],
           interval, cutoffHits: float,
           cutoffCharge: float = 0.0,
-          createSpectra: bool = false) =
+          createSpectra: bool = false,
+          applyRegionCut = false) =
   ## Input should be both H5 `DataRuns*_reco.h5` data files
   ## `interval` is the time to average per bin in minutes
   ## `cutoffCharge` is a filter on an amount of charge each cluster must
   ## have to take part
   let interval = interval * 60.0 # convert to seconds
-  let dfBack = readFiles(files, "background")
-  let dfCalib = readFiles(calibFiles, "acalibration")
+  let dfBack = readFiles(files, "background", applyRegionCut = applyRegionCut)
+  let dfCalib = readFiles(calibFiles, "acalibration", applyRegionCut = applyRegionCut)
   ## check if there are additional files in the toml file
 
   block TimeSeriesPlots:
@@ -305,9 +331,14 @@ proc main(files: seq[string],
     let dfFilter = filtConc(dfBack, dfCalib)
     echo dfAll
     echo dfFilter
-    plotDf(dfAll, interval, "all data")
+    let regionCut = if applyRegionCut: " cut to crSilver, 0.1 < rmsTrans < 1.5 "
+                    else: ""
+    plotDf(dfAll, interval, titleSuff = &"all data{regionCut}",
+           applyRegionCut = applyRegionCut)
+
     plotDf(dfFilter, interval,
-           &"charge > {cutoffCharge}, hits < {cutoffHits:.0f} filtered out",
+           titleSuff = &"{regionCut}charge > {cutoffCharge}, hits < {cutoffHits:.0f} filtered out",
+           applyRegionCut = applyRegionCut,
            useLog = false)
 
   if createSpectra:

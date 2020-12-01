@@ -11,23 +11,20 @@ import ingrid/ingrid_types except Chip
 import helpers/utils
 import zero_functional
 
-proc writeTotCalibAttrs*(h5f: var H5FileObj, chip: string,
-                         runPeriod: string,
+proc writeTotCalibAttrs*(h5f: var H5FileObj,
+                         chipGrp: H5Group,
                          fitRes: FitResult) =
-  ## writes the fit results as attributes to the H5 file for `chip` in the run period
-  ## described by `run`
-  # group object to write attributes to
-  let grpName = chipNameToGroup(chip, runPeriod)
-  var grp = h5f[grpName.grp_str]
+  ## writes the fit results as attributes to the H5 file into the given
+  ## chip group
   # map parameter names to their position in FitResult parameter seq
   const parMap = { "a" : 0,
                    "b" : 1,
                    "c" : 2,
                    "t" : 3 }.toTable
-  grp.attrs["TOT Calibration"] = "performed at " & $now()
+  chipGrp.attrs["TOT Calibration"] = "performed at " & $now()
   for key, val in parMap:
-    grp.attrs[key] = fitRes.pRes[val]
-    grp.attrs[&"{key}_err"] = fitRes.pErr[val]
+    chipGrp.attrs[key] = fitRes.pRes[val]
+    chipGrp.attrs[&"{key}_err"] = fitRes.pErr[val]
 
 proc writeThreshold*(h5f: var H5FileObj, threshold: Threshold, chipGroupName: string) =
   var thresholdDset = h5f.create_dataset(joinPath(chipGroupName, ThresholdPrefix),

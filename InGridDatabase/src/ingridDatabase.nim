@@ -68,15 +68,15 @@ proc calibrateType(tcKind: TypeCalibrate) =
     # - get TOT object of each chip
     # - perform Fit as in plotCalibration
     # - take `mpfit` result and save fit parameters as attrs
-    for group in h5f.items(depth = 1):
-      # group name is the chip name
-      let chip = group.name
-      echo "Getting TOT for chip ", chip
-      let runPeriod = group.attrs[RunPeriodAttr, string]
-      let tot = getTotCalib(chip, runPeriod)
-      let totCalib = fitToTCalib(tot, 0.0)
-      # given fit result write attributes:
-      h5f.writeTotCalibAttrs(chip, runPeriod, totCalib)
+    for runPeriodGrp in h5f.items(start_path = "/", depth = 1):
+      for chipGrp in h5f.items(start_path = runPeriodGrp.name, depth = 1):
+        # group name is the chip name
+        let chip = chipGrp.name
+        let runPeriod = runPeriodGrp.name
+        let tot = h5f.getTotCalib(chip, runPeriod)
+        let totCalib = fitToTCalib(tot, 0.0)
+        # given fit result write attributes:
+        h5f.writeTotCalibAttrs(chipGrp, totCalib)
 
   of SCurveCalibrate:
     discard

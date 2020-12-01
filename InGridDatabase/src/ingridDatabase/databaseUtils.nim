@@ -56,7 +56,7 @@ proc chipNameToGroup*(chipName: string, period: string): string =
   ## chip's group within the given run `period` of the database.
   ## done by parsing the given string to a `ChipName` and using `ChipNames`
   ## `$` proc and prepending the `period`.
-  result = "/" & period & "/" & $(parseChipName(chipName))
+  result = "/" & period & "/" & chipName.formatChipName
 
 proc parseTomlTime*(t: TomlValueRef): DateTime =
   case t.kind

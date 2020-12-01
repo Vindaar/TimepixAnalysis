@@ -8,21 +8,24 @@ import ingrid/ingrid_types
 
 
 # procs to get data from the file
+proc getTotCalib*(h5f: H5File, chipName: string, runPeriod: string): Tot =
+  let dsetName = joinPath(chipNameToGroup(chipName, runPeriod), TotPrefix)
+  var dset = h5f[dsetName.dset_str]
+  let data = dset[float64].reshape2D(dset.shape).transpose
+  result.pulses = data[0].asType(int)
+  result.mean = data[1]
+  result.std = data[2]
+
 proc getTotCalib*(chipName: string, runPeriod: string): Tot =
   ## reads the TOT calibration data from the database for `chipName`
-  let dsetName = joinPath(chipNameToGroup(chipName, runPeriod), TotPrefix)
   withDatabase:
-    var dset = h5f[dsetName.dset_str]
-    let data = dset[float64].reshape2D(dset.shape).transpose
-    result.pulses = data[0].asType(int)
-    result.mean = data[1]
-    result.std = data[2]
+    result = h5f.getTotCalib(chipName, runPeriod)
 
 proc getTotCalib*(chipName: string, run: int): Tot =
   var runPeriod: string
   withDatabase:
     runPeriod = h5f.findRunPeriodFor(chipName, run)
-  result = getTotCalib(chipName, runPeriod)
+    result = h5f.getTotCalib(chipName, runPeriod)
 
 proc getScurve*[T: SomeInteger](h5f: var H5FileObj,
                                 chipName: string,

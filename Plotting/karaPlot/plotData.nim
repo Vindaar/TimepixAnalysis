@@ -77,7 +77,7 @@ const doc = docTmpl % [commitHash, currentDate]
 
 const
   GoldenMean = (sqrt(5.0) - 1.0) / 2.0  # Aesthetic ratio
-  FigWidth = 800.0                      # width in pixels
+  FigWidth = 1200.0                      # width in pixels
   FigHeight = FigWidth * GoldenMean     # height in pixels
 
   InGridDsets = ["length", "width", "skewnessLongitudinal", "skewnessTransverse",
@@ -99,6 +99,7 @@ type
   # TODO: make generic or always use float?
   PlotV* = object
     annotations*: seq[string]
+    invalid*: bool
     case kind*: BackendKind
     of bMpl:
       # what needs to go here?
@@ -223,7 +224,8 @@ proc savePlot(p: PlotV, outfile: string, fullPath = false) =
       discard callMethod(p.plt, "close", "all")
   of bGgPlot:
     if p.kind == bGgPlot: # if plot was not initialized
-      p.pltGg.ggsave(fname, p.width, p.height)
+      if not p.invalid:
+        p.pltGg.ggsave(fname, p.width, p.height)
   else: discard
 
 proc importPyplot(): PyObject =
@@ -559,6 +561,10 @@ proc calcOccupancy[T](x, y: seq[T]): Tensor[float] =
       xEv = x[i]
       yEv = y[i]
     when T is seq:
+      ## continue if full event.
+      ## TODO: replace by solution that also works for clusters!!
+      if xEv.len >= 4095: continue
+
       for j in 0 .. xEv.high:
         result[xEv[j].int, yEv[j].int] += 1.0
     elif T is SomeFloat:
@@ -585,18 +591,24 @@ proc plotHist2D(data: Tensor[float], title, outfile: string): PlotV =
     # inefficient so far!
     # build 3 cols, x, y, z
     var
-      x = newTensorUninit[int](data.shape[0])
-      y = newTensorUninit[int](data.shape[0])
-      z = newTensorUninit[float](data.shape[0])
+      x = newTensorUninit[int](NPix * NPix)
+      y = newTensorUninit[int](NPix * NPix)
+      z = newTensorUninit[float](NPix * NPix)
     var i = 0
     for idx, val in data:
       x[i] = idx[0]
       y[i] = idx[1]
       z[i] = val
+      inc i
     let df = seqsToDf(x, y, z)
-    result.pltGg = ggplot(df, aes("x", "y", fill = "z")) +
-        geom_tile() +
-        result.theme # just add the theme directly
+    if data.max > 0.0:
+      result.pltGg = ggplot(df, aes("x", "y", fill = "z")) +
+          geom_raster() +
+          scale_fill_continuous(scale = (low: 0.0, high: data.max)) +
+          xlim(0, NPix) + ylim(0, NPix) +
+          result.theme # just add the theme directly
+    else:
+      result.invalid = true
   else:
     discard
 

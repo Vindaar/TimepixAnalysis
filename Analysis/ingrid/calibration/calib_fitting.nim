@@ -5,7 +5,7 @@ data perform a fit either with Nlopt or mpfit and return data.
 The actual functions to be fitted are found in `fit_functions.nim`
 ]#
 
-import seqmath, sequtils, stats, strformat, fenv
+import seqmath, sequtils, stats, strformat, fenv, times, algorithm
 import nlopt, mpfit
 import ggplotnim
 
@@ -587,30 +587,76 @@ template fitPolyaTmpl(charges,
     p {.inject.} = @[scaling, gain, 1.0] #gain * gain / (rms * rms) - 1.0]
 
   ## code will be inserted here
+  let t0 = epochTime()
   actions
+  echo "Took ", epochTime() - t0, " s"
 
   # set ``x``, ``y`` result and use to create plot
   # TODO: replace by just using charges directly
-  result.x = linspace(charges[0], charges[^1], counts.len)
+  result.x = linspace(charges[0], charges[^1], 1000)
   result.y = result.x.mapIt(polyaImpl(params, it))
 
   result.pRes = params
   # calc reduced Chi^2 from total Chi^2
   result.redChiSq = minVal / (charges.len - p.len).float
 
+import sugar
 proc filterByCharge(charges, counts: seq[float]): (seq[float], seq[float]) =
-  ## filters the given charges and counts seq by the cuts Christoph applied
-  ## (see `getGasGain.C` in `resources` directory as reference)
+  ## Filters the data to a reasonable data range, so that we cut away the
+  ## left
+  ## determine the fitting range dynamically.
+  ## Our heuristics are as follows:
+  ## - Find 95% of max of counts.
+  ## - Take mean of all indices larger than this
+  ## - walk left from mean until we reach 70% of max
+  ## -> minimum value
   const
-    ChargeLow = 1200.0
     ChargeHigh = 20_000.0
-  result[0] = newSeqOfCap[float](charges.len)
-  result[1] = newSeqOfCap[float](charges.len)
-  for idx, ch in charges:
-    # get those indices belonging to charges > 1200 e^- and < 20,000 e^-
-    if ch >= ChargeLow and ch <= ChargeHigh:
-      result[0].add ch
-      result[1].add counts[idx]
+    maxThreshold = 0.95
+    cutOffThreshold = 0.7
+  let chargeSmaller = charges.filterIt(it <= ChargeHigh)
+  let countsSmaller = counts[0 .. chargeSmaller.high]
+  let maxCounts = countsSmaller.max
+  var idxLarger: seq[int]
+  # it's fine to use `countsSmaller`, because we only cut off the upper range
+  # (to access the `charges` later)
+  var distToLast = 0
+  for i, c in countsSmaller:
+    if c >= maxCounts * maxThreshold:
+      idxLarger.add i
+      distToLast = 0
+    elif idxLarger.len > 0:
+      inc distToLast
+    if distToLast > 10:
+      # break if there is a gap of larger than 10 bins from the last
+      # element, i.e. to avoid to see a second peak due to noise on the
+      # far RHS of the data (if `ChargeHigh` cut on `chargeSmaller` is not
+      # enough)
+      break
+  let idxMean = idxLarger.mean.round.int
+  var idxMin = idxMean
+  while countsSmaller[idxMin] >= cutOffThreshold * maxCounts:
+    dec idxMin
+  result[0] = chargeSmaller[idxMin .. ^1]
+  result[1] = countsSmaller[idxMin .. ^1]
+
+#proc constrainPolya(p: seq[float], data: FitObject): float =
+#  doAssert data.y.len == data.yFit[].len
+#  let y = data.y
+#  let yFit = data.yFit[]
+#  let minReq = max(y) * 0.1
+#  echo "minreq ", minReq
+#  echo "min ", y[0], "   ", yFit[0], "   ", yFit[0] / y[0]
+#
+#  for i in 0 ..< y.len:
+#    let max = max(y[i], yFit[i])
+#    let min = min(y[i], yFit[i])
+#    let ratio = (max / min)
+#    if min > minReq and ratio > 0.7:
+#      echo "at index ", i, " is wrong ", y[i], "   ", yFit[i]
+#      return -100.0
+#  echo "all fine!"
+#  result = 100.0
 
 proc fitPolyaNim*(charges,
                   counts: seq[float],
@@ -625,6 +671,9 @@ proc fitPolyaNim*(charges,
     #var opt = newNloptOpt[FitObject](LD_MMA, 3, bounds)
     # get charges in the fit range
     let (chToFit, countsToFit) = filterByCharge(charges, counts)
+    result.xMin = chToFit.min
+    result.xMax = chToFit.max
+
     # hand the function to fit as well as the data object we need in it
     let fitObject = FitObject(
       x: chToFit,
@@ -638,7 +687,7 @@ proc fitPolyaNim*(charges,
     # these default values have proven to be working
     opt.xtol_rel = 1e-10
     opt.ftol_rel = 1e-10
-    opt.maxtime  = 5.0
+    opt.maxtime  = 1.0
     # start actual optimization
     let (params, minVal) = opt.optimize(p)
     if opt.status < NLOPT_SUCCESS:

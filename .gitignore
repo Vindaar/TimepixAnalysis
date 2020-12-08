@@ -30,3 +30,6 @@ Tests/reconstruction/*.pdf
 /Plotting/karaPlot/*.json
 /Plotting/onlinePlotter/*.h5
 /PlottingPython/Plotting/*.pdf
+/InGridDatabase/src/databaseTool
+/LogReader/cast_log_reader
+/LogReader/logFileSplitter

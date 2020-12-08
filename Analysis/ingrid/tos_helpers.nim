@@ -8,5 +8,5 @@ export pure, geometry, cdl_cuts
 when not defined(pure):
   import nimhdf5
   import arraymancer
-  import private / [hdf5_utils, arraymancer_utils, python_utils, ggplot_utils]
-  export hdf5_utils, arraymancer_utils, python_utils, ggplot_utils
+  import private / [hdf5_utils, arraymancer_utils, python_utils, ggplot_utils, plotting]
+  export hdf5_utils, arraymancer_utils, python_utils, ggplot_utils, plotting

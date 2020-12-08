@@ -202,7 +202,7 @@ proc createFeSpectrum*(h5f: var H5FileObj, runNumber, centerChip: int) =
   plotFeSpectrumInfoFacet(pos_x, pos_y, ecc, rms_trans, hits,
                           runNumber = runNumber,
                           chipNumber = chipNumber,
-                          pathPrefix = h5f.attrs[plotDirPrefixAttr, string])
+                          pathPrefix = h5f.attrs[PlotDirPrefixAttr, string])
 
   # given this data, filter all events which don't conform
   let (eventSpectrum,
@@ -464,7 +464,7 @@ iterator iterGainSlices(df: DataFrame,
       idxOld = i
       inc idx
   let g = initInterval(idx, interval, tStart, tstamps[tstamps.size - 1])
-  yield (g, idxOld ..< tstamps.size)
+  yield (g, idxOld ..< tstamps.size.int)
 
 iterator iterGainSlicesFromAttrs*(dset: H5DataSet,
                                   df: DataFrame,
@@ -490,7 +490,7 @@ iterator iterGainSlicesFromAttrs*(dset: H5DataSet,
         break
       g = dset.initFromDset(idx, interval)
   g = dset.initFromDset(idx, interval)
-  yield (g, idxOld ..< tstamps.size)
+  yield (g, idxOld ..< tstamps.size.int)
 
 proc deleteAllAttrStartingWith(dset: H5DataSet, start: string) =
   ## deletes all attributes starting with string
@@ -512,7 +512,7 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int,
     binWidth = 3
   let totBins = arange(hitLow, hitHigh, binWidth).mapIt(it.float + 0.5)
   var chipBase = recoDataChipBase(runNumber)
-  let plotPath = h5f.attrs[plotDirPrefixAttr, string]
+  let plotPath = h5f.attrs[PlotDirPrefixAttr, string]
 
   ## TODO:
   ## - 1. make sure histogram works well with unequal bin widths (write test
@@ -673,7 +673,7 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
   # get the fe spectrum for the run
   let groupName = recoDataChipBase(runNumber) & $chipNumber
   var feDset = h5f[(groupName / "FeSpectrum").dsetStr]
-  let plotPath = h5f.attrs[plotDirPrefixAttr, string]
+  let plotPath = h5f.attrs[PlotDirPrefixAttr, string]
   let feData = feDset[int64]
   info "Fit pixel spectrum of run: " & $runNumber & " and chip: " & $chipNumber
   let feSpec = fitFeSpectrum(feData)
@@ -760,7 +760,7 @@ proc performChargeCalibGasGainFit*(h5f: var H5FileObj) =
   ## - for all runs the Fe spectrum was calculated and fitted
   ## writes the resulting fit data to the ingridDatabase
   # iterate over all runs, extract center chip grou
-  let plotPath = h5f.attrs[plotDirPrefixAttr, string]
+  let plotPath = h5f.attrs[PlotDirPrefixAttr, string]
   let runPeriod = h5f.attrs[RunPeriodAttr, string]
   var
     calib = newSeq[float64]()

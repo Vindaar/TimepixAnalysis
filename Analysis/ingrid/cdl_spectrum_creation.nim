@@ -925,7 +925,7 @@ proc fitAndPlot[T: SomeNumber](h5f: var H5FileObj, fitParamsFname: string,
                                tfKind: TargetFilterKind, dKind: DataKind):
                (seq[float], seq[float], seq[float], seq[float]) =
   let runs = readRuns(filename)
-  let plotPath = h5f.attrs[plotDirPrefixAttr, string]
+  let plotPath = h5f.attrs[PlotDirPrefixAttr, string]
 
   var ploterror: seq[float]
   var rawseq: seq[T]
@@ -1350,7 +1350,7 @@ proc main =
       energyResCharge.add(energyCharge[1])
       peakChargeErr.add(energyCharge[2])
       energyChargeErr.add(energyCharge[3])
-    let plotPath = h5f.attrs[plotDirPrefixAttr, string]
+    let plotPath = h5f.attrs[PlotDirPrefixAttr, string]
     discard h5f.close()
     energyResolution(energyResHits, energyResCharge, energyHitsErr, energyChargeErr, plotPath)
     peakFit(peakposHits, "Hits", peakHitsErr, plotPath)

@@ -79,7 +79,6 @@ proc plotOccupancySlice(h5f: H5File, run, chip, idx: int, slice: Slice[int], pat
     ggsave(&"out/occupancy_counts_run_{run}_chip_{chip}_slice_{idx}.pdf", width = 1200,
             height = 1200)
 
-
 proc readGasGains(f: string): DataFrame =
   var h5f = H5open(f, "r")
   for run, grp in runs(h5f, recoBase()):

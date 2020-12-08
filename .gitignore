@@ -27,3 +27,6 @@ Tools/CompareMarlinTpa/UseMarlinRotAngle/*.pdf
 Tools/CompareMarlinTpa/UseMarlinRotAngle/logs/*
 Tests/raw_data_manipulation/*.pdf
 Tests/reconstruction/*.pdf
+/Plotting/karaPlot/*.json
+/Plotting/onlinePlotter/*.h5
+/PlottingPython/Plotting/*.pdf

@@ -52,7 +52,7 @@ proc readFiles(files: seq[string]): seq[LogLFile] =
   ## be accumulated or not
   for file in files:
     let h5f = H5open(file, "r")
-    var df = h5f.readDsets(likelihoodBase(), (3, "energyFromCharge"))
+    var df = h5f.readDsets(likelihoodBase(), some((3, @["energyFromCharge"])))
       .rename(f{Ecol <- "energyFromCharge"})
     let fname = file.extractFilename
     df["File"] = constantColumn(fname, df.len)
@@ -77,12 +77,14 @@ template sumIt(s: seq[typed], body: untyped): untyped =
   res
 
 proc flatScale(files: seq[LogLFile], factor: float): DataFrame =
+  var count {.global.} = 0
   var df: DataFrame
   for f in files:
     df.add f.df
   result = df.histogram()
   result[Rcol] = result[Ccol].scaleDset(files.sumIt(it.totalTime), factor)
-  result["Dataset"] = constantColumn("2017/18", result.len)
+  result["Dataset"] = constantColumn("2017/18_" & $count, result.len)
+  inc count
   result = result.mutate(f{"yMin" ~ `Rate` - sqrt(`Rate`)}, f{"yMax" ~ `Rate` + sqrt(`Rate`)})
   result["yMin"] = result["yMin"].toTensor(float).map_inline:
     if x >= 0.0: x
@@ -100,11 +102,18 @@ proc calcIntegratedBackgroundRate(df: DataFrame, factor: float): float =
   let rate = df[Rcol].toTensor(float)
   result = simpson(rate.toRawSeq, energies.toRawSeq) / factor
 
-proc main(files: seq[string], log = false, title = "", show2014 = false) =
+proc main(files: seq[string], log = false, title = "", show2014 = false,
+          separateFiles = false) =
   discard existsOrCreateDir("plots")
   let logLFiles = readFiles(files)
   let factor = if log: 1.0 else: 1e5
-  var df = flatScale(logLFiles, factor)
+  var df = newDataframe()
+  if separateFiles:
+    for logL in logLFiles:
+      df.add flatScale(@[logL], factor)
+  else:
+    df =  flatScale(logLFiles, factor)
+  echo df
 
   ## NOTE: this has to be calculated before we add 2014 data if we do, of course,
   ## because otherwise we have everything duplicated!
@@ -125,7 +134,6 @@ proc main(files: seq[string], log = false, title = "", show2014 = false) =
     df2014 = df2014.mutate(f{"yMin" ~ `Rate` - `yMin`}, f{"yMax" ~ `Rate` + `yMax`},
                            f{Ecol ~ `Energy` - 0.1})
     df2014["Dataset"] = constantColumn("2014/15", df2014.len)
-
     echo df2014
     df.add df2014
 
@@ -140,6 +148,7 @@ proc main(files: seq[string], log = false, title = "", show2014 = false) =
     geom_errorbar(binPosition = "center",
                   aes = aes(yMin = "yMin", yMax = "yMax"),
                   errorBarKind = ebLines) +
+    scale_y_continuous() +
     xlab("Energy [keV]") +
     ylab("Rate [10⁻⁵ keV⁻¹ cm⁻² s⁻¹]") +
     xlim(0, 10.0) +

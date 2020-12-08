@@ -13,8 +13,6 @@ import sequtils, sugar
 import algorithm
 import tables
 import times
-#import threadpool
-import threadpool_simple
 import memfiles
 import strutils, strformat, parseutils
 import docopt
@@ -32,17 +30,6 @@ import ingrid_types
 import seqmath
 import nimhdf5
 import arraymancer
-
-# global experimental pragma to use parallel: statement in readRawInGridData()
-{.experimental.}
-
-## TODO:
-## change the we write to H5 to appropriate types, e.g.
-## x / y pixel coordinates may as well be written as uint8
-## FADC raw as uint16
-## all flags as uint8
-## ToT values as uint16
-## hits as uint16
 
 type
   RawFlagKind = enum
@@ -173,10 +160,7 @@ template batchFiles(files: var seq[string], bufsize, actions: untyped): untyped 
   ##     echo memoryConsumptuousCalc(files[0..ind_high])
   while len(files) > 0:
     # variable to set last index to read to
-    var ind_high {.inject.} = bufsize
-    if files.high < bufsize:
-      ind_high = files.high
-
+    var ind_high {.inject.} = min(files.high, bufsize - 1)
     # perform actions as desired
     actions
 
@@ -362,7 +346,7 @@ proc processRawInGridData(run: Run): ProcessedRun =
             hits[num][i] = n_pix
         else:
           hits[num][i] = n_pix
-    echoCounted(count, msg = " files processed.")
+    echoCount(count, msg = " files processed.")
 
   # use first event of run to fill event header. Fine, because event
   # header is contained in every file

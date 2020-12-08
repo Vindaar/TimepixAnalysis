@@ -4,8 +4,6 @@ import sequtils, sugar
 import memfiles
 import strutils, strscans
 import helpers/utils
-#import threadpool
-import threadpool_simple
 # import read list of files, to read FADC files in parallel
 from tos_helpers import readListOfFiles, readMemFilesIntoBuffer
 import ingrid_types

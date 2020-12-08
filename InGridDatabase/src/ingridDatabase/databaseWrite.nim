@@ -30,7 +30,7 @@ proc writeThreshold*(h5f: var H5FileObj, threshold: Threshold, chipGroupName: st
   var thresholdDset = h5f.create_dataset(joinPath(chipGroupName, ThresholdPrefix),
                                           (256, 256),
                                           dtype = int)
-  thresholdDset[thresholdDset.all] = threshold.data.reshape([256, 256])
+  thresholdDset[thresholdDset.all] = threshold.reshape([256, 256]).toRawSeq
 
 proc writeCalibVsGasGain*(gain, calib, calibErr: seq[float64],
                           fitResult: FitResult,

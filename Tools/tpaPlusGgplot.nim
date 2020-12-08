@@ -2,8 +2,8 @@
 ## Might be an important basis for features required in `ggplotnim` for my work.
 
 import ingrid / tos_helpers
-import sequtils, seqmath, nimhdf5, strutils, tables, persvector
-from json import JsonNode, `[]`, `[]=`, `%`
+import sequtils, seqmath, nimhdf5, strutils, tables, strformat, times
+#from json import JsonNode, `[]`, `[]=`, `%`
 import os, sugar
 
 import arraymancer, plotly
@@ -11,9 +11,6 @@ import plotly / color
 import helpers / utils
 
 import macros
-
-template `[]=`(t: Tensor, stmt: untyped, val: untyped): untyped =
-  t.apply(it => (if stmt: val else: it))
 
 proc buildSeptemOccupancy(df: DataFrame) =
   ## builds an occupancy map of a single run. Data must be stored in `df`
@@ -26,7 +23,7 @@ proc buildSeptemOccupancy(df: DataFrame) =
   let dfPerEvent = df.group_by("eventNumber")
   for (pair, subgroup) in groups(dfPerEvent):
     echo "Pair ", pair
-    echo "chips in subgroup ", subgroup["chipNumber"].toSeq.toSet
+    echo "chips in subgroup ", subgroup["chipNumber"].toTensor(int).toRawSeq.toSet
     echo "Number of total pixels ", subgroup.len
     # each subgroup corresponds to a full septemboard event
     # Construct a tensor covering the whole board from them
@@ -63,18 +60,19 @@ proc buildSeptemOccupancy(df: DataFrame) =
     occ = occ.clamp(0.0, 100.0)#occ.toRawSeq.filterIt(it > 0.0).percentile(70))
 
     echo "Creating plot"
-    var plt = heatmap(occ.toSeq2D)
-      .title($pair)
-      .width(1600)
-      .height(1600)
-    let fname = "event_" & $pair[0][1]
-    template createPlot(cmap: untyped): untyped =
-      plt = plt.zmax(6)
-        .colormap(cmap)
-      plt.show(fname & "_" & astToStr(cmap) & ".svg")
-    createPlot(Viridis)
-    #createPlot(Plasma)
-    #createPlot(WhiteToBlack)
+    when false:
+      var plt = heatmap(occ.toSeq2D)
+        .title($pair)
+        .width(1600)
+        .height(1600)
+      let fname = "event_" & $pair[0][1]
+      template createPlot(cmap: untyped): untyped =
+        plt = plt.zmax(6)
+          .colormap(cmap)
+        plt.show(fname & "_" & astToStr(cmap) & ".svg")
+      createPlot(Viridis)
+      createPlot(Plasma)
+      createPlot(WhiteToBlack)
     inc xyz
     if xyz > 10:
       quit()
@@ -83,42 +81,64 @@ proc main(fname: string) =
   var h5f = H5open(fname, "r")
   defer: discard h5f.close()
 
-  for df in getSeptemDataFrame(h5f):
-    buildSeptemOccupancy(df)
-    if true:
-      quit()
+  #for df in getSeptemDataFrame(h5f):
+  #  buildSeptemOccupancy(df)
+  #  if true:
+  #    quit()
 
-  for df in getDataframes(h5f):
-    echo df
-    let fname = "figs/" & $12
-    echo "Saving as ", fname
+  let df = getSeptemDataFrame(h5f, 107)
+  echo df
 
-    # small sizes
-    let dfSmall = df.filter(f{"length" < 1.0})
-    let dfOne = df.mutate(f{"smaller" ~ "length" < 1.0})
-      #.group_by("smaller")
-    echo dfOne
-    ggplot(df, aes("length", "eccentricity")) +
-      geom_point() +
-      ggsave(fname & "le.svg")
+  let outDir = "/tmp" / h5f.attrs[PlotDirPrefixAttr, string]
+  createDir(outDir)
+  echo "Outdir is ", outDir
+  let t0 = epochTime()
+  var count = 0
+  df.write_csv("/tmp/df_run_106.csv")
+  for tup, dfEv in groups(df.group_by("eventNumber")):
+    let evNum = tup[0][1].toInt
+    if dfEv.len > 3:
+      ggplot(dfEv, aes("x", "y", fill = "charge")) +
+        facet_wrap("chipNumber") +
+        geom_point() +
+        ggtitle("Event number " & $evNum) +
+        xlim(0, 256) + ylim(0, 256) +
+        ggsave(outDir / "events_run107_" & $evNum & ".pdf")
+      inc count
+  let t1 = epochTime()
+  echo "Created ", count, " plots in ", t1 - t0, " s. ", count.float / (t1 - t0).float, " fps"
 
-    ggplot(dfOne, aes("length", "hits", color = "smaller")) +
-      geom_point() +
-      ggsave(fname & "length.svg")
-
-    echo (dfOne.filter(f{"hits" < 300.0}).arrange("hits", order = SortOrder.Descending))
-    echo f{"eccCut<1.5" ~ "eccentricity" < 1.5 and "length" < 6.0}
-    echo dfOne.mutate(f{"eccCut<1.5" ~ "eccentricity" < 1.5 and "length" < 6.0})
-
-    echo dfOne.mutate(f{"between50and100" ~ "hits" < 100.0 and "hits" > 50.0})
-    echo dfOne.filter(f{"hits" < 100.0 xor "hits" > 50.0})
-
-    dfOne.mutate(f{"eccCut<1.5" ~ "eccentricity" < 1.5 and "length" < 6.0})
-                 #f{"length<6" ~ "length" < 6.0})
-      .filter(f{"hits" < 300.0})
-      .ggplot(aes("hits", fill = "eccCut<1.5")) +
-      geom_histogram() +
-      ggsave(fname & "hitsSmall.svg")
+  #for df in getDataframes(h5f):
+  #  echo df
+  #  let fname = "figs/"
+  #  echo "Saving as ", fname
+  #
+  #  # small sizes
+  #  let dfSmall = df.filter(f{float -> bool: `length` < 1.0})
+  #  let dfOne = df.mutate(f{float -> bool: "smaller" ~ `length` < 1.0})
+  #   #.group_by("smaller")
+  #  echo dfOne
+  #  ggplot(df, aes("length", "eccentricity")) +
+  #    geom_point() +
+  #    ggsave(fname & "le.svg")
+  #
+  #  ggplot(dfOne, aes("length", "hits", color = "smaller")) +
+  #    geom_point() +
+  #    ggsave(fname & "length.svg")
+  #
+  #  echo (dfOne.filter(f{float -> bool: `hits` < 300.0}).arrange("hits", order = SortOrder.Descending))
+  #  echo f{"eccCut<1.5" ~ `eccentricity` < 1.5 and `length` < 6.0}
+  #  echo dfOne.mutate(f{"eccCut<1.5" ~ `eccentricity` < 1.5 and `length` < 6.0})
+  #
+  #  echo dfOne.mutate(f{"between50and100" ~ `hits` < 100.0 and `hits` > 50.0})
+  #  echo dfOne.filter(f{`hits` < 100.0 xor `hits` > 50.0})
+  #
+  #  dfOne.mutate(f{"eccCut<1.5" ~ `eccentricity` < 1.5 and `length` < 6.0})
+  #               #f{"length<6" ~ "length" < 6.0})
+  #    .filter(f{float -> bool: `hits` < 300.0})
+  #    .ggplot(aes("hits", fill = "eccCut<1.5")) +
+  #    geom_histogram() +
+  #    ggsave(fname & "hitsSmall.svg")
 
 
 when isMainModule:

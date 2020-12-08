@@ -60,7 +60,7 @@ proc convertFadcTicksToVoltage*(data: Tensor[float], bitMode14: bool): Tensor[fl
   # to result
   result = data.map(x => x * conversion_factor)
 
-proc readFadcFile*(file: seq[string]): ref FadcFile = #seq[float] =
+proc readFadcFile*(file: seq[string]): FadcFile = #seq[float] =
   ## reads an FADC file. Example header + data line
   ## # nb of channels: 0
   ## # channel mask: 15
@@ -72,7 +72,6 @@ proc readFadcFile*(file: seq[string]): ref FadcFile = #seq[float] =
   ## # pedestal run: 1
   ## #Data: followed by lines 10 - 21 commented out, and then
   ## single integers for data
-  result = new FadcFile
   var
     # create a sequence with a cap size large enough to hold the whole file
     # speeds up the add, as the sequence does not have to be resized all the
@@ -145,12 +144,13 @@ proc readFadcFile*(file: seq[string]): ref FadcFile = #seq[float] =
   elif not result.pedestalRun:
     # raise exception if this is no pedestal run
     raise newException(Exception, "Warning: could not match event number match for file " &
-      $filepath & " and result " & $result[])
+      $filepath & " and result " & $result)
 
   # finally assign data sequence
   result.data = data
+  result.isValid = true
 
-proc readFadcFileMem*(filepath: string): ref FadcFile = #seq[float] =
+proc readFadcFileMem*(filepath: string): FadcFile =
   ## reads an FADC file. Example header + data line
   ## # nb of channels: 0
   ## # channel mask: 15
@@ -162,7 +162,6 @@ proc readFadcFileMem*(filepath: string): ref FadcFile = #seq[float] =
   ## # pedestal run: 1
   ## #Data: followed by lines 10 - 21 commented out, and then
   ## single integers for data
-  result = new FadcFile
   var
     # create a sequence with a cap size large enough to hold the whole file
     # speeds up the add, as the sequence does not have to be resized all the
@@ -174,8 +173,8 @@ proc readFadcFileMem*(filepath: string): ref FadcFile = #seq[float] =
   try:
     ff = memfiles.open(filepath, mode = fmRead, mappedSize = -1)
   except OSError:
-    # broken file, return nil
-    return nil
+    # broken file, `isValid` will be false
+    return
   readNumLinesMemFile(ff, file, 9)
 
   # variable we use to match value in header line
@@ -220,8 +219,8 @@ proc readFadcFileMem*(filepath: string): ref FadcFile = #seq[float] =
                      matchHeader, dummy,
                      valMatch, result)
   except Exception:
-    # broken file
-    return nil
+    # broken file, `isValid` will be false
+    return
   # line 7: sampling mode
   if scanf(file[6], matchHeader, dummy, valMatch):
     let mode_register = valMatch
@@ -241,8 +240,8 @@ proc readFadcFileMem*(filepath: string): ref FadcFile = #seq[float] =
   ff.close()
 
   if data.len != 10240:
-    # broken file
-    return nil
+    # broken file, `isValid` will be false
+    return
 
   const evNumberMatch = "data$i.txt-fadc"
   # TODO: replace `extractFilename` call by something simpler!
@@ -251,13 +250,13 @@ proc readFadcFileMem*(filepath: string): ref FadcFile = #seq[float] =
   elif not result.pedestalRun:
     # raise exception if this is no pedestal run
     raise newException(Exception, "Warning: could not match event number match for file " &
-      $filepath & " and result " & $result[])
+      $filepath & " and result " & $result)
 
   # finally assign data sequence
   result.data = data
+  result.isValid = true
 
-
-proc readFadcFile*(filename: string): ref FadcFile =
+proc readFadcFile*(filename: string): FadcFile =
   # wrapper around readFadcFile(file: seq[string]), which first
   # reads all lines in the file before
   let file = readFile(filename).strip.splitLines
@@ -374,8 +373,7 @@ proc getFadcData*(filename: string): FadcData =
   # same for the pedestal run data
   const pedestalRun = joinPath(currentSourcePath(), "../../../resources/pedestalRuns/pedestalRun000042_1_182143774.txt-fadc")
   let pedestal_d {.global.} = readFadcFile(pedestalRun)
-
-  let data = readFadcFile(filename)[]
+  let data = readFadcFile(filename)
   result = fadcFileToFadcData(data, pedestal_d.data)
 
 proc getPedestalRun*(): seq[uint16] =
@@ -413,23 +411,16 @@ proc buildListOfXrayFiles*(file: string): seq[string] =
 
   return event_list
 
-# use experimental pragma to use parallel statement, which is contained in
-# dirty template
-{.experimental.}
-proc readListOfFadcFiles*(list_of_files: seq[string]): seq[FlowVar[ref FadcFile]] =
-  # this procedure receives a list of files, reads them into memory (as a buffer)
-  # and processes the content into a seq of ref FadcFile
-  # inputs:
-  #    list_of_files: seq[string] = a seq of fadc filenames, which are to be read in one go
-  # outputs:
-  #    seq[FlowVar[ref FadcFile]] = a seq of flow vars pointing to fadc events, since we read
-  #                                 in parallel
-  # the meat of the proc is in the readListOfFiles function. Here we simply tell it
-  # what kind of datatype we are reading.
+proc readListOfFadcFiles*(list_of_files: seq[string]): seq[FadcFile] =
+  ## this procedure receives a list of files, reads them into memory (as a buffer)
+  ## and processes the content into a seq of ref FadcFile
+  ## inputs:
+  ##    list_of_files: seq[string] = a seq of fadc filenames, which are to be read in one go
+  ## outputs:
+  ##    seq[FadcFile] = a seq of `FadcFile` which stores the FADC raw data
+  ## the meat of the proc is in the readListOfFiles function. Here we simply tell it
+  ## what kind of datatype we are reading.
   result = readListOfFiles[FadcFile](list_of_files)
-
-
-
 
   ###################################################################################
   # The following procs all deal with the calculation of whether a given FADC event #
@@ -438,9 +429,9 @@ proc readListOfFadcFiles*(list_of_files: seq[string]): seq[FlowVar[ref FadcFile]
   ###################################################################################
 
 proc isFadcFileNoisy*(fadc: FadcData, n_dips: int): bool =
-  # this procedure checks whether a given file name
-  # is a noisy FADC file. Determined by the number of dips found in the
-  # FADC signal.
+  ## this procedure checks whether a given file name
+  ## is a noisy FADC file. Determined by the number of dips found in the
+  ## FADC signal.
   let peak_loc = findPeaks(fadc.data, 150)
   result = if len(peak_loc) >= n_dips: true else: false
 

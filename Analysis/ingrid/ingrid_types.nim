@@ -1,7 +1,7 @@
 # module which contains the used type definitions in the InGrid module
 when not defined(js):
   import times
-import tables, strformat
+import tables, strformat, memfiles
 import karax / kbase
 
 type
@@ -25,7 +25,12 @@ type
     chip*: Chip
     pixels*: Pixels
 
+  ProtoFile* = object
+    name*: string
+    fileData*: string
+
   Event* = object
+    isValid*: bool
     evHeader*: Table[string, string]
     chips*: seq[ChipEvent]
     nChips*: int
@@ -162,6 +167,7 @@ type
   ##############
 
   FadcObject* = object of RootObj
+    isValid*: bool
     postTrig*: int
     preTrig*: int
     trigRec*: int

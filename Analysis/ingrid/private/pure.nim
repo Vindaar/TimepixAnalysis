@@ -1,14 +1,10 @@
-import os
-import strutils, strformat, strscans
-import parseutils
-import times
-import algorithm
-import re
-import tables
-import memfiles
-import sequtils, sugar
-#import threadpool
-import threadpool_simple
+import strutils, strformat, strscans, terminal, os, parseutils, times, algorithm
+import re, tables, memfiles, sequtils, sugar
+
+when not defined(gcDestructors):
+  import threadpool_simple
+else:
+  import weave
 import math
 import streams, parsecsv
 
@@ -196,22 +192,15 @@ proc readListOfFilesAndGetTimes*(path: string, list_of_files: seq[string]): seq[
   ## function analogues to walkRunFolderAndGetTimes except we read all files
   ## given by list_of_files
   var i: int = 0
-  result = @[]
-
   for file in list_of_files:
     let filename = joinPath(path, file)
     let date_str = readDateFromEvent(filename)
     if date_str != "":
       result.add(parseTOSDateString(date_str))
-    if i mod 500 == 0:
-      echoCounted(i, msg = " read files and parsed times.")
-    i += 1
-  return result
+    echoCount(i, msg = " read files and parsed times.")
 
 proc walkRunFolderAndGetTimes*(folder: string): seq[Time] =
   var i: int = 0
-  result = @[]
-
   for file in walkFiles(joinPath(folder, "data*.txt-fadc")):
     let path = file
     if "data" in path and "fadc" in path:
@@ -219,10 +208,7 @@ proc walkRunFolderAndGetTimes*(folder: string): seq[Time] =
       let date_str = readDateFromEvent(filename)
       if date_str != "":
         result.add(parseTOSDateString(date_str))
-      if i mod 500 == 0:
-        echoCounted(i, msg = " files walked and parsed times.")
-      i += 1
-  return result
+      echoCount(i, msg = " files walked and parsed times.")
 
 proc writeDateSeqToFile*(date_seq: seq[Time]): void =
   let outfile = "times.txt"
@@ -552,49 +538,41 @@ proc getRunHeader*(ev: Event,
     discard
 
 
-proc readMemFilesIntoBuffer*(list_of_files: seq[string]): seq[seq[string]] =
-  ## procedure which reads a list of files via memory mapping and returns
-  ## the thus read data as a sequence of MemFiles
+proc readMemFilesIntoBuffer*(list_of_files: seq[string]): seq[ProtoFile] =
+  ## procedure which reads a list of files via memory mapping and as a single
+  ## string and returns a seq of `ProtoFile` objects, which can be parsed in parallel
   ## inputs:
   ##    list_of_files: seq[string] = seq of strings containing the filenames to be read
   ## outputs:
-  ##    seq[seq[string]] = seq containing a seq of data for each file. Zeroth element
-  ##      always contains the filename
-  result = newSeqOfCap[seq[string]](len(list_of_files))
-
-  var
-    # reserver enough space for most events, only for large events do we have to reserve
-    # more space
-    dat: seq[string] = newSeqOfCap[string](400)
+  ##    seq[ProtoFile] = seq containing a seq of data for each file
+  result = newSeq[ProtoFile](len(list_of_files))
+  var badCount = 0
   echo "free memory ", getFreeMem()
   echo "occ memory ", getOccupiedMem()
-  # TODO: is it the smartest way to open and read the memfiles directly?
-  # I guess there's a reason why we do not return a seq of memory mapped files
-  # anymore
-  var lineBuf = newStringOfCap(80)
   var ff: MemFile
-  for f in list_of_files:
+  for i, f in list_of_files:
     # add filename to result
-    dat.add f
     try:
       ff = memfiles.open(f)
-      for slice in memSlices(ff):
-        lineBuf.setLen(slice.size)
-        copyMem(addr lineBuf[0], slice.data, slice.size)
-        dat.add lineBuf
-      result.add dat
-      dat.setLen(0)
+      result[i].name = f
+      result[i].fileData = newString(ff.size)
+      doAssert ff.size > 0, "Size of data in memory mapped file is 0! File " & $f
+      copyMem(result[i].fileData[0].addr, ff.mem, ff.size)
       ff.close()
     except OSError:
       # file exists, but is completely empty. Probably HDD ran full!
       # in this case remove the filename from the `dat` seq again
       when not defined(release):
-        echo "Warning: Discarding ", dat.pop, " since it cannot be opened!"
+        echo "Warning: Discarding ", f, " since it cannot be opened!"
+      inc badCount
       continue
   echo "free memory ", getFreeMem()
   echo "occ memory ", getOccupiedMem()
+  if badCount > 0:
+    stdout.styledWrite(fgRed, "WARNING: Number of broken files: ", $badCount)
+  result.setLen(result.len - badCount)
 
-proc processEventWithScanf*(data: seq[string]): ref Event =
+proc processEventWithScanf*(data: ProtoFile): Event =
   ## Reads a current TOS event file using the strscans.scanf
   ## macro. It
   ## - reads the event header
@@ -620,10 +598,7 @@ proc processEventWithScanf*(data: seq[string]): ref Event =
     # suppression!
     pix_to_read: int = 0
 
-  result = new Event
-  # get filename as 0th element of data seq
-  let filename = data[0]
-
+  let filename = data.name
   var
     # variables to use for `scanf` matching
     keyMatch: string
@@ -738,55 +713,59 @@ proc processEventWithScanf*(data: seq[string]): ref Event =
   ##############################
   # perform the matching using helpers
   ##############################
-
-  # first parse the event header (first 19 lines)
+  # first parse the event header (first 18 lines)
   # we can skip line `data[0 .. 1]`, since that:
-  # - data[0] == filename
-  # - data[1] == `[General]` header
-  for line in data[2 .. 19]:
-    # event header
-    # start from 3 to skip ``## ``
-    line[3 .. line.high].matchEventHeader(e_header,
-                                          keyMatch,
-                                          valMatch)
-
-  # parse the rest of the file
-  for line in data[20 .. ^1]:
-    # NOTE: match using matching template
-    case line[0]
-    of '#':
-      # Chip header
-      # set pix_counter to 0, need to make sure it is 0,
-      # once we reach the first
-      # hit pixel
-      try:
-        line[2 .. line.high].matchChipHeader(c_header,
-                                             pixels,
-                                             keyMatch,
-                                             valMatch,
-                                             pix_counter,
-                                             cHeaderCount,
-                                             pix_to_read,
-                                             chips,
-                                             filename)
-      except IOError:
-        # broken file
-        return nil
+  # - data[0] == `[General]` header
+  var
+    fidx, lineCnt = 0
+  var line: string
+  while fidx < data.fileData.len:
+    fidx += parseUntil(data.fileData, line, '\n', fidx)
+    inc fidx
+    if lineCnt < 1:
+      # skip the general header
+      inc lineCnt
+      continue
+    # event header goes until line including 18
+    if lineCnt < 19:
+      line[3 .. line.high].matchEventHeader(e_header,
+                                            keyMatch,
+                                            valMatch)
     else:
-      # in this case we have matched a pixel hit line
-      # get number of hits to process
-      # match the line with scanf
-      try:
-        line.matchPixels(c_header,
-                         pixels,
-                         x, y, ch,
-                         pix_counter,
-                         pix_to_read,
-                         chips,
-                         filename)
-      except IOError:
-        # broken file
-        return nil
+      # NOTE: match using matching template
+      case line[0]
+      of '#':
+        # Chip header
+        try:
+          line[2 .. line.high].matchChipHeader(c_header,
+                                               pixels,
+                                               keyMatch,
+                                               valMatch,
+                                               pix_counter,
+                                               cHeaderCount,
+                                               pix_to_read,
+                                               chips,
+                                               filename)
+        except IOError:
+          # broken file, `isValid` will be false
+          return
+      else:
+        # in this case we have matched a pixel hit line
+        # get number of hits to process
+        # match the line with scanf
+        try:
+          line.matchPixels(c_header,
+                           pixels,
+                           x, y, ch,
+                           pix_counter,
+                           pix_to_read,
+                           chips,
+                           filename)
+        except IOError:
+          # broken file, `isValid` will be false
+          return
+    # increase line counter
+    inc lineCnt
 
   # finally add the timestamp from the dateTime to the table as well
   e_header["timestamp"] = $(parseTOSDateString(e_header["dateTime"]).toUnix)
@@ -794,7 +773,8 @@ proc processEventWithScanf*(data: seq[string]): ref Event =
   result.evHeader = e_header
   result.chips = chips
   result.nChips = chips.len
-
+  # classify as a valid event
+  result.isValid = true
 
 proc addOldHeaderKeys(e_header, c_header: var Table[string, string],
                       eventNumber, chipNumber, timestamp, pix_counter: int,
@@ -820,7 +800,7 @@ proc addOldHeaderKeys(e_header, c_header: var Table[string, string],
   let (head, _) = filepath.splitPath
   e_header["pathName"] = head
 
-proc processOldEventScanf*(data: seq[string]): ref OldEvent =
+proc processOldEventScanf*(data: ProtoFile): OldEvent =
 # proc processOldEventScanf*(tup: tuple[fname: string, dataStream: MemMapFileStream]): ref OldEvent =
   ## Reads an Old TOS zero suppressed data file using the strscans.scanf
   ## macro
@@ -844,18 +824,21 @@ proc processOldEventScanf*(data: seq[string]): ref OldEvent =
     # important, because we cannot trust numHits in chip header, due to zero
     # suppression! We init by `-1` to deal with old TOS format, in which there
     # is no header
-  result = new OldEvent
 
-  let filepath = data[0]
+  let filepath = data.name
   # check for run folder kind by looking at first line of file
-  assert data[1][0] != '#', "This is not a valid rfOldTos file (old storage format)!" & data[1]
-
+  doAssert data.fileData[0] != '#', "This is not a valid rfOldTos file (old storage format)! " & data.name
   var
     x: int
     y: int
     ch: int
 
-  for line in data[1 .. ^1]:
+  var
+    fidx, lineCnt = 0
+  var line: string
+  while fidx < data.fileData.len:
+    fidx += parseUntil(data.fileData, line, '\n', fidx)
+    inc fidx
     # match with scanf
     if scanf(line, "$i$s$i$s$i", x, y, ch):
       # if the compiler flag (-d:REMOVE_FULL_PIX) is set, we cut all pixels, which have
@@ -867,7 +850,7 @@ proc processOldEventScanf*(data: seq[string]): ref OldEvent =
         pixels.add((x.uint8, y.uint8, ch.uint16))
       # after adding pixel, increase pixel counter so that we know when we're
       # reading the last hit of a given chip
-      inc pix_counter
+      inc lineCnt
 
   # in that case we're reading an ``old event files (!)``. Get the event number
   # from the filename
@@ -883,7 +866,7 @@ proc processOldEventScanf*(data: seq[string]): ref OldEvent =
                      evNumber.parseInt,
                      chipNumber.parseInt,
                      timestamp,
-                     pix_counter,
+                     lineCnt,
                      filepath)
 
   # now we are reading the last hit, process chip header and pixels
@@ -896,6 +879,8 @@ proc processOldEventScanf*(data: seq[string]): ref OldEvent =
   result.evHeader = e_header
   result.chips = chips
   result.nChips = chips.len
+  # classify as a valid event file
+  result.isValid = true
 
 proc parseSrsTosDate(input: string, date: var Time, start: int): int =
   ## proc for `scanf` macro to parse an SRS TOS date string from a filename
@@ -910,7 +895,7 @@ proc parseSrsTosDate(input: string, date: var Time, start: int): int =
   date = dateStr.parse(SrsTosDateSyntax).toTime
   assert input[stop] == '.', "Assertion failed. Token was: " & $input[stop]
 
-proc processSrsEventScanf*(data: seq[string]): ref SrsEvent =
+proc processSrsEventScanf*(data: ProtoFile): SrsEvent =
   ## Reads an SRS TOS zero suppressed data file using the strscans.scanf
   ## macro
   ## - read the pixel data in an event
@@ -928,12 +913,9 @@ proc processSrsEventScanf*(data: seq[string]): ref SrsEvent =
     # important, because we cannot trust numHits in chip header, due to zero
     # suppression! We init by `-1` to deal with old TOS format, in which there
     # is no header
-  result = new SrsEvent
-
-  let filepath = data[0]
+  let filepath = data.name
   # check for run folder kind by looking at first line of file
-  assert data[1][0 .. 2] == "FEC", "This is not a valid rfSrsTos file!" & data[0]
-
+  doAssert data.fileData[0 .. 2] == "FEC", "This is not a valid rfSrsTos file!" & data.name
   var
     x: int
     y: int
@@ -958,16 +940,18 @@ proc processSrsEventScanf*(data: seq[string]): ref SrsEvent =
     c_header[key] = $valMatch
 
   template incLine(line: var string,
-                   lineCnt: var int) =
-    line = data[lineCnt]
-    inc lineCnt
+                   lineCnt: var int,
+                   fidx: var int) =
+    fidx += parseUntil(data.fileData, line, '\n', fidx)
+    inc fidx
 
-  while lineCnt < data.len:
-    incLine(line, lineCnt)
+  var fidx= 0
+  while fidx < data.fileData.len:
+    incLine(line, lineCnt, fidx)
     cnt = parseVal(line, "FEC", 0, valMatch, c_header)
-    incLine(line, lineCnt)
+    incLine(line, lineCnt, fidx)
     cnt = parseVal(line, "Board", 0, valMatch, c_header)
-    incLine(line, lineCnt)
+    incLine(line, lineCnt, fidx)
     cnt = parseVal(line, "chipNumber", 0, valMatch, c_header)
     # start from cnt + 1 to skip space after chip number to get to `,Hits`
     cnt = parseVal(line, "numHits", cnt + 2, valMatch, c_header)
@@ -975,7 +959,7 @@ proc processSrsEventScanf*(data: seq[string]): ref SrsEvent =
     let pixToRead = if nPix > 4096: 4096 else: nPix
     # now iterate over all hits
     for i in 0 ..< pixToRead:
-      incLine(line, lineCnt)
+      incLine(line, lineCnt, fidx)
       if scanf(line, "$i$s$i$s$i", x, y, ch):
         # if the compiler flag (-d:REMOVE_FULL_PIX) is set, we cut all pixels, which have
         # ToT values == 11810, the max ToT value
@@ -1028,18 +1012,17 @@ proc processSrsEventScanf*(data: seq[string]): ref SrsEvent =
     raise newException(IOError, "SRS filename does not match `scanf` syntax! " &
       "Filename: " & filepath)
   result.evHeader = e_header
+  # classify as a valid event
+  result.isValid = true
 
-proc processEventWrapper(data: seq[string],
-                         rfKind: RunFolderKind): ref Event {.inline.} =
+proc processEventWrapper(data: ProtoFile, rfKind: RunFolderKind): Event =
   ## wrapper around both process event procs, which determines which one to call
   ## based on the run folder kind. Need a wrapper, due to usage of spawn in
   ## caling prof `readListOfFiles`.
   case rfKind
   of rfNewTos:
-    #result = processEventWithRegex(data, regex)
     result = processEventWithScanf(data)
   of rfOldTos:
-    # result = processOldEventWithRegex(data, regex[2])
     result = processOldEventScanf(data)
   of rfSrsTos:
     result = processSrsEventScanf(data)

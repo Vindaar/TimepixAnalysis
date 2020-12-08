@@ -369,7 +369,7 @@ proc reconstructSingleChip*(data: seq[tuple[pixels: Pixels, eventNumber: int]],
   for event in 0 ..< numElems:
     if event < result.len:
       result[event] = p.spawn recoEvent(data[event], chip, run)
-    echoCounted(count, 5000, msg = " clusters reconstructed")
+    echoCount(count, 5000, msg = " clusters reconstructed")
   p.sync()
 
 proc createAndFitFeSpec(h5f: var H5FileObj,

@@ -16,7 +16,7 @@ macro echoType(x: typed): untyped =
 type SupportedRead = SomeFloat | SomeInteger | string | bool | Value
 
 
-proc getDf*(h5f: var H5FileObj, path: string, keys: varargs[string]): DataFrame =
+proc getDf*(h5f: H5File, path: string, keys: varargs[string]): DataFrame =
   ## read the datasets form `path` in the `h5f` file and combine them to a single
   ## DataFrame
   result = newDataFrame()
@@ -28,7 +28,7 @@ proc getDf*(h5f: var H5FileObj, path: string, keys: varargs[string]): DataFrame 
     if size == 0:
       size = dsetH5.shape[0]
     withDset(dsetH5):
-      when type(dset) is SupportedRead:
+      when type(dset) is seq[SupportedRead]:
         result[key] = dset
 
 proc readDsets*(h5f: H5FileObj, df: var DataFrame, names: seq[string], baseName: string) =
@@ -86,7 +86,7 @@ proc readDsets*(h5f: H5FileObj, path = recoBase(),
     if df.len > 0:
       result.add df
 
-iterator getDataframes*(h5f: var H5FileObj): DataFrame =
+iterator getDataframes*(h5f: H5File): DataFrame =
   for num, group in runs(h5f):
     for grp in items(h5f, group):
       if "fadc" notin grp.name:
@@ -98,14 +98,14 @@ iterator getDataframes*(h5f: var H5FileObj): DataFrame =
                                     @(getIntClusterNames())))
           yield df
 
-proc getSeptemDataFrame*(h5f: var H5FileObj, runNumber: int): DataFrame =
+proc getSeptemDataFrame*(h5f: H5File, runNumber: int): DataFrame =
   ## Returns a subset data frame of the given `runNumber` and `chipNumber`, which
   ## contains only the zero suppressed event data
   var
     xs, ys: seq[uint8]
     chs: seq[float]
     evs: seq[int]
-    chips: seq[int]
+    chips: Column
   let group = recoBase() & $runNumber
   for grp in items(h5f, group):
     if "fadc" notin grp.name:
@@ -124,7 +124,7 @@ proc getSeptemDataFrame*(h5f: var H5FileObj, runNumber: int): DataFrame =
         xAll = flatten(x)
         yAll = flatten(y)
         chAll = flatten(ch)
-        chipNumCol = toSeq(0 ..< xAll.len).mapIt(chipNum)
+        chipNumCol = constantColumn(chipNum, xAll.len)
       for i in 0 ..< x.len:
         # convert each event into a dataframe
         let event = eventNumbersSingle[i]
@@ -134,17 +134,18 @@ proc getSeptemDataFrame*(h5f: var H5FileObj, runNumber: int): DataFrame =
       ys.add(yAll)
       chs.add(chAll)
       evs.add(eventNumbers)
-      chips.add(chipNumCol)
+      chips = add(chips, chipNumCol)
 
   result = seqsToDf({"eventNumber" : evs, "x" : xs, "y" : ys, "charge" : chs,
                      "chipNumber" : chips})
 
-proc getSeptemEventDF*(h5f: var H5FileObj, runNumber: int): DataFrame =
+proc getSeptemEventDF*(h5f: H5File, runNumber: int): DataFrame =
   ## Returns a DataFrame for the given `runNumber`, which contains two columns
   ## the event number and the chip number. This way we can easily extract
   ## which chips had activity on the same event.
   var
-    evs, chips, evIdx: seq[int]
+    evs, evIdx: seq[int]
+    chips: Column
   let group = recoBase() & $runNumber
   for grp in items(h5f, group):
     if "fadc" notin grp.name:
@@ -152,15 +153,15 @@ proc getSeptemEventDF*(h5f: var H5FileObj, runNumber: int): DataFrame =
       echo "Reading chip ", chipNum, " of run ", runNumber
       let
         eventNumbers = h5f[grp.name / "eventNumber", int]
-        chipNumCol = toSeq(0 ..< eventNumbers.len).mapIt(chipNum)
+        chipNumCol = constantColumn(chipNum, eventNumbers.len)
         evIndex = toSeq(0 ..< eventNumbers.len)
       evs.add(eventNumbers)
-      chips.add(chipNumCol)
+      chips = add(chips, chipNumCol)
       evIdx.add(evIndex)
 
   result = seqsToDf({"eventIndex" : evIdx, "eventNumber" : evs, "chipNumber" : chips})
 
-iterator getSeptemDataFrame*(h5f: var H5FileObj): DataFrame =
+iterator getSeptemDataFrame*(h5f: H5File): DataFrame =
   for num, group in runs(h5f):
     let df = h5f.getSeptemDataFrame(num.parseInt)
     yield df
@@ -172,7 +173,7 @@ proc getChipOutline*(maxVal: SomeNumber): DataFrame =
   let incVals = toSeq(0 ..< 256)
   let xs = concat(zeroes, incVals, maxVals, incVals)
   let ys = concat(incVals, zeroes, incVals, maxvals)
-  let ch = toSeq(0 ..< xs.len).mapIt(maxVal.float)
+  let ch = constantColumn(maxVal.float, xs.len)
   result = seqsToDf({"x" : xs, "y" : ys, "charge" : ch})
 
 proc getSeptemOutlines*(maxVal: SomeNumber): Tensor[float] =
@@ -195,7 +196,7 @@ proc getFullFrame*(maxVal: SomeNumber): DataFrame =
     xData = toSeq(0 ..< 256)
     yData = toSeq(0 ..< 20)
     comb = product(@[xData, yData])
-    ch = toSeq(0 ..< 256 * 20).mapIt(maxVal.float)
+    ch = constantColumn(maxVal.float, 256 * 20)
   doAssert comb.len == ch.len
   let xy = comb.transpose
   result = seqsToDf({"x" : xy[0], "y": xy[1], "charge" : ch})

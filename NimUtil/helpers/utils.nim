@@ -374,8 +374,12 @@ proc echoBenchCounted*(count: var int,
     echo "Took ", t1 - t, " s"
     t = t1
 
-proc echoCounted*(count: var int, modby = 500, msg = " files read.") =
+proc echoCount*(count: var int, modby = 500, msg = " files read.") =
   inc count
+  if count mod modby == 0:
+    echo $count & msg
+
+proc echoCounted*(count: int, modby = 500, msg = " files read.") =
   if count mod modby == 0:
     echo $count & msg
 

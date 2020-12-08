@@ -658,19 +658,6 @@ proc flagsValid(h5f: H5FileObj, flags: set[RecoFlagKind]): bool =
         "calibration runs!"
       return false
 
-proc genPlotDirname(h5f: H5FileObj, outpath: string)=
-  ## generates a unique name for the directory in which all plots for this H5
-  ## file will be created.
-  # first check whether this file already has such a name stored in its attributes
-  if plotDirPrefixAttr in h5f.attrs:
-    # nothing to do
-    discard
-  else:
-    # generate a new one. base filename w/o file extension and current date
-    let (_, name, _) = splitFile(h5f.name)
-    let timeStr = format(now(), "yyyy-MM-dd'_'HH-mm-ss")
-    h5f.attrs[plotDirPrefixAttr] = outpath / name & "_" & timeStr
-
 proc main() =
 
   # create command line arguments using docopt
@@ -718,7 +705,7 @@ proc main() =
 
   let plotOutPath = cfgTable["Calibration"]["plotDirectory"].getStr
   var h5f = H5open(h5f_name, "rw")
-  h5f.genPlotDirname(plotOutPath)
+  let plotDirPrefix = h5f.genPlotDirname(plotOutPath, PlotDirPrefixAttr)
 
   if (flags * {rfOnlyEnergy .. rfOnlyGainFit}).card == 0:
     # `reconstruction` call w/o `--only-*` flag
@@ -728,8 +715,8 @@ proc main() =
     if outfile != "None":
       h5fout = H5open(outfile, "rw")
       h5fout.visitFile
-      # copy over `plotDirPrefixAttr` to h5fout
-      h5fout.attrs[plotDirPrefixAttr] = h5f.attrs[plotDirPrefixAttr, string]
+      # copy over `PlotDirPrefixAttr` to h5fout
+      h5fout.attrs[PlotDirPrefixAttr] = plotDirPrefix
       reconstructRunsInFile(h5f, h5fout, flags, cfgFlags,
                             runNumberArg = runNumber)
 

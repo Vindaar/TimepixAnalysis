@@ -42,7 +42,8 @@ type
   FrameworkKind* = enum
     fkTpa, fkMarlin
 
-const plotDirPrefixAttr* = "plotDirPrefix"
+const PlotDirPrefixAttr* = "plotDirPrefix"
+const PlotDirRawPrefixAttr* = "plotDirRawPrefix"
 const XrayReferenceDsets* = {
   igHits,
   igLengthDivRadius,
@@ -734,6 +735,19 @@ proc getExtendedRunInfo*(h5f: var H5FileObj, runNumber: int,
   result.rfKind = rfKind
   result.runType = runType
 
+proc genPlotDirname*(h5f: H5FileObj, outpath: string, attrName: string): string =
+  ## generates a unique name for the directory in which all plots for this H5
+  ## file will be created.
+  # first check whether this file already has such a name stored in its attributes
+  if attrName in h5f.attrs:
+    # nothing to do
+    result = h5f.attrs[attrName, string]
+  else:
+    # generate a new one. base filename w/o file extension and current date
+    let (_, name, _) = splitFile(h5f.name)
+    let timeStr = format(now(), "yyyy-MM-dd'_'HH-mm-ss")
+    result = outpath / name & "_" & timeStr
+    h5f.attrs[attrName] = result
 
 when isMainModule:
   assert combineRawBasenameToT(0, 1) == "/runs/combined/ToT_0_1"

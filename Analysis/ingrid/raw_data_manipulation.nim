@@ -30,12 +30,13 @@ import ingrid_types
 import seqmath
 import nimhdf5
 import arraymancer
+import parsetoml
 
 type
   RawFlagKind = enum
     rfIgnoreRunList, rfOverwrite, rfNoFadc
 
-const FILE_BUFSIZE = 25000
+const FILE_BUFSIZE = 75_000
 
 ##############################
 # create globals for 2014/15 run list
@@ -117,6 +118,10 @@ when isMainModule:
 
 template ch_len(): int = 2560
 template all_ch_len(): int = ch_len() * 4
+
+proc parseTomlConfig(): TomlValueRef =
+  const sourceDir = currentSourcePath().parentDir
+  result = parseToml.parseFile(sourceDir / "config.toml")
 
 proc specialTypesAndEvKeys(): (hid_t, hid_t, array[7, string]) =
   let
@@ -534,20 +539,16 @@ proc readWriteFadcData(run_folder: string, runNumber: int, h5f: var H5FileObj) =
     # writing some to HDF5, because the memory overhead from storing all files
     # in seq[string] is too large (17000 FADC files -> 10GB needed!)
     # thus already perform batching here
-    files_read: seq[string] = @[]
-  # use batchFiles template to work on 1000 files per batch
-
+    files_read: seq[string]
   if files.len == 0:
     # in case there are no FADC files, return from this proc
     return
-
-  const batchsize = 1000
-
+  const batchsize = 2500
   # before we start iterating over the files, initialize the H5 file
   h5f.initFadcInH5(runNumber, batchsize, files[0])
-  batchFiles(files, batchsize - 1):
+  batchFiles(files, batchsize):
     # batch in 1000 file pieces
-    var mfiles = files[0..ind_high]
+    var mfiles = files[0 .. ind_high]
     info "Starting with file $# and ending with file $#" % [$mfiles[0], $mfiles[^1]]
     files_read = files_read.concat(mfiles)
     raw_fadc_data = batchFileReading[FadcFile](mfiles)
@@ -997,17 +998,21 @@ proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string,
   ##     h5f: var H5FileObj = mutable copy of the H5 file object to which we will write
   ##         the data
   ##     flags: set[RawFlagKind] = flags indicating different settings, e.g. `nofadc`
-  const batchsize = 50000
+  const batchsize = FILE_BUFSIZE * 2
   var attrsWritten = false
   var nChips: int
+  # parse config toml file
+  let cfgTable = parseTomlConfig()
+  let plotOutPath = cfgTable["RawData"]["plotDirectory"].getStr
+
 
   let (_, runNumber, rfKind, _) = isTosRunFolder(runFolder)
   var files = getSortedListOfFiles(run_folder,
                                    EventSortType.fname,
                                    EventType.InGridType,
                                    rfKind)
-
-  batchFiles(files, batchsize - 1):
+  let plotDirPrefix = h5f.genPlotDirname(plotOutPath, PlotDirRawPrefixAttr)
+  batchFiles(files, batchsize):
     let r = readAndProcessInGrid(files[0 .. ind_high], runNumber, rfKind)
     if r.events.len > 0:
       nChips = r.nChips
@@ -1019,8 +1024,9 @@ proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string,
         writeInGridAttrs(h5f, r, rfKind, runType)
         attrsWritten = true
 
-      let a = squeeze(r.occupancies[0,_,_])
-      dumpFrameToFile("tmp/frame.txt", a)
+      for chip in 0 ..< nChips:
+        plotOccupancy(squeeze(r.occupancies[chip,_,_]),
+                      plotDirPrefix, r.runNumber, chip)
       writeProcessedRunToH5(h5f, r)
       info "Size of total ProcessedRun object = ", sizeof(r)
     else:

@@ -176,7 +176,7 @@ template batchFiles(files: var seq[string], bufsize, actions: untyped): untyped 
 proc batchFileReading[T](files: var seq[string],
                          rfKind: RunFolderKind = rfNewTos,
                          bufsize: int = FILE_BUFSIZE):
-                          seq[FlowVar[ref T]] {.inline.} =
+                          seq[T] {.inline.} =
   # and removes all elements in the file list until all events have been read and the seq
   # is empty
   let
@@ -193,12 +193,12 @@ proc batchFileReading[T](files: var seq[string],
     when T is Event:
       case rfKind
       of rfOldTos, rfNewTos, rfSrsTos:
-        buf_seq = readListOfInGridFiles(files[0..ind_high], rfKind)
+        buf_seq = readListOfInGridFiles(files[0 .. ind_high], rfKind)
       else:
         raise newException(IOError, "Unknown run folder kind. Cannot read " &
           "event files!")
     elif T is FadcFile:
-      buf_seq = readListOfFadcFiles(files[0..ind_high])
+      buf_seq = readListOfFadcFiles(files[0 .. ind_high])
 
     info "... and concating buffered sequence to result"
     result = concat(result, buf_seq)
@@ -210,7 +210,7 @@ proc batchFileReading[T](files: var seq[string],
 
 proc readRawInGridData*(listOfFiles: seq[string],
                         rfKind: RunFolderKind):
-                          seq[FlowVar[ref Event]] =
+                          seq[Event] =
   ## given a run_folder it reads all event files (data<number>.txt) and returns
   ## a sequence of Events, which store the raw event data
   ## Intermediately we receive FlowVars to ref Events after reading. We read via
@@ -222,25 +222,13 @@ proc readRawInGridData*(listOfFiles: seq[string],
   # split the sorted files into batches, and sort each batch by inode
   result = batchFileReading[Event](files, rfKind)
 
-proc sortReadInGridData(rawInGridNil: seq[FlowVar[ref Event]],
+proc sortReadInGridData(rawInGrid: seq[Event],
                         rfKind: RunFolderKind): seq[Event] =
   ## sorts the seq of FlowVars according to event numbers again, otherwise
   ## h5 file is all mangled
   info "Sorting data..."
   # case on the old TOS' data storage and new TOS' version
   let t0 = epochTime()
-
-  # first filter out all nil references (which can happen due to
-  # broken files)
-  var rawIngrid = newSeqOfCap[Event](rawInGridNil.len)
-  for evFut in rawInGridNil:
-    if not evFut.isNil:
-      let ev = ^evFut
-      if not ev.isNil:
-        rawIngrid.add ev[]
-  if rawInGridNil.len != rawInGrid.len:
-    warn &"Removed {rawInGridNil.len - rawInGrid.len} broken InGrid files!"
-
   case rfKind
   of rfNewTos, rfOldTos, rfSrsTos:
     # in this case there may be missing events, so we simply sort by the indices themselves
@@ -365,23 +353,11 @@ proc processRawInGridData(run: Run): ProcessedRun =
   result.hits = hits
   result.occupancies = occ
 
-proc processFadcData(fadcFilesNil: seq[FlowVar[ref FadcFile]]): ProcessedFadcData {.inline.} =
+proc processFadcData(fadcFiles: seq[FadcFile]): ProcessedFadcData {.inline.} =
   ## proc which performs all processing needed to be done on the raw FADC
   ## data. Starting from conversion of FadcFiles -> FadcData, but includes
   ## calculation of minimum and check for noisy events
   # sequence to store the indices needed to extract the 0 channel
-
-  # filter out possible nil refs, due to broken files
-  var fadcFiles = newSeqOfCap[FadcFile](fadcFilesNil.len)
-  for evFut in fadcFilesNil:
-    if not evFut.isNil:
-      let ev = ^evFut
-      if not ev.isNil:
-        fadcFiles.add ev[]
-
-  if fadcFilesNil.len != fadcFiles.len:
-    warn &"Removed {fadcFilesNil.len - fadcFiles.len} broken FADC files!"
-
   let
     #fadc_ch0_indices = getCh0Indices()
     #ch_len = ch_len()
@@ -532,7 +508,7 @@ proc readWriteFadcData(run_folder: string, runNumber: int, h5f: var H5FileObj) =
                                               EventSortType.fname,
                                               EventType.FadcType,
                                               RunFolderKind.rfUnknown)
-    raw_fadc_data: seq[FlowVar[ref FadcFile]] = @[]
+    raw_fadc_data: seq[FadcFile]
     # variable to store the processed FADC data
     f_proc: ProcessedFadcData
     # in case of FADC data we cannot afford to read all files into memory before

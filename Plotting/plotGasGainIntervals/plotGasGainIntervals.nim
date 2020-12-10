@@ -115,17 +115,21 @@ proc readGasGains(f: string): DataFrame =
     let runNumber = run.parseInt
     if runNumber != RunOfInterest: continue
     let dset = h5f[(grp / "chip_3/charge").dset_str]
-    let dfData = h5f.readGasGainDf(dset.name.parentDir, 3, @[])
+    let dfData = h5f.readGasGainDf(dset.name.parentDir, 3, @["rmsTransverse", "centerX", "centerY"])
     var gains: seq[float]
     var gainsFit: seq[float]
     var gainsMeanFit: seq[float]
     var times: seq[int]
     var sliceNum = 0
+    let dfDataFilter = dfData.applyGasGainCut()
     let dfRun = getSeptemDataFrame(h5f, runNumber)
     for (g, slice) in iterGainSlicesFromAttrs(dset, dfData, 30.0):
       # read the eventNumbers of this slice, then filter fullRun DF based on these
       # eventNumbers
       let evNumbers = h5f.readNorm(dset.name.parentDir, "eventNumber", int, toSeq(slice)).toSet
+      let evNumsFiltered = dfDataFilter
+        .filter(f{int -> bool: `eventNumber` in evNumbers})["eventNumber"].toTensor(int)
+        .toRawSeq.toSet
       let dfEvs = dfRun.filter(f{int -> bool: `eventNumber` in evNumsFiltered})
       if runNumber == RunOfInterest and g.idx in {8, 9, 10}:
         if g.idx == 9:

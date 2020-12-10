@@ -221,3 +221,22 @@ proc addChipToSeptemEvent*(occ: var Tensor[float], df: DataFrame, chipNumber: ra
       occ[yIdx.int, xIdx.int] += zDf[i]
     #for i in 0 ..< chip.len:
     # instead of using the data frame, create fake data for now to test arrangment
+
+proc dfToSeptemEvent*(df: DataFrame, zDset = "charge"): DataFrame =
+  doAssert zDset in df, "DataFrame has no key " & $zDset
+  # now add values to correct places in tensor
+  let chipNum = df["chipNumber"].toTensor(int)
+  var xDf = df["x"].toTensor(int)
+  var yDf = df["y"].toTensor(int)
+  let zDf = df[zDset].toTensor(float)
+  for i in 0 ..< df.len:
+    withSeptemXY(chipNum[i]):
+      case chipNum[i]
+      of 0, 1, 2, 3, 4:
+        xDf[i] = x0 + xDf[i]
+        yDf[i] = y0 + yDf[i]
+      of 5, 6:
+        xDf[i] = x0 - xDf[i]
+        yDf[i] = y0 - yDf[i]
+      else: doAssert false, "Invalid chip number!"
+  result = seqsToDf({"x" : xDf, "y" : yDf, "charge" : zDf})

@@ -1,4 +1,4 @@
-import nimhdf5, ggplotnim, os, strformat, strutils, sequtils, algorithm
+import nimhdf5, ggplotnim, os, strformat, strutils, sequtils, algorithm, sets
 import ingrid / [tos_helpers, calibration, ingrid_types], times, os
 
 import cligen
@@ -34,6 +34,7 @@ proc plotOccupancySlice(h5f: H5File, run, chip, idx: int, slice: Slice[int], pat
   let xD = h5f.readVlen(path, "x", uint8, toSeq(slice))
   let yD = h5f.readVlen(path, "y", uint8, toSeq(slice))
   let chD = h5f.readVlen(path, "charge", float, toSeq(slice))
+  let evNums = h5f.readNorm(path, "eventNumber", int, toSeq(slice))
   var occ = newTensor[float]([NPix, NPix])
   var occCounts = newTensor[int]([NPix, NPix])
   # TODO: add option to use real event number instead of indices
@@ -41,6 +42,7 @@ proc plotOccupancySlice(h5f: H5File, run, chip, idx: int, slice: Slice[int], pat
     let xEv = xD[i]
     let yEv = yD[i]
     let chEv = chD[i]
+    let evNum = evNums[i]
     for j in 0 ..< xEv.len:
       let x = xEv[j].int
       let y = yEv[j].int
@@ -52,9 +54,9 @@ proc plotOccupancySlice(h5f: H5File, run, chip, idx: int, slice: Slice[int], pat
       ggplot(dfEv, aes("xEv", "yEv", color = "chEv")) +
         geom_point() +
         xlim(0, 256) + ylim(0, 256) +
-        ggtitle(&"Run {run}, chip {chip}, slice {idx}, event {i}, hits {dfEv.len}") +
+        margin(top = 1.5) +
+        ggtitle(&"Run {run}, chip {chip}, slice {idx}, eventNum {evNum} eventIdx {i}, hits {dfEv.len}") +
         ggsave(&"out/event_{i}_run_{run}_chip_{chip}_slice_{idx}.pdf")
-
 
   const NPix = 256
   var
@@ -72,10 +74,10 @@ proc plotOccupancySlice(h5f: H5File, run, chip, idx: int, slice: Slice[int], pat
     zCountT[i] = occCounts[x, y]
     inc i
   let df = seqsToDf(xT, yT, zT, zCountT)
-  let perc75 = zT.percentile(0.75)
+  let perc = zT.percentile(0.99)
   ggplot(df, aes("xT", "yT", fill = "zT")) +
     geom_raster() +
-    scale_fill_continuous(scale = (low: 0.0, high: perc75)) +
+    scale_fill_continuous(scale = (low: 0.0, high: perc)) +
     xlim(0, NPix) + ylim(0, NPix) +
     ggtitle(&"occupancy of pixel charges, run {run} chip {chip} slice {idx}") +
     ggsave(&"out/occupancy_charge_run_{run}_chip_{chip}_slice_{idx}.pdf", width = 1200,
@@ -89,10 +91,29 @@ proc plotOccupancySlice(h5f: H5File, run, chip, idx: int, slice: Slice[int], pat
     ggsave(&"out/occupancy_counts_run_{run}_chip_{chip}_slice_{idx}.pdf", width = 1200,
             height = 1200)
 
+proc plotSeptemEvents(df: DataFrame, run, slice: int) =
+  var eventIdx = 0
+  for tup, dfEv in groups(df.group_by("eventNumber")):
+    let evNum = tup[0][1].toInt
+    #if dfEv.len > 2000:
+    let dfSeptem = dfToSeptemEvent(dfEv)
+    let perc = df["charge"].toTensor(float).percentile(0.96)
+    echo "Perc: ", perc
+    ggplot(dfSeptem, aes("x", "y", color = "charge")) +
+      geom_point(alpha = some(0.8)) +
+      xlim(0, 3*256) + ylim(0, 3*256) +
+      scale_color_continuous(scale = (low: 0.0, high: perc)) +
+      ggtitle(&"evNumber {evNum}, run {run}, hits (all chips) {dfSeptem.len}") +
+      ggsave(&"out/septem_events_run{run}_event_{evNum}_eventIdx_{eventIdx}_slice_{slice}.pdf")
+    inc eventIdx
+
 proc readGasGains(f: string): DataFrame =
   var h5f = H5open(f, "r")
+  result = newDataFrame()
+  const RunOfInterest = 109
   for run, grp in runs(h5f, recoBase()):
-    if run.parseInt != 164: continue
+    let runNumber = run.parseInt
+    if runNumber != RunOfInterest: continue
     let dset = h5f[(grp / "chip_3/charge").dset_str]
     let dfData = h5f.readGasGainDf(dset.name.parentDir, 3, @[])
     var gains: seq[float]
@@ -100,8 +121,17 @@ proc readGasGains(f: string): DataFrame =
     var gainsMeanFit: seq[float]
     var times: seq[int]
     var sliceNum = 0
+    let dfRun = getSeptemDataFrame(h5f, runNumber)
     for (g, slice) in iterGainSlicesFromAttrs(dset, dfData, 30.0):
-      h5f.plotOccupancySlice(run.parseInt, 3, sliceNum, slice, dset.name.parentDir)
+      # read the eventNumbers of this slice, then filter fullRun DF based on these
+      # eventNumbers
+      let evNumbers = h5f.readNorm(dset.name.parentDir, "eventNumber", int, toSeq(slice)).toSet
+      let dfEvs = dfRun.filter(f{int -> bool: `eventNumber` in evNumsFiltered})
+      if runNumber == RunOfInterest and g.idx in {8, 9, 10}:
+        if g.idx == 9:
+          echo "Event numbers: ", evNumbers.toSeq.sorted
+          plotSeptemEvents(dfEvs, runNumber, g.idx)
+      h5f.plotOccupancySlice(runNumber, 3, sliceNum, slice, dset.name.parentDir)
 
       echo "Run ", run, " ", g
       let gidx = g.toAttrPrefix()

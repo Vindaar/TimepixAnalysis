@@ -5,7 +5,7 @@ import cligen
 
 proc percentile[T](t: Tensor[T], perc: float): float =
   let dataSorted = t.sorted
-  let perIdx = max((t.size.float * perc).round.int, t.size - 1)
+  let perIdx = min((t.size.float * perc).round.int, t.size - 1)
   result = dataSorted[perIdx]
 
 proc readVlen(h5f: H5File,

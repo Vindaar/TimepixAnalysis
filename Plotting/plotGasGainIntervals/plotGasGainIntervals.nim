@@ -145,7 +145,8 @@ proc readGasGains(f: string): DataFrame =
     df["Run"] = constantColumn(run, df.len)
     df["SliceIdx"] = toSeq(0 ..< sliceNum)
     result.add df
-  result = result.arrange("timestamp")
+  if result.len > 0:
+    result = result.arrange("timestamp")
 
 proc formatTime(v: float): string =
   result = v.int.fromUnix.format("dd/MM/YYYY")

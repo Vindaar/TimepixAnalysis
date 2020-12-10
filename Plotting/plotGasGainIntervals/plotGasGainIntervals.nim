@@ -19,6 +19,16 @@ proc readVlen(h5f: H5File,
   let dset = h5f[(path / dsetName).dset_str]
   result = dset[vlenDType, dtype, idx]
 
+proc readNorm(h5f: H5File,
+              path: string,
+              dsetName: string,
+              dtype: typedesc,
+              idx: seq[int]): seq[dtype] =
+  ## reads variable length data `dsetName` and returns it
+  ## In contrast to `read` this proc does *not* convert the data.
+  let dset = h5f[(path / dsetName).dset_str]
+  result = dset.read_hyperslab(dtype, @[idx[0], 0], @[idx.len, 1])
+
 proc plotOccupancySlice(h5f: H5File, run, chip, idx: int, slice: Slice[int], path: string) =
   ## plots an occupancy of a single run slice
   let xD = h5f.readVlen(path, "x", uint8, toSeq(slice))

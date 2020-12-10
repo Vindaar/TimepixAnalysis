@@ -387,7 +387,7 @@ proc applyGasGainCut(h5f: H5FileObj, group: H5Group): seq[int] =
                            crSilver,
                            ("rmsTransverse", cut_rms_trans_low, cut_rms_trans_high))
 
-proc applyGasGainCut(df: DataFrame): DataFrame =
+proc applyGasGainCut*(df: DataFrame): DataFrame =
   ## Performs the cuts, which are used to select the events which we use
   ## to perform the polya fit + gas gain determination. This is based on
   ## C. Krieger's thesis. The cuts are extracted from the `getGasGain.C`

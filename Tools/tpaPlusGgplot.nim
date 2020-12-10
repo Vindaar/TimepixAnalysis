@@ -44,7 +44,7 @@ proc buildSeptemOccupancy(df: DataFrame) =
     # after having built the occupancy, plot it
     # create lines around the tensor
     echo "Creating outline"
-    var chipOutlineOcc = zeros[float]([3 * 256, 3 * 256])
+    var chipOutlineOcc = initSeptemFrame()
     let maxVal = max(occ)
     for j in 0 ..< 7:
       let outlineDf = getChipOutline(maxVal)

@@ -261,6 +261,27 @@ type
     tStart*: int # timestamp of interval start
     tStop*: int # timestamp of interval stop
 
+  # simple object duplicating fields of `GasGainIntervalData`, because this type will
+  # be stored as a composite type in the H5 file
+  GasGainIntervalResult* = object
+    idx*: int
+    interval*: float
+    tStart*: int
+    tStop*: int
+    sliceStart*: int # start and stop of the indices which belong to this slice
+    sliceStop*: int
+    sliceStartEvNum*: int # start and stop of the indices which belong to this slice
+    sliceStopEvNum*: int
+    numClusters*: int # the actual number of clusters in this slice
+    N*: float # amplitude (?) of the polya fit, parameter 0
+    G_fit*: float # gas gain as determined from fit, parameter 1
+    G_fitmean*: float # gas gain as determined from mean of fit "distribution"
+    G*: float # fit parameter as determined from mean of data histogram
+    theta*: float # theta parameter of polya fit, parameter 2
+    redChiSq*: float # reduced χ² of the polya fit of this slice
+
+
+
   FeSpecFitData* = object
     hist*: seq[float]
     binning*: seq[float]

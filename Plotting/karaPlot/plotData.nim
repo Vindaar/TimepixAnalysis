@@ -65,11 +65,11 @@ Options:
   --eventDisplay=<run>   If given will show event displays of the given run.
   --server               If flag given, will launch client and send plots individually,
                          instead of creating all plots and dumping them.
-  --no_fadc              If set no FADC plots will be created.
-  --no_ingrid            If set no InGrid plots will be created.
-  --no_occupancy         If set no occupancy plots will be created.
-  --no_polya             If set no polya plots will be created.
-  --no_fe_spec           If set no Fe spectrum will be created.
+  --fadc                 If set no FADC plots will be created.
+  --ingrid               If set no InGrid plots will be created.
+  --occupancy            If set no occupancy plots will be created.
+  --polya                If set no polya plots will be created.
+  --fe_spec              If set no Fe spectrum will be created.
   -h, --help             Show this help
   --version              Show the version number
 """
@@ -90,7 +90,7 @@ const
 
 type
   ConfigFlagKind = enum
-    cfNone, cfNoFadc, cfNoInGrid, cfNoOccupancy, cfNoPolya, cfNoFeSpectrum, cfProvideServer
+    cfNone, cfFadc, cfInGrid, cfOccupancy, cfPolya, cfFeSpectrum, cfNoProvideServer
 
   BackendKind* = enum
     bNone, bMpl, bPlotly, bGgPlot
@@ -526,7 +526,7 @@ proc histograms(h5f: var H5FileObj, runType: RunTypeKind,
     ranges = @[(low: -Inf, high: Inf, name: "All")]
 
   for r in ranges:
-    if cfNoInGrid notin flags:
+    if cfInGrid in flags:
       for ch in fileInfo.chips:
         for dset in InGridDsets:
           let (binSize, binRange) = getBinSizeAndBinRange(dset)
@@ -538,7 +538,7 @@ proc histograms(h5f: var H5FileObj, runType: RunTypeKind,
                                     range: r,
                                     binSize: binSize,
                                     binRange: binRange)
-    if cfNoFadc notin flags:
+    if cfFadc in flags:
       for dset in FadcDsets:
         let (binSize, binRange) = getBinSizeAndBinRange(dset)
         result.add PlotDescriptor(runType: runType,
@@ -823,8 +823,6 @@ proc feSpectrum(h5f: var H5FileObj, runType: RunTypeKind,
       ylabel = "Energy / keV"
       plotKind = pkEnergyCalibCharge
     result.add @[basePd, energyPd, feChargePd, energyChargePd]
-
-
 
   let photoVsTime = PlotDescriptor(runType: runType,
                                    name: "PhotoPeakVsTime",
@@ -1932,14 +1930,15 @@ proc createCalibrationPlots(h5file: string,
   var pds: seq[PlotDescriptor]
 
   const length = "length"
-  if cfNoOccupancy notin flags:
+  if cfOccupancy in flags:
     pds.add occupancies(h5f, runType, fInfoConfig, flags) # plus center only
-  if cfNoPolya notin flags:
+  if cfPolya in flags:
     pds.add polya(h5f, runType, fInfoConfig, flags)
-  if cfNoFeSpectrum notin flags:
+  if cfFeSpectrum in flags:
     pds.add feSpectrum(h5f, runType, fInfoConfig, flags)
   # energyCalib(h5f) # ???? plot of gas gain vs charge?!
-  pds.add histograms(h5f, runType, fInfoConfig, flags) # including fadc
+  if cfIngrid in flags:
+    pds.add histograms(h5f, runType, fInfoConfig, flags) # including fadc
 
   if cfProvideServer in flags:
     serveRequests(h5f, fileInfo, pds)
@@ -1964,10 +1963,10 @@ proc createBackgroundPlots(h5file: string,
   let fInfoConfig = fileInfo.appliedConfig()
   var pds: seq[PlotDescriptor]
   const length = "length"
-  if cfNoOccupancy notin flags:
+  if cfOccupancy in flags:
     #occupancies(h5f, flags) # plus center only
     pds.add occupancies(h5f, runType, fInfoConfig, flags) # plus center only
-  if cfNoPolya notin flags:
+  if cfPolya in flags:
     pds.add polya(h5f, runType, fInfoConfig, flags)
   # energyCalib(h5f) # ???? plot of gas gain vs charge?!
   pds.add histograms(h5f, runType, fInfoConfig, flags) # including fadc
@@ -2012,7 +2011,7 @@ proc handlePlotTypes(h5file: string,
       outfile = createXrayFingerPlots(bKind, flags)
     else:
       discard
-  if cfProvideServer notin flags:
+  if cfProvideServer in flags:
     # if not using server, start client, in case the data is being stored as
     # JSON
     let filecall = &"--file:{outfile}"
@@ -2183,15 +2182,15 @@ proc plotData*() =
   let evDisplayStr = $args["--eventDisplay"]
   var flags: set[ConfigFlagKind]
   if $args["--no_fadc"] == "true":
-    flags.incl cfNoFadc
+    flags.incl cfFadc
   if $args["--no_ingrid"] == "true":
-    flags.incl cfNoIngrid
+    flags.incl cfIngrid
   if $args["--no_occupancy"] == "true":
-    flags.incl cfNoOccupancy
+    flags.incl cfOccupancy
   if $args["--no_polya"] == "true":
-    flags.incl cfNoPolya
+    flags.incl cfPolya
   if $args["--no_fe_spec"] == "true":
-    flags.incl cfNoFeSpectrum
+    flags.incl cfFeSpectrum
   if $args["--server"] == "true":
     flags.incl cfProvideServer
 

@@ -413,7 +413,8 @@ proc writePolyaDsets(h5f: H5FileObj, group: H5Group,
   writeAttrs(polyaDset, cutFormula)
   writeAttrs(polyaFitDset, cutFormula)
 
-proc writeGasGainSliceData(h5f: H5File, group: H5Group, slices: seq[GasGainIntervalResult]) =
+proc writeGasGainSliceData(h5f: H5File, group: H5Group, slices: seq[GasGainIntervalResult],
+                           cutFormula: string) =
   ## writes the information about the gas gain slices, including the fit results
   ## for each polya fit as one composite dataset to the H5 file.
   ##
@@ -423,6 +424,7 @@ proc writeGasGainSliceData(h5f: H5File, group: H5Group, slices: seq[GasGainInter
                                 dtype = GasGainIntervalResult,
                                 overwrite = true)
   dset[dset.all] = slices
+  dset.attrs["applied Cut for gas gain"] = cutFormula
 
 proc applyGasGainCut(h5f: H5FileObj, group: H5Group): seq[int] =
   ## Performs the cuts, which are used to select the events which we use
@@ -627,7 +629,7 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int,
           inc sliceCount
 
         chargeDset.attrs["numGasGainSlices"] = sliceCount
-        h5f.writeGasGainSliceData(group, gasGainSliceData)
+        h5f.writeGasGainSliceData(group, gasGainSliceData, cutFormula)
       else:
         let cutFormula = "No formula available, due to usage of `cutOnProperties`"
         let passIdx = applyGasGainCut(h5f, group)
@@ -649,7 +651,7 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int,
                                               0 ..< passIdx.max,
                                               0, group.attrs["numEventsStored"])
         h5f.writePolyaDsets(group, chargeDset, binned, bin_edges, fitResult, cutFormula)
-        h5f.writeGasGainSliceData(group, @[ggRes])
+        h5f.writeGasGainSliceData(group, @[ggRes], cutFormula)
 
 proc writeFeFitParameters(dset: var H5DataSet,
                           popt, popt_E: seq[float],

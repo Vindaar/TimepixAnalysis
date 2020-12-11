@@ -1032,7 +1032,12 @@ proc createInGridFadcEvDisplay(h5f: var H5FileObj,
                               plots: @[ingrid, fadc],
                               domain: @[ingridDomain, fadcDomain])
 
-func clampedOccupancy[T](x, y: seq[T], pd: PlotDescriptor): Tensor[float] =
+proc percentile[T](t: Tensor[T], perc: float): float =
+  let dataSorted = t.reshape(t.size.int).sorted
+  let perIdx = min((t.size.float * perc).round.int, t.size - 1)
+  result = dataSorted[perIdx]
+
+proc clampedOccupancy[T](x, y: seq[T], pd: PlotDescriptor): Tensor[float] =
   ## calculates the occupancy given `x`, `y`, which may be seqs of clusters
   ## or seqs of center positions
   result = calcOccupancy(x, y)
@@ -1040,7 +1045,7 @@ func clampedOccupancy[T](x, y: seq[T], pd: PlotDescriptor): Tensor[float] =
   of ckAbsolute:
     result = result.clamp(0.0, pd.clampA)
   of ckQuantile:
-    let quant = result.toRawSeq.percentile(pd.clampQ.round.int)
+    let quant = result.percentile(pd.clampQ / 100.0)
     result = result.clamp(0.0, quant)
   else: discard
 

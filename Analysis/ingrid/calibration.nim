@@ -305,6 +305,8 @@ proc applyChargeCalibration*(h5f: var H5FileObj, runNumber: int,
             doAssert h5f.delete(grp / name)
         ifDelete("charge")
         ifDelete("totalCharge")
+        h5f.flush()
+
       var
         chargeDset = h5f.create_dataset(grp / "charge", charge.len, dtype = vlenFloat)
         totalChargeDset = h5f.create_dataset(grp / "totalCharge", charge.len, dtype = float64)

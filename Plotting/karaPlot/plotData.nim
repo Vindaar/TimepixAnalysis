@@ -869,50 +869,20 @@ proc feSpectrum(h5f: var H5FileObj, runType: RunTypeKind,
                                              splitBySec: 1800,
                                              lastSliceError: 0.2,
                                              dropLastSlice: false)
+
   result.add @[photoVsTime, phPixDivChVsTime,
                photoChVsTime, photoChVsTimeHalfH,
                photoVsTimeHalfH, phPixDivChVsTimeHalfH]
-  #for runNumber, grpName in runs(h5f):
-  #  var group = h5f[grpName.grp_str]
-  #  let centerChip = h5f[group.parent.grp_str].attrs["centerChip", int]
-  #  # call `importPyplot` because it sets the appropriate backend for us
-  #  discard importPyplot()
-  #  let path = "figs/"
-  #  var outfiles = @[&"fe_spectrum_run{runNumber}.svg",
-  #                   &"fe_energy_calib_run{runNumber}.svg"]
-  #  let outfilesCh = outfiles.mapIt(path / ("charge_" & it))
-  #  outfiles = outfiles.mapIt(path / it)
-  #  for o in outfiles:
-  #    imageSet.incl o
-  #  for o in outfilesCh:
-  #    imageSet.incl o
-  #  h5f.fitToFeSpectrum(runNumber.parseInt, centerChip,
-  #                      fittingOnly = not ShowPlots,
-  #                      outfiles = outfiles,
-  #                      writeToFile = false)
-  #  # extract fit parameters from center chip group
-  #  let chpGrpName = group.name / "chip_" & $centerChip
-  #  #let feSpec =
-  #  pixSeq.add h5f[(chpGrpName / "FeSpectrum").dset_str].attrs[
-  #    parPrefix & $kalphaPix, float
-  #  ]
-  #  chSeq.add h5f[(chpGrpName / "FeSpectrumCharge").dset_str].attrs[
-  #    parPrefix & $kalphaCharge, float
-  #  ]
-  #  dates.add parseTime(group.attrs["dateTime", string],
-  #                      dateStr,
-  #                      utc()).toUnix.float
-  #
-  ## now plot
-  ## calculate ratio and convert to string to workaround plotly limitation of
-  ## only one type for Trace
-  #let ratio = zip(pixSeq, chSeq) --> map(it[0] / it[1])
-  #plotDates(dates, ratio,
-  #          title = "Photopeak pix / charge vs time",
-  #          xlabel = "Date",
-  #          dsets = "a",
-  #          outfile = "photopeak_vs_time")
-  #          #ylabel = "# pix / charge in e^-")
+
+proc fePhotoDivEscape(h5f: var H5FileObj, runType: RunTypeKind,
+                      fileInfo: FileInfo,
+                      flags: set[ConfigFlagKind]): seq[PlotDescriptor] =
+  result = @[PlotDescriptor(runType: runType,
+                            name: "Photopeak / Escape peak",
+                            xlabel: "Time / unix",
+                            runs: fileInfo.runs,
+                            chip: fileInfo.centerChip,
+                            plotKind: pkFePhotoDivEscape)]
 
 proc buildEvents[T, U](x, y: seq[seq[T]], ch: seq[seq[U]],
                        events: OrderedSet[int]): Tensor[float] =
@@ -1461,6 +1431,37 @@ proc handleFePixDivChVsTime(h5f: var H5FileObj,
                         outfile = result[0])
                         #ylabel = "# pix / charge in e^-")
 
+proc handleFePhotoDivEscape(h5f: var H5FileObj,
+                            fileInfo: FileInfo,
+                            pd: PlotDescriptor): (string, PlotV) =
+  const kalphaCharge = 3 # for the ``amplitude``! not the mean position
+  const escapeCharge = 0
+  const parPrefix = "p"
+  const dateStr = "yyyy-MM-dd'.'HH:mm:ss" # example: 2017-12-04.13:39:45
+  var
+    photoSeq: seq[float]
+    escapeSeq: seq[float]
+    dates: seq[float] #string]#Time]
+  let title = buildTitle(pd)
+  result[0] = buildOutfile(pd, fileDir, fileType)
+  for r in pd.runs:
+    let group = h5f[(recoBase & $r).grp_str]
+    let chpGrpName = group.name / "chip_" & $pd.chip
+    let dset = h5f[(chpGrpName / "FeSpectrumCharge").dset_str]
+    photoSeq.add dset.attrs[parPrefix & $kalphaCharge, float]
+    escapeSeq.add dset.attrs[parPrefix & $escapeCharge, float]
+    dates.add parseTime(group.attrs["dateTime", string],
+                        dateStr,
+                        utc()).toUnix.float
+  # now plot
+  # calculate ratio and convert to string to workaround plotly limitation of
+  # only one type for Trace
+  let ratio = zip(photoSeq, escapeSeq) --> map(it[0] / it[1])
+  result[1] = plotDates(dates, ratio,
+                        title = title,
+                        xlabel = pd.xlabel,
+                        outfile = result[0])
+
 proc handleOuterChips(h5f: var H5FileObj,
                       fileInfo: FileInfo,
                       pd: PlotDescriptor): (string, PlotV) =
@@ -1683,6 +1684,8 @@ proc createPlot*(h5f: var H5FileObj,
     result = handleFeVsTime(h5f, fileInfo, pd)
   of pkFePixDivChVsTime:
     result = handleFePixDivChVsTime(h5f, fileInfo, pd)
+  of pkFePhotoDivEscape:
+    result = handleFePhotoDivEscape(h5f, fileInfo, pd)
   of pkInGridEvent:
     # TODO: make this into a call to an `InGridEventIterator`
     result = handleIngridEvent(h5f, fileInfo, pd)
@@ -1941,6 +1944,7 @@ proc createCalibrationPlots(h5file: string,
     pds.add polya(h5f, runType, fInfoConfig, flags)
   if cfFeSpectrum in flags:
     pds.add feSpectrum(h5f, runType, fInfoConfig, flags)
+  pds.add fePhotoDivEscape(h5f, runType, fInfoConfig, flags)
   # energyCalib(h5f) # ???? plot of gas gain vs charge?!
   if cfIngrid in flags:
     pds.add histograms(h5f, runType, fInfoConfig, flags) # including fadc

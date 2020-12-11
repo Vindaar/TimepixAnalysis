@@ -80,6 +80,8 @@ const PhotoChargeVsTimeFnameTemplate* = "photopeak_charge_vs_time_runs$1_$2"
 const PhotoVsTimeTitleTemplate* = "Photopeak pixel peak position of Fe spectra (runs $1) vs time"
 const PhotoPixDivChVsTimeFnameTemplate* = "photopeak_pix_div_charge_pos_vs_time_runs$1"
 const PhotoPixDivChVsTimeTitleTemplate* = "Photopeak pix / charge of Fe spectra (runs $1) vs time"
+const PhotoDivEscapeFnameTemplate* = "photo_div_escape_pos_vs_time_runs$1"
+const PhotoDivEscapeTitleTemplate* = "Ratio of photo and escape peak in charge (runs $1) vs time"
 const InGridEventTitleTemplate* = "InGrid event for run $1, chip $2, event index $3"
 const InGridEventFnameTemplate* = "ingrid_event_run$1_chip$2_event$3"
 const FadcEventTitleTemplate* = "FADC event for run $1, event index $2"
@@ -380,6 +382,8 @@ proc buildOutfile*(pd: PlotDescriptor, prefix, filetype: string): kstring =
                                               $pd.splitBySec]
   of pkFePixDivChVsTime:
     name = PhotoPixDivChVsTimeFnameTemplate %% [runsStr]
+  of pkFePhotoDivEscape:
+    name = PhotoDivEscapeFnameTemplate %% [runsStr]
   of pkInGridEvent:
     name = InGridEventFnameTemplate %% [runsStr,
                                         $pd.chip,
@@ -438,6 +442,8 @@ proc buildTitle*(pd: PlotDescriptor): kstring =
     result = PhotoVsTimeTitleTemplate %% [runsStr]
   of pkFePixDivChVsTime:
     result = PhotoPixDivChVsTimeTitleTemplate %% [runsStr]
+  of pkFePhotoDivEscape:
+    result = PhotoDivEscapeTitleTemplate %% [runsStr]
   of pkInGridEvent:
     result = InGridEventTitleTemplate %% [runsStr,
                                           $pd.chip,

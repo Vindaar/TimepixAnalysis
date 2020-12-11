@@ -145,8 +145,7 @@ proc sum2*(c: seq[Pix]): Pix {.inline, deprecated.} =
 proc parseTOSDateString*(date_str: string): Time =
   ## function receives a string from a date time from TOS and creates
   ## a Time object from it
-  let date = toTime(parse(date_str, TosDateString))
-  return date
+  result = toTime(parse(date_str, TosDateString))
 
 proc parseRunType*(runType: string): RunTypeKind =
   ## given a string describing a run type, return the correct

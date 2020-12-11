@@ -618,6 +618,13 @@ proc writeRawAttrs*(h5f: var H5FileObj,
   let (centerChip, centerName) = getCenterChipAndName(run)
   rawG.attrs["centerChip"] = centerChip
   rawG.attrs["centerChipName"] = centerName
+  let start = run.events[0].evHeader["dateTime"]
+  let stop = run.events[^1].evHeader["dateTime"]
+  rawG.attrs["runStart"] = start
+  rawG.attrs["runStop"] = stop
+  # NOTE: the run length will be wrong by the duration of the last event!
+  rawG.attrs["totalRunDuration"] = (parseTOSDateString(stop) -
+                                    parseTOSDateString(start)).inSeconds
 
 proc writeRunGrpAttrs*(h5f: var H5FileObj, group: var H5Group,
                        runType: RunTypeKind,

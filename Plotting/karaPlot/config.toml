@@ -9,7 +9,8 @@
 [InGrid]
         dsets = ["length", "width", "skewnessLongitudinal", "skewnessTransverse",
                  "kurtosisLongitudinal", "kurtosisTransverse", "rotationAngle",
-                 "eccentricity", "fractionInTransverseRms", "lengthDivRmsTrans"]
+                 "eccentricity", "fractionInTransverseRms", "lengthDivRmsTrans",
+                 "hits"]
 [Fadc]
         dsets = ["minvals", "fallTime", "riseTime"]
 

@@ -16,7 +16,6 @@ import ingridDatabase / [databaseRead, databaseDefinitions]
 import ingrid / calibration / [fit_functions, calib_fitting, calib_plotting]
 from ingridDatabase/databaseWrite import writeCalibVsGasGain
 
-
 import logging
 # set up the logger
 var L = newConsoleLogger()
@@ -253,7 +252,8 @@ func calibrateCharge*(totValue: float, a, b, c, t: float): float =
   let q = 4 * (a * b * t  +  a * c  -  a * t * totValue)
   result = (50 / (2 * a)) * (p + sqrt(p * p + q))
 
-proc applyChargeCalibration*(h5f: var H5FileObj, runNumber: int) =
+proc applyChargeCalibration*(h5f: var H5FileObj, runNumber: int,
+                             toDelete: bool = false) =
   ## applies the charge calibration to the TOT values of all events of the
   ## given run
   # what we need:
@@ -297,6 +297,12 @@ proc applyChargeCalibration*(h5f: var H5FileObj, runNumber: int) =
         totalCharge[i] = charge[i].sum
       # create dataset for charge values
       let vlenFloat = special_type(float64)
+      if toDelete:
+        template ifDelete(name: string): untyped =
+          if grp / name in h5f:
+            doAssert h5f.delete(grp / name)
+        ifDelete("charge")
+        ifDelete("totalCharge")
       var
         chargeDset = h5f.create_dataset(grp / "charge", charge.len, dtype = vlenFloat)
         totalChargeDset = h5f.create_dataset(grp / "totalCharge", charge.len, dtype = float64)

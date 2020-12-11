@@ -2,9 +2,13 @@
 # tools
 
 [Calibration]
-        showPlots = false
-        plotDirectory = "out"
-        gasGainInterval = 30.0 # minutes for binning of gas gain
+showPlots = false
+plotDirectory = "out"
+gasGainInterval = 30.0 # minutes for binning of gas gain
+# decides if `charge` dataset is deleted when running `only_charge`.
+# by default this is disabled, because the attributes of the dataset
+# contain things beyond the actual charge calibration!
+deleteChargeDset = true
 
 [RawData]
-        plotDirectory = "out"
+plotDirectory = "out"

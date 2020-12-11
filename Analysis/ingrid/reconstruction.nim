@@ -611,7 +611,8 @@ proc applyCalibrationSteps(h5f: var H5FileObj,
             "energy from number of pixels!"
           h5f.calcEnergyFromPixels(runNumber, calib_factor.get)
         if rfOnlyCharge in flags:
-          h5f.applyChargeCalibration(runNumber)
+          let toDelete = cfgTable["Calibration"]["deleteChargeDset"].getBool
+          h5f.applyChargeCalibration(runNumber, toDelete = toDelete)
         if rfOnlyGasGain in flags:
           let interval = cfgTable["Calibration"]["gasGainInterval"].getFloat
           h5f.calcGasGain(runNumber, interval)

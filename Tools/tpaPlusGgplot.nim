@@ -94,9 +94,16 @@ proc main(fname: string) =
   echo "Outdir is ", outDir
   let t0 = epochTime()
   var count = 0
-  df.write_csv("/tmp/df_run_106.csv")
+  #df.write_csv("/tmp/df_run_106.csv")
   for tup, dfEv in groups(df.group_by("eventNumber")):
     let evNum = tup[0][1].toInt
+    let dfSeptem = dfToSeptemEvent(dfEv)
+    if dfSeptem.len > 3:
+      ggplot(dfSeptem, aes("x", "y", fill = "charge")) +
+        geom_point() +
+        ggtitle("Event number " & $evNum) +
+        xlim(0, 3*256) + ylim(0, 3*256) +
+        ggsave(outDir / "septem_events_run107_" & $evNum & ".pdf")
     if dfEv.len > 3:
       ggplot(dfEv, aes("x", "y", fill = "charge")) +
         facet_wrap("chipNumber") +

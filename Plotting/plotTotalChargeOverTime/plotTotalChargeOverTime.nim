@@ -8,7 +8,9 @@ import cligen
 ## Just calculates the total charge binned over a specific time interval
 ## and plots it
 
-type SupportedRead = SomeFloat | SomeInteger | string | bool | Value
+type
+  SupportedRead = SomeFloat | SomeInteger | string | bool | Value
+  ReadProc = proc(h5f: H5File, applyRegionCut: bool): DataFrame
 
 const CommonDsets = { "energyFromCharge" : "energy",
                       "fractionInTransverseRms" : "fracRmsTrans",
@@ -33,13 +35,12 @@ proc applyGasGainCut(df: DataFrame): DataFrame =
   doAssert "centerY" in df
   result = df
   result["passIdx"] = arange(0, result.len)
-  echo result
   result = result.filter(f{float -> bool:
     `rmsTransverse` >= cut_rms_trans_low and
     `rmsTransverse` <= cut_rms_trans_high and
     inRegion(df["centerX"][idx], df["centerY"][idx], crSilver)})
 
-proc readTstampDf(h5f: H5FileObj, applyRegionCut: bool): DataFrame =
+proc readTstampDf(h5f: H5File, applyRegionCut: bool): DataFrame =
   const evNames = genNames()
   const allNames = ["timestamp", "eventNumber"]
 
@@ -63,6 +64,31 @@ proc readTstampDf(h5f: H5FileObj, applyRegionCut: bool): DataFrame =
     dfJoined["runNumber"] = constantColumn(run.parseInt, dfJoined.len)
     result.add dfJoined
 
+proc readPhotoEscapeDf(h5f: H5File, applyRegionCut: bool): DataFrame =
+  ## These are the x positions (in charge) of the spectrum
+  #const kalphaCharge = 4
+  #const escapeCharge = 1
+  const kalphaCharge = 3
+  const escapeCharge = 0
+  const parPrefix = "p"
+  const dateStr = "yyyy-MM-dd'.'HH:mm:ss" # example: 2017-12-04.13:39:45
+  var
+    photoSeq: seq[float]
+    escapeSeq: seq[float]
+    dates: seq[float] #string]#Time]
+  for run, grp in runs(h5f, recoBase()):
+    let r = run.parseInt
+    let group = h5f[(recoBase & $r).grp_str]
+    let chpGrpName = group.name / "chip_3"
+    let dset = h5f[(chpGrpName / "FeSpectrumCharge").dset_str]
+    photoSeq.add dset.attrs[parPrefix & $kalphaCharge, float]
+    escapeSeq.add dset.attrs[parPrefix & $escapeCharge, float]
+    dates.add parseTime(group.attrs["dateTime", string],
+                        dateStr,
+                        utc()).toUnix.float
+  result = seqsToDf({ "timestamp" : dates, "photo" : photoSeq,
+                      "escape" : escapeSeq })
+
 proc readCdl(): DataFrame =
   const path = "/mnt/1TB/CAST/CDL_2019/calibration-cdl-2018.h5"
   result = newDataFrame()
@@ -84,7 +110,8 @@ proc readCdl(): DataFrame =
     discard h5f.close()
 
 proc readFiles(files: seq[string], runType: string,
-               applyRegionCut: bool): DataFrame =
+               applyRegionCut: bool,
+               readProc: ReadProc = readTstampDf): DataFrame =
   ## reads all H5 files given and stacks them to a single
   ## DF. An additional column is added, which corresponds to
   ## the filename. That way one can later differentiate which
@@ -92,10 +119,38 @@ proc readFiles(files: seq[string], runType: string,
   ## be accumulated or not
   for file in files:
     let h5f = H5open(file, "r")
-    result.add readTstampDf(h5f, applyRegionCut = applyRegionCut)
+    result.add readProc(h5f, applyRegionCut = applyRegionCut)
     discard h5f.close()
   result = result.arrange("timestamp")
   result["runType"] = constantColumn(runType, result.len)
+
+template len[T](t: Tensor[T]): int = t.size.int
+
+proc mapToRunPeriods[T](tmeanStamps: T,
+                        periodTab: OrderedTable[int, string]): seq[string] =
+  proc toPeriod(t: float): string =
+    ## convert t to unix timestamp and then format date
+    result = fromUnix(t.int).format("dd/MM/YYYY")
+  const splitPeriod = 86400 * 5 # 5 days?
+
+  let periods = toSeq(keys(periodTab))
+  var lastPeriod = if periods.len == 0: toPeriod tmeanStamps[0]
+                   else: periodTab[periods[0]]
+  result.add lastPeriod
+  ## walk data again to split by splitPeriods
+  for i in 1 ..< tmeanStamps.len:
+    if tmeanStamps[i] - tmeanStamps[i - 1] >= splitPeriod:
+      if periods.len == 0:
+        lastPeriod = toPeriod tmeanStamps[i]
+      else:
+        # find the largest run period smaller in time than curTstamp
+        let diffs = periods.mapIt(abs(it - tmeanStamps[i].int))
+        let idx = diffs.argMin
+        if diffs[idx] <= splitPeriod * 10:
+          lastPeriod = periodTab[periods[idx]]
+        else:
+          lastPeriod = toPeriod tmeanStamps[i]
+    result.add lastPeriod
 
 proc calculateMeanDf(df: DataFrame, interval: float,
                      periodTab: OrderedTable[int, string] = initOrderedTable[int, string]()): DataFrame =
@@ -104,12 +159,6 @@ proc calculateMeanDf(df: DataFrame, interval: float,
   # a continuous variable, we're not well equipped using ggplotnim's dataframe
   # I fear. So just do it manually...
   let tstamps = df["timestamp"].toTensor(float)
-  let periods = toSeq(keys(periodTab))
-  const splitPeriod = 86400 * 5 # 5 days?
-  proc toPeriod(t: float): string =
-    ## convert t to unix timestamp and then format date
-    result = fromUnix(t.int).format("dd/MM/YYYY")
-
   let numIntervals = ((tstamps[tstamps.size - 1] - tstamps[0]) / interval).ceil.int
   var tmeanStamps = newSeqOfCap[float](numIntervals * 2)
   var tStart = tstamps[0]
@@ -164,24 +213,7 @@ proc calculateMeanDf(df: DataFrame, interval: float,
       current += data[i]
       inc numCluster
 
-  var lastPeriod = if periods.len == 0: toPeriod tmeanStamps[0]
-                   else: periodTab[periods[0]]
-  var runPeriods = newSeq[string]()
-  runPeriods.add lastPeriod
-  ## walk data again to split by splitPeriods
-  for i in 1 ..< tmeanStamps.len:
-    if tmeanStamps[i] - tmeanStamps[i - 1] >= splitPeriod:
-      if periods.len == 0:
-        lastPeriod = toPeriod tmeanStamps[i]
-      else:
-        # find the largest run period smaller in time than curTstamp
-        let diffs = periods.mapIt(abs(it - tmeanStamps[i].int))
-        let idx = diffs.argMin
-        if diffs[idx] <= splitPeriod * 10:
-          lastPeriod = periodTab[periods[idx]]
-        else:
-          lastPeriod = toPeriod tmeanStamps[i]
-    runPeriods.add lastPeriod
+  let runPeriods = mapToRunPeriods(tmeanStamps, periodTab)
 
   let outLen = tmeanStamps.len
   let sums = df.calcMean(tstamps, outLen, "hits", interval)
@@ -257,6 +289,36 @@ proc plotDf(df: DataFrame, interval: float, titleSuff: string,
     ggtitle(&"Histogram of binned mean charge, within {interval:.1f} min, {titleSuff}") +
     ggsave(&"{outpath}/background_histo_mean_binned_{interval:.1f}_min_{nameSuff}.pdf",
             width = 800, height = 480)
+
+proc plotPhotoDivEscape(df, dfTime: DataFrame, periods: OrderedTable[int, string],
+                        interval: float,
+                        outpath = "out",
+                        titleSuff = "") =
+  ## dfTime contains the whole time series data, df is just the data containing
+  ## Fe spectra photo + escape peaks
+  var df = df
+  let times = toSeq(periods.keys()).sorted
+  df["runPeriods"] = df["timestamp"].toTensor(float).mapToRunPeriods(periods)
+  df = df.mutate(f{"photoEsc" ~ `photo` / `escape`})
+    .group_by("runPeriods")
+    .mutate(f{"val" ~ `photoEsc` / max(`photoEsc`)})
+  let maxPhotoEsc = df["photoEsc"].toTensor(float).max
+  let maxEnergy = dfTime["energy"].toTensor(float).max
+  var dfTime = dfTime.group_by("runPeriods")
+    .mutate(f{"val" ~ `energy` / max(`energy`)})
+  df = df.select(["timestamp", "val", "runPeriods", "runType"])
+  dfTime = dfTime.select(["timestamp", "val", "runPeriods", "runType"])
+  let dfPlot = bind_rows([("", df), ("", dfTime)])
+  ggplot(dfPlot, aes("timestamp", "val", color = "runType")) +
+    facet_wrap("runPeriods", scales = "freeX") +
+    geom_point(alpha = some(0.8)) +
+    scale_x_continuous(labels = formatTime) +
+    xlab(rotate = -45, alignTo = "right") +
+    margin(top = 1.5) +
+    ggtitle("Normalized cmp of photo/escape peak in charge & median energy " &
+            &"{interval/60.0:.1f} min, max photo/esc {maxPhotoEsc:.2f}, max " &
+            &"median energy {maxEnergy:.2f} {titleSuff}") +
+    ggsave(&"{outpath}/photo_div_escape_vs_time.pdf", width = 1920, height = 1080)
 
 proc plotFeSpectra(df: DataFrame,
                    outpath = "out") =
@@ -340,6 +402,15 @@ proc main(files: seq[string],
            titleSuff = &"{regionCut}charge > {cutoffCharge}, hits < {cutoffHits:.0f} filtered out",
            applyRegionCut = applyRegionCut,
            useLog = false)
+  block PhotoDivEscapePlot:
+    let dfBackMean = calculateMeanDf(dfBack, interval)
+    let periods = dfBackMean.getPeriods
+    let dfCalibMean = calculateMeanDf(dfCalib, interval, periods)
+    let dfPhoto = readFiles(calibFiles, "Photo/Escape", applyRegionCut = applyRegionCut,
+                            readProc = readPhotoEscapeDf)
+    echo dfPhoto
+
+    plotPhotoDivEscape(dfPhoto, dfCalibMean, periods, interval)
 
   if createSpectra:
     var dfComb: DataFrame

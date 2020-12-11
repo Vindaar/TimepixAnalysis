@@ -19,6 +19,7 @@ type
     pkFeVsTime             # Evolution of Fe pix peak location vs time
     pkFeChVsTime           # Evolution of Fe charge peak location vs time
     pkFePixDivChVsTime     # Evolution of Fe (pix peak / charge peak) location vs time"
+    pkFePhotoDivEscape     # Evolution of Fe photo peak / escape peak location vs time
     pkInGridEvent          # Individual InGrid event
     pkFadcEvent            # Individual FADC event
     pkCalibRandom          # ? to be filled for different calibration plots

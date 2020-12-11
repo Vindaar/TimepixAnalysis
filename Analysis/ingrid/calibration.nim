@@ -373,7 +373,7 @@ proc writePolyaDsets(h5f: H5FileObj, group: H5Group,
                      gasGainInterval = none[GasGainIntervalData]()) =
   # all polya datasets are stored in `polya` subgroup
   const
-    subgroup = "polya"
+    subgroup = "polyaDsets"
   # create dataset for polya histogram
   let dsetSuffix = if gasGainInterval.isSome:
                      gasGainInterval.get.toDsetSuffix
@@ -384,6 +384,8 @@ proc writePolyaDsets(h5f: H5FileObj, group: H5Group,
   template ifDelete(name: untyped): untyped =
     if name in h5f:
       doAssert h5f.delete(name)
+  ifDelete(group.name / "polya")
+  ifDelete(group.name / "polyaFit")
   ifDelete(pName)
   ifDelete(group.name / &"polya{dsetSuffix}")
   ifDelete(pFitName)

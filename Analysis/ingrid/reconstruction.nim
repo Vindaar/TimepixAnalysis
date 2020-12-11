@@ -488,7 +488,7 @@ template recordIterRuns*(base: string, body: untyped): untyped =
   for num, curGrp in runs(h5f, base):
     # now read some data. Return value will be added later
     let grp {.inject.} = curGrp
-    let runNumber {.inject.} = parseInt(num)
+    let runNumber {.inject.} = num
     runNumbersIterated.incl runNumber.uint16
     body
     runNumbersDone.incl runNumber.uint16

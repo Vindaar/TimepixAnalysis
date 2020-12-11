@@ -1,7 +1,7 @@
 import ../ingrid_types
 import helpers/utils
 import os except FileInfo
-import strutils, times, strformat, sequtils, tables, re, algorithm, sets
+import strutils, times, strformat, sequtils, tables, re, algorithm, sets, strscans
 import nimhdf5
 import macros
 import pure
@@ -597,7 +597,11 @@ proc filterTrackingEvents*(h5f: var H5FileObj, group: H5Group, tracking_inds: se
     evNumbers = h5f[(group.name / "eventNumber").dset_str][int64]
   result = filterTrackingEvents(evNumbers, tracking_inds)
 
-iterator runs*(h5f: H5FileObj, data_basename = recoBase()): (string, string) =
+proc removePrefix(s: string, prefix: string): string =
+  result = s
+  result.removePrefix(prefix)
+
+iterator runs*(h5f: H5FileObj, data_basename = recoBase()): (int, string) =
   ## simple iterator, which yields the run number and group name of runs in the file.
   ## If reco is true (default) we yield reconstruction groups, else raw groups
   ## Iterator saves the state of `h5f` during the first call to this iterator! If
@@ -612,12 +616,29 @@ iterator runs*(h5f: H5FileObj, data_basename = recoBase()): (string, string) =
   # skipping runs randomly, since we insert new groups, changing the
   # iterator while iterating. Bad! Solves issue #8
   let groups = toSeq(keys(h5f.groups))
-  let runRegex = re(data_basename & r"(\d+)$")
-  var run: array[1, string]
+  var runNumber: int
   for grp in groups:
-    if grp.match(runRegex, run) == true:
+    if grp.startsWith(data_basename) and
+       grp.removePrefix(data_basename).scanf("$i$.", runNumber):
       # now read some data. Return value will be added later
-      yield (run[0], grp)
+      yield (runNumber, grp)
+
+iterator chipGroups*(h5f: H5FileObj, data_basename = recoBase()): (int, int, string) =
+  ## simple iterator, which yields the run number and chip group name of runs in the file.
+  ## If reco is true (default) we yield reconstruction groups, else raw groups
+  ## Iterator saves the state of `h5f` during the first call to this iterator! If
+  ## additional groups are added while iterating, they will be ignored.
+  if h5f.visited == false:
+    h5f.visit_file
+
+  let groups = toSeq(keys(h5f.groups))
+  var
+    runNumber: int
+    chipNumber: int
+  for grp in groups:
+    if grp.startsWith(data_basename) and
+       grp.removePrefix(data_basename).scanf("$i/chip_$i$.", runNumber, chipNumber):
+      yield (runNumber, chipNumber, grp)
 
 iterator dsets*(h5f: var H5FileObj,
                 dsetName: string,
@@ -636,9 +657,10 @@ iterator dsets*(h5f: var H5FileObj,
   let dsetPath = joinPath(runChipName, dsetName)
   let dsetLocationReg = re(dsetPath)
   var runNumber = newSeq[string](1)
-  for dset in keys(h5f.datasets):
+  let dsets = toSeq(keys(h5f.datasets))
+  for dset in dsets:
     if match(dset, dsetLocationReg, runNumber):
-      # found a matching dataset, yield the group number as well as the actual
+      # found a matching dataset, yield the run number as well as the actual
       # data
       var mdset = h5f[dsetPath.dset_str]
       echo mdset.name
@@ -678,7 +700,7 @@ proc getFileInfo*(h5f: var H5FileObj, baseGroup = recoGroupGrpStr()): FileInfo =
     result.centerChipName = group.attrs["centerChipName", string]
 
   for runNumber, group in runs(h5f, data_basename = baseGroup.string / "run_"):
-    result.runs.add runNumber.parseInt
+    result.runs.add runNumber
     if not readAux:
       let grp = h5f[group.grp_str]
       let nChips = grp.attrs["numChips", int]

@@ -82,7 +82,7 @@ proc readDsets*(h5f: H5FileObj, path = recoBase(),
                dfChip
              else: #elif dfAll.len > 0:
                dfAll
-    df["runNumber"] = constantColumn(run.parseInt, df.len)
+    df["runNumber"] = constantColumn(run, df.len)
     if df.len > 0:
       result.add df
 
@@ -163,7 +163,7 @@ proc getSeptemEventDF*(h5f: H5File, runNumber: int): DataFrame =
 
 iterator getSeptemDataFrame*(h5f: H5File): DataFrame =
   for num, group in runs(h5f):
-    let df = h5f.getSeptemDataFrame(num.parseInt)
+    let df = h5f.getSeptemDataFrame(num)
     yield df
 
 proc getChipOutline*(maxVal: SomeNumber): DataFrame =

@@ -262,12 +262,14 @@ proc applyChargeCalibration*(h5f: var H5FileObj, runNumber: int,
   var chipBase = recoDataChipBase(runNumber)
   # get the group from file
   info "Applying charge calibration for run: ", runNumber
-  for grp in keys(h5f.groups):
+  for run, chip, grp in chipGroups(h5f):
     if chipBase in grp:
+      doAssert run == runNumber
       # now can start reading, get the group containing the data for this chip
       var group = h5f[grp.grp_str]
       # get the chip number from the attributes of the group
       let chipNumber = group.attrs["chipNumber", int]
+      doAssert chipNumber == chip
       let chipName = group.attrs["chipName", string]
       try:
         # `contains` calls `parseChipName`, which might throw a ValueError
@@ -563,12 +565,14 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int,
   ## TODO: make sure to delete all iterGainSlice attributes first? overwriting is super slow!
   # get the group from file
   info "Calulating gas gain for run: ", runNumber
-  for grp in keys(h5f.groups):
+  for run, chip, grp in chipGroups(h5f):
     if chipBase in grp:
       # now can start reading, get the group containing the data for this chip
+      doAssert run == runNumber
       var group = h5f[grp.grp_str]
       # get the chip number from the attributes of the group
       let chipNumber = group.attrs["chipNumber", int]
+      doAssert chip == chipNumber
       let chipName = group.attrs["chipName", string]
       let (a, b, c, t) = getTotCalibParameters(chipName, runNumber)
       # get bin edges by calculating charge values for all TOT values at TOT's bin edges
@@ -892,13 +896,11 @@ proc calcEnergyFromPixels*(h5f: var H5FileObj, runNumber: int, calib_factor: flo
   ## in file h5f
   ## throws:
   ##     HDF5LibraryError = in case a call to the H5 library fails, this might be raised
-
-  # what we need:
-  # the hits of the clusters is all we need
   var chipBase = recoDataChipBase(runNumber)
   # get the group from file
-  for grp in keys(h5f.groups):
+  for run, chip, grp in chipGroups(h5f, recoBase()):
     if chipBase in grp:
+      doAssert runNumber == run
       # now can start reading, get the group containing the data for this chip
       var group = h5f[grp.grp_str]
       # get the chip number from the attributes of the group
@@ -1002,18 +1004,15 @@ proc calcEnergyFromCharge*(h5f: var H5FileObj, interval: float) =
     m: float
   # get the group from file
 
-  for num, grp in runs(h5f):
+  for run, chip, grp in chipGroups(h5f):
     # now can start reading, get the group containing the data for this chip
-    var group = h5f[grp.grp_str]
-    echo "Energy from charge calibration for run ", num
+    var group = h5f[grp.parentDir.grp_str]
+    echo "Energy from charge calibration for run ", run
     if chipName.len == 0:
       # get center chip name to be able to read fit parameters
       chipName = group.attrs["centerChipName", string]
       # get parameters during first iter...
-      (b, m) = getCalibVsGasGainFactors(chipName, num.parseInt)
-
+      (b, m) = getCalibVsGasGainFactors(chipName, run)
     # now iterate over chips in this run
-    for chipGrp in items(h5f, start_path = group.name):
-      if "fadc" in chipGrp.name:
-        continue
-      h5f.calcEnergyFromCharge(chipGrp, interval, b, m)
+    let chipGrp = h5f[grp.grp_str]
+    h5f.calcEnergyFromCharge(chipGrp, interval, b, m)

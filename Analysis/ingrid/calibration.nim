@@ -407,11 +407,11 @@ proc writePolyaDsets(h5f: H5FileObj, group: H5Group,
     map(@[it[0], it[1]])
 
   # now write resulting fit parameters as attributes
-  template writeAttrs(d: H5DataSet, fitResult: typed): untyped =
+  template writeAttrs(d: H5DataSet, cutFormula: string): untyped =
     d.attrs["applied Cut for gas gain"] = cutFormula
-  writeAttrs(chargeDset, fitResult)
-  writeAttrs(polyaDset, fitResult)
-  writeAttrs(polyaFitDset, fitResult)
+  writeAttrs(chargeDset, cutFormula)
+  writeAttrs(polyaDset, cutFormula)
+  writeAttrs(polyaFitDset, cutFormula)
 
 proc writeGasGainSliceData(h5f: H5File, group: H5Group, slices: seq[GasGainIntervalResult]) =
   ## writes the information about the gas gain slices, including the fit results
@@ -617,8 +617,7 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int,
             gasGainInterval = some(gasGainInterval))
 
           h5f.writePolyaDsets(group, chargeDset, binned, bin_edges, fitResult,
-                              cutFormula,
-                              some(gasGainInterval))
+                              cutFormula, some(gasGainInterval))
 
           gasGainSliceData.add initGasGainIntervalResult(gasGainInterval, fitResult,
                                                          binned, bin_edges,
@@ -649,8 +648,7 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int,
         let ggRes = initGasGainIntervalResult(gasGainSingle, fitResult, binned, bin_edges,
                                               0 ..< passIdx.max,
                                               0, group.attrs["numEventsStored"])
-        h5f.writePolyaDsets(group, chargeDset, binned, bin_edges, fitResult,
-                            cutFormula)
+        h5f.writePolyaDsets(group, chargeDset, binned, bin_edges, fitResult, cutFormula)
         h5f.writeGasGainSliceData(group, @[ggRes])
 
 proc writeFeFitParameters(dset: var H5DataSet,

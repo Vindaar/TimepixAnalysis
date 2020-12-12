@@ -98,17 +98,18 @@ iterator getDataframes*(h5f: H5File): DataFrame =
                                     @(getIntClusterNames())))
           yield df
 
-proc getSeptemDataFrame*(h5f: H5File, runNumber: int): DataFrame =
+proc getSeptemDataFrame*(h5f: H5File, runNumber: int, allowedChips: seq[int] = @[]): DataFrame =
   ## Returns a subset data frame of the given `runNumber` and `chipNumber`, which
   ## contains only the zero suppressed event data
   var
     xs, ys: seq[uint8]
     chs: seq[float]
     evs: seq[int]
-    chips: Column
+    chips = newColumn(colNone)
   let group = recoBase() & $runNumber
-  for grp in items(h5f, group):
-    if "fadc" notin grp.name:
+  for run, chip, groupName in chipGroups(h5f):
+    if run == runNumber and (allowedChips.len == 0 or chip in allowedChips):
+      let grp = h5f[groupName.grp_str]
       let chipNum = grp.attrs["chipNumber", int]
       echo "Reading chip ", chipNum, " of run ", runNumber
       let eventNumbersSingle = h5f[grp.name / "eventNumber", int64]
@@ -135,7 +136,6 @@ proc getSeptemDataFrame*(h5f: H5File, runNumber: int): DataFrame =
       chs.add(chAll)
       evs.add(eventNumbers)
       chips = add(chips, chipNumCol)
-
   result = seqsToDf({"eventNumber" : evs, "x" : xs, "y" : ys, "charge" : chs,
                      "chipNumber" : chips})
 

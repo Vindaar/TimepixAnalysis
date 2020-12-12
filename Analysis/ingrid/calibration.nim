@@ -348,26 +348,6 @@ proc initGasGainIntervalResult(g: GasGainIntervalData,
   result.G         = meanGain
   result.theta     = fitResult.pRes[2]
   result.redChiSq  = fitResult.redChiSq
-  when false:
-    var gidx: string
-    if gasGainInterval.isSome:
-      let g = gasGainInterval.get
-      gidx = g.toAttrPrefix()
-      d.attrs[g.toSliceStartAttr()] = g.tstart
-      d.attrs[g.toSliceStopAttr()] = g.tstop
-      d.attrs[gidx & "length"] = g.interval
-      d.attrs[gidx[0 ..< ^1]] = $g
-
-    d.attrs[gidx & "N"] = fitResult.pRes[0]
-    d.attrs[gidx & "G_fit"] = fitResult.pRes[1]
-    d.attrs[gidx & "G"] = meanGain
-    d.attrs[gidx & "G_fitmean"] = meanGainFit
-    d.attrs[gidx & "theta"] = fitResult.pRes[2]
-    # TODO: get some errors from NLopt?
-    #d.attrs["N_err"] = fitResult.pErr[0]
-    #d.attrs["G_err"] = fitResult.pErr[1]
-    #d.attrs["theta_err"] = fitResutl.pErr[2]
-    d.attrs[gidx & "redChiSq"] = fitResult.redChiSq
 
 proc writePolyaDsets(h5f: H5FileObj, group: H5Group,
                      chargeDset: H5DataSet,

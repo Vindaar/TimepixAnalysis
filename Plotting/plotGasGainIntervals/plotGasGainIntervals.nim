@@ -110,43 +110,43 @@ proc plotSeptemEvents(df: DataFrame, run, slice: int) =
 proc readGasGains(f: string): DataFrame =
   var h5f = H5open(f, "r")
   result = newDataFrame()
-  const RunOfInterest = 109
-  for run, grp in runs(h5f, recoBase()):
-    let runNumber = run.parseInt
-    if runNumber != RunOfInterest: continue
+  const RunOfInterest = -1
+  for runNumber, grp in runs(h5f, recoBase()):
+    #if runNumber != RunOfInterest: continue
     let dset = h5f[(grp / "chip_3/charge").dset_str]
-    let dfData = h5f.readGasGainDf(dset.name.parentDir, 3, @["rmsTransverse", "centerX", "centerY"])
+    let dfData = h5f.readGasGainDf(dset.name.parentDir, 3, @["rmsTransverse", "centerX", "centerY", "hits"])
     var gains: seq[float]
     var gainsFit: seq[float]
     var gainsMeanFit: seq[float]
     var times: seq[int]
     var sliceNum = 0
     let dfDataFilter = dfData.applyGasGainCut()
-    let dfRun = getSeptemDataFrame(h5f, runNumber)
-    for (g, slice) in iterGainSlicesFromAttrs(dset, dfData, 30.0):
+    #let dfRun = getSeptemDataFrame(h5f, runNumber, allowedChips = @[3])
+    let gasGainSlices = h5f[grp / "chip_3" / "gasGainSlices", GasGainIntervalResult]
+    for g in gasGainSlices:
       # read the eventNumbers of this slice, then filter fullRun DF based on these
       # eventNumbers
-      let evNumbers = h5f.readNorm(dset.name.parentDir, "eventNumber", int, toSeq(slice)).toSet
-      let evNumsFiltered = dfDataFilter
-        .filter(f{int -> bool: `eventNumber` in evNumbers})["eventNumber"].toTensor(int)
-        .toRawSeq.toSet
-      let dfEvs = dfRun.filter(f{int -> bool: `eventNumber` in evNumsFiltered})
-      if runNumber == RunOfInterest and g.idx in {8, 9, 10}:
-        if g.idx == 9:
-          echo "Event numbers: ", evNumbers.toSeq.sorted
-          plotSeptemEvents(dfEvs, runNumber, g.idx)
-      h5f.plotOccupancySlice(runNumber, 3, sliceNum, slice, dset.name.parentDir)
+      #let evNumbers = h5f.readNorm(dset.name.parentDir, "eventNumber", int,
+      #                             toSeq(g.sliceStart .. g.sliceStop)).toSet
+      #let evNumsFiltered = dfDataFilter
+      #  .filter(f{int -> bool: `eventNumber` in evNumbers})["eventNumber"].toTensor(int)
+      #  .toRawSeq.toSet
+      #let dfEvs = dfRun.filter(f{int -> bool: `eventNumber` in evNumsFiltered})
+      #if runNumber == RunOfInterest and g.idx in {8, 9, 10}:
+      #  if g.idx == 9:
+      #    echo "Event numbers: ", evNumbers.toSeq.sorted
+      #    plotSeptemEvents(dfEvs, runNumber, g.idx)
+      #h5f.plotOccupancySlice(runNumber, 3, sliceNum, slice, dset.name.parentDir)
 
-      echo "Run ", run, " ", g
-      let gidx = g.toAttrPrefix()
-      gainsFit.add dset.attrs[gidx & "G_fit", float]
-      gains.add dset.attrs[gidx & "G", float]
-      gainsMeanFit.add dset.attrs[gidx & "G_fitmean", float]
-      times.add dset.attrs[g.toSliceStartAttr(), int]
+      echo "Run ", runNumber, " ", g
+      gainsFit.add g.G_fit
+      gains.add g.G
+      gainsMeanFit.add g.G_fitMean
+      times.add g.tStart
       inc sliceNum
     var df = seqsToDf({ "Gain" : gains, "GainFit" : gainsFit,
                         "GainFitMean" : gainsMeanFit, "timestamp" : times })
-    df["Run"] = constantColumn(run, df.len)
+    df["Run"] = constantColumn(runNumber, df.len)
     df["SliceIdx"] = toSeq(0 ..< sliceNum)
     result.add df
   if result.len > 0:

@@ -626,8 +626,8 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int,
           gasGainSliceData.add initGasGainIntervalResult(gasGainInterval, fitResult,
                                                          binned, bin_edges,
                                                          slice,
-                                                         df["eventNumber", 0, int],
-                                                         df["eventNumber", df.high, int])
+                                                         df["eventNumber", slice.a, int],
+                                                         df["eventNumber", slice.b, int])
           inc sliceCount
 
         chargeDset.attrs["numGasGainSlices"] = sliceCount

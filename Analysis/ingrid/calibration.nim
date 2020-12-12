@@ -399,21 +399,19 @@ proc writePolyaDsets(h5f: H5FileObj, group: H5Group,
                                      (binned.len, 2),
                                      dtype = float64,
                                      overwrite = true)
-  var polyaFitDset = h5f.create_dataset(pFitName,
-                                        (fitResult.x.len, 2),
-                                        dtype = float64,
-                                        overwrite = true)
   polyaDset[polyaDset.all] = zip(bin_edges, binned) -->
     map(@[it[0], it[1].float])
-  polyaFitDset[polyaFitDset.all] = zip(fitResult.x, fitResult.y) -->
-    map(@[it[0], it[1]])
 
   # now write resulting fit parameters as attributes
-  template writeAttrs(d: H5DataSet, cutFormula: string): untyped =
+  template writeAttrs(d: H5DataSet, fitResult: FitResult, cutFormula: string): untyped =
     d.attrs["applied Cut for gas gain"] = cutFormula
-  writeAttrs(chargeDset, cutFormula)
-  writeAttrs(polyaDset, cutFormula)
-  writeAttrs(polyaFitDset, cutFormula)
+  writeAttrs(chargeDset, fitResult, cutFormula)
+  writeAttrs(polyaDset, fitResult, cutFormula)
+  # IMPORTANT: only write these to polya dataset and not to charge dataset. Otherwise the
+  # latter will end up with hundreds of attributes which slows everything to a crawl
+  polyaDset.attrs["N"] = fitResult.pRes[0]
+  polyaDset.attrs["G_fit"] = fitResult.pRes[1]
+  polyaDset.attrs["theta"] = fitResult.pRes[2]
 
 proc writeGasGainSliceData(h5f: H5File, group: H5Group, slices: seq[GasGainIntervalResult],
                            cutFormula: string) =

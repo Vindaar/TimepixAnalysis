@@ -155,6 +155,35 @@ proc cutFeSpectrum(pos_x, pos_y, ecc, rms_trans: seq[float], eventNum, hits: seq
                       (ecc, -Inf, cut_ecc_high),
                       (rms_trans, -Inf, cut_rms_trans_high))
 
+proc cutFeSpectrum(df: DataFrame): DataFrame =
+  ## proc which receives the data for the cut, performs the cut and returns tuples of
+  ## event numbers, number of hits and the indices of the passing elements
+  ## inputs:
+  ##    - df: Needs to contain:
+  ##      - centerX, centerY, eccentricity, rmsTransverse which we need for cuts
+  ##      - eventNum: seq[int] = sequence containing event numbers of data stored in
+  ##        other seqs
+  ##      - hits: seq[int] = sequence containing the hits of the corresponding event
+  ##        which are the data in the final spectrum
+  ## outputs:
+  ##    (seq[int], seq[int], seq[int]) = event numbers of passing clusters, number
+  ##      of hits of these and indices of these clusters in the input
+  # constants which define the cuts
+  const
+    cut_x = 7.0
+    cut_y = 7.0
+    cut_r = 4.5
+    cut_ecc_high = 1.3
+    cut_rms_trans_high = 1.2
+  doAssert "centerX" in df
+  doAssert "centerY" in df
+  doAssert "rmsTransverse" in df
+  doAssert "eccentricity" in df
+  result = df.filter(f{float -> bool:
+                        `eccentricity` < cut_ecc_high and
+                        `rmsTransverse` < cut_rms_trans_high and
+                        inRegion(df["centerX"][idx], df["centerY"][idx], crSilver)})
+
 proc createFeSpectrum*(h5f: var H5FileObj, runNumber, centerChip: int) =
   ## proc which reads necessary reconstructed data from the given H5 file,
   ## performs cuts (as Christoph) and writes resulting spectrum to H5 file

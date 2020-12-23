@@ -90,7 +90,7 @@ const
 
 type
   ConfigFlagKind = enum
-    cfNone, cfFadc, cfInGrid, cfOccupancy, cfPolya, cfFeSpectrum, cfNoProvideServer
+    cfNone, cfFadc, cfInGrid, cfOccupancy, cfPolya, cfFeSpectrum, cfProvideServer
 
   BackendKind* = enum
     bNone, bMpl, bPlotly, bGgPlot
@@ -2196,15 +2196,15 @@ proc plotData*() =
   let backendStr = $args["--backend"]
   let evDisplayStr = $args["--eventDisplay"]
   var flags: set[ConfigFlagKind]
-  if $args["--no_fadc"] == "true":
+  if $args["--fadc"] == "true":
     flags.incl cfFadc
-  if $args["--no_ingrid"] == "true":
+  if $args["--ingrid"] == "true":
     flags.incl cfIngrid
-  if $args["--no_occupancy"] == "true":
+  if $args["--occupancy"] == "true":
     flags.incl cfOccupancy
-  if $args["--no_polya"] == "true":
+  if $args["--polya"] == "true":
     flags.incl cfPolya
-  if $args["--no_fe_spec"] == "true":
+  if $args["--fe_spec"] == "true":
     flags.incl cfFeSpectrum
   if $args["--server"] == "true":
     flags.incl cfProvideServer

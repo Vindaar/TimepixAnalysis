@@ -372,6 +372,8 @@ proc main(files: seq[string],
           interval, cutoffHits: float,
           cutoffCharge: float = 0.0,
           createSpectra: bool = false,
+          timeSeries: bool = true,
+          photoDivEscape: bool = false,
           applyRegionCut = false) =
   ## Input should be both H5 `DataRuns*_reco.h5` data files
   ## `interval` is the time to average per bin in minutes
@@ -382,7 +384,7 @@ proc main(files: seq[string],
   let dfCalib = readFiles(calibFiles, "acalibration", applyRegionCut = applyRegionCut)
   ## check if there are additional files in the toml file
 
-  block TimeSeriesPlots:
+  if timeSeries:
     template all(arg1, arg2: DataFrame): untyped =
       let all1 = calculateMeanDf(arg1, interval)
       let all2 = calculateMeanDf(arg2, interval, all1.getPeriods)
@@ -408,7 +410,8 @@ proc main(files: seq[string],
            titleSuff = &"{regionCut}charge > {cutoffCharge}, hits < {cutoffHits:.0f} filtered out",
            applyRegionCut = applyRegionCut,
            useLog = false)
-  block PhotoDivEscapePlot:
+
+  if photoDivEscape:
     let dfBackMean = calculateMeanDf(dfBack, interval)
     let periods = dfBackMean.getPeriods
     let dfCalibMean = calculateMeanDf(dfCalib, interval, periods)

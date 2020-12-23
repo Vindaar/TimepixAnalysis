@@ -901,7 +901,7 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj,
         # If there's no events left, then we don't care about
         if fkSeptem in flags and chipNumber == centerChip:
           # read all data for other chips ``iff`` chip == 3 (centerChip):
-          h5f.applySeptemVeto(h5fout, cdlFile, refFile, num.parseInt, year, passedInds)
+          h5f.applySeptemVeto(h5fout, cdlFile, refFile, num, year, passedInds)
 
 
         # call function which handles writing the data

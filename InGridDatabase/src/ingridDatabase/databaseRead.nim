@@ -114,15 +114,16 @@ proc getTotCalibParameters*(chipName: string, run: int):
       t = grp.attrs["t", float64]
     result = (a, b, c, t)
 
-proc getCalibVsGasGainFactors*(chipName: string, run: int): (float, float) =
+proc getCalibVsGasGainFactors*(chipName: string, run: int, suffix = ""): (float, float) =
   ## returns the fit parameters (no errors) for the given chip
   ## of the calibration of Fe charge spectrum vs gas gain
   withDatabase:
     h5f.visitFile()
     let runPeriod = h5f.findRunPeriodFor(chipName, run)
     let grpName = chipNameToGroup(chipName, runPeriod)
-    if hasKey(h5f.datasets, grpName / ChargeCalibGasGain):
-      var dset = h5f[(grpName / ChargeCalibGasGain).dset_str]
+    let dsetName = ChargeCalibGasGain & suffix
+    if hasKey(h5f.datasets, grpName / dsetName):
+      var dset = h5f[(grpName / dsetName).dset_str]
       let
         b = dset.attrs["b", float64]
         m = dset.attrs["m", float64]

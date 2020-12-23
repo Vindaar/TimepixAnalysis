@@ -9,6 +9,12 @@ gasGainInterval = 30.0 # minutes for binning of gas gain
 # by default this is disabled, because the attributes of the dataset
 # contain things beyond the actual charge calibration!
 deleteChargeDset = true
+# the gas gain vs energy calibration factor computation to use
+# - "": the default of just one gas gain per calibration run based on
+#       one gas gain interval for each run
+# - "Mean": use the mean of all gas gain time slices
+# - "Individual": use the factors obtained from one Fe fit per gas gain slice
+gasGainEnergyKind = "Individual"
 
 [RawData]
 plotDirectory = "out"

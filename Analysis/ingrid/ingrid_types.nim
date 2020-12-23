@@ -88,6 +88,13 @@ type
   RunFolderKind* = enum
     rfNewTos, rfOldTos, rfSrsTos, rfUnknown
 
+  # The enum which determines how the gas gain vs energy calbration is done
+  # and which values to use for the energy calibration
+  GasGainVsChargeCalibKind* = enum
+    gcNone = ""
+    gcMean = "Mean"
+    gcIndividualFits = "Individual"
+
 when not defined(js):
   type
     # an object, which stores information about a run's start, end and length

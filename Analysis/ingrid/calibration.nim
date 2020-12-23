@@ -12,7 +12,7 @@ import chroma
 import tos_helpers
 import helpers/utils
 import ingrid_types
-import ingridDatabase / [databaseRead, databaseDefinitions]
+import ingridDatabase / [databaseRead, databaseDefinitions, databaseUtils]
 import ingrid / calibration / [fit_functions, calib_fitting, calib_plotting]
 from ingridDatabase/databaseWrite import writeCalibVsGasGain
 
@@ -507,13 +507,11 @@ proc gasGainHistoAndFit(data: seq[float], bin_edges: seq[float],
               gasGainInterval = gasGainInterval)
   result = (binned, fitResult)
 
-proc readGasGainDf*(h5f: H5FileObj, grp: string, chip: int,
+proc readGasGainDf*(h5f: H5FileObj, grp: string,
                     addDsets: seq[string]): DataFrame =
   var dfChip = newDataFrame()
   var dfAll = newDataFrame()
   h5f.readDsets(dfChip, concat(@["eventNumber"], addDsets), grp)
-  echo dfChip
-  #dfChip["clusterIdx"] = arange(0, dfChip.len)
   h5f.readDsets(dfAll, @["timestamp", "eventNumber"], grp.parentDir)
   result = innerJoin(dfChip, dfAll, "eventNumber")
 
@@ -830,19 +828,60 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
     echo "Warning: `totalCharge` dataset does not exist in file. No fit to " &
       "charge Fe spectrum will be performed!"
 
-proc performChargeCalibGasGainFit*(h5f: var H5FileObj) =
+proc fitSpectraBySlices(h5f: H5File,
+                        chipGrp: H5Group, chip: int,
+                        calib, calibErr, gainVals: var seq[float],
+                        gasGainSlices: seq[GasGainIntervalResult]) =
+  ## fits the Fe spectra by gas gain time slicesand returns a seq of fit parameters
+  ## and gas gain values
+  var
+    lowEv = 0
+    highEv: int
+  let df = h5f.readGasGainDf(chipGrp.name,
+                             @["totalCharge", "centerX", "centerY", "eccentricity",
+                               "rmsTransverse"])
+    .cutFeSpectrum()
+  let lastEv = df["eventNumber"][df.high, int]
+  for i, gasGainInterval in gasGainSlices:
+    ## NOTE: to calibrate the energy we do ``not`` care about the index of the start
+    ## of the slice, but only the event numbers, because these tell us if the
+    ## which events start and stop
+    lowEv = if i == 0: 0 else: highEv + 1 # start from last high value
+    highEv = if i == gasGainSlices.high: lastEv else: gasGainInterval.sliceStopEvNum
+    let sliceDf = df.filter(f{int -> bool: `eventNumber` >= lowEv and
+                                           `eventNumber` <= highEv})
+    if sliceDf.len < 100:
+      echo "INFO: Skipping slice ", gasGainInterval, " due to only ", df.len, " clusters present"
+      continue
+    let chSlice = sliceDf["totalCharge", float]
+    let feSpec = fitFeSpectrumCharge(chSlice.clone.toRawSeq)
+    let ecData = fitEnergyCalib(feSpec, isPixel = false)
+    let (popt, pErr) = (ecData.pRes[0], ecData.pErr[0])
+    const keVPerElectronScaling = 1e-3
+    # add fit results
+    let aInv = 1.0 / popt * kevPerElectronScaling
+    calib.add aInv
+    calibErr.add (aInv * pErr / popt)
+    gainVals.add gasGainInterval.G
+
+proc performChargeCalibGasGainFit*(h5f: var H5FileObj,
+                                   interval: float,
+                                   gcKind: GasGainVsChargeCalibKind = gcMean) =
   ## performs the fit of the charge calibration factors vs gas gain fit
   ## Assumes:
   ## - h5f points to a h5 file of `runType == rtCalibration`
   ## - for all runs the Fe spectrum was calculated and fitted
   ## writes the resulting fit data to the ingridDatabase
+
+  ## NOTE: the `gcKind` only takes effect for input H5 files, which are already
+  ## reconstructed using the new sliced gas gain calibration!
   # iterate over all runs, extract center chip grou
   let plotPath = h5f.attrs[PlotDirPrefixAttr, string]
-  let runPeriod = h5f.attrs[RunPeriodAttr, string]
   var
     calib = newSeq[float64]()
     calibErr = newSeq[float64]()
     gainVals = newSeq[float64]()
+    runPeriods = newSeq[string]()
     centerChipName: string
     centerChip = 0
     # to differentiate old and new TOS data
@@ -855,40 +894,58 @@ proc performChargeCalibGasGainFit*(h5f: var H5FileObj) =
   else:
     rfKind = rfOldTos
     centerChipName = ""
-  for run, grp in runs(h5f):
-    var centerChipGrp: H5Group
-    # TODO: TAKE OUT once we have ran over old CalibrationRuns again
-    # so that we have `centerChipName` attribute there as well!
-    # now iterate over chips in this run
-    for chpGrp in items(h5f, start_path = grp):
-      centerChipGrp = chpGrp
-      case rfKind
-      of rfOldTos, rfSrsTos:
-        if centerChipName.len == 0:
-          centerChipName = centerChipGrp.attrs["chipName", string]
-      of rfNewTos:
-        if ("chip_" & $centerChip) notin centerChipGrp.name:
-          # skip this chip, since not the center chip
-          echo "Skipping group ", centerChipGrp.name
-          continue
-        else:
-          echo "\t taking group ", centerChipGrp.name
-      of rfUnknown:
-        echo "Unknown run folder kind. Skipping charge calibration for run " &
-          centerChipGrp.name & "!"
+    centerChip = 0
+  for run, chip, grp in chipGroups(h5f):
+    if chip != centerChip: continue ## only look at the center chip
+    let centerChipGrp = h5f[grp.grp_str]
+    case rfKind
+    of rfOldTos, rfSrsTos:
+      if centerChipName.len == 0:
+        centerChipName = centerChipGrp.attrs["chipName", string]
+    of rfNewTos:
+      if ("chip_" & $centerChip) notin centerChipGrp.name:
+        # skip this chip, since not the center chip
+        echo "Skipping group ", centerChipGrp.name
         continue
-      # read the chip name
-      # given correct group, get the `charge` and `FeSpectrumCharge` dsets
-      var
-        chargeDset = h5f[(centerChipGrp.name / "charge").dset_str]
-        feChargeSpec = h5f[(centerChipGrp.name / "FeSpectrumCharge").dset_str]
-      let
-        keVPerE = feChargeSpec.attrs["keV_per_electron", float64]
-        dkeVPerE = feChargeSpec.attrs["d_keV_per_electron", float64]
-        gain = chargeDset.attrs["G", float64]
-      calib.add keVPerE * 1e6
-      calibErr.add dkeVPerE * 1e8 # increase errors by factor 100 for better visibility
-      gainVals.add gain
+      else:
+        echo "\t taking group ", centerChipGrp.name
+    of rfUnknown:
+      echo "Unknown run folder kind. Skipping charge calibration for run " &
+        centerChipGrp.name & "!"
+      continue
+    let runPeriod = findRunPeriodFor(centerChipName, run)
+    # read the chip name
+    # given correct group, get the `charge` and `FeSpectrumCharge` dsets
+    var
+      chargeDset = h5f[(centerChipGrp.name / "charge").dset_str]
+      feChargeSpec = h5f[(centerChipGrp.name / "FeSpectrumCharge").dset_str]
+    var
+      gain: float
+    if grp / "gasGainSlices" notin h5f:
+      echo "WARNING: input file ", h5f.name, " does not yet contain the `gasGainSlices`" &
+        " dataset. This means we use the single `G` value of the `charge` dataset for " &
+        " the computation!"
+      gain = chargeDset.attrs["G", float64]
+    else:
+      let gasGainSlices = h5f[grp / "gasGainSlices" & $(interval.round.int),
+                              GasGainIntervalResult]
+      ## default way for now: calculate the mean
+      case gcKind
+      of gcMean:
+        gain = gasGainSlices.mapIt(it.G).mean
+        let
+          keVPerE = feChargeSpec.attrs["keV_per_electron", float64]
+          dkeVPerE = feChargeSpec.attrs["d_keV_per_electron", float64]
+        calib.add keVPerE * 1e6
+        calibErr.add dkeVPerE * 1e8 # increase errors by factor 100 for better visibility
+        gainVals.add gain
+      of gcIndividualFits:
+        # fit one spectrum and energy calibration per time slice and add data
+        h5f.fitSpectraBySlices(centerChipGrp, centerChip,
+                               calib, calibErr, gainVals, gasGainSlices)
+      of gcNone:
+        doAssert false, "You shouldn' use `gcNone` anymore! Use `gcMean`"
+    runPeriods.add runPeriod
 
   # increase smallest errors to lower 10 percentile errors
   let perc10 = calibErr.percentile(1)
@@ -898,9 +955,14 @@ proc performChargeCalibGasGainFit*(h5f: var H5FileObj) =
       x = perc10
   doAssert calibErr.allIt(it >= perc10)
 
+  let runPeriodsUnique = runPeriods.deduplicate
+  doAssert runPeriodsUnique.len == 1, "More than one run period found in input file " &
+    $h5f.name & " : " & $runPeriodsUnique
+
   info "Fit charge calibration vs gas gain for file: " & $h5f.name
   let fitResult = fitChargeCalibVsGasGain(gainVals, calib, calibErr)
-  writeCalibVsGasGain(gainVals, calib, calibErr, fitResult, centerChipName, runPeriod)
+  writeCalibVsGasGain(gainVals, calib, calibErr, fitResult, centerChipName,
+                      runPeriodsUnique[0], suffix = $gcKind)
   # and create the plot
   info "Plot charge calibration vs gas gain for file: " & $h5f.name
   plotGasGainVsChargeCalib(gainVals, calib, calibErr, fitResult,
@@ -935,7 +997,8 @@ proc calcEnergyFromPixels*(h5f: var H5FileObj, runNumber: int, calib_factor: flo
 
 proc calcEnergyFromCharge*(h5f: var H5FileObj, chipGrp: H5Group,
                            interval: float,
-                           b, m: float) =
+                           b, m: float,
+                           gcKind: GasGainVsChargeCalibKind) =
   ## performs the actual energy calculation, based on the fit parameters of
   ## `b` and `m` on the group `chipGrp`. This includes wirting the energy
   ## dataset and attributes!
@@ -954,28 +1017,35 @@ proc calcEnergyFromCharge*(h5f: var H5FileObj, chipGrp: H5Group,
   ##   latter more complex but cleaner
   ## - calc energy on slices, append energy to `energies` sequence
   ## - only write at very end
-  let df = h5f.readGasGainDf(chipGrp.name, chipNumber, @["totalCharge"])
+  let df = h5f.readGasGainDf(chipGrp.name, @["totalCharge"])
+  let rawCharge = h5f[mchpGrp.name / "totalCharge", float]
   let chs = df["totalCharge"].toTensor(float).clone.toRawSeq ## NOTE: WARNING raw seq is longer!!!
   var energy = newSeqOfCap[float](chs.len)
-  var intCount = 0
   var allIdx = initHashSet[int]()
-  for gasGainInterval in h5f.iterGainSlicesFromAttrs(chipGrp):
-    let slice = gasGainInterval.sliceStart .. gasGainInterval.sliceStop
-    block SanityCheck:
-      for s in slice:
-        doAssert s notin allIdx
-        allIdx.incl s
-    let chSlice = chs[slice]
+  let gainSlices = h5f[chipGrp.name / "gasGainSlices" & $(interval.round.int),
+                       GasGainIntervalResult]
+  var
+    lowEv = 0
+    highEv: int
+  let lastEv = df["eventNumber"][df.high, int]
+  for i, gasGainInterval in gainSlices:
+    ## NOTE: to calibrate the energy we do ``not`` care about the index of the start
+    ## of the slice, but only the event numbers, because these tell us if the
+    ## which events start and stop
+    lowEv = if i == 0: 0 else: highEv + 1 # start from last high value
+    highEv = if i == gainSlices.high: lastEv else: gasGainInterval.sliceStopEvNum
+    let sliceDf = df.filter(f{int -> bool: `eventNumber` >= lowEv and
+                                           `eventNumber` <= highEv})
+    let chSlice = sliceDf["totalCharge", float]
     let gain = gasGainInterval.G
     # remove correction factor of 1e6
     let calibFactor = linearFunc(@[b, m], gain) * 1e-6
     # now calculate energy for all hits
     energy.add mapIt(chSlice, it * calibFactor)
-    inc intCount
   doAssert energy.len == chs.len, "Invalid calculation, only " & $energy.len &
     " energies for " & $(chs.len) & " cluster!"
-  doAssert allIdx.card == energy.len and allIdx.toSeq.max == energy.high
-
+  ## TODO: add something similar again?
+  #doAssert allIdx.card == energy.len and allIdx.toSeq.max == energy.high
 
   when false:
     var gain: float
@@ -998,12 +1068,14 @@ proc calcEnergyFromCharge*(h5f: var H5FileObj, chipGrp: H5Group,
   energy_dset.attrs["Calibration function"] = "y = m * x + b"
   energy_dset.attrs["calib_b"] = b
   energy_dset.attrs["calib_m"] = m
+  energy_dset.attrs["GasGainVsChargeCalibKind"] = $gcKind
 
   # store the interval length used to calculate the energies
   energy_dset.attrs["Gas gain interval length"] = interval
-  energy_dset.attrs["Number of gas gain intervals"] = intCount
+  energy_dset.attrs["Number of gas gain intervals"] = gainSlices.len
 
-proc calcEnergyFromCharge*(h5f: var H5FileObj, interval: float) =
+proc calcEnergyFromCharge*(h5f: var H5FileObj, interval: float,
+                           gcKind: GasGainVsChargeCalibKind = gcNone) =
   ## proc which applies an energy calibration based on the number of electrons in a cluster
   ## using a conversion factor of unit 1e6 keV / electron to the run given by runNumber contained
   ## in file h5f
@@ -1028,7 +1100,7 @@ proc calcEnergyFromCharge*(h5f: var H5FileObj, interval: float) =
       # get center chip name to be able to read fit parameters
       chipName = group.attrs["centerChipName", string]
       # get parameters during first iter...
-      (b, m) = getCalibVsGasGainFactors(chipName, run)
+      (b, m) = getCalibVsGasGainFactors(chipName, run, suffix = $gcKind)
     # now iterate over chips in this run
     let chipGrp = h5f[grp.grp_str]
-    h5f.calcEnergyFromCharge(chipGrp, interval, b, m)
+    h5f.calcEnergyFromCharge(chipGrp, interval, b, m, gcKind)

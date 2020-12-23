@@ -594,9 +594,16 @@ proc applyCalibrationSteps(h5f: var H5FileObj,
   if rfOnlyEnergyElectrons in flags:
     #h5fout.calcEnergyFromPixels(runNumber, calib_factor)
     let interval = cfgTable["Calibration"]["gasGainInterval"].getFloat
-    h5f.calcEnergyFromCharge(interval)
+    let gcKind = parseEnum[GasGainVsChargeCalibKind](
+      cfgTable["Calibration"]["gasGainEnergyKind"].getStr
+    )
+    h5f.calcEnergyFromCharge(interval, gcKind)
   if rfOnlyGainFit in flags:
-    h5f.performChargeCalibGasGainFit()
+    let interval = cfgTable["Calibration"]["gasGainInterval"].getFloat
+    let gcKind = parseEnum[GasGainVsChargeCalibKind](
+      cfgTable["Calibration"]["gasGainEnergyKind"].getStr
+    )
+    h5f.performChargeCalibGasGainFit(interval, gcKind)
   recordIterRuns(recoBase()):
     if (runNumberArg.isSome and runNumber == runNumberArg.get) or
        rfReadAllRuns in flags:

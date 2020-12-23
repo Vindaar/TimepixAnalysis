@@ -537,11 +537,36 @@ iterator iterGainSlices(df: DataFrame,
   let g = initInterval(idx, interval, tStart, tstamps[tstamps.size - 1])
   yield (g, idxOld ..< tstamps.size.int)
 
-iterator iterGainSlicesFromAttrs*(h5f: H5File,
-                                  group: H5Group): GasGainIntervalResult =
-  let gainSlices = h5f[group.name / "gasGainSlices", GasGainIntervalResult]
+iterator iterGainSlicesFromDset*(h5f: H5File,
+                                 group: H5Group,
+                                 interval = 0): GasGainIntervalResult =
+  let baseName = group.name / "gasGainSlices"
+  let dsetName = if interval == 0: baseName else: baseName & $interval
+  let gainSlices = h5f[dsetName, GasGainIntervalResult]
   for g in gainSlices:
     yield g
+
+iterator iterGainSlicesDF*(df: DataFrame,
+                           gainSlices: seq[GasGainIntervalResult]): DataFrame =
+  ## given a DF, which must contain the following:
+  ## - eventNumber
+  ## which is going to be filtered according to each gas gain slice.
+  ## Important: Obviously the event numbers are slightly specific to
+  ## for each chip, so take care to choose the correct gas gain slices
+  ## for each chip
+  var
+    lowEv = 0
+    highEv: int
+  let lastEv = df["eventNumber"][df.high, int]
+  for i, gasGainInterval in gainSlices:
+    ## NOTE: to calibrate the energy we do ``not`` care about the index of the start
+    ## of the slice, but only the event numbers, because these tell us if the
+    ## which events start and stop
+    lowEv = if i == 0: 0 else: highEv + 1 # start from last high value
+    highEv = if i == gainSlices.high: lastEv else: gasGainInterval.sliceStopEvNum
+    let sliceDf = df.filter(f{int -> bool: `eventNumber` >= lowEv and
+                                           `eventNumber` <= highEv})
+    yield sliceDf
 
 proc deleteAllAttrStartingWith(dset: H5DataSet, start: string) =
   ## deletes all attributes starting with string

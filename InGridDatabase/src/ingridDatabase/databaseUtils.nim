@@ -53,6 +53,12 @@ proc findRunPeriodFor*(h5f: H5FileObj, chipName: string, run: int): string =
   if result.len == 0:
     raise newException(ValueError, "Cannot find any run period matching run " & $run)
 
+proc findRunPeriodFor*(chipName: string, run: int): string =
+  ## returns the ``first`` run period that matches the condition
+  ## `contains chipName and run in validRuns`
+  withDatabase:
+    result = h5f.findRunPeriodFor(chipName, run)
+
 proc chipNameToGroup*(chipName: string, period: string): string =
   ## given a `chipName` will return the correct name of the corresponding
   ## chip's group within the given run `period` of the database.

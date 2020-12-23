@@ -35,7 +35,8 @@ proc writeThreshold*(h5f: var H5FileObj, threshold: Threshold, chipGroupName: st
 proc writeCalibVsGasGain*(gain, calib, calibErr: seq[float64],
                           fitResult: FitResult,
                           chipName: string,
-                          runPeriod: string) =
+                          runPeriod: string,
+                          suffix: string) =
   ## writes the fit data and results of the Fe charge spectrum vs gas gain
   ## fit to the database.
   var db = H5open(dbPath, "rw")
@@ -43,7 +44,7 @@ proc writeCalibVsGasGain*(gain, calib, calibErr: seq[float64],
   let grpName = chipNameToGroup(chipName, runPeriod)
   var mgrp = db[grpName.grp_str]
   # create new dataset
-  var mdset = db.create_dataset(grpName / ChargeCalibGasGain,
+  var mdset = db.create_dataset(grpName / (ChargeCalibGasGain & suffix),
                                  (gain.len, 3),
                                  dtype = float64)
   let data = zip(gain, calib, calibErr) --> map(@[it[0], it[1], it[2]]) --> to(seq[seq[float]])

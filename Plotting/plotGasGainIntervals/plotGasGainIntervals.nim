@@ -122,6 +122,7 @@ proc readGasGains(f: string): DataFrame =
     var sliceNum = 0
     let dfDataFilter = dfData.applyGasGainCut()
     #let dfRun = getSeptemDataFrame(h5f, runNumber, allowedChips = @[3])
+    ## get the ``last`` gas gain slice computation (add `$(interval)` if desired for specific)
     let gasGainSlices = h5f[grp / "chip_3" / "gasGainSlices", GasGainIntervalResult]
     for g in gasGainSlices:
       # read the eventNumbers of this slice, then filter fullRun DF based on these
@@ -173,15 +174,16 @@ proc main(files: seq[string]) =
   var df = newDataFrame()
   for f in files:
     df.add f.readGasGains
-  ggplot(df, aes("timestamp", "Gain")) +
-    geom_point() +
-    ggsave("/tmp/test.pdf")
-  ggplot(df, aes("timestamp", "GainFit")) +
-    geom_point() +
-    ggsave("/tmp/testFit.pdf")
-  ggplot(df, aes("timestamp", "GainFitMean")) +
-    geom_point() +
-    ggsave("/tmp/testMeanFit.pdf")
+  block IndividualPlots:
+    ggplot(df, aes("timestamp", "Gain")) +
+      geom_point() +
+      ggsave("/tmp/test.pdf")
+    ggplot(df, aes("timestamp", "GainFit")) +
+      geom_point() +
+      ggsave("/tmp/testFit.pdf")
+    ggplot(df, aes("timestamp", "GainFitMean")) +
+      geom_point() +
+      ggsave("/tmp/testMeanFit.pdf")
 
   df = df.splitDf
     .gather(@["Gain", "GainFit", "GainFitMean"], "CalcType", "GasGain")
@@ -200,7 +202,7 @@ proc main(files: seq[string]) =
     ggsave("out/gas_gain_slices_vs_time_30_minutes.pdf", width = 1920, height = 1080)
 
   let perc95 = df["GasGain"].toTensor(float).max * 0.80
-  #echo perc95
+  echo "Runs with worst gas gain above: ", perc95, " stored in out/bad_run_slices.csv"
   let dfBad = df.filter(f{float -> bool: `GasGain` > perc95})
   dfBad.write_csv("out/bad_run_slices.csv")
 

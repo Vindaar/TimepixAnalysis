@@ -81,9 +81,6 @@ proc cutOnProperties*(h5f: H5FileObj,
     # use `convertType` proc from nimhdf5
     let convert = dset.convertType(float)
     dsets.add dset.convert
-  # take any sequence for number of events, since all need to be of the same
-  # type regardless
-  let nEvents = dsets[0].len
   # if chip region not all, get `posX` and `posY`
   var
     posX: seq[float]
@@ -103,6 +100,12 @@ proc cutOnProperties*(h5f: H5FileObj,
       posX = h5f.readAs(group.name / "PositionX", float)
       posY = h5f.readAs(group.name / "PositionY", float)
 
+  # take any sequence for number of events, since all need to be of the same
+  # type regardless
+  let nEvents = if dsets.len > 0: dsets[0].len
+                elif posX.len > 0: posX.len
+                else: 0
+  doAssert nEvents > 0, "crAll cannot be combined with no `cuts`"
   for i in 0 ..< nEvents:
     # cut on region if applicable
     if region != crAll and not inRegion(posX[i], posY[i], region):

@@ -126,17 +126,16 @@ proc cutOnProperties*(h5f: H5FileObj,
 proc cutOnProperties*(h5f: H5FileObj,
                       group: H5Group,
                       cuts: varargs[tuple[dset: string,
-                                         lower, upper: float]]): seq[int] {.inline.} =
+                                          lower, upper: float]],): seq[int] {.inline.} =
   ## wrapper around the above for the case of the whole chip as region
   result = h5f.cutOnProperties(group, crAll, cuts)
 
-proc cutFeSpectrum(data: array[4, seq[float64]], eventNum, hits: seq[int64]):
+proc cutFeSpectrum(pos_x, pos_y, ecc, rms_trans: seq[float], eventNum, hits: seq[int64]):
                     (seq[int64], seq[int64], seq[int64]) =
   ## proc which receives the data for the cut, performs the cut and returns tuples of
   ## event numbers, number of hits and the indices of the passing elements
   ## inputs:
-  ##    data: array[4, seq[float64]] = array containing 4 sequences
-  ##      - pos_x, pos_y, eccentricity, rms_transverse which we need for cuts
+  ##    - pos_x, pos_y, eccentricity, rms_transverse which we need for cuts
   ##    eventNum: seq[int] = sequence containing event numbers of data stored in
   ##        other seqs
   ##    hits: seq[int] = sequence containing the hits of the corresponding event
@@ -151,13 +150,6 @@ proc cutFeSpectrum(data: array[4, seq[float64]], eventNum, hits: seq[int64]):
     cut_r = 4.5
     cut_ecc_high = 1.3
     cut_rms_trans_high = 1.2
-
-  let
-    pos_x = data[0]
-    pos_y = data[1]
-    ecc = data[2]
-    rms_trans = data[3]
-
   result = cutOnDsets(eventNum, crSilver,
                       pos_x, pos_y, hits,
                       (ecc, -Inf, cut_ecc_high),
@@ -209,7 +201,7 @@ proc createFeSpectrum*(h5f: var H5FileObj, runNumber, centerChip: int) =
   # given this data, filter all events which don't conform
   let (eventSpectrum,
        hitsSpectrum,
-       specIndices) = cutFeSpectrum([pos_x, pos_y, ecc, rms_trans], event_num, hits)
+       specIndices) = cutFeSpectrum(pos_x, pos_y, ecc, rms_trans, event_num, hits)
   let nEventsPassed = eventSpectrum.len
   # with the events to use for the spectrum
   info "Elements passing cut for Fe spectrum : ", nEventsPassed, " for run: ", runNumber

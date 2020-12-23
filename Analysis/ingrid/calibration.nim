@@ -422,13 +422,25 @@ proc writeGasGainSliceData(h5f: H5File, group: H5Group, slices: seq[GasGainInter
   ## writes the information about the gas gain slices, including the fit results
   ## for each polya fit as one composite dataset to the H5 file.
   ##
-  ## Dataset name: `gasGainSlices`
-  var dset = h5f.create_dataset(group.name / "gasGainSlices",
+  ## Dataset name: `gasGainSlices{interval}`
+  ## There is a hardlink to `gasGainSlices`, which is overwritten each time a new
+  ## gas gain computation is run so the ``latest`` computation is accessible that
+  ## way!
+  doAssert slices.len > 0, "At least one gas gain time slice is needed!"
+  let interval = slices[0].interval
+  doAssert slices.allIt(it.interval == interval), "All gas gain time slices must " &
+    "be for the same length of " & $interval & " min in this case!"
+  let baseName = group.name / "gasGainSlices"
+  var dset = h5f.create_dataset(baseName & $(interval.round.int),
                                 slices.len,
                                 dtype = GasGainIntervalResult,
                                 overwrite = true)
   dset[dset.all] = slices
   dset.attrs["applied Cut for gas gain"] = cutFormula
+  ## create a
+  if baseName in h5f:
+    doAssert h5f.delete(baseName), "Could not delete hardlink/dataset " & $baseName
+  h5f.create_hardlink(dset.name, baseName)
 
 proc applyGasGainCut(h5f: H5FileObj, group: H5Group): seq[int] =
   ## Performs the cuts, which are used to select the events which we use

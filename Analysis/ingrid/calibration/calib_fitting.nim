@@ -464,7 +464,6 @@ proc fitFeSpectrumChargeImpl(hist, binning: seq[float]): FeSpecFitData =
   # fit a double gaussian to the data
   let params = getFeSpectrumChargeParams(hist, binning)
   let bounds = getFeSpectrumChargeBounds(hist, binning)
-  # only fit in range up to 350 hits. Can take index 350 on both, since we
   # created the histogram for a binning with width == 1 pixel per hit
   let idx_tofit = toSeq(0 .. binning.high).filterIt(binning[it] >= 200 and binning[it] < 4000)
   let data_tofit = idx_tofit.mapIt(hist[it])

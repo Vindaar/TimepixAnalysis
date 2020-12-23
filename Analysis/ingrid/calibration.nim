@@ -602,7 +602,7 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int,
       when not defined(fullRunGasGain):
         # read required data for gas gain cuts & to map clusters to timestamps
         let cutFormula = $getGasGainCutFormula()
-        let df = h5f.readGasGainDf(grp, chipNumber, @["centerX", "centerY", "rmsTransverse", "hits"])
+        let df = h5f.readGasGainDf(grp, @["centerX", "centerY", "rmsTransverse", "hits"])
           .applyGasGainCut()
         let passIdx = df["passIdx"].toTensor(int).toRawSeq
         let chs = passIdx.mapIt(chFull[it])

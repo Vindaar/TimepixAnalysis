@@ -61,7 +61,7 @@ proc readTstampDf(h5f: H5File, applyRegionCut: bool): DataFrame =
       dfEv = dfEv.applyGasGainCut
     readIt(allNames, grp, dfAll)
     var dfJoined = inner_join(dfEv, dfAll, "eventNumber")
-    dfJoined["runNumber"] = constantColumn(run.parseInt, dfJoined.len)
+    dfJoined["runNumber"] = constantColumn(run, dfJoined.len)
     result.add dfJoined
 
 proc readPhotoEscapeDf(h5f: H5File, applyRegionCut: bool): DataFrame =
@@ -75,10 +75,9 @@ proc readPhotoEscapeDf(h5f: H5File, applyRegionCut: bool): DataFrame =
   var
     photoSeq: seq[float]
     escapeSeq: seq[float]
-    dates: seq[float] #string]#Time]
+    dates: seq[float]
   for run, grp in runs(h5f, recoBase()):
-    let r = run.parseInt
-    let group = h5f[(recoBase & $r).grp_str]
+    let group = h5f[(recoBase & $run).grp_str]
     let chpGrpName = group.name / "chip_3"
     let dset = h5f[(chpGrpName / "FeSpectrumCharge").dset_str]
     photoSeq.add dset.attrs[parPrefix & $kalphaCharge, float]
@@ -278,9 +277,16 @@ proc plotDf(df: DataFrame, interval: float, titleSuff: string,
       xlab(rotate = -45, alignTo = "right") +
       geom_point(alpha = some(0.5)) +
       ggtitle(&"Median of cluster {name} within {interval:.1f} min, {titleSuff}")
+    var pltTmpHisto = ggplot(df, aes(name, fill = "runType")) +
+      facet_wrap("runPeriods", scales = "free") +
+      geom_histogram(bins = 300, density = true, position = "identity") +
+      ggtitle(&"Histogram of median cluster {name} within {interval:.1f} min, {titleSuff}")
     if useLog:
       pltTmp = pltTmp + scale_y_log10()
+      pltTmpHisto = pltTmpHisto + scale_y_log10()
     pltTmp + ggsave(&"{outpath}/background_mean_{name}_binned_{interval:.1f}_min_{nameSuff}.pdf",
+                     width = 1920, height = 1080)
+    pltTmpHisto + ggsave(&"{outpath}/background_histogram_mean_{name}_binned_{interval:.1f}_min_{nameSuff}.pdf",
                      width = 1920, height = 1080)
 
   ggplot(df, aes("meanCharge", color = "runType")) +

@@ -520,24 +520,27 @@ proc histograms(h5f: var H5FileObj, runType: RunTypeKind,
     # - 1 without cut
     ranges = @[(low: 5.5, high: 6.2, name: "Photopeak"),
                (low: 2.7, high: 3.2, name: "Escapepeak"),
-               (low: -Inf, high: Inf, name: "All")]
+               (low: -Inf, high: 15.0, name: "All")]
   else:
     # else just take all
     ranges = @[(low: -Inf, high: Inf, name: "All")]
 
+  ## TODO: make datasets and chip regions selectable!
   for r in ranges:
     if cfInGrid in flags:
-      for ch in fileInfo.chips:
-        for dset in InGridDsets:
-          let (binSize, binRange) = getBinSizeAndBinRange(dset)
-          result.add PlotDescriptor(runType: runType,
-                                    name: dset,
-                                    runs: fileInfo.runs,
-                                    plotKind: pkInGridDset,
-                                    chip: ch,
-                                    range: r,
-                                    binSize: binSize,
-                                    binRange: binRange)
+      for region in ChipRegion:
+        for ch in fileInfo.chips:
+          for dset in InGridDsets:
+            let (binSize, binRange) = getBinSizeAndBinRange(dset)
+            result.add PlotDescriptor(runType: runType,
+                                      name: dset,
+                                      runs: fileInfo.runs,
+                                      plotKind: pkInGridDset,
+                                      chip: ch,
+                                      range: r,
+                                      cutRegion: region,
+                                      binSize: binSize,
+                                      binRange: binRange)
     if cfFadc in flags:
       for dset in FadcDsets:
         let (binSize, binRange) = getBinSizeAndBinRange(dset)
@@ -1156,8 +1159,11 @@ proc handleInGridDset(h5f: var H5FileObj,
     # perform cut on range
     let group = h5f[recoPath(r, pd.chip)]
     if pd.range[0] != -Inf and pd.range[1] != Inf and "energyFromCharge" in group:
-      let idx = cutOnProperties(h5f, group,
+      let idx = cutOnProperties(h5f, group, pd.cutRegion,
                     ("energyFromCharge", pd.range[0], pd.range[1]))
+      allData.add idx.mapIt(data[it])
+    elif pd.cutRegion != crAll:
+      let idx = cutOnProperties(h5f, group, pd.cutRegion)
       allData.add idx.mapIt(data[it])
     else:
       allData.add data

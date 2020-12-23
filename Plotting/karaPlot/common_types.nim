@@ -53,6 +53,7 @@ type
     case plotKind*: PlotKind
     of pkInGridDset, pkFadcDset:
       range*: CutRange
+      cutRegion*: ChipRegion
       # optional fields for bin size and range
       binSize*: float
       binRange*: tuple[low, high: float]

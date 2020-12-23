@@ -58,8 +58,8 @@ type
 # is why it's not close to 32768
 const FakeFrameSize* = 32000
 
-const InGridFnameTemplate* = "$1_run$2_chip$3_$4_binSize$5_binRange$6_$7"
-const InGridTitleTemplate* = "Dataset: $1 for run $2, chip $3 in range: $4"
+const InGridFnameTemplate* = "$1_run$2_chip$3_$4_binSize$5_binRange$6_$7_chipRegion_$8"
+const InGridTitleTemplate* = "Dataset: $1 for run $2, chip $3 in range: $4, chipRegion: $5"
 const FadcFnameTemplate* = "fadc_$1_run$2_$3_binSize$4_binRange$5_$6"
 const FadcTitleTemplate* = "Dataset: $1 for run $2, fadc in range: $3"
 const PolyaFnameTemplate* = "polya_run$1_chip$2"
@@ -225,6 +225,8 @@ func `%`*(pd: PlotDescriptor): JsonNode =
     # binRange is a float, but we should never encounter `Inf`, thus keep as float
     result[kstring"binRange"] = %* { kstring"low": % ($pd.binRange[0]),
                                      kstring"high": % ($pd.binRange[1]) }
+    result[kstring"cutRegion"] = % ($pd.cutRegion)
+
   of pkOccupancy, pkOccCluster:
     result[kstring"clampKind"] = % $pd.clampKind
     case pd.clampKind
@@ -260,6 +262,8 @@ func parsePd*(pd: JsonNode): PlotDescriptor =
     result.binSize = pd[kstring"binSize"].getStr.parseFloat
     result.binRange = (low: pd[kstring"binRange"]["low"].getStr.parseFloat,
                        high: pd[kstring"binRange"]["high"].getStr.parseFloat)
+    result.cutRegion = parseEnum[ChipRegion](pd[kstring"cutRegion"].getStr,
+                                             crAll)
   of pkOccupancy, pkOccCluster:
     result.clampKind = parseEnum[ClampKind](pd[kstring"clampKind"].getStr,
                                             ckFullRange)
@@ -347,7 +351,8 @@ proc buildOutfile*(pd: PlotDescriptor, prefix, filetype: string): kstring =
                                    $pd.range[2],
                                    $pd.binSize,
                                    $pd.binRange[0],
-                                   $pd.binRange[1]]
+                                   $pd.binRange[1],
+                                   $pd.cutRegion]
   of pkFadcDset:
     name = FadcFnameTemplate %% [pd.name,
                                  runsStr,
@@ -412,7 +417,8 @@ proc buildTitle*(pd: PlotDescriptor): kstring =
     result = InGridTitleTemplate %% [pd.name,
                                     runsStr,
                                     $pd.chip,
-                                    $pd.range[2]]
+                                    $pd.range[2],
+                                    $pd.cutRegion]
   of pkFadcDset:
     result = FadcTitleTemplate %% [pd.name,
                                   runsStr,

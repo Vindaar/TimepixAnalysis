@@ -5,6 +5,8 @@ proc getBinRangeForDset*(dset: string): Option[(float, float)] =
     result = some((0.0, 500.0))
   elif dset == "energyFromPixel":
     result = some((0.0, 10000.0))
+  elif "energyFromCharge" in dset:
+    result = some((0.0, 15.0))
   elif dset == "sumTot":
     # TODO: check
     result = some((0.0, 20000.0))
@@ -40,6 +42,8 @@ proc getNumBinsForDset*(dset: string): Option[int] =
     result = some(500)
   elif dset == "energyFromPixel":
     result = some(100)
+  elif dset == "energyFromCharge":
+    result = some(500)
   elif dset == "sumTot":
     # TODO: check
     result = some(100)

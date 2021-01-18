@@ -885,8 +885,8 @@ proc fitSpectraBySlices(h5f: H5File,
     const keVPerElectronScaling = 1e-3
     # add fit results
     let aInv = 1.0 / popt * kevPerElectronScaling
-    calib.add aInv
-    calibErr.add (aInv * pErr / popt)
+    calib.add aInv * 1e6
+    calibErr.add (aInv * pErr / popt) * 1e8 ## increase error by 100 (same as `gcMean` and `gcNone`)
     gainVals.add gasGainInterval.G
 
 proc performChargeCalibGasGainFit*(h5f: var H5FileObj,

@@ -91,7 +91,7 @@ proc readPhotoEscapeDf(h5f: H5File, applyRegionCut: bool): DataFrame =
 proc readCdl(): DataFrame =
   const path = "/mnt/1TB/CAST/CDL_2019/calibration-cdl-2018.h5"
   result = newDataFrame()
-  if existsFile(path):
+  if fileExists(path):
     const group = "/calibration-cdl-feb2019-Mn-Cr-12kV"
     const dsets = ["CdlSpectrum", "CdlSpectrumEvents", "CdlSpectrumCharge"]
     var h5f = H5open(path, "r")

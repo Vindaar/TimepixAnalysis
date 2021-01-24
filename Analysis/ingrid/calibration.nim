@@ -517,6 +517,8 @@ proc readGasGainDf*(h5f: H5FileObj, grp: string,
 
 iterator iterGainSlices(df: DataFrame,
                         interval: float): (GasGainIntervalData, Slice[int]) =
+  ## NOTE: the input has to be filtered by the gas gain cuts! (The indices given in
+  ## the slice range will then correspond to the indices of that *filtered* DF!)
   let tstamps = df["timestamp"].toTensor(float)
   # determine the start time
   var tStart = tstamps[0]
@@ -540,6 +542,8 @@ iterator iterGainSlices(df: DataFrame,
 iterator iterGainSlicesFromDset*(h5f: H5File,
                                  group: H5Group,
                                  interval = 0): GasGainIntervalResult =
+  ## The yielded value's slice range corresponds to the indices of the chip's dataset
+  ## after the application of the gas gain cuts!
   let baseName = group.name / "gasGainSlices"
   let dsetName = if interval == 0: baseName else: baseName & $interval
   let gainSlices = h5f[dsetName, GasGainIntervalResult]
@@ -554,6 +558,9 @@ iterator iterGainSlicesDF*(df: DataFrame,
   ## Important: Obviously the event numbers are slightly specific to
   ## for each chip, so take care to choose the correct gas gain slices
   ## for each chip
+  ##
+  ## NOTE: The yielded value's slice range corresponds to the indices of the chip's dataset
+  ## after the application of the gas gain cuts!
   var
     lowEv = 0
     highEv: int
@@ -567,6 +574,19 @@ iterator iterGainSlicesDF*(df: DataFrame,
     let sliceDf = df.filter(f{int -> bool: `eventNumber` >= lowEv and
                                            `eventNumber` <= highEv})
     yield sliceDf
+
+iterator iterGainSlicesIdx*(h5f: H5File, grp, dset: string): (int, Slice[int]) =
+  doAssert "gasGainSlice" in dset
+  doAssert "chip_" in grp
+  let gainSlices = h5f[grp / dset, GasGainIntervalResult]
+  var
+    lowIdx = 0
+    highIdx = 0
+  for i, gasGainInterval in gainSlices:
+    lowIdx = if i == 0: 0 else: highIdx # start from last high value
+    highIdx = if i != gainSlices.high: gasGainInterval.sliceStop
+              else: gasGainInterval.sliceStop + 1 # add one because we yield have open range
+    yield (i, (lowIdx ..< highIdx))
 
 proc deleteAllAttrStartingWith(dset: H5DataSet, start: string) =
   ## deletes all attributes starting with string

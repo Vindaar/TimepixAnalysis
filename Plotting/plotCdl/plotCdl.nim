@@ -41,7 +41,7 @@ proc readData(h5f: H5FileObj,
     readIt(evNames, grp / "chip_3", dfEv)
     readIt(allNames, grp, dfAll)
     var dfJoined = inner_join(dfEv, dfAll, "eventNumber")
-    dfJoined["runNumber"] = constantColumn(run.parseInt, dfJoined.len)
+    dfJoined["runNumber"] = constantColumn(run, dfJoined.len)
     result.add dfJoined
 
 proc classifyClusters(df: var DataFrame) =

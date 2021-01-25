@@ -42,7 +42,7 @@ proc getXrayRefTable*(): Table[int, string] =
              6: "Mn-Cr-12kV",
              7: "Cu-Ni-15kV" }.toTable()
 
-proc getEnergyBinning(): seq[float] =
+proc getEnergyBinning*(): seq[float] =
   ## returns the binning of the energy (upper range for each bin)
   ## as a sequence of floats
   result = @[0.4, 0.7, 1.2, 2.1, 3.2, 4.9, 6.9, Inf]
@@ -56,6 +56,23 @@ proc toRefDset*(energy: float): string =
     binning = getEnergyBinning()
   let ind = binning.lowerBound(energy)
   result = xray_table[ind]
+
+func getXrayFluorescenceTable*(): Table[string, string] =
+  ## returns a table mapping the target filter combinations to the
+  ## names of the fluorescence lines
+  result = { "C-EPIC-0.6kV" :  "C Kα",
+             "Cu-EPIC-0.9kV" : "O Kα",
+             "Cu-EPIC-2kV" :   "Cu Lα" ,
+             "Al-Al-4kV" :     "Al Kα",
+             "Ag-Ag-6kV" :     "Ag Lα",
+             "Ti-Ti-9kV" :     "Ti Kα",
+             "Mn-Cr-12kV" :    "Mn Kα",
+             "Cu-Ni-15kV" :    "Cu Kα"}.toTable()
+
+func getXrayFluorescenceLines*(): seq[float] =
+  ## returns a sequence of the energey of the fluorescence lines in each target
+  ## filter combination. Energy in keV
+  result = @[8.04, 5.89, 4.51, 2.98, 1.49, 0.930, 0.525, 0.277].reversed
 
 func getXraySpectrumCutVals*(): Table[string, Cuts] =
   ## returns a table of Cuts (kind ckXray) objects, one for each energy bin

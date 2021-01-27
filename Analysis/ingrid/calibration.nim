@@ -914,7 +914,7 @@ proc fitSpectraBySlices(h5f: H5File,
     # add fit results
     let aInv = 1.0 / popt * kevPerElectronScaling
     calib.add aInv * 1e6
-    calibErr.add (aInv * pErr / popt) * 1e8 ## increase error by 100 (same as `gcMean` and `gcNone`)
+    calibErr.add (aInv * pErr / popt) * 1e6 ## previoulsy we artificially enlarged this to 1e8
     gainVals.add gasGainInterval.G
 
 proc performChargeCalibGasGainFit*(h5f: var H5FileObj,
@@ -990,7 +990,7 @@ proc performChargeCalibGasGainFit*(h5f: var H5FileObj,
           keVPerE = feChargeSpec.attrs["keV_per_electron", float64]
           dkeVPerE = feChargeSpec.attrs["d_keV_per_electron", float64]
         calib.add keVPerE * 1e6
-        calibErr.add dkeVPerE * 1e8 # increase errors by factor 100 for better visibility
+        calibErr.add dkeVPerE * 1e6 ## previously we artificially enlarged this to 1e8
         gainVals.add gain
       of gcIndividualFits:
         # fit one spectrum and energy calibration per time slice and add data

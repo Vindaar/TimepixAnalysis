@@ -60,8 +60,6 @@ proc plotGasGain*[T](charge, counts: seq[T],
             intTitle) +
     ggsave(&"{pathPrefix}/gas_gain_run_{runNumber}_chip_{chipNumber}{suffix}.pdf")
 
-## TODO: Put "Charge calibration factors vs gas gain. y errors magnified * 100"" into this module!
-
 proc plotFeSpectrum*(feSpec: FeSpecFitData,
                      runNumber: int, chipNumber: int,
                      texts: seq[string],
@@ -154,8 +152,8 @@ proc plotGasGainVsChargeCalib*(gainVals, calib, calibErr: seq[float],
     annotate(&"χ²/dof = {fitResult.redChiSq:.2f}", left = 0.75, bottom = 0.1) +
     xlab("Gas gain G") +
     ylab("Calibration factor a⁻¹ [10⁻⁶ keV / e]") +
-    ggtitle("Charge calibration factors vs gas gain. y errors magnified * 100") +
-    ggsave(&"{pathPrefix}/gasgain_vs_calibration_charge_{fnameHash}.pdf")
+    ggtitle("Energy calibration factors vs gas gain") +
+    ggsave(&"{pathPrefix}/gasgain_vs_energy_calibration_factors_{fnameHash}.pdf")
 
 proc plotFeSpectrumInfoFacet*(pos_x, pos_y, ecc, rms_trans: seq[float],
                               hits: seq[int64],

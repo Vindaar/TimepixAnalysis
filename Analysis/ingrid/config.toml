@@ -6,6 +6,12 @@ showPlots = false
 plotDirectory = "out"
 # minutes for binning of gas gain
 gasGainInterval = 90
+# minutes the gas gain interval has to be long at least. This comes into play
+# at the end of a run `(tRun mod gasGainInterval) = lastSliceLength`. If the
+# remaining time `lastSliceLength` is less than `minimumGasGainInterval`, the
+# slice will be absorbed into the second to last, making that longer.
+minimumGasGainInterval = 25
+
 # decides if `charge` dataset is deleted when running `only_charge`.
 # by default this is disabled, because the attributes of the dataset
 # contain things beyond the actual charge calibration!

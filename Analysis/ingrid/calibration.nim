@@ -351,8 +351,10 @@ proc initGasGainIntervalResult(g: GasGainIntervalData,
                                sliceStartEvNum, sliceStopEvNum: int): GasGainIntervalResult =
   result.idx       = g.idx
   result.interval  = g.interval
+  result.minInterval  = g.minInterval
   result.tStart    = g.tStart
   result.tStop     = g.tStop
+  result.tLength   = (g.tStop - g.tStart).float / 60.0 # to easier keep track of lengths
   result.N         = fitResult.pRes[0]
   result.G_fit     = fitResult.pRes[1]
   result.sliceStart = sliceIdx.a
@@ -516,27 +518,33 @@ proc readGasGainDf*(h5f: H5FileObj, grp: string,
   result = innerJoin(dfChip, dfAll, "eventNumber")
 
 iterator iterGainSlices(df: DataFrame,
-                        interval: float): (GasGainIntervalData, Slice[int]) =
+                        interval, minInterval: float): (GasGainIntervalData, Slice[int]) =
   ## NOTE: the input has to be filtered by the gas gain cuts! (The indices given in
   ## the slice range will then correspond to the indices of that *filtered* DF!)
   let tstamps = df["timestamp"].toTensor(float)
   # determine the start time
   var tStart = tstamps[0]
+  let tStop = tstamps[tstamps.size - 1]
   var idxOld = 0
   var idx = 0
   for i in 0 ..< tstamps.size:
     if (tstamps[i] - tStart) >= (interval * 60.0): # convert interval in minutes to seconds
+      if (tStop - tstamps[i]) < (minInterval * 60.0):
+        # break out of for loop, thereby last slice will be from `tStart` (2nd to last real slice)
+        # to end of data
+        break
+
       ## TODO:
       ## We might want to think about making interval adaptive? That is to demand
       ## we have a certain number of entries in `data` to have good enough statistics
       ## (useful for calibration runs for outer chips!)
       # run over bin range
-      let g = initInterval(idx, interval, tStart.float, tstamps[i])
+      let g = initInterval(idx, interval, minInterval, tStart.float, tstamps[i])
       yield (g, idxOld ..< min(i, tstamps.size - 1))
       tStart = tstamps[i]
       idxOld = i
       inc idx
-  let g = initInterval(idx, interval, tStart, tstamps[tstamps.size - 1])
+  let g = initInterval(idx, interval, minInterval, tStart, tstamps[tstamps.size - 1])
   yield (g, idxOld ..< tstamps.size.int)
 
 iterator iterGainSlicesFromDset*(h5f: H5File,
@@ -597,7 +605,7 @@ proc deleteAllAttrStartingWith(dset: H5DataSet, start: string) =
       discard dset.deleteAttribute(key)
 
 proc calcGasGain*(h5f: var H5FileObj, runNumber: int,
-                  interval: float) =
+                  interval, minInterval: float) =
   ## fits the polya distribution to the charge values and writes the
   ## fit parameters (including the gas gain) to the H5 file
   ## `interval` is the time interval width on which we apply the binning
@@ -668,7 +676,7 @@ proc calcGasGain*(h5f: var H5FileObj, runNumber: int,
 
         var sliceCount = 0
         var gasGainSliceData: seq[GasGainIntervalResult]
-        for (gasGainInterval, slice) in iterGainSlices(df, interval):
+        for (gasGainInterval, slice) in iterGainSlices(df, interval, minInterval):
           echo $gasGainInterval
           let chSlice = chs[slice].flatten
           let (binned, fitResult) = gasGainHistoAndFit(

@@ -265,6 +265,7 @@ type
   GasGainIntervalData* = object
     idx*: int # index
     interval*: float # interval length in minutes
+    minInterval*: float # minimum length of an interval in min (end of run)
     tStart*: int # timestamp of interval start
     tStop*: int # timestamp of interval stop
 
@@ -273,8 +274,10 @@ type
   GasGainIntervalResult* = object
     idx*: int
     interval*: float
+    minInterval*: float # minimum length of an interval in min (end of run)
     tStart*: int
     tStop*: int
+    tLength*: float # actual length of the slice in min: `(tStop - tStart) / 60`
     sliceStart*: int # start and stop of the indices which belong to this slice
     sliceStop*: int
     sliceStartEvNum*: int # start and stop of the indices which belong to this slice
@@ -435,10 +438,11 @@ proc initEnergyCalibData*(energies: seq[float],
                               chiSq: chiSq,
                               nDof: nDof)
 
-proc initInterval*(idx: int, interval: float,
+proc initInterval*(idx: int, interval, minInterval: float,
                    tStart = 0.0, tStop = 0.0): GasGainIntervalData =
   result = GasGainIntervalData(idx: idx,
                                interval: interval,
+                               minInterval: minInterval,
                                tStart: tStart.int,
                                tStop: tStop.int)
 

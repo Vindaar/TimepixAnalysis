@@ -15,6 +15,7 @@ import ingrid / [ingrid_types, calibration]
 import ingrid/calibration/fit_functions
 from ingrid / private / geometry import recoEvent
 import ingridDatabase / [databaseRead, databaseDefinitions]
+import parsetoml except `{}`
 
 let doc = """
 InGrid likelihood calculator. This program is run after reconstruction is finished.
@@ -76,6 +77,12 @@ type
   YearKind = enum
     yr2014 = "2014"
     yr2018 = "2018"
+
+proc readSignalEff(): float =
+  ## reads the `signalEfficiency` field from the TOML file
+  const sourceDir = currentSourcePath().parentDir
+  let config = parseToml.parseFile(sourceDir / "config.toml")
+  result = config["Likelihood"]["signalEfficiency"].getFloat
 
 proc splitSeq[T, U](s: seq[seq[T]], dtype: typedesc[U]): (seq[U], seq[U]) =
   ## splits a (N, 2) nested seq into two seqs
@@ -194,10 +201,10 @@ proc calcCutValueTab(cdlFile, refFile: string, yearKind: YearKind,
                      region: ChipRegion = crGold): Table[string, float] =
   ## returns a table mapping the different CDL datasets to the correct cut values
   ## based on a chip `region`
+  # read signal efficiency (default 80%) from TOML file
+  let efficiency = readSignalEff()
   const
     xray_ref = getXrayRefTable()
-    # software eff of 80%
-    efficiency = 0.8
     # logL binning range
     nbins = 200 # NO CHANGE IF SET TO 200
     # range of histogram in logL

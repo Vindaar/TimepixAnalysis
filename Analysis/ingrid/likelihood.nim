@@ -300,7 +300,6 @@ proc readRefDsets(refFile: string, yearKind: YearKind): tuple[ecc, ldivRms, frac
     df.add dfDset
 
   block RefPlots:
-    echo df.pretty(-1)
     ggplot(df, aes("Eccentricity", "Ecc #", fill = "Dset")) +
       geom_histogram(stat = "identity", position = "identity", alpha = some(0.5)) +
       ggtitle(&"Eccentricity of reference file, year: {yearKind}") +
@@ -425,7 +424,7 @@ proc calcLogLikelihood*(h5f: var H5FileObj,
   ##     the logL
   ##     # elements / # total in histogram = likelihood. Take log
   # get the group from file
-  for num, group in runs(h5f):
+  for (num, group) in runs(h5f):
     echo &"Start logL calc of run {group}"
     # get number of chips from attributes
     var run_attrs = h5f[group.grp_str].attrs
@@ -433,18 +432,14 @@ proc calcLogLikelihood*(h5f: var H5FileObj,
 
     var logL_chips = newSeq[seq[float64]](nChips)
 
-    for grp in items(h5f, group):
+    for (_, chipNumber, grp) in chipGroups(h5f, group):
       # iterate over all chips and perform logL calcs
-      if "fadc" in grp.name:
-        continue
-      var attrs = grp.attrs
-      let
-        # get chip specific dsets
-        chip_number = attrs["chipNumber", int]
-      let logL = calcLikelihoodDataset(h5f, refFile, grp.name, year)
+
+      var attrs = h5f[grp.grp_str].attrs
+      let logL = calcLikelihoodDataset(h5f, refFile, grp, year)
       # after walking over all events for this chip, add to correct
       # index for logL
-      logL_chips[chip_number] = logL
+      logL_chips[chipNumber] = logL
     # after we added all logL data to the seqs, write it to the file
     var logL_dsets = mapIt(toSeq(0..<nChips), h5f.create_dataset((group / &"chip_{it}/likelihood"),
                                                                  (logL_chips[it].len, 1),
@@ -615,7 +610,6 @@ proc applySeptemVeto(h5f, h5fout: var H5FileObj,
   let centerChip = group.attrs["centerChip", int]
   let numChips = group.attrs["numChips", int]
   let septemDf = h5f.getSeptemEventDF(runNumber)
-  #echo septemDf
 
   # now filter events for `centerChip` from and compare with `passedInds`
   let centerDf = septemDf.filter(f{int: `chipNumber` == centerChip})
@@ -802,13 +796,10 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj,
       scinti1Trigger = h5f[group / "szint1ClockInt", int64]
       scinti2Trigger = h5f[group / "szint2ClockInt", int64]
 
-    for chpGrp in items(h5f, group):
-      if "fadc" in chpGrp.name:
-        continue
-
+    for (_, chipNumber, chipGroup) in chipGroups(h5f, group):
       var fadcVetoCount = 0
       var scintiVetoCount = 0
-
+      let chpGrp = h5f[chipGroup.grp_str]
       # iterate over all chips and perform logL calcs
       var attrs = chpGrp.attrs
       let
@@ -827,12 +818,12 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj,
           totalDurationRunPassed = 0.0
       let
         # get the datasets needed for LogL
-        energy = h5f[(chpGrp.name / "energyFromCharge"), float64]
-        logL = h5f[(chpGrp.name / "likelihood"), float64]
-        centerX = h5f[(chpGrp.name / "centerX"), float64]
-        centerY = h5f[(chpGrp.name / "centerY"), float64]
-        rmsTrans = h5f[(chpGrp.name / "rmsTransverse"), float64]
-        evNumbers = h5f[(chpGrp.name / "eventNumber"), int64].asType(int)
+        energy = h5f[(chipGroup / "energyFromCharge"), float64]
+        logL = h5f[(chipGroup / "likelihood"), float64]
+        centerX = h5f[(chipGroup / "centerX"), float64]
+        centerY = h5f[(chipGroup / "centerY"), float64]
+        rmsTrans = h5f[(chipGroup / "rmsTransverse"), float64]
+        evNumbers = h5f[(chipGroup / "eventNumber"), int64].asType(int)
 
       # get event numbers corresponding to tracking (non tracking)
       var eventsInTracking: seq[int]
@@ -963,7 +954,6 @@ proc extractEvents(h5f: var H5FileObj, extractFrom, outfolder: string) =
   # - get dataset
   # - for each dataset have set of event numbers
   for grp in items(h5f, start_path = "likelihood", depth = 1):
-    echo grp.name
     var mgrp = grp
     let path = mgrp.attrs["pathName", string]
     let (head, tail) = path.splitPath
@@ -1012,7 +1002,6 @@ proc readLikelihoodDsets(h5f: H5FileObj): DataFrame =
   result = seqsToDf({ "Bin" : bin_back,
                       "Energy" : energies,
                       "Likelihood" : logLs })
-  echo result
 
 proc readLikelihoodDsetsCdl(cdlFile, refFile: string,
                             yearKind: YearKind,
@@ -1074,13 +1063,11 @@ proc calcSigEffBackRej(df: DataFrame, logLBins: seq[float],
     for l in logLBins:
       let eff = determineEff(logL.toRawSeq, l, isBackground = isBackground)
       effs.add eff
-    echo pair
     let binConst = toSeq(0 ..< effs.len).mapIt(pair[0][1].toStr)
     let effDf = seqsToDf({ "eff" : effs,
                            "cutVals" : logLBins,
                            "bin" : binConst })
     result.add effDf
-  echo result
 
 proc calcRocCurve(dfSignal, dfBackground: DataFrame): DataFrame =
   # now use both to determine signal and background efficiencies
@@ -1092,7 +1079,6 @@ proc calcRocCurve(dfSignal, dfBackground: DataFrame): DataFrame =
   let backRejDf = calcSigEffBackRej(dfBackground, logLBins, isBackground = true)
     .rename(f{"backRej" <- "eff"})
   result = innerJoin(sigEffDf, backRejDf, by = "cutVals")
-  echo result
 
 proc createRocCurves(h5Back: H5FileObj,
                      cdlFile, refFile: string,
@@ -1236,6 +1222,7 @@ proc main() =
       echo "Using scintillators as veto"
 
     # perform likelihood calculation
+    ## TODO: do we need to do this? Cannot just skip if already exists?
     h5f.calcLogLikelihood(cdlFile, refFile, year)
     # now perform the cut on the logL values stored in `h5f` and write
     # the results to h5fout

@@ -33,3 +33,7 @@ Tests/reconstruction/*.pdf
 /InGridDatabase/src/databaseTool
 /LogReader/cast_log_reader
 /LogReader/logFileSplitter
+/Plotting/plotDsetGgplot/*.pdf
+/Plotting/plotOuterChips/*.svg
+/Plotting/plotOuterChips/*.pdf
+/Tools/DebugCkDiff/*.svg

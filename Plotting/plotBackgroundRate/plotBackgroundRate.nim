@@ -67,7 +67,7 @@ proc histogram(df: DataFrame): DataFrame =
   ## a histogram of the binned data
   ## TODO: allow to do this by combining different `File` values
   let (hist, bins) = histogram(df[Ecol].toTensor(float).toRawSeq,
-                               range = (0.0, 10.0), bins = 50)
+                               range = (0.0, 20.0), bins = 100)
   result = seqsToDf({ Ecol : bins, Ccol : concat(hist, @[0]) })
 
 template sumIt(s: seq[typed], body: untyped): untyped =
@@ -141,6 +141,7 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
 
   #df = df.filter(f{c"Energy" < 10.0})
   let suffix = logLFiles.mapIt($it.year).join("_") & "_show2014_" & $show2014
+  df = df.filter(f{c"Energy" < 12.0})
   let titleSuff = if show2014: " compared to 2014/15" else: ""
   let transparent = color(0.0, 0.0, 0.0, 0.0)
   ggplot(df, aes(Ecol, Rcol, fill = "Dataset")) +
@@ -156,6 +157,7 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
     xlim(0, 10.0) +
     ggtitle(&"Background rate of Run 2 & 3 (2017/18){titleSuff}") +
     ggsave(&"plots/background_rate_{suffix}.pdf", width = 800, height = 480)
+    xlim(0, 12.0) +
 
 when isMainModule:
   dispatch main

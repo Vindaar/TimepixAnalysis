@@ -306,8 +306,6 @@ proc calculateMeanDf(df: DataFrame, interval: float,
   result["runType"] = constantColumn(df["runType", 0].toStr, result.len)
   echo "Number of run periods with more than 1 entry: ", result["runPeriods"].unique
 
-proc formatTime(v: float): string =
-  result = v.int.fromUnix.format("dd/MM/YYYY")
 
 proc plotDf(df: DataFrame, interval: float, titleSuff: string,
             useLog = true,
@@ -404,7 +402,7 @@ proc plotPhotoDivEscape(df, dfTime: DataFrame, periods: OrderedTable[int, string
   ggplot(dfPlot, aes("timestamp", "val", color = "runType")) +
     facet_wrap("runPeriods", scales = "freeX") +
     geom_point(alpha = some(0.8)) +
-    scale_x_continuous(labels = formatTime) +
+    scale_x_continuous(labels = toPeriod) +
     xlab(rotate = -45, alignTo = "right") +
     margin(top = 1.5) +
     ggtitle("Normalized cmp of photo/escape peak in charge & median energy " &
@@ -453,12 +451,15 @@ proc getPeriods(df: DataFrame): OrderedTable[int, string] =
     result[k] = v
   echo result
 
+proc uniquePeriods(df: DataFrame): seq[string] =
+  result = df["runPeriods"].unique.toTensor(string).toRawSeq
+
 proc main(files: seq[string],
-          calibFiles: seq[string],
           interval, cutoffHits: float,
+          calibFiles: seq[string] = @[],
           cutoffCharge: float = 0.0,
           createSpectra: bool = false,
-          timeSeries: bool = true,
+          timeSeries: bool = false,
           photoDivEscape: bool = false,
           applyRegionCut = false) =
   ## Input should be both H5 `DataRuns*_reco.h5` data files
@@ -472,25 +473,32 @@ proc main(files: seq[string],
 
   if timeSeries:
     template all(arg1, arg2: DataFrame): untyped =
+      #let all1 = arg1.splitDf.computeStats()
+      #let all2 = arg2.splitDf(all1.uniquePeriods).computeStats()
       let all1 = calculateMeanDf(arg1, interval)
       let all2 = calculateMeanDf(arg2, interval, all1.getPeriods)
+      #if true: quit()
       concat(all1, all2)
     template filt(arg: DataFrame): untyped =
       arg.filter(f{float -> bool: `totalCharge` > cutoffCharge},
                  f{float -> bool: `hits` < cutoffHits})
     template filtConc(arg1, arg2: DataFrame): untyped =
-      let all1 = filt(arg1).calculateMeanDf(interval)
-      let all2 = filt(arg2).calculateMeanDf(interval, all1.getPeriods)
+      let all1 = filt(arg1).splitDf().computeStats()
+      let all2 = filt(arg2).splitDf(all1.uniquePeriods).computeStats()
+      #let all1 = filt(arg1).calculateMeanDf(interval)
+      #let all2 = filt(arg2).calculateMeanDf(interval, all1.getPeriods)
+
       concat(all1, all2)
 
     let dfAll = all(dfBack, dfCalib)
     let dfFilter = filtConc(dfBack, dfCalib)
     echo dfAll
-    echo dfFilter
+    echo dfAll.len
+    #echo dfFilter
     let regionCut = if applyRegionCut: " cut to crSilver, 0.1 < rmsTrans < 1.5 "
                     else: ""
-    plotDf(dfAll, interval, titleSuff = &"all data{regionCut}",
-           applyRegionCut = applyRegionCut)
+    #plotDf(dfAll, interval, titleSuff = &"all data{regionCut}",
+    #       applyRegionCut = applyRegionCut)
 
     plotDf(dfFilter, interval,
            titleSuff = &"{regionCut}charge > {cutoffCharge}, hits < {cutoffHits:.0f} filtered out",

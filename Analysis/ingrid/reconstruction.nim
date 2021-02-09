@@ -703,15 +703,6 @@ proc main() =
   # parse config toml file
   let (cfgTable, cfgFlags) = parseTomlConfig()
 
-  # TODO: put such a check back in here!!!
-  #var rawGroup = h5f[rawGroupGrpStr]
-  #  elif rfOnlyGainFit in flags:
-  #    h5f.performChargeCalibGasGainFit()
-  #    # return early
-  #    # TODO: move this whole stuff somewhere else! Does not belong into
-  #    # reconstruction like this!
-  #    return
-
   let plotOutPath = cfgTable["Calibration"]["plotDirectory"].getStr
   var h5f = H5open(h5f_name, "rw")
   let plotDirPrefix = h5f.genPlotDirname(plotOutPath, PlotDirPrefixAttr)

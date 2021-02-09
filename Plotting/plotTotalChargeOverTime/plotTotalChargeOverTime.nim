@@ -32,16 +32,6 @@ proc genNames(): seq[string] {.compileTime.} =
   for (d, v) in CommonDsets:
     result.add d
 
-proc applyGasGainCut(df: DataFrame): DataFrame =
-  ## Performs the cuts, which are used to select the events which we use
-  ## to perform the polya fit + gas gain determination. This is based on
-  ## C. Krieger's thesis. The cuts are extracted from the `getGasGain.C`
-  ## macro found in `resources`.
-  const cut_rms_trans_low = 0.1
-  const cut_rms_trans_high = 1.5
-  doAssert "rmsTransverse" in df
-  doAssert "centerX" in df
-  doAssert "centerY" in df
   result = df
   result["passIdx"] = arange(0, result.len)
   result = result.filter(f{float -> bool:

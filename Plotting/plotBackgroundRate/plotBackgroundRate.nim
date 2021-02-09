@@ -102,7 +102,7 @@ proc calcIntegratedBackgroundRate(df: DataFrame, factor: float): float =
   ## keV⁻¹ cm⁻² s⁻¹.
   let energies = df[Ecol].toTensor(float)
   let rate = df[Rcol].toTensor(float)
-  result = simpson(rate.toRawSeq, energies.toRawSeq) / factor
+  result = trapz(rate.toRawSeq, energies.toRawSeq) / factor
 
 proc main(files: seq[string], log = false, title = "", show2014 = false,
           separateFiles = false,

@@ -25,3 +25,6 @@ gasGainEnergyKind = "Individual"
 
 [RawData]
 plotDirectory = "out"
+
+[Likelihood]
+signalEfficiency = 0.8

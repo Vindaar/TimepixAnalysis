@@ -318,56 +318,69 @@ proc plotDf(df: DataFrame, interval: float, titleSuff: string,
   var nameSuff = if titleSuff == "all data": "all" else: "filtered"
   if applyRegionCut:
     nameSuff.add "_crSilver"
-  var pltSum = ggplot(df, aes("timestamp", "sumCharge", color = "runType")) +
-    facet_wrap("runPeriods", scales = "free") +
-    geom_point(alpha = some(0.5)) +
-    scale_x_continuous(labels = formatTime) +
-    xlab(rotate = -45, alignTo = "right") +
-    ggtitle(&"Sum of total charge within {interval:.1f} min, {titleSuff}")
-  var pltMean = ggplot(df, aes("timestamp", "meanCharge", color = "runType")) +
-    facet_wrap("runPeriods", scales = "free") +
-    scale_x_continuous(labels = formatTime) +
-    xlab(rotate = -45, alignTo = "right") +
-    geom_point(alpha = some(0.5)) +
-    ggtitle(&"Mean of total charge within {interval:.1f} min, {titleSuff}")
-  if useLog:
-    pltSum = pltSum + scale_y_log10()
-    pltMean = pltMean + scale_y_log10()
-  pltSum + ggsave(&"{outpath}/background_sum_charge_binned_{interval:.1f}_min_{nameSuff}.pdf",
-                   width = 1920, height = 1080)
-  pltMean + ggsave(&"{outpath}/background_mean_charge_binned_{interval:.1f}_min_{nameSuff}.pdf",
-                    width = 1920, height = 1080)
-
-  for (k, name) in CommonDsets:
-    let df = df.filter(f{float -> bool: `L_div_RMS_trans` < 1e13 and
-                         `eccentricity` < 1e13 and
-                         df[name][idx] > 0.0})
-    if name == "eccentricity":
-      echo "NOW ", titleSuff
-    var pltTmp = ggplot(df, aes("timestamp", name, color = "runType")) +
+  when false:
+    var pltSum = ggplot(df, aes("timestamp", "sumCharge", color = "runType")) +
       facet_wrap("runPeriods", scales = "free") +
-      scale_x_continuous(labels = formatTime) +
+      geom_point(alpha = some(0.5)) +
+      scale_x_continuous(labels = toPeriod) +
+      xlab(rotate = -45, alignTo = "right") +
+      ggtitle(&"Sum of total charge within {interval:.1f} min, {titleSuff}")
+    var pltMean = ggplot(df, aes("timestamp", "meanCharge", color = "runType")) +
+      facet_wrap("runPeriods", scales = "free") +
+      scale_x_continuous(labels = toPeriod) +
       xlab(rotate = -45, alignTo = "right") +
       geom_point(alpha = some(0.5)) +
-      ggtitle(&"Median of cluster {name} within {interval:.1f} min, {titleSuff}")
-    var pltTmpHisto = ggplot(df, aes(name, fill = "runType")) +
-      facet_wrap("runPeriods", scales = "free") +
-      geom_histogram(bins = 300, density = true, position = "identity") +
-      ggtitle(&"Histogram of median cluster {name} within {interval:.1f} min, {titleSuff}")
+      ggtitle(&"Mean of total charge within {interval:.1f} min, {titleSuff}")
     if useLog:
-      pltTmp = pltTmp + scale_y_log10()
-      pltTmpHisto = pltTmpHisto + scale_y_log10()
-    pltTmp + ggsave(&"{outpath}/background_mean_{name}_binned_{interval:.1f}_min_{nameSuff}.pdf",
+      pltSum = pltSum + scale_y_log10()
+      pltMean = pltMean + scale_y_log10()
+    pltSum + ggsave(&"{outpath}/background_sum_charge_binned_{interval:.1f}_min_{nameSuff}.pdf",
                      width = 1920, height = 1080)
-    pltTmpHisto + ggsave(&"{outpath}/background_histogram_mean_{name}_binned_{interval:.1f}_min_{nameSuff}.pdf",
-                     width = 1920, height = 1080)
+    pltMean + ggsave(&"{outpath}/background_mean_charge_binned_{interval:.1f}_min_{nameSuff}.pdf",
+                      width = 1920, height = 1080)
 
-  ggplot(df, aes("meanCharge", color = "runType")) +
-    geom_histogram(bins = 100, position = "identity", alpha = some(0.5)) +
-    margin(top = 2) +
-    ggtitle(&"Histogram of binned mean charge, within {interval:.1f} min, {titleSuff}") +
-    ggsave(&"{outpath}/background_histo_mean_binned_{interval:.1f}_min_{nameSuff}.pdf",
-            width = 800, height = 480)
+  for key in readKeys:
+    if key == "timestamp": continue
+  #for (k, name) in CommonDsets:
+    for adn in addnKeys:
+      let name = key & adn
+      #let key = k
+      #let adn = "median"
+      #let df = df.filter(f{float -> bool: `lengthDivRmsTrans` < 1e13 and
+      #                     `eccentricity` < 1e13})
+      #  .filter(f{string -> bool: `runPeriods` == "30/10/2017"})
+      #  .mutate(f{float -> float: "energy" ~ `energy` * 1e6})
+      #let df = df.mutate(f{float -> float: "energy" ~ `energy` * 1e6})
+      var pltTmp = ggplot(df, aes("timestamp", name, color = "runType")) +
+        facet_wrap("runPeriods", scales = "free") +
+        scale_x_continuous(labels = toPeriod) +
+        xlab("timestamp", margin = 2.5, rotate = -45, alignTo = "right") +
+        geom_point(alpha = some(0.5)) +
+        ylim(2, 6.5) +
+        margin(top = 1.75, bottom = 3) +
+        ggtitle(&"{adn} of cluster {key} within {interval:.1f} min, {titleSuff}")
+      var pltTmpHisto = ggplot(df, aes(name, fill = "runType")) +
+        facet_wrap("runPeriods", scales = "free") +
+        geom_histogram(bins = 300, density = true, position = "identity") +
+        ggtitle(&"Histogram of {adn} cluster {key} within {interval:.1f} min, {titleSuff}")
+      if useLog:
+        pltTmp = pltTmp + scale_y_log10()
+        pltTmpHisto = pltTmpHisto + scale_y_log10()
+      pltTmp + ggsave(&"{outpath}/background_{adn.normalize}_{key}_{interval:.1f}_min_{nameSuff}.pdf",
+                       width = 1920, height = 1080)
+                       #width = 800, height = 480)
+      pltTmpHisto + ggsave(&"{outpath}/background_histogram_{adn.normalize}_{key}_{interval:.1f}_min_{nameSuff}.pdf",
+                            width = 1920, height = 1080)
+      echo "created ", adn.normalize, " ", name
+                            #width = 800, height = 480)
+
+  when false:
+    ggplot(df, aes("meanCharge", color = "runType")) +
+      geom_histogram(bins = 100, position = "identity", alpha = some(0.5)) +
+      margin(top = 2) +
+      ggtitle(&"Histogram of binned mean charge, within {interval:.1f} min, {titleSuff}") +
+      ggsave(&"{outpath}/background_histo_mean_binned_{interval:.1f}_min_{nameSuff}.pdf",
+              width = 800, height = 480)
 
 proc plotPhotoDivEscape(df, dfTime: DataFrame, periods: OrderedTable[int, string],
                         interval: float,

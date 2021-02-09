@@ -83,10 +83,22 @@ proc readTstampDf(h5f: H5File, applyRegionCut: bool): DataFrame =
     let group = h5f[grp.grp_str]
     readIt(evNames, grp / "chip_3", dfEv)
     if applyRegionCut:
+      # if we do not apply the region cut the slicing does not make any sense, because
+      # the indices for the slices will be wrong!
       dfEv = dfEv.applyGasGainCut
+
+      ## For event, read gas gain slices
+      var sliceNum = newSeq[int](dfEv.len)
+      let gsname = if grp / "chip_3" / "gasGainSlices90" in h5f: "gasGainSlices90"
+                   else: "gasGainSlices"
+      for (idx, slice) in iterGainSlicesIdx(h5f, grp / "chip_3", gsname):
+        sliceNum[slice] = repeat(idx, slice.len)
+      dfEv["sliceNum"] = sliceNum
+
     readIt(allNames, grp, dfAll)
     var dfJoined = inner_join(dfEv, dfAll, "eventNumber")
     dfJoined["runNumber"] = constantColumn(run, dfJoined.len)
+
     result.add dfJoined
 
 proc readPhotoEscapeDf(h5f: H5File, applyRegionCut: bool): DataFrame =

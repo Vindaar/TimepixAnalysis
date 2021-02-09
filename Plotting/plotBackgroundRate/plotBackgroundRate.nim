@@ -105,11 +105,13 @@ proc calcIntegratedBackgroundRate(df: DataFrame, factor: float): float =
   result = simpson(rate.toRawSeq, energies.toRawSeq) / factor
 
 proc main(files: seq[string], log = false, title = "", show2014 = false,
-          separateFiles = false) =
+          separateFiles = false,
+          suffix = ""
+         ) =
   discard existsOrCreateDir("plots")
   let logLFiles = readFiles(files)
   let factor = if log: 1.0 else: 1e5
-  var df = newDataframe()
+  var df = newDataFrame()
   if separateFiles:
     for logL in logLFiles:
       df.add flatScale(@[logL], factor)
@@ -138,15 +140,17 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
     df2014["Dataset"] = constantColumn("2014/15", df2014.len)
     echo df2014
     df.add df2014
-
-  #df = df.filter(f{c"Energy" < 10.0})
-  let suffix = logLFiles.mapIt($it.year).join("_") & "_show2014_" & $show2014
+  echo df
   df = df.filter(f{c"Energy" < 12.0})
+  let fnameSuffix = logLFiles.mapIt($it.year).join("_") & "_show2014_" & $show2014 & "_separate_" & $separateFiles & suffix
   let titleSuff = if show2014: " compared to 2014/15" else: ""
-  let transparent = color(0.0, 0.0, 0.0, 0.0)
+  let transparent = color(0, 0, 0, 0)
+  let fname = &"plots/background_rate_{fnameSuffix}.pdf"
+  echo "INFO: storing plot in ", fname
   ggplot(df, aes(Ecol, Rcol, fill = "Dataset")) +
-    geom_histogram(stat = "identity", position = "identity", alpha = some(0.5)) +
-    #               color = some(transparent)) +
+    geom_histogram(stat = "identity", position = "identity", alpha = some(0.5),
+                   color = some(transparent),
+                   hdKind = hdOutline) +
     geom_point(binPosition = "center", position = "identity") +
     geom_errorbar(binPosition = "center",
                   aes = aes(yMin = "yMin", yMax = "yMax"),
@@ -154,10 +158,9 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
     scale_y_continuous() +
     xlab("Energy [keV]") +
     ylab("Rate [10⁻⁵ keV⁻¹ cm⁻² s⁻¹]") +
-    xlim(0, 10.0) +
-    ggtitle(&"Background rate of Run 2 & 3 (2017/18){titleSuff}") +
-    ggsave(&"plots/background_rate_{suffix}.pdf", width = 800, height = 480)
     xlim(0, 12.0) +
+    ggtitle(&"Background rate of Run 2 & 3 (2017/18){titleSuff}, {suffix}") +
+    ggsave(fname, width = 800, height = 480)
 
 when isMainModule:
   dispatch main

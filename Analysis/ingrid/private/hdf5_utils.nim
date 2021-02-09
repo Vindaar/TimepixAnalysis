@@ -633,11 +633,12 @@ iterator chipGroups*(h5f: H5FileObj, data_basename = recoBase()): (int, int, str
 
   let groups = toSeq(keys(h5f.groups))
   var
-    runNumber: int
+    runNumber = -1 # if run number is already part of `data_basename` we return -1
     chipNumber: int
   for grp in groups:
     if grp.startsWith(data_basename) and
-       grp.removePrefix(data_basename).scanf("$i/chip_$i$.", runNumber, chipNumber):
+       (grp.removePrefix(data_basename).scanf("$i/chip_$i$.", runNumber, chipNumber) or
+        grp.removePrefix(data_basename).scanf("/chip_$i$.", chipNumber)):
       yield (runNumber, chipNumber, grp)
 
 iterator dsets*(h5f: var H5FileObj,

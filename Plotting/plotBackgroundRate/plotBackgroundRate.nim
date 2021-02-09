@@ -82,10 +82,12 @@ proc flatScale(files: seq[LogLFile], factor: float): DataFrame =
   for f in files:
     df.add f.df
   result = df.histogram()
+  result = result.mutate(f{float: "CountErr" ~ sqrt(`Counts`)})
   result[Rcol] = result[Ccol].scaleDset(files.sumIt(it.totalTime), factor)
+  result["RateErr"] = result["CountErr"].scaleDset(files.sumIt(it.totalTime), factor)
   result["Dataset"] = constantColumn("2017/18_" & $count, result.len)
   inc count
-  result = result.mutate(f{"yMin" ~ `Rate` - sqrt(`Rate`)}, f{"yMax" ~ `Rate` + sqrt(`Rate`)})
+  result = result.mutate(f{"yMin" ~ `Rate` - `RateErr`}, f{"yMax" ~ `Rate` + `RateErr`})
   result["yMin"] = result["yMin"].toTensor(float).map_inline:
     if x >= 0.0: x
     else: 0.0

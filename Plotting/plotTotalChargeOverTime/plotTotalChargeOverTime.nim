@@ -32,12 +32,38 @@ proc genNames(): seq[string] {.compileTime.} =
   for (d, v) in CommonDsets:
     result.add d
 
+proc toPeriod(v: float): string =
+  result = v.int.fromUnix.format("dd/MM/YYYY")
+
+proc fromPeriod(s: string): float =
+  result = s.parseTime("dd/MM/YYYY", utc()).toUnixFloat
+
+proc closestIdx(t: float, ts: seq[float]): int =
+  ## returns the index of the time from `ts` which is closest to `t`
+  result = ts.mapIt(abs(it - t)).minIndex
+
+proc splitDf(df: DataFrame,
+             periods: seq[string] = @[]): DataFrame =
+  var periodSeq = newSeq[string](df.len)
+  let times = df["timestamp"].toTensor(int)
+  var lastTimestamp = times[0]
+  var period = if periods.len == 0: toPeriod(lastTimestamp.float) else: periods[0]
+  if periods.len == 0:
+    for i in 0 ..< times.size:
+      let t = times[i]
+      if t - lastTimestamp > 10 * 86400:
+        period = toPeriod t.float
+      periodSeq[i] = period
+      lastTimestamp = t
+  else:
+    var idx = 0
+    var nextPeriodTime = fromPeriod periods[idx+1]
+    let periodTimes = periods.mapIt(it.fromPeriod)
+    for i in 0 ..< times.size:
+      let t = times[i]
+      periodSeq[i] = periods[t.float.closestIdx(periodTimes)]
   result = df
-  result["passIdx"] = arange(0, result.len)
-  result = result.filter(f{float -> bool:
-    `rmsTransverse` >= cut_rms_trans_low and
-    `rmsTransverse` <= cut_rms_trans_high and
-    inRegion(df["centerX"][idx], df["centerY"][idx], crSilver)})
+  result["RunPeriod"] = periodSeq
 
 proc readTstampDf(h5f: H5File, applyRegionCut: bool): DataFrame =
   const evNames = genNames()

@@ -1,5 +1,5 @@
-import nimhdf5, ggplotnim, os, strformat, strutils, sequtils, algorithm, times, os
-import ingrid / [tos_helpers, ingrid_types]
+import nimhdf5, ggplotnim, os, strformat, strutils, sequtils, algorithm, times, os, stats
+import ingrid / [tos_helpers, ingrid_types, calibration]
 
 import cligen
 
@@ -17,6 +17,15 @@ const CommonDsets = { "energyFromCharge" : "energy",
                       "lengthDivRmsTrans" : "L_div_RMS_trans",
                       "eccentricity" : "eccentricity" }
 
+let readKeys = concat(CommonDsets.mapIt(it[0]), @["timestamp"])
+let addnKeys = ["Mean", "Median", "Variance", "Skewness", "Kurtosis"]
+var allKeys: seq[string]
+for k in readKeys:
+  if k != "timestamp":
+    for adn in addnKeys:
+      allKeys.add k & adn
+  else:
+    allKeys.add k
 
 proc genNames(): seq[string] {.compileTime.} =
   result = @["totalCharge", "eventNumber", "hits", "centerX", "centerY", "rmsTransverse"]
@@ -211,6 +220,41 @@ proc calculateMeanDf(df: DataFrame, interval: float,
         vec.add data[i]
       current += data[i]
       inc numCluster
+proc computeStats(df: DataFrame): DataFrame =
+  result = newDataFrame()
+  var res = initTable[string, seq[float]]() # reduced values from this, not a DF to grow better
+  for k in allKeys:
+    res[k] = newSeqOfCap[float](1000)
+  var periods = newSeqOfCap[string](1000)
+  var timesToPlot = newSeq[float]()
+
+  for (tup, subDf) in groups(df.group_by(["runNumber", "sliceNum"])):
+    ## NOTE: if we include slices with less than 100 events, we include some where the
+    ## energy calibration is rather bad!
+    #if subDf.len < 100: continue
+    for k in readKeys:
+      let data = subDf[k, float].toRawSeq
+      if k != "timestamp":
+        var stat: RunningStat
+        stat.push(data)
+        res[k & "Mean"].add stat.mean()
+        res[k & "Median"].add data.percentile(50)
+        res[k & "Variance"].add stat.variance()
+        res[k & "Skewness"].add stat.skewness()
+        res[k & "Kurtosis"].add stat.kurtosis()
+      else:
+        res["timestamp"].add((data[^1] + data[0]).float / 2.0)
+    periods.add subDf["RunPeriod", string][0]
+  for k, v in res:
+    result[k] = toColumn v
+  result["runType"] = constantColumn(df["runType", string][0], result.len)
+  result["runPeriods"] = periods
+  result = result.arrange("timestamp")
+
+  let df2 = result.mutate(f{float -> int: "timestamp" ~ `timestamp`.int})
+  var num {.global.} = 0
+  df2.writeCsv(&"/tmp/nov2017_{num}.csv")
+  inc num
 
   let runPeriods = mapToRunPeriods(tmeanStamps, periodTab)
 

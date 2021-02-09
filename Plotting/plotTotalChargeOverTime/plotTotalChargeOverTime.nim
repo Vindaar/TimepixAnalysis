@@ -164,9 +164,6 @@ template len[T](t: Tensor[T]): int = t.size.int
 
 proc mapToRunPeriods[T](tmeanStamps: T,
                         periodTab: OrderedTable[int, string]): seq[string] =
-  proc toPeriod(t: float): string =
-    ## convert t to unix timestamp and then format date
-    result = fromUnix(t.int).format("dd/MM/YYYY")
   const splitPeriod = 86400 * 5 # 5 days?
 
   let periods = toSeq(keys(periodTab))
@@ -188,66 +185,61 @@ proc mapToRunPeriods[T](tmeanStamps: T,
           lastPeriod = toPeriod tmeanStamps[i]
     result.add lastPeriod
 
-proc calculateMeanDf(df: DataFrame, interval: float,
-                     periodTab: OrderedTable[int, string] = initOrderedTable[int, string]()): DataFrame =
-  ## interval: time in minutes
-  # we're going to do a rather crude approach. Given that we have to bin
-  # a continuous variable, we're not well equipped using ggplotnim's dataframe
-  # I fear. So just do it manually...
-  let tstamps = df["timestamp"].toTensor(float)
-  let numIntervals = ((tstamps[tstamps.size - 1] - tstamps[0]) / interval).ceil.int
-  var tmeanStamps = newSeqOfCap[float](numIntervals * 2)
-  var tStart = tstamps[0]
-  for i in 0 ..< tstamps.size:
-    if (tstamps[i] - tStart) >= interval:
+proc calcMeanTimestamps(t: Tensor[float], interval: float): seq[float] =
+  let numIntervals = ((t[t.size - 1] - t[0]) / interval).ceil.int
+  result = newSeqOfCap[float](numIntervals * 2)
+  var tStart = t[0]
+  for i in 0 ..< t.size:
+    if (t[i] - tStart) >= interval:
       # run over bin range
-      tmeanStamps.add (tstamps[i] + tStart) / 2.0
-      tStart = tstamps[i]
+      result.add (t[i] + tStart) / 2.0
+      tStart = t[i]
 
-  proc calcMean(df: DataFrame,
-                tstamps: Tensor[float],
-                outLen: int,
-                n: string,
-                interval: float,
-                normBy: static string = "",
-                useMedian: static bool = false): seq[float] =
-    let data = df[n].toTensor(float)
-    const toNorm = normBy.len > 0
-    when toNorm:
-      let dataNorm = df[normBy].toTensor(float)
-    result = newSeq[float](outLen)
+proc calcMean(df: DataFrame,
+              tstamps: Tensor[float],
+              outLen: int,
+              n: string,
+              interval: float,
+              normBy: static string = "",
+              useMedian: static bool = false): seq[float] =
+  let data = df[n].toTensor(float)
+  const toNorm = normBy.len > 0
+  when toNorm:
+    let dataNorm = df[normBy].toTensor(float)
+  result = newSeq[float](outLen)
 
-    var
-      current = 0.0
-      norm = 0.0
-      tStart = tstamps[0]
-      numCluster = 0
-      j = 0
-    when useMedian:
-      var vec = newSeq[float]()
-    for i in 0 ..< tstamps.size:
-      let inInterval = (tstamps[i] - tStart) < interval
-      if not inInterval:
-        # run over bin range
-        when toNorm:
-          result[j] = current / norm
-          norm = 0.0
-        elif useMedian:
-          result[j] = vec.median(50)
-          vec = newSeq[float]()
-        else:
-          result[j] = current / numCluster.float
-        numCluster = 0
-        current = 0.0
-        tStart = tstamps[i]
-        inc j
+  var
+    current = 0.0
+    norm = 0.0
+    tStart = tstamps[0]
+    numCluster = 0
+    j = 0
+  var timesToPlot = newSeq[float]()
+  when useMedian:
+    var vec = newSeq[float]()
+  for i in 0 ..< tstamps.size:
+    let inInterval = (tstamps[i] - tStart) < interval
+    if not inInterval:
+      # run over bin range
       when toNorm:
-        #echo "adding ", dataNorm[i]
-        norm += dataNorm[i]
-      when useMedian:
-        vec.add data[i]
-      current += data[i]
-      inc numCluster
+        result[j] = current / norm
+        norm = 0.0
+      elif useMedian:
+        result[j] = vec.median(50)
+        vec = newSeq[float]()
+      else:
+        result[j] = current / numCluster.float
+      numCluster = 0
+      current = 0.0
+      tStart = tstamps[i]
+      timesToPlot.add tStart
+      inc j
+    when toNorm:
+      norm += dataNorm[i]
+    when useMedian:
+      vec.add data[i]
+    current += data[i]
+    inc numCluster
 proc computeStats(df: DataFrame): DataFrame =
   result = newDataFrame()
   var res = initTable[string, seq[float]]() # reduced values from this, not a DF to grow better
@@ -284,11 +276,20 @@ proc computeStats(df: DataFrame): DataFrame =
   df2.writeCsv(&"/tmp/nov2017_{num}.csv")
   inc num
 
+proc calculateMeanDf(df: DataFrame, interval: float,
+                     periodTab: OrderedTable[int, string] = initOrderedTable[int, string]()): DataFrame =
+  ## interval: time in minutes
+  # we're going to do a rather crude approach. Given that we have to bin
+  # a continuous variable, we're not well equipped using ggplotnim's dataframe
+  # I fear. So just do it manually...
+  let tstamps = df["timestamp", float]
+  let tmeanstamps = calcMeanTimestamps(tstamps, interval)
   let runPeriods = mapToRunPeriods(tmeanStamps, periodTab)
 
-  let outLen = tmeanStamps.len
+  let outLen = tmeanstamps.len
   let sums = df.calcMean(tstamps, outLen, "hits", interval)
   let means = df.calcMean(tstamps, outLen, "totalCharge", interval, "hits")
+
   result = seqsToDf({"timestamp" : tmeanStamps, "sumCharge" : sums,
                       "meanCharge" : means, "runPeriods" : runPeriods })
 

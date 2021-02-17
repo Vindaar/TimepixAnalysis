@@ -742,7 +742,7 @@ proc cutAndWrite(h5file: string) =
   let runs = readRuns(filename)
   var h5f = H5open(h5file, "rw")
   defer: discard h5f.close()
-  let cutTab = getXraySpectrumCutVals()
+  let cutTab = getXrayCleaningCuts()
   for r in runs:
     #if r.number != 315:
       #continue

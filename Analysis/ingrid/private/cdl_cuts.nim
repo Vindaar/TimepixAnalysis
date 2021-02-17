@@ -74,8 +74,18 @@ func getXrayFluorescenceLines*(): seq[float] =
   ## filter combination. Energy in keV
   result = @[8.04, 5.89, 4.51, 2.98, 1.49, 0.930, 0.525, 0.277].reversed
 
-func getXraySpectrumCutVals*(): Table[string, Cuts] =
-  ## returns a table of Cuts (kind ckXray) objects, one for each energy bin
+func getXrayCleaningCuts*(): Table[string, Cuts] =
+  ## returns a table of Cuts (kind ckXray) objects, one for each energy bin. These
+  ## cuts are used to remove likely background candidates contaminating the CDL
+  ## dataset. They are applied to the raw CDL data before computing the logL
+  ## distributions from them.
+  ##
+  ## `NOTE:` These cuts are the ones used to select the clusters that are used
+  ## to `generate the log likelihood distributions` from the CDL data file (typically
+  ## called `calibration-cdl.h5` or similar). These are used `in addition` to the
+  ## `getEnergyBinMinMaxVals201*`!
+  ## This is why thes are `kind: cfXray`, because they refer to likely Xrays to be
+  ## used to determine what the LogL distribution is supposed to look like.
   let baseCut = Cuts(kind: ckXray,
                      minPix: 3,
                      cutTo: crSilver,
@@ -124,6 +134,13 @@ func getEnergyBinMinMaxVals2018*(): Table[string, Cuts] =
   ## master thesis of Hendrik Schmick
   ## (that might be important in case the cdl_spectrum_creation code might change, making
   ## these used values void for some reason!).
+  ##
+  ## `NOTE:` These cuts are the ones used to select the clusters that are used
+  ## to `generate the X-ray reference spectra` from the CDL data file (typically
+  ## called `calibration-cdl.h5` or similar).
+  ## In addition they are applied to the raw CDL data file to filter out clusters to
+  ## be used to generate the LogL distributions (this is in combination with `getXraySpectrumCuts`.
+  ## This is why thes are `kind: cfReference`!
   let baseCut = Cuts(kind: ckReference,
                      minRms: 0.1,
                      maxRms: 1.1,
@@ -174,6 +191,9 @@ func getEnergyBinMinMaxVals2018*(): Table[string, Cuts] =
 
 func getEnergyBinMinMaxVals2014*(): Table[string, Cuts] =
   ## returns a table of Cuts (kind ckReference) objects, one for each energy bin
+  ##
+  ## `NOTE:` See the docstring of `getEnergyBinMinMaxVals2018` for more information on the
+  ## meaning of these cuts.
   let baseCut = Cuts(kind: ckReference,
                      minRms: 0.1,
                      maxRms: 1.1,

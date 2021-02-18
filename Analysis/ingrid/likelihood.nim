@@ -24,6 +24,7 @@ writes them back to the H5 file
 
 Usage:
   likelihood <HDF5file> [options]
+  likelihood [options]
   likelihood <HDF5file> --h5out <outfile> [options]
   likelihood <HDF5file> --extract=FOLDER --to=OUTFOLDER
 
@@ -48,6 +49,10 @@ Options:
   --septemveto           If flag is set, we use the Septemboard as a veto
   --createRocCurve       If flag is set, we create ROC curves for all energy bins. This
                          requires the input to already have a `likelihood` dataset!
+  --plotLogL             If flag is set, we only plot the signal logL distributions.
+  --computeLogL          If flag is set, we compute the logL dataset for each run in the
+                         the input file. This is only required once or after changes to the
+                         property datasets (e.g. energy calibration changed).
   -h --help              Show this help
   --version              Show version.
 """
@@ -70,7 +75,7 @@ const RmsCleaningCut = 1.5
 
 type
   FlagKind = enum
-    fkTracking, fkFadc, fkScinti, fkSeptem, fkRocCurve
+    fkTracking, fkFadc, fkScinti, fkSeptem, fkRocCurve, fkComputeLogL, fkPlotLogL
 
   YearKind = enum
     yr2014 = "2014"
@@ -1151,6 +1156,47 @@ proc createRocCurves(h5Back: H5File,
   #  geom_line() +
   #  ggsave("roc_curve_full_range.pdf")
 
+proc plotLogL(cdlFile, refFile: string,
+              yearKind: YearKind,
+              region: ChipRegion) =
+  ## generates all ROC curves for the given two H5 files and the
+  ## histograms of the likelihood distributions for the CDL data and
+  ## the given background file.
+  ## By default the file containing signal like events will be
+  ## the X-ray reference file.
+  let dfSignal = readLikelihoodDsetsCdl(cdlFile, refFile, yearKind, region)
+  ggplot(dfSignal, aes("Likelihood", fill = "Bin")) +
+    geom_histogram(binWidth = 0.2) +
+    ggtitle("-LnL distributions of cdl calibration data, stacked",
+            titlefont = font(11.0)) +
+    ggsave("signalLogL.pdf")
+
+  when false:
+    # write the dfSignal data frame to file
+    dfSignal.writeCsv("/tmp/dfSignal.csv")
+  ggplot(dfSignal, aes("Likelihood", fill = "Bin")) +
+    geom_freqpoly(binWidth = 0.2,
+                  position = "identity",
+                  alpha = some(0.3)) +
+    ggtitle("-LnL distributions of cdl calibration data as polygons, identity position",
+            titlefont = font(11.0)) +
+    ggsave("signalLogL_freqPoly.pdf")
+
+  let xrayRef = getXrayRefTable()
+  var labelOrder = initTable[Value, int]()
+  for idx, el in xrayRef:
+    labelOrder[%~ el] = idx
+  ggplot(dfSignal, aes("Likelihood", fill = "Bin")) +
+    geom_histogram(binWidth = 0.2,
+                   position = "identity",
+                   alpha = some(0.5)) +
+    ggridges("Bin", overlap = 2.0,
+             labelOrder = labelOrder) +
+    ggtitle("-LnL distributions of cdl calibration data as ridgeline",
+            titlefont = font(11.0)) +
+    ggsave("signalLogL_ridgeline.pdf",
+           height = 600.0)
+
 proc main() =
   # create command line arguments
   let args = docopt(doc)
@@ -1165,6 +1211,8 @@ proc main() =
   if $args["--fadcveto"] == "true": flags.incl fkFadc
   if $args["--septemveto"] == "true": flags.incl fkSeptem
   if $args["--createRocCurve"] == "true": flags.incl fkRocCurve
+  if $args["--computeLogL"] == "true": flags.incl fkComputeLogL
+  if $args["--plotLogL"] == "true": flags.incl fkPlotLogL
 
   let cdlFile = if $args["--altCdlFile"] != "nil":
                   $args["--altCdlFile"]
@@ -1197,8 +1245,10 @@ proc main() =
     ## create the ROC curves and likelihood distributios. This requires to
     ## previously run this tool with the default parameters
     createRocCurves(h5f, cdlFile, refFile, year, region)
+  elif fkPlotLogL in flags:
+    plotLogL(cdlFile, refFile, year, region)
   elif extractFrom == "nil":
-    var h5fout: H5FileObj
+    var h5fout: H5File
     if h5foutfile != "":
       h5fout = H5open(h5foutfile, "rw")
     else:
@@ -1212,7 +1262,8 @@ proc main() =
 
     # perform likelihood calculation
     ## TODO: do we need to do this? Cannot just skip if already exists?
-    h5f.calcLogLikelihood(cdlFile, refFile, year)
+    if fkComputeLogL in flags:
+      h5f.calcLogLikelihood(cdlFile, refFile, year)
     # now perform the cut on the logL values stored in `h5f` and write
     # the results to h5fout
     h5f.filterClustersByLogL(h5fout,

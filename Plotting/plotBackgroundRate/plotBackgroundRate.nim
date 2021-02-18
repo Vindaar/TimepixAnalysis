@@ -106,6 +106,32 @@ proc calcIntegratedBackgroundRate(df: DataFrame, factor: float,
   let rate = df[Rcol].toTensor(float)
   result = trapz(rate.toRawSeq, energies.toRawSeq) / factor
 
+proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
+                        show2014: bool, suffix: string) =
+  echo df
+  let df = df.filter(f{c"Energy" < 12.0})
+  let titleSuff = if title.len > 0: title
+                  elif show2014: " compared to 2014/15"
+                  else: ""
+  let transparent = color(0, 0, 0, 0)
+  let fname = &"plots/background_rate_{fnameSuffix}.pdf"
+  echo "INFO: storing plot in ", fname
+  echo df
+  ggplot(df, aes(Ecol, Rcol, fill = "Dataset")) +
+    geom_histogram(stat = "identity", position = "identity", alpha = some(0.5),
+                   color = some(transparent),
+                   hdKind = hdOutline) +
+    geom_point(binPosition = "center", position = "identity") +
+    geom_errorbar(binPosition = "center",
+                  aes = aes(yMin = "yMin", yMax = "yMax"),
+                  errorBarKind = ebLines) +
+    scale_y_continuous() +
+    xlab("Energy [keV]") +
+    ylab("Rate [10⁻⁵ keV⁻¹ cm⁻² s⁻¹]") +
+    xlim(0, 12.0) +
+    ggtitle(&"Background rate of Run 2 & 3 (2017/18){titleSuff}, {suffix}") +
+    ggsave(fname, width = 800, height = 480)
+
 proc main(files: seq[string], log = false, title = "", show2014 = false,
           separateFiles = false,
           suffix = ""
@@ -142,27 +168,8 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
     df2014["Dataset"] = constantColumn("2014/15", df2014.len)
     echo df2014
     df.add df2014
-  echo df
-  df = df.filter(f{c"Energy" < 12.0})
   let fnameSuffix = logLFiles.mapIt($it.year).join("_") & "_show2014_" & $show2014 & "_separate_" & $separateFiles & suffix
-  let titleSuff = if show2014: " compared to 2014/15" else: ""
-  let transparent = color(0, 0, 0, 0)
-  let fname = &"plots/background_rate_{fnameSuffix}.pdf"
-  echo "INFO: storing plot in ", fname
-  ggplot(df, aes(Ecol, Rcol, fill = "Dataset")) +
-    geom_histogram(stat = "identity", position = "identity", alpha = some(0.5),
-                   color = some(transparent),
-                   hdKind = hdOutline) +
-    geom_point(binPosition = "center", position = "identity") +
-    geom_errorbar(binPosition = "center",
-                  aes = aes(yMin = "yMin", yMax = "yMax"),
-                  errorBarKind = ebLines) +
-    scale_y_continuous() +
-    xlab("Energy [keV]") +
-    ylab("Rate [10⁻⁵ keV⁻¹ cm⁻² s⁻¹]") +
-    xlim(0, 12.0) +
-    ggtitle(&"Background rate of Run 2 & 3 (2017/18){titleSuff}, {suffix}") +
-    ggsave(fname, width = 800, height = 480)
+  plotBackgroundRate(df, fnameSuffix, title, show2014, suffix)
 
 when isMainModule:
   dispatch main

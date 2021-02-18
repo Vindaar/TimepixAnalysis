@@ -77,7 +77,8 @@ proc buildSeptemOccupancy(df: DataFrame) =
     if xyz > 10:
       quit()
 
-proc main(fname: string) =
+import times
+proc main(fname: string, runNumber: int) =
   var h5f = H5open(fname, "r")
   defer: discard h5f.close()
 
@@ -85,16 +86,22 @@ proc main(fname: string) =
   #  buildSeptemOccupancy(df)
   #  if true:
   #    quit()
-
-  let df = getSeptemDataFrame(h5f, 107)
+  echo "Siz ", sizeof(DataFrame)
+  var df = getSeptemDataFrame(h5f, runNumber)
+  df.write_csv("/mnt/1TB/run186_data.csv")
+  echo sizeof(df)
+  let tzero = epochTime()
+  df = df.arrange(@["eventNumber", "chipNumber", "x"])
+  echo "Arrange took ", epochTime() - tzero, " s"
   echo df
-
+  if true: quit()
   let outDir = "/tmp" / h5f.attrs[PlotDirPrefixAttr, string]
   createDir(outDir)
   echo "Outdir is ", outDir
   let t0 = epochTime()
   var count = 0
   #df.write_csv("/tmp/df_run_106.csv")
+
   for tup, dfEv in groups(df.group_by("eventNumber")):
     let evNum = tup[0][1].toInt
     let dfSeptem = dfToSeptemEvent(dfEv)
@@ -148,8 +155,6 @@ proc main(fname: string) =
   #    ggsave(fname & "hitsSmall.svg")
 
 
+import cligen
 when isMainModule:
-  if paramCount() > 0:
-    main(paramStr(1))
-  else:
-    echo "Hand a filename to be read from!"
+  dispatch main

@@ -93,13 +93,15 @@ proc flatScale(files: seq[LogLFile], factor: float): DataFrame =
     else: 0.0
   result.drop("Counts")
 
-proc calcIntegratedBackgroundRate(df: DataFrame, factor: float): float =
+proc calcIntegratedBackgroundRate(df: DataFrame, factor: float,
+                                  energyRange: Slice[float] = 0.0 .. 10.0): float =
   ## returns the integrated background rate given by the Rate
   ## stored in the given DataFrame, integrated over the energy
   ## range stored in the DF (typically that should be 0 - 10 keV)
   ##
   ## It is assumed that the energy is given in keV and the rate in
   ## keV⁻¹ cm⁻² s⁻¹.
+  let df = df.filter(f{float: `Energy` >= energyRange.a and `Energy` <= energyRange.b})
   let energies = df[Ecol].toTensor(float)
   let rate = df[Rcol].toTensor(float)
   result = trapz(rate.toRawSeq, energies.toRawSeq) / factor

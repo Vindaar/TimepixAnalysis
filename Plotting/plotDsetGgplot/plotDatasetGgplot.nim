@@ -3,47 +3,29 @@ import ggplotnim
 #import .. / karaPlot / [plotData, common_types]
 import ingrid / [tos_helpers, ingrid_types]
 import os, strutils, strformat
-import sequtils
-import docopt
+import sequtils, options
 import chroma
 import seqmath
 import times
+import cligen
 
-from ../karaPlot / plotData import readEventSparse
+#from ../karaPlot / plotData import readEventSparse
 
-
-
-const doc = """
-A tool to create a plot of a InGrid / FADC dataset of a single or
-two files.
-
-Usage:
-  plotDatasets <H5file> --dset=NAME --chip=NUMBER --eventDisplay [--file2 <H5File2>] [options]
-
-Options:
-  --file2 <H5File2>   Optional second file to compare with
-  --dset=NAME         The name of the dataset to plot.
-  --chip=NUMBER       The number of the chip we want to plot data from.
-  --binLow=LOW        Low range of binning
-  --binHigh=HIGH      High range of binning
-  -h, --help          Show this help.
-  --version           Show the version number.
-"""
-
-proc readDsets(h5f: H5FileObj, names: varargs[string]): DataFrame =
+proc readDsets(files: seq[string],
+               names: varargs[string],
+               pathBase = likelihoodBase()): DataFrame =
   ## reads all likelihood data in the given `h5f` file as well as the
   ## corresponding energies. Flattened to a 1D seq.
   ## This proc is for TPA generated H5 files! (i.e. containing run_* groups, ...)
   # iterate over all groups, read all likelihood and energy dsets
   result = newDataFrame()
-  for name in names:
-    var data = newColumn()
-    for run, grp in runs(h5f):
-      let group = h5f[grp.grp_str]
-      let centerChip = "chip_" & $group.attrs["centerChip", int]
-      doAssert grp / centerChip / name in h5f[(group.name / centerChip).grp_str]
-      data = data.add toColumn(h5f[grp / centerChip / name, float])
-    result[name] = data
+  let dsets = some((3, @names))
+  for file in files:
+    let h5f = H5open(file, "r")
+    var df = h5f.readDsets(pathBase, chipDsets = dsets)
+    let fname = file.extractFilename
+    df["File"] = constantColumn(fname, df.len)
+    result.add df
 
 proc readFeVsTime(h5f: H5FileObj): DataFrame =
   ## reads all likelihood data in the given `h5f` file as well as the
@@ -69,50 +51,57 @@ proc readFeVsTime(h5f: H5FileObj): DataFrame =
     geom_point() +
     ggsave("/tmp/fe_vs_time.pdf")
 
-proc main() =
+proc plotHisto(df: DataFrame, names: seq[string]) =
 
-  let args = docopt(doc)
-  echo args
+  ## split by high and low
+  echo df
+  var df = df
+  df.drop("eventNumber")
 
-  let h5file = $args["<H5file>"]
-  let h5file2 = $args["--file2"]
-  let dset = $args["--dset"]
-  let chip = ($args["--chip"]).parseInt
-  var outfile = $dset
-  let evDisplay = $args["--eventDisplay"]
+  df = df.mutate(f{float -> bool: "8<x<10" ~ `energyFromCharge` >= 8.0 and `energyFromCharge` <= 10.0})
+    .gather(names, key = "Dset", value = "vals")
+  echo df
+  ggplot(df, aes("vals", fill = "8<x<10")) +
+    facet_wrap("Dset", scales = "free") +
+    scale_x_continuous() +
+    geom_histogram(bins = 100, binBy = "subset", position = "identity", alpha = some(0.5),
+                   hdKind = hdOutline) +
+    ggsave(&"out/dsets_facet_lhood.pdf", height = 1080, width = 1920)
 
-  let binLowS = $args["--binLow"]
-  let binHighS = $args["--binHigh"]
-  var
-    binLow: float
-    binHigh: float
-  try:
-    binLow = binLowS.parseFloat
-  except ValueError: discard
-  try:
-    binHigh = binHighS.parseFloat
-  except ValueError: discard
+proc main(files: seq[string],
+          eventDisplay: bool = false,
+          cutLow = 0.0, cutHigh = Inf,
+          chip = 3, dset = "",
+          feVsTime = false) =
+  var names = newSeq[string]()
+  for dkKind in InGridDsetKind:
+    if dkKind notin {igNumClusters, igFractionInHalfRadius, igRadiusDivRmsTrans,
+                      igRadius, igBalance, igLengthDivRadius, igInvalid, igHits, igTotalCharge, igEventNumber}:
+      names.add dkKind.toDset(fkTpa)
 
-  var h5f = H5open(h5file, "r")
-  if evDisplay == "nil":
-    let dftime = readFeVsTime(h5f)
-    let df = h5f.readDsets(dset)
-    ggplot(df,#df.filter(f{float: df[dset] > binLow and
-           #                   df[dset] < binHigh}),
-                     aes(dset)) +
-      geom_histogram(bins = 50) +
-      ggtitle(&"File: {h5file}, all runs, dsets: {dset}") +
-      ggsave("/tmp/" & dset & ".pdf")
-  else:
-    for i in 0 .. 100:
-      let df = readEventSparse(h5f, 305, 3, i)
-      ggplot(df, aes("x", "y", color = "ch")) +
-        geom_point() + #aes(width = 1.0, height = 1.0)) +
-        xlim(0, 256) +
-        ylim(0, 256) +
-        ggsave("event_" & $i & ".pdf")
+  var df = readDsets(files, names = names)
+  df.plotHisto(names)
+
+
+  #if feVsTime:
+  #  let dftime = readFeVsTime(h5f)
+  #  let df = h5f.readDsets(dset)
+  #  ggplot(df,#df.filter(f{float: df[dset] > binLow and
+  #         #                   df[dset] < binHigh}),
+  #                   aes(dset)) +
+  #    geom_histogram(bins = 50) +
+  #    ggtitle(&"File: {h5file}, all runs, dsets: {dset}") +
+  #    ggsave("/tmp/" & dset & ".pdf")
+  #if eventDisplay:
+  #  for i in 0 .. 100:
+  #    let df = readEventSparse(h5f, 305, 3, i)
+  #    ggplot(df, aes("x", "y", color = "ch")) +
+  #      geom_point() + #aes(width = 1.0, height = 1.0)) +
+  #      xlim(0, 256) +
+  #      ylim(0, 256) +
+  #      ggsave("event_" & $i & ".pdf")
 
 
 
 when isMainModule:
-  main()
+  dispatch main

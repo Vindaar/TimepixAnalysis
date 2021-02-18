@@ -190,7 +190,6 @@ proc calcLogLikelihood*(h5f: var H5File,
 
     for (_, chipNumber, grp) in chipGroups(h5f, group):
       # iterate over all chips and perform logL calcs
-
       var attrs = h5f[grp.grp_str].attrs
       let logL = calcLikelihoodDataset(h5f, refFile, grp, year)
       # after walking over all events for this chip, add to correct
@@ -199,7 +198,8 @@ proc calcLogLikelihood*(h5f: var H5File,
     # after we added all logL data to the seqs, write it to the file
     var logL_dsets = mapIt(toSeq(0..<nChips), h5f.create_dataset((group / &"chip_{it}/likelihood"),
                                                                  (logL_chips[it].len, 1),
-                                                                 float64))
+                                                                 float64,
+                                                                 overwrite = true))
     # write the data to the file
     echo &"Writing data of run {group} to file {h5f.name}"
     for tup in zip(logL_dsets, logL_chips):

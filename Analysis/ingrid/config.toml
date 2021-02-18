@@ -27,4 +27,8 @@ gasGainEnergyKind = "Individual"
 plotDirectory = "out"
 
 [Likelihood]
+# the signal efficiency to be used for the logL cut (percentage of X-rays of the
+# reference distributions that will be recovered with the corresponding cut value)
 signalEfficiency = 0.8
+# the CDL morphing technique to be used (see `MorphingKind` enum), none or linear
+morphingKind = "Linear"

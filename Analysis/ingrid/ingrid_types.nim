@@ -51,6 +51,8 @@ type
   # alias for SRS events for the Event. Only difference is meta information
   SrsEvent* = Event
 
+  histTuple* = tuple[bins: seq[float64], hist: seq[float64]]
+
   #############################
   # Calibration related types #
   #############################
@@ -258,7 +260,6 @@ type
     # if e.g. FeSpec not available yet, we can just call the
     # procedure to create it for us
 
-type
   ## GasGainIntervalData stores the information about binning the data for the
   ## calculation of the gas gain in a run by a fixed time interval, e.g.
   ## 100 minutes
@@ -289,8 +290,6 @@ type
     G*: float # fit parameter as determined from mean of data histogram
     theta*: float # theta parameter of polya fit, parameter 2
     redChiSq*: float # reduced χ² of the polya fit of this slice
-
-
 
   FeSpecFitData* = object
     hist*: seq[float]

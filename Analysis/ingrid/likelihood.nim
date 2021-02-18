@@ -69,8 +69,6 @@ when not refExists:
 const RmsCleaningCut = 1.5
 
 type
-  histTuple = tuple[bins: seq[float64], hist: seq[float64]]
-
   FlagKind = enum
     fkTracking, fkFadc, fkScinti, fkSeptem, fkRocCurve
 

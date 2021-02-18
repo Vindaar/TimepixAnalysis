@@ -749,8 +749,8 @@ proc readLikelihoodDsets(h5f: H5File): DataFrame =
   for run, grp in runs(h5f):
     let group = h5f[grp.grp_str]
     let centerChip = "chip_" & $group.attrs["centerChip", int]
-    doAssert grp / centerChip / "likelihood" in h5f[(group.name / centerChip).grp_str],
-      "likelihood dataset must exist in input H5 file!"
+    doAssert grp / centerChip / "likelihood" in h5f,
+      "likelihood dataset must exist in input H5 file! Does not exist at path: " & $(grp / centerChip / "likelihood")
     let energy = h5f[grp / centerChip / "energyFromCharge", float64]
     let logL = h5f[grp / centerChip / "likelihood", float64]
     doAssert energy.len == logL.len
@@ -1043,6 +1043,7 @@ proc main() =
     let outfolder = $args["--to"]
     h5f.extractEvents(extractFrom, outfolder)
 
+  echo "Closing H5 file: ", h5f.name
   let err = h5f.close()
   if err != 0:
     echo &"Could not close h5 file properly! Return value was {err}"

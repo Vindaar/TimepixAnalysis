@@ -1,5 +1,6 @@
 import nimhdf5, ggplotnim, os, strformat, strutils, sequtils, algorithm, seqmath, arraymancer
 import ingrid / tos_helpers, times
+import helpers / utils
 
 import cligen
 
@@ -11,14 +12,6 @@ type
   YearKind = enum
     yr2014 = "2014"
     yr2018 = "2018"
-
-proc splitSeq[T, U](s: seq[seq[T]], dtype: typedesc[U]): (seq[U], seq[U]) =
-  ## splits a (N, 2) nested seq into two seqs
-  result[0] = newSeq[dtype](s.len)
-  result[1] = newSeq[dtype](s.len)
-  for i in 0..s.high:
-    result[0][i] = s[i][0].U
-    result[1][i] = s[i][1].U
 
 proc readRefDsets(refFile: string,
                   dkKind: InGridDsetKind,

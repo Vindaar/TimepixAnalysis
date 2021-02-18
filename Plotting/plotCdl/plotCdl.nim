@@ -14,14 +14,6 @@ type
 
 const CommonNames = ["totalCharge", "eventNumber", "hits", "energyFromCharge"]
 
-proc splitSeq[T, U](s: seq[seq[T]], dtype: typedesc[U]): (seq[U], seq[U]) =
-  ## splits a (N, 2) nested seq into two seqs
-  result[0] = newSeq[dtype](s.len)
-  result[1] = newSeq[dtype](s.len)
-  for i in 0..s.high:
-    result[0][i] = s[i][0].U
-    result[1][i] = s[i][1].U
-
 proc readData(h5f: H5FileObj,
               evNames: seq[string]): DataFrame =
   const allNames = ["timestamp", "eventNumber"]

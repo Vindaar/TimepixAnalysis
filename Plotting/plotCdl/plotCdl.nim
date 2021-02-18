@@ -1,5 +1,6 @@
-import nimhdf5, ggplotnim, os, strformat, strutils, sequtils, algorithm, seqmath
-import ingrid / tos_helpers, times
+import nimhdf5, ggplotnim, os, strformat, strutils, sequtils, algorithm, seqmath, times
+import ingrid / [ingrid_types, tos_helpers]
+import helpers / utils
 
 import cligen
 
@@ -7,10 +8,6 @@ type
   HistTuple = tuple[bins: seq[float64], hist: seq[float64]]
 
   SupportedRead = SomeFloat | SomeInteger | string | bool | Value
-
-  YearKind = enum
-    yr2014 = "2014"
-    yr2018 = "2018"
 
 const CommonNames = ["totalCharge", "eventNumber", "hits", "energyFromCharge"]
 
@@ -121,38 +118,68 @@ proc plotRef(df: DataFrame,
     ggsave(&"out/{dset}_ridgeline_{refFile.extractFilename}_{yearKind}.pdf",
             width = 800, height = 480)
 
-proc normalize(df: DataFrame): DataFrame =
-  #let sum = result["Hist"].toTensor(float).sum
+proc normalize(df: DataFrame, grp = "Dset", values = "Hist"): DataFrame =
   result = df
-  result = result.mutate(f{float -> float: "Hist" ~ `Hist` / max(df["Hist"])})
+  result = result.group_by("Dset")
+    .mutate(f{float -> float: "Hist" ~ `Hist` / sum(df["Hist"])})
 
-proc main(files: seq[string],
-          refFile: string = "/mnt/1TB/CAST/CDL_2019/XrayReferenceFile2018.h5",
+proc plotCdlFile(cdlFile, refFile: string) =
+  let xrayTab = getXrayRefTable()
+  var df = newDataFrame()
+  for idx, key in xrayTab:
+    let (logL, energies) = buildLogLHist(cdlFile, refFile, key,
+                                         year = yr2018,
+                                         region = crGold)
+    var dfLoc = seqsToDf({"logL" : logL, "Energy" : energies})
+    dfLoc["Dset"] = constantColumn(key, dfLoc.len)
+    df.add dfLoc
+
+  let xrayRef = getXrayRefTable()
+  var labelOrder = initTable[Value, int]()
+  for idx, el in xrayRef:
+    labelOrder[%~ el] = idx
+
+  let breaks = linspace(0, 30.0, 201)
+  ggplot(df, aes("logL", fill = "Dset")) +
+    ggridges("Dset", overlap = 1.5, labelOrder = labelOrder) +
+    geom_histogram(breaks = breaks, position = "identity",
+                   hdKind = hdOutline,
+                   density = true) +
+    ggsave(&"out/logL_ridgeline.pdf")
+
+  ggplot(df, aes("logL", color = "Dset")) +
+    geom_histogram(binWidth = 0.15, position = "identity", alpha = some(0.0),
+                   lineWidth = some(1.5),
+                   hdKind = hdOutline) +
+    ggtitle("LogL distributions from CDL data") +
+    ggsave(&"out/logL_outline.pdf")
+
+proc main(files: seq[string] = @[],
+          refFile: string = "/home/basti/CastData/data/CDL_2019/XrayReferenceFile2018.h5",
+          cdlFile: string = "/home/basti/CastData/data/CDL_2019/calibration-cdl-2018.h5",
           fkKind: FrameworkKind = fkTpa) =
-  let dfBack = readFiles(files,
-                         "background",
-                         concat(@CommonNames, @["eccentricity",
-                                                "fractionInTransverseRms",
-                                                "lengthDivRmsTrans"]))
-  const dkKinds = [igEccentricity, igLengthDivRmsTrans, igFractionInTransverseRms]
-  for dkKind in dkKinds:
-    let dfRef = readRefDsets(refFile, dkKind, yr2018)
-    #echo dfRef.pretty(-1)
 
-    let dset = dkKind.toDset(fkKind)
-    let dfB = dfBack.binDf(dset)
+  if files.len == 0:
+    plotCdlFile(cdlFile, refFile)
+  else:
+    let dfBack = readFiles(files,
+                           "background",
+                           concat(@CommonNames, @["eccentricity",
+                                                  "fractionInTransverseRms",
+                                                  "lengthDivRmsTrans"]))
+    const dkKinds = [igEccentricity, igLengthDivRmsTrans, igFractionInTransverseRms]
+    for dkKind in dkKinds:
+      let dfRef = readRefDsets(refFile, dkKind, yr2018)
+      #echo dfRef.pretty(-1)
 
-    var df: DataFrame
-    df.add dfRef.normalize
-    df.add dfB.normalize
-    plotRef(df,
-            dset,
-            refFile, yr2018)
-
-
-
-  #echo df.pretty(-1)
-
+      let dset = dkKind.toDset(fkKind)
+      let dfB = dfBack.binDf(dset)
+      var df: DataFrame
+      df.add dfRef.normalize
+      df.add dfB.normalize
+      plotRef(df,
+              dset,
+              refFile, yr2018)
 
 when isMainModule:
   dispatch main

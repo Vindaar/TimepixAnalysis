@@ -17,17 +17,18 @@ template cdlPrefix*(year: string): string =
   else:
     "calibration-cdl-feb2019-"
 
-proc getChristophCutVals*(): Table[string, float] =
+proc getChristophCutVals*(): CutValueInterpolator =
   ## returns the cut values used by Christoph in his PhD thesis
   ## to compare with these values
-  result = { "C-EPIC-0.6kV" :  11.7,
-             "Cu-EPIC-0.9kV" : 10.7,
-             "Cu-EPIC-2kV" :   9.7,
-             "Al-Al-4kV" :     9.1,
-             "Ag-Ag-6kV" :     8.1,
-             "Ti-Ti-9kV" :     7.7,
-             "Mn-Cr-12kV" :    7.6,
-             "Cu-Ni-15kV" :    7.4 }.toTable()
+  var cutTab = { "C-EPIC-0.6kV" :  11.7,
+                 "Cu-EPIC-0.9kV" : 10.7,
+                 "Cu-EPIC-2kV" :   9.7,
+                 "Al-Al-4kV" :     9.1,
+                 "Ag-Ag-6kV" :     8.1,
+                 "Ti-Ti-9kV" :     7.7,
+                 "Mn-Cr-12kV" :    7.6,
+                 "Cu-Ni-15kV" :    7.4 }.toTable()
+  result = initCutValueInterpolator(cutTab)
 
 proc getXrayRefTable*(): Table[int, string] =
   ## returns a table mapping the different energy bins to the correct

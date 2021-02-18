@@ -318,6 +318,17 @@ type
     chiSq*: float
     nDof*: int
 
+  ## Object which stores the technique used to morph between different CDL reference spectra.
+  ## Set in `config.toml`.
+  MorphingKind* = enum
+    mkNone = "None"
+    mkLinear = "Linear"
+
+  YearKind* = enum
+    yr2014 = "2014"
+    yr2018 = "2018"
+
+
 const TosDateString* = "yyyy-MM-dd'.'hh:mm:ss"
 
 # and some general InGrid related constants
@@ -390,7 +401,18 @@ when not defined(pure) and not defined(js):
       eventNumber: seq[int],
     ]
 
-
+    CutValueInterpolator* = object
+      case kind*: MorphingKind
+      of mkNone:
+        ## just the regular table containing a cut value for each target/filter combination
+        cutTab*: Table[string, float]
+      of mkLinear:
+        ## two tensors: `cutEnergies` stores the energy values we used to
+        ## compute different morphed distributions. `cutValues` stores the cut
+        ## value of each distribution. So for index `idx` the cut value of energy
+        ## `cutValue[idx]` is given as `cutValue[idx]`.
+        cutEnergies*: seq[float] # is a `seq` to use `lowerBound`
+        cutValues*: Tensor[float]
 
 proc initFeSpecData*(hist: seq[float],
                      binning: seq[float],
@@ -466,3 +488,27 @@ proc toPathSuffix*(g: GasGainIntervalData): string =
 
 proc toDsetSuffix*(g: GasGainIntervalData): string =
   result = &"_{g.idx}_{g.interval.int}"
+
+proc initCutValueInterpolator*(kind: MorphingKind): CutValueInterpolator =
+  case kind
+  of mkNone:
+    result = CutValueInterpolator(kind: mkNone)
+    result.cutTab = initTable[string, float]()
+  of mkLinear:
+    result = CutValueInterpolator(kind: mkLinear)
+
+proc initCutValueInterpolator*(tab: Table[string, float]): CutValueInterpolator =
+  result = initCutValueInterpolator(mkNone)
+  result.cutTab = tab
+
+proc initCutValueInterpolator*(energies: seq[float]): CutValueInterpolator =
+  result = initCutValueInterpolator(mkLinear)
+  result.cutEnergies = energies
+  result.cutValues = zeros[float](energies.len.int)
+
+proc `[]`*(cv: CutValueInterpolator, s: string): float =
+  result = cv.cutTab[s]
+
+proc `[]=`*(cv: var CutValueInterpolator, s: string, val: float) =
+  doAssert cv.kind == mkNone
+  cv.cutTab[s] = val

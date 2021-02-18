@@ -125,7 +125,7 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
   ## because otherwise we have everything duplicated!
   let intBackRate = calcIntegratedBackgroundRate(df, factor)
   echo &"Integrated background rate: {intBackRate:.4e} cm⁻² s⁻¹"
-  echo &"Integrated background rate/keV: {intBackRate / 10.0:.4e} keV⁻² cm⁻² s⁻¹"
+  echo &"Integrated background rate/keV: {intBackRate / 10.0:.4e} keV⁻¹ cm⁻² s⁻¹"
 
   if show2014:
     df.drop(Ccol)

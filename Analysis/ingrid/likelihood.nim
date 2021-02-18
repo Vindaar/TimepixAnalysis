@@ -404,10 +404,9 @@ proc writeLogLDsetAttributes[T: H5DataSet | H5Group](dset: var T,
   dset.attrs["calibration CDL file"] = cdlFile
   dset.attrs["X-ray reference file"] = refFile
 
-proc calcLogLikelihood*(h5f: var H5FileObj,
+proc calcLogLikelihood*(h5f: var H5File,
                         cdlFile, refFile: string,
                         year: YearKind) =
-  ##
   ## - read all data of single run
   ## - get energy dataset
   ## - create energy bins
@@ -451,8 +450,8 @@ proc calcLogLikelihood*(h5f: var H5FileObj,
       dset[dset.all] = logL
       dset.writeLogLDsetAttributes(cdlFile, refFile, year)
 
-proc writeLikelihoodData(h5f: var H5FileObj,
-                         h5fout: var H5FileObj,
+proc writeLikelihoodData(h5f: var H5File,
+                         h5fout: var H5File,
                          group: var H5Group,
                          cdlFile, refFile: string,
                          year: YearKind,
@@ -595,7 +594,7 @@ proc writeVetoInfos(grp: H5Group, fadcVetoCount, scintiVetoCount: int,
   mgrp.attrs["# removed by FADC veto"] = fadcVetoCount
   mgrp.attrs["# removed by scinti veto"] = scintiVetoCount
 
-proc applySeptemVeto(h5f, h5fout: var H5FileObj,
+proc applySeptemVeto(h5f, h5fout: var H5File,
                      cdlFile, refFile: string,
                      runNumber: int,
                      year: YearKind,
@@ -718,7 +717,7 @@ proc applySeptemVeto(h5f, h5fout: var H5FileObj,
         passedInds.excl centerEvIdx
   echo "Passed indices after septem veto ", passedInds.card
 
-proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj,
+proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
                           cdlFile, refFile: string,
                           year: YearKind,
                           flags: set[FlagKind],
@@ -944,7 +943,7 @@ proc filterClustersByLogL(h5f: var H5FileObj, h5fout: var H5FileObj,
   # write year and CDL and reference file used
   lhGrp.writeLogLDsetAttributes(cdlFile, refFile, year)
 
-proc extractEvents(h5f: var H5FileObj, extractFrom, outfolder: string) =
+proc extractEvents(h5f: var H5File, extractFrom, outfolder: string) =
   ## extracts all events passing the likelihood cut from the folder
   ## ``extractFrom`` and copies them (plus potential FADC files) to
   ## the ``outfolder``
@@ -981,7 +980,7 @@ proc extractEvents(h5f: var H5FileObj, extractFrom, outfolder: string) =
         if fadcExists:
           copyFile(infile & "-fadc", outfile & "-fadc")
 
-proc readLikelihoodDsets(h5f: H5FileObj): DataFrame =
+proc readLikelihoodDsets(h5f: H5File): DataFrame =
   ## reads all likelihood data in the given `h5f` file as well as the
   ## corresponding energies. Flattened to a 1D seq.
   ## This proc is for TPA generated H5 files! (i.e. containing run_* groups, ...)
@@ -1080,7 +1079,7 @@ proc calcRocCurve(dfSignal, dfBackground: DataFrame): DataFrame =
     .rename(f{"backRej" <- "eff"})
   result = innerJoin(sigEffDf, backRejDf, by = "cutVals")
 
-proc createRocCurves(h5Back: H5FileObj,
+proc createRocCurves(h5Back: H5File,
                      cdlFile, refFile: string,
                      yearKind: YearKind,
                      region: ChipRegion) =

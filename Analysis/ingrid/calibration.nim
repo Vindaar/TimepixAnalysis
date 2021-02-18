@@ -64,7 +64,7 @@ proc cutOnDsets[T](eventNumbers: seq[SomeInteger],
       result[1].add nPix[i]
       result[2].add i.int64
 
-proc cutOnProperties*(h5f: H5FileObj,
+proc cutOnProperties*(h5f: H5File,
                       group: H5Group,
                       region: ChipRegion,
                       cuts: varargs[tuple[dset: string,
@@ -123,7 +123,7 @@ proc cutOnProperties*(h5f: H5FileObj,
       # else add this index
       result.add i
 
-proc cutOnProperties*(h5f: H5FileObj,
+proc cutOnProperties*(h5f: H5File,
                       group: H5Group,
                       cuts: varargs[tuple[dset: string,
                                           lower, upper: float]],): seq[int] {.inline.} =
@@ -184,7 +184,7 @@ proc cutFeSpectrum(df: DataFrame): DataFrame =
                         `rmsTransverse` < cut_rms_trans_high and
                         inRegion(df["centerX"][idx], df["centerY"][idx], crSilver)})
 
-proc createFeSpectrum*(h5f: var H5FileObj, runNumber, centerChip: int) =
+proc createFeSpectrum*(h5f: var H5File, runNumber, centerChip: int) =
   ## proc which reads necessary reconstructed data from the given H5 file,
   ## performs cuts (as Christoph) and writes resulting spectrum to H5 file
   ## NOTE: currently does not perform a check whether the run is actually a
@@ -276,7 +276,7 @@ func calibrateCharge*(totValue: float, a, b, c, t: float): float =
   let q = 4 * (a * b * t  +  a * c  -  a * t * totValue)
   result = (50 / (2 * a)) * (p + sqrt(p * p + q))
 
-proc applyChargeCalibration*(h5f: var H5FileObj, runNumber: int,
+proc applyChargeCalibration*(h5f: var H5File, runNumber: int,
                              toDelete: bool = false) =
   ## applies the charge calibration to the TOT values of all events of the
   ## given run
@@ -375,7 +375,7 @@ proc initGasGainIntervalResult(g: GasGainIntervalData,
   result.theta     = fitResult.pRes[2]
   result.redChiSq  = fitResult.redChiSq
 
-proc writePolyaDsets(h5f: H5FileObj, group: H5Group,
+proc writePolyaDsets(h5f: H5File, group: H5Group,
                      chargeDset: H5DataSet,
                      binned: seq[int], bin_edges: seq[float],
                      fitResult: FitResult,
@@ -444,7 +444,7 @@ proc writeGasGainSliceData(h5f: H5File, group: H5Group, slices: seq[GasGainInter
     doAssert h5f.delete(baseName), "Could not delete hardlink/dataset " & $baseName
   h5f.create_hardlink(dset.name, baseName)
 
-proc applyGasGainCut(h5f: H5FileObj, group: H5Group): seq[int] =
+proc applyGasGainCut(h5f: H5File, group: H5Group): seq[int] =
   ## Performs the cuts, which are used to select the events which we use
   ## to perform the polya fit + gas gain determination. This is based on
   ## C. Krieger's thesis. The cuts are extracted from the `getGasGain.C`
@@ -509,7 +509,7 @@ proc gasGainHistoAndFit(data: seq[float], bin_edges: seq[float],
               gasGainInterval = gasGainInterval)
   result = (binned, fitResult)
 
-proc readGasGainDf*(h5f: H5FileObj, grp: string,
+proc readGasGainDf*(h5f: H5File, grp: string,
                     addDsets: seq[string]): DataFrame =
   var dfChip = newDataFrame()
   var dfAll = newDataFrame()
@@ -604,7 +604,7 @@ proc deleteAllAttrStartingWith(dset: H5DataSet, start: string) =
       echo "Deleting ", key
       discard dset.deleteAttribute(key)
 
-proc calcGasGain*(h5f: var H5FileObj, runNumber: int,
+proc calcGasGain*(h5f: var H5File, runNumber: int,
                   interval, minInterval: float) =
   ## fits the polya distribution to the charge values and writes the
   ## fit parameters (including the gas gain) to the H5 file
@@ -756,7 +756,7 @@ proc writeTextFields(dset: var H5DataSet,
     echo "Writing ", texts[i], " to ", dset.name
     dset.attrs[&"text_{i}"] = texts[i]
 
-proc writeFeDset(h5f: var H5FileObj,
+proc writeFeDset(h5f: var H5File,
                  group, suffix: string,
                  feSpec: FeSpecFitData): (H5DataSet, H5DataSet) =
   ## writes the dataset for the given FeSpectrum (either FeSpectrum
@@ -787,7 +787,7 @@ proc buildTextForFeSpec(feSpec: FeSpecFitData,
   result.add &"{ecData.aInv:.1f} ev / pix"
   result.add &"sigma = {feSpec.sigma_kalpha / feSpec.k_alpha * 100.0:.2f} %"
 
-proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
+proc fitToFeSpectrum*(h5f: var H5File, runNumber, chipNumber: int,
                       fittingOnly = false, outfiles: seq[string] = @[],
                       writeToFile = true) =
   ## (currently) calls Python functions from `ingrid` Python module to
@@ -816,7 +816,7 @@ proc fitToFeSpectrum*(h5f: var H5FileObj, runNumber, chipNumber: int,
   plotFeEnergyCalib(ecData, runNumber, isPixel = true,
                     pathPrefix = plotPath)
 
-  proc extractAndWriteAttrs(h5f: var H5FileObj,
+  proc extractAndWriteAttrs(h5f: var H5File,
                             dset: var H5DataSet,
                             scaling: float,
                             feSpec: FeSpecFitData,
@@ -917,7 +917,7 @@ proc fitSpectraBySlices(h5f: H5File,
     calibErr.add (aInv * pErr / popt) * 1e6 ## previoulsy we artificially enlarged this to 1e8
     gainVals.add gasGainInterval.G
 
-proc performChargeCalibGasGainFit*(h5f: var H5FileObj,
+proc performChargeCalibGasGainFit*(h5f: var H5File,
                                    interval: float,
                                    gcKind: GasGainVsChargeCalibKind = gcMean) =
   ## performs the fit of the charge calibration factors vs gas gain fit
@@ -1021,7 +1021,7 @@ proc performChargeCalibGasGainFit*(h5f: var H5FileObj,
   plotGasGainVsChargeCalib(gainVals, calib, calibErr, fitResult,
                            pathPrefix = plotPath)
 
-proc calcEnergyFromPixels*(h5f: var H5FileObj, runNumber: int, calib_factor: float) =
+proc calcEnergyFromPixels*(h5f: var H5File, runNumber: int, calib_factor: float) =
   ## proc which applies an energy calibration based on the number of hit pixels in an event
   ## using a conversion factor of unit eV / hit pixel to the run given by runNumber contained
   ## in file h5f
@@ -1048,7 +1048,7 @@ proc calcEnergyFromPixels*(h5f: var H5FileObj, runNumber: int, calib_factor: flo
       # attach used conversion factor to dataset
       energy_dset.attrs["conversionFactorUsed"] = calib_factor
 
-proc calcEnergyFromCharge*(h5f: var H5FileObj, chipGrp: H5Group,
+proc calcEnergyFromCharge*(h5f: var H5File, chipGrp: H5Group,
                            interval: float,
                            b, m: float,
                            gcKind: GasGainVsChargeCalibKind) =
@@ -1127,7 +1127,7 @@ proc calcEnergyFromCharge*(h5f: var H5FileObj, chipGrp: H5Group,
   energy_dset.attrs["Gas gain interval length"] = interval
   energy_dset.attrs["Number of gas gain intervals"] = gainSlices.len
 
-proc calcEnergyFromCharge*(h5f: var H5FileObj, interval: float,
+proc calcEnergyFromCharge*(h5f: var H5File, interval: float,
                            gcKind: GasGainVsChargeCalibKind = gcNone) =
   ## proc which applies an energy calibration based on the number of electrons in a cluster
   ## using a conversion factor of unit 1e6 keV / electron to the run given by runNumber contained

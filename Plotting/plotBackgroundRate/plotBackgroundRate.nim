@@ -18,6 +18,12 @@ type
     totalTime: float
     df: DataFrame
 
+var DsetNames = newSeq[string]()
+for dkKind in InGridDsetKind:
+  if dkKind notin {igNumClusters, igFractionInHalfRadius, igRadiusDivRmsTrans,
+                    igRadius, igBalance, igLengthDivRadius, igInvalid, igHits, igTotalCharge, igEventNumber}:
+    DsetNames.add dkKind.toDset(fkTpa)
+echo DsetNames
 proc scaleDset(data: Column, totalTime, factor: float): Column =
   ## scales the data in `data` according to the area of the gold region,
   ## total time and bin width. The data has to be pre binned of course!
@@ -44,17 +50,19 @@ proc extractYear(f: string): int =
   if fname.scanf("$*_$i_$*", dummy, result, dummy):
     echo "found a year ", result
 
-proc readFiles(files: seq[string]): seq[LogLFile] =
+proc readFiles(files: seq[string], names: seq[string]): seq[LogLFile] =
   ## reads all H5 files given and stacks them to a single
   ## DF. An additional column is added, which corresponds to
   ## the filename. That way one can later differentiate which
   ## events belong to what and decide if data is supposed to
   ## be accumulated or not
-  for file in files:
+  doAssert names.len == 0 or names.len == files.len, "Need one name for each input file!"
+  for idx, file in files:
     let h5f = H5open(file, "r")
-    var df = h5f.readDsets(likelihoodBase(), some((3, @["energyFromCharge"])))
+    var df = h5f.readDsets(likelihoodBase(), some((3, DsetNames)))
       .rename(f{Ecol <- "energyFromCharge"})
-    let fname = file.extractFilename
+    let fname = if names.len > 0: names[idx]
+                else: file.extractFilename
     df["File"] = constantColumn(fname, df.len)
     result.add LogLFile(name: fname,
                         totalTime: readTime(h5f),
@@ -77,21 +85,51 @@ template sumIt(s: seq[typed], body: untyped): untyped =
   res
 
 proc flatScale(files: seq[LogLFile], factor: float): DataFrame =
-  var count {.global.} = 0
+  #var count {.global.} = 0
   var df: DataFrame
   for f in files:
-    df.add f.df
-  result = df.histogram()
-  result = result.mutate(f{float: "CountErr" ~ sqrt(`Counts`)})
-  result[Rcol] = result[Ccol].scaleDset(files.sumIt(it.totalTime), factor)
-  result["RateErr"] = result["CountErr"].scaleDset(files.sumIt(it.totalTime), factor)
-  result["Dataset"] = constantColumn("2017/18_" & $count, result.len)
-  inc count
-  result = result.mutate(f{"yMin" ~ `Rate` - `RateErr`}, f{"yMax" ~ `Rate` + `RateErr`})
-  result["yMin"] = result["yMin"].toTensor(float).map_inline:
-    if x >= 0.0: x
-    else: 0.0
-  result.drop("Counts")
+    if not f.df.isNil:
+      df.add f.df
+  result = newDataFrame()
+
+  for tup, subDf in groups(df.group_by("File")):
+  #for tup, subDf in groups(df.group_by("L<L_median")):
+    var dfLoc = newDataFrame()
+    dfLoc = subDf.histogram()
+    dfLoc = dfLoc.mutate(f{float: "CountErr" ~ sqrt(`Counts`)})
+    dfLoc[Rcol] = dfLoc[Ccol].scaleDset(files.sumIt(it.totalTime), factor)
+    dfLoc["RateErr"] = dfLoc["CountErr"].scaleDset(files.sumIt(it.totalTime), factor)
+    dfLoc["Dataset"] = constantColumn(tup[0][1].toStr, dfLoc.len) #"2017/18_" & $count, dfLoc.len)
+    #inc count
+    dfLoc = dfLoc.mutate(f{"yMin" ~ `Rate` - `RateErr`}, f{"yMax" ~ `Rate` + `RateErr`})
+    dfLoc["yMin"] = dfLoc["yMin"].toTensor(float).map_inline:
+      if x >= 0.0: x
+      else: 0.0
+    dfLoc.drop("Counts")
+    result.add dfLoc
+  echo result.pretty(-1)
+
+proc flatScaleMedian(df: DataFrame, factor: float, totalTime: float): DataFrame =
+  result = newDataFrame()
+  for tup, subDf in groups(df.group_by("Variable")):
+    var dfVal = newDataFrame()
+    for tupVal, subDfVal in groups(subDf.group_by("Value")):
+      var dfLoc = newDataFrame()
+      dfLoc = subDfVal.histogram()
+      dfLoc = dfLoc.mutate(f{float: "CountErr" ~ sqrt(`Counts`)})
+      dfLoc[Rcol] = dfLoc[Ccol].scaleDset(totalTime, factor)
+      dfLoc["RateErr"] = dfLoc["CountErr"].scaleDset(totalTime, factor)
+      dfLoc["Value"] = constantColumn(tupVal[0][1].toBool, dfLoc.len) #"2017/18_" & $count, dfLoc.len)
+      #inc count
+      dfLoc = dfLoc.mutate(f{"yMin" ~ `Rate` - `RateErr`}, f{"yMax" ~ `Rate` + `RateErr`})
+      dfLoc["yMin"] = dfLoc["yMin"].toTensor(float).map_inline:
+        if x >= 0.0: x
+        else: 0.0
+      dfLoc.drop("Counts")
+      dfVal.add dfLoc
+    dfVal["Variable"] = constantColumn(tup[0][1].toStr, dfVal.len)
+    result.add dfVal
+  echo result.pretty(-1)
 
 proc calcIntegratedBackgroundRate(df: DataFrame, factor: float,
                                   energyRange: Slice[float] = 0.0 .. 10.0): float =
@@ -106,9 +144,47 @@ proc calcIntegratedBackgroundRate(df: DataFrame, factor: float,
   let rate = df[Rcol].toTensor(float)
   result = trapz(rate.toRawSeq, energies.toRawSeq) / factor
 
+proc computeMedianBools(df: DataFrame): DataFrame =
+  var df = df
+  var medianNames = newSeq[string]()
+  proc computeMedianBool(dset: string) =
+    let medianVal = df[dset, float].toRawSeq.median(50)
+    let nameStr = $dset & "<" & $dset & "_median"
+    medianNames.add nameStr
+    df = df.mutate(f{float -> bool: nameStr ~ df[dset][idx] < medianVal})
+  for dset in DsetNames:
+    if dset != "energyFromCharge":
+      computeMedianBool(dset)
+
+  result = df.gather(medianNames, key = "Variable", value = "Value")
+
+proc plotMedianBools(df: DataFrame, fnameSuffix, title: string,
+                     suffix: string) =
+  let transparent = color(0, 0, 0, 0)
+  let fname = &"plots/background_rate_median_bools_{fnameSuffix}.pdf"
+  echo "INFO: storing plot in ", fname
+  #let df = df.select([Ecol, Rcol, "Variable", "Value"])
+  echo df.pretty(-1)
+
+  ggplot(df, aes(Ecol, Rcol, fill = "Value")) +
+    facet_wrap("Variable", scales = "free") +
+    geom_histogram(stat = "identity", position = "identity", alpha = some(0.5),
+                   color = some(transparent),
+                   hdKind = hdOutline) +
+    # too busy in small plot
+    #geom_point(binPosition = "center", position = "identity") +
+    #geom_errorbar(binPosition = "center",
+    #              aes = aes(yMin = "yMin", yMax = "yMax"),
+    #              errorBarKind = ebLines) +
+    scale_y_continuous() +
+    xlab("Energy [keV]") +
+    ylab("Rate [10⁻⁵ keV⁻¹ cm⁻² s⁻¹]") +
+    #xlim(0, 12.0) +
+    ggtitle(&"{title}{suffix}") +
+    ggsave(fname, width = 1920, height = 1080)
+
 proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
                         show2014: bool, suffix: string) =
-  echo df
   let df = df.filter(f{c"Energy" < 12.0})
   let titleSuff = if title.len > 0: title
                   elif show2014: " compared to 2014/15"
@@ -117,6 +193,7 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
   let fname = &"plots/background_rate_{fnameSuffix}.pdf"
   echo "INFO: storing plot in ", fname
   echo df
+
   ggplot(df, aes(Ecol, Rcol, fill = "Dataset")) +
     geom_histogram(stat = "identity", position = "identity", alpha = some(0.5),
                    color = some(transparent),
@@ -129,22 +206,43 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
     xlab("Energy [keV]") +
     ylab("Rate [10⁻⁵ keV⁻¹ cm⁻² s⁻¹]") +
     xlim(0, 12.0) +
-    ggtitle(&"Background rate of Run 2 & 3 (2017/18){titleSuff}, {suffix}") +
+    ggtitle(&"Background rate of Run 2 & 3 (2017/18){titleSuff}{suffix}") +
     ggsave(fname, width = 800, height = 480)
 
 proc main(files: seq[string], log = false, title = "", show2014 = false,
           separateFiles = false,
-          suffix = ""
+          suffix = "",
+          # names are the names associated to each file. If len > 0 use that name instead of something derived from
+          # filename. Makes for more natural way to separate combine things! Order needs to be same as `files`!
+          names: seq[string] = @[]
          ) =
   discard existsOrCreateDir("plots")
-  let logLFiles = readFiles(files)
+  let logLFiles = readFiles(files, names)
+  let fnameSuffix = logLFiles.mapIt($it.year).join("_") & "_show2014_" & $show2014 & "_separate_" & $separateFiles & suffix
+
+
   let factor = if log: 1.0 else: 1e5
+
+  block Test:
+    var df: DataFrame
+    var totalTime: float
+    for f in logLFiles:
+      df.add f.df.clone() ## need to clone otherwise modify?!
+      totalTime += f.totalTime
+    plotMedianBools(computeMedianBools(df).flatScaleMedian(factor = factor,
+                                                           totalTime = totalTime),
+                    fnameSuffix, title = "Comparison of background rate by different variables: clusters < and > than median",
+                    suffix = suffix)
   var df = newDataFrame()
-  if separateFiles:
-    for logL in logLFiles:
-      df.add flatScale(@[logL], factor)
+  if names.len > 0:
+    doAssert names.len == files.len, "Need one name for each input file!"
+    #for logL in logLFiles:
+    df.add flatScale(logLFiles, factor)
+  #if separateFiles:
+  #  for logL in logLFiles:
+  #    df.add flatScale(@[logL], factor)
   else:
-    df =  flatScale(logLFiles, factor)
+    df = flatScale(logLFiles, factor)
   echo df
 
   ## NOTE: this has to be calculated before we add 2014 data if we do, of course,
@@ -168,7 +266,6 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
     df2014["Dataset"] = constantColumn("2014/15", df2014.len)
     echo df2014
     df.add df2014
-  let fnameSuffix = logLFiles.mapIt($it.year).join("_") & "_show2014_" & $show2014 & "_separate_" & $separateFiles & suffix
   plotBackgroundRate(df, fnameSuffix, title, show2014, suffix)
 
 when isMainModule:

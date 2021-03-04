@@ -1,16 +1,17 @@
 [General]
-        allowedChips = [3] #[0, 1, 2, 3, 4, 5, 6]
-        #allowedRuns = [244]
+        #allowedChips = [3] #[0, 1, 2, 3, 4, 5, 6]
+        #allowedRuns = [126]
         outputFormat = "org" # <- store either as "json" or "org"
         filetype = "pdf"
         plotlySaveSvg = false
         mplShowPlots = false
 
 [InGrid]
-        dsets = ["length", "width", "skewnessLongitudinal", "skewnessTransverse",
-                 "kurtosisLongitudinal", "kurtosisTransverse", "rotationAngle",
-                 "eccentricity", "fractionInTransverseRms", "lengthDivRmsTrans",
-                 "hits"]
+        #dsets = ["length", "width", "skewnessLongitudinal", "skewnessTransverse",
+        #         "kurtosisLongitudinal", "kurtosisTransverse", "rotationAngle",
+        #         "eccentricity", "fractionInTransverseRms", "lengthDivRmsTrans",
+        #         "hits"]
+        dsets = ["energyFromCharge"]
 [Fadc]
         dsets = ["minvals", "fallTime", "riseTime"]
 

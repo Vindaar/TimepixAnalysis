@@ -33,8 +33,8 @@ for eff in effs:
   ## rewrite toml file
   rewriteToml("/home/basti/CastData/ExternCode/TimepixAnalysis/Analysis/ingrid/config.toml", eff)
   ## compute new likelihood for both data files
-  let f1 = &"/tmp/lhood_2017_eff_{eff}"
-  let f2 = &"/tmp/lhood_2018_eff_{eff}"
+  let f1 = &"out/lhood_2017_eff_{eff}.h5"
+  let f2 = &"out/lhood_2018_eff_{eff}.h5"
   computeLikelihood(Data2017, f1, eff)
   computeLikelihood(Data2018, f2, eff)
   ## plot background rate

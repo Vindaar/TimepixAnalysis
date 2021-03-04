@@ -12,17 +12,6 @@ proc `[]`*(cv: CutValueInterpolator, e: float): float =
     let idx = min(cv.cutEnergies.lowerBound(e), cv.cutEnergies.high)
     result = cv.cutValues[idx]
 
-import parsetoml
-template withConfig(body: untyped): untyped =
-  const sourceDir = currentSourcePath().parentDir
-  let config {.inject.} = parseToml.parseFile(sourceDir / "../config.toml")
-  body
-
-proc readMorphKind(): MorphingKind =
-  ## reads the `morphingKind` field from the TOML file
-  withConfig:
-    result = parseEnum[MorphingKind](config["Likelihood"]["morphingKind"].getStr)
-
 import sugar
 proc morph*(df: DataFrame, energy: float, offset = 1): (Tensor[float], Tensor[float]) =
   ## generates a distribution for the appropriate energy `energy` between the
@@ -391,6 +380,7 @@ proc calcMorphedLikelihoodForEvent*(eccentricity, lengthDivRmsTrans, fracRmsTran
   addLog(igFractionInTransverseRms, fracRmsTrans, result, fracDf)
   result *= -1.0
 
+proc readMorphKind(): MorphingKind
 proc calcLikelihoodDataset*(h5f: var H5File,
                             refFile: string,
                             groupName: string,
@@ -456,3 +446,14 @@ proc calcLikelihoodDataset*(h5f: var H5File,
                                                refDf, idx)
       # add logL to the sequence. May be Inf though
       result[i] = logL
+
+import parsetoml
+template withConfig(body: untyped): untyped =
+  const sourceDir = currentSourcePath().parentDir
+  let config {.inject.} = parseToml.parseFile(sourceDir / "../config.toml")
+  body
+
+proc readMorphKind(): MorphingKind =
+  ## reads the `morphingKind` field from the TOML file
+  withConfig:
+    result = parseEnum[MorphingKind](config["Likelihood"]["morphingKind"].getStr)

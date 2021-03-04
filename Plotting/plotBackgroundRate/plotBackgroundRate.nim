@@ -1,4 +1,4 @@
-import ggplotnim, seqmath, sequtils, os, sugar, strscans, strformat
+import ggplotnim, seqmath, sequtils, os, sugar, strscans, strformat, strutils, sugar
 import ingrid / [tos_helpers]
 from arraymancer import tensor
 
@@ -84,7 +84,7 @@ template sumIt(s: seq[typed], body: untyped): untyped =
     res += body
   res
 
-proc flatScale(files: seq[LogLFile], factor: float): DataFrame =
+proc flatScale(files: seq[LogLFile], factor: float, dropCounts = true): DataFrame =
   #var count {.global.} = 0
   var df: DataFrame
   for f in files:
@@ -105,7 +105,8 @@ proc flatScale(files: seq[LogLFile], factor: float): DataFrame =
     dfLoc["yMin"] = dfLoc["yMin"].toTensor(float).map_inline:
       if x >= 0.0: x
       else: 0.0
-    dfLoc.drop("Counts")
+    if dropCounts:
+      dfLoc.drop("Counts")
     result.add dfLoc
   echo result.pretty(-1)
 
@@ -209,21 +210,58 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
     ggtitle(&"Background rate of Run 2 & 3 (2017/18){titleSuff}{suffix}") +
     ggsave(fname, width = 800, height = 480)
 
+proc plotEfficiencyComparison(files: seq[LogLFile]) =
+  ## creates a plot comparing different logL cut efficiencies. Each filename should contain the
+  ## efficiency in the format
+  ## `_eff_<eff>.h5`
+  ## - for each file:
+  ##   - for each bin:
+  ##     - eff / sqrt(counts)
+  ## plot geom_line + geom_point of these values
+  var df = newDataFrame()
+  for f in files:
+    doAssert "_eff_" in f.name
+    # ugly for now
+    let eff = f.name.split("_")[^1].dup(removeSuffix(".h5")).parseFloat
+    var dfFlat = flatScale(@[f], 1e5, dropCounts = false)
+    dfFlat["ε/√B"] = dfFlat["Counts", float].map_inline:
+      if x > 0.0:
+        eff / sqrt(x)
+      else:
+        0.0
+    dfFlat["Eff"] = constantColumn(eff, dfFlat.len)
+    df.add dfFlat
+  ggplot(df.filter(f{`Energy` < 12.0}).arrange("Energy"), aes(ECol, "ε/√B", color = factor("Eff"))) +
+    geom_line(aes = aes(shape = factor("Eff"))) +
+    geom_point() +
+    ggtitle("Comparison of signal efficiency ε / √Background") +
+    ggsave("plots/signal_efficiency_vs_sqrt_background.pdf",
+           width = 1280, height = 800)
+  ggplot(df.filter(f{`Energy` < 12.0}).arrange("Energy"), aes(ECol, "ε/√B", color = factor("Eff"))) +
+    facet_wrap("Eff") +
+    geom_line(aes = aes(shape = factor("Eff"))) +
+    geom_point() +
+    ggtitle("Comparison of signal efficiency ε / √Background") +
+    ggsave("plots/signal_efficiency_vs_sqrt_background_facet.pdf",
+           width = 1280, height = 800)
+
+
 proc main(files: seq[string], log = false, title = "", show2014 = false,
           separateFiles = false,
           suffix = "",
           # names are the names associated to each file. If len > 0 use that name instead of something derived from
           # filename. Makes for more natural way to separate combine things! Order needs to be same as `files`!
-          names: seq[string] = @[]
+          names: seq[string] = @[],
+          compareEfficiencies = false,
+          plotMedianBools = false
          ) =
   discard existsOrCreateDir("plots")
   let logLFiles = readFiles(files, names)
   let fnameSuffix = logLFiles.mapIt($it.year).join("_") & "_show2014_" & $show2014 & "_separate_" & $separateFiles & suffix
 
-
   let factor = if log: 1.0 else: 1e5
 
-  block Test:
+  if plotMedianBools:
     var df: DataFrame
     var totalTime: float
     for f in logLFiles:
@@ -233,40 +271,43 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
                                                            totalTime = totalTime),
                     fnameSuffix, title = "Comparison of background rate by different variables: clusters < and > than median",
                     suffix = suffix)
-  var df = newDataFrame()
-  if names.len > 0:
-    doAssert names.len == files.len, "Need one name for each input file!"
-    #for logL in logLFiles:
-    df.add flatScale(logLFiles, factor)
-  #if separateFiles:
-  #  for logL in logLFiles:
-  #    df.add flatScale(@[logL], factor)
+
+  if compareEfficiencies:
+    plotEfficiencyComparison(logLFiles)
   else:
-    df = flatScale(logLFiles, factor)
-  echo df
+    var df = newDataFrame()
+    if names.len > 0:
+      doAssert names.len == files.len, "Need one name for each input file!"
+      #for logL in logLFiles:
+      df.add flatScale(logLFiles, factor)
+    #if separateFiles:
+    #  for logL in logLFiles:
+    #    df.add flatScale(@[logL], factor)
+    else:
+      df = flatScale(logLFiles, factor)
+    echo df
 
-  ## NOTE: this has to be calculated before we add 2014 data if we do, of course,
-  ## because otherwise we have everything duplicated!
-  let intBackRate = calcIntegratedBackgroundRate(df, factor)
-  echo &"Integrated background rate: {intBackRate:.4e} cm⁻² s⁻¹"
-  echo &"Integrated background rate/keV: {intBackRate / 10.0:.4e} keV⁻¹ cm⁻² s⁻¹"
-
-  if show2014:
-    df.drop(Ccol)
-    var df2014 = toDf(readCsv(Data2014, sep = ' ', header = "#"))
-      .rename(f{Rcol <- "Rate[/keV/cm²/s]"}, f{"yMax" <- "dRateUp"},
-              f{"yMin" <- "dRateDown"}, f{Ecol <- "E[keV]"})
-    let lastLine = seqsToDf({ Ecol : @[10.1], Rcol : @[0.0], "yMin" : @[0.0], "yMax" : @[0.0] })
-    df2014.add lastLine
-    if not log:
-      df2014 = df2014.mutate(f{Rcol ~ 1e5 * `Rate`}, f{"yMin" ~ 1e5 * `yMin`},
-                             f{"yMax" ~ 1e5 * `yMax`})
-    df2014 = df2014.mutate(f{"yMin" ~ `Rate` - `yMin`}, f{"yMax" ~ `Rate` + `yMax`},
-                           f{Ecol ~ `Energy` - 0.1})
-    df2014["Dataset"] = constantColumn("2014/15", df2014.len)
-    echo df2014
-    df.add df2014
-  plotBackgroundRate(df, fnameSuffix, title, show2014, suffix)
+    ## NOTE: this has to be calculated before we add 2014 data if we do, of course,
+    ## because otherwise we have everything duplicated!
+    let intBackRate = calcIntegratedBackgroundRate(df, factor)
+    echo &"Integrated background rate: {intBackRate:.4e} cm⁻² s⁻¹"
+    echo &"Integrated background rate/keV: {intBackRate / 10.0:.4e} keV⁻¹ cm⁻² s⁻¹"
+    if show2014:
+      df.drop(Ccol)
+      var df2014 = toDf(readCsv(Data2014, sep = ' ', header = "#"))
+        .rename(f{Rcol <- "Rate[/keV/cm²/s]"}, f{"yMax" <- "dRateUp"},
+                f{"yMin" <- "dRateDown"}, f{Ecol <- "E[keV]"})
+      let lastLine = seqsToDf({ Ecol : @[10.1], Rcol : @[0.0], "yMin" : @[0.0], "yMax" : @[0.0] })
+      df2014.add lastLine
+      if not log:
+        df2014 = df2014.mutate(f{Rcol ~ 1e5 * `Rate`}, f{"yMin" ~ 1e5 * `yMin`},
+                               f{"yMax" ~ 1e5 * `yMax`})
+      df2014 = df2014.mutate(f{"yMin" ~ `Rate` - `yMin`}, f{"yMax" ~ `Rate` + `yMax`},
+                             f{Ecol ~ `Energy` - 0.1})
+      df2014["Dataset"] = constantColumn("2014/15", df2014.len)
+      echo df2014
+      df.add df2014
+    plotBackgroundRate(df, fnameSuffix, title, show2014, suffix)
 
 when isMainModule:
   dispatch main

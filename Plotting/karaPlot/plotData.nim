@@ -2,7 +2,7 @@ import plotly, ggplotnim
 import os except FileInfo
 import strutils, strformat, times, sequtils, math, macros, algorithm, sets, stats, base64
 import options, logging, typeinfo, json
-import websocket, asynchttpserver, asyncnet, asyncdispatch
+import ws, asynchttpserver, asyncnet, asyncdispatch
 
 import shell
 import arraymancer

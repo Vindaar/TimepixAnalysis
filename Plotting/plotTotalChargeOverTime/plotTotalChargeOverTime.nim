@@ -240,6 +240,12 @@ proc calcMean(df: DataFrame,
       vec.add data[i]
     current += data[i]
     inc numCluster
+  let tt = timesToPlot.mapIt(it.int)
+  let tstr = tt.mapIt($it.fromUnix)
+  let df = seqsToDf({"time" : tt, "tstr" : tstr, "idx" : toSeq(0 ..< timesToPlot.len)})
+  ggplot(df, aes(idx, time)) + geom_point() + ggsave("/tmp/testtime.pdf")
+  df.write_csv("/tmp/testtime.csv")
+
 proc computeStats(df: DataFrame): DataFrame =
   result = newDataFrame()
   var res = initTable[string, seq[float]]() # reduced values from this, not a DF to grow better
@@ -306,6 +312,10 @@ proc calculateMeanDf(df: DataFrame, interval: float,
   result["runType"] = constantColumn(df["runType", 0].toStr, result.len)
   echo "Number of run periods with more than 1 entry: ", result["runPeriods"].unique
 
+  let df2 = result.mutate(f{float -> int: "timestamp" ~ `timestamp`.int})
+  var num2 {.global.} = 0
+  df2.writeCsv(&"/tmp/nov2017_mean_{num2}.csv")
+  inc num2
 
 proc plotDf(df: DataFrame, interval: float, titleSuff: string,
             useLog = true,

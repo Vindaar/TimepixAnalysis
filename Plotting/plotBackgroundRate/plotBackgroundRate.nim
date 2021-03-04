@@ -24,6 +24,7 @@ for dkKind in InGridDsetKind:
                     igRadius, igBalance, igLengthDivRadius, igInvalid, igHits, igTotalCharge, igEventNumber}:
     DsetNames.add dkKind.toDset(fkTpa)
 echo DsetNames
+
 proc scaleDset(data: Column, totalTime, factor: float): Column =
   ## scales the data in `data` according to the area of the gold region,
   ## total time and bin width. The data has to be pre binned of course!
@@ -100,9 +101,8 @@ proc flatScale(files: seq[LogLFile], factor: float, dropCounts = true): DataFram
     dfLoc[Rcol] = dfLoc[Ccol].scaleDset(files.sumIt(it.totalTime), factor)
     dfLoc["RateErr"] = dfLoc["CountErr"].scaleDset(files.sumIt(it.totalTime), factor)
     dfLoc["Dataset"] = constantColumn(tup[0][1].toStr, dfLoc.len) #"2017/18_" & $count, dfLoc.len)
-    #inc count
     dfLoc = dfLoc.mutate(f{"yMin" ~ `Rate` - `RateErr`}, f{"yMax" ~ `Rate` + `RateErr`})
-    dfLoc["yMin"] = dfLoc["yMin"].toTensor(float).map_inline:
+    dfLoc["yMin"] = dfLoc["yMin", float].map_inline:
       if x >= 0.0: x
       else: 0.0
     if dropCounts:

@@ -90,6 +90,7 @@ template withSeptemXY*(chipNumber: int, actions: untyped): untyped =
     # top left chip
     y0 = 3 * 256
     x0 = 128 + 256
+  else: doAssert false, "Invalid chip number encountered in `withSeptemXY`"
   actions
 
 func determineChip*[T:  SomePix](p: T): int =

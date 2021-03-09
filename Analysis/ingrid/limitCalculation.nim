@@ -1,5 +1,5 @@
 import mclimit
-import ggplotnim, seqmath, sequtils, tables, os, options
+import ggplotnim, seqmath, sequtils, tables, os, options, unchained
 import ingrid / [tos_helpers]
 from arraymancer import tensor
 
@@ -13,6 +13,7 @@ type
     back: Histogram
     cand: Histogram
     axModel: DataFrame
+    eff: float # efficiency used
     gae: ptr float
     rnd: ptr Random
     obsCLs: ptr float
@@ -37,6 +38,11 @@ template toHisto(arg, binsArg: typed): untyped =
             counts: concat([counts, zeros[float](1)], axis = 0),
             err: err.toTensor)
 
+proc toHisto(df: DataFrame): Histogram =
+  let energy  = df["Energy", float].toRawSeq
+  let (histo, bins) = histogram(energy, range = (0.0, 10.0), bins = 50)
+  result = toHisto(histo, bins)
+
 proc readDsets(h5f: H5FileObj, names: varargs[string]): DataFrame =
   ## reads all likelihood data in the given `h5f` file as well as the
   ## corresponding energies. Flattened to a 1D seq.
@@ -60,7 +66,7 @@ proc rescale(flux: var Tensor[float], gae_new, gae_current: float) =
   echo "gae current ", gae_current
   flux.apply_inline(x * pow(gae_new / gae_current, 2.0))
 
-proc drawLimitPlot(flux, energy: Tensor[float], param: float,
+proc drawLimitPlot(flux, energy: Tensor[float], param: float, eff: float,
                    backHist, candHist: Histogram,
                    fIsSB: bool) =
   # TODO: get rid of hardcoded value here!
@@ -79,7 +85,7 @@ proc drawLimitPlot(flux, energy: Tensor[float], param: float,
     for i in 0 ..< df.len:
       res[i] = op(x[i], err[i])
     res
-  df.write_csv(&"/tmp/current_data{suff}.csv")
+  df.write_csv(&"/tmp/current_data{suff}_eff_{eff}.csv")
 
   var yMin = zeros[float](df.len * 3)
   yMin[0 ..< df.len] = cc(backHist, df, "background", `-`)
@@ -94,8 +100,8 @@ proc drawLimitPlot(flux, energy: Tensor[float], param: float,
   )
   df["yMax"] = yMax
   # echo df.pretty(-1)
-  ggplot(df, aes(Energy, "y", fill = "Type", color = "Type")) +
-    geom_histogram(stat = "identity", position = "identity", alpha = some(0.5)) +
+  ggplot(df, aes("Energy", "y", fill = "Type", color = "Type")) +
+    geom_histogram(stat = "identity", position = "identity", alpha = some(0.5), hdKind = hdOutline) +
     geom_point(binPosition = "center") +
     geom_errorbar(data = df.filter(f{`Type` == "background"}),
                   aes = aes(yMin = "yMin", yMax = "yMax"), binPosition = "center") +
@@ -103,7 +109,7 @@ proc drawLimitPlot(flux, energy: Tensor[float], param: float,
     xlab("Energy [keV]") +
     # ggtitle(&"Expected g_ae·g_aγ = {param * g_agamma:.2e}, CLs = {obsCLs:.4f}, CLb = {obsCLb:.4f}") +
     ggtitle(&"Expected g_ae·g_aγ = {param * g_agamma:.2e} GeV⁻¹ at 95% CLs") +
-    ggsave(&"/tmp/current_flux{suff}.pdf", width = 800, height = 480)
+    ggsave(&"/tmp/current_flux{suff}_eff_{eff}.pdf", width = 800, height = 480)
 
 
 proc runLimitCalc(p: float, data: FitObject) =
@@ -152,8 +158,8 @@ proc runLimitCalc(p: float, data: FitObject) =
   data.obsCLsb[] = obsCLsb
   block Plot:
     # plot current model
-    drawLimitPlot(flux, energy, data.gae[], backHist, candHist, true)
-    drawLimitPlot(flux, energy, data.gae[], backHist, candHist, false)
+    drawLimitPlot(flux, energy, data.gae[], data.eff, backHist, candHist, true)
+    drawLimitPlot(flux, energy, data.gae[], data.eff, backHist, candHist, false)
 
 proc calcCL95(p: seq[float], data: FitObject): float =
   runLimitCalc(p[0], data)
@@ -192,8 +198,8 @@ proc readAxModel(f: string, scale: float, limit2013 = false): DataFrame =
   ## a fixed number of axions per year and cm²
   let
     gaeDf = toDf(readCsv(f))
-    energy = gaeDf["Axion energy [keV]"].toTensor(float).toRawSeq
-    weights = gaeDf["Flux after experiment"].toTensor(float).toRawSeq
+    energy = gaeDf["Axion energy [keV]", float].toRawSeq
+    weights = gaeDf["Flux after experiment", float].toRawSeq
   var
     val, bins: seq[float]
   if limit2013:
@@ -224,105 +230,117 @@ proc drawExpCand(h: Histogram): Histogram =
     result.counts[i] = cntDraw
     result.err[i] = sqrt(cntDraw)
 
-proc main(backFiles, candFiles: seq[string], axionModel: string,
-          optimizeBy: string = $opCLs,
-          limit2013: bool = false) =
-  var
-    h5Backs = backFiles.mapIt(H5open(it, "r"))
-    h5Cands = candFiles.mapIt(H5open(it, "r"))
-  let searchStr = "flux_after_exp_N_"
-  let idxN = find(axionModel, searchStr) + searchStr.len
-  let N_sim = parseInt(axionModel[idxN ..< ^4])
+proc readDuration(h5f: H5File): Second =
+  ## small helper to read the `totalDuration` field of a likelihood datafile,
+  ## i.e. the total time of the data taking period described by the file
+  ## in seconds.
+  let lhGrp = h5f["/likelihood".grp_str]
+  result = lhGrp.attrs["totalDuration", float].Second
 
-  # FIX ME! has to be cleaned up
-  let resPath = "../../../AxionElectronLimit"
-  let diffFluxDf = toDf(readCsv(resPath / "axion_diff_flux_gae_1e-13_gagamma_1e-12.csv"))
-  let totalFluxPerYear = simpson(diffFluxDf["Flux / keV⁻¹ m⁻² yr⁻¹"].toTensor(float).toRawSeq,
-                                 diffFluxDf["Energy / eV"].toTensor(float).map_inline(x * 1e-3).toRawSeq)
+proc flatten(dfs: seq[DataFrame]): DataFrame =
+  ## flatten a seq of DFs, which are identical by stacking them
+  for df in dfs:
+    result.add df.clone
 
-  #let gaeRawDf = toDf(readCsv(axionModel)).rename(f{"Energy" <- "Axion energy [keV]"})
-  proc flatten(dfs: seq[DataFrame]): DataFrame =
-    ## flatten a seq of DFs, which are identical by stacking them
-    for df in dfs:
-      result.add df.clone
-  let backEnergy = h5Backs.mapIt(
-    it.readDsets("energyFromCharge")
-      .rename(f{"Energy" <- "energyFromCharge"})).flatten
-  let candEnergy = h5Cands.mapIt(
-    it.readDsets("energyFromCharge")
-      .rename(f{"Energy" <- "energyFromCharge"})).flatten
+proc readFiles(s: seq[H5File]): DataFrame =
+  result = s.mapIt(
+    it.readDsets(likelihoodBase(), some((chip: 3, dsets: @["energyFromCharge"])))
+    .rename(f{"Energy" <- "energyFromCharge"})).flatten
 
-  let df2013 = toDf(readCsv("../../resources/background_rate_cast_gae_2013.csv"))
-
-  let ratePlot = bind_rows([("back", backEnergy), ("cand", candEnergy)], "Type")
-  ggplot(ratePlot, aes(Energy, fill = "Type")) +
+proc plotBackgroundRate(dfBack: DataFrame, h5Cands: seq[H5File]) =
+  ## just a short plot of signal + background data
+  doAssert h5Cands.len > 0
+  let dfCand = readFiles(h5Cands)
+  let ratePlot = bind_rows([("back", dfBack), ("cand", dfCand)], "Type")
+  ggplot(ratePlot, aes("Energy", fill = "Type")) +
     geom_histogram(bin_width = 0.2, position = "identity", alpha = some(0.5)) +
     xlim(0, 11) +
     ggsave("/tmp/back_histo.pdf")
 
-  var rnd = wrap(initMersenneTwister(49))
-  let back = backEnergy["Energy"].toTensor(float).toRawSeq
-  let cand = candEnergy["Energy"].toTensor(float).toRawSeq
-  let (backHI, binsB) = histogram(back, range = (0.0, 10.0), bins = 50)
-  let (candHI, binsC) = histogram(cand, range = (0.0, 10.0), bins = 50)
-
-  proc readDuration(h5f: H5FileObj): float =
-    let lhGrp = h5f["/likelihood".grp_str]
-    result = lhGrp.attrs["totalDuration", float]
-
+proc prepareHistograms(h5Backs, h5Cands: seq[H5File],
+                       limit2013: bool): tuple[back, cand: Histogram,
+                                               backTime: Hour, ratio: UnitLess] =
+  #let gaeRawDf = toDf(readCsv(axionModel)).rename(f{"Energy" <- "Axion energy [keV]"})
   var
     backHist: Histogram
     candHist: Histogram
-    backTime: float
-    trackToBackRatio: float
-  if limit2013:
-    backHist = toHisto(df2013["Background"].toTensor(float).toRawSeq,
-                           df2013["Energy"].toTensor(float).toRawSeq)
-    backHist.err = backHist.err.map_inline(x.float / 4.0)
+    backTime: Hour
+    trackToBackRatio: UnitLess
 
-    backTime = 1890 * 3600 # background time of 2013 paper
-    trackToBackRatio = backTime / (197 * 3600)
-    candHist = toHisto(df2013["Candidates"].toTensor(float).toRawSeq,
-                       df2013["Energy"].toTensor(float).toRawSeq)
+  let backEnergy = readFiles(h5Backs)
+  backHist = toHisto(backEnergy)
+  if h5Cands.len > 0:
+    plotBackgroundRate(backEnergy, h5Cands)
+    # NOTE: duplicate read (here and in plotBackgroundRate...
+    candHist = toHisto(readFiles(h5Cands))
+
+  if limit2013:
+    let df2013 = toDf(readCsv("../../resources/background_rate_cast_gae_2013.csv"))
+    backHist = toHisto(df2013["Background", float].toRawSeq,
+                       df2013["Energy", float].toRawSeq)
+    backHist.err = backHist.err.map_inline(x.float / 4.0) # NOTE: what's this?
+
+    backTime = 1890.h # background time of 2013 paper
+    trackToBackRatio = backTime / 197.h
+    candHist = toHisto(df2013["Candidates", float].toRawSeq,
+                       df2013["Energy", float].toRawSeq)
   else:
-    # var backH = backHI
-    # var candH = candHI
-    backHist = toHisto(backHI, binsB)
     trackToBackRatio = 19.56 # this is the ratio of background to
-                                   # tracking time in the combined Run 2 and 3
-                                   # only required for poisson sampled candidates
+                             # tracking time in the combined Run 2 and 3
+                             # only required for poisson sampled candidates
     backHist.counts = backHist.counts.map_inline(x.float / trackToBackRatio)
     backHist.err = backHist.err.map_inline(x.float / trackToBackRatio)
 
-    backTime = h5Backs.mapIt(it.readDuration).sum
-    #let candHist = toHisto(candH, binsC)
+    backTime = h5Backs.mapIt(it.readDuration).sum.to(Hour)
+    #let candHist = toHisto(candHI, binsC)
     candHist = backHist.drawExpCand()
+  result = (back: backHist, cand: candHist,
+            backTime: backTime,
+            ratio: trackToBackRatio)
 
+proc computeScale(backgroundTime: Hour, trackToBackRatio: UnitLess,
+                  N_sim: float, eff: float): UnitLess =
+  # FIX ME! has to be cleaned up
+  let resPath = "../../../AxionElectronLimit"
+  let diffFluxDf = toDf(readCsv(resPath / "axion_diff_flux_gae_1e-13_gagamma_1e-12.csv"))
+  defUnit(yr⁻¹)
+  defUnit(m⁻²•yr⁻¹)
+  defUnit(m²•s¹)
+  let fluxPerYear = simpson(diffFluxDf["Flux / keV⁻¹ m⁻² yr⁻¹", float].toRawSeq,
+                            diffFluxDf["Energy / eV", float].map_inline(x * 1e-3).toRawSeq)
+    .m⁻²•yr⁻¹
   # compute signal
-  let trackingTime = backTime / trackToBackRatio
-  echo "Total background time ", backTime / 3600.0, " h"
-  echo "Total tracking time ", trackingTime / 3600.0, " h"
-  let secondsOfSim = N_sim.float / totalFluxPerYear * 86400 * 365
+  let trackingTime = backgroundTime / trackToBackRatio
+  echo "Total background time ", backgroundTime, " h"
+  echo "Total tracking time ", trackingTime, " h"
+  let secondsOfSim = (N_sim / fluxPerYear).to(m²•s¹)
   echo &"secondsOfSim = {secondsOfSim}"
-  let areaBore = PI * pow(2.15, 2.0) # area of bore in cm²
-  echo &"areaBore = {areaBore} cm²"
+  let areaBore = π * (2.15 * 2.15).cm² # area of bore in cm²
+  echo &"areaBore = {areaBore}"
   # - calculate how much more time is in tracking than simulation
   # - convert from m² to cm²
   # - multiply by area of bore
   #let scale = totalFluxPerYear / N_sim.float * 5.0 / (100 * 100) * areaBore * (trackingTime / (86400 * 365))
-  let scale = trackingTime.float / secondsOfSim / (100 * 100) * areaBore
+  result = (trackingTime / secondsOfSim * areaBore * eff).to(UnitLess)
+  echo &"Scale = {result}"
 
-  echo &"Scale = {scale}"
+proc computeLimit(backHist, candHist: Histogram, axionModel: string,
+                  scale: UnitLess,
+                  eff: float,
+                  limit2013: bool,
+                  optimizeBy: string): float =
+  var rnd = wrap(initMersenneTwister(49))
   let gaeDf = readAxModel(axionModel, scale, limit2013)
-
   # 1e-13 is the value, which was used to calculate the currently used flux
-  var gae = 1e-13
-  var obsCLs: float
-  var obsCLb: float
-  var obsCLsb: float
+  var
+    gae = 1e-13
+    obsCLs: float
+    obsCLb: float
+    obsCLsb: float
   let fitObj = FitObject(back: backHist, cand: candHist,
                          axModel: gaeDf,
                          gae: gae.addr,
+                         eff: eff,
                          rnd: rnd.addr,
                          obsCLs: obsCLs.addr,
                          obsCLb: obsCLb.addr,
@@ -340,14 +358,40 @@ proc main(backFiles, candFiles: seq[string], axionModel: string,
 
   echo optRes
   destroy(opt)
+  result = optRes[0][0]
+
+proc main(backFiles: seq[string], axionModel: string,
+          candFiles: seq[string] = @[],
+          optimizeBy: string = $opCLs,
+          eff: float = 0.8, # also written to output file, used to compute actual expected signal
+          limit2013: bool = false,
+          outfile = "out/limit_results.csv", # file to which limit calculation result is written
+         ) =
+  var
+    h5Backs = backFiles.mapIt(H5open(it, "r"))
+    h5Cands = candFiles.mapIt(H5open(it, "r"))
+  let searchStr = "flux_after_exp_N_"
+  let idxN = find(axionModel, searchStr) + searchStr.len
+  let N_sim = parseInt(axionModel[idxN ..< ^4])
+
+  let (backHist, candHist, backTime, trackToBackRatio) = prepareHistograms(
+    h5Backs, h5Cands, limit2013
+  )
+  let scale = computeScale(backTime, trackToBackRatio, N_Sim.float, eff)
+  let limit = computeLimit(backHist, candHist, axionModel,
+                           scale, eff, limit2013, optimizeBy)
+
+  var f = open(outfile, fmAppend)
+  f.write(&"{eff},{limit}\n")
+  f.close()
 
   ## TODO: closing produces attribute closing errors, investigate!
   #for h5f in concat(h5Backs, h5Cands):
   #  discard h5f.close()
 
   # finally run root as comp:
-  let res = shellVerbose:
-    "../../../mclimit/tools/calcLimit /tmp/current_data.csv"
+  #let res = shellVerbose:
+  #  "../../../mclimit/tools/calcLimit /tmp/current_data.csv"
 
 
 when isMainModule:

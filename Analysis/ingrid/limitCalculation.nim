@@ -210,9 +210,17 @@ proc readAxModel(f: string, scale: float, limit2013 = false): DataFrame =
   val.add 0.0
   var flux = val.toTensor.asType(float)
   # scale to tracking time
-  flux.apply_inline(x * scale)
+  when false: # hack to get 60% below 1 keV and 80% above
+    for idx in 0 ..< val.len:
+      if bins[idx] < 1.0:
+        flux[idx] = flux[idx] * scale * 0.6
+      else:
+        flux[idx] = flux[idx] * scale * 0.8
+  else:
+    flux.apply_inline(x * scale)
   result = seqsToDf({ "Energy" : bins[0 .. ^1],
                       "Flux" : flux })
+  echo result
   ggplot(result, aes("Energy", "Flux")) +
     geom_histogram(stat = "identity") +
     ggsave("/tmp/axionModel.pdf")

@@ -135,6 +135,11 @@ proc calcCutValueTab(cdlFile, refFile: string, yearKind: YearKind,
       cutVals = newSeq[float]()
     for tup, subDf in groups(dfInterp.group_by("Energy")):
       let energy = tup[0][1].toFloat
+      when false:
+        var efficiency = 0.8
+        echo energy
+        if energy < 1.0:
+          efficiency = 0.6
       let cutVal = determineCutValue(subDf["Hist", float], efficiency)
       # incl the correct values for the logL cut values
       energies.add energy
@@ -698,6 +703,8 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
     lhGrp.attrs["totalPassedEvents"] = totalLogLCount
     lhGrp.attrs["totalCutByScinti"] = totalScintiRemoveCount
     lhGrp.attrs["onlyCutByScinti"] = totalScintiRemovedNotLogRemoved
+
+    ## TODO: add morphing kind to output!
 
   # write year and CDL and reference file used
   lhGrp.writeLogLDsetAttributes(cdlFile, refFile, year)

@@ -1,10 +1,10 @@
-import nimhdf5, docopt, arraymancer, seqmath
-import strformat, sequtils, strutils, os
+import nimhdf5, docopt, arraymancer, seqmath, chroma
+import std / [strformat, sequtils, strutils, os, json, sets]
 import helpers / utils
 import ingrid / tos_helpers
-import json
-import plotly
-import plotly / color
+#import plotly
+#import plotly / color
+import ggplotnim
 
 const docStr = """
 Usage:
@@ -64,43 +64,58 @@ proc main =
   var h5f = H5open(h5file, "r")
 
   var
-    cX: seq[float]
-    cY: seq[float]
+    cTab = initCountTable[(int, int)]()
+  func toPixel(s: float): int = (256.0 * s / 14.0).round.int
   for centerX, centerY in extractClusters(h5f):
-    cX.add centerX
-    cY.add centerY
+    for (cX, cY) in zip(centerX, centerY):
+      cTab.inc((cX.toPixel, cY.toPixel))
+  var
+    cX, cY, cC: seq[int]
+  for (pos, count) in pairs(cTab):
+    cX.add pos[0]
+    cY.add pos[1]
+    cC.add count
+  let df = seqsToDf({"x" : cX, "y" : cY, "count" : cC})
+    .arrange("count", order = SortOrder.Ascending)
+  createDir("plots")
+  ggplot(df, aes("x", "y", color = "count")) +
+    geom_point(size = some(1.0)) +
+    scale_color_continuous(scale = (low: 0.0, high: 15.0)) +
+    ggsave("plots/background_cluster_centers.pdf")
 
-  # convert center positions to a 256x256 map
-  var occ = zeros[int]([256, 256])
-  for i in 0 ..< cX.len:
-    var
-      xInd = (256.0 * cX[i] / 14.0).round.int
-      yInd = (256.0 * cY[i] / 14.0).round.int
-    if xInd == 256:
-      xInd = 255
-    if yInd == 256:
-      yInd = 255
-    occ[yInd, xInd] += 1
 
-  let perc99 = occ.toRawSeq.percentile(99)
-  echo perc99
-  occ = occ.clamp(0, 6)
+  when false:
+    # convert center positions to a 256x256 map
+    var occ = zeros[int]([256, 256])
+    for i in 0 ..< cX.len:
+      var
+        xInd = (256.0 * cX[i] / 14.0).round.int
+        yInd = (256.0 * cY[i] / 14.0).round.int
+      if xInd == 256:
+        xInd = 255
+      if yInd == 256:
+        yInd = 255
+      occ[yInd, xInd] += 1
 
-  let outline = goldRegionOutline(5)
-  occ = occ .+ outline
+    let perc99 = occ.toRawSeq.percentile(99)
+    echo perc99
+    occ = occ.clamp(0, 6)
 
-  var plt = heatmap(occ.toSeq2D)
-    .width(1600)
-    .height(1600)
+    let outline = goldRegionOutline(5)
+    occ = occ .+ outline
 
-  template createPlot(cmap: untyped): untyped =
-    plt = plt.zmax(6)
-    plt = plt.colormap(cmap)
-    plt.show(h5file.extractFilename & "_" & astToStr(cmap) & ".svg")
-  createPlot(Viridis)
-  createPlot(ViridisZeroWhite)
-  createPlot(Plasma)
-  createPlot(PlasmaZeroWhite)
+    var plt = heatmap(occ.toSeq2D)
+      .width(1600)
+      .height(1600)
+
+    template createPlot(cmap: untyped): untyped =
+      plt = plt.zmax(6)
+      plt = plt.colormap(cmap)
+      plt.show(h5file.extractFilename & "_" & astToStr(cmap) & ".svg")
+    createPlot(Viridis)
+    createPlot(ViridisZeroWhite)
+    createPlot(Plasma)
+    createPlot(PlasmaZeroWhite)
 
 when isMainModule:
   main()

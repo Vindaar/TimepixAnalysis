@@ -1,4 +1,4 @@
-import nimhdf5, docopt, arraymancer, seqmath, chroma
+import nimhdf5, arraymancer, seqmath, chroma, cligen
 import std / [strformat, sequtils, strutils, os, json, sets]
 import helpers / utils
 import ingrid / tos_helpers
@@ -7,20 +7,10 @@ import ingrid / tos_helpers
 import ggplotnim
 
 const docStr = """
-Usage:
-  plotBackgroundClusters <likelihoodFile> [options]
-  plotBackgroundClusters -h | --help
-  plotBackgroundClusters --version
-
-Options:
-  -h, --help   Show this help
-  --version    Show the version number
-
 Given some Likelihood File (the output of the likelihood.nim), this script
 creates a heatmap of the cluster centers that still remain visible on the plot.
 In addition it highligths the gold region on the plot.
 """
-const doc = withDocopt(docStr)
 
 iterator extractClusters(h5f: var H5FileObj): (seq[float], seq[float]) =
   for num, grp in runs(h5f, likelihoodBase()):
@@ -57,32 +47,46 @@ proc goldRegionOutline(maxVal: int): Tensor[int] =
         coord[0] in {min .. max}):
       result[coord[0], coord[1]] = maxVal
 
-proc main =
-  let args = docopt(doc)
-  let h5file = $args["<likelihoodFile>"]
-
-  var h5f = H5open(h5file, "r")
-
-  var
-    cTab = initCountTable[(int, int)]()
+proc readClusters(file: string, cTab: var CountTable[(int, int)]) =
+  var h5f = H5open(file, "r")
   func toPixel(s: float): int = (256.0 * s / 14.0).round.int
   for centerX, centerY in extractClusters(h5f):
     for (cX, cY) in zip(centerX, centerY):
       cTab.inc((cX.toPixel, cY.toPixel))
+  doAssert h5f.close() >= 0
+
+proc readClusters(file: string): CountTable[(int, int)] =
+  result = initCountTable[(int, int)]()
+  file.readClusters(result)
+
+proc readClusters(files: seq[string]): CountTable[(int, int)] =
+  result = initCountTable[(int, int)]()
+  for f in files:
+    f.readClusters(result)
+
+proc toDf(cTab: CountTable[(int, int)]): DataFrame =
   var
     cX, cY, cC: seq[int]
   for (pos, count) in pairs(cTab):
     cX.add pos[0]
     cY.add pos[1]
     cC.add count
-  let df = seqsToDf({"x" : cX, "y" : cY, "count" : cC})
+  result = seqsToDf({"x" : cX, "y" : cY, "count" : cC})
     .arrange("count", order = SortOrder.Ascending)
+
+proc main(files: seq[string], suffix = "", title = "") =
+  let df = readClusters(files).toDf()
+  let totalEvs = df["count", int].sum()
+
   createDir("plots")
   ggplot(df, aes("x", "y", color = "count")) +
     geom_point(size = some(1.0)) +
+    xlim(0, 256) + ylim(0, 256) +
+    xlab("x [Pixel]") + ylab("y [Pixel]") +
+    margin(top = 1.75) +
     scale_color_continuous(scale = (low: 0.0, high: 15.0)) +
-    ggsave("plots/background_cluster_centers.pdf")
-
+    ggtitle(title & &". Total # cluster = {totalEvs}") +
+    ggsave(&"plots/background_cluster_centers{suffix}.pdf")
 
   when false:
     # convert center positions to a 256x256 map
@@ -118,4 +122,4 @@ proc main =
     createPlot(PlasmaZeroWhite)
 
 when isMainModule:
-  main()
+  dispatch main

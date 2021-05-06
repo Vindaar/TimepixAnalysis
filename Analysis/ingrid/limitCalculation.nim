@@ -19,12 +19,16 @@ type
     obsCLs: ptr float
     obsCLb: ptr float
     obsCLsb: ptr float
+    expCLs: ptr float
+    expCLb: ptr float
     opKind: OptimizeByKind
 
   OptimizeByKind = enum
     opCLs = "CLs"
     opCLb = "CLb" ## NOTE: optimizing by this probably does not make sense in most use cases!
     opCLsb = "CLsb"
+    opExpCLs = "<CLs>"
+    opExpCLb = "<CLb>"
 
 func toTensor[T](t: Tensor[T]): Tensor[T] = t
 template toHisto(arg, binsArg: typed): untyped =
@@ -131,6 +135,8 @@ proc runLimitCalc(p: float, data: FitObject) =
     obsCLs: float
     obsCLb: float
     obsCLsb: float
+    expCLs: float
+    expCLb: float
   when not defined(useRoot):
     let sigHist = toHisto(flux, energy)
     let ch = mclimit.Channel(sig: sigHist, back: backHist, cand: candHist,
@@ -140,14 +146,14 @@ proc runLimitCalc(p: float, data: FitObject) =
                                 "Window" : SystematicError(cand: 0.10, back: 0.10)
                               }.toOrderedTable)
     var rand = wrap(initMersenneTwister(49))
-    let limit = computeLimit(@[ch], rand, stat = false, nmc = nmc,
+    let limit = computeLimit(@[ch], rand, stat = true, nmc = nmc,
                              verbose = false)
     obsCLs = limit.CLs()
     obsCLb = limit.CLb()
     obsCLsb = limit.CLsb()
-    echo "<CLb>  = ", limit.getExpectedCLb_b()
+    expCLb = limit.getExpectedCLb_b()
+    expCLs = limit.getExpectedCLs_b()
     echo "<CLsb> = ", limit.getExpectedCLsb_b()
-    echo "<CLs>  = ", limit.getExpectedCLs_b()
   else:
     let res = shellVerbose:
       "../../../mclimit/tools/calcLimit /tmp/current_data.csv true"
@@ -156,6 +162,8 @@ proc runLimitCalc(p: float, data: FitObject) =
   data.obsCLs[] = obsCLs
   data.obsCLb[] = obsCLb
   data.obsCLsb[] = obsCLsb
+  data.expCLs[] = expCLs
+  data.expCLb[] = expCLb
   block Plot:
     # plot current model
     drawLimitPlot(flux, energy, data.gae[], data.eff, backHist, candHist, true)
@@ -170,6 +178,10 @@ proc calcCL95(p: seq[float], data: FitObject): float =
     result = data.obsCLb[]
   of opCLsb:
     result = data.obsCLsb[]
+  of opExpCLs:
+    result = data.expCLs[]
+  of opExpCLb:
+    result = data.expCLb[]
 
 proc constrainCL95(p: seq[float], data: FitObject): float =
   ## TODO: instead of calling runLimitCalc again here, we should add
@@ -178,6 +190,8 @@ proc constrainCL95(p: seq[float], data: FitObject): float =
     obsCLs = data.obsCLs[]
     obsCLb = data.obsCLb[]
     obsCLsb = data.obsCLsb[]
+    expCLs = data.expCLs[]
+    expCLb = data.expCLb[]
   case data.opKind
   of opCLs:
     result = abs(obsCLs - 0.05 - 1e-3) + 1e-3
@@ -185,10 +199,16 @@ proc constrainCL95(p: seq[float], data: FitObject): float =
     result = abs(obsCLb - 0.05 - 1e-3) + 1e-3
   of opCLsb:
     result = abs(obsCLsb - 0.05 - 1e-3) + 1e-3
+  of opExpCLs:
+    result = abs(expCLs - 0.05 - 1e-3) + 1e-3
+  of opExpCLb:
+    result = abs(expCLb - 0.05 - 1e-3) + 1e-3
   echo result, " at a param ", p
   echo "CLb    = ", obsCLb
   echo "CLs    = ", obsCLs
   echo "CLsb   = ", obsCLsb
+  echo "<CLs>  = ", expCLs
+  echo "<CLb>  = ", expCLb
 
 proc readAxModel(f: string, scale: float, limit2013 = false): DataFrame =
   ## scale is the scaling required from a purely weight based flux
@@ -345,6 +365,8 @@ proc computeLimit(backHist, candHist: Histogram, axionModel: string,
     obsCLs: float
     obsCLb: float
     obsCLsb: float
+    expCLs: float
+    expCLb: float
   let fitObj = FitObject(back: backHist, cand: candHist,
                          axModel: gaeDf,
                          gae: gae.addr,
@@ -353,6 +375,8 @@ proc computeLimit(backHist, candHist: Histogram, axionModel: string,
                          obsCLs: obsCLs.addr,
                          obsCLb: obsCLb.addr,
                          obsCLsb: obsCLsb.addr,
+                         expCLs: expCLs.addr,
+                         expCLb: expCLb.addr,
                          opKind: parseEnum[OptimizeByKind](optimizeBy))
   var opt = newNloptOpt[FitObject](LN_COBYLA, 1, @[(l: 1e-14, u: 1e-8)])
   let varStruct = newVarStruct(calcCL95, fitObj)

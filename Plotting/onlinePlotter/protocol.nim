@@ -35,7 +35,7 @@ when not defined(js):
   proc `%`*(grid: Grid): JsonNode =
     ## serialize a plotly grid
     result = newJObject()
-    let pltJson = grid.showImpl
+    let pltJson = grid.toPlotJson
     result["Traces"] = pltJson.traces
     result["Layout"] = pltJson.layout
 

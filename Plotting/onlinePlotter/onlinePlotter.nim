@@ -7,7 +7,7 @@ import json, strscans, asyncdispatch, posix
 import threadpool_simple
 import zero_functional
 import arraymancer
-import websocket
+import ws
 import asynchttpserver, asyncnet
 import protocol
 
@@ -51,7 +51,7 @@ const docStr = """
 Simple online event display + # pix histogram viewer
 
 Usage:
-  debugDiff <runFolder> [--out <h5file>] [--chip <chipNum>][options]
+  onlinePlotter <runFolder> [--out <h5file>] [--chip <chipNum>][options]
 
 Options:
   --out <h5file>         Optional name for H5 file in which to store
@@ -134,7 +134,7 @@ proc initialReco(h5file: string, runNumber: int, chip: int): int =
   ## intial reconstruction of all events already written to disk
   var h5f = H5open(h5file, "rw")
   h5f.visit_file()
-  var reco_run: seq[FlowVar[ref RecoEvent]]
+  var reco_run: seq[FlowVar[ref RecoEvent[Pix]]]
   for ch, pixdata in h5f.readDataFromH5(runNumber):
     let reco = reconstructSingleChip(pixdata, runNumber, ch)
     reco_run.add reco
@@ -326,15 +326,15 @@ proc sendPacket[T](channel: var Channel[T], onPlt: OnlinePlotter) =
 
 proc processClient(req: Request) {.async.} =
   ## handle a single client
-  let (ws, error) = await verifyWebsocketRequest(req)
+  let ws = await ws.newWebSocket(req)
   if ws.isNil:
-    echo "WS negotiation failed: ", error
-    await req.respond(Http400, "Websocket negotiation failed: " & error)
+    echo "WS negotiation failed: ", ws.readyState
+    await req.respond(Http400, "Websocket negotiation failed: " & $ws.readyState)
     req.client.close()
     return
   else:
     # receive connection successful package
-    let (opcodeConnect, dataConnect) = await ws.readData()
+    let (opcodeConnect, dataConnect) = await ws.receivePacket()
     let dp = parseDataPacket(dataConnect)
     case dp.kind
     of Messages.Connected:
@@ -348,7 +348,7 @@ proc processClient(req: Request) {.async.} =
     hasData = false
     dpData = ""
   while true:
-    let (opcode, data) = await ws.readData()
+    let (opcode, data) = await ws.receivePacket()
     echo "(opcode: ", opcode, ", data length: ", data
 
     # reset has data bool
@@ -365,18 +365,17 @@ proc processClient(req: Request) {.async.} =
         (hasData, dpData) = channel.tryRecv()
         sleep(50)
       # send data as packet
-      waitFor ws.sendText(dpData)
+      waitFor ws.send(dpData)
     of Opcode.Close:
-      asyncCheck ws.close()
-      let (closeCode, reason) = extractCloseData(data)
-      echo "Socket went away, close code: ", closeCode, ", reason: ", reason
+      ws.close()
+      echo "Socket went away, close code: ", ws.readyState
       req.client.close()
       return
     else:
       echo "Unkown error: ", opcode
 
   echo "This client dies now!"
-  asyncCheck ws.close()
+  ws.close()
   req.client.close()
 
 proc serveClient(server: AsyncHttpServer) {.async.} =
@@ -398,25 +397,31 @@ proc serve() =
     "../../Tools/karaRun/karaRun" "-d:release -r client.nim"
   waitFor server.serveClient()
 
-proc watcher(path: string) =
+proc watcher(path: string) {.gcsafe.} =
   var
     monitor = newMonitor()
   monitor.add(path, {MonitorCreate})
+  #monitor.register(
+  proc handle(ev: MonitorEvent) =
+    case ev.kind
+    of MonitorCreate:
+      # file created, check valid event file
+      let evNum = ev.name.getEvNum
 
-  monitor.register(
-    proc (ev: MonitorEvent) =
-      case ev.kind
-      of MonitorCreate:
-        # file created, check valid event file
-        let evNum = ev.name.getEvNum
+      if evNum.isSome:
+        eventChannel.send InGridFile(fname: path / ev.name, evNumber: evNum.get)
+        echo "New data available!"
+    else: discard
 
-        if evNum.isSome:
-          eventChannel.send InGridFile(fname: path / ev.name, evNumber: evNum.get)
-          echo "New data available!"
-      else: discard
-  )
-  monitor.watch()
-  runForever()
+  while true:
+    let fut = monitor.read()
+    while not fut.finished():
+      sleep(50)
+    #for cb in monitor.handleEvents:
+    for action in fut.read():
+      handle(action)
+  #monitor.watch()
+  #runForever()
 
 proc worker(h5file, path: string,
             runNumber, chip: int,

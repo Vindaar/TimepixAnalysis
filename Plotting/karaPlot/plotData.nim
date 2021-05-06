@@ -2045,7 +2045,7 @@ proc parseBackendType(backend: string): BackendKind =
   else:
     result = bNone
 
-proc sendDataPacket(ws: AsyncWebSocket, data: JsonNode, kind: PacketKind) =
+proc sendDataPacket(ws: WebSocket, data: JsonNode, kind: PacketKind) =
   # convert payload to a string
   var sendData = ""
   toUgly(sendData, data)
@@ -2063,13 +2063,13 @@ proc sendDataPacket(ws: AsyncWebSocket, data: JsonNode, kind: PacketKind) =
                                 Messages.DataStart,
                                 payload = dPart,
                                 recvData = true)
-        asyncCheck ws.sendText(packet.asData)
+        asyncCheck ws.send(packet.asData)
       elif i < nParts - 1:
         packet = initDataPacket(kind,
                                 Messages.Data,
                                 payload = dPart,
                                 recvData = true)
-        asyncCheck ws.sendText(packet.asData)
+        asyncCheck ws.send(packet.asData)
       else:
         doAssert i == nParts - 1
         packet = initDataPacket(kind,
@@ -2077,7 +2077,7 @@ proc sendDataPacket(ws: AsyncWebSocket, data: JsonNode, kind: PacketKind) =
                                 payload = dPart,
                                 recvData = false,
                                 done = true)
-        waitFor ws.sendText(packet.asData)
+        waitFor ws.send(packet.asData)
   else:
     # handle the single packet case differently
     let packet = initDataPacket(kind,
@@ -2085,20 +2085,20 @@ proc sendDataPacket(ws: AsyncWebSocket, data: JsonNode, kind: PacketKind) =
                                 payload = sendData,
                                 recvData = false,
                                 done = true)
-    waitFor ws.sendText(packet.asData)
+    waitFor ws.send(packet.asData)
 
 
 proc processClient(req: Request) {.async.} =
   ## handle a single client
-  let (ws, error) = await verifyWebsocketRequest(req)
+  let ws = await newWebSocket(req)
   if ws.isNil:
-    echo "WS negotiation failed: ", error
-    await req.respond(Http400, "Websocket negotiation failed: " & error)
+    echo "WS negotiation failed: ", ws.readyState
+    await req.respond(Http400, "Websocket negotiation failed: " & $ws.readyState)
     req.client.close()
     return
   else:
     # receive connection successful package
-    let (opcodeConnect, dataConnect) = await ws.readData()
+    let (opcodeConnect, dataConnect) = await ws.receivePacket()
     if dataConnect != $Messages.Connected:
       echo "Received wrong packet, quit early"
       return
@@ -2112,7 +2112,7 @@ proc processClient(req: Request) {.async.} =
 
   var dp: DataPacket
   while true:
-    let (opcode, data) = await ws.readData()
+    let (opcode, data) = await ws.receivePacket()
     echo "(opcode: ", opcode, ", data length: ", data
 
     case opcode
@@ -2139,16 +2139,15 @@ proc processClient(req: Request) {.async.} =
       #if toStop:
       #  break
     of Opcode.Close:
-      asyncCheck ws.close()
-      let (closeCode, reason) = extractCloseData(data)
-      echo "Socket went away, close code: ", closeCode, ", reason: ", reason
+      ws.close()
+      echo "Socket went away, close code: ", $ws.readyState
       req.client.close()
       return
     else:
       echo "Unkown error: ", opcode
 
   echo "This client dies now!"
-  asyncCheck ws.close()
+  ws.close()
   req.client.close()
   stopChannel.send(true)
 

@@ -48,7 +48,7 @@ def create_or_get_dataset(col_dict, br_name, data_type, nbins, dtype = None, sha
     except KeyError:
         # if a KeyError is thrown, the dataset does not exist, thus create it
         if dtype is None:
-            print "Now here ", br_name
+            print("Now here ", br_name)
             dset  = col_dict[data_type][br_name].create_dataset(br_name,
                                                                 shape, maxshape = maxshape,
                                                                 dtype=dtype)
@@ -118,9 +118,9 @@ def read_from_tree_and_write(tree, data_type):
     # fill automatically by running over all events and
 
     # TESTING
-    print tree
+    print(tree)
     for br in tree.GetListOfBranches():
-        print br.GetName()
+        print(br.GetName())
     branchNameList = [br.GetName() for br in tree.GetListOfBranches() ]
     # now create datasets for these
     dset_dict = {}
@@ -141,7 +141,7 @@ def read_from_tree_and_write(tree, data_type):
     ind_counter = determine_ind_counter(dset_dict["XCoordinatesVector"], nbins)
 
     # now that we have the tree, run over all events and split
-    print('Total number of entries in this tree: %i' % tree.GetEntries() )
+    print('Total number of entries in this tree: %i' % tree.GetEntries())
     for j, event in enumerate(tree):
         if j % 10000 == 0 and j > 0:
             print('%i events done.' % j)
@@ -213,9 +213,9 @@ def create_hdf5_file(outfile_str, fname, trees):
 
     # create hdf5 file
     if outfile_str == None:
-        print fname
+        print(fname)
         outfile_str = os.path.basename(fname).replace("root", "h5")
-        print outfile_str
+        print(outfile_str)
     outfile = h5py.File('.hdf5', 'w')
     #outtrees = [ TTree("%f_%f" % (energy_binning[i], energy_binning[i+1])) for i in xrange(len(energy_bins))]
 
@@ -225,7 +225,7 @@ def create_hdf5_file(outfile_str, fname, trees):
     f = TFile.Open(fname)
     # finally run over all files and trees and add data to groups
     for tree in trees:
-        print f
+        print(f)
         for name, obj in getall(f):
             # given a tree, write the contents of the tree to a h5 file
             read_from_tree_and_write(obj, "reference")

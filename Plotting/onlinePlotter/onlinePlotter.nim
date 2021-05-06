@@ -88,6 +88,9 @@ proc processFiles(h5f: var H5FileObj,
     # only continue if any events survived
     let nChips = r.nChips
 
+    # create datasets in H5 file
+    initInGridInH5(h5f, runNumber, nChips, batchsize)
+
     if attrsWritten == false:
       writeInGridAttrs(h5f, r, rfKind, rtNone)
       # create datasets in H5 file
@@ -491,8 +494,6 @@ proc main =
     # TODO: properly clean up on Ctrl+C
     joinThread(thr)
     joinThread(watcherThr)
-
-
 
 when isMainModule:
   main()

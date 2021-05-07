@@ -260,6 +260,28 @@ type
     # if e.g. FeSpec not available yet, we can just call the
     # procedure to create it for us
 
+  ## Tpx3Data is the compound data type stored in the "interpreted" branch of the
+  ## H5 files after running "analyse_data.py" from `tpx3-daq`.
+  ## IMPORTANT: At the moment the order ``matters``! It must be the same order
+  ## as in the file, because the data is parsed into this structure from binary
+  ## using the data sizes of the types as offsets.
+  Tpx3Data* = object
+    data_header*: uint8
+    header*: uint8
+    hit_index*: uint64
+    x*: uint8
+    y*: uint8
+    TOA*: uint16
+    TOT*: uint16
+    EventCounter*: uint16
+    HitCounter*: uint8
+    FTOA*: uint8
+    scan_param_id*: uint16
+    chunk_start_time*: cdouble
+    iTOT*: uint16
+    TOA_Extension*: uint64
+    TOA_Combined*: uint64
+
   ## GasGainIntervalData stores the information about binning the data for the
   ## calculation of the gas gain in a run by a fixed time interval, e.g.
   ## 100 minutes

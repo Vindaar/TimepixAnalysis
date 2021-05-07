@@ -225,7 +225,12 @@ proc savePlot(p: PlotV, outfile: string, fullPath = false) =
   of bGgPlot:
     if p.kind == bGgPlot: # if plot was not initialized
       if not p.invalid:
-        p.pltGg.ggsave(fname, p.width, p.height)
+        try:
+          p.pltGg.ggsave(fname, p.width, p.height)
+        except AssertionError:
+          # just continue here
+          echo "WARNING: raised AssertionError trying to plot " & $fname
+          discard
   else: discard
 
 proc importPyplot(): PyObject =

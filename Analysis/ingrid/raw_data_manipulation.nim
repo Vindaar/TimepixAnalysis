@@ -34,7 +34,7 @@ import parsetoml
 
 type
   RawFlagKind = enum
-    rfIgnoreRunList, rfOverwrite, rfNoFadc
+    rfIgnoreRunList, rfOverwrite, rfNoFadc, rfTpx3
 
 const FILE_BUFSIZE = 75_000
 
@@ -62,10 +62,14 @@ Usage:
   raw_data_manipulation <folder> --runType <type> [options]
   raw_data_manipulation <folder> --out=<name> [--nofadc] [--runType=<type>] [--ignoreRunList] [options]
   raw_data_manipulation <folder> --nofadc [options]
+  raw_data_manipulation --tpx3 <H5File> [options]
+  raw_data_manipulation --tpx3 <H5File> --runType <type> [options]
+  raw_data_manipulation --tpx3 <H5File> --runType <type> --out=<name> [options]
   raw_data_manipulation -h | --help
   raw_data_manipulation --version
 
 Options:
+  --tpx3 <H5File>     Convert data from a Timepix3 H5 file to TPA format
   --runType=<type>    Select run type (Calib | Back | Xray)
                       The following are parsed case insensetive:
                       Calib = {"calib", "calibration", "c"}
@@ -974,6 +978,19 @@ proc processAndWriteFadc(run_folder: string, runNumber: int, h5f: var H5FileObj)
   readWriteFadcData(run_folder, runNumber, h5f)
   info "FADC took $# data" % $(getOccupiedMem() - mem1)
 
+proc createProcessedTpx3Run(h5f: H5File, runType: RunTypeKind): ProcessedRun =
+  let path = "interpreted/hit_data_0"
+  let data = h5f[path, Tpx3Data]
+  # add new cluster if diff in time larger than 50 clock cycles
+  ## TODO: make config.toml adjustable?
+  const cutoff = 50
+  let run = computeTpx3RunParameters(data, clusterTimeCutoff = cutoff)
+  result = run
+  result.nChips = 1 ## TODO: allow multiple chips, find out where to best read from input file
+  result.chips = @[(name: "W15 E5", number: 0)]
+  result.runNumber = 0
+  #result.runHeader =
+
 proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string,
                               flags: set[RawFlagKind], runType: RunTypeKind = rtNone) =
   ## proc to process and write a single run
@@ -1031,44 +1048,19 @@ proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string,
   # TODO: write all other settings to file too? e.g. `nofadc`,
   # `ignoreRunList` etc?
 
-proc main() =
-
-  # use the usage docstring to generate an CL argument table
-  let args = docopt(doc)
-  echo args
-
-  #echo oldTosBackRuns
-
-  let folder = $args["<folder>"]
-  var runTypeStr = $args["--runType"]
-  var runType: RunTypeKind
-  var flags: set[RawFlagKind]
-  var outfile = $args["--out"]
-  if runTypeStr != "nil":
-    runType = parseRunType(runTypeStr)
-  if outfile == "nil":
-    outfile = "run_file.h5"
-  if $args["--nofadc"] == "true":
-    flags.incl rfNoFadc
-  if $args["--ignoreRunList"] != "false":
-    flags.incl rfIgnoreRunList
-  if $args["--overwrite"] == "true":
-    flags.incl rfOverwrite
-
-  echo &"Flags are is {flags}"
-
+proc handleTimepix1(folder: string, runType: RunTypeKind, outfile: string, flags: set[RawFlagKind]) =
   # first check whether given folder is valid run folder
   let (is_run_folder, runNumber, rfKind, contains_run_folder) = isTosRunFolder(folder)
   info "Is run folder       : ", is_run_folder
   info "Contains run folder : ", contains_run_folder
 
+  var flags = flags # mutable local copy
   if rfKind == rfOldTos:
     # in case of old TOS runs, there never was a detector with an FADC
     # so force `nofadc`
     info "runKind is " & $rfOldTos & ", hence `nofadc` -> true"
     flags.incl rfNoFadc
 
-  let t0 = epochTime()
   if is_run_folder == true and contains_run_folder == false:
     # hand H5FileObj to processSingleRun, because we need to write intermediate
     # steps to the H5 file for the FADC, otherwise we use too much RAM
@@ -1158,6 +1150,75 @@ proc main() =
   else:
     logging.error "No run folder found in given path."
     quit()
+
+proc handleTimepix3(h5file: string, runType: RunTypeKind, outfile: string, flags: set[RawFlagKind]) =
+  ## handles converting a Timepix3 input file from tpx3-daq / basil format to required TPA format
+  info "Converting Tpx3 data from " & $h5file & " and storing it in " & $outfile
+  var h5fout = H5File(outfile, "rw")
+
+  const nChips = 1 ## NOTE: so far we just use 1 chip for simplicity
+  # parse config toml file
+  let cfgTable = parseTomlConfig()
+  let plotOutPath = cfgTable["RawData"]["plotDirectory"].getStr
+
+  let plotDirPrefix = h5fout.genPlotDirname(plotOutPath, PlotDirRawPrefixAttr)
+
+  var h5f = H5File(h5file, "rw")
+  let processedRun = createProcessedTpx3Run(h5f, runType)
+  let runNumber = processedRun.runNumber
+  discard h5f.close()
+  if processedRun.events.len > 0:
+    #nChips = processedRun.nChips
+    # create datasets in H5 file
+    initInGridInH5(h5fout, runNumber, nChips, batchsize = FILE_BUFSIZE)
+    # now init attributes
+    writeInGridAttrs(h5fout, processedRun, rfUnknown, runType)
+    for chip in 0 ..< nChips:
+      plotOccupancy(squeeze(processedRun.occupancies[chip,_,_]),
+                    plotDirPrefix, processedRun.runNumber, chip)
+    writeProcessedRunToH5(h5fout, processedRun)
+    info "Size of total ProcessedRun object = ", sizeof(processedRun)
+  else:
+    warn "Skipped writing to file, since ProcessedRun contains no events!"
+
+  # finally once we're done, add `rawDataFinished` attribute
+  runFinished(h5fout, runNumber)
+  discard h5fout.close()
+
+proc main() =
+
+  # use the usage docstring to generate an CL argument table
+  let args = docopt(doc)
+  echo args
+
+  #echo oldTosBackRuns
+
+  let folder = $args["<folder>"]
+  var runTypeStr = $args["--runType"]
+  var runType: RunTypeKind
+  var flags: set[RawFlagKind]
+  var outfile = $args["--out"]
+  if runTypeStr != "nil":
+    runType = parseRunType(runTypeStr)
+  if outfile == "nil":
+    outfile = "run_file.h5"
+  if $args["--nofadc"] == "true":
+    flags.incl rfNoFadc
+  if $args["--ignoreRunList"] != "false":
+    flags.incl rfIgnoreRunList
+  if $args["--overwrite"] == "true":
+    flags.incl rfOverwrite
+  let tpx3File = if $args["--tpx3"] == "nil": "" else: $args["--tpx3"]
+  if tpx3File.len > 0:
+    flags.incl rfTpx3
+
+  echo &"Flags are is {flags}"
+  let t0 = epochTime()
+
+  if rfTpx3 notin flags:
+    handleTimepix1(folder, runType, outfile, flags)
+  else:
+    handleTimepix3(tpx3File, runType, outfile, flags)
 
   info "Processing all given runs took $# minutes" % $( (epochTime() - t0) / 60'f )
 

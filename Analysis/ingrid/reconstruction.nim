@@ -564,7 +564,8 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
       # set reco run length back to 0
       reco_run.setLen(0)
       # calculate fractions of FADC / Scinti triggers per run
-      h5fout.calcTriggerFractions(runNumber)
+      if fadcRawPath(runNumber) in h5f:
+        h5fout.calcTriggerFractions(runNumber)
       # now check whether create iron spectrum flag is set
       # or this is a calibration run, then always create it
       if rfCreateFe in flags or runType == rtCalibration:

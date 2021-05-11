@@ -373,30 +373,58 @@ proc rawDataToDut(data: seq[uint32], chunkNr: int): seq[Tpx3Data] =
       result[i] = toData(res[val], 0b00)
   result = result.sortedByIt(it.TOA)
 
-proc main(fname: string) =
+proc main(fname: string, outf: string = "/tmp/testtpx3.h5") =
   let h5f = H5file(fname, "r")
   let path = "raw_data"
-  let data = h5f[path, uint32]
   let meta = h5f["meta_data", Tpx3MetaData]
-
+  # TODO: reading config still broken
   #let config = h5f["configuration/generalConfig", Tpx3Config]
   #for el in config:
   #  echo el.configuration
   #  echo el.value
-
-  var h5fout = H5File("/tmp/testtpx3.h5", "rw")
-
+  var h5fout = H5File(outf, "rw")
+  const batch = 50_000_000
+  let filter = H5Filter(kind: fkZlib, zlibLevel: 2)
+  let dset = h5fout.create_dataset("interpreted/hit_data_0", (0, 1), dtype = Tpx3Data,
+                                   chunksize = @[batch, 1],
+                                   maxshape = @[int.high, 1], filter = filter)
   var all: seq[Tpx3Data]
+  var comb = 0
+  let inputDset = h5f[path.dset_str]
+  let cumNum = meta.mapIt(it.data_length.int).cumsum
+  proc findIdx(num: int, cumNum: seq[int]): int =
+    ## finds the correct index up to where to read given a desired
+    ## number (lower bound) of `num` elements
+    let idx = cumNum.lowerBound(num)
+    result = if idx == cumNum.len: cumNum[^1] else: cumNum[idx]
+
+  var curIdx = findIdx(batch, cumNum)
+  var oldIdx = 0
+  var data = inputDset.read_hyperslab(uint32, @[0, 0],
+                                      count = @[curIdx, 1])
+
+  var cumRead = 0
+  var batchIdx = 0
   for i, slice in meta:
-    if slice.index_stop - slice.index_start > 10:
-      all.add rawDataToDut(data[slice.index_start ..< slice.index_stop], chunkNr = i)
-
-  all = all.filterIt(it.x != 0 and it.y != 0)
-  let dset = h5fout.create_dataset("interpreted/hit_data_0", all.len, dtype = Tpx3Data)
-  dset[dset.all] = all
+    let num = slice.index_stop - slice.index_start
+    if num > 0:
+      let startIdx = slice.index_start.int - oldIdx
+      let stopIdx = slice.index_stop.int - oldIdx
+      all.add rawDataToDut(data[startIdx ..< stopIdx], chunkNr = i)
+      inc comb, num.int
+    if comb >= curIdx:
+      echo "Writing dataset chunk: ", i
+      dset.add all
+      all.setLen(0)
+      oldIdx = curIdx
+      curIdx = findIdx(oldIdx + batch, cumNum)
+      echo "reading from ", oldIdx, " to ", curIdx
+      data = inputDset.read_hyperslab(uint32, @[oldIdx, 0],
+                                      count = @[curIdx - oldIdx, 1])
+      inc batchIdx
+  dset.add all
   discard h5fout.close()
-
-
   discard h5f.close()
 
-dispatch main
+when isMainModule:
+  dispatch main

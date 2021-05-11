@@ -351,9 +351,9 @@ proc rawDataToDut(data: seq[uint32], chunkNr: int): seq[Tpx3Data] =
   ## Why? Cannot just append (using `newSeqOfCap` and `add`?) instead of
   ## accessing `i`.
   ## Do both and compare
-  doAssert res.len >= indices[^1]
   result = newSeq[Tpx3Data](idxToKeep.card)
   if indices.len > 0:
+    doAssert res.len >= indices[^1]
     # TOA extension
     let indIdx = indices.toSet
     var tstamp: uint64

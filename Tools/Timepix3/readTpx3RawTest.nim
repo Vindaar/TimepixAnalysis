@@ -88,18 +88,13 @@ proc `[]=`*[T, U](b: var BitArray, inds: HSlice[T, U], val: SomeInteger) =
     if iEnd > iStart:
       for x in iStart .. iEnd:
         let isBitOne = (mval and 1.uint).bool
-        #echo (1 shl m).repr
-        #echo "Working on bit ", x, " with m ", mval, " is one ", isBitOne
         b.data[x] = if isBitOne: true else: false
-        #inc m
         mval = mval shr 1
     else:
       for x in countdown(iStart, iEnd):
         let isBitOne = (mval and 1.uint).bool
         b.data[x] = if isBitOne: true else: false
         mval = val shr x
-
-    #echo b
 
 proc `[]=`[T: not HSlice, U: SomeInteger | bool](b: var BitArray, ind: T, val: U) =
     when val is SomeInteger:
@@ -250,12 +245,10 @@ proc toData(x: uint64, opMode: uint8, vco = false, ToAExtension = none(uint64)):
   let right_col = pixel > 3
   let eoc = (x shr (28 + 9)) and (0x7f)
 
-  #echo "x >> 47 = ", x shr 47
   result.data_header = (x shr 47).uint8
   result.header = (x shr 44).uint8
   result.y = ((super_pixel * 4).int + (pixel.int - (if right_col: 1 else: 0) * 4)).uint8
   result.x = ((eoc * 2).int + (if right_col: 1 else: 0)).uint8
-
   if not vco:
     result.HitCounter = Lfsr4Lut[x and 0xF].uint8
     result.FTOA = 0'u8
@@ -297,8 +290,6 @@ template hasTimestamp(x: uint32 | uint64): untyped =
     (x and 0xF000000000000'u64) shr 48 == 0b0101
 
 proc rawDataToDut(data: seq[uint32], chunkNr: int): seq[Tpx3Data] =
-  #echo data.len
-
   if data.len < 10: return # TODO: arbitrary
   var idx = 0
   var tstamp = newSeqOfCap[uint64](data.len div 2 + 1)
@@ -310,8 +301,6 @@ proc rawDataToDut(data: seq[uint32], chunkNr: int): seq[Tpx3Data] =
   var linksEven = newSeqWith[bool](8, true)
   # need notion of even, odd to know if started an element or already has entry
   # essentially like `j` for timestamps, but general for all links.
-
-
   ## TODO: check for 0b0101 TOA extension packets.
   ## when encountered:
   ## start a "new packet"
@@ -326,22 +315,14 @@ proc rawDataToDut(data: seq[uint32], chunkNr: int): seq[Tpx3Data] =
   # indices we have to copy to final result
   var idxToKeep = initHashSet[int]()
   for i, el in data:
-    #echo j
-    #echo el
     let link = (el and 0xfe000000'u32) shr 25
-    #echo "LINK ", link
-    #if i > 10: quit()
-
-    # TODO: check if linkIdx in {0 .. 7}
     if el.hasTimestamp:
       let k = el and 0xFFFFFF'u32
       if j mod 2 == 0:
-        #echo "no?"
         tstamp.add k.uint64
         indices.add i
         lastIndex = i
       else:
-        #echo "/{}"
         var x = tstamp[idx] shl 24 + k.uint64
         tstamp[idx] = x or (0b0101 shl 48)
         # set tstamp to at index where this was created
@@ -354,7 +335,6 @@ proc rawDataToDut(data: seq[uint32], chunkNr: int): seq[Tpx3Data] =
       if linksEven[link]:
         var x: uint32
         swapEndian32(x.addr, k.addr)
-        #echo "i ", i, " and res len ", res.len
         res[i] = (x.uint64 shr 8)
         # keep track of global index so that we can insert it into result once we
         # are in odd branch below
@@ -366,13 +346,6 @@ proc rawDataToDut(data: seq[uint32], chunkNr: int): seq[Tpx3Data] =
         let lkIdx = linkIdxs[link] # this is the index last modifieyd for link# `link`
         res[lkIdx] = (x.uint64 shl 16) + res[lkIdx]
       linksEven[link] = not linksEven[link]
-
-  #for i, r in res:
-  #  if r.hasTimestamp:
-  #    echo "i is ", i
-  #
-  #for i in indices:
-  #  echo "i alt is ", i
 
   ## TODO: remove everything but idxToKeep. Need to walk data again?
   ## Why? Cannot just append (using `newSeqOfCap` and `add`?) instead of
@@ -399,23 +372,6 @@ proc rawDataToDut(data: seq[uint32], chunkNr: int): seq[Tpx3Data] =
     for i, val in idxToKeep.toSeq.sorted:
       result[i] = toData(res[val], 0b00)
   result = result.sortedByIt(it.TOA)
-  #if chunkNr == 1:
-  #  for r in result:
-  #    echo r
-  #  quit()
-  #echo resFit[0 .. 100]
-  #echo tstamp.len
-  #echo tstamp#
-  #echo linkIdxs
-  ## NOTE: at this point according to the python code half the data should be empty
-  ## however this is `not` every second or something like this!
-  #echo res[0 .. 100]
-  #for r in resFit[0 .. 1000]:
-  #  echo toData(r, 0b00)
-  #echo data.len
-  #echo res.len
-  #if chunkNr == 1:
-  #  quit()
 
 proc main(fname: string) =
   let h5f = H5file(fname, "r")
@@ -427,25 +383,11 @@ proc main(fname: string) =
   #for el in config:
   #  echo el.configuration
   #  echo el.value
-  ##echo config
-  #if true: quit()
-  echo meta[0 .. 100]
-  ## - iterate over meta data chunks, one line describes one chunk in `data`
-  ## - extract timestamps and associate data in order?
-
-  ## start new timestamp "chunk" when
-  # `timestamp_combined_filter = (data_combined and 0xF000000000000) shr 48 == 0b0101`
-  # in our code: if condition: append
-
-  ## - for now: skip chunks with errors
-  echo data[0 .. 100]
-  #for el in data:
 
   var h5fout = H5File("/tmp/testtpx3.h5", "rw")
 
   var all: seq[Tpx3Data]
   for i, slice in meta:
-    #echo "at i ", i, ", of ", meta.len
     if slice.index_stop - slice.index_start > 10:
       all.add rawDataToDut(data[slice.index_start ..< slice.index_stop], chunkNr = i)
 
@@ -453,12 +395,6 @@ proc main(fname: string) =
   let dset = h5fout.create_dataset("interpreted/hit_data_0", all.len, dtype = Tpx3Data)
   dset[dset.all] = all
   discard h5fout.close()
-
-  echo "all length ", all.len
-  #echo "Timestamp? ", el.hasTimestamp
-  #  if el.hasTimestamp:
-      # NOTE: if number of timestamp containing words not mod 2 == 0, then drop last
-
 
 
   discard h5f.close()

@@ -398,7 +398,7 @@ proc rawDataToDut(data: seq[uint32], chunkNr: int): seq[Tpx3Data] =
     # no TOA extension
     for i, val in idxToKeep.toSeq.sorted:
       result[i] = toData(res[val], 0b00)
-
+  result = result.sortedByIt(it.TOA)
   #if chunkNr == 1:
   #  for r in result:
   #    echo r

@@ -978,14 +978,11 @@ proc processAndWriteFadc(run_folder: string, runNumber: int, h5f: var H5FileObj)
   readWriteFadcData(run_folder, runNumber, h5f)
   info "FADC took $# data" % $(getOccupiedMem() - mem1)
 
-proc createProcessedTpx3Run(h5f: H5File, runType: RunTypeKind): ProcessedRun =
-  let path = "interpreted/hit_data_0"
-  let data = h5f[path, Tpx3Data]
+proc createProcessedTpx3Run(data: seq[Tpx3Data]): ProcessedRun =
   # add new cluster if diff in time larger than 50 clock cycles
   ## TODO: make config.toml adjustable?
   const cutoff = 50
-  let run = computeTpx3RunParameters(data, clusterTimeCutoff = cutoff)
-  result = run
+  result = computeTpx3RunParameters(data, clusterTimeCutoff = cutoff)
   result.nChips = 1 ## TODO: allow multiple chips, find out where to best read from input file
   result.chips = @[(name: "W15 E5", number: 0)]
   result.runNumber = 0
@@ -1164,23 +1161,39 @@ proc handleTimepix3(h5file: string, runType: RunTypeKind, outfile: string, flags
   let plotDirPrefix = h5fout.genPlotDirname(plotOutPath, PlotDirRawPrefixAttr)
 
   var h5f = H5File(h5file, "rw")
-  let processedRun = createProcessedTpx3Run(h5f, runType)
-  let runNumber = processedRun.runNumber
-  discard h5f.close()
-  if processedRun.events.len > 0:
-    #nChips = processedRun.nChips
-    # create datasets in H5 file
-    initInGridInH5(h5fout, runNumber, nChips, batchsize = FILE_BUFSIZE)
-    # now init attributes
-    writeInGridAttrs(h5fout, processedRun, rfUnknown, runType)
-    for chip in 0 ..< nChips:
-      plotOccupancy(squeeze(processedRun.occupancies[chip,_,_]),
-                    plotDirPrefix, processedRun.runNumber, chip)
-    writeProcessedRunToH5(h5fout, processedRun)
-    info "Size of total ProcessedRun object = ", sizeof(processedRun)
-  else:
-    warn "Skipped writing to file, since ProcessedRun contains no events!"
+  const tpx3Buf = 50_000_000
+  let dset = h5f["interpreted/hit_data_0".dset_str]
+  let pixNum = dset.shape[0]
+  let batches = ceil(pixNum.float / tpx3Buf.float).int
+  var oldIdx = 0
+  var countIdx = min(tpx3Buf, pixNum)
+  var attrsWritten = false
+  var runNumber = 0
+  for idx in 0 ..< batches:
+    var data = dset.read_hyperslab(Tpx3Data, @[oldIdx, 0],
+                                   count = @[countIdx, 1])
+    oldIdx += countIdx
+    countIdx = if oldIdx + tpx3Buf < pixNum: tpx3Buf
+               else: pixNum - oldIdx
+    let r = createProcessedTpx3Run(data)
+    if r.events.len > 0:
+      if not attrsWritten:
+        runNumber = r.runNumber
+        #nChips = processedRun.nChips
+        # create datasets in H5 file
+        initInGridInH5(h5fout, runNumber, nChips, batchsize = FILE_BUFSIZE)
+        # now init attributes
+        writeInGridAttrs(h5fout, r, rfUnknown, runType)
+        for chip in 0 ..< nChips:
+          plotOccupancy(squeeze(r.occupancies[chip,_,_]),
+                        plotDirPrefix, runNumber, chip)
+        attrsWritten = true
+      writeProcessedRunToH5(h5fout, r)
+      info "Size of total ProcessedRun object = ", sizeof(r)
+    else:
+      warn "Skipped writing to file, since ProcessedRun contains no events!"
 
+  discard h5f.close()
   # finally once we're done, add `rawDataFinished` attribute
   runFinished(h5fout, runNumber)
   discard h5fout.close()

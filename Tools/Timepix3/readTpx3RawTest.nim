@@ -386,7 +386,7 @@ proc main(fname: string, outf: string = "/tmp/testtpx3.h5") =
   const batch = 50_000_000
   let filter = H5Filter(kind: fkZlib, zlibLevel: 2)
   let dset = h5fout.create_dataset("interpreted/hit_data_0", (0, 1), dtype = Tpx3Data,
-                                   chunksize = @[batch, 1],
+                                   chunksize = @[50_000, 1],
                                    maxshape = @[int.high, 1], filter = filter)
   var all: seq[Tpx3Data]
   var comb = 0

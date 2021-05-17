@@ -404,6 +404,10 @@ proc read_tracking_logfile*(filename: string): TrackingLog =
     if count > 1 and not date_set:
       # parse the date
       let date = toTime(parse(d[date_i], "MM/dd/yy"))
+      if date.utc().year == 2003:
+        echo "Log ", filename
+        quit()
+
       # check whether this date is at the end of day from the
       # previous log file or already past midnight
       if date.utc().hour > 23:

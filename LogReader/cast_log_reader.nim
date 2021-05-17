@@ -107,6 +107,8 @@ type
     #speedV: seq[float]
     isMoving*: seq[bool]
     isTracking*: seq[bool]
+    magB*: seq[float] # magnetic field
+                      # apparently magB is not the real value in the tracking logs anymore!
 
 proc newSlowControlLog(): SlowControlLog =
   result.date = fromUnix(0)
@@ -379,6 +381,7 @@ proc read_tracking_logfile*(filename: string): TrackingLog =
     time_i = 7
     h_me = 9
     v_me = 10
+    magB_i = 22
 
   var
     count = 0
@@ -414,6 +417,7 @@ proc read_tracking_logfile*(filename: string): TrackingLog =
       v_me = int(parseFloat(d[v_me]))
       timestamp = parse_time(d[time_i])
       tracking = if int(parseFloat(d[tracking_i])) == 1: true else: false
+      magB = parseFloat(d[magB_i])
     # determine magnet movement and set old encoder values
     let move = is_magnet_moving((h_me, h_me_p), (v_me, v_me_p))
     h_me_p = h_me
@@ -429,6 +433,7 @@ proc read_tracking_logfile*(filename: string): TrackingLog =
     result.timestamps.add parseDateTime(d[date_i], d[time_i]).toUnix.int
     result.isMoving.add move
     result.isTracking.add tracking
+    result.magB.add magB
     inc count
 
   # now set the tracking variant object depending on whether tracking took place

@@ -507,6 +507,20 @@ proc print_tracking_logs(logs: seq[TrackingLog], print_type: TrackingKind, sorte
       if log.magB[i] > 0.0:
         sumB = sumB + diff
   echo &"Total time the magnet was on (> 1 T): {sumB.float / 60.0} h"
+
+proc print_slow_control_logs(logs: seq[SlowControlLog]) =
+  ## proc to pretty print useful information about the Slow Control data
+  ## Mainly related to magnet activity.
+  # compute total time magnet was on, here we do it based on difference between last and this
+  # timestamp. Then add that diff if magnet is on now.
+  var sumB: Duration
+  for log in logs:
+    for i in 1 ..< log.times.len:
+      let diff = log.times[i] - log.times[i-1]
+      if log.B_magnet[i] > 0.0:
+        sumB = sumB + diff
+  echo &"Total time the magnet was on (> 1 T): {sumB.inHours()} h"
+
 proc read_tracking_log_folder(log_folder: string): seq[TrackingLog] =
   ## reads all log files from `log_folder` and returns a tuple of sorted `TrackingLog`
   ## objects, one set for logs w/ tracking, others without
@@ -544,6 +558,7 @@ proc read_sc_log_folder(log_folder: string) =
   # to the date of this tracking log
   var dfDir = newDataFrame()
   echo log_folder
+  var scLogs: seq[SlowControlLog]
   for log_p in walkDir(log_folder):
     case log_p.kind
     of pcFile:
@@ -557,6 +572,7 @@ proc read_sc_log_folder(log_folder: string) =
                             "B / T" : sc.B_magnet })
         df["Date"] = constantColumn(sc.date.toUnix, df.len)
         dfDir.add df
+        scLogs.add sc
       else:
         # skipping files other than log files
         echo "Skipping file ", log_p
@@ -583,6 +599,8 @@ proc read_sc_log_folder(log_folder: string) =
     let nRowsActive = dfDir.filter(f{c"B / T" > 8.0}).len
     echo &"Magnet was turned on for: {nRowsActive.float / 60.0} h between " &
          &"{$firstDate} and {$lastDate}."
+
+  print_slow_control_logs(scLogs)
 
 proc process_log_folder(folder: string, logKind: LogFileKind,  h5file = "") =
   case logKind

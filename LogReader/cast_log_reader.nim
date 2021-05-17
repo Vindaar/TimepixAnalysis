@@ -581,13 +581,14 @@ proc process_log_folder(folder: string, logKind: LogFileKind,  h5file = "") =
     print_tracking_logs(trk, rkTracking)
 
     when not defined(pure):
-      # given the H5 file, create a referential table connecting
-      # the trackings with run numbers
-      let trackmap = map_log_to_run(trk, h5file)
+      if h5file.len > 0:
+        # given the H5 file, create a referential table connecting
+        # the trackings with run numbers
+        let trackmap = map_log_to_run(trk, h5file)
 
-      # given mapping of tracking logs to run numbers, finally
-      # add tracking information to H5 file
-      write_tracking_h5(trackmap, h5file)
+        # given mapping of tracking logs to run numbers, finally
+        # add tracking information to H5 file
+        write_tracking_h5(trackmap, h5file)
 
 when isMainModule:
   # parse docopt string and determine
@@ -595,7 +596,7 @@ when isMainModule:
   let args = docopt(doc)
   echo args
 
-  let h5file = $args["--h5out"]
+  let h5file = if $args["--h5out"] != "nil": $args["--h5out"] else: ""
   let scPath = $args["--sc"]
   let trackingPath = $args["--tracking"]
   if scPath.len > 0 and scPath != "nil":

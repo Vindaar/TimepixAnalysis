@@ -491,9 +491,22 @@ proc print_tracking_logs(logs: seq[TrackingLog], print_type: TrackingKind, sorte
   case print_type
   of rkTracking:
     echo &"There are {s_logs.len} solar trackings found in the log file directory"
+    var trackTime: Duration
+    for log in logs:
+      if log.kind == rkTracking:
+        trackTime += (log.tracking_stop - log.tracking_start)
+    echo &"The total time of all trackings: {trackTime.inHours()} h (exact: {tracktime})"
   of rkNoTracking:
     echo &"There are {s_logs.len} runs without solar tracking found in the log file directory"
 
+  # compute total time magnet was on
+  var sumB: int
+  for log in logs:
+    for i in 1 ..< log.timestamps.len:
+      let diff = log.timestamps[i] - log.timestamps[i-1]
+      if log.magB[i] > 0.0:
+        sumB = sumB + diff
+  echo &"Total time the magnet was on (> 1 T): {sumB.float / 60.0} h"
 proc read_tracking_log_folder(log_folder: string): seq[TrackingLog] =
   ## reads all log files from `log_folder` and returns a tuple of sorted `TrackingLog`
   ## objects, one set for logs w/ tracking, others without

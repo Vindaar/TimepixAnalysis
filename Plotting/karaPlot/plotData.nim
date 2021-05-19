@@ -1054,13 +1054,13 @@ proc readPlotFit(h5f: var H5FileObj, pd: PlotDescriptor):
     # There: disentangle data reading from the fitting data processing etc.
     # Then we can read raw data and hand that to the fitting proc here
     let
-      polya = h5f.read(r, pd.name, pd.chip,
+      data = h5f.read(r, pd.name, pd.chip,
                        dtype = seq[float])
-      polyaFit = h5f.read(r, pd.name & "Fit", pd.chip,
+      dataFit = h5f.read(r, pd.name & "Fit", pd.chip,
                           dtype = seq[float])
-    let nbins = polya.shape[0]
-    let (bins, counts) = polya.split(SplitSeq.Seq2Col)
-    let (binsFit, countsFit) = polyaFit.split(SplitSeq.Seq2Col)
+    let nbins = data.shape[0]
+    let (bins, counts) = data.split(SplitSeq.Seq2Col)
+    let (binsFit, countsFit) = dataFit.split(SplitSeq.Seq2Col)
     if lastBins.len > 0:
       doAssert lastBins == bins, "The ToT calibration changed between the " &
         "last two runs!"

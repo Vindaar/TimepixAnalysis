@@ -3,6 +3,11 @@ import nimhdf5
 import ggplotnim
 import cligen
 
+when not defined(blosc):
+  import macros
+  static: error("Compilation without `blosc` support not supported! Required to " &
+    "read Timepix3 data. Add `-d:blosc` compilation option.")
+
 type
   Tpx3MetaData = object
     index_start: uint32

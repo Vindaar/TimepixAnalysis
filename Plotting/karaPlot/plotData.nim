@@ -90,7 +90,7 @@ const
 
 type
   ConfigFlagKind = enum
-    cfNone, cfFadc, cfInGrid, cfOccupancy, cfPolya, cfFeSpectrum, cfProvideServer
+    cfNone, cfFadc, cfInGrid, cfOccupancy, cfPolya, cfFeSpectrum, cfTotPerPixel, cfProvideServer
 
   BackendKind* = enum
     bNone, bMpl, bPlotly, bGgPlot
@@ -766,22 +766,21 @@ proc polya(h5f: var H5FileObj, runType: RunTypeKind,
                               plotKind: pkCombPolya,
                               chipsCP: fileInfo.chips)
 
-  #for runNumber, grpName in runs(h5f):
-  #  var group = h5f[grpName.grp_str]
-  #  var traces: seq[Trace[float]]
-  #  for chipNum, chpgrp in chips(group):
-  #    traces.add plotPolyas(h5f, chpgrp, chipNum, runNumber)
-  #  case BKind
-  #  of bPlotly:
-  #    let title = &"Polyas for all chips of run {runNumber}"
-  #    let xlabel = "Number of electrons"
-  #    var pltV = initPlotV(title = title, xlabel = xlabel, ylabel = "#")
-  #    pltV.plPlot = Plot[float](layout: pltV.plLayout,
-  #                              traces: traces)
-  #    let outfile = &"combined_polya_{runType}_run{runNumber}"
-  #    pltV.savePlot(outfile)
-  #  else:
-  #    warn "Combined polya only available for Plotly backend!"
+proc totPerPixel(h5f: var H5FileObj, runType: RunTypeKind,
+                 fileInfo: FileInfo,
+                 flags: set[ConfigFlagKind]): seq[PlotDescriptor] =
+  ## creates the plots for the ToT per pixel distribution of the datasets
+  ## i.e. the raw ToT histogram (equivalent to polya for raw ToT)
+  let (binSize, binRange) = getBinSizeAndBinRange("totPerPixel")
+  for ch in fileInfo.chips:
+    result.add PlotDescriptor(runType: runType,
+                              name: "totPerPixel",
+                              xlabel: "ToT [clock cycles]",
+                              runs: fileInfo.runs,
+                              chip: ch,
+                              plotKind: pkToTPerPixel,
+                              binSize: binSize,
+                              binRange: binRange)
 
 proc plotDates[T, U](x: seq[U], y: seq[T],
                      title, xlabel, outfile: string,
@@ -1507,6 +1506,39 @@ proc handleOuterChips(h5f: var H5FileObj,
   let outfile = buildOutfile(pd, fileDir, fileType)
   result[1] = plotHist(data, pd.title, pd.name, pd.title, binSize, binRange)
 
+proc handleToTPerPixel(h5f: var H5FileObj,
+                       fileInfo: FileInfo,
+                       pd: PlotDescriptor): (string, PlotV) =
+  result[0] = buildOutfile(pd, fileDir, fileType)
+  let xlabel = pd.xlabel
+  let title = buildTitle(pd)
+  var tots: seq[uint16]
+  for run in pd.runs:
+    tots.add flatten(h5f.readVlen(run, "ToT",
+                                  chipNumber = pd.chip,
+                                  dtype = uint16))
+  # if tots longer than `10_000_000`, compute in batches
+  const batchSize = 10_000_000
+  if tots.len > batchSize:
+    var hist: seq[float]
+    var bins: seq[float]
+    for batch in 0 ..< (tots.len.float / batchSize).ceil.int:
+      let lower = batch * batchSize
+      let upper = min((batch + 1) * batchSize, tots.len)
+      echo "lower ", lower, " and higher ", upper, " and totslen ", tots.len
+      var (h, b) = histogram(tots[lower ..< upper].mapIt(it.int),
+                             bins = ((pd.binRange[1] - pd.binRange[0]) / pd.binSize).round.int,
+                             range = (pd.binRange[0], pd.binRange[1]))
+      if bins.len == 0:
+        bins = b
+        hist = newSeq[float](bins.len)
+      for i, el in h:
+        hist[i] += el.float
+    result[1] = plotBar(@[bins], @[hist], title, xlabel, @[pd.name], result[0])
+  else:
+    result[1] = plotHist(tots.mapIt(it.int), title, pd.name, result[0],
+                         binS = pd.binSize, binR = pd.binRange)
+
 iterator ingridEventIter(h5f: var H5FileObj,
                          fileInfo: FileInfo,
                          pds: seq[PlotDescriptor]): (string, PlotV) =
@@ -1714,6 +1746,8 @@ proc createPlot*(h5f: var H5FileObj,
     #  yield (outfile, pltV)
   of pkOuterChips:
     result = handleOuterChips(h5f, fileInfo, pd)
+  of pkToTPerPixel:
+    result = handleToTPerPixel(h5f, fileInfo, pd)
   else:
     discard
 
@@ -1955,6 +1989,8 @@ proc createCalibrationPlots(h5file: string,
     pds.add occupancies(h5f, runType, fInfoConfig, flags) # plus center only
   if cfPolya in flags:
     pds.add polya(h5f, runType, fInfoConfig, flags)
+  if cfToTPerPixel in flags:
+    pds.add totPerPixel(h5f, runType, fInfoConfig, flags)
   if cfFeSpectrum in flags:
     pds.add feSpectrum(h5f, runType, fInfoConfig, flags)
   pds.add fePhotoDivEscape(h5f, runType, fInfoConfig, flags)
@@ -2212,6 +2248,8 @@ proc plotData*() =
     flags.incl cfPolya
   if $args["--fe_spec"] == "true":
     flags.incl cfFeSpectrum
+  if $args["--totPerPixel"] == "true":
+    flags.incl cfTotPerPixel
   if $args["--server"] == "true":
     flags.incl cfProvideServer
 

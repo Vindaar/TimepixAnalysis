@@ -34,6 +34,8 @@ proc getBinRangeForDset*(dset: string): Option[(float, float)] =
     result = some((2.0, 502.0))
   elif "fallTime" in dset:
     result = some((7.0, 707.0))
+  elif "totPerPixel" == dset:
+    result = some((-0.5, 300.5))
   else:
     result = none((float, float))
 
@@ -71,6 +73,8 @@ proc getNumBinsForDset*(dset: string): Option[int] =
     result = some(100)
   elif "fallTime" in dset:
     result = some(50)
+  elif "totPerPixel" == dset:
+    result = some(101)
   else:
     result = none(int)
 
@@ -89,5 +93,7 @@ proc getBinSizeForDset*(dset: string): Option[float] =
     result = some(1.0)
   elif dset == "FeSpectrumCharge":
     result = some(100.0)
+  elif dset == "totPerPixel":
+    result = some(1.0)
   else:
     result = none(float)

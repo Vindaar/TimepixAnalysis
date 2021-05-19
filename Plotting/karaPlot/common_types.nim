@@ -4,31 +4,33 @@ import sets, tables
 import ingrid / ingrid_types
 
 type
-  # enum listing all available `plot types` we can produce
+  ## enum listing all available `plot types` we can produce
   PlotKind* = enum
-    pkInGridDset           # histogram InGrid property
-    pkFadcDset             # histogram FADC property
-    pkPolya                # InGrid polya distribution
-    pkCombPolya            # combined polya of all chips
-    pkOccupancy            # Occupancy of InGrid chip
-    pkOccCluster           # Occupancy of clusters of InGrid chip
-    pkFeSpec               # Fe pixel (or different) spectrum
-    pkEnergyCalib          # Energy calibration from Fe pixel spectrum
-    pkFeSpecCharge         # Fe charge (or different) spectrum
-    pkEnergyCalibCharge    # Energy calibration from Fe charge spectrum
-    pkFeVsTime             # Evolution of Fe pix peak location vs time
-    pkFeChVsTime           # Evolution of Fe charge peak location vs time
-    pkFePixDivChVsTime     # Evolution of Fe (pix peak / charge peak) location vs time"
-    pkFePhotoDivEscape     # Evolution of Fe photo peak / escape peak location vs time
-    pkInGridEvent          # Individual InGrid event
-    pkFadcEvent            # Individual FADC event
-    pkCalibRandom          # ? to be filled for different calibration plots
-    pkAnyScatter           # Scatter plot of some x vs. some y
-    pkMultiDset            # Plot of multiple histograms. Will be removed and replaced
-                           # by redesign of `createPlot`
-    pkSubPlots             # several subplots in one plot
-    pkInGridCluster        # superseeded by pkInGridEvent?
-    pkOuterChips           # histogram of # hits of outer chips
+    pkInGridDset           ## histogram InGrid property
+    pkFadcDset             ## histogram FADC property
+    pkPolya                ## InGrid polya distribution
+    pkCombPolya            ## combined polya of all chips
+    pkOccupancy            ## Occupancy of InGrid chip
+    pkOccCluster           ## Occupancy of clusters of InGrid chip
+    pkFeSpec               ## Fe pixel (or different) spectrum
+    pkEnergyCalib          ## Energy calibration from Fe pixel spectrum
+    pkFeSpecCharge         ## Fe charge (or different) spectrum
+    pkEnergyCalibCharge    ## Energy calibration from Fe charge spectrum
+    pkFeVsTime             ## Evolution of Fe pix peak location vs time
+    pkFeChVsTime           ## Evolution of Fe charge peak location vs time
+    pkFePixDivChVsTime     ## Evolution of Fe (pix peak / charge peak) location vs time"
+    pkFePhotoDivEscape     ## Evolution of Fe photo peak / escape peak location vs time
+    pkInGridEvent          ## Individual InGrid event
+    pkFadcEvent            ## Individual FADC event
+    pkCalibRandom          ## ? to be filled for different calibration plots
+    pkAnyScatter           ## Scatter plot of some x vs. some y
+    pkMultiDset            ## Plot of multiple histograms. Will be removed and replaced
+                           ## by redesign of `createPlot`
+    pkSubPlots             ## several subplots in one plot
+    pkInGridCluster        ## superseeded by pkInGridEvent?
+    pkOuterChips           ## histogram of # hits of outer chips
+    pkToTPerPixel          ## histogram of ToT values. Essentially Polya but with raw ToT
+                           ## Jochen always calls it ToT/Pixel...
 
   ClampKind* = enum
     ckFullRange, ckAbsolute, ckQuantile
@@ -51,7 +53,7 @@ type
     title*: kstring
     # bKind: BackendKind <- to know which backend to use for interactive plot creation
     case plotKind*: PlotKind
-    of pkInGridDset, pkFadcDset:
+    of pkInGridDset, pkFadcDset, pkToTPerPixel:
       range*: CutRange
       cutRegion*: ChipRegion
       # optional fields for bin size and range

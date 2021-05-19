@@ -87,7 +87,8 @@ const InGridEventFnameTemplate* = "ingrid_event_run$1_chip$2_event$3"
 const FadcEventTitleTemplate* = "FADC event for run $1, event index $2"
 const FadcEventFnameTemplate* = "fadc_event_run$1_event$2"
 const OuterChipFnameTemplate* = "outer_chip_$1"
-
+const ToTPerPixelFnameTemplate* = "tot_per_pixel_run$1_chip$2"
+const ToTPerPixelTitleTemplate* = "ToT histogram for run $1 of chip $2"
 
 #proc initDataPacket*(): DataPacket =
 #  result.recvData = false
@@ -402,6 +403,9 @@ proc buildOutfile*(pd: PlotDescriptor, prefix, filetype: string): kstring =
       name &= pd.buildOutfile("", "")
   of pkOuterChips:
     name &= OuterChipFnameTemplate %% [$pd.runType]
+  of pkToTPerPixel:
+    name = ToTPerPixelFnameTemplate %% [runsStr,
+                                        $pd.chip]
   else:
     discard
   result = &"{prefix}/{name}.{filetype}"
@@ -457,7 +461,9 @@ proc buildTitle*(pd: PlotDescriptor): kstring =
   of pkFadcEvent:
     result = FadcEventTitleTemplate %% [runsStr,
                                       $pd.event]
-
+  of pkToTPerPixel:
+    result = ToTPerPixelTitleTemplate %% [runsStr,
+                                          $pd.chip]
   of pkSubPlots:
     result = ""
     for p in pd.plots:

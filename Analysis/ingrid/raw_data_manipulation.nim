@@ -8,17 +8,8 @@
 ## - caluclating the FADC signal depth / event histogram
 ## - calculate the ToT per pixel histogram
 ## standard lib
-import os, osproc, logging
-import sequtils, sugar
-import algorithm
-import tables
-import times
-import memfiles
-import strutils, strformat, parseutils
-import docopt
-import sets
-import macros
-#import nimprof
+import std / [os, osproc, logging, sequtils, sugar, algorithm, tables, times,
+              strutils, strformat]
 
 # InGrid-module
 import fadc_helpers
@@ -31,6 +22,7 @@ import seqmath
 import nimhdf5
 import arraymancer
 import parsetoml
+import docopt
 
 type
   RawFlagKind = enum

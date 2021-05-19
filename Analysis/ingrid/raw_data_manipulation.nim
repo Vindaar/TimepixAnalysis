@@ -77,6 +77,7 @@ Options:
                       file. By default runs found in the file will be skipped.
                       HOWEVER: overwriting is assumed, if you only hand a
                       run folder!
+  --config <path>     Path to the configuration file to use.
   -h --help           Show this help
   --version           Show version.
 
@@ -117,9 +118,12 @@ when isMainModule:
 template ch_len(): int = 2560
 template all_ch_len(): int = ch_len() * 4
 
-proc parseTomlConfig(): TomlValueRef =
-  const sourceDir = currentSourcePath().parentDir
-  result = parseToml.parseFile(sourceDir / "config.toml")
+proc parseTomlConfig(configFile: string): TomlValueRef =
+  if configFile.len == 0:
+    const sourceDir = currentSourcePath().parentDir
+    result = parseToml.parseFile(sourceDir / "config.toml")
+  else:
+    result = parseToml.parseFile(configFile)
 
 proc specialTypesAndEvKeys(): (hid_t, hid_t, array[7, string]) =
   let
@@ -983,7 +987,9 @@ proc createProcessedTpx3Run(data: seq[Tpx3Data]): ProcessedRun =
   #result.runHeader =
 
 proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string,
-                              flags: set[RawFlagKind], runType: RunTypeKind = rtNone) =
+                              flags: set[RawFlagKind],
+                              runType: RunTypeKind = rtNone,
+                              configFile: string) =
   ## proc to process and write a single run
   ## inputs:
   ##     h5f: var H5FileObj = mutable copy of the H5 file object to which we will write
@@ -993,7 +999,7 @@ proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string,
   var attrsWritten = false
   var nChips: int
   # parse config toml file
-  let cfgTable = parseTomlConfig()
+  let cfgTable = parseTomlConfig(configFile)
   let plotOutPath = cfgTable["RawData"]["plotDirectory"].getStr
 
 
@@ -1079,23 +1085,23 @@ proc handleTimepix1(folder: string, runType: RunTypeKind, outfile: string,
       case runType
       of rtCalibration:
         if rfIgnoreRunList in flags or runNumber.uint16 in oldTosCalibRuns:
-          processAndWriteSingleRun(h5f, folder, flags, runType)
+          processAndWriteSingleRun(h5f, folder, flags, runType, configFile)
         else:
           info &"Run {runNumber} with path {folder} is an invalid run for type {runType}!"
       of rtBackground:
         if rfIgnoreRunList in flags or runNumber.uint16 in oldTosBackRuns:
-          processAndWriteSingleRun(h5f, folder, flags, runType)
+          processAndWriteSingleRun(h5f, folder, flags, runType, configFile)
         else:
           info &"Run {runNumber} with path {folder} is an invalid run for type {runType}!"
       of rtXrayFinger:
         if rfIgnoreRunList in flags or runNumber.uint16 in oldTosXrayRuns:
-          processAndWriteSingleRun(h5f, folder, flags, runType)
+          processAndWriteSingleRun(h5f, folder, flags, runType, configFile)
         else:
           info &"Run {runNumber} with path {folder} is an invalid run for type {runType}!"
       else:
         info &"Run {runNumber} with path {folder} is invalid for type {runType}"
     of rfNewTos, rfSrsTos:
-      processAndWriteSingleRun(h5f, folder, flags, runType)
+      processAndWriteSingleRun(h5f, folder, flags, runType, configFile)
     else:
       raise newException(IOError, "Unknown run folder kind. Cannot read " &
         "events!")
@@ -1159,14 +1165,16 @@ proc handleTimepix1(folder: string, runType: RunTypeKind, outfile: string,
     logging.error "No run folder found in given path."
     quit()
 
-proc handleTimepix3(h5file: string, runType: RunTypeKind, outfile: string, flags: set[RawFlagKind]) =
+proc handleTimepix3(h5file: string, runType: RunTypeKind,
+                    outfile: string, flags: set[RawFlagKind],
+                    configFile: string) =
   ## handles converting a Timepix3 input file from tpx3-daq / basil format to required TPA format
   info "Converting Tpx3 data from " & $h5file & " and storing it in " & $outfile
   var h5fout = H5File(outfile, "rw")
 
   const nChips = 1 ## NOTE: so far we just use 1 chip for simplicity
   # parse config toml file
-  let cfgTable = parseTomlConfig()
+  let cfgTable = parseTomlConfig(configFile)
   let plotOutPath = cfgTable["RawData"]["plotDirectory"].getStr
 
   let plotDirPrefix = h5fout.genPlotDirname(plotOutPath, PlotDirRawPrefixAttr)
@@ -1218,6 +1226,8 @@ proc main() =
   #echo oldTosBackRuns
 
   let folder = $args["<folder>"]
+  let configFile = if $args["--config"] != "nil": $args["--config"]
+                   else: ""
   var runTypeStr = $args["--runType"]
   var runType: RunTypeKind
   var flags: set[RawFlagKind]
@@ -1240,9 +1250,9 @@ proc main() =
   let t0 = epochTime()
 
   if rfTpx3 notin flags:
-    handleTimepix1(folder, runType, outfile, flags)
+    handleTimepix1(folder, runType, outfile, flags, configFile)
   else:
-    handleTimepix3(tpx3File, runType, outfile, flags)
+    handleTimepix3(tpx3File, runType, outfile, flags, configFile)
 
   info "Processing all given runs took $# minutes" % $( (epochTime() - t0) / 60'f )
 

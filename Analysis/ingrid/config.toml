@@ -25,6 +25,7 @@ gasGainEnergyKind = "Individual"
 
 [RawData]
 plotDirectory = "out"
+tpx3ToACutoff = 50
 
 [Likelihood]
 # the signal efficiency to be used for the logL cut (percentage of X-rays of the

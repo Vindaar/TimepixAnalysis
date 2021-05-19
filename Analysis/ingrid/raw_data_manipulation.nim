@@ -976,10 +976,8 @@ proc processAndWriteFadc(run_folder: string, runNumber: int, h5f: var H5FileObj)
   readWriteFadcData(run_folder, runNumber, h5f)
   info "FADC took $# data" % $(getOccupiedMem() - mem1)
 
-proc createProcessedTpx3Run(data: seq[Tpx3Data]): ProcessedRun =
+proc createProcessedTpx3Run(data: seq[Tpx3Data], cutoff: int): ProcessedRun =
   # add new cluster if diff in time larger than 50 clock cycles
-  ## TODO: make config.toml adjustable?
-  const cutoff = 50
   result = computeTpx3RunParameters(data, clusterTimeCutoff = cutoff)
   result.nChips = 1 ## TODO: allow multiple chips, find out where to best read from input file
   result.chips = @[(name: "W15 E5", number: 0)]
@@ -1179,6 +1177,7 @@ proc handleTimepix3(h5file: string, runType: RunTypeKind,
   # parse config toml file
   let cfgTable = parseTomlConfig(configFile)
   let plotOutPath = cfgTable["RawData"]["plotDirectory"].getStr
+  let clusterCutoff = cfgTable["RawData"]["tpx3ToACutoff"].getInt
 
   let plotDirPrefix = h5fout.genPlotDirname(plotOutPath, PlotDirRawPrefixAttr)
 
@@ -1197,7 +1196,7 @@ proc handleTimepix3(h5file: string, runType: RunTypeKind,
     oldIdx += countIdx
     countIdx = if oldIdx + tpx3Buf < pixNum: tpx3Buf
                else: pixNum - oldIdx
-    let r = createProcessedTpx3Run(data)
+    let r = createProcessedTpx3Run(data, cutoff = clusterCutoff)
     if r.events.len > 0:
       if not attrsWritten:
         runNumber = r.runNumber

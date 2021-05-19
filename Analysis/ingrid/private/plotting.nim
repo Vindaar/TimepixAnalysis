@@ -5,13 +5,14 @@ to specific calibration steps (as the code in `../calibration/calib_plotting` is
 
 import ggplotnim, arraymancer, os, strformat
 
-proc plotOccupancy*[T](occ: Tensor[T], path: string, run, chip: int) =
+proc plotOccupancy*[T](occ: Tensor[T], path: string, run, chip: int,
+                       batchNum: int) =
   ## plots an occupancy plot and puts it to `fname`
   # Need to convert the given occupancy tensor to a DF first
   const NPix = 256
   echo "Creating directory: ", path.parentDir
   createDir(path)
-  let fname = path / &"occupancy_run_{run}_chip_{chip}.pdf"
+  let fname = path / &"occupancy_run_{run}_chip_{chip}_{batchNum}.pdf"
   echo "plotting occupancy!"
   var
     x = newTensorUninit[int](NPix * NPix)

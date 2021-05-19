@@ -65,11 +65,13 @@ Options:
   --eventDisplay=<run>   If given will show event displays of the given run.
   --server               If flag given, will launch client and send plots individually,
                          instead of creating all plots and dumping them.
-  --fadc                 If set no FADC plots will be created.
-  --ingrid               If set no InGrid plots will be created.
-  --occupancy            If set no occupancy plots will be created.
-  --polya                If set no polya plots will be created.
-  --fe_spec              If set no Fe spectrum will be created.
+  --fadc                 If set FADC plots will be created.
+  --ingrid               If set InGrid plots will be created.
+  --occupancy            If set occupancy plots will be created.
+  --polya                If set polya plots will be created.
+  --totPerPixel          If set totPerPixel plots will be created.
+  --fe_spec              If set Fe spectrum will be created.
+  --config <path>        Path to the TOML config file.
   -h, --help             Show this help
   --version              Show the version number
 """
@@ -142,6 +144,9 @@ var stopChannel: Channel[bool]
 var dpChannel: Channel[DataPacket]
 var serveNewClientCh: Channel[bool]
 
+# global storing the path to the config file
+var ConfigFile = "config.toml" # default in current dir
+
 # create directories, if not exist
 if not dirExists("logs"):
   createDir("logs")
@@ -198,8 +203,8 @@ proc savePlot(p: PlotV, outfile: string, fullPath = false) =
   var
     plotlySaveSvg = false
     mplShowPlots = false
-  if existsFile("config.toml"):
-    let tomlConfig = parseToml.parseFile("config.toml")
+  if existsFile(ConfigFile):
+    let tomlConfig = parseToml.parseFile(ConfigFile)
     plotlySaveSvg = tomlConfig["General"]["plotlySaveSvg"].getBool
     mplShowPlots = tomlConfig["General"]["mplShowPlots"].getBool
   var fname = outfile
@@ -340,7 +345,7 @@ proc applyConfig(fileInfo: var FileInfo) =
   ## filters / settings to the fileInfo object. This allows us to
   ## disable certain plots / configurations
   # get allowed chips from toml
-  let tomlConfig = parseToml.parseFile("config.toml")
+  let tomlConfig = parseToml.parseFile(ConfigFile)
   var chipSet: set[uint16]
   var runSet: set[uint16]
   # TODO: move elsewhere
@@ -1851,7 +1856,7 @@ proc handleOutput(basename: string, flags: set[ConfigFlagKind]): string =
   # startup of the program
   # TODO: when Org is used, we need to save all plots as SVG!
   result = basename
-  let tomlConfig = parseToml.parseFile("config.toml")
+  let tomlConfig = parseToml.parseFile(ConfigFile)
   let outfileKind = parseEnum[OutputFiletypeKind](
     tomlConfig["General"]["outputFormat"].getStr,
     ofUnknown
@@ -2229,10 +2234,13 @@ proc serve() =
 proc plotData*() =
   ## the main workhorse of the server end
   let args = docopt(doc)
+  if $args["--config"] != "nil":
+    ConfigFile = $args["--config"]
+
   info &"Received arguments:\n  {args}"
   let h5file = $args["<H5file>"]
   fileDir = genPlotDirName(h5file, "figs")
-  fileType = parseToml.parseFile("config.toml")["General"]["filetype"].getStr
+  fileType = parseToml.parseFile(ConfigFile)["General"]["filetype"].getStr
   discard existsOrCreateDir(fileDir)
   let runTypeStr = $args["--runType"]
   let backendStr = $args["--backend"]

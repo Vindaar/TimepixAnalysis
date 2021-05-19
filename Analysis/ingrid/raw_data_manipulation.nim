@@ -9,7 +9,7 @@
 ## - calculate the ToT per pixel histogram
 ## standard lib
 import std / [os, osproc, logging, sequtils, sugar, algorithm, tables, times,
-              strutils, strformat]
+              strutils, strformat, rdstdin]
 
 # InGrid-module
 import fadc_helpers
@@ -35,16 +35,18 @@ const FILE_BUFSIZE = 75_000
 ##############################
 # projectDefs contains `OldTosRunListPath` among others
 import projectDefs
-when fileExists(OldTosRunListPath):
-  let oldTosCalibRuns = parseOldTosRunlist(OldTosRunListPath, rtCalibration)
-  let oldTosBackRuns  = parseOldTosRunlist(OldTosRunListPath, rtBackground)
-  let oldTosXrayRuns  = parseOldTosRunlist(OldTosRunListPath, rtXrayFinger)
-else:
-  static:
-    hint("Compiling without 2014/15 run list")
-  const oldTosCalibRuns = ""
-  const oldTosBackRuns  = ""
-  const oldTosXrayRuns  = ""
+## TODO: this check is broken! Oh no, it's not broken, but if the binary is moved after compilation
+## the CT check is invalid!
+var
+  oldTosRunListFound = false
+  oldTosCalibRuns: set[uint16] = {}
+  oldTosBackRuns: set[uint16]  = {}
+  oldTosXrayRuns: set[uint16]  = {}
+if fileExists(OldTosRunListPath):
+  oldTosCalibRuns = parseOldTosRunlist(OldTosRunListPath, rtCalibration)
+  oldTosBackRuns  = parseOldTosRunlist(OldTosRunListPath, rtBackground)
+  oldTosXrayRuns  = parseOldTosRunlist(OldTosRunListPath, rtXrayFinger)
+  oldTosRunListFound = true
 
 const docStr = """
 InGrid raw data manipulation.
@@ -1037,7 +1039,18 @@ proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string,
   # TODO: write all other settings to file too? e.g. `nofadc`,
   # `ignoreRunList` etc?
 
-proc handleTimepix1(folder: string, runType: RunTypeKind, outfile: string, flags: set[RawFlagKind]) =
+proc askNoRunListContinue(): bool =
+  var buf: string
+  while true:
+    buf = readLineFromStdin("Do you want to continue? (Y/n)")
+    case buf.normalize
+    of "": return true
+    of "y", "yes": return true
+    of "n", "no": return false
+    else: continue
+
+proc handleTimepix1(folder: string, runType: RunTypeKind, outfile: string,
+                    flags: set[RawFlagKind], configFile: string) =
   # first check whether given folder is valid run folder
   let (is_run_folder, runNumber, rfKind, contains_run_folder) = isTosRunFolder(folder)
   info "Is run folder       : ", is_run_folder
@@ -1057,6 +1070,12 @@ proc handleTimepix1(folder: string, runType: RunTypeKind, outfile: string, flags
     var h5f = H5open(outfile, "rw")
     case rfKind
     of rfOldTos:
+      if not oldTosRunListFound:
+        warn "Old TOS run list was not found! Expected in " & OldTosRunListPath & "."
+        if not askNoRunListContinue():
+          # stopping without runlist
+          info "Stopping on user desire, due to missing old TOS runlist."
+          return
       case runType
       of rtCalibration:
         if rfIgnoreRunList in flags or runNumber.uint16 in oldTosCalibRuns:

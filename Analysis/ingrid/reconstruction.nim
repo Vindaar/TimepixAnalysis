@@ -85,6 +85,7 @@ Options:
   --only_fadc             If this flag is set, the reconstructed FADC data is used to calculate
                           FADC values such as rise and fall times among others, which are written
                           to the H5 file.
+  --config <path>         Path to the configuration file to use.
   -h --help               Show this help
   --version               Show version.
 """
@@ -633,12 +634,16 @@ proc applyCalibrationSteps(h5f: var H5FileObj,
       else:
         warn "No reconstructed run found for $#" % $grp
 
-proc parseTomlConfig(): (TomlValueRef, set[ConfigFlagKind]) =
+proc parseTomlConfig(configFile: string): (TomlValueRef, set[ConfigFlagKind]) =
   ## parses our config.toml file and returns a set of flags
   ## corresponding to different settings and the full toml table
   # TODO: concat together from `TpxDir`
-  const sourceDir = currentSourcePath().parentDir
-  let config = parseToml.parseFile(sourceDir / "config.toml")
+  var config: TomlValueRef
+  if configFile.len == 0:
+    const sourceDir = currentSourcePath().parentDir
+    config = parseToml.parseFile(sourceDir / "config.toml")
+  else:
+    config = parseToml.parseFile(configFile)
   var flags: set[ConfigFlagKind]
   if config["Calibration"]["showPlots"].getBool:
     flags.incl cfShowPlots
@@ -678,7 +683,8 @@ proc main() =
   let
     h5f_name = $args["<HDF5file>"]
     create_fe_arg = $args["--create_fe_spec"]
-
+    configFile = if $args["--config"] != "nil": $args["--config"]
+                 else: ""
   var
     flags: set[RecoFlagKind]
     runNumberArg = $args["--runNumber"]
@@ -703,7 +709,7 @@ proc main() =
   flags = flags + parseOnlyFlags(args)
 
   # parse config toml file
-  let (cfgTable, cfgFlags) = parseTomlConfig()
+  let (cfgTable, cfgFlags) = parseTomlConfig(configFile)
 
   let plotOutPath = cfgTable["Calibration"]["plotDirectory"].getStr
   var h5f = H5open(h5f_name, "rw")

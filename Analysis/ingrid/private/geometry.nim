@@ -388,7 +388,7 @@ proc isPixInSearchRadius[T: SomeInteger](p1, p2: Coord[T], search_r: int): bool 
     in_y = true
   result = if in_x == true and in_y == true: true else: false
 
-proc findSimpleCluster*[T: SomePix](pixels: seq[T]): seq[Cluster[T]] =
+proc findSimpleCluster*[T: SomePix](pixels: seq[T], searchRadius: int): seq[Cluster[T]] =
   ## this procedure searches for clusters based on a fixed search radius, whether
   ## a pixel is found within that boundary, e.g. searchRadius = 50:
   ## if within 50 pixels another pixel is found, add pixel to cluster, continue
@@ -411,11 +411,9 @@ proc findSimpleCluster*[T: SomePix](pixels: seq[T]): seq[Cluster[T]] =
 
   when defined(onlySingleCluster):
     let
-      search_r = 128
       cutoff_size = 1
   else:
     let
-      search_r = 50
       cutoff_size = 2
 
   # add the first pixel of the given sequence to have a starting pixel, from which we
@@ -425,9 +423,9 @@ proc findSimpleCluster*[T: SomePix](pixels: seq[T]): seq[Cluster[T]] =
   while raw_event.len > 0 and i < c.len:
     let p1: Coord[type(c[i].x)] = (x: c[i].x, y: c[i].y)
     # alternatively:
-    let t = raw_event.filterIt(isPixInSearchRadius(p1, (it.x, it.y), search_r))
+    let t = raw_event.filterIt(isPixInSearchRadius(p1, (it.x, it.y), searchRadius))
     #let t = filter(raw_event, (p: tuple[x, y: uint8, ch: uint16]) ->
-    #               bool => isPixInSearchRadius(p1, (p.x, p.y), search_r))
+    #               bool => isPixInSearchRadius(p1, (p.x, p.y), searchRadius))
 
     # add all found pixels to current cluster
     c = concat(c, t)
@@ -442,7 +440,7 @@ proc findSimpleCluster*[T: SomePix](pixels: seq[T]): seq[Cluster[T]] =
       if len(c) > cutoff_size:
         result.add(c)
       if len(raw_event) > cutoff_size:
-        result.add(findSimpleCluster(raw_event))
+        result.add(findSimpleCluster(raw_event, searchRadius))
     elif raw_event.len == 0 and len(c) > cutoff_size:
       result.add(c)
     inc i
@@ -542,12 +540,12 @@ proc recoCluster*[T: SomePix](c: Cluster[T]): ClusterObject[T] {.gcsafe, hijackM
   result.geometry = calcGeometry(c, result.centerX, result.centerY, rot_angle)
 
 proc recoEvent*[T: SomePix](dat: tuple[pixels: seq[T], eventNumber: int],
-                            chip, run: int): ref RecoEvent[T] {.gcsafe, hijackMe.} =
+                            chip, run, searchRadius: int): ref RecoEvent[T] {.gcsafe, hijackMe.} =
   result = new RecoEvent[T]
   result.event_number = dat.eventNumber
   result.chip_number = chip
   if dat[0].len > 0:
-    let cluster = findSimpleCluster(dat.pixels)
+    let cluster = findSimpleCluster(dat.pixels, searchRadius)
     result.cluster = newSeq[ClusterObject[T]](cluster.len)
     for i, cl in cluster:
       result.cluster[i] = recoCluster(cl)

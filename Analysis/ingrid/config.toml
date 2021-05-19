@@ -27,6 +27,10 @@ gasGainEnergyKind = "Individual"
 plotDirectory = "out"
 tpx3ToACutoff = 50
 
+[Reconstruction]
+# the search radius for the cluster finding algorithm in pixel
+searchRadius = 50
+
 [Likelihood]
 # the signal efficiency to be used for the logL cut (percentage of X-rays of the
 # reference distributions that will be recovered with the corresponding cut value)

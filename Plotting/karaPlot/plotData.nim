@@ -2276,5 +2276,7 @@ proc plotData*() =
   if cfProvideServer in flags:
     joinThread(thr)
 
+  echo "All plots were saved to:\n", fileDir
+
 when isMainModule:
   plotData()

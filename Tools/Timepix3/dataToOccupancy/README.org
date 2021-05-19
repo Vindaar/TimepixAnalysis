@@ -10,8 +10,6 @@ The following files are expected:
 -rwxr-xr-x  1 basti  43K May 18 18:23 libmpfit.so
 lrwxrwxrwx  1 basti   18 May 18 18:23 libnlopt.so -> libnlopt.so.0.10.0
 -rwxr-xr-x  1 basti 643K May 18 18:23 libnlopt.so.0.10.0
-drwxr-xr-x  2 basti 4.0K May 18 18:42 logs/
-drwxr-xr-x  7 basti 4.0K May 18 19:49 out/
 -rwxr-xr-x  1 basti 2.9M May 18 18:07 plotData
 -rw-r--r--  1 basti  631 May 18 17:38 plotData.toml
 -rwxr-xr-x  1 basti 2.1M May 18 19:17 raw_data_manipulation
@@ -53,7 +51,7 @@ These binaries can be compiled from the following source files:
 
   - Source file: /TimepixAnalysis/Tools/Timepix3/readTpx3RawTest.nim
   - Binary: readTpx3RawTest
-  - Compile command: nim c -d:danger --threads:on -d:blosc reconstruction.nim
+  - Compile command: nim c -d:danger --threads:on -d:blosc readTpx3RawTest.nim
 
   - Source file: /TimepixAnalysis/Plotting/karaPlot/plotData.nim
   - Binary: plotData

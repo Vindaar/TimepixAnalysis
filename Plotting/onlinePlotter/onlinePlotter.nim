@@ -143,7 +143,7 @@ proc initialReco(h5file: string, runNumber: int, chip: int): int =
   h5f.visit_file()
   var reco_run: seq[FlowVar[ref RecoEvent[Pix]]]
   for ch, pixdata in h5f.readDataFromH5(runNumber):
-    let reco = reconstructSingleChip(pixdata, runNumber, ch)
+    let reco = reconstructSingleChip(pixdata, runNumber, ch, searchRadius = 50)
     reco_run.add reco
     # set inital number of processed events for online plotter
     if ch == chip:
@@ -310,7 +310,8 @@ proc updateData(onPlt: var OnlinePlotter, h5f: var H5FileObj,
         pixData.add (pix, ev)
       let reco = reconstructSingleChip(pixdata,
                                        onPlt.runNumber,
-                                       onPlt.chip)
+                                       onPlt.chip,
+                                       searchRadius = 50)
         .mapIt((^it)[])
       # still need to write back to H5 file
       writeNewEvents(onPlt, h5f, reco)

@@ -11,6 +11,10 @@ import ws
 import asynchttpserver, asyncnet
 import protocol
 
+## NOTE:
+## If you get {.gcsafe.} compile time errors, compile with `--threadAnalysis:off`
+## to get rid of them...
+
 # - read all files already in folder
 # - keep monitoring directory for more files to be added
 

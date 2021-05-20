@@ -405,31 +405,23 @@ proc serve() =
     "../../Tools/karaRun/karaRun" "-d:release -r client.nim"
   waitFor server.serveClient()
 
-proc watcher(path: string) {.gcsafe.} =
+proc watcher(path: string) =
   var
     monitor = newMonitor()
   monitor.add(path, {MonitorCreate})
-  #monitor.register(
-  proc handle(ev: MonitorEvent) =
-    case ev.kind
-    of MonitorCreate:
-      # file created, check valid event file
-      let evNum = ev.name.getEvNum
-
-      if evNum.isSome:
-        eventChannel.send InGridFile(fname: path / ev.name, evNumber: evNum.get)
-        echo "New data available!"
-    else: discard
-
-  while true:
-    let fut = monitor.read()
-    while not fut.finished():
-      sleep(50)
-    #for cb in monitor.handleEvents:
-    for action in fut.read():
-      handle(action)
-  #monitor.watch()
-  #runForever()
+  monitor.register(
+    proc (ev: MonitorEvent) {.gcsafe.} =
+      case ev.kind
+      of MonitorCreate:
+        # file created, check valid event file
+        let evNum = ev.name.getEvNum
+        if evNum.isSome:
+          eventChannel.send InGridFile(fname: path / ev.name, evNumber: evNum.get)
+          echo "New data available!"
+      else: discard
+  )
+  monitor.watch()
+  runForever()
 
 proc worker(h5file, path: string,
             runNumber, chip: int,

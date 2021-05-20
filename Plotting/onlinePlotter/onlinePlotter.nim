@@ -256,21 +256,22 @@ proc writeNewEvents(onPlt: var OnlinePlotter,
   let oldsize = xD.shape[0]
   # use event sequence length to get number of clusters
   let numClusters = ev.len
-  let newsize = oldSize + numClusters
-  echo "Old size ", oldsize, " newsize ", newsize, " last ev ", ev[^1]
-  xD.resize((newsize, 1))
-  yD.resize((newsize, 1))
-  chD.resize((newsize, 1))
-  evD.resize((newsize, 1))
-  hitsD.resize((newsize, 1))
-  xD.write_hyperslab(x, offset = @[oldsize, 0], count = @[numClusters, 1])
-  yD.write_hyperslab(y, offset = @[oldsize, 0], count = @[numClusters, 1])
-  chD.write_hyperslab(ch, offset = @[oldsize, 0], count = @[numClusters, 1])
-  evD.write_hyperslab(ev, offset = @[oldsize, 0], count = @[numClusters, 1])
-  hitsD.write_hyperslab(hits, offset = @[oldsize, 0], count = @[numClusters, 1])
+  if numClusters > 0:
+    let newsize = oldSize + numClusters
+    echo "Old size ", oldsize, " newsize ", newsize, " last ev ", ev[^1]
+    xD.resize((newsize, 1))
+    yD.resize((newsize, 1))
+    chD.resize((newsize, 1))
+    evD.resize((newsize, 1))
+    hitsD.resize((newsize, 1))
+    xD.write_hyperslab(x, offset = @[oldsize, 0], count = @[numClusters, 1])
+    yD.write_hyperslab(y, offset = @[oldsize, 0], count = @[numClusters, 1])
+    chD.write_hyperslab(ch, offset = @[oldsize, 0], count = @[numClusters, 1])
+    evD.write_hyperslab(ev, offset = @[oldsize, 0], count = @[numClusters, 1])
+    hitsD.write_hyperslab(hits, offset = @[oldsize, 0], count = @[numClusters, 1])
 
-  # set max index
-  onPlt.numReco = newsize
+    # set max index
+    onPlt.numReco = newsize
 
 proc updateData(onPlt: var OnlinePlotter, h5f: var H5FileObj,
                 rfKind: RunFolderKind) =

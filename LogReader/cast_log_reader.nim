@@ -620,7 +620,7 @@ proc read_sc_log_folder(log_folder: string) =
     echo firstDate
     echo lastDate
     let nRowsActive = dfDir.filter(f{c"B / T" > 8.0}).len
-    echo &"Magnet was turned on for: {nRowsActive.float / 60.0} h between " &
+    echo &"Magnet was turned on for (> 8 T): {nRowsActive.float / 60.0} h between " &
          &"{$firstDate} and {$lastDate}."
 
   print_slow_control_logs(scLogs)

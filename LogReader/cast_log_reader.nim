@@ -503,13 +503,15 @@ proc print_tracking_logs(logs: seq[TrackingLog], print_type: TrackingKind, sorte
     echo &"There are {s_logs.len} runs without solar tracking found in the log file directory"
 
   # compute total time magnet was on
-  var sumB: int
-  for log in logs:
-    for i in 1 ..< log.timestamps.len:
-      let diff = log.timestamps[i] - log.timestamps[i-1]
-      if log.magB[i] > 0.0:
-        sumB = sumB + diff
-  echo &"Total time the magnet was on (> 1 T): {sumB.float / 60.0} h"
+  when false:
+    ## NOTE: this is wrong for modern tracking logs!
+    var sumB: int
+    for log in logs:
+      for i in 1 ..< log.timestamps.len:
+        let diff = log.timestamps[i] - log.timestamps[i-1]
+        if log.magB[i] > 8.0:
+          sumB = sumB + diff
+    echo &"Total time the magnet was on (> 1 T): {sumB.float / 60.0} h"
 
 proc print_slow_control_logs(logs: seq[SlowControlLog]) =
   ## proc to pretty print useful information about the Slow Control data

@@ -325,31 +325,34 @@ proc read_sc_logfile(filename: string): SlowControlLog =
     vme_i = 107
 
   result = newSlowControlLog()
-  var count = 0
   ## NOTE: instead of parsing manually, we could in principle also use
   ## ggplotnim's `read_csv` to parse it into a df!
+  var parsedDate = false
   for line in lines(filename):
     # skip the first line (header)
     if line.startsWith("#"):
       continue
     elif line.strip.startsWith("DATE"):
-      inc count
-      continue
+      continue # skip actual header
     elif line.len == 0:
       # indicates we reached end of file, empty line
       break
 
     # else add the data to the SlowControlLog object
     let d = line.splitWhitespace
-    if count == 1:
+    if not parsedDate and not line.strip.startsWith("DATE"):
       # set date based on first row
       try:
         result.date = toTime(parse(d[date_i], "MM/dd/yyyy"))
+        parsedDate = true
+        if result.date.utc().year == 1970:
+          echo "fuck this file: ", filename
+          quit()
       except TimeParseError:
         echo "Failed to parse the following date line: ", d[date_i]
         echo "Full line: ", d
-        echo "At index ", count
         echo "In file ", filename
+        quit()
     if d.len > 107:
       ## NOTE: there are a number of lines in a few files with miss
       ## some colums. E.g.

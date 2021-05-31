@@ -29,6 +29,7 @@ in the HDF5 dependency.
 
 Usage:
   cast_log_reader --sc <path> [options]
+  cast_log_reader --sc <path> --magnetField <B> [options]
   cast_log_reader --tracking <path> [options]
   cast_log_reader --sc <sc_log> --tracking <tracking_log> [options]
   cast_log_reader <h5file> --delete
@@ -37,6 +38,7 @@ Usage:
 Options:
   --sc <sc_log>               Path to slow control log file
   --tracking <tracking_log>   Path to tracking log file
+  --magnetField <B>           Strength of magnetic field for determination of magnet on time.
   --h5out <h5file>            Path to a H5 file, which contains InGrid
                               data for the tracking logs currently being
                               read. Used to store run start / end times.
@@ -513,7 +515,7 @@ proc print_tracking_logs(logs: seq[TrackingLog], print_type: TrackingKind, sorte
           sumB = sumB + diff
     echo &"Total time the magnet was on (> 1 T): {sumB.float / 60.0} h"
 
-proc print_slow_control_logs(logs: seq[SlowControlLog]) =
+proc print_slow_control_logs(logs: seq[SlowControlLog], magnetField = 8.0) =
   ## proc to pretty print useful information about the Slow Control data
   ## Mainly related to magnet activity.
   # compute total time magnet was on, here we do it based on difference between last and this
@@ -528,9 +530,9 @@ proc print_slow_control_logs(logs: seq[SlowControlLog]) =
       let curTime = log.date + log.times[i]
       let diff = (curTime - oldTime)
       Tdiffs.add(diff.inSeconds().int)
-      if log.B_magnet[i] > 1.0: # and log.B_magnet[i-1] > 8.0:
+      if log.B_magnet[i] > magnetField:
         sumB = sumB + diff
-      elif log.B_magnet[i] > 0.0 and log.B_magnet[i] < 1.0:
+      elif log.B_magnet[i] > 0.0 and log.B_magnet[i] < magnetField:
         Bvals.add log.B_magnet[i]
       oldTime = curTime
 
@@ -542,7 +544,7 @@ proc print_slow_control_logs(logs: seq[SlowControlLog]) =
   ggplot(dfT, aes("Tdiff")) + geom_histogram(bins = 100) +
     scale_y_continuous() + scale_x_continuous() +
     ggsave("/tmp/T_diffs.pdf")
-  echo &"Total time the magnet was on (> 1 T): {sumB.inHours()} h"
+  echo &"Total time the magnet was on (> {magnetField} T): {sumB.inHours()} h"
 
 proc read_tracking_log_folder(log_folder: string): seq[TrackingLog] =
   ## reads all log files from `log_folder` and returns a tuple of sorted `TrackingLog`
@@ -573,7 +575,7 @@ proc read_tracking_log_folder(log_folder: string): seq[TrackingLog] =
 
   result = sortTrackingLogs(tracking_logs)
 
-proc read_sc_log_folder(log_folder: string) =
+proc read_sc_log_folder(log_folder: string, magnetField = 8.0) =
   ## reads all slow contro log files from `log_folder` and (at the moment)
   ## determines the time the magnet was turned on in total during the time
   ## covered in all the log files in the folder.
@@ -619,16 +621,18 @@ proc read_sc_log_folder(log_folder: string) =
     let lastDate = fromUnix(dfDir["Date"][dfDir.high, int] + dfDir["Time / s"][dfDir.high, int])
     echo firstDate
     echo lastDate
-    let nRowsActive = dfDir.filter(f{c"B / T" > 8.0}).len
-    echo &"Magnet was turned on for (> 8 T): {nRowsActive.float / 60.0} h between " &
-         &"{$firstDate} and {$lastDate}."
+    let nRowsActive = dfDir.filter(f{float: c"B / T" > magnetField}).len
+    echo &"Magnet was turned on for (> {magnetField} T): {nRowsActive.float / 60.0} h between " &
+         &"{$firstDate} and {$lastDate} based on number of rows (assuming 1 row == 60 s)."
 
-  print_slow_control_logs(scLogs)
+  print_slow_control_logs(scLogs, magnetField)
 
-proc process_log_folder(folder: string, logKind: LogFileKind,  h5file = "") =
+proc process_log_folder(folder: string, logKind: LogFileKind,
+                        h5file = "",
+                        magnetField = 8.0) =
   case logKind
   of lkSlowControl:
-    read_sc_log_folder(folder)
+    read_sc_log_folder(folder, magnetField = magnetField)
   of lkTracking:
     let
       tracking_logs = read_tracking_log_folder(folder)
@@ -658,6 +662,8 @@ when isMainModule:
   let scPath = $args["--sc"]
   let trackingPath = $args["--tracking"]
   if scPath.len > 0 and scPath != "nil":
+    let B_field = if $args["--magnetField"] != "nil": ($args["--magnetField"]).parseFloat
+                  else: 8.0
     # check whether actual log file (extension fits)
     let (dir, fn, ext) = splitFile(scPath)
     if ext == ".daq":
@@ -668,7 +674,7 @@ when isMainModule:
     else:
       doAssert ext.len == 0, "Invalid slow control with extension " & $ext &
         ". Instead we expect .daq"
-      process_log_folder(scPath, lkSlowControl, h5file)
+      process_log_folder(scPath, lkSlowControl, h5file, B_field)
   elif trackingPath.len > 0 and trackingPath != "nil":
     # check whether actual log file (extension fits)
     let (dir, fn, ext) = splitFile(trackingPath)

@@ -519,11 +519,29 @@ proc print_slow_control_logs(logs: seq[SlowControlLog]) =
   # compute total time magnet was on, here we do it based on difference between last and this
   # timestamp. Then add that diff if magnet is on now.
   var sumB: Duration
-  for log in logs:
+  var Bvals = newSeq[float]()
+  var Tdiffs = newSeq[int]()
+  let sortedLogs = logs.sortedByIt(it.date)
+  var oldTime = sortedLogs[0].date + sortedLogs[0].times[0]
+  for log in sortedLogs:
     for i in 1 ..< log.times.len:
-      let diff = log.times[i] - log.times[i-1]
-      if log.B_magnet[i] > 0.0:
+      let curTime = log.date + log.times[i]
+      let diff = (curTime - oldTime)
+      Tdiffs.add(diff.inSeconds().int)
+      if log.B_magnet[i] > 1.0: # and log.B_magnet[i-1] > 8.0:
         sumB = sumB + diff
+      elif log.B_magnet[i] > 0.0 and log.B_magnet[i] < 1.0:
+        Bvals.add log.B_magnet[i]
+      oldTime = curTime
+
+  let df = seqsToDf({"B" : Bvals})
+  ggplot(df, aes("B")) + geom_histogram(bins = 100) + ggsave("/tmp/B_field_larger_0.pdf")
+  let dfT = seqsToDf({"Tdiff" : Tdiffs})
+    .filter(f{`Tdiff` > 0.1 and `Tdiff` < 500.0})
+  echo dfT
+  ggplot(dfT, aes("Tdiff")) + geom_histogram(bins = 100) +
+    scale_y_continuous() + scale_x_continuous() +
+    ggsave("/tmp/T_diffs.pdf")
   echo &"Total time the magnet was on (> 1 T): {sumB.inHours()} h"
 
 proc read_tracking_log_folder(log_folder: string): seq[TrackingLog] =

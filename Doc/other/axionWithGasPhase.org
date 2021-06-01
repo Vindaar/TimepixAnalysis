@@ -8,6 +8,9 @@
 #+LATEX_HEADER: \usepackage{xeCJK}
 
 #+LATEX_HEADER: \usepackage{siunitx}
+# \bar does not exist in siunitx anymore, cause it was removed by the
+# BIPM??
+#+LATEX_HEADER: \DeclareSIUnit\bar{\text{bar}}
 #+LATEX_HEADER: \usepackage{amsmath}
 #+LATEX_HEADER: \usepackage{mhchem}
 # make the margin on the sides smaller
@@ -494,12 +497,12 @@ parse the table above. The raw data is also stored in
 We will now parse it into a dataframe and then drop all values outside
 the range of the energies we consider:
 #+BEGIN_SRC nim
-const massAttenuationFile = "mass_attenuation_nist_data.txt"
+const massAttenuationFile = "../../resources/mass_attenuation_nist_data.txt"
 # skip one line after header, second header line
-var dfMuRhoTab = toDf(readCsv(massAttenuationFile, skipLines = 1, sep = ' '))
+var dfMuRhoTab = toDf(readCsv(massAttenuationFile, skipLines = 1, sep = ' ', header = "#"))
   # convert MeV energy to keV
-  .mutate(f{"Energy" ~ "Energy" * 1000.0})
-  .filter(f{"Energy" >= energies.min and "Energy" <= energies.max})
+  .mutate(f{"Energy" ~ `Energy` * 1000.0})
+  .filter(f{float: `Energy` >= energies.min and `Energy` <= energies.max})
 #+END_SRC
 which leaves us with the following table of values
 tab. [[filtered_mass_attenuation_values]]:
@@ -530,8 +533,8 @@ let dfMuRhoInterp = seqsToDf({ "E / keV" : energies,
                                "mu/rho" : muOverRho, 
                                "log(mu/rho)" : logMuOverRho})
 # rename the columns of the tabulated values df and create a log column
-dfMuRhoTab = dfMuRhoTab.rename(f{"E / keV" ~ "Energy"})
-  .mutate(f{"log(mu/rho)" ~ ln("mu/rho")})
+dfMuRhoTab = dfMuRhoTab.rename(f{"E / keV" <- "Energy"})
+  .mutate(f{float: "log(mu/rho)" ~ ln(c"mu/rho")})
 # build combined DF
 let dfMuRho = bind_rows([("Interpolation", dfMuRhoInterp), 
                          ("NIST", dfMuRhoTab)], 
@@ -539,15 +542,15 @@ let dfMuRho = bind_rows([("Interpolation", dfMuRhoInterp),
 echo dfMuRho
 # create plot of log values
 ggplot(dfMuRho, aes("E / keV", "log(mu/rho)", color = "type")) + 
-  geom_line(data = dfMuRho.filter(f{"type" == "Interpolation"})) +
-  geom_point(data = dfMuRho.filter(f{"type" == "NIST"})) +
+  geom_line(data = dfMuRho.filter(f{`type` == "Interpolation"})) +
+  geom_point(data = dfMuRho.filter(f{`type` == "NIST"})) +
   ggtitle("Mass attenuation coefficient interpolation and data") +
   ggsave("log_mass_attenuation_function.pdf")
 
 # and the plot of the raw mu/rho values
 ggplot(dfMuRho, aes("E / keV", "mu/rho", color = "type")) + 
-  geom_line(data = dfMuRho.filter(f{"type" == "Interpolation"})) +
-  geom_point(data = dfMuRho.filter(f{"type" == "NIST"})) +
+  geom_line(data = dfMuRho.filter(f{`type` == "Interpolation"})) +
+  geom_point(data = dfMuRho.filter(f{`type` == "NIST"})) +
   scale_y_log10() +
   ggtitle("Mass attenuation coefficient interpolation and data") +
   ggsave("mass_attenuation_function.pdf")
@@ -957,7 +960,7 @@ let pressuresFine = logspace(-6.0, 2.0, 1000)
 let gammasFine = pressuresFine.mapIt(attenuationLength(it))
 let mgammasFine = pressuresFine.mapIt(babyIaxoEffMass(it))
 var fwhmFine: seq[float]
-if false:
+when true:
   # NOTE: set to `true` if you want to recreate the fits and plots!
   for i in 0 ..< pressuresFine.len:
     let (p, pResI) = fitToConvProb(gammasFine[i], mgammasFine[i], 
@@ -967,11 +970,11 @@ if false:
 #+END_SRC
 and now create the plot relating the pressure to the FWHM:
 #+BEGIN_SRC nim
-if false:
+when true:
   # NOTE: set to `true` if you want to redo these calculations
   var dfFwhm = seqsToDf({ "Pressure / mbar" : pressuresFine, 
                           "FWHM / eV" : fwhmFine })
-  dfFwhm = dfFwhm.mutate(f{"FWHM / eV" ~ abs("FWHM / eV")})
+  dfFwhm = dfFwhm.mutate(f{float: "FWHM / eV" ~ abs(`FWHM / eV`)})
   ggplot(dfFwhm, aes("Pressure / mbar", "FWHM / eV")) + 
     geom_point() +
     ylab(margin = 1.5) +
@@ -980,7 +983,7 @@ if false:
     ggtitle("FWHM / eV of a->gamma probability depending on pressure / mbar") +
     ggsave("fwhm_vs_pressure_full_loglog.pdf")
   # and a subset filtered to above 0.01 mbar in linear 
-  dfFwhm = dfFwhm.filter(f{"Pressure / mbar" > 0.01})
+  dfFwhm = dfFwhm.filter(f{float: `Pressure / mbar` > 0.01})
   ggplot(dfFwhm, aes("Pressure / mbar", "FWHM / eV")) + 
     geom_point() +
     scale_y_log10() + 
@@ -995,7 +998,7 @@ if false:
 
 # finally write the data to a file
 proc writeCsv(pressures, gammas, mgammas, fwhm: seq[float])
-if false:
+when true:
   writeCsv(pressuresFine, gammasFine, mgammasFine, fwhmFine)
 #+END_SRC
 
@@ -1235,7 +1238,8 @@ Let's calculate how large that suppression is and check how much
 intensity is lost after $\SI{5}{\meter}$ at $\SI{1000}{\milli\bar}$ and
 $\SI{293.15}{\kelvin}$ for all energies $\SIrange{0}{10}{\keV}$:
 #+BEGIN_SRC nim
-proc calcFilledBeamline(length = 5.0): DataFrame = 
+proc calcFilledBeamline(length: float, energies: seq[float], 
+                        toPlot = true): DataFrame = 
   ## calculates the X-ray suppression of a beamline filled with gas at
   ## `1 bar`, `293.15 K` of `5 m` (default) length
   # take intensity suppression as is, assumes incoming intensity is `1`
@@ -1243,13 +1247,14 @@ proc calcFilledBeamline(length = 5.0): DataFrame =
   let intensities = energies.mapIt(intensitySuppression(it, length, p))
   result = seqsToDf({ "E / keV" : energies, 
                       "Transmission" : intensities })
-  ggplot(result, aes("E / keV", "Transmission")) + 
-    geom_line() + 
-    ggtitle(&"Transmission after {length} m of He at 1 bar, 293.15 K") +
-    ggsave(&"transmission_beamline_he_{length}_m.pdf")
+  if toPlot:
+    ggplot(result, aes("E / keV", "Transmission")) + 
+      geom_line() + 
+      ggtitle(&"Transmission after {length} m of He at 1 bar, 293.15 K") +
+      ggsave(&"transmission_beamline_he_{length}_m.pdf")
 
-let df5m = calcFilledBeamline(5.0)
-let df7_5m = calcFilledBeamline(7.5)
+let df5m = calcFilledBeamline(5.0, energies)
+let df7_5m = calcFilledBeamline(7.5, energies)
 echo "\n\n\n"
 echo df5m.tail(10)
 echo df7_5m.tail(10)
@@ -1281,26 +1286,40 @@ is [[file:polypropylene_window_10micron.txt]].
 proc transmissionsPlusSpectrum =
   ## creates a plot of the expected transmissions for filled beamlines,
   ## the polypropylene window and the axion electron spectrum.
-  let polypropDf = toDf(readCsv("polypropylene_window_10micron.txt", sep = ' ', skipLines = 1)).
-    mutate(f{"E / keV" ~ "Energy/eV" / 1000.0})
-  let gaeDf = toDf(readCsv("axion_gae_flux.dat", sep = ' ', skipLines = 9)).
-    rename(f{"E / keV" ~ "Energy/keV"}).
-    mutate(f{"Phi" ~ "Phi" / max("Phi") * 100.0}).
-    filter(f{"E / keV" <= 10.0})
-  # now generate a plot of E vs vals for each of the 4 datasets as one.
-  let fullDf = bind_rows([("Axion-Electron flux", gaeDf), 
-                          ("10 µm PP", polypropDf),
-                          ("5 m He", df5m),
-                          ("7.5 m He", df7_5m),], 
-                         id = "Setup").
-    select("Setup", "E / keV", "Phi", "Transmission").
-    mutate(f{"Transmission" ~ "Transmission" * 100.0})
-  ggplot(fullDf.filter(f{"Setup" != "Axion-Electron flux"}), aes(x = "E / keV", y = "Transmission")) + 
+  let polypropDf = toDf(readCsv("../../resources/polypropylene_window_10micron.txt", sep = ' ', skipLines = 1,
+                                header = "#"))
+    .mutate(f{float: "E / keV" ~ c"Energy/eV" / 1000.0})
+    .rename(f{"10 µm PP" <- "Transmission"})
+  # now using the `polyPropDf` energies, calculate the data frames for the He losses, so that
+  # we have the exact same energies and we can easily multiply them afterwards
+  let energiesPP = polyPropDf["E / keV", float].toRawSeq
+  let df5m = calcFilledBeamline(5.0, energiesPP).rename(f{"5 m He" <- "Transmission"})
+  let df7_5m = calcFilledBeamline(7.5, energiesPP).rename(f{"7.5 m He" <- "Transmission"})
+  # do an ugly multi join
+  var dfPPHe = inner_join(polyPropDf, df5m, by = "E / keV").innerJoin(df7_5m, by = "E / keV")
+  # finally add polyProp * He 
+  dfPPHe = dfPPHe.mutate(f{"5mHe+PP" ~ c"10 µm PP" * c"5 m He"},
+                         f{"7.5mHe+PP" ~ c"10 µm PP" * c"7.5 m He"})
+    .gather(["10 µm PP", "5 m He", "5mHe+PP", "7.5 m He", "7.5mHe+PP"], 
+            key = "Setup", value = "Transmission")
+  let gaeDf = toDf(readCsv("../../resources/axion_gae_flux.dat", sep = ' ', skipLines = 9, header = "#"))
+    .rename(f{"E / keV" <- "Energy/keV"})
+    .mutate(f{float: "Phi" ~ `Phi` / max(`Phi`) * 100.0})
+    .filter(f{float: c"E / keV" <= 10.0})
+  var fullDf = bind_rows([("Axion-Electron flux", gaeDf),
+                          ("Setups", dfPPHe)],
+                         id = "Type")
+    .select("Type", "E / keV", "Phi", "Transmission", "Setup")
+    # `Transmission` contains many `VNull` values, math w/ `Value`
+    .mutate(f{Value -> Value: "Transmission" ~ `Transmission` * (%~ 100.0)})
+  ggplot(fullDf.filter(f{string: `Type` != "Axion-Electron flux"}),
+         aes(x = "E / keV", y = "Transmission")) + 
     geom_line(aes(color = "Setup")) +
     geom_line(aes(x = "E / keV", y = "Phi"),
-              data = fullDf.filter(f{"Setup" == "Axion-Electron flux"})) +
+              data = fullDf.filter(f{string: `Type` == "Axion-Electron flux"})) +
     scale_y_continuous("Transmission / %", secAxis = secAxis(name = "Axion flux / a.u.")) +
     legend_position(x = 0.88, y = 0.1) +
+    #xlim(0.0, 3.0, outsideRange = "drop") + 
     ggtitle("Comparison of He filled beamline (1 bar, 293 K) and 10 µm window") +
     ggsave("window_he_transmissions_axion_flux.pdf", width = 853, height = 480)
 
@@ -1409,7 +1428,9 @@ proc vacuumConvProbPlot(useApprox = false) =
     scale_y_log10() +
     ggsave(outname)
 vacuumConvProbPlot()
-vacuumConvProbPlot(useApprox = true)
+# The below results in negative values for the probability, which breaks the 
+# log log plot. Why negative from approximation?
+#vacuumConvProbPlot(useApprox = true)
 #+END_SRC
 
 The resulting vacuum conversion probability plot is shown in
@@ -1555,7 +1576,7 @@ proc gasStepsPlot(massLhs, massRhs: tuple[name: string, m: float], title = "",
                        id = "case")
   if filterMass.isSome:
     let fm = filterMass.get
-    dfComb = dfComb.filter(f{"m_a / eV" >= fm.low and "m_a / eV" <= fm.high})
+    dfComb = dfComb.filter(f{float: c"m_a / eV" >= fm.low and c"m_a / eV" <= fm.high})
   var plt = ggplot(dfComb, aes("m_a / eV", "P_a->gamma", color = "case")) + 
     geom_line() +
     scale_y_log10() +
@@ -1603,22 +1624,24 @@ proc findMassAtFwhm(m_a: float, cmpWithMassless = true): float =
   result = params[0] 
   opt.destroy()
 
-let mstep1 = findMassAtFwhm(babyIaxoVacuumMassLimit)
-let mstep2 = findMassAtFwhm(mstep1, cmpWithMassless = false)
+when true:
+  let mstep1 = findMassAtFwhm(babyIaxoVacuumMassLimit)
+  let mstep2 = findMassAtFwhm(mstep1, cmpWithMassless = false)
 #+END_SRC
 
 Finally generate the plots from the calculation:
 #+BEGIN_SRC nim
-echo "\n\n------------------------------\n\n"
-proc toPressureDiff(m1, m2: float, T = 4.2): float
-let pdiffVacStep1 = toPressureDiff(mstep1, babyIaxoVacuumMassLimit)
-gasStepsPlot((name: "1st He step", m: mstep1), 
-             massRhs = (name: "", m: 0.0),
-             title = &"First buffer gas step; match at FWHM, ΔP = {pdiffVacStep1:.4f} mbar (@ 4.2 K)")
-let pdiffFirst2Steps = toPressureDiff(mstep1, mstep2)
-gasStepsPlot((name: "2nd He step", m: mstep2), 
-             (name: "1st He step", m: mstep1),
-             title = &"First two He steps, each match at FWHM, ΔP = {pdiffFirst2Steps:.4f} mbar (@ 4.2 K)")
+when true:
+  echo "\n\n------------------------------\n\n"
+  proc toPressureDiff(m1, m2: float, T = 4.2): float
+  let pdiffVacStep1 = toPressureDiff(mstep1, babyIaxoVacuumMassLimit)
+  gasStepsPlot((name: "1st He step", m: mstep1), 
+               massRhs = (name: "", m: 0.0),
+               title = &"First buffer gas step; match at FWHM, ΔP = {pdiffVacStep1:.4f} mbar (@ 4.2 K)")
+  let pdiffFirst2Steps = toPressureDiff(mstep1, mstep2)
+  gasStepsPlot((name: "2nd He step", m: mstep2), 
+               (name: "1st He step", m: mstep1),
+               title = &"First two He steps, each match at FWHM, ΔP = {pdiffFirst2Steps:.4f} mbar (@ 4.2 K)")
 #+END_SRC
 
 The first gas buffer step is shown in figure [[plot_first_he_step]]. We
@@ -1674,20 +1697,21 @@ proc toPressureDiff(m1, m2: float, T = 4.2): float =
 #+BEGIN_SRC nim
 
 # 1 bar
-let mstep1Bar = findMassAtFwhm(m_gamma_1bar, cmpWithMassless = false)
-let pdiff1bar = toPressureDiff(m_gamma_1bar, mstep1Bar)
-gasStepsPlot((name: "Step 1", m: m_gamma_1_bar), 
-             (name: "Step 2", m: mstep1Bar), 
-             title = &"Two steps at 1 bar (@ 293 K) pressure, ΔP = {pdiff1bar:.4f} mbar (@ 4.2 K)",
-             filterMass = some((low: 0.22, high: 0.2999)))
-#
-### 3 bar
-let mstep3Bar = findMassAtFwhm(m_gamma_3bar, cmpWithMassless = false)
-let pdiff3bar = toPressureDiff(m_gamma_3bar, mstep3Bar)
-gasStepsPlot((name: "Step 1", m: m_gamma_3_bar), 
-             (name: "Step 2", m: mstep3Bar), 
-             title = &"Two steps at 3 bar (@ 293 K) pressure, ΔP = {pdiff3bar:.4f} mbar (@ 4.2 K)",
-             filterMass = some((low: 0.42, high: 0.48)))
+when true:
+  let mstep1Bar = findMassAtFwhm(m_gamma_1bar, cmpWithMassless = false)
+  let pdiff1bar = toPressureDiff(m_gamma_1bar, mstep1Bar)
+  gasStepsPlot((name: "Step 1", m: m_gamma_1_bar), 
+               (name: "Step 2", m: mstep1Bar), 
+               title = &"Two steps at 1 bar (@ 293 K) pressure, ΔP = {pdiff1bar:.4f} mbar (@ 4.2 K)",
+               filterMass = some((low: 0.22, high: 0.2999)))
+  #
+  ### 3 bar
+  let mstep3Bar = findMassAtFwhm(m_gamma_3bar, cmpWithMassless = false)
+  let pdiff3bar = toPressureDiff(m_gamma_3bar, mstep3Bar)
+  gasStepsPlot((name: "Step 1", m: m_gamma_3_bar), 
+               (name: "Step 2", m: mstep3Bar), 
+               title = &"Two steps at 3 bar (@ 293 K) pressure, ΔP = {pdiff3bar:.4f} mbar (@ 4.2 K)",
+               filterMass = some((low: 0.42, high: 0.48)))
 #+END_SRC
 
 The step difference near $\SI{1}{\bar}$ at $T = \SI{293.15}{\kelvin}$
@@ -1741,8 +1765,9 @@ proc m_a_vs_density(pstart, pstop: float) =
     ggtitle("Sensitive axion mass in eV depending on helium density in g / cm^3") +
     ggsave("m_a_vs_density.pdf")
 
-m_a_vs_density(pressureGivenEffPhotonMass(babyIaxoVacuumMassLimit) * 0.9,
-               pressureGivenEffPhotonMass(mstep3Bar) * 1.1)
+when true:
+  m_a_vs_density(pressureGivenEffPhotonMass(babyIaxoVacuumMassLimit) * 0.9,
+                 pressureGivenEffPhotonMass(mstep3Bar) * 1.1)
 #+END_SRC
 
 The final plot then is the dependency of the axion mass $m_a$ against

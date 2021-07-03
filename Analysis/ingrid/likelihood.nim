@@ -395,19 +395,21 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
   var
     allDataX: seq[seq[seq[uint8]]]
     allDataY: seq[seq[seq[uint8]]]
-    allDataCh: seq[seq[seq[uint16]]]
+    allDataToT: seq[seq[seq[uint16]]]
+    allDataCh: seq[seq[seq[float]]]
   let vlenXY = special_type(uint8)
   let vlenCh = special_type(float64)
     #allData
   for i in 0 ..< numChips:
     allDataX.add h5f[group.name / "chip_" & $i / "x", vlenXY, uint8]
     allDataY.add h5f[group.name / "chip_" & $i / "y", vlenXY, uint8]
-    allDataCh.add h5f[group.name / "chip_" & $i / "ToT", vlenCh, uint16]
+    allDataToT.add h5f[group.name / "chip_" & $i / "ToT", vlenCh, uint16]
+    allDataCh.add h5f[group.name / "chip_" & $i / "charge", vlenCh, float]
 
   let refSetTuple = readRefDsets(refFile, year)
-  let cutTab = calcCutValueTab(cdlFile, refFile, year, crGold)
   let chips = toSeq(0 .. 6)
-  let gains = chips.mapIt(h5f[(group.name / "chip_" & $it / "charge").dset_str].attrs["G", float64])
+  let gains = chips.mapIt(h5f[(group.name / "chip_" & $it / "gasGainSlices"), GasGainIntervalResult])
+  let energies = h5f[group.name / "chip_3" / "energyFromCharge", float]
   let septemHChips = chips.mapIt(getSeptemHChip(it))
   let toTCalibParams = septemHChips.mapIt(getTotCalibParameters(it, runNumber))
   let (b, m) = getCalibVsGasGainFactors(septemHChips[centerChip], runNumber)
@@ -419,12 +421,10 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
     let evNum = pair[0][1]
     if evNum in passedEvs:
       # then grab all chips for this event
-      #echo "For event ", pair
-      #echo evGroup
-      #echo evGroup["chipNumber"]
       var septemFrame: PixelsInt
-      #var septemChFrame: PixelsCharge
       var centerEvIdx: int
+      # create tensor for charge
+      var chargeTensor = zeros[float]([768, 768])
       for row in evGroup:
         # get the chip number and event index, dump corresponding event pixel data
         # onto the "SeptemFrame"
@@ -435,11 +435,15 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
         let
           chX = allDataX[chip][idx]
           chY = allDataY[chip][idx]
+          chToT = allDataToT[chip][idx]
           chCh = allDataCh[chip][idx]
         let numPix = chX.len
         var chpPix = newSeq[Pix](numPix)
         for i in 0 ..< numPix:
-          chpPix[i] = (x: chX[i], y: chY[i], ch: chCh[i])
+          chpPix[i] = (x: chX[i], y: chY[i], ch: chToT[i])
+          let x = chX[i].int
+          let y = chY[i].int
+          chargeTensor[y, x] += chCh[i]
         # convert to septem coordinate and add to frame
         septemFrame.add chpPix.chpPixToSeptemPix(chip)
 
@@ -459,15 +463,18 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
           let pixChip = determineChip(pix)
           # calculate running mean of gas gain for each pixel, by pushing the
           # gain of the current chip to the `RunningStat`
-          rs.push gains[pixChip]
+          let gRes = gains[pixChip]
+          let gainSlices = gRes.mapIt(it.sliceStartEvNum)
+          let gainVals = gRes.mapIt(it.G)
+          let gain = gainVals[gainslices.lowerBound(evNum.toInt)]
+          rs.push gain
           # taken the chip of the pixel, reconvert that to a local coordinate system
           # given charge of this pixel, assign it to some intermediate storage
-          let params = totCalibParams[pixChip]
-          let pixCharge = calibrateCharge(pix.ch.float, params[0], params[1], params[2], params[3])
-          totCharge += pixCharge
-          frame[pix.y, pix.x] = 1.0 #pixCharge
+          totCharge += chargeTensor[pix.y, pix.x]
         # using total charge and `RunningStat` calculate energy from charge
-        let energy = totCharge * linearFunc(@[b, m], gains.mean) * 1e-6
+        ## TODO: need to look *only* at gains from the corresponding chips each
+        ## and compute the energy of the part of each chip indidually and add
+        let energy = totCharge * linearFunc(@[b, m], rs.mean) * 1e-6
 
         #let energy = cl.hits.float * 26.0
         let logL = calcLikelihoodForEvent(energy, # <- TODO: hack for now!
@@ -475,12 +482,19 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
                                           cl.geometry.lengthDivRmsTrans,
                                           cl.geometry.fractionInTransverseRms,
                                           refSetTuple)
-        #echo "Likelihood value is ", logL, " at energy ", energy
+        echo "Likelihood value is ", logL, " at energy ", energy, " compared to ", cutTab[energy]
         if logL < cutTab[energy]:
           # first attempt. Unless passing throw event from passindIngs
           passed = true
       if not passed:
+        ## TODO: the problem is we exclude the center one if *any* didn't pass? Ah no
+        ## if *NONE* pass!!!
         passedInds.excl centerEvIdx
+
+      if plotSeptemEvents:
+        plotSeptemEvent(septemFrame, runNumber, evNum.toInt,
+                        passed = passed,
+                        energyCenter = energies[centerEvIdx])
   echo "Passed indices after septem veto ", passedInds.card
 
 proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,

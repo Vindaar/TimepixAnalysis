@@ -682,8 +682,7 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
           # read all data for other chips ``iff`` chip == 3 (centerChip):
           h5f.applySeptemVeto(h5fout, cdlFile, refFile, num, year, passedInds,
                               cutTab = cutTab,
-                              plotSeptemEvents = (if fkPlotSeptem in flags: true else: false)
-
+                              plotSeptemEvents = (if fkPlotSeptem in flags: true else: false))
 
         # call function which handles writing the data
         h5f.writeLikelihoodData(h5fout,

@@ -27,8 +27,8 @@ proc plotGasGain*[T](charge, counts: seq[T],
   let df = bind_rows([("Polya", dfRaw),
                       ("Fit", dfFit)],
                      id = "Type")
-    # filter to max 2.5e4 electrons
-    .filter(fn {c"charge / e-" <= 2.5e4})
+    # filter to max 2.5e4 electrons, more irrelevant for polya
+    .filter(f{c"charge / e-" <= 2.5e4})
     .mutate(f{float -> bool: "FitRange" ~ c"charge / e-" >= xMin})
   let G = histMean(counts, charge)
   var

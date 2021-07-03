@@ -93,6 +93,11 @@ proc readMorphKind(): MorphingKind =
   withConfig:
     result = parseEnum[MorphingKind](config["Likelihood"]["morphingKind"].getStr)
 
+proc readSearchRadius(): int =
+  ## reads the cluster finding `searchRadius` field from the TOML file
+  withConfig:
+    result = parseEnum[MorphingKind](config["Reconstruction"]["searchRadius"].getInt)
+
 proc determineCutValue[T: seq | Tensor](hist: T, eff: float): int =
   ## given a histogram `hist`, determine the correct bin to cut at to achieve
   ## a software efficiency of `eff`
@@ -378,6 +383,7 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
   let centerChip = group.attrs["centerChip", int]
   let numChips = group.attrs["numChips", int]
   let septemDf = h5f.getSeptemEventDF(runNumber)
+  let searchRadius = readSearchRadius()
 
   # now filter events for `centerChip` from and compare with `passedInds`
   let centerDf = septemDf.filter(f{int: `chipNumber` == centerChip})
@@ -439,7 +445,8 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
 
       # given the full frame run through the full reconstruction for this cluster
       # here we give chip number as -1, indicating "Septem"
-      let recoEv = recoEvent((septemFrame, evNum.toInt.int), -1, runNumber)[]
+      let recoEv = recoEvent((septemFrame, evNum.toInt.int), -1,
+                             runNumber, searchRadius = searchRadius)[]
       # calculate log likelihood of all reconstructed clusters
       var passed = false
       var totCharge: float

@@ -1007,7 +1007,7 @@ proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string,
                                    EventType.InGridType,
                                    rfKind)
   let plotDirPrefix = h5f.genPlotDirname(plotOutPath, PlotDirRawPrefixAttr)
-  var batchNum = newSeq[int](nChips)
+  var batchNum = 0
   batchFiles(files, batchsize):
     let r = readAndProcessInGrid(files[0 .. ind_high], runNumber, rfKind)
     if r.events.len > 0:
@@ -1022,8 +1022,8 @@ proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string,
 
       for chip in 0 ..< nChips:
         plotOccupancy(squeeze(r.occupancies[chip,_,_]),
-                      plotDirPrefix, r.runNumber, chip, batchNum = batchNum[chip])
-        batchNum[chip] += 1
+                      plotDirPrefix, r.runNumber, chip, batchNum = batchNum)
+      inc batchNum
 
       writeProcessedRunToH5(h5f, r)
       info "Size of total ProcessedRun object = ", sizeof(r)

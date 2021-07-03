@@ -1,13 +1,8 @@
-import nimhdf5, os, ingrid/tos_helpers, sequtils, strutils, math
-import sets
-import plotly
-import tables
-import re
-import docopt
+import std / [os, sequtils, strutils, sets]
+import nimhdf5, ingrid/tos_helpers, ggplotnim
 
 let doc = """
 InGrid/FADC reading and cutting.
-
 
 Usage:
   plotFADC <HDF5file> [options]

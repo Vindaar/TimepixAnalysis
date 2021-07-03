@@ -479,15 +479,6 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
         if logL < cutTab[energy]:
           # first attempt. Unless passing throw event from passindIngs
           passed = true
-        # else:
-        #   echo "Plotting not passing cluster!"
-        #   let outline = getSeptemOutlines(1.0)
-        #   frame = frame .+ outline
-        #   heatmap(frame.toSeq2D)
-        #     .title("Event " & $evNum & " number of clusters " & $recoEv.cluster.len)
-        #     .width(1600)
-        #     .height(1600)
-        #     .show()
       if not passed:
         passedInds.excl centerEvIdx
   echo "Passed indices after septem veto ", passedInds.card

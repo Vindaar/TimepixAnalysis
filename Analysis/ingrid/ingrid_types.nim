@@ -432,7 +432,7 @@ when not defined(pure) and not defined(js):
         ## two tensors: `cutEnergies` stores the energy values we used to
         ## compute different morphed distributions. `cutValues` stores the cut
         ## value of each distribution. So for index `idx` the cut value of energy
-        ## `cutValue[idx]` is given as `cutValue[idx]`.
+        ## `cutEnergies[idx]` is given as `cutValue[idx]`.
         cutEnergies*: seq[float] # is a `seq` to use `lowerBound`
         cutValues*: Tensor[float]
 

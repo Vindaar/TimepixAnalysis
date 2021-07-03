@@ -147,13 +147,12 @@ proc getSeptemEventDF*(h5f: H5File, runNumber: int): DataFrame =
     evs, evIdx: seq[int]
     chips: Column
   let group = recoBase() & $runNumber
-  for grp in items(h5f, group):
-    if "fadc" notin grp.name:
-      let chipNum = grp.attrs["chipNumber", int]
-      echo "Reading chip ", chipNum, " of run ", runNumber
+  for run, chip, groupName in chipGroups(h5f):
+    if run == runNumber:
+      echo "Reading chip ", chip, " of run ", runNumber
       let
-        eventNumbers = h5f[grp.name / "eventNumber", int]
-        chipNumCol = constantColumn(chipNum, eventNumbers.len)
+        eventNumbers = h5f[groupName / "eventNumber", int]
+        chipNumCol = constantColumn(chip, eventNumbers.len)
         evIndex = toSeq(0 ..< eventNumbers.len)
       evs.add(eventNumbers)
       chips = add(chips, chipNumCol)

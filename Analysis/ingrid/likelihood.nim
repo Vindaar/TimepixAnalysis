@@ -97,7 +97,7 @@ proc readMorphKind(): MorphingKind =
 proc readSearchRadius(): int =
   ## reads the cluster finding `searchRadius` field from the TOML file
   withConfig:
-    result = parseEnum[MorphingKind](config["Reconstruction"]["searchRadius"].getInt)
+    result = config["Reconstruction"]["searchRadius"].getInt
 
 proc determineCutValue[T: seq | Tensor](hist: T, eff: float): int =
   ## given a histogram `hist`, determine the correct bin to cut at to achieve

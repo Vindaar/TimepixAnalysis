@@ -281,6 +281,7 @@ proc writeLikelihoodData(h5f: var H5File,
   evDset[evDset.all] = evNumsPassed
 
   # finally write all interesting attributes
+  chpGrpOut.attrs["MorphingKind"] = $cutTab.kind
   if cutTab.kind == mkNone:
     for key, val in pairs(cutTab.cutTab):
       chpGrpOut.attrs[&"logL cut value: {key}"] = val
@@ -289,6 +290,7 @@ proc writeLikelihoodData(h5f: var H5File,
     ## TODO: add dataset of energies & cut values for cut
     echo "WARN: Add information about used energies and cut values for mkLinear!"
     discard
+
   # write total number of clusters
   chpGrpOut.attrs["Total number of cluster"] = evNumbers.len
   when false:
@@ -703,7 +705,7 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
     lhGrp.attrs["totalPassedEvents"] = totalLogLCount
     lhGrp.attrs["totalCutByScinti"] = totalScintiRemoveCount
     lhGrp.attrs["onlyCutByScinti"] = totalScintiRemovedNotLogRemoved
-
+    lhGrp.attrs["MorphingKind"] = cutTab.kind
     ## TODO: add morphing kind to output!
 
   # write year and CDL and reference file used

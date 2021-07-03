@@ -48,6 +48,7 @@ Options:
   --scintiveto           If flag is set, we use the scintillators as a veto
   --fadcveto             If flag is set, we use the FADC as a veto
   --septemveto           If flag is set, we use the Septemboard as a veto
+  --plotSeptem           If flag is set, plots the SeptemEvents of all center clusters passing logL cut
   --createRocCurve       If flag is set, we create ROC curves for all energy bins. This
                          requires the input to already have a `likelihood` dataset!
   --plotLogL             If flag is set, we only plot the signal logL distributions.
@@ -76,7 +77,7 @@ const RmsCleaningCut = 1.5
 
 type
   FlagKind = enum
-    fkTracking, fkFadc, fkScinti, fkSeptem, fkRocCurve, fkComputeLogL, fkPlotLogL
+    fkTracking, fkFadc, fkScinti, fkSeptem, fkRocCurve, fkComputeLogL, fkPlotLogL, fkPlotSeptem
 
 template withConfig(body: untyped): untyped =
   const sourceDir = currentSourcePath().parentDir
@@ -372,7 +373,9 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
                      cdlFile, refFile: string,
                      runNumber: int,
                      year: YearKind,
-                     passedInds: var HashSet[int]) =
+                     passedInds: var HashSet[int],
+                     cutTab: CutValueInterpolator,
+                     plotSeptemEvents: bool) =
   ## Applies the septem board veto to the given `passedInds` in `runNumber` of `h5f`.
   ## Writes the resulting clusters, which pass to the `septem` subgroup (parallel to
   ## the `chip_*` groups into `h5fout`.
@@ -388,6 +391,7 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
   # now filter events for `centerChip` from and compare with `passedInds`
   let centerDf = septemDf.filter(f{int: `chipNumber` == centerChip})
   #echo "Center df ", centerDf
+  ## TODO: this is super slow!!
   let passedEvs = passedInds.mapIt(centerDf["eventNumber", it]).sorted.toOrderedSet
   #echo passedEvs
   #echo "From ", passedInds
@@ -676,7 +680,9 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
         # If there's no events left, then we don't care about
         if fkSeptem in flags and chipNumber == centerChip:
           # read all data for other chips ``iff`` chip == 3 (centerChip):
-          h5f.applySeptemVeto(h5fout, cdlFile, refFile, num, year, passedInds)
+          h5f.applySeptemVeto(h5fout, cdlFile, refFile, num, year, passedInds,
+                              cutTab = cutTab,
+                              plotSeptemEvents = (if fkPlotSeptem in flags: true else: false)
 
 
         # call function which handles writing the data
@@ -998,6 +1004,7 @@ proc main() =
   if $args["--createRocCurve"] == "true": flags.incl fkRocCurve
   if $args["--computeLogL"] == "true": flags.incl fkComputeLogL
   if $args["--plotLogL"] == "true": flags.incl fkPlotLogL
+  if $args["--plotSeptem"] == "true": flags.incl fkPlotSeptem
 
   let cdlFile = if $args["--altCdlFile"] != "nil":
                   $args["--altCdlFile"]

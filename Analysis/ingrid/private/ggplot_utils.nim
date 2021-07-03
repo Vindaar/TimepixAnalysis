@@ -239,3 +239,37 @@ proc dfToSeptemEvent*(df: DataFrame, zDset = "charge"): DataFrame =
         yDf[i] = y0 - yDf[i]
       else: doAssert false, "Invalid chip number!"
   result = seqsToDf({"x" : xDf, "y" : yDf, "charge" : zDf})
+
+proc plotSeptemEvent*(evData: PixelsInt, run, eventNumber: int,
+                      passed: bool, energyCenter: float) =
+  ## plots a septem event of the input data for `eventNumber` of `run`.
+  ## Shows outlines of the septem chips.
+  var xCol = newColumn(colInt, evData.len)
+  var yCol = newColumn(colInt, evData.len)
+  var chCol = newColumn(colInt, evData.len)
+  for i, ev in evData:
+    xCol[i] = ev.x
+    yCol[i] = ev.y
+    chCol[i] = ev.ch
+  let df = seqsToDf({"x" : xCol, "y" : yCol, "charge" : chCol})
+  ggplot(df, aes(x, y, color = charge)) +
+    geom_point(size = some(1.0)) +
+    xlim(0, 768) + ylim(0, 768) + scale_x_continuous() + scale_y_continuous() +
+    geom_linerange(aes = aes(y = 0, xMin = 128, xMax = 640)) +
+    geom_linerange(aes = aes(y = 256, xMin = 0, xMax = 768)) +
+    geom_linerange(aes = aes(y = 512, xMin = 0, xMax = 768)) +
+    geom_linerange(aes = aes(y = 768, xMin = 128, xMax = 640)) +
+    geom_linerange(aes = aes(x = 0, yMin = 256, yMax = 512)) +
+    geom_linerange(aes = aes(x = 256, yMin = 256, yMax = 512)) +
+    geom_linerange(aes = aes(x = 512, yMin = 256, yMax = 512)) +
+    geom_linerange(aes = aes(x = 768, yMin = 256, yMax = 512)) +
+    geom_linerange(aes = aes(x = 128, yMin = 0, yMax = 256)) +
+    geom_linerange(aes = aes(x = 384, yMin = 0, yMax = 256)) +
+    geom_linerange(aes = aes(x = 640, yMin = 0, yMax = 256)) +
+    geom_linerange(aes = aes(x = 128, yMin = 512, yMax = 768)) +
+    geom_linerange(aes = aes(x = 384, yMin = 512, yMax = 768)) +
+    geom_linerange(aes = aes(x = 640, yMin = 512, yMax = 768)) +
+    margin(top = 1.5) +
+    ggtitle(&"Septem event of event {eventNumber} and run {run}. " &
+      &"Center cluster energy: {energyCenter:.2f}, passed: {passed}") +
+    ggsave(&"plots/septemEvents/septemEvent_run_{run}_event_{eventNumber}.pdf")

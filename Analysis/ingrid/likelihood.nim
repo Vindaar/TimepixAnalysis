@@ -429,6 +429,8 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
       var centerEvIdx: int
       # create tensor for charge
       var chargeTensor = zeros[float]([768, 768])
+      # reset running stat at start of each event
+      rs.clear()
       for row in evGroup:
         # get the chip number and event index, dump corresponding event pixel data
         # onto the "SeptemFrame"
@@ -447,7 +449,9 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
           chpPix[i] = (x: chX[i], y: chY[i], ch: chToT[i])
           let x = chX[i].int
           let y = chY[i].int
-          chargeTensor[y, x] += chCh[i]
+          let (px, py, pch) = chpPix[i].chpPixToSeptemPix(chip)
+          # add current charge into full septem tensor
+          chargeTensor[py, px] += chCh[i]
         # convert to septem coordinate and add to frame
         septemFrame.add chpPix.chpPixToSeptemPix(chip)
 

@@ -409,6 +409,7 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
     allDataY.add h5f[group.name / "chip_" & $i / "y", vlenXY, uint8]
     allDataToT.add h5f[group.name / "chip_" & $i / "ToT", vlenCh, uint16]
     allDataCh.add h5f[group.name / "chip_" & $i / "charge", vlenCh, float]
+  let lhoodCenter = h5f[group.name / "chip_3" / "likelihood", float]
 
   let refSetTuple = readRefDsets(refFile, year)
   let chips = toSeq(0 .. 6)
@@ -426,9 +427,10 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
     if evNum in passedEvs:
       # then grab all chips for this event
       var septemFrame: PixelsInt
-      var centerEvIdx: int
+      var centerEvIdx = -1
       # create tensor for charge
       var chargeTensor = zeros[float]([768, 768])
+
       # reset running stat at start of each event
       rs.clear()
       for row in evGroup:
@@ -436,8 +438,10 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
         # onto the "SeptemFrame"
         let chip = row["chipNumber"].toInt
         let idx = row["eventIndex"].toInt
-        if chip == centerChip:
+        if chip == centerChip and lhoodCenter[idx.int] < cutTab[energies[idx.int]]:
+          # assign center event index if this is the cluster that passes logL cut
           centerEvIdx = idx.int
+
         let
           chX = allDataX[chip][idx]
           chY = allDataY[chip][idx]

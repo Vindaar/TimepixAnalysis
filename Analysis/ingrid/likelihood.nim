@@ -381,6 +381,7 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
   ## the `chip_*` groups into `h5fout`.
   ## If an event does not pass the septem veto cut, it is excluded from the `passedInds`
   ## set.
+  const PlotCutEnergy = 5.0
   echo "Passed indices before septem veto ", passedInds.card
   let group = h5f[(recoBase() & $runNumber).grp_str]
   let centerChip = group.attrs["centerChip", int]
@@ -504,9 +505,12 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
         passedInds.excl centerEvIdx
 
       if plotSeptemEvents:
-        plotSeptemEvent(septemFrame, runNumber, evNum.toInt,
-                        passed = passed,
-                        energyCenter = energies[centerEvIdx])
+        if centerEvIdx < 0:
+          doAssert false, "this cannot happen. it implies no cluster found in the given event"
+        if energies[centerEvIdx] < PlotCutEnergy:
+          plotSeptemEvent(septemFrame, runNumber, evNum.toInt,
+                          passed = passed,
+                          energyCenter = energies[centerEvIdx])
   echo "Passed indices after septem veto ", passedInds.card
 
 proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,

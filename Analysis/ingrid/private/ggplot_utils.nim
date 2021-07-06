@@ -252,6 +252,7 @@ proc plotSeptemEvent*(evData: PixelsInt, run, eventNumber: int,
     yCol[i] = ev.y
     chCol[i] = ev.ch
   let df = seqsToDf({"x" : xCol, "y" : yCol, "charge" : chCol})
+  #writeCsv(df, &"/tmp/septemEvent_run_{run}_event_{eventNumber}.csv")
   ggplot(df, aes(x, y, color = charge)) +
     geom_point(size = some(1.0)) +
     xlim(0, 768) + ylim(0, 768) + scale_x_continuous() + scale_y_continuous() +

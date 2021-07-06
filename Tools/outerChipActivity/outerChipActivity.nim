@@ -28,13 +28,15 @@ proc main(fname: string) =
   let dfNoChips = h5f.readDsets(commonDsets = @["eventDuration", "eventNumber"])
   for (tup, subdf) in groups(dfNoChips.group_by("runNumber")):
     inc numEvents, subDf["eventNumber", int].max
+
   var df = newDataFrame()
-  for chip in 0 ..< 6:
+  for chip in 0 ..< 7:
     df.add h5f.read(chip)
 
   var
     numNoCenter = 0
     numOnlyCenter = 0
+    numCenterAnd = 0
     numAny = 0
   for (tup, subDf) in groups(df.group_by(["eventNumber", "runNumber"])):
     let chips = subDf["chip"].unique.toTensor(int)
@@ -42,13 +44,21 @@ proc main(fname: string) =
       inc numNoCenter
     if [3].toTensor == chips:
       inc numOnlyCenter
+    if 3 in chips and chips.len > 0:
+      inc numCenterAnd
     inc numAny
   echo df
 
-  echo "Number of total events: ", numEvents
-  echo "Number of events without center: ", numNoCenter
-  echo "Number of events only center: ", numOnlyCenter
-  echo "Number of events any hit events: ", numAny
+  echo "Number of total events: ".alignLeft(50), numEvents
+  echo "Number of events without center: ".alignLeft(50), numNoCenter, " | ", (numNoCenter.float / numEvents.float) * 100.0, "%"
+  echo "Number of events only center: ".alignLeft(50), numOnlyCenter, " | ", (numOnlyCenter.float / numEvents.float) * 100.0, "%"
+  echo "Number of events with center activity and outer: ".alignLeft(50), numCenterAnd, " | ", (numCenterAnd.float / numEvents.float) * 100.0, "%"
+  echo "Number of events any hit events: ".alignLeft(50), numAny, " | ", (numAny.float / numEvents.float) * 100.0, "%"
+  echo "Mean of event durations: ".alignLeft(50), dfNoChips["eventDuration", float].mean
+
+  ggplot(df, aes("eventDuration")) +
+    geom_histogram(bins = 100) +
+    ggsave("/tmp/event_duration_data_full.pdf")
 
   ggplot(df.filter(f{`eventDuration` < 2.25 and `eventDuration` > 0.0}), aes("eventDuration")) +
     geom_histogram(bins = 100) +
@@ -61,18 +71,12 @@ proc main(fname: string) =
   let df0 = df.filter(f{`eventDuration` < 1e-5 and `energyFromCharge` < 10.0})
   echo df0["runNumber"].unique
   ggplot(df0, aes("energyFromCharge", color = "chip", fill = "chip")) +
-    geom_histogram(position = "identity", alpha = some(0.5), hdKind = hdOutline) +
+    geom_histogram(position = "identity", alpha = some(0.5), hdKind = hdOutline, bins = 100) +
     ggsave("/tmp/histo_energy_no_duration.pdf")
 
-  #for (tup, subDf) in groups(df0.group_by("runNumber")):
-  #  ggplot(df0, aes("energyFromCharge", color = "chip", fill = "chip")) +
-  #    geom_histogram(position = "identity", alpha = some(0.5), hdKind = hdOutline) +
-  #    ggtitle("run " & $tup[0][1]) +
-  #    ggsave("/tmp/histo_energy_no_duration_run_" & $tup[0][1] & ".pdf")
-  ggplot(df0, aes("energyFromCharge", color = "chip")) +
+  ggplot(df0, aes("energyFromCharge", color = "chip", fill = "chip")) +
     facet_wrap("runNumber") +
-    geom_histogram(position = "identity", alpha = some(1.0),
-                   hdKind = hdOutline) +
+    geom_histogram(position = "identity", alpha = some(0.5), hdKind = hdOutline, bins = 50) +
     ggsave("/tmp/histo_energy_no_duration_run_facet.pdf", width = 3000, height = 2000)
 
 

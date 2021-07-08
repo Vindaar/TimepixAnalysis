@@ -467,8 +467,8 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
       # calculate log likelihood of all reconstructed clusters
       var passed = false
       var totCharge: float
-      for cl in recoEv.cluster:
-        var frame = initSeptemFrame()
+      var pixIdx = 0
+      for clusterId, cl in recoEv.cluster:
         let clData = cl.data
         for pix in clData:
           # take each pixel tuple and reconvert it to chip based coordinates
@@ -484,6 +484,9 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
           # taken the chip of the pixel, reconvert that to a local coordinate system
           # given charge of this pixel, assign it to some intermediate storage
           totCharge += chargeTensor[pix.y, pix.x]
+          # overwrite the `septemFrame` by `pix` and cluster id
+          septemFrame[pixIdx] = (x: pix.x, y: pix.y, ch: clusterId)
+          inc pixIdx
         # using total charge and `RunningStat` calculate energy from charge
         ## TODO: need to look *only* at gains from the corresponding chips each
         ## and compute the energy of the part of each chip indidually and add

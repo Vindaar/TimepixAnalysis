@@ -445,6 +445,27 @@ proc findSimpleCluster*[T: SomePix](pixels: seq[T], searchRadius: int): seq[Clus
       result.add(c)
     inc i
 
+proc wrapDbscan(p: Tensor[float], eps: float, minSamples: int): seq[int] =
+  ## This is a wrapper around `dbscan`. Without it for some reason `seqmath's` `arange`
+  ## is bound in the context of the `kdtree` code for some reason (binding manually is
+  ## no help, neither here nor in `reconstruction.nim`)
+  dbscan(p, eps, minSamples)
+
+proc findClusterDBSCAN*[T: SomePix](pixels: seq[T], eps: float = 65.0,
+                                    minSamples: int = 3): seq[Cluster[T]] =
+  var pT = newTensorUninit[float]([pixels.len, 2])
+  for i, tup in pixels:
+    pT[i, _] = [tup.x.float, tup.y.float].toTensor.unsqueeze(axis = 0)
+  if pixels.len == 0: return
+  let clusterIdxs = wrapDbscan(pT, eps, minSamples)
+  for i, clIdx in clusterIdxs:
+    if clIdx == -1: continue
+    if clIdx >= result.len:
+      result.setLen(clIdx+1)
+    if result[clIdx].len == 0:
+      result[clIdx] = newSeqOfCap[T](pixels.len)
+    result[clIdx].add pixels[i]
+
 proc eccentricityNloptOptimizer[T: SomePix](fitObject: FitObject[T]):
   NloptOpt[FitObject[T]] =
   ## returns the already configured Nlopt optimizer to fit the rotation angle /
@@ -540,12 +561,16 @@ proc recoCluster*[T: SomePix](c: Cluster[T]): ClusterObject[T] {.gcsafe, hijackM
   result.geometry = calcGeometry(c, result.centerX, result.centerY, rot_angle)
 
 proc recoEvent*[T: SomePix](dat: tuple[pixels: seq[T], eventNumber: int],
-                            chip, run, searchRadius: int): ref RecoEvent[T] {.gcsafe, hijackMe.} =
+                            chip, run, searchRadius: int,
+                            clusterAlgo: ClusteringAlgorithm): ref RecoEvent[T] {.gcsafe, hijackMe.} =
   result = new RecoEvent[T]
   result.event_number = dat.eventNumber
   result.chip_number = chip
+  var cluster: seq[Cluster[T]]
   if dat[0].len > 0:
-    let cluster = findSimpleCluster(dat.pixels, searchRadius)
+    case clusterAlgo
+    of caDefault: cluster = findSimpleCluster(dat.pixels, searchRadius)
+    of caDBSCAN:  cluster = findClusterDBSCAN(dat.pixels)
     result.cluster = newSeq[ClusterObject[T]](cluster.len)
     for i, cl in cluster:
       result.cluster[i] = recoCluster(cl)

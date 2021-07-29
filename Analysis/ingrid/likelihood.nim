@@ -463,7 +463,8 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
       # given the full frame run through the full reconstruction for this cluster
       # here we give chip number as -1, indicating "Septem"
       let recoEv = recoEvent((septemFrame, evNum.toInt.int), -1,
-                             runNumber, searchRadius = searchRadius)[]
+                             runNumber, searchRadius = searchRadius,
+                             clusterAlgo = caDBSCAN)[]
       # calculate log likelihood of all reconstructed clusters
       var passed = false
       var totCharge: float

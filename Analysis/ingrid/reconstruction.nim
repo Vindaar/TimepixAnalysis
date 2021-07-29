@@ -352,7 +352,8 @@ iterator readDataFromH5*(h5f: var H5FileObj, runNumber: int):
 {.experimental.}
 #proc reconstructSingleChip(data: seq[Pixels], run, chip: int): seq[ref RecoEvent] =
 proc reconstructSingleChip*(data: seq[tuple[pixels: Pixels, eventNumber: int]],
-                            run, chip, searchRadius: int): seq[FlowVar[ref RecoEvent[Pix]]] =
+                            run, chip, searchRadius: int,
+                            clusterAlgo: ClusteringAlgorithm): seq[FlowVar[ref RecoEvent[Pix]]] =
                            #evNumbers: seq[int]): seq[FlowVar[ref RecoEvent]] =
   ## procedure which receives pixel data for a given chip and run number
   ## and performs the reconstruction on it
@@ -368,7 +369,8 @@ proc reconstructSingleChip*(data: seq[tuple[pixels: Pixels, eventNumber: int]],
   let p = newThreadPool()
   for event in 0 ..< numElems:
     if event < result.len:
-      result[event] = p.spawn recoEvent(data[event], chip, run, searchRadius)
+      result[event] = p.spawn recoEvent(data[event], chip, run, searchRadius,
+                                        clusterAlgo = clusterAlgo)
     echoCount(count, 5000, msg = " clusters reconstructed")
   p.sync()
 
@@ -508,6 +510,7 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
                            flags: set[RecoFlagKind],
                            cfgFlags: set[ConfigFlagKind],
                            searchRadius: int,
+                           clusterAlgo: ClusteringAlgorithm,
                            runNumberArg: Option[int] = none[int]()) =
   ## proc which performs reconstruction of runs in a given file (all by default). It only takes
   ## care of the general purpose conversion from raw data to reconstructed ingrid clusters
@@ -554,7 +557,8 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
         # NOTE: the data returned from the iterator contains all
         # events in ascending order of event number, i.e.
         # [0] -> eventNumber == 0 and so on
-        reco_run.add reconstructSingleChip(pixdata, runNumber, chip, searchRadius)
+        reco_run.add reconstructSingleChip(pixdata, runNumber, chip,
+                                           searchRadius, clusterAlgo)
         info &"Reco run now contains {reco_run.len} elements"
       info "Reconstruction of run $# took $# seconds" % [$runNumber, $(epochTime() - t1)]
       # finished run, so write run to H5 file
@@ -714,6 +718,7 @@ proc main() =
   var h5f = H5open(h5f_name, "rw")
   let plotDirPrefix = h5f.genPlotDirname(plotOutPath, PlotDirPrefixAttr)
   let searchRadius = cfgTable["Reconstruction"]["searchRadius"].getInt
+  let clusterAlgo = parseEnum[ClusteringAlgorithm](cfgTable["Reconstruction"]["clusterAlgo"].getStr)
 
   if (flags * {rfOnlyEnergy .. rfOnlyGainFit}).card == 0:
     # `reconstruction` call w/o `--only-*` flag
@@ -727,6 +732,7 @@ proc main() =
       h5fout.attrs[PlotDirPrefixAttr] = plotDirPrefix
       reconstructRunsInFile(h5f, h5fout, flags, cfgFlags,
                             searchRadius = searchRadius,
+                            clusterAlgo = clusterAlgo,
                             runNumberArg = runNumber)
 
     var err = h5f.close()

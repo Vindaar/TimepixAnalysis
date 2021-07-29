@@ -30,6 +30,8 @@ tpx3ToACutoff = 50
 [Reconstruction]
 # the search radius for the cluster finding algorithm in pixel
 searchRadius = 50
+# clustering algorithm to use
+clusterAlgo = "default" # choose from {"default", "dbscan"}
 
 [Likelihood]
 # the signal efficiency to be used for the logL cut (percentage of X-rays of the

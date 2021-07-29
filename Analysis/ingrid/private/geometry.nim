@@ -160,7 +160,7 @@ func chpPixToSeptemPix*(p: Pix, chipNumber: range[0 .. 6]): PixInt =
     of 5, 6:
       xIdx = x0 - p.x.int
       yIdx = y0 - p.y.int
-    result = (x: xIdx, y: yIdx, ch: p.ch.int)
+    result = (x: min(xIdx, 767), y: min(yIdx, 767), ch: p.ch.int)
 
 func chpPixToSeptemPix*(pix: Pixels, chipNumber: range[0 .. 6]): PixelsInt =
   ## converts the given local chip pixels to the full septem frame coordinate system

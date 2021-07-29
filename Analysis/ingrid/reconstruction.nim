@@ -13,7 +13,6 @@ import times
 import sets
 
 # external modules
-import seqmath
 import nimhdf5
 import parsetoml
 

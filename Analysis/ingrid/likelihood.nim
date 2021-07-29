@@ -480,7 +480,7 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
           let gRes = gains[pixChip]
           let gainSlices = gRes.mapIt(it.sliceStartEvNum)
           let gainVals = gRes.mapIt(it.G)
-          let gain = gainVals[gainslices.lowerBound(evNum.toInt)]
+          let gain = gainVals[min(gainVals.high, gainslices.lowerBound(evNum.toInt))]
           rs.push gain
           # taken the chip of the pixel, reconvert that to a local coordinate system
           # given charge of this pixel, assign it to some intermediate storage

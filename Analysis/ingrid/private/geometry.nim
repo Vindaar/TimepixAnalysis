@@ -4,7 +4,7 @@ import helpers / utils
 import logging
 import ingrid / private / [pure, cdl_cuts]
 
-import seqmath, sequtils, nlopt
+import sequtils, nlopt
 
 #[
 This module contains (among others) the actual ``reconstruction`` calculations

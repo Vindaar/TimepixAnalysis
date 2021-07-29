@@ -225,7 +225,7 @@ proc isNearCenterOfChip*(pix: Pixels): bool =
     result = false
 
 # template which calculates euclidean distance between 2 points
-template distance*(x, y): float = sqrt(x * x + y * y)
+template distance*(x, y: float): float = sqrt(x * x + y * y)
 
 # template which returns pitch converted positions on chip pixel values
 # to mm from center of chip

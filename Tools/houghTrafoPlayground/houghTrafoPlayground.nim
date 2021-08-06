@@ -23,7 +23,7 @@ import cligen, sets, hashes, tables, strformat
 #  echo "set length ", s.toHashSet().card
 #  echo "ids to hash set ", ids.toHashSet().card
 
-proc houghTrafo[T: seq | Tensor](x, y: T, suffix: int): DataFrame =
+proc houghTrafo[T: seq | Tensor](x, y: T, prefix, suffix: string): DataFrame =
   ## computes a hough transformation of `x` and `y`
   doAssert x.len == y.len
   var xs = newSeqOfCap[int](x.len * x.len)
@@ -51,25 +51,27 @@ proc houghTrafo[T: seq | Tensor](x, y: T, suffix: int): DataFrame =
   let df = toDf(slopes, intersects).filter(f{`slopes` <= 3.0 and `slopes` >= -3.0})
   ggplot(df, aes("slopes")) +
     geom_histogram(bins = 100) +
-    ggsave(&"/tmp/histo_slopes_{$suffix}.pdf")
+    ggsave(&"{prefix}/histo_slopes_{$suffix}.pdf")
   ggplot(df, aes("intersects")) +
     geom_histogram(bins = 100) +
-    ggsave(&"/tmp/histo_intersects{$suffix}.pdf")
+    ggsave(&"{prefix}/histo_intersects{$suffix}.pdf")
   ggplot(df, aes("slopes", "intersects")) +
     geom_point() +
-    ggsave(&"/tmp/slope_vs_intersects{$suffix}.png", width = 1200, height = 800)
+    ggsave(&"{prefix}/slope_vs_intersects{$suffix}.png", width = 1200, height = 800)
 
   echo "Mean of slopes ", df["slopes", float].mean
   echo result
   ggplot(result, aes("xs", "ys", color = "ids")) +
     geom_line() +
-    ggsave(&"/tmp/lines{$suffix}.png", width = 4000, height = 2000)
+    ggsave(&"{prefix}/lines{$suffix}.png", width = 4000, height = 2000)
 
-proc main(fname: string, suffix: int) =
+proc main(fname: string, suffix: string) =
   let df = readcsv(fname)
     .arrange(["x", "y"])
   #discard hashtest(df["x", int], df["y", int])
-  discard houghTrafo(df["x", int], df["y", int], suffix)
+  let prefix = "/home/basti/org/Figs/statusAndProgress/houghTrafo/"
+  discard houghTrafo(df["x", int], df["y", int], prefix, suffix)
+
   ggplot(df, aes(x, y, color = charge)) +
     geom_point(size = some(1.0)) +
     xlim(0, 768) + ylim(0, 768) + scale_x_continuous() + scale_y_continuous() +
@@ -88,7 +90,7 @@ proc main(fname: string, suffix: int) =
     geom_linerange(aes = aes(x = 384, yMin = 512, yMax = 768)) +
     geom_linerange(aes = aes(x = 640, yMin = 512, yMax = 768)) +
     margin(top = 1.5) +
-    ggsave(&"/tmp/plot_septem_{$suffix}.pdf")
+    ggsave(&"{prefix}/plot_septem_{$suffix}.pdf")
 
 when isMainModule:
   dispatch main

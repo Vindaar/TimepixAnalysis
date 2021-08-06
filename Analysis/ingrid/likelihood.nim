@@ -469,6 +469,8 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
       var passed = false
       var totCharge: float
       var pixIdx = 0
+      var lines: seq[tuple[m, b: float]]
+      var centers: seq[tuple[x, y: float]]
       for clusterId, cl in recoEv.cluster:
         let clData = cl.data
         for pix in clData:
@@ -488,6 +490,18 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
           # overwrite the `septemFrame` by `pix` and cluster id
           septemFrame[pixIdx] = (x: pix.x, y: pix.y, ch: clusterId)
           inc pixIdx
+
+        # determine parameters of the lines through the cluster centers
+        # invert the slope
+        let slope = tan(Pi - cl.geometry.rotationAngle)
+        # subtract from 768 as we do the same in `applyPitchConversion` (why?)
+        # normalize by full width (14 mm * 3 chips) and scale to all pixels
+        let cX = clamp((768 - (cl.centerX / (14.0 * 3.0)) * 768.0).int, 0, 767)
+        let cY = clamp(((cl.centerY / (14.0 * 3.0)) * 768.0).int, 0, 767)
+        centers.add (x: cX.float, y: cY.float)
+        let intercept = cY.float - slope * cX.float
+        lines.add (m: slope, b: intercept)
+
         # using total charge and `RunningStat` calculate energy from charge
         ## TODO: need to look *only* at gains from the corresponding chips each
         ## and compute the energy of the part of each chip indidually and add
@@ -513,6 +527,8 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
           doAssert false, "this cannot happen. it implies no cluster found in the given event"
         if energies[centerEvIdx] < PlotCutEnergy:
           plotSeptemEvent(septemFrame, runNumber, evNum.toInt,
+                          lines = lines,
+                          centers = centers,
                           passed = passed,
                           energyCenter = energies[centerEvIdx])
   echo "Passed indices after septem veto ", passedInds.card

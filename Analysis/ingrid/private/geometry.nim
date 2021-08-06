@@ -5,6 +5,7 @@ import logging
 import ingrid / private / [pure, cdl_cuts]
 
 import sequtils, nlopt
+import arraymancer # for tensor and dbscan
 
 #[
 This module contains (among others) the actual ``reconstruction`` calculations
@@ -232,11 +233,10 @@ template distance*(x, y: float): float = sqrt(x * x + y * y)
 # constants are:
 # const NPIX = 256
 # const PITCH = 0.0055 (see ingrid_types)
-template applyPitchConversion*[T: (float | SomeInteger)](x, y: T): (float, float) =
+func applyPitchConversion*[T: (float | SomeInteger)](x, y: T, npix: int): (float, float) =
   ## template which returns the converted positions on a Timepix
   ## pixel position --> position from center in mm
-  ((float(NPIX) - float(x) + 0.5) * PITCH, (float(y) + 0.5) * PITCH)
-
+  ((float(npix) - float(x) + 0.5) * PITCH, (float(y) + 0.5) * PITCH)
 
 func inRegion*(centerX, centerY: float, region: ChipRegion): bool {.inline.} =
   ## returns the result of a cut on a certain chip `region`. Inputs the
@@ -319,7 +319,10 @@ proc calcGeometry*[T: SomePix](cluster: Cluster[T],
     y_max, y_min: float
     i = 0
   for p in cluster:
-    let (x, y) = applyPitchConversion(p.x, p.y)
+    when T is uint8:
+      let (x, y) = applyPitchConversion(p.x, p.y, NPIX)
+    else:
+      let (x, y) = applyPitchConversion(p.x, p.y, NPIX * 3)
     xRot[i] = cos(-rot_angle) * (x - pos_x) - sin(-rot_angle) * (y - pos_y)
     yRot[i] = sin(-rot_angle) * (x - pos_x) + cos(-rot_angle) * (y - pos_y)
 
@@ -537,7 +540,10 @@ proc recoCluster*[T: SomePix](c: Cluster[T]): ClusterObject[T] {.gcsafe, hijackM
   # set number of hits in cluster
   result.hits = clustersize
   # set the position
-  (result.centerX, result.centerY) = applyPitchConversion(pos_x, pos_y)
+  when T is uint8:
+    (result.centerX, result.centerY) = applyPitchConversion(pos_x, pos_y, NPIX)
+  else:
+    (result.centerX, result.centerY) = applyPitchConversion(pos_x, pos_y, NPIX * 3)
   #(float(NPIX) - float(pos_x) + 0.5) * PITCH
   #result.pos_y = (float(pos_y) + 0.5) * PITCH
   # prepare rot angle fit

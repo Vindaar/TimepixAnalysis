@@ -207,6 +207,7 @@ proc isNearCenterOfChip*(pix: Pixels): bool =
   ##    pixels object (seq[tuple[x, y, ch: int]]) containing raw event
   ## outputs:
   ##    true if within 4.5mm center square, false otherwise
+  if true: quit("`isNearCenterOfChip` is broken!")
   let (center_x, center_y) = calcCentroidOfEvent(pix)
   # pitch in um
   let pitch = 0.05

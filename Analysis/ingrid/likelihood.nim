@@ -554,8 +554,6 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
   var useFadcVeto = fkFadc in flags
   var useScintiVeto = fkScinti in flags
 
-  var logLSeq = newSeq[float64]()
-  var logLSeqLow = newSeq[float64]()
   var
     totalScintiRemoveCount = 0
     totalScintiRemovedNotLogRemoved = 0
@@ -636,13 +634,6 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
       if chipNumber == centerChip:
         totalEvCount += indicesInTracking.len
 
-      if chipNumber == 0:
-        for i, e in energy:
-          let energyDset = e.toRefDset
-          if "4kV" in energyDset:
-            logLSeq.add logL[i]
-          if "0.6kV" in energyDset:
-            logLSeqLow.add logL[i]
       # hash set containing all indices of clusters, which pass the cuts
       var passedInds = initSet[int]()
       # iterate through all clusters not part of tracking and apply logL cut

@@ -353,6 +353,7 @@ iterator readDataFromH5*(h5f: var H5FileObj, runNumber: int):
 #proc reconstructSingleChip(data: seq[Pixels], run, chip: int): seq[ref RecoEvent] =
 proc reconstructSingleChip*(data: seq[tuple[pixels: Pixels, eventNumber: int]],
                             run, chip, searchRadius: int,
+                            dbscanEpsilon: float,
                             clusterAlgo: ClusteringAlgorithm): seq[FlowVar[ref RecoEvent[Pix]]] =
                            #evNumbers: seq[int]): seq[FlowVar[ref RecoEvent]] =
   ## procedure which receives pixel data for a given chip and run number
@@ -370,6 +371,7 @@ proc reconstructSingleChip*(data: seq[tuple[pixels: Pixels, eventNumber: int]],
   for event in 0 ..< numElems:
     if event < result.len:
       result[event] = p.spawn recoEvent(data[event], chip, run, searchRadius,
+                                        dbscanEpsilon = dbscanEpsilon,
                                         clusterAlgo = clusterAlgo)
     echoCount(count, 5000, msg = " clusters reconstructed")
   p.sync()
@@ -510,6 +512,7 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
                            flags: set[RecoFlagKind],
                            cfgFlags: set[ConfigFlagKind],
                            searchRadius: int,
+                           dbscanEpsilon: float,
                            clusterAlgo: ClusteringAlgorithm,
                            runNumberArg: Option[int] = none[int]()) =
   ## proc which performs reconstruction of runs in a given file (all by default). It only takes
@@ -558,7 +561,7 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
         # events in ascending order of event number, i.e.
         # [0] -> eventNumber == 0 and so on
         reco_run.add reconstructSingleChip(pixdata, runNumber, chip,
-                                           searchRadius, clusterAlgo)
+                                           searchRadius, dbscanEpsilon, clusterAlgo)
         info &"Reco run now contains {reco_run.len} elements"
       info "Reconstruction of run $# took $# seconds" % [$runNumber, $(epochTime() - t1)]
       # finished run, so write run to H5 file
@@ -718,6 +721,7 @@ proc main() =
   var h5f = H5open(h5f_name, "rw")
   let plotDirPrefix = h5f.genPlotDirname(plotOutPath, PlotDirPrefixAttr)
   let searchRadius = cfgTable["Reconstruction"]["searchRadius"].getInt
+  let dbscanEpsilon = cfgTable["Reconstruction"]["epsilon"].getFloat
   let clusterAlgo = parseEnum[ClusteringAlgorithm](cfgTable["Reconstruction"]["clusterAlgo"].getStr)
 
   if (flags * {rfOnlyEnergy .. rfOnlyGainFit}).card == 0:
@@ -732,6 +736,7 @@ proc main() =
       h5fout.attrs[PlotDirPrefixAttr] = plotDirPrefix
       reconstructRunsInFile(h5f, h5fout, flags, cfgFlags,
                             searchRadius = searchRadius,
+                            dbscanEpsilon = dbscanEpsilon,
                             clusterAlgo = clusterAlgo,
                             runNumberArg = runNumber)
 

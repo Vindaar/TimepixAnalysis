@@ -569,6 +569,7 @@ proc recoCluster*[T: SomePix](c: Cluster[T]): ClusterObject[T] {.gcsafe, hijackM
 
 proc recoEvent*[T: SomePix](dat: tuple[pixels: seq[T], eventNumber: int],
                             chip, run, searchRadius: int,
+                            dbscanEpsilon: float,
                             clusterAlgo: ClusteringAlgorithm): ref RecoEvent[T] {.gcsafe, hijackMe.} =
   result = new RecoEvent[T]
   result.event_number = dat.eventNumber
@@ -577,7 +578,7 @@ proc recoEvent*[T: SomePix](dat: tuple[pixels: seq[T], eventNumber: int],
   if dat[0].len > 0:
     case clusterAlgo
     of caDefault: cluster = findSimpleCluster(dat.pixels, searchRadius)
-    of caDBSCAN:  cluster = findClusterDBSCAN(dat.pixels)
+    of caDBSCAN:  cluster = findClusterDBSCAN(dat.pixels, dbscanEpsilon)
     result.cluster = newSeq[ClusterObject[T]](cluster.len)
     for i, cl in cluster:
       result.cluster[i] = recoCluster(cl)

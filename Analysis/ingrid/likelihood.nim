@@ -99,6 +99,16 @@ proc readSearchRadius(): int =
   withConfig:
     result = config["Reconstruction"]["searchRadius"].getInt
 
+proc readClusterAlgo(): ClusteringAlgorithm =
+  ## Reads the clustering algorithm to use for the septem veto clustering
+  withConfig:
+    result = parseEnum[ClusteringAlgorithm](config["Reconstruction"]["clusterAlgo"].getStr)
+
+proc readDbscanEpsilon(): float =
+  ## Reads the `ε` to use for the DBSCAN algorithm septem veto clustering
+  withConfig:
+    result = config["Reconstruction"]["epsilon"].getFloat
+
 proc determineCutValue[T: seq | Tensor](hist: T, eff: float): int =
   ## given a histogram `hist`, determine the correct bin to cut at to achieve
   ## a software efficiency of `eff`
@@ -387,7 +397,13 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
   let centerChip = group.attrs["centerChip", int]
   let numChips = group.attrs["numChips", int]
   let septemDf = h5f.getSeptemEventDF(runNumber)
+
+  # read clustering configuration
+  let clusterAlgo = readClusterAlgo()
+  # search radius for regular algo
   let searchRadius = readSearchRadius()
+  # epsilon fro DBSCAN
+  let epsilon = readDbscanEpsilon()
 
   # now filter events for `centerChip` from and compare with `passedInds`
   let centerDf = septemDf.filter(f{int: `chipNumber` == centerChip})
@@ -464,7 +480,8 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
       # here we give chip number as -1, indicating "Septem"
       let recoEv = recoEvent((septemFrame, evNum.toInt.int), -1,
                              runNumber, searchRadius = searchRadius,
-                             clusterAlgo = caDBSCAN)[]
+                             dbscanEpsilon = epsilon,
+                             clusterAlgo = clusterAlgo)[]
       # calculate log likelihood of all reconstructed clusters
       var passed = false
       var totCharge: float

@@ -448,8 +448,6 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
       # create tensor for charge
       var chargeTensor = zeros[float]([768, 768])
 
-      # reset running stat at start of each event
-      rs.clear()
       for row in evGroup:
         # get the chip number and event index, dump corresponding event pixel data
         # onto the "SeptemFrame"
@@ -482,25 +480,33 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
                              runNumber, searchRadius = searchRadius,
                              dbscanEpsilon = epsilon,
                              clusterAlgo = clusterAlgo)[]
+
+      # extract the correct gas gain slices for this event
+      var gainVals: seq[float]
+      for chp in 0 ..< 7:
+        let gainSlices = gains[chp]
+        let gainEvs = gainSlices.mapIt(it.sliceStartEvNum)
+        let sliceIdx = gainEvs.lowerBound(evNum.toInt)
+        gainVals.add gainSlices[min(gainSlices.high, sliceIdx)].G # add the correct gas gain
+
       # calculate log likelihood of all reconstructed clusters
       var passed = false
-      var totCharge: float
       var pixIdx = 0
       var lines: seq[tuple[m, b: float]]
       var centers: seq[tuple[x, y: float]]
       for clusterId, cl in recoEv.cluster:
+        # total charge for this cluster
+        var totCharge = 0.0
         let clData = cl.data
+        # reset running stat for each cluster
+        rs.clear()
         for pix in clData:
           # take each pixel tuple and reconvert it to chip based coordinates
           # first determine chip it corresponds to
           let pixChip = determineChip(pix)
-          # calculate running mean of gas gain for each pixel, by pushing the
-          # gain of the current chip to the `RunningStat`
-          let gRes = gains[pixChip]
-          let gainSlices = gRes.mapIt(it.sliceStartEvNum)
-          let gainVals = gRes.mapIt(it.G)
-          let gain = gainVals[min(gainVals.high, gainslices.lowerBound(evNum.toInt))]
-          rs.push gain
+
+          # for this pixel and chip get the correct gas gain and push it to the `RunningStat`
+          rs.push gainVals[pixChip]
           # taken the chip of the pixel, reconvert that to a local coordinate system
           # given charge of this pixel, assign it to some intermediate storage
           totCharge += chargeTensor[pix.y, pix.x]

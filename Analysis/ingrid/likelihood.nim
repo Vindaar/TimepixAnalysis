@@ -418,9 +418,6 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
   #echo "Center df ", centerDf
   ## TODO: this is super slow!!
   let passedEvs = passedInds.mapIt(centerDf["eventNumber", it]).sorted.toOrderedSet
-  #echo passedEvs
-  #echo "From ", passedInds
-
   var
     allDataX: seq[seq[seq[uint8]]]
     allDataY: seq[seq[seq[uint8]]]
@@ -488,6 +485,9 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
         # convert to septem coordinate and add to frame
         septemFrame.add chpPix.chpPixToSeptemPix(chip)
 
+      if centerEvIdx == -1:
+        echo "Broken event! ", evGroup.pretty(-1)
+        quit(1)
       # given the full frame run through the full reconstruction for this cluster
       # here we give chip number as -1, indicating "Septem"
       let recoEv = recoEvent((septemFrame, evNum.toInt.int), -1,

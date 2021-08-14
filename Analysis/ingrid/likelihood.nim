@@ -494,6 +494,10 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
       var pixIdx = 0
       var lines: seq[tuple[m, b: float]]
       var centers: seq[tuple[x, y: float]]
+      var xCenter: int
+      var yCenter: int
+      var centerRadius: float
+
       for clusterId, cl in recoEv.cluster:
         # total charge for this cluster
         var totCharge = 0.0
@@ -553,6 +557,7 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
                           lines = lines,
                           centers = centers,
                           passed = passed,
+                          xCenter = xCenter, yCenter = yCenter, radius = centerRadius,
                           energyCenter = energies[centerEvIdx])
   echo "Passed indices after septem veto ", passedInds.card
 

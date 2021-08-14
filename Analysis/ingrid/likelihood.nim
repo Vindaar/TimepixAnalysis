@@ -379,6 +379,14 @@ proc writeVetoInfos(grp: H5Group, fadcVetoCount, scintiVetoCount: int,
   mgrp.attrs["# removed by FADC veto"] = fadcVetoCount
   mgrp.attrs["# removed by scinti veto"] = scintiVetoCount
 
+# subtract from 768 as we do the same in `applyPitchConversion` (why?)
+# normalize by full width (14 mm * 3 chips) and scale to all pixels
+proc toXPix(x: float): int =
+  clamp((768 - (x / (14.0 * 3.0)) * 768.0).int, 0, 767)
+
+proc toYPix(y: float): int =
+  clamp(((y / (14.0 * 3.0)) * 768.0).int, 0, 767)
+
 proc applySeptemVeto(h5f, h5fout: var H5File,
                      cdlFile, refFile: string,
                      runNumber: int,
@@ -427,6 +435,12 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
     allDataToT.add h5f[group.name / "chip_" & $i / "ToT", vlenCh, uint16]
     allDataCh.add h5f[group.name / "chip_" & $i / "charge", vlenCh, float]
   let lhoodCenter = h5f[group.name / "chip_3" / "likelihood", float]
+  let energyCenter = h5f[group.name / "chip_3" / "energyFromCharge", float]
+  let cXCenter = h5f[group.name / "chip_3" / "centerX", float]
+  let cYCenter = h5f[group.name / "chip_3" / "centerY", float]
+  let hitsCenter = h5f[group.name / "chip_3" / "hits", int]
+  let rmsTCenter = h5f[group.name / "chip_3" / "rmsTransverse", float]
+  let rmsLCenter = h5f[group.name / "chip_3" / "rmsLongitudinal", float]
 
   let refSetTuple = readRefDsets(refFile, year)
   let chips = toSeq(0 .. 6)
@@ -518,13 +532,12 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
           septemFrame[pixIdx] = (x: pix.x, y: pix.y, ch: clusterId)
           inc pixIdx
 
+
         # determine parameters of the lines through the cluster centers
         # invert the slope
         let slope = tan(Pi - cl.geometry.rotationAngle)
-        # subtract from 768 as we do the same in `applyPitchConversion` (why?)
-        # normalize by full width (14 mm * 3 chips) and scale to all pixels
-        let cX = clamp((768 - (cl.centerX / (14.0 * 3.0)) * 768.0).int, 0, 767)
-        let cY = clamp(((cl.centerY / (14.0 * 3.0)) * 768.0).int, 0, 767)
+        let cX = toXPix(cl.centerX)
+        let cY = toYPix(cl.centerY)
         centers.add (x: cX.float, y: cY.float)
         let intercept = cY.float - slope * cX.float
         lines.add (m: slope, b: intercept)
@@ -540,8 +553,42 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
                                           cl.geometry.lengthDivRmsTrans,
                                           cl.geometry.fractionInTransverseRms,
                                           refSetTuple)
-        echo "Likelihood value is ", logL, " at energy ", energy, " compared to ", cutTab[energy]
-        if logL < cutTab[energy]:
+        ## Check if the current cluster is in gold region. If it is, either it is part of something
+        ## super big that makes the center still fall into the gold region or it remains unchanged.
+        ## In the unchanged case, let's compare the energy and cluster pixels
+
+        ## XXX: make the actual region based on argument to `applySeptemVeto`!
+        let inGoldRegion = inRegion(cl.centerX - 14.0, cl.centerY - 14.0, crGold)
+
+        var lineCutsRms = false
+        if not inGoldRegion:
+          # if this is not in gold region, check its excentricity and compute if line points to original
+          # center cluster
+
+          # compute line orthogonal to this cluster's line
+          let orthSlope = -1.0 / slope
+          ## XXX: eccentricity check
+          # determine y axis intersection
+          xCenter = clamp(256 - (cXCenter[centerEvIdx] / 14.0 * 256.0).int, 0, 255) + 256
+          yCenter = clamp((cYCenter[centerEvIdx] / 14.0 * 256).int, 0, 256) + 256
+
+          let centerInter = yCenter.float - orthSlope * xCenter.float
+
+          # use orthogonal line to determine crossing point between it and this cluster's line
+          let xCut = (intercept - centerInter) / (orthSlope - slope)
+          let yCut = orthSlope * xCut + centerInter
+          centers.add (x: xCut, y: yCut)
+          # compute distance between two points
+          let dist = sqrt( (xCenter.float - xCut)^2 + (yCenter.float - yCut)^2 )
+          # if distance is smaller than radius
+          centerRadius = ((rmsTCenter[centerEvIdx] + rmsLCenter[centerEvIdx]) / 2.0 * 3.0) / 14.0 * 256.0
+          if dist < centerRadius:
+            #lineCutsRms = true
+            passed = false
+            break
+          lines.add (m: orthSlope, b: centerInter)
+
+        if logL < cutTab[energy] and inGoldRegion: ## XXX: only allowed if still in gold region!
           # first attempt. Unless passing throw event from passindIngs
           passed = true
       if not passed:

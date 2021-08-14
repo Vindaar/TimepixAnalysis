@@ -600,6 +600,9 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
         if centerEvIdx < 0:
           doAssert false, "this cannot happen. it implies no cluster found in the given event"
         if energies[centerEvIdx] < PlotCutEnergy:
+          # shorten to actual number of stored pixels. Otherwise elements with ToT / charge values will remain
+          # in the `septemFrame`
+          septemFrame.setLen(pixIdx)
           plotSeptemEvent(septemFrame, runNumber, evNum.toInt,
                           lines = lines,
                           centers = centers,

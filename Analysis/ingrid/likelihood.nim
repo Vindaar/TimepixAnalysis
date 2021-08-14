@@ -785,14 +785,15 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
                               cutTab = cutTab,
                               plotSeptemEvents = (if fkPlotSeptem in flags: true else: false))
 
-        # call function which handles writing the data
-        h5f.writeLikelihoodData(h5fout,
-                                mgrp,
-                                cdlFile, refFile,
-                                year,
-                                chipNumber,
-                                cutTab,
-                                passedInds)
+        if passedInds.card > 0:
+          # call function which handles writing the data
+          h5f.writeLikelihoodData(h5fout,
+                                  mgrp,
+                                  cdlFile, refFile,
+                                  year,
+                                  chipNumber,
+                                  cutTab,
+                                  passedInds)
 
         if chipNumber == centerChip:
           totalLogLCount += passedInds.card

@@ -5,6 +5,7 @@ import ingrid / tos_helpers
 #import plotly
 #import plotly / color
 import ggplotnim
+import ggplotnim / [ggplot_vegatex]
 
 const docStr = """
 Given some Likelihood File (the output of the likelihood.nim), this script
@@ -74,19 +75,24 @@ proc toDf(cTab: CountTable[(int, int)]): DataFrame =
   result = seqsToDf({"x" : cX, "y" : cY, "count" : cC})
     .arrange("count", order = SortOrder.Ascending)
 
-proc main(files: seq[string], suffix = "", title = "") =
+proc main(files: seq[string], suffix = "", title = "",
+          useTikZ = false) =
   let df = readClusters(files).toDf()
   let totalEvs = df["count", int].sum()
 
   createDir("plots")
-  ggplot(df, aes("x", "y", color = "count")) +
+  let plt = ggplot(df, aes("x", "y", color = "count")) +
     geom_point(size = some(1.0)) +
     xlim(0, 256) + ylim(0, 256) +
     xlab("x [Pixel]") + ylab("y [Pixel]") +
     margin(top = 1.75) +
-    scale_color_continuous(scale = (low: 0.0, high: 15.0)) +
-    ggtitle(title & &". Total # cluster = {totalEvs}") +
-    ggsave(&"plots/background_cluster_centers{suffix}.pdf")
+    scale_color_continuous(scale = (low: 0.0, high: 15.0))
+  if not useTikZ:
+    plt + ggtitle(title & &". Total # cluster = {totalEvs}") +
+      ggsave(&"plots/background_cluster_centers{suffix}.pdf")
+  else:
+    plt + ggtitle(title & r". Total \# cluster = " & $totalEvs) +
+      ggvegatex(&"/home/basti/phd/Figs/backgroundClusters/background_cluster_centers{suffix}")
 
   when false:
     # convert center positions to a 256x256 map

@@ -1,10 +1,11 @@
 import strutils, strformat, strscans, terminal, os, parseutils, times, algorithm
 import re, tables, memfiles, sequtils, sugar
 
-when not defined(gcDestructors):
-  import threadpool_simple
-else:
-  import weave
+when compileOption("threads"):
+  when not defined(gcDestructors):
+    import threadpool_simple
+  else:
+    import weave
 import math
 import streams, parsecsv
 
@@ -1162,94 +1163,107 @@ proc getSortedListOfFiles*(run_folder: string,
     let files = evNumFiles --> map(it[1])
     result = sortByInode(files)
 
-proc unwrapAndRemoveInvalid[T](res: var seq[T], flow: seq[FlowVar[T]]) =
-  ## assigns all valid events from `flow` into `res`
-  var validCount = 0
-  for i, x in mpairs(res):
+when compileOption("threads"):
+  proc unwrapAndRemoveInvalid[T](res: var seq[T], flow: seq[FlowVar[T]]) =
+    ## assigns all valid events from `flow` into `res`
+    var validCount = 0
+    for i, x in mpairs(res):
+      when not defined(gcDestructors):
+        let ev = ^flow[i]
+      else:
+        let ev = sync flow[i]
+      if ev.isValid:
+        x = ev
+        inc validCount
+    if validCount < res.len:
+      res.setLen(validCount)
+
+
+  proc readListOfFiles*[T](list_of_files: seq[string],
+                           rfKind: RunFolderKind = rfUnknown):
+                             seq[T] = #{.inline.} =
+    ## As this is to be called from a function specifying the datatype, see the calling functions
+    ## for descriptions of input and output
+    # backward compatible flag to disable reading FADC files straight
+    # from memory mapping
+    const fadcMemFiles = true
+
+    let nfiles = len(list_of_files)
+    echo "Reading files into buffer from " & $0 & " to " & $(nfiles - 1)
+    # seq of lines from memmapped files
+    result = newSeq[T](nfiles)
     when not defined(gcDestructors):
-      let ev = ^flow[i]
+      var res = newSeq[FlowVar[T]](nfiles)
+      var f_count = 0
+      let p = newThreadPool()
+      when T is Event or not fadcMemFiles:
+        let protoFiles = readMemFilesIntoBuffer(list_of_files)
+        echo "...done reading"
+        for i, s in protoFiles:
+          # loop over each file and call work on data function
+          if i < len(result):
+            when T is Event:
+              res[i] = p.spawn processEventWrapper(s, rfKind)
+            elif T is FadcFile:
+              res[i] = p.spawn readFadcFile(s)
+          echoCount(f_count)
+      elif T is FadcFile and fadcMemFiles:
+        # should be faster than not using memory mapping
+        for i, f in list_of_files:
+          # loop over each file and call work on data function
+          if i < len(result):
+            res[i] = p.spawn readFadcFileMem(f)
+          echoCount(f_count)
+      echo "Now sync and unwrap"
+      p.sync()
+      # finally await flowvars and assign to result
+      unwrapAndRemoveInvalid(result, res)
+      echo "Done syncing and unwrapping"
     else:
-      let ev = sync flow[i]
-    if ev.isValid:
-      x = ev
-      inc validCount
-  if validCount < res.len:
-    res.setLen(validCount)
+      init(Weave)
+      var resBuf = cast[ptr UncheckedArray[T]](result[0].addr)
+      when T is Event:
+        let protoFiles = readMemFilesIntoBuffer(list_of_files)
+        echo "...done reading"
+        let numFiles = protoFiles.len
+        var ppBuf = cast[ptr UncheckedArray[ProtoFile]](protoFiles[0].unsafeAddr)
+        parallelFor i in 0 ..< numFiles:
+          # loop over each file and call work on data function
+          captures: {resBuf, ppBuf, rfKind}
+          resBuf[i] = processEventWrapper(ppBuf[i], rfKind)
+          echoCounted(i)
+      else:
+        let numFiles = result.len
+        let inputBuf = cast[ptr UncheckedArray[string]](list_of_files[0].unsafeAddr)
+        parallelFor i in 0 ..< numFiles:
+          # loop over each file and call work on data function
+          captures: {resBuf, inputBuf, rfKind}
+          resBuf[i] = readFadcFileMem(inputBuf[i])
+          echoCounted(i)
+      exit(Weave)
+      echo "Exit Weave!"
 
-proc readListOfFiles*[T](list_of_files: seq[string],
-                         rfKind: RunFolderKind = rfUnknown):
-                           seq[T] = #{.inline.} =
-  ## As this is to be called from a function specifying the datatype, see the calling functions
-  ## for descriptions of input and output
-  # backward compatible flag to disable reading FADC files straight
-  # from memory mapping
-  const fadcMemFiles = true
+  proc readListOfInGridFiles*(list_of_files: seq[string], rfKind: RunFolderKind):
+                            seq[Event] =
+    ## this procedure receives a list of files, reads them into memory (as a buffer)
+    ## and processes the content into a seq of ref Events
+    ## inputs:
+    ##    list_of_files: seq[string] = a seq of filenames, which are to be read in one go
+    ## outputs:
+    ##    seq[FlowVar[ref Event]] = a seq of flow vars pointing to events, since we read
+    ##                              in parallel
+    result = readListOfFiles[Event](list_of_files, rfKind)
 
-  let nfiles = len(list_of_files)
-  echo "Reading files into buffer from " & $0 & " to " & $(nfiles - 1)
-  # seq of lines from memmapped files
-  result = newSeq[T](nfiles)
-  when not defined(gcDestructors):
-    var res = newSeq[FlowVar[T]](nfiles)
-    var f_count = 0
-    let p = newThreadPool()
-    when T is Event or not fadcMemFiles:
-      let protoFiles = readMemFilesIntoBuffer(list_of_files)
-      echo "...done reading"
-      for i, s in protoFiles:
-        # loop over each file and call work on data function
-        if i < len(result):
-          when T is Event:
-            res[i] = p.spawn processEventWrapper(s, rfKind)
-          elif T is FadcFile:
-            res[i] = p.spawn readFadcFile(s)
-        echoCount(f_count)
-    elif T is FadcFile and fadcMemFiles:
-      # should be faster than not using memory mapping
-      for i, f in list_of_files:
-        # loop over each file and call work on data function
-        if i < len(result):
-          res[i] = p.spawn readFadcFileMem(f)
-        echoCount(f_count)
-    echo "Now sync and unwrap"
-    p.sync()
-    # finally await flowvars and assign to result
-    unwrapAndRemoveInvalid(result, res)
-    echo "Done syncing and unwrapping"
-  else:
-    init(Weave)
-    var resBuf = cast[ptr UncheckedArray[T]](result[0].addr)
-    when T is Event:
-      let protoFiles = readMemFilesIntoBuffer(list_of_files)
-      echo "...done reading"
-      let numFiles = protoFiles.len
-      var ppBuf = cast[ptr UncheckedArray[ProtoFile]](protoFiles[0].unsafeAddr)
-      parallelFor i in 0 ..< numFiles:
-        # loop over each file and call work on data function
-        captures: {resBuf, ppBuf, rfKind}
-        resBuf[i] = processEventWrapper(ppBuf[i], rfKind)
-        echoCounted(i)
-    else:
-      let numFiles = result.len
-      let inputBuf = cast[ptr UncheckedArray[string]](list_of_files[0].unsafeAddr)
-      parallelFor i in 0 ..< numFiles:
-        # loop over each file and call work on data function
-        captures: {resBuf, inputBuf, rfKind}
-        resBuf[i] = readFadcFileMem(inputBuf[i])
-        echoCounted(i)
-    exit(Weave)
-    echo "Exit Weave!"
+#else:
+#  proc readListOfFiles*[T](list_of_files: seq[string],
+#                           rfKind: RunFolderKind = rfUnknown):
+#                             seq[T] = #{.inline.} =
+#    {.error: "`readListOfFiles` needs thread support! Compile with `--threads:on`.".}
+#
+#  proc readListOfInGridFiles*(list_of_files: seq[string], rfKind: RunFolderKind):
+#                            seq[Event] =
+#    {.error: "`readListOfInGridFiles` needs thread support! Compile with `--threads:on`.".}
 
-proc readListOfInGridFiles*(list_of_files: seq[string], rfKind: RunFolderKind):
-                          seq[Event] =
-  ## this procedure receives a list of files, reads them into memory (as a buffer)
-  ## and processes the content into a seq of ref Events
-  ## inputs:
-  ##    list_of_files: seq[string] = a seq of filenames, which are to be read in one go
-  ## outputs:
-  ##    seq[FlowVar[ref Event]] = a seq of flow vars pointing to events, since we read
-  ##                              in parallel
-  result = readListOfFiles[Event](list_of_files, rfKind)
 
 proc isTosRunFolder*(folder: string):
   tuple[is_rf: bool, runNumber: int, rfKind: RunFolderKind, contains_rf: bool] =

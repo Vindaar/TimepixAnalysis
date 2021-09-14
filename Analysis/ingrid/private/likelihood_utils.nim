@@ -172,19 +172,15 @@ proc buildLogLHist*(cdlFile, refFile, dset: string,
     for i in 0 .. energy.high:
       let
         # first apply Xray cuts (see C. Krieger PhD Appendix B & C)
-        regionCut = inRegion(centerX[i], centerY[i], crSilver)
-        xRmsCut = if rmsTrans[i] >= xrayCuts.minRms and
-                     rmsTrans[i] <= xrayCuts.maxRms:
-                    true
-                  else:
-                    false
-        xLengthCut = if length[i] <= xrayCuts.maxLength: true else: false
-        xEccCut = if ecc[i] <= xrayCuts.maxEccentricity: true else: false
+        regionCut  = inRegion(centerX[i], centerY[i], crSilver)
+        xRmsCut    = rmsTrans[i] >= xrayCuts.minRms and rmsTrans[i] <= xrayCuts.maxRms
+        xLengthCut = length[i]   <= xrayCuts.maxLength
+        xEccCut    = ecc[i]      <= xrayCuts.maxEccentricity
         # then apply reference cuts
-        chargeCut = if charge[i]   > cuts.minCharge and charge[i]   < cuts.maxCharge: true else: false
-        rmsCut    = if rmsTrans[i] > cuts.minRms    and rmsTrans[i] < cuts.maxRms:    true else: false
-        lengthCut = if length[i] < cuts.maxLength: true else: false
-        pixelCut  = if npix[i]   > cuts.minPix:    true else: false
+        chargeCut  = charge[i]   > cuts.minCharge and charge[i]   < cuts.maxCharge
+        rmsCut     = rmsTrans[i] > cuts.minRms    and rmsTrans[i] < cuts.maxRms
+        lengthCut  = length[i]   < cuts.maxLength
+        pixelCut   = npix[i]     > cuts.minPix
       # add event to likelihood if all cuts passed
       if allIt([regionCut, xRmsCut, xLengthCut, xEccCut, chargeCut, rmsCut, lengthCut, pixelCut], it):
         if logL[i] != Inf:

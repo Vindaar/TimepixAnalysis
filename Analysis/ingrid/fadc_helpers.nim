@@ -5,7 +5,9 @@ import memfiles
 import strutils, strscans
 import helpers/utils
 # import read list of files, to read FADC files in parallel
-from tos_helpers import readListOfFiles, readMemFilesIntoBuffer
+
+when compileOption("threads"):
+  from tos_helpers import readListOfFiles
 import ingrid_types
 import algorithm
 import macros
@@ -411,16 +413,17 @@ proc buildListOfXrayFiles*(file: string): seq[string] =
 
   return event_list
 
-proc readListOfFadcFiles*(list_of_files: seq[string]): seq[FadcFile] =
-  ## this procedure receives a list of files, reads them into memory (as a buffer)
-  ## and processes the content into a seq of ref FadcFile
-  ## inputs:
-  ##    list_of_files: seq[string] = a seq of fadc filenames, which are to be read in one go
-  ## outputs:
-  ##    seq[FadcFile] = a seq of `FadcFile` which stores the FADC raw data
-  ## the meat of the proc is in the readListOfFiles function. Here we simply tell it
-  ## what kind of datatype we are reading.
-  result = readListOfFiles[FadcFile](list_of_files)
+when compileOption("threads"):
+  proc readListOfFadcFiles*(list_of_files: seq[string]): seq[FadcFile] =
+    ## this procedure receives a list of files, reads them into memory (as a buffer)
+    ## and processes the content into a seq of ref FadcFile
+    ## inputs:
+    ##    list_of_files: seq[string] = a seq of fadc filenames, which are to be read in one go
+    ## outputs:
+    ##    seq[FadcFile] = a seq of `FadcFile` which stores the FADC raw data
+    ## the meat of the proc is in the readListOfFiles function. Here we simply tell it
+    ## what kind of datatype we are reading.
+    result = readListOfFiles[FadcFile](list_of_files)
 
   ###################################################################################
   # The following procs all deal with the calculation of whether a given FADC event #

@@ -436,7 +436,7 @@ proc worker(h5file, path: string,
                             runNumber: runNumber)
   # perform initial read and process
   onPlt.push(initialRead(h5file, path, runNumber, rfKind))
-  sleep(1000)
+  sleep(3000)
   onPlt.processed = initialReco(h5file, runNumber, onPlt.chip)
 
   # open file and send first plot

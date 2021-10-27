@@ -84,13 +84,14 @@ template withSeptemXY*(chipNumber: int, actions: untyped): untyped =
     y0 = 256
     x0 = 2 * 256
   of 5:
-    # top right chip
-    y0 = 3 * 256
-    x0 = 2 * 256 + 128
+    # top right chip (- 1 as we start at top/right, which would be out of bounds if x/y == 0
+    #                 for other chips x/y == 0 leads to first idx on next chip)
+    y0 = 3 * 256 - 1
+    x0 = 2 * 256 + 127
   of 6:
     # top left chip
-    y0 = 3 * 256
-    x0 = 128 + 256
+    y0 = 3 * 256 - 1
+    x0 = 256 + 127
   else: doAssert false, "Invalid chip number encountered in `withSeptemXY`"
   actions
 

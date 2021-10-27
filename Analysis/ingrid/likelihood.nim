@@ -628,7 +628,7 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
   # TODO: should the argument to calcCutValueTab not be crGold all the time?
   # We want to extract that data from the CDL data that most resembles the X-rays
   # we measured. This is guaranteed by using the gold region.
-  let cutTab = calcCutValueTab(cdlFile, refFile, year, region)
+  let cutTab = calcCutValueTab(cdlFile, refFile, year)
   # get the likelihood and energy datasets
   # get the group from file
   when false:

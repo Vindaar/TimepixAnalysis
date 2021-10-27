@@ -122,15 +122,14 @@ proc determineCutValue[T: seq | Tensor](hist: T, eff: float): int =
     cur_eff = hist[0..result].sum.float / hist_sum
   echo "Efficiency is at ", cur_eff, " and last Eff was ", last_eff
 
-proc calcCutValueTab(cdlFile, refFile: string, yearKind: YearKind,
-                     region: ChipRegion = crGold): CutValueInterpolator =
+proc calcCutValueTab(cdlFile, refFile: string, yearKind: YearKind): CutValueInterpolator =
   ## returns a table mapping the different CDL datasets to the correct cut values
-  ## based on a chip `region`
+  ## based on the chip center region
   # read signal efficiency (default 80%) from TOML file
   let efficiency = readSignalEff()
   let morphKind = readMorphKind()
   let xray_ref = getXrayRefTable()
-  let logHists = computeLogLDistributions(cdlFile, refFile, yearKind, region)
+  let logHists = computeLogLDistributions(cdlFile, refFile, yearKind, crGold)
   case morphKind
   of mkNone:
     # get the cut value for a software efficiency of 80%
@@ -901,7 +900,7 @@ proc readLikelihoodDsetsCdl(cdlFile, refFile: string,
     logLs: seq[float]
     bins: seq[string]
   for bin in values(xray_ref):
-    let (logL, energy) = buildLogLHist(cdlFile, refFile, bin, yearKind, region)
+    let (logL, energy) = buildLogLHist(cdlFile, refFile, bin, yearKind, crGold)
     logLs.add logL
     energies.add energy
     bins.add sequtils.repeat(bin, energy.len)

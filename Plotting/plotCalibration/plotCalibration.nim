@@ -1,5 +1,5 @@
 import std / [os, strutils, strformat, sequtils, algorithm, math]
-import pkg / [mpfit, zero_functional, seqmath, chroma, docopt, plotly]
+import pkg / [mpfit, zero_functional, seqmath, chroma, docopt, plotly, ggplotnim]
 import ingrid / [ingrid_types, tos_helpers]
 import ingrid / calibration / calib_fitting
 import helpers/utils
@@ -122,37 +122,25 @@ proc plotThlCalib*(thlCalib: FitResult, charge, thl, thlErr: seq[float], chip = 
   p.saveImage(filename)
 
 proc plotToTCalib*(totCalib: FitResult, tot: Tot, chip = 0, chipName = "") =
-  let
-    data = Trace[float](mode: PlotMode.Markers, `type`: PlotType.Scatter)
-    fit = Trace[float](mode: PlotMode.Lines, `type`: PlotType.Scatter)
-  # flip the plot, i.e. show THL on x instead of y as done for the fit to
-  # include the errors
-  data.xs = tot.pulses.mapIt(it.float)
-  data.ys = tot.mean
-  let stdValid = tot.std.mapIt(if classify(it) == fcNaN: 0.0 else: it)
-  echo stdValid
-  data.ys_err = newErrorBar(stdValid, color = Color(r: 0.5, g: 0.5, b: 0.5, a: 1.0))
-  data.name = "ToT calibration"
-
-  # flip the plot
-  fit.xs = totCalib.x
-  fit.ys = totCalib.y
-  fit.name = "ToT calibration fit"
-
+  let dfData = seqsToDf({ "U / mV" : tot.pulses.mapIt(it.float),
+                          "ToT" : tot.mean,
+                          "std" : tot.std.mapIt(if classify(it) == fcNaN: 0.0 else: it) })
+  let dfFit = seqsToDf({"U / mV" : totCalib.x, "ToT" : totCalib.y })
+  let df = bind_rows([("ToT", dfData), ("Fit", dfFit)], "by")
   var title = ""
   if chipName.len > 0:
     title = &"ToT calibration of Chip {chipName}"
   else:
     title = &"ToT calibration of Chip {chip}"
-  let
-    layout = Layout(title: title,
-                    width: FigWidth.int, height: FigHeight.int,
-                    xaxis: Axis(title: "U_inj / mV"),
-                    yaxis: Axis(title: "ToT / Clock cycles"),
-                    autosize: false)
-    p = Plot[float](layout: layout, traces: @[data, fit])
-  let filename = &"out/tot_calib_{chip}.svg"
-  p.saveImage(filename)
+  ggplot(dfData, aes("U / mV", "ToT")) +
+    geom_line(data = dfFit, color = some(color(1.0, 0.0, 1.0))) +
+    geom_point() +
+    geom_errorbar(aes = aes(yMin = f{`ToT` - `std`}, yMax = f{`ToT` + `std`})) +
+    xlab(r"$U_\text{injected} / \si{mV}$") +
+    ylab("ToT / clock cycles") +
+    ggtitle(title) +
+    theme_latex() +
+    ggsave(&"out/tot_calib_{chip}.pdf", useTex = true, standalone = true)
 
 iterator sCurves(args: DocoptTab): SCurve =
   ## yields the traces of the correct argument given to
@@ -268,8 +256,6 @@ proc main() =
   let args = docopt(doc)
   echo args
   let db = $args["--db"]
-  let file = $args["--file"]
-  let folder = $args["--folder"]
   let chip = $args["--chip"]
   let startFitStr = $args["--startFit"]
   let startTotStr = $args["--startTot"]

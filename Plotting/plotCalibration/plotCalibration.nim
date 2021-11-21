@@ -1,22 +1,13 @@
-import plotly
-import os, strutils, strformat
-import sequtils
-import algorithm
-import math
-import docopt
-import chroma
-import seqmath
-import mpfit
-import zero_functional
-import ingrid/ingrid_types
-import ingrid/tos_helpers
-import ingrid/calibration
+import std / [os, strutils, strformat, sequtils, algorithm, math]
+import pkg / [mpfit, zero_functional, seqmath, chroma, docopt, plotly]
+import ingrid / [ingrid_types, tos_helpers]
+import ingrid / calibration / calib_fitting
 import helpers/utils
 import ingridDatabase / [databaseDefinitions, databaseRead]
 
 type
   # for clarity define a type for the Docopt argument table
-  DocoptTab = Table[string, Value]
+  DocoptTab = Table[string, docopt.Value]
 
 template canImport(x: untyped): bool =
   compiles:

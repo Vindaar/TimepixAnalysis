@@ -67,15 +67,18 @@ proc getScurve*(chipName: string,
   withDatabase:
     result = h5f.getScurve(chipName, runPeriod, voltage)
 
-proc getScurveSeq*(chipName: string, run: int): SCurveSeq =
+proc getScurveSeq*(chipName: string, run: int | string): SCurveSeq =
   ## read all SCurves of `chipName` and return an `SCurveSeq`
   withDatabase:
     h5f.visitFile()
-    let runPeriod = h5f.findRunPeriodFor(chipName, run)
+    when typeof(run) is string:
+      let runPeriod = run
+    else:
+      let runPeriod = h5f.findRunPeriodFor(chipName, run)
     var groupName = joinPath(chipNameToGroup(chipName, runPeriod),
                              SCurveFolder)
-    var grp = h5f[groupName.grp_str]
-    for dset in grp:
+    var grp = h5f[grp_str(groupName)]
+    for dset in items(grp):
       var mdset = dset
       let voltage = mdset.attrs["voltage", int64].int
       let curve = h5f.getSCurve(chipName, runPeriod, voltage)

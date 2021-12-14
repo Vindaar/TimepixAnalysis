@@ -542,12 +542,10 @@ proc recoCluster*[T: SomePix](c: Cluster[T]): ClusterObject[T] {.gcsafe, hijackM
   # set number of hits in cluster
   result.hits = clustersize
   # set the position
-  when T is uint8:
+  when T is Pix:
     (result.centerX, result.centerY) = applyPitchConversion(pos_x, pos_y, NPIX)
   else:
     (result.centerX, result.centerY) = applyPitchConversion(pos_x, pos_y, NPIX * 3)
-  #(float(NPIX) - float(pos_x) + 0.5) * PITCH
-  #result.pos_y = (float(pos_y) + 0.5) * PITCH
   # prepare rot angle fit
   if rotAngleEstimate < 0:
     #echo "correcting 1"

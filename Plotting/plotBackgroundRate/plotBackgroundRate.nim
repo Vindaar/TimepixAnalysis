@@ -1,5 +1,5 @@
 import ggplotnim, seqmath, sequtils, os, sugar, strscans, strformat, strutils, sugar
-import ingrid / [tos_helpers]
+import ingrid / [tos_helpers, ingrid_types]
 from arraymancer import tensor
 
 import nimhdf5, numericalnim
@@ -296,6 +296,8 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
           names: seq[string] = @[],
           compareEfficiencies = false,
           plotMedianBools = false,
+          combName = "", # name for combined data (i.e. `separateFiles == false`)
+          combYear = 0, # year for combined data (i.e. `separateFiles == false`)
           region: ChipRegion = crAll, # use either all data or cut to given region
           useTeX = false
          ) =
@@ -324,18 +326,42 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
       doAssert names.len == files.len, "Need one name for each input file!"
       #for logL in logLFiles:
       df.add flatScale(logLFiles, factor)
+    elif separateFiles:
+      df = flatScale(logLFiles, factor)
+    else:
+      # add up all input files
+      var logL: LogLFile
+      for l in logLFiles:
+        echo "[INFO] total time: ", l.totalTime, " of file: ", l.name
+        if l.totalTime == 0.0:
+          logL = l
+        else:
+          logL.totalTime += l.totalTime
+          logL.df.add l.df.clone()
+      echo "[INFO]: total total time: ", logL.totalTime
+      logL.name = combName
+      logL.year = combYear
+      logL.df["File"] = combName
+      if logL.name.len == 0:
+        raise newException(ValueError, "separateFiles == true requires a `combName`!")
+      if logL.year == 0:
+        raise newException(ValueError, "separateFiles == true requires a `combYear`!")
+      df = flatScale(@[logL], factor)
     #if separateFiles:
     #  for logL in logLFiles:
     #    df.add flatScale(@[logL], factor)
-    else:
-      df = flatScale(logLFiles, factor)
-    echo df
-
+    #else:
+    #  df = flatScale(logLFiles, factor)
     ## NOTE: this has to be calculated before we add 2014 data if we do, of course,
     ## because otherwise we have everything duplicated!
-    let intBackRate = calcIntegratedBackgroundRate(df, factor)
-    echo &"Integrated background rate: {intBackRate:.4e} cm⁻² s⁻¹"
-    echo &"Integrated background rate/keV: {intBackRate / 10.0:.4e} keV⁻¹ cm⁻² s⁻¹"
+    proc intBackRate(df: DataFrame, factor: float, energyRange: Slice[float]) =
+      let intBackRate = calcIntegratedBackgroundRate(df, factor, energyRange)
+      let size = energyRange.b - energyRange.a
+      echo &"Integrated background rate in range: {energyRange}: {intBackRate:.4e} cm⁻² s⁻¹"
+      echo &"Integrated background rate/keV in range: {energyRange}: {intBackRate / size:.4e} keV⁻¹ cm⁻² s⁻¹"
+    intBackRate(df, factor, 0.0 .. 12.0)
+    intBackRate(df, factor, 0.5 .. 2.5)
+    intBackRate(df, factor, 0.5 .. 5.0)
     if show2014:
       df.drop(Ccol)
       var df2014 = toDf(readCsv(Data2014, sep = ' ', header = "#"))

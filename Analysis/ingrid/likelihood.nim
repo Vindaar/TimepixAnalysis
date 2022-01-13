@@ -199,7 +199,7 @@ proc calcLogLikelihood*(h5f: var H5File,
   ##     get number of elements in histogram at the bin for the element for which we get
   ##     the logL
   ##     # elements / # total in histogram = likelihood. Take log
-  # get the group from file
+  let morphKind = readMorphKind()
   for (num, group) in runs(h5f):
     echo &"Start logL calc of run {group}"
     # get number of chips from attributes
@@ -211,7 +211,7 @@ proc calcLogLikelihood*(h5f: var H5File,
     for (_, chipNumber, grp) in chipGroups(h5f, group):
       # iterate over all chips and perform logL calcs
       var attrs = h5f[grp.grp_str].attrs
-      let logL = calcLikelihoodDataset(h5f, refFile, grp, year)
+      let logL = calcLikelihoodDataset(h5f, refFile, grp, year, morphKind)
       # after walking over all events for this chip, add to correct
       # index for logL
       logL_chips[chipNumber] = logL

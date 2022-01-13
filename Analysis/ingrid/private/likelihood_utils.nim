@@ -99,8 +99,35 @@ proc readRefDsetsDF(refFile: string,
       dfDset["Variable"] = constantColumn($dkKind, dfDset.len)
       result.add dfDset
 
+proc readMorphKind(): MorphingKind
 proc calcLikelihoodDataset*(h5f: var H5File, refFile: string,
-                           groupName: string, year: YearKind): seq[float]
+                            groupName: string, year: YearKind,
+                            morphKind: MorphingKind): seq[float]
+
+proc calcLikelihoodDatasetIfNeeded(h5f: var H5File,
+                                   refFile: string,
+                                   grp: string,
+                                   logLDset: string,
+                                   year: YearKind) =
+  ## Recomputes the likelihood dataset, either if it doesn't exist yet or
+  ## if it was computed using a different morphing technique.
+  # get the group of this dataset
+  let cdlGroup = h5f[grp.grp_str]
+  let morphKindUsed = if "MorphingKind" in cdlGroup.attrs:
+                        some(parseEnum[MorphingKind](cdlGroup.attrs["MorphingKind", string]))
+                      else:
+                        none[MorphingKind]()
+  let morphKind = readMorphKind() # the morph kind that was used, assign it
+  if morphKindUsed.isNone or morphKindUsed.get != morphKind:
+    let logLData = h5f.calcLikelihoodDataset(refFile, grp, year, morphKind)
+    let loglDset = h5f.create_dataset(grp / logLDset,
+                                      (logLData.len, 1),
+                                      float64,
+                                      overwrite = true)
+    logLDset[logLDset.all] = logLData
+    # write used morph kind to group
+    cdlGroup.attrs["MorphingKind"] = $morphKind
+  # else nothing to do
 
 proc buildLogLHist*(cdlFile, refFile, dset: string,
                     year: YearKind,
@@ -144,15 +171,7 @@ proc buildLogLHist*(cdlFile, refFile, dset: string,
     # for likelihood dataset: aside from `resources/calibration-cdl.h5`, every other file
     # may not yet have access to the likelihood dataset. So we have to check for that and
     # if it does not exist yet, it has to be calculated.
-    ## TODO: make running this dependent on whether the given `MorphingKind` is the same
-    ## as the one used in the file currently! `if name in h5f or h5f.attrs["MorphingKind", string] == morphKind` ish
-    if true: #grp_name / logLStr notin h5f:
-      let logLData = h5f.calcLikelihoodDataset(refFile, grp_name, year)
-      let loglDset = h5f.create_dataset(grp_name / logLStr,
-                                        (logLData.len, 1),
-                                        float64,
-                                        overwrite = true)
-      logLDset[logLDset.all] = logLData
+    h5f.calcLikelihoodDatasetIfNeeded(refFile, grp_name, logLStr, year)
 
     let
       energy = h5f.readAs(grp_name / energyStr, float64)
@@ -379,11 +398,11 @@ proc calcMorphedLikelihoodForEvent*(eccentricity, lengthDivRmsTrans, fracRmsTran
   addLog(igFractionInTransverseRms, fracRmsTrans, result, fracDf)
   result *= -1.0
 
-proc readMorphKind(): MorphingKind
 proc calcLikelihoodDataset*(h5f: var H5File,
                             refFile: string,
                             groupName: string,
-                            year: YearKind): seq[float] =
+                            year: YearKind,
+                            morphKind: MorphingKind): seq[float] =
   const num = 1000
   let (ecc,
        lengthDivRmsTrans,
@@ -393,9 +412,6 @@ proc calcLikelihoodDataset*(h5f: var H5File,
   var refSetTuple {.global.}: tuple[ecc, ldivRms, fracRms: Table[string, histTuple]]
   var refDf {.global.}: DataFrame
   var refDfEnergy: seq[float]
-  var morphKind {.global.}: MorphingKind
-  once:
-    morphKind = readMorphKind()
   case morphKind
   of mkNone: refSetTuple = readRefDsets(refFile, year)
   of mkLinear:

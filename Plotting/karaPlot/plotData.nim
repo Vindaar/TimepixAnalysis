@@ -823,71 +823,71 @@ proc feSpectrum(h5f: var H5FileObj, runType: RunTypeKind,
                                 runs: @[r],
                                 chip: fileInfo.centerChip,
                                 plotKind: pkFeSpec)
-    let energyPd = replace(basePd):
-      name = "EnergyCalib"
-      xlabel = "# pixels"
-      ylabel = "Energy / keV"
-      plotKind = pkEnergyCalib
-    let feChargePd = replace(basePd):
-      name = "FeSpectrumChargePlot"
-      xlabel = "Charge / 10^3 electrons"
-      plotKind = pkFeSpecCharge
-    let energyChargePd = replace(basePd):
-      name = "EnergyCalibCharge"
-      xlabel = "Charge / 10^3 electrons"
-      ylabel = "Energy / keV"
-      plotKind = pkEnergyCalibCharge
-    result.add @[basePd, energyPd, feChargePd, energyChargePd]
+    #let energyPd = replace(basePd):
+    #  name = "EnergyCalib"
+    #  xlabel = "# pixels"
+    #  ylabel = "Energy / keV"
+    #  plotKind = pkEnergyCalib
+    #let feChargePd = replace(basePd):
+    #  name = "FeSpectrumChargePlot"
+    #  xlabel = "Charge / 10^3 electrons"
+    #  plotKind = pkFeSpecCharge
+    #let energyChargePd = replace(basePd):
+    #  name = "EnergyCalibCharge"
+    #  xlabel = "Charge / 10^3 electrons"
+    #  ylabel = "Energy / keV"
+    #  plotKind = pkEnergyCalibCharge
+    result.add @[basePd] #, energyPd, feChargePd, energyChargePd]
 
-  let photoVsTime = PlotDescriptor(runType: runType,
-                                   name: "PhotoPeakVsTime",
-                                   xlabel: "Time / unix",
-                                   runs: fileInfo.runs,
-                                   chip: fileInfo.centerChip,
-                                   plotKind: pkFeVsTime)
-  let photoChVsTime = PlotDescriptor(runType: runType,
-                                     name: "PhotoPeakChargeVsTime",
-                                     xlabel: "Time / unix",
-                                     runs: fileInfo.runs,
-                                     chip: fileInfo.centerChip,
-                                     plotKind: pkFeChVsTime)
-  let phPixDivChVsTime = PlotDescriptor(runType: runType,
-                                   name: "PhotoPixDivChVsTime",
-                                   xlabel: "Time / unix",
-                                   runs: fileInfo.runs,
-                                   chip: fileInfo.centerChip,
-                                   plotKind: pkFePixDivChVsTime)
-  let photoVsTimeHalfH = PlotDescriptor(runType: runType,
-                                        name: "PhotoPeakVsTimeHalfHour",
-                                        xlabel: "Time / unix",
-                                        runs: fileInfo.runs,
-                                        chip: fileInfo.centerChip,
-                                        plotKind: pkFeVsTime,
-                                        splitBySec: 1800,
-                                        lastSliceError: 0.2,
-                                        dropLastSlice: false)
-  let photoChVsTimeHalfH = PlotDescriptor(runType: runType,
-                                          name: "PhotoPeakChargeVsTimeHalfHour",
-                                          xlabel: "Time / unix",
-                                          runs: fileInfo.runs,
-                                          chip: fileInfo.centerChip,
-                                          plotKind: pkFeChVsTime,
-                                          splitBySec: 1800,
-                                          lastSliceError: 0.2,
-                                          dropLastSlice: false)
-  let phPixDivChVsTimeHalfH = PlotDescriptor(runType: runType,
-                                             name: "PhotoPixDivChVsTimeHalfHour",
-                                             xlabel: "Time / unix",
-                                             runs: fileInfo.runs,
-                                             chip: fileInfo.centerChip,
-                                             plotKind: pkFePixDivChVsTime,
-                                             splitBySec: 1800,
-                                             lastSliceError: 0.2,
-                                             dropLastSlice: false)
-
-  result.add @[photoVsTime, phPixDivChVsTime,
-               photoChVsTime, photoChVsTimeHalfH,
-               photoVsTimeHalfH, phPixDivChVsTimeHalfH]
+  #let photoVsTime = PlotDescriptor(runType: runType,
+  #                                 name: "PhotoPeakVsTime",
+  #                                 xlabel: "Time / unix",
+  #                                 runs: fileInfo.runs,
+  #                                 chip: fileInfo.centerChip,
+  #                                 plotKind: pkFeVsTime)
+  #let photoChVsTime = PlotDescriptor(runType: runType,
+  #                                   name: "PhotoPeakChargeVsTime",
+  #                                   xlabel: "Time / unix",
+  #                                   runs: fileInfo.runs,
+  #                                   chip: fileInfo.centerChip,
+  #                                   plotKind: pkFeChVsTime)
+  #let phPixDivChVsTime = PlotDescriptor(runType: runType,
+  #                                 name: "PhotoPixDivChVsTime",
+  #                                 xlabel: "Time / unix",
+  #                                 runs: fileInfo.runs,
+  #                                 chip: fileInfo.centerChip,
+  #                                 plotKind: pkFePixDivChVsTime)
+  #let photoVsTimeHalfH = PlotDescriptor(runType: runType,
+  #                                      name: "PhotoPeakVsTimeHalfHour",
+  #                                      xlabel: "Time / unix",
+  #                                      runs: fileInfo.runs,
+  #                                      chip: fileInfo.centerChip,
+  #                                      plotKind: pkFeVsTime,
+  #                                      splitBySec: 1800,
+  #                                      lastSliceError: 0.2,
+  #                                      dropLastSlice: false)
+  #let photoChVsTimeHalfH = PlotDescriptor(runType: runType,
+  #                                        name: "PhotoPeakChargeVsTimeHalfHour",
+  #                                        xlabel: "Time / unix",
+  #                                        runs: fileInfo.runs,
+  #                                        chip: fileInfo.centerChip,
+  #                                        plotKind: pkFeChVsTime,
+  #                                        splitBySec: 1800,
+  #                                        lastSliceError: 0.2,
+  #                                        dropLastSlice: false)
+  #let phPixDivChVsTimeHalfH = PlotDescriptor(runType: runType,
+  #                                           name: "PhotoPixDivChVsTimeHalfHour",
+  #                                           xlabel: "Time / unix",
+  #                                           runs: fileInfo.runs,
+  #                                           chip: fileInfo.centerChip,
+  #                                           plotKind: pkFePixDivChVsTime,
+  #                                           splitBySec: 1800,
+  #                                           lastSliceError: 0.2,
+  #                                           dropLastSlice: false)
+  #
+  #result.add @[photoVsTime, phPixDivChVsTime,
+  #             photoChVsTime, photoChVsTimeHalfH,
+  #             photoVsTimeHalfH, phPixDivChVsTimeHalfH]
 
 proc fePhotoDivEscape(h5f: var H5FileObj, runType: RunTypeKind,
                       fileInfo: FileInfo,
@@ -1999,7 +1999,7 @@ proc createCalibrationPlots(h5file: string,
     pds.add totPerPixel(h5f, runType, fInfoConfig, flags)
   if cfFeSpectrum in flags:
     pds.add feSpectrum(h5f, runType, fInfoConfig, flags)
-  pds.add fePhotoDivEscape(h5f, runType, fInfoConfig, flags)
+  #pds.add fePhotoDivEscape(h5f, runType, fInfoConfig, flags)
   # energyCalib(h5f) # ???? plot of gas gain vs charge?!
   if cfIngrid in flags:
     pds.add histograms(h5f, runType, fInfoConfig, flags) # including fadc

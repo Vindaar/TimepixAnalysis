@@ -390,15 +390,18 @@ proc calcLikelihoodDataset*(h5f: var H5File,
        fracRmsTrans,
        energies) = h5f.readLogLVariableData(groupName)
 
-  var refSetTuple: tuple[ecc, ldivRms, fracRms: Table[string, histTuple]]
-  var refDf: DataFrame
+  var refSetTuple {.global.}: tuple[ecc, ldivRms, fracRms: Table[string, histTuple]]
+  var refDf {.global.}: DataFrame
   var refDfEnergy: seq[float]
-  var morphKind: MorphingKind
+  var morphKind {.global.}: MorphingKind
   once:
     morphKind = readMorphKind()
   case morphKind
   of mkNone: refSetTuple = readRefDsets(refFile, year)
   of mkLinear:
+    ## XXX: `refDf` will `only` be defined the first time. However, this is
+    ## fine, because it's only used the first time in `calcMorphedLikelihoodForEvent`
+    ## as well! However, this *must* be fixed.
     once:
       refDf = readRefDsetsDF(refFile, year)
         .getInterpolatedWideDf(num = num)
@@ -428,8 +431,8 @@ proc calcLikelihoodDataset*(h5f: var H5File,
   #crazyPlot("igEccentricity")
   #crazyPlot("igLengthDivRmsTrans")
   #crazyPlot("igFractionInTransverseRms")
-  #if true: quit()
   result = newSeq[float64](ecc.len)
+  echo "[INFO]: Performing likelihood compute using morph kind: ", morphKind
   for i in 0 .. ecc.high:
     case morphKind
     of mkNone:
@@ -437,8 +440,6 @@ proc calcLikelihoodDataset*(h5f: var H5File,
                                         refSetTuple)
       # add logL to the sequence. May be Inf though
       result[i] = logL
-      # If logL != Inf:
-      #   discard
     of mkLinear:
       let idx = min(refDfEnergy.lowerBound(energies[i]), num - 1)
       let logL = calcMorphedLikelihoodForEvent(ecc[i], lengthDivRmsTrans[i], fracRmsTrans[i],

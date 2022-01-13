@@ -215,7 +215,13 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
   echo "INFO: storing plot in ", fname
   echo df
 
-  ggplot(df, aes(Ecol, Rcol, fill = "Dataset")) +
+  var plt: GgPlot
+  if df.unique("Dataset").len > 1:
+    plt = ggplot(df, aes(Ecol, Rcol, fill = "Dataset"))
+  else:
+    plt = ggplot(df, aes(Ecol, Rcol)) +
+      scale_x_continuous(breaks = 20)
+  plt = plt +
     geom_histogram(stat = "identity", position = "identity", alpha = some(0.5),
                    color = some(transparent),
                    hdKind = hdOutline) +

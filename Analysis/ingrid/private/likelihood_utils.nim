@@ -340,7 +340,10 @@ func calcLikelihoodForEvent*(energy, eccentricity, lengthDivRmsTrans, fracRmsTra
                              refSetTuple: tuple[ecc,
                                                 ldivRms,
                                                 fracRms: Table[string, histTuple]]): float =
-  let (ecc_ref, lengthDivRmsTrans_ref, fracRmsTrans_ref) = refSetTuple
+  ## XXX: Manual tuple unpacking due to: https://github.com/nim-lang/Nim/issues/19364
+  let ecc_ref = refSetTuple[0]
+  let lengthDivRmsTrans_ref = refSetTuple[1]
+  let fracRmsTrans_ref = refSetTuple[2]
   # try simple logL calc
   let refset = toRefDset(energy) # / 1000.0) division needed for E from Pix,
                                  # since that is in eV inst of keV

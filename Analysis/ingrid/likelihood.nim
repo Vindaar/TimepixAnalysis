@@ -559,8 +559,9 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
         ## XXX: make the actual region based on argument to `applySeptemVeto`!
         let inGoldRegion = inRegion(cl.centerX - 14.0, cl.centerY - 14.0, crGold)
 
+        ## XXX: this needs to become a `--lineveto` option!
         var lineCutsRms = false
-        if not inGoldRegion:
+        if false: #not inGoldRegion:
           # if this is not in gold region, check its excentricity and compute if line points to original
           # center cluster
 
@@ -587,9 +588,10 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
             break
           lines.add (m: orthSlope, b: centerInter)
 
-        if logL < cutTab[energy] and inGoldRegion: ## XXX: only allowed if still in gold region!
+        if logL < cutTab[energy]: # and inGoldRegion: ## XXX: only allowed if still in gold region!
           # first attempt. Unless passing throw event from passindIngs
           passed = true
+          ## TODO: change this by inserting a `and centers.inGoldRegion` logic
       if not passed:
         ## TODO: the problem is we exclude the center one if *any* didn't pass? Ah no
         ## if *NONE* pass!!!

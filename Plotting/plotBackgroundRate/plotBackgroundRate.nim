@@ -87,6 +87,9 @@ proc histogram(df: DataFrame): DataFrame =
   result = seqsToDf({ Ecol : bins, Ccol : concat(hist, @[0]) })
 
 template sumIt(s: seq[typed], body: untyped): untyped =
+  ## why the heck did I write this template?
+  ## The code may be correct, but the usage was utterly wrong (unless I'm *now* extremely
+  ## wrong, but I'm pretty sure I am not Jan 2022)
   var res: float
   for it {.inject.} in s:
     res += body
@@ -100,20 +103,29 @@ proc flatScale(files: seq[LogLFile], factor: float, dropCounts = true): DataFram
       df.add f.df
   result = newDataFrame()
 
+  proc getTotalTime(f: string): float =
+    ## retrieves the correct `totalTime` for the given file `f` from the input `files`
+    for file in files:
+      if file.name == f:
+        return file.totalTime
+
   for tup, subDf in groups(df.group_by("File")):
+    let fname = tup[0][1].toStr
+    let totalTime = fname.getTotalTime() # before: files.sumIt(it.totalTime)
+    #subDf.showBrowser()
   #for tup, subDf in groups(df.group_by("L<L_median")):
     var dfLoc = newDataFrame()
     dfLoc = subDf.histogram()
     dfLoc = dfLoc.mutate(f{float: "CountErr" ~ sqrt(`Counts`)})
-    dfLoc[Rcol] = dfLoc[Ccol].scaleDset(files.sumIt(it.totalTime), factor)
-    dfLoc["RateErr"] = dfLoc["CountErr"].scaleDset(files.sumIt(it.totalTime), factor)
-    dfLoc["Dataset"] = constantColumn(tup[0][1].toStr, dfLoc.len) #"2017/18_" & $count, dfLoc.len)
+    dfLoc[Rcol] = dfLoc[Ccol].scaleDset(totalTime, factor)
+    dfLoc["RateErr"] = dfLoc["CountErr"].scaleDset(totalTime, factor)
+    dfLoc["Dataset"] = constantColumn(fname, dfLoc.len) #"2017/18_" & $count, dfLoc.len)
     dfLoc = dfLoc.mutate(f{"yMin" ~ `Rate` - `RateErr`}, f{"yMax" ~ `Rate` + `RateErr`})
     dfLoc["yMin"] = dfLoc["yMin", float].map_inline:
       if x >= 0.0: x
       else: 0.0
     if dropCounts:
-      dfLoc.drop("Counts")
+      dfLoc = dfLoc.drop(["Counts", "CountErr"])
     result.add dfLoc
   echo result.pretty(-1)
 

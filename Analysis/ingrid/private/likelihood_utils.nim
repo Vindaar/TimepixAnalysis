@@ -60,7 +60,7 @@ proc getInterpolatedWideDf*(df: DataFrame, num = 1000): DataFrame =
   let xrayRef = getXrayRefTable()
   result = newDataFrame()
   for tup, subDf in groups(group_by(df, "Variable")):
-    echo subDf
+    # echo subDf
     var dfLoc = newDataFrame()
     var lastBins = zeros[float](0)
     for idx, E in energies:
@@ -151,8 +151,7 @@ proc buildLogLHist*(cdlFile, refFile, dset: string,
     cutsTab = getEnergyBinMinMaxVals2018()
 
   var frameworkKind = fkMarlin
-
-  echo "Opening file to build LogL from ", cdlFile
+  echo "Opening file to build LogL from ", cdlFile, " for dset: ", dset
   withH5(cdlFile, "rw"):
     if "FrameworkKind" in h5f.attrs:
       frameworkKind = parseEnum[FrameworkKind](h5f.attrs["FrameworkKind", string])

@@ -85,7 +85,8 @@ const
   InGridDsets = ["length", "width", "skewnessLongitudinal", "skewnessTransverse",
                  "kurtosisLongitudinal", "kurtosisTransverse", "rotationAngle",
                  "eccentricity", "fractionInTransverseRms", "lengthDivRmsTrans",
-                 "rmsLongitudinal", "rmsTransverse", "hits", "energyFromCharge"]
+                 "rmsLongitudinal", "rmsTransverse", "hits", "energyFromPixel",
+                 "energyFromCharge"]
   FadcDsets = ["minvals", "fallTime", "riseTime"]
   AllFadcDsets = ["argMinval", "baseline", "eventNumber", "fallStop", "fallTime",
                   "minvals", "noisy", "riseStart", "riseTime"]

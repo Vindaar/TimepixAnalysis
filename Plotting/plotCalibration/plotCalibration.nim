@@ -135,6 +135,8 @@ proc plotToTCalib*(totCalib: FitResult, tot: Tot, chip = 0, chipName = "") =
   ggplot(dfData, aes("U / mV", "ToT")) +
     geom_line(data = dfFit, color = some(color(1.0, 0.0, 1.0))) +
     geom_point() +
+    geom_linerange(aes = aes(x = 50.0, yMin = 50, yMax = 200)) +
+    annotate("Test text", x = 50.0, y = 100.0, font = font(10.0)) +
     geom_errorbar(aes = aes(yMin = f{`ToT` - `std`}, yMax = f{`ToT` + `std`})) +
     xlab(r"$U_\text{injected} / \si{mV}$") +
     ylab("ToT / clock cycles") +

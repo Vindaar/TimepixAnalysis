@@ -28,6 +28,7 @@ echo DsetNames
 proc scaleDset(data: Column, totalTime, factor: float): Column =
   ## scales the data in `data` according to the area of the gold region,
   ## total time and bin width. The data has to be pre binned of course!
+  # XXX: make sure we never use wrong area if input data makes use of `--chipRegion` feature!
   let area = pow(0.95 - 0.45, 2) # area of gold region!
   const bin_width = 0.2 # 0.392
   const shutter_open = 1.0 # Does not play any role, because totalDuration takes
@@ -51,12 +52,14 @@ proc extractYear(f: string): int =
   if fname.scanf("$*_$i_$*", dummy, result, dummy):
     echo "found a year ", result
 
-proc readFiles(files: seq[string], names: seq[string]): seq[LogLFile] =
+proc readFiles(files: seq[string], names: seq[string], region: ChipRegion): seq[LogLFile] =
   ## reads all H5 files given and stacks them to a single
   ## DF. An additional column is added, which corresponds to
   ## the filename. That way one can later differentiate which
   ## events belong to what and decide if data is supposed to
   ## be accumulated or not
+  ##
+  ## After reading we will cut to the given `region`.
   doAssert names.len == 0 or names.len == files.len, "Need one name for each input file!"
   for idx, file in files:
     let h5f = H5open(file, "r")
@@ -65,6 +68,10 @@ proc readFiles(files: seq[string], names: seq[string]): seq[LogLFile] =
     let fname = if names.len > 0: names[idx]
                 else: file.extractFilename
     df["File"] = constantColumn(fname, df.len)
+    echo "[INFO]: File: ", fname
+    echo "[INFO]: Elements before cut: ", df.len
+    df = df.filter(f{float: inRegion(`centerX`, `centerY`, region) == true})
+    echo "[INFO]: Elements after cut: ", df.len
     result.add LogLFile(name: fname,
                         totalTime: readTime(h5f),
                         df: df,
@@ -271,10 +278,11 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
           names: seq[string] = @[],
           compareEfficiencies = false,
           plotMedianBools = false,
+          region: ChipRegion = crAll, # use either all data or cut to given region
           useTeX = false
          ) =
   discard existsOrCreateDir("plots")
-  let logLFiles = readFiles(files, names)
+  let logLFiles = readFiles(files, names, region)
   let fnameSuffix = logLFiles.mapIt($it.year).join("_") & "_show2014_" & $show2014 & "_separate_" & $separateFiles & suffix
 
   let factor = if log: 1.0 else: 1e5

@@ -810,7 +810,7 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
         totalDurationsPassed[chipNumber] += totalDurationRunPassed
 
   # once done write total duration as attributes to `likelihood` group
-  var lhGrp = h5fout[likelihoodGroupGrpStr()]
+  var lhGrp = h5fout.getOrCreateGroup(likelihoodGroupGrpStr().string)
   when false:
     for key, val in totalDurations:
       lhGrp.attrs["totalDurationChip_" & $key] = val

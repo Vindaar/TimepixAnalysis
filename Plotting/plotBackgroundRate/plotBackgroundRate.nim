@@ -185,8 +185,9 @@ proc plotMedianBools(df: DataFrame, fnameSuffix, title: string,
     ggsave(fname, width = 1920, height = 1080)
 
 proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
-                        show2014: bool, suffix: string) =
-  let df = df.filter(f{c"Energy" < 12.0})
+                        show2014: bool, suffix: string,
+                        useTeX: bool) =
+  var df = df.filter(f{c"Energy" < 12.0})
   let titleSuff = if title.len > 0: title
                   elif show2014: " compared to 2014/15"
                   else: ""
@@ -204,11 +205,27 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
                   aes = aes(yMin = "yMin", yMax = "yMax"),
                   errorBarKind = ebLines) +
     scale_y_continuous() +
-    xlab("Energy [keV]") +
+    xlim(0, 12.0)
+  if useTeX:
+    plt + annotate("GridPix preliminary",
+             x = 4.3, y = 2.0,
+             rotate = -30.0,
+             font = font(16.0, color = color(0.92, 0.92, 0.92)),
+             backgroundColor = transparent) +
+    xlab(r"Energy [\si{keV}]") +
+    ylab(r"Rate [\SI{1e-5}{keV⁻¹ cm⁻² s⁻¹}]", margin = 1.1) +
+    #minorGridLines() +
+    ggtitle(title) +
+    theme_latex() +
+    ggsave(fname, width = 800, height = 480, useTex = true, standalone = true)
+  else:
+    plt + xlab("Energy [keV]") +
     ylab("Rate [10⁻⁵ keV⁻¹ cm⁻² s⁻¹]") +
-    xlim(0, 12.0) +
     ggtitle(&"Background rate of Run 2 & 3 (2017/18){titleSuff}{suffix}") +
     ggsave(fname, width = 800, height = 480)
+
+  df = df.drop(["Dataset", "yMin", "yMax"])
+  df.writeCsv("/tmp/background_rate_data.csv")
 
 proc plotEfficiencyComparison(files: seq[LogLFile]) =
   ## creates a plot comparing different logL cut efficiencies. Each filename should contain the
@@ -253,7 +270,8 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
           # filename. Makes for more natural way to separate combine things! Order needs to be same as `files`!
           names: seq[string] = @[],
           compareEfficiencies = false,
-          plotMedianBools = false
+          plotMedianBools = false,
+          useTeX = false
          ) =
   discard existsOrCreateDir("plots")
   let logLFiles = readFiles(files, names)
@@ -307,7 +325,7 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
       df2014["Dataset"] = constantColumn("2014/15", df2014.len)
       echo df2014
       df.add df2014
-    plotBackgroundRate(df, fnameSuffix, title, show2014, suffix)
+    plotBackgroundRate(df, fnameSuffix, title, show2014, suffix, useTeX = useTeX)
 
 when isMainModule:
   dispatch main

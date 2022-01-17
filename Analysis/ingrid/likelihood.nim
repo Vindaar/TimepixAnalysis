@@ -48,6 +48,7 @@ Options:
   --scintiveto           If flag is set, we use the scintillators as a veto
   --fadcveto             If flag is set, we use the FADC as a veto
   --septemveto           If flag is set, we use the Septemboard as a veto
+  --lineveto             If flag is set, we use an additional septem veto based on eccentric clusters
   --plotSeptem           If flag is set, plots the SeptemEvents of all center clusters passing logL cut
   --createRocCurve       If flag is set, we create ROC curves for all energy bins. This
                          requires the input to already have a `likelihood` dataset!
@@ -77,7 +78,7 @@ const RmsCleaningCut = 1.5
 
 type
   FlagKind = enum
-    fkTracking, fkFadc, fkScinti, fkSeptem, fkRocCurve, fkComputeLogL, fkPlotLogL, fkPlotSeptem
+    fkTracking, fkFadc, fkScinti, fkSeptem, fkLineVeto, fkRocCurve, fkComputeLogL, fkPlotLogL, fkPlotSeptem
 
 template withConfig(body: untyped): untyped =
   const sourceDir = currentSourcePath().parentDir
@@ -386,13 +387,212 @@ proc toXPix(x: float): int =
 proc toYPix(y: float): int =
   clamp(((y / (14.0 * 3.0)) * 768.0).int, 0, 767)
 
+type
+  SeptemFrame = object
+    pixels: PixelsInt     ## pure pixel data of all pixels in the septem frame (zero suppressed)
+    charge: Tensor[float] ## charge values of all pixels in a [768,768] tensor
+    centerEvIdx: int      ## index of the center event
+    numRecoPixels: int    ## number of pixels ``after`` reconstruction. To truncate `pixels` after recoEvent
+
+  AllChipData = object
+    x: seq[seq[seq[uint8]]]
+    y: seq[seq[seq[uint8]]]
+    ToT: seq[seq[seq[uint16]]]
+    charge: seq[seq[seq[float]]]
+
+  CenterChipData = object
+    lhoodCenter: seq[float]
+    energies: seq[float]
+    energyCenter: seq[float]
+    cXCenter: seq[float]
+    cYCenter: seq[float]
+    hitsCenter: seq[int]
+    rmsTCenter: seq[float]
+    rmsLCenter: seq[float]
+
+  ## The name might not be the most descriptive: This object stores information about different
+  ## geometric properties of the separate clusters found in the septem event. This includes
+  ## information about the original "center" event (the one that passed the logL cut on the center
+  ## chip) (`center` in the field name) and sequences for the centers of each other cluster
+  ## as well as lines that go through the centers of each cluster along the long axis.
+  SeptemEventGeometry = object
+    lines: seq[tuple[m, b: float]]   ## lines along the long axis through the center of each cluster
+    centers: seq[tuple[x, y: float]] ## centers of each found cluster in the septem event
+    xCenter: int ## x center pixel of the original "center event" (that passed logL)
+    yCenter: int ## y center pixel of the original "center event" (that passed logL)
+    centerRadius: float ## "radius" of the original "center event" (based on 3 * (RMS_T + RMS_L)/2 in pixel)
+
+  DataView[T] = distinct ptr UncheckedArray[T]
+
+func `[]`[T](dv: DataView[T], idx: int): T = cast[ptr UncheckedArray[T]](dv)[idx]
+#proc `=copy`[T](dv1, dv2: DataView[T]) {.error: "Copying a data view is forbidden!".}
+func toDataView[T](p: ptr seq[T]): DataView[T] = DataView[T](cast[ptr UncheckedArray[T]](p))
+
+proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
+                     rs: var RunningStat, septemFrame: var SeptemFrame,
+                     septemGeometry: var SeptemEventGeometry,
+                     centerData: CenterChipData,
+                     gainVals: seq[float],
+                     calibTuple: tuple[b, m: float], ## contains the parameters required to perform energy calibration
+                     refSetTuple: tuple[ecc, ldivRms, fracRms: Table[string, histTuple]],
+                     flags: set[FlagKind]
+                    ): tuple[logL, energy: float, lineVetoPassed: bool] =
+  # total charge for this cluster
+  let clusterId = clTup[0]
+  let cl = clTup[1]
+  let clData = cl.data
+  # reset running stat for each cluster
+  rs.clear()
+  var pixIdx = septemFrame.numRecoPixels
+  var totCharge = 0.0
+  for pix in clData:
+    # take each pixel tuple and reconvert it to chip based coordinates
+    # first determine chip it corresponds to
+    let pixChip = determineChip(pix)
+
+    # for this pixel and chip get the correct gas gain and push it to the `RunningStat`
+    rs.push gainVals[pixChip]
+    # taken the chip of the pixel, reconvert that to a local coordinate system
+    # given charge of this pixel, assign it to some intermediate storage
+    totCharge += septemFrame.charge[pix.y, pix.x]
+    # overwrite the `septemFrame` by `pix` and cluster id
+    septemFrame.pixels[pixIdx] = (x: pix.x, y: pix.y, ch: clusterId)
+    inc pixIdx
+  septemFrame.numRecoPixels = pixIdx
+
+  # determine parameters of the lines through the cluster centers
+  # invert the slope
+  let slope = tan(Pi - cl.geometry.rotationAngle)
+  let cX = toXPix(cl.centerX)
+  let cY = toYPix(cl.centerY)
+  let intercept = cY.float - slope * cX.float
+  septemGeometry.centers.add (x: cX.float, y: cY.float)
+  septemGeometry.lines.add (m: slope, b: intercept)
+
+  # using total charge and `RunningStat` calculate energy from charge
+  ## TODO: need to look *only* at gains from the corresponding chips each
+  ## and compute the energy of the part of each chip indidually and add
+  let (b, m) = calibTuple
+  let energy = totCharge * linearFunc(@[b, m], rs.mean) * 1e-6
+
+  #let energy = cl.hits.float * 26.0
+  let logL = calcLikelihoodForEvent(energy, # <- TODO: hack for now!
+                                    cl.geometry.eccentricity,
+                                    cl.geometry.lengthDivRmsTrans,
+                                    cl.geometry.fractionInTransverseRms,
+                                    refSetTuple)
+  ## Check if the current cluster is in gold region. If it is, either it is part of something
+  ## super big that makes the center still fall into the gold region or it remains unchanged.
+  ## In the unchanged case, let's compare the energy and cluster pixels
+
+  ## XXX: make the actual region based on argument to `applySeptemVeto`!
+  let inRegionOfInterest = inRegion(cl.centerX - 14.0, cl.centerY - 14.0, crAll) #crGold)
+
+  var lineVetoPassed = true #
+  if fkLineVeto in flags and not inRegionOfInterest: ## perform the line cut
+    # if this is not in region of interest, check its eccentricity and compute if line points to original
+    # center cluster
+    let centerEvIdx = septemFrame.centerEvIdx
+    # compute line orthogonal to this cluster's line
+    let orthSlope = -1.0 / slope
+    ## TODO: XXX: eccentricity check. Using a line of a cluster that is not very eccentric makes no sense!
+    # determine y axis intersection
+    septemGeometry.xCenter = clamp(256 - (centerData.cXCenter[centerEvIdx] / 14.0 * 256.0).int, 0, 255) + 256
+    septemGeometry.yCenter = clamp((centerData.cYCenter[centerEvIdx] / 14.0 * 256).int, 0, 256) + 256
+
+    let centerInter = septemGeometry.yCenter.float - orthSlope * septemGeometry.xCenter.float
+
+    # use orthogonal line to determine crossing point between it and this cluster's line
+    let xCut = (intercept - centerInter) / (orthSlope - slope)
+    let yCut = orthSlope * xCut + centerInter
+    septemGeometry.centers.add (x: xCut, y: yCut)
+    # compute distance between two points
+    let dist = sqrt( (septemGeometry.xCenter.float - xCut)^2 + (septemGeometry.yCenter.float - yCut)^2 )
+    # if distance is smaller than radius
+    septemGeometry.centerRadius = ((centerData.rmsTCenter[centerEvIdx] +
+                                    centerData.rmsLCenter[centerEvIdx]) /
+                                   2.0 * 3.0) /
+                                   14.0 * 256.0
+    if dist < septemGeometry.centerRadius:
+      lineVetoPassed = false
+    septemGeometry.lines.add (m: orthSlope, b: centerInter)
+  result = (logL: logL,
+            energy: energy,
+            lineVetoPassed: lineVetoPassed) ## No line veto is equivalent to passing the line veto.
+                                            ## Init to `true`, just use variable
+
+proc readAllChipData(h5f: H5File, group: H5Group, numChips: int): AllChipData =
+  ## Read all data for all chips of this run that we need for the septem veto
+  let vlenXY = special_type(uint8)
+  let vlenCh = special_type(float64)
+  result = AllChipData(x: newSeq[seq[seq[uint8]]](numChips),
+                       y: newSeq[seq[seq[uint8]]](numChips),
+                       ToT: newSeq[seq[seq[uint16]]](numChips),
+                       charge: newSeq[seq[seq[float]]](numChips))
+  for i in 0 ..< numChips:
+    result.x[i] =      h5f[group.name / "chip_" & $i / "x", vlenXY, uint8]
+    result.y[i] =      h5f[group.name / "chip_" & $i / "y", vlenXY, uint8]
+    result.ToT[i] =    h5f[group.name / "chip_" & $i / "ToT", vlenCh, uint16]
+    result.charge[i] = h5f[group.name / "chip_" & $i / "charge", vlenCh, float]
+
+proc readCenterChipData(h5f: H5File, group: H5Group): CenterChipData =
+  ## Read all data of this run for the center chip that we need in the rest of
+  ## the septem veto logic
+  result.lhoodCenter = h5f[group.name / "chip_3" / "likelihood", float]
+  result.energies = h5f[group.name / "chip_3" / "energyFromCharge", float]
+  result.energyCenter = h5f[group.name / "chip_3" / "energyFromCharge", float]
+  result.cXCenter = h5f[group.name / "chip_3" / "centerX", float]
+  result.cYCenter = h5f[group.name / "chip_3" / "centerY", float]
+  result.hitsCenter = h5f[group.name / "chip_3" / "hits", int]
+  result.rmsTCenter = h5f[group.name / "chip_3" / "rmsTransverse", float]
+  result.rmsLCenter = h5f[group.name / "chip_3" / "rmsLongitudinal", float]
+
+proc buildSeptemEvent(evDf: DataFrame,
+                      lhoodCenter, energies: seq[float],
+                      cutTab: CutValueInterpolator,
+                      allChipData: AllChipData,
+                      centerChip: int): SeptemFrame =
+  ## Given a
+  result = SeptemFrame(centerEvIdx: -1, numRecoPixels: 0)
+  # assign later to avoid indirection for each pixel
+  var chargeTensor = zeros[float]([768, 768])
+  var pixels: PixelsInt = newSeqOfCap[PixInt](5000) # 5000 = 5k * 26eV = 130keV. Plenty to avoid reallocations
+  let chipData = evDf["chipNumber", int] # get data as tensors and access to avoid `Value` wrapping
+  let idxData = evDf["eventIndex", int]
+  for i in 0 ..< evDf.len:
+    # get the chip number and event index, dump corresponding event pixel data
+    # onto the "SeptemFrame"
+    let chip = chipData[i]
+    let idx = idxData[i]
+    if chip == centerChip and lhoodCenter[idx.int] < cutTab[energies[idx.int]]:
+      # assign center event index if this is the cluster that passes logL cut
+      result.centerEvIdx = idx.int
+
+    ## Use `idx` of this cluster & event to look up all x, y, ToT and charge data of the cluster
+    let
+      chX = allChipData.x[chip][idx].unsafeAddr.toDataView()
+      chY = allChipData.y[chip][idx].unsafeAddr.toDataView()
+      chToT = allChipData.ToT[chip][idx].unsafeAddr.toDataView()
+      chCh = allChipData.charge[chip][idx].unsafeAddr.toDataView()
+    let numPix = allChipData.x[chip][idx].len # data view has no length knowlegde!
+    var chpPix = newSeq[PixInt](numPix)
+    for j in 0 ..< numPix:
+      let pix = (x: chX[j], y: chY[j], ch: chToT[j]).chpPixToSeptemPix(chip)
+      # add current charge into full septem tensor
+      chargeTensor[pix.y, pix.x] += chCh[j]
+      chpPix[j] = pix
+    # convert to septem coordinate and add to frame
+    pixels.add chpPix
+  result.charge = chargeTensor
+  result.pixels = pixels
+
 proc applySeptemVeto(h5f, h5fout: var H5File,
                      cdlFile, refFile: string,
                      runNumber: int,
                      year: YearKind,
                      passedInds: var HashSet[int],
                      cutTab: CutValueInterpolator,
-                     plotSeptemEvents: bool) =
+                     flags: set[FlagKind]) =
   ## Applies the septem board veto to the given `passedInds` in `runNumber` of `h5f`.
   ## Writes the resulting clusters, which pass to the `septem` subgroup (parallel to
   ## the `chip_*` groups into `h5fout`.
@@ -417,34 +617,18 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
   #echo "Center df ", centerDf
   ## TODO: this is super slow!!
   let passedEvs = passedInds.mapIt(centerDf["eventNumber", it]).sorted.toOrderedSet
-  var
-    allDataX: seq[seq[seq[uint8]]]
-    allDataY: seq[seq[seq[uint8]]]
-    allDataToT: seq[seq[seq[uint16]]]
-    allDataCh: seq[seq[seq[float]]]
-  let vlenXY = special_type(uint8)
-  let vlenCh = special_type(float64)
-    #allData
-  for i in 0 ..< numChips:
-    allDataX.add h5f[group.name / "chip_" & $i / "x", vlenXY, uint8]
-    allDataY.add h5f[group.name / "chip_" & $i / "y", vlenXY, uint8]
-    allDataToT.add h5f[group.name / "chip_" & $i / "ToT", vlenCh, uint16]
-    allDataCh.add h5f[group.name / "chip_" & $i / "charge", vlenCh, float]
-  let lhoodCenter = h5f[group.name / "chip_3" / "likelihood", float]
-  let energyCenter = h5f[group.name / "chip_3" / "energyFromCharge", float]
-  let cXCenter = h5f[group.name / "chip_3" / "centerX", float]
-  let cYCenter = h5f[group.name / "chip_3" / "centerY", float]
-  let hitsCenter = h5f[group.name / "chip_3" / "hits", int]
-  let rmsTCenter = h5f[group.name / "chip_3" / "rmsTransverse", float]
-  let rmsLCenter = h5f[group.name / "chip_3" / "rmsLongitudinal", float]
+
+  ## Read all the pixel data for all chips
+  let allChipData = readAllChipData(h5f, group, numChips)
+
+  let centerData = readCenterChipData(h5f, group)
 
   let refSetTuple = readRefDsets(refFile, year)
   let chips = toSeq(0 .. 6)
   let gains = chips.mapIt(h5f[(group.name / "chip_" & $it / "gasGainSlices"), GasGainIntervalResult])
-  let energies = h5f[group.name / "chip_3" / "energyFromCharge", float]
   let septemHChips = chips.mapIt(getSeptemHChip(it))
   let toTCalibParams = septemHChips.mapIt(getTotCalibParameters(it, runNumber))
-  let (b, m) = getCalibVsGasGainFactors(septemHChips[centerChip], runNumber)
+  let calibTuple = getCalibVsGasGainFactors(septemHChips[centerChip], runNumber)
   var rs: RunningStat
 
   # for the `passedEvs` we have to read all data from all chips
@@ -453,50 +637,21 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
     let evNum = pair[0][1]
     if evNum in passedEvs:
       # then grab all chips for this event
-      var septemFrame: PixelsInt
-      var centerEvIdx = -1
-      # create tensor for charge
-      var chargeTensor = zeros[float]([768, 768])
-
-      for row in evGroup:
-        # get the chip number and event index, dump corresponding event pixel data
-        # onto the "SeptemFrame"
-        let chip = row["chipNumber"].toInt
-        let idx = row["eventIndex"].toInt
-        if chip == centerChip and lhoodCenter[idx.int] < cutTab[energies[idx.int]]:
-          # assign center event index if this is the cluster that passes logL cut
-          centerEvIdx = idx.int
-
-        let
-          chX = allDataX[chip][idx]
-          chY = allDataY[chip][idx]
-          chToT = allDataToT[chip][idx]
-          chCh = allDataCh[chip][idx]
-        let numPix = chX.len
-        var chpPix = newSeq[Pix](numPix)
-        for i in 0 ..< numPix:
-          chpPix[i] = (x: chX[i], y: chY[i], ch: chToT[i])
-          let x = chX[i].int
-          let y = chY[i].int
-          let (px, py, pch) = chpPix[i].chpPixToSeptemPix(chip)
-          # add current charge into full septem tensor
-          chargeTensor[py, px] += chCh[i]
-        # convert to septem coordinate and add to frame
-        septemFrame.add chpPix.chpPixToSeptemPix(chip)
-
-      if centerEvIdx == -1:
+      var septemFrame = buildSeptemEvent(evGroup, centerData.lhoodCenter, centerData.energies,
+                                         cutTab, allChipData, centerChip)
+      if septemFrame.centerEvIdx == -1:
         echo "Broken event! ", evGroup.pretty(-1)
         quit(1)
       # given the full frame run through the full reconstruction for this cluster
       # here we give chip number as -1, indicating "Septem"
-      let recoEv = recoEvent((septemFrame, evNum.toInt.int), -1,
+      let recoEv = recoEvent((septemFrame.pixels, evNum.toInt.int), -1,
                              runNumber, searchRadius = searchRadius,
                              dbscanEpsilon = epsilon,
                              clusterAlgo = clusterAlgo)[]
 
       # extract the correct gas gain slices for this event
       var gainVals: seq[float]
-      for chp in 0 ..< 7:
+      for chp in 0 ..< numChips:
         let gainSlices = gains[chp]
         let gainEvs = gainSlices.mapIt(it.sliceStartEvNum)
         let sliceIdx = gainEvs.lowerBound(evNum.toInt)
@@ -504,112 +659,39 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
 
       # calculate log likelihood of all reconstructed clusters
       var passed = false
-      var pixIdx = 0
-      var lines: seq[tuple[m, b: float]]
-      var centers: seq[tuple[x, y: float]]
-      var xCenter: int
-      var yCenter: int
-      var centerRadius: float
-
-      for clusterId, cl in recoEv.cluster:
-        # total charge for this cluster
-        var totCharge = 0.0
-        let clData = cl.data
-        # reset running stat for each cluster
-        rs.clear()
-        for pix in clData:
-          # take each pixel tuple and reconvert it to chip based coordinates
-          # first determine chip it corresponds to
-          let pixChip = determineChip(pix)
-
-          # for this pixel and chip get the correct gas gain and push it to the `RunningStat`
-          rs.push gainVals[pixChip]
-          # taken the chip of the pixel, reconvert that to a local coordinate system
-          # given charge of this pixel, assign it to some intermediate storage
-          totCharge += chargeTensor[pix.y, pix.x]
-          # overwrite the `septemFrame` by `pix` and cluster id
-          septemFrame[pixIdx] = (x: pix.x, y: pix.y, ch: clusterId)
-          inc pixIdx
-
-
-        # determine parameters of the lines through the cluster centers
-        # invert the slope
-        let slope = tan(Pi - cl.geometry.rotationAngle)
-        let cX = toXPix(cl.centerX)
-        let cY = toYPix(cl.centerY)
-        centers.add (x: cX.float, y: cY.float)
-        let intercept = cY.float - slope * cX.float
-        lines.add (m: slope, b: intercept)
-
-        # using total charge and `RunningStat` calculate energy from charge
-        ## TODO: need to look *only* at gains from the corresponding chips each
-        ## and compute the energy of the part of each chip indidually and add
-        let energy = totCharge * linearFunc(@[b, m], rs.mean) * 1e-6
-
-        #let energy = cl.hits.float * 26.0
-        let logL = calcLikelihoodForEvent(energy, # <- TODO: hack for now!
-                                          cl.geometry.eccentricity,
-                                          cl.geometry.lengthDivRmsTrans,
-                                          cl.geometry.fractionInTransverseRms,
-                                          refSetTuple)
-        ## Check if the current cluster is in gold region. If it is, either it is part of something
-        ## super big that makes the center still fall into the gold region or it remains unchanged.
-        ## In the unchanged case, let's compare the energy and cluster pixels
-
-        ## XXX: make the actual region based on argument to `applySeptemVeto`!
-        let inGoldRegion = inRegion(cl.centerX - 14.0, cl.centerY - 14.0, crGold)
-
-        ## XXX: this needs to become a `--lineveto` option!
-        var lineCutsRms = false
-        if false: #not inGoldRegion:
-          # if this is not in gold region, check its excentricity and compute if line points to original
-          # center cluster
-
-          # compute line orthogonal to this cluster's line
-          let orthSlope = -1.0 / slope
-          ## XXX: eccentricity check
-          # determine y axis intersection
-          xCenter = clamp(256 - (cXCenter[centerEvIdx] / 14.0 * 256.0).int, 0, 255) + 256
-          yCenter = clamp((cYCenter[centerEvIdx] / 14.0 * 256).int, 0, 256) + 256
-
-          let centerInter = yCenter.float - orthSlope * xCenter.float
-
-          # use orthogonal line to determine crossing point between it and this cluster's line
-          let xCut = (intercept - centerInter) / (orthSlope - slope)
-          let yCut = orthSlope * xCut + centerInter
-          centers.add (x: xCut, y: yCut)
-          # compute distance between two points
-          let dist = sqrt( (xCenter.float - xCut)^2 + (yCenter.float - yCut)^2 )
-          # if distance is smaller than radius
-          centerRadius = ((rmsTCenter[centerEvIdx] + rmsLCenter[centerEvIdx]) / 2.0 * 3.0) / 14.0 * 256.0
-          if dist < centerRadius:
-            #lineCutsRms = true
-            passed = false
-            break
-          lines.add (m: orthSlope, b: centerInter)
-
-        if logL < cutTab[energy]: # and inGoldRegion: ## XXX: only allowed if still in gold region!
+      var septemGeometry: SeptemEventGeometry # no need for constructor. `default` is fine
+      for clusterTup in pairs(recoEv.cluster):
+        let (logL, energy, lineVetoPassed) = evaluateCluster(clusterTup, rs, septemFrame, septemGeometry,
+                                                             centerData,
+                                                             gainVals,
+                                                             calibTuple,
+                                                             refSetTuple, flags)
+        if logL < cutTab[energy] and lineVetoPassed: # and inGoldRegion: ## XXX: only allowed if still in gold region!
           # first attempt. Unless passing throw event from passindIngs
           passed = true
           ## TODO: change this by inserting a `and centers.inGoldRegion` logic
-      if not passed:
-        ## TODO: the problem is we exclude the center one if *any* didn't pass? Ah no
-        ## if *NONE* pass!!!
-        passedInds.excl centerEvIdx
 
-      if plotSeptemEvents:
-        if centerEvIdx < 0:
+      if not passed:
+        ## If `passed` is still false, it means *no* reconstructed cluster passed the logL now. Given that
+        ## the original cluster which *did* pass logL is part of the septem event, the conclusion is that
+        ## it was now part of a bigger cluster that did *not* pass anymore.
+        passedInds.excl septemFrame.centerEvIdx
+
+      if fkPlotSeptem in flags:
+        if septemFrame.centerEvIdx < 0:
           doAssert false, "this cannot happen. it implies no cluster found in the given event"
-        if energies[centerEvIdx] < PlotCutEnergy:
+        if centerData.energies[septemFrame.centerEvIdx] < PlotCutEnergy:
           # shorten to actual number of stored pixels. Otherwise elements with ToT / charge values will remain
           # in the `septemFrame`
-          septemFrame.setLen(pixIdx)
-          plotSeptemEvent(septemFrame, runNumber, evNum.toInt,
-                          lines = lines,
-                          centers = centers,
+          septemFrame.pixels.setLen(septemFrame.numRecoPixels)
+          plotSeptemEvent(septemFrame.pixels, runNumber, evNum.toInt,
+                          lines = septemGeometry.lines,
+                          centers = septemGeometry.centers,
                           passed = passed,
-                          xCenter = xCenter, yCenter = yCenter, radius = centerRadius,
-                          energyCenter = energies[centerEvIdx])
+                          xCenter = septemGeometry.xCenter,
+                          yCenter = septemGeometry.yCenter,
+                          radius = septemGeometry.centerRadius,
+                          energyCenter = centerData.energies[septemFrame.centerEvIdx])
   echo "Passed indices after septem veto ", passedInds.card
 
 proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
@@ -784,7 +866,7 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
           # read all data for other chips ``iff`` chip == 3 (centerChip):
           h5f.applySeptemVeto(h5fout, cdlFile, refFile, num, year, passedInds,
                               cutTab = cutTab,
-                              plotSeptemEvents = (if fkPlotSeptem in flags: true else: false))
+                              flags = flags)
 
         if passedInds.card > 0:
           # call function which handles writing the data
@@ -1103,6 +1185,7 @@ proc main() =
   if $args["--scintiveto"] == "true": flags.incl fkScinti
   if $args["--fadcveto"] == "true": flags.incl fkFadc
   if $args["--septemveto"] == "true": flags.incl fkSeptem
+  if $args["--lineveto"] == "true": flags.incl fkLineVeto
   if $args["--createRocCurve"] == "true": flags.incl fkRocCurve
   if $args["--computeLogL"] == "true": flags.incl fkComputeLogL
   if $args["--plotLogL"] == "true": flags.incl fkPlotLogL

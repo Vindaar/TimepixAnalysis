@@ -117,7 +117,7 @@ proc getTotCalibParameters*(chipName: string, run: int):
       t = grp.attrs["t", float64]
     result = (a, b, c, t)
 
-proc getCalibVsGasGainFactors*(chipName: string, run: int, suffix = ""): (float, float) =
+proc getCalibVsGasGainFactors*(chipName: string, run: int, suffix = ""): tuple[b, m: float] =
   ## returns the fit parameters (no errors) for the given chip
   ## of the calibration of Fe charge spectrum vs gas gain
   withDatabase:
@@ -130,7 +130,7 @@ proc getCalibVsGasGainFactors*(chipName: string, run: int, suffix = ""): (float,
       let
         b = dset.attrs["b", float64]
         m = dset.attrs["m", float64]
-      result = (b, m)
+      result = (b: b, m: m)
     else:
       discard h5f.close()
       raise newException(Exception, "Charge calibration vs gas gain dataset " &

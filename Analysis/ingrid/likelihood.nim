@@ -426,7 +426,7 @@ type
 
 func `[]`[T](dv: DataView[T], idx: int): T = cast[ptr UncheckedArray[T]](dv)[idx]
 #proc `=copy`[T](dv1, dv2: DataView[T]) {.error: "Copying a data view is forbidden!".}
-func toDataView[T](p: ptr seq[T]): DataView[T] = DataView[T](cast[ptr UncheckedArray[T]](p))
+func toDataView[T](p: ptr seq[T]): DataView[T] = DataView[T](cast[ptr UncheckedArray[T]](p[0].addr))
 
 proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
                      rs: var RunningStat, septemFrame: var SeptemFrame,

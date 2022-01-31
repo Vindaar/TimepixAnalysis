@@ -805,46 +805,54 @@ proc print_tracking_logs(logs: seq[TrackingLog], print_type: TrackingKind, sorte
     echo &"There are {s_logs.len} runs without solar tracking found in the log file directory"
 
   # compute total time magnet was on
-  when false:
+  when true:
     ## NOTE: this is wrong for modern tracking logs!
-    var sumB: int
+    var sumB: Second
     for log in logs:
+      #echo "log ", log.date, " has Bs: ", log.magB.filterIt(it > 0.0), " in name ", log.name
+      #if log.date.utc().year > 2015: quit()
       for i in 1 ..< log.timestamps.len:
-        let diff = log.timestamps[i] - log.timestamps[i-1]
+        let diff = log.timestamps[i].s - log.timestamps[i-1].s
+        #echo "log.times ", log.timestamps[i], " to ", log.timestamps[i-1], " is ", diff
         if log.magB[i] > 8.0:
           sumB = sumB + diff
-    echo &"Total time the magnet was on (> 1 T): {sumB.float / 60.0} h"
+    echo &"Total time the magnet was on (> 1 T): {sumB.to(Hour)} h"
 
 proc print_slow_control_logs(logs: seq[SlowControlLog], magnetField = 8.0) =
   ## proc to pretty print useful information about the Slow Control data
   ## Mainly related to magnet activity.
   # compute total time magnet was on, here we do it based on difference between last and this
   # timestamp. Then add that diff if magnet is on now.
-  var sumB: Duration
+  var sumB: Second
   var Bvals = newSeq[float]()
-  var Tdiffs = newSeq[int]()
-  let sortedLogs = logs.sortedByIt(it.date)
-  var oldTime = sortedLogs[0].date + sortedLogs[0].times[0]
+  var Tdiffs = newSeq[Second]()
+  let sortedLogs = logs.filterIt(it.timestamps.len > 0).sortedByIt(it.date)
+  var oldTime = sortedLogs[0].timestamps[0]
   for log in sortedLogs:
-    for i in 1 ..< log.times.len:
-      let curTime = log.date + log.times[i]
-      let diff = (curTime - oldTime)
-      Tdiffs.add(diff.inSeconds().int)
+    if log.B_magnet.len == 0: continue # no magnet data, nothing to learn
+    for i in 1 ..< log.timestamps.len:
+      let curTime = log.timestamps[i]
+      let diff = (curTime - oldTime).Second
+      Tdiffs.add diff
       if log.B_magnet[i] > magnetField:
         sumB = sumB + diff
-      elif log.B_magnet[i] > 0.0 and log.B_magnet[i] < magnetField:
+      if log.B_magnet[i] > 0.0:
         Bvals.add log.B_magnet[i]
+      #elif log.B_magnet[i] > 0.0 and log.B_magnet[i] < magnetField:
+
       oldTime = curTime
 
   let df = seqsToDf({"B" : Bvals})
-  ggplot(df, aes("B")) + geom_histogram(bins = 100) + ggsave("/tmp/B_field_larger_0.pdf")
-  let dfT = seqsToDf({"Tdiff" : Tdiffs})
+  ggplot(df.filter(f{`B` <= magnetField}), aes("B")) + geom_histogram(bins = 100) + ggsave(&"/tmp/B_field_larger_0_smaller_{magnetField}.pdf")
+  ggplot(df.filter(f{float -> bool: `B` >= magnetField}), aes("B")) + geom_histogram(bins = 100) + ggsave(&"/tmp/B_field_larger_{magnetField}.pdf")
+  ggplot(df, aes("B")) + geom_histogram(bins = 100) + ggsave(&"/tmp/B_field_larger_0.pdf")
+  let dfT = seqsToDf({"Tdiff" : Tdiffs.mapIt(it.float)})
     .filter(f{`Tdiff` > 0.1 and `Tdiff` < 500.0})
   echo dfT
   ggplot(dfT, aes("Tdiff")) + geom_histogram(bins = 100) +
     scale_y_continuous() + scale_x_continuous() +
     ggsave("/tmp/T_diffs.pdf")
-  echo &"Total time the magnet was on (> {magnetField} T): {sumB.inHours()} h"
+  echo &"Total time the magnet was on (> {magnetField} T): {sumB.to(Hour)} h"
 
 proc read_tracking_log_folder(log_folder: string): seq[TrackingLog] =
   ## reads all log files from `log_folder` and returns a tuple of sorted `TrackingLog`

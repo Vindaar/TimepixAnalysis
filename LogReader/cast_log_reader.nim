@@ -1,17 +1,33 @@
-## this program reads a set of log files from CAST (slow control and tracking)
-## and appends the data to a HDF5 file, which was created using the raw_data_manipulation
-## and reconstruction programs
+## This program reads a set of log files from CAST (slow control and tracking)
+## and appends the data to a HDF5 file, which was created using the `raw_data_manipulation`
+## and `reconstruction` programs if desired.
+##
+## Alternatively, information about the magnet history can be computed.
+## CAST log file reader. Reads log files (Slow Control or Tracking Logs)
+## and outputs information about the files.
+##
+## Note: This tool can be compiled with the `-d:pure` flag to avoid pulling
+## in the HDF5 dependency.
+##
+## If this tool is run with a single slow control and / or tracking log
+## file (i.e. not a folder containing several log files), the tool only
+## prints information from that file. In case of a tracking log this is
+## the start and end date of a contained tracking (if any). For the slow
+## control log currently no useful output is produced.
+##
+## If a path to tracking log files is given, and a H5 file is given via
+## the `--h5out` option, which  InGrid data for the (some of) the times
+## covered by the log files being read. The start and end times of a run
+## will be added to the attributes to the TOS runs contained within.
+##
+## If only a single H5 file is given together with the `--delete` argument
+## all tracking information will be deleted from the attributes in the file.
 
-import times
-import strutils, strformat
-import os
-import ospaths
-import docopt
-import algorithm
-import sequtils, future
-import strutils
-import hashes
-import ggplotnim
+
+import std / [times, strutils, strformat, os, algorithm,
+              sequtils, strutils, parseutils, hashes, options, streams]
+import ggplotnim, cligen, flatty, untar
+import unchained except Time
 
 when not defined(pure):
   import nimhdf5
@@ -19,54 +35,6 @@ when not defined(pure):
 import ingrid/tos_helpers
 
 {.deadCodeElim: on.}
-
-let doc = """
-CAST log file reader. Reads log files (Slow Control or Tracking Logs)
-and outputs information about the files.
-
-Note: This tool can be compiled with the `-d:pure` flag to avoid pulling
-in the HDF5 dependency.
-
-Usage:
-  cast_log_reader --sc <path> [options]
-  cast_log_reader --sc <path> --magnetField <B> [options]
-  cast_log_reader --tracking <path> [options]
-  cast_log_reader --sc <sc_log> --tracking <tracking_log> [options]
-  cast_log_reader <h5file> --delete
-
-
-Options:
-  --sc <sc_log>               Path to slow control log file
-  --tracking <tracking_log>   Path to tracking log file
-  --magnetField <B>           Strength of magnetic field for determination of magnet on time.
-  --h5out <h5file>            Path to a H5 file, which contains InGrid
-                              data for the tracking logs currently being
-                              read. Used to store run start / end times.
-  --delete                    Deletes all tracking related attributes in
-                              given H5 file
-  -h, --help                  Show this help
-  --version                   Show version
-
-
-
-Description:
-  The user has to supply either the `--sc` flag or the `--tracking` flag
-  in addition to a folder or single log file.
-
-  If this tool is run with a single slow control and / or tracking log
-  file (i.e. not a folder containing several log files), the tool only
-  prints information from that file. In case of a tracking log this is
-  the start and end date of a contained tracking (if any). For the slow
-  control log currently no useful output is produced.
-
-  If a path to tracking log files is given, and a H5 file is given via
-  the `--h5out` option, which  InGrid data for the (some of) the times
-  covered by the log files being read. The start and end times of a run
-  will be added to the attributes to the TOS runs contained within.
-
-  If only a single H5 file is given together with the `--delete` argument
-  all tracking information will be deleted from the attributes in the file.
-"""
 
 type
   TrackingKind* = enum
@@ -869,27 +837,45 @@ proc read_tracking_log_folder(log_folder: string): seq[TrackingLog] =
   # for each file in log_folder we perform a check of which run corresponds
   # to the date of this tracking log
   for log_p in walkDir(log_folder):
-    case log_p.kind
-    of pcFile:
-      let log = log_p.path
-      # check whether actual log file (extension fits)
-      let (dir, fn, ext) = splitFile(log)
-      if ext == ".log":
-        tracking_logs.add read_tracking_logfile(log)
-      else:
-        # skipping files other than log files
-        continue
-    else: discard
+    try:
+      case log_p.kind
+      of pcFile:
+        let log = log_p.path
+        echo "Reading ", log
+        # check whether actual log file (extension fits)
+        let (dir, fn, ext) = splitFile(log)
+        if ext == ".log":
+          tracking_logs.add read_tracking_logfile(log)
+        else:
+          # skipping files other than log files
+          continue
+      else: discard
+    except:
+      continue # drop bad file
 
   result = sortTrackingLogs(tracking_logs)
 
-proc read_sc_log_folder(log_folder: string, magnetField = 8.0) =
+proc toDf(sc: SlowControlLog, enforceSameFields = false): DataFrame =
+  if enforceSameFields:
+    doAssert sc.timestamps.len == sc.B_magnet.len or sc.B_magnet.len == 0, "Enforcement of times & magnet data length failed! " &
+      "times.len = " & $sc.timestamps.len & ", magnet.len = " & $sc.B_magnet.len
+  let B = if sc.B_magnet.len == 0: sc.timestamps.mapIt(NaN) # fill with NaN to have floats
+          else: sc.B_magnet
+  var df = seqsToDf({ "Time / s" : sc.timestamps,
+                      "B / T" : B })
+  df["Date"] = newTensorWith(df.len, sc.date.toUnix) #constantColumn(sc.date.toUnix, df.len)
+  result = df
+
+proc read_sc_log_folder(log_folder: string,
+                        schemaFile: VersionSchemaFile,
+                        magnetField = 8.0) =
   ## reads all slow contro log files from `log_folder` and (at the moment)
   ## determines the time the magnet was turned on in total during the time
   ## covered in all the log files in the folder.
   # for each file in log_folder we perform a check of which run corresponds
   # to the date of this tracking log
   var dfDir = newDataFrame()
+
   echo log_folder
   var scLogs: seq[SlowControlLog]
   for log_p in walkDir(log_folder):
@@ -899,12 +885,9 @@ proc read_sc_log_folder(log_folder: string, magnetField = 8.0) =
       # check whether actual log file (extension fits)
       let (dir, fn, ext) = splitFile(log)
       echo "File ", log, " and ext ", ext
-      if ext == ".daq":
-        let sc = read_sc_logfile(log)
-        var df = seqsToDf({ "Time / s" : sc.times.mapIt(it.inSeconds),
-                            "B / T" : sc.B_magnet })
-        df["Date"] = constantColumn(sc.date.toUnix, df.len)
-        dfDir.add df
+      if ext == ".daq" and not fn.endsWith(".OLD"): # some weird files with `OLD.daq`
+        let sc = read_sc_logfile(log, schemaFile)
+        dfDir.add toDf(sc)
         scLogs.add sc
       else:
         # skipping files other than log files
@@ -920,13 +903,12 @@ proc read_sc_log_folder(log_folder: string, magnetField = 8.0) =
     dfDir = dfDir.arrange("Date", SortOrder.Ascending)
       .filter(f{c"Date" != 0})
 
-    dfDir = dfDir.mutate(f{"Timestamp / s" ~ `Date` + c"Time / s"})
-    ggplot(dfDir, aes("Timestamp / s", "B / T")) +
+    ggplot(dfDir, aes("Time / s", "B / T")) +
       geom_point() +
       ggsave("/tmp/B_against_time.png", width = 1920, height = 1080)
 
-    let firstDate = fromUnix(dfDir["Date"][0, int] + dfDir["Time / s"][0, int])
-    let lastDate = fromUnix(dfDir["Date"][dfDir.high, int] + dfDir["Time / s"][dfDir.high, int])
+    let firstDate = fromUnix(dfDir["Time / s"][0, int])
+    let lastDate = fromUnix(dfDir["Time / s"][dfDir.high, int])
     echo firstDate
     echo lastDate
     let nRowsActive = dfDir.filter(f{float: c"B / T" > magnetField}).len
@@ -937,10 +919,11 @@ proc read_sc_log_folder(log_folder: string, magnetField = 8.0) =
 
 proc process_log_folder(folder: string, logKind: LogFileKind,
                         h5file = "",
+                        schemaFile: VersionSchemaFile = VersionSchemaFile(),
                         magnetField = 8.0) =
   case logKind
   of lkSlowControl:
-    read_sc_log_folder(folder, magnetField = magnetField)
+    read_sc_log_folder(folder, schemaFile = schemaFile, magnetField = magnetField)
   of lkTracking:
     let
       tracking_logs = read_tracking_log_folder(folder)
@@ -960,43 +943,67 @@ proc process_log_folder(folder: string, logKind: LogFileKind,
         # add tracking information to H5 file
         write_tracking_h5(trackmap, h5file)
 
-when isMainModule:
+proc toDf(tr: TrackingLog, enforceSameFields = false): DataFrame =
+  if enforceSameFields:
+    doAssert tr.timestamps.len == tr.magB.len or tr.magB.len == 0, "Enforcement of times & magnet data length failed! " &
+      "timestamps.len = " & $tr.timestamps.len & ", magnet.len = " & $tr.magB.len
+  let B = if tr.magB.len == 0: tr.timestamps.mapIt(NaN) # fill with NaN to have floats
+          else: tr.magB
+  var df = seqsToDf({ "Time / s" : tr.timestamps,
+                      "B / T" : B })
+  df["Date"] = newTensorWith(df.len, tr.date.toUnix)
+  #df["Date"] = constantColumn(tr.date.toUnix, df.len)
+  result = df
+proc sc(path: string, schemas: string, magnetField = 8.0) =
   # parse docopt string and determine
   # correct proc to call
-  let args = docopt(doc)
-  echo args
+  let schemaFile = parseVersionSchemaFile(schemas)
+  # check whether actual log file (extension fits)
+  let (dir, fn, ext) = splitFile(path)
+  if ext == ".daq":
+    # single slow control file
+    let sc = read_sc_logfile(path, schemaFile)
+    echo "Parsed log file: ", sc
+    echo "Lot's of useless output, huh?"
+  else:
+    doAssert ext.len == 0, "Invalid slow control with extension " & $ext &
+      ". Instead we expect .daq"
+    process_log_folder(path, lkSlowControl,
+                       schemaFile = schemaFile, magnetField = magnetField)
 
-  let h5file = if $args["--h5out"] != "nil": $args["--h5out"] else: ""
-  let scPath = $args["--sc"]
-  let trackingPath = $args["--tracking"]
-  if scPath.len > 0 and scPath != "nil":
-    let B_field = if $args["--magnetField"] != "nil": ($args["--magnetField"]).parseFloat
-                  else: 8.0
-    # check whether actual log file (extension fits)
-    let (dir, fn, ext) = splitFile(scPath)
-    if ext == ".daq":
-      # single slow control file
-      let sc = read_sc_logfile(scPath)
-      echo "Parsed log file: ", sc
-      echo "Lot's of useless output, huh?"
-    else:
-      doAssert ext.len == 0, "Invalid slow control with extension " & $ext &
-        ". Instead we expect .daq"
-      process_log_folder(scPath, lkSlowControl, h5file, B_field)
-  elif trackingPath.len > 0 and trackingPath != "nil":
-    # check whether actual log file (extension fits)
-    let (dir, fn, ext) = splitFile(trackingPath)
-    if ext == ".log":
-      # single tracking file
-      let t = read_tracking_logfile(trackingPath)
-      echo "Parsed slow control file: ", t
-      echo "Lot's of useless output, huh?"
-    else:
-      doAssert ext.len == 0, "Invalid tracking with extension " & $ext &
-        ". Instead we expect .log"
-      process_log_folder(trackingPath, lkTracking, h5file)
-  elif $args["--delete"] != "nil":
-    when not defined(pure):
-      deleteTrackingAttributes($args["<h5file>"])
-    else:
-      discard
+proc tracking(path: string, h5out = "") =
+  # check whether actual log file (extension fits)
+  let (dir, fn, ext) = splitFile(path)
+  if ext == ".log":
+    # single tracking file
+    let t = read_tracking_logfile(path)
+    echo "Parsed slow control file: ", t
+    echo "Lot's of useless output, huh?"
+  else:
+    doAssert ext.len == 0, "Invalid tracking with extension " & $ext &
+      ". Instead we expect .log"
+    process_log_folder(path, lkTracking, h5out)
+
+proc h5file(file: string) =
+  when not defined(pure):
+    deleteTrackingAttributes(file)
+  else:
+    echo "INFO: The program was compiled with the `pure` flag. The `h5file` subcommand is not available."
+
+proc allLogs(path: string, schemas: string, magnetField = 1.0) =
+  let schemaFile = parseVersionSchemaFile(schemas)
+  handleAllLogs(path, schemaFile)
+
+proc main() =
+  dispatchMulti([sc, help={"path" : "A path to a single slow control file or folder of SC log files is needed.",
+                           "magnetField" : "A given magnetic field is used to filter data to `> magnetField`",
+                           "schemas" : "The path to the `Versions.idx` schema file description is needed."}],
+                [tracking, help={"path" : "A path to a single tracking file or folder of tracking log files is needed.",
+                                 "h5out" : "A path to a H5 file is used to add tracking information to the file."}],
+                [allLogs, help={"path" : "A path to the location containing all logs in form of `.tar.gz` files is needed.",
+                                "schemas" : "The path to the `Versions.idx` schema file description is needed.",
+                                "magnetField" : "Optional cut off to determine if the magnet is on."}],
+                [h5file, help={"file" : "A HDF5 file containing tracking logs, to delete them from."}])
+
+when isMainModule:
+  main()

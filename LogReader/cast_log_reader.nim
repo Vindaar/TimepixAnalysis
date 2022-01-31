@@ -77,11 +77,12 @@ type
     lkSlowControl, lkTracking
   # object storing all slow control log data
   SlowControlLog = object
+    filename: string
     # store date of log file as string or Time?
     date: Time
     # time of day, stored as time duration starting from date
     # each log starts at 12am
-    times: seq[Duration]
+    timestamps: seq[int] #seq[Duration] Unix timestamp
     # pressures relevant for InGrid
     pmm, p3, p3_ba: seq[float]
     # what's called `I_magnet` which is ``not`` the current, but the
@@ -95,9 +96,11 @@ type
     h_encoder, v_encoder: seq[uint16]
     # MM gas alarm (if on, gas supply closed!)
     mm_gas: seq[bool]
+    badLineCount: int # number of broken lines in this file
   # object storing the tracking log data
   TrackingLog* = object
     # date the tracking log covers
+    name*: string
     date*: Time
     case kind*: TrackingKind
     of rkNoTracking: discard
@@ -111,10 +114,96 @@ type
     isTracking*: seq[bool]
     magB*: seq[float] # magnetic field
                       # apparently magB is not the real value in the tracking logs anymore!
+    badLineCount: int
 
-proc newSlowControlLog(): SlowControlLog =
+  ## A single version schema
+  Version = distinct string
+  VersionSchema = object
+    version: Version         ## version number of the given schema
+    fTab: Table[string, int] ## field table mapping field name to column index
+
+  ## A file describing multiple version schemas
+  VersionSchemaFile = object
+    versions: Table[Version, VersionSchema] ## maps version names to a schema
+
+proc hash(v: Version): Hash {.borrow.}
+proc `==`(v1, v2: Version): bool {.borrow.}
+
+proc len(v: VersionSchema): int = v.fTab.len
+
+proc `[]=`(v: var VersionSchemaFile, key: Version, schema: VersionSchema) =
+  v.versions[key] = schema
+
+proc `[]`(v: VersionSchemaFile, key: Version): VersionSchema =
+  v.versions[key]
+
+proc `[]`(v: VersionSchema, key: string): Option[int] =
+  ## Either returns the index of the given `key` if it exists or `None`
+  if key in v.fTab:
+    some(v.fTab[key])
+  else:
+    none[int]()
+
+proc `$`(v: VersionSchema): string =
+  result = "{version: " & v.version.string
+  result.add ", fTab: " & $v.ftab & "}"
+
+proc `$`(v: VersionSchemaFile): string =
+  result = "{versions: "
+  for key in keys(v.versions):
+    result.add key.string & ", "
+  result.add "}"
+
+proc contains(v: VersionSchemaFile, key: Version): bool = key in v.versions
+
+proc parseField(line: string, tok: var string, idx: var int) =
+  inc idx, line.parseUntil(tok, until = "##", start = idx)
+  inc idx, 2
+
+proc parseVersionSchemaFile(path: string): VersionSchemaFile =
+  for schemaProto in readFile(path).splitLines:
+    # first field is version. Parse it separate
+    var tok: string
+    var idx = 0
+    var col = 0
+    parseField(schemaProto, tok, idx)
+    ## XXX: there is a refc bug that causes the `ver` variable to point to the same
+    ## string as `tok`!
+    when not defined(gcDestructors):
+      let ver = Version(deepCopy tok)
+    else:
+      let ver = Version(tok)
+    var tab = initTable[string, int]()
+    # now parse all fields
+    while idx < schemaProto.len:
+      parseField(schemaProto, tok, idx)
+      tab[tok] = col
+      inc col
+    result[ver] = VersionSchema(version: ver, fTab: tab)
+
+proc getVersionSchema(schemaFile: VersionSchemaFile, fname: string): VersionSchema =
+  let (dir, fn, ext) = splitFile(fname)
+  if fn.startsWith("SCDV"):
+    # should be a schema version file
+    var idx = 4
+    var verBuf = ""
+    inc idx, parseUntil(fn, verBuf, until = '_', idx)
+    if idx != 8:
+      # failed to parse
+      raise newException(IOError, "Could not parse version number from filename: " & $fn)
+    elif Version(verBuf) notin schemaFile:
+      # bad version
+      raise newException(IOError, "Could not find version " & $verBuf & " in table of version numbers.")
+    else:
+      result = schemaFile[Version(verBuf)]
+  else:
+    # bad file
+    raise newException(IOError, "Input file " & $fn & " does not follow convention.")
+
+proc newSlowControlLog(name: string): SlowControlLog =
+  result.filename = name
   result.date = fromUnix(0)
-  result.times = @[]
+  result.timestamps = @[]
   result.pmm = @[]
   result.p3 = @[]
   result.p3_ba = @[]
@@ -131,6 +220,7 @@ proc hash(x: TrackingLog): Hash =
   ## needed to store it in a hash Table
   var h: Hash = 0
   # can use hashing of Time
+  h = h !& hash(x.name)
   h = h !& hash(x.date.toUnix)
   case x.kind
   of rkTracking:
@@ -142,6 +232,7 @@ proc hash(x: TrackingLog): Hash =
 proc `==`(x, y: TrackingLog): bool =
   ## equality of tracking logs, since variant types do not provide an equality
   ## operator by itself
+  # don't compare names, as file names can be different
   result = x.date == y.date
   result = result and (x.kind == y.kind)
   if x.kind == y.kind and x.kind == rkTracking:
@@ -149,7 +240,7 @@ proc `==`(x, y: TrackingLog): bool =
     result = result and (x.tracking_start == y.tracking_start)
     result = result and (x.tracking_stop == y.tracking_stop)
 
-proc parse_time(time_str: string): Duration =
+proc parseTime(time_str: string): Duration =
   ## proc to parse the time from a string hh:mm:ss returned as a
   ## time duration from midnight
   let t = time_str.split(":")
@@ -303,81 +394,252 @@ proc sortTrackingLogs(tr_logs: seq[TrackingLog], order = SortOrder.Ascending): s
     let c = times.`<`(r.date, t.date)
     result = if c == true: lt else: gt
 
-proc read_sc_logfile(filename: string): SlowControlLog =
+proc tryParseTime(s: string, formatStrings: openArray[string]): Time =
+  ## Attempts to parse the time string `s` using any of the `formatStrings`
+  for fmt in formatStrings:
+    try:
+      return toTime(parse(s.strip(chars = {'\0'}), fmt))
+    except TimeParseError:
+      continue
+  raise newException(TimeParseError, "Parsing of string: " & $s &
+    " failed with all format strings: " & $formatStrings)
+
+proc copyMemStrBuf(s: var string, buf: var string, len: int) =
+  s.setLen(len) # set to `len` to fit buffer exactly
+  copyMem(s[0].addr, buf[0].addr, len * sizeof(char))
+
+proc splitMinTwo(lineData: var seq[string],
+                 idx: var int, # global file index
+                 buf: var string, # buffer for the current column field
+                 validData: var bool, # whether we have arrived at valid data
+                 isHeaderLine: var bool,
+                 data: string, # the full file data
+                 expected: int,
+                 lineCnt: int): int =
+  ## line data is the sequence of fields that will be filled
+  var bufIdx = 0
+  var spaceCount = 0
+  var lastWasSpace = false
+  var count = 0
+  var parseWithoutStore = false
+  while idx < data.len:
+    case data[idx]
+    of '\0':
+      discard # ignore null characters
+    of '\n', '\r':
+      # end of line
+      break
+    of ' ':
+      lastWasSpace = true
+      inc spaceCount
+    of '\t':
+      lastWasSpace = true
+      inc spaceCount, 4 # count tab as multiple spaces so that single tab is enough to parse
+    of '#':
+      isHeaderLine = true
+    else:
+      if lastWasSpace and spaceCount > 1: # need more than 1 space:
+        # add last element
+        if count >= lineData.len:
+          parseWithoutStore = true
+        elif bufIdx > 0: # only count if we actually parsed something (otherwise line starting ' ' will count)
+          copyMemStrBuf(lineData[count], buf, bufIdx)
+          if not validData and count < 2 and lineData[count].startsWith("DATE"):
+            isHeaderLine = true
+            validData = true # should be fine from here on?
+            parseWithoutStore = true
+
+        if bufIdx > 0:
+          inc count
+        bufIdx = 0
+      buf[bufIdx] = data[idx]
+      inc bufIdx
+      lastWasSpace = false
+
+    inc idx
+  if count >= lineData.len:
+    discard
+  else:
+    copyMemStrBuf(lineData[count], buf, bufIdx)
+    inc count
+    #lineData[count] = buf[0 ..< bufIdx]
+  if not isHeaderLine and count != expected and lineCnt != 0:
+    echo "parsed : ", lineData.mapIt(it.strip(chars = {' ', '\0'}))
+    echo "in line: ", lineCnt
+  elif not isHeaderLine:
+    doAssert count == expected, " Count " & $count & " but expected " & $expected
+    validData = true
+  result = count
+
+proc parse_sc_logfile(content: string,
+                      schema: VersionSchema,
+                      filename = ""
+                     ): SlowControlLog =
   ## proc to read a slow control log file
   ## inputs:
   ##    filename: string = the filename of the log file
+  ##    schemaFile: The map of all known schemas. Used to parse the correct columns.
   ## outputs:
   ##    SlowControlLog = an object storing the data from a slow control
   ##    log file.
   # define the indices for each data column. See the ./sc_log_understand.org file
-  const
-    date_i = 0
-    time_i = 1
+  # look up the correct fields
+  let
+    date_i = schema["DATE"]
+    time_i = schema["TIME"]
     # for these: taking into account offset of 1
-    pmm_i = 14
-    p3_i = 17
-    p3ba_i = 18
-    Imag_i = 24 # is actually the magnetic field in ``T``
-    tenv_i = 52
-    mm_gas_i = 76
-    hang_i = 103
-    vang_i = 104
-    hme_i = 106
-    vme_i = 107
+    pmm_i = schema["P-MM"]
+    p3_i = schema["P-3"]
+    p3ba_i = schema["P3_BA"]
+    Imag_i = schema["I_magnet"] # is actually the magnetic field in ``T``
+    tenv_i = schema["Tenv_Amb"]
+    mm_gas_i = schema["MM GAS"]
+    hang_i = schema["Horiz_Angle"]
+    vang_i = schema["Verti_Angle"]
+    hme_i = schema["Horiz_ME"]
+    vme_i = schema["Verti_ME"]
 
-  result = newSlowControlLog()
-  ## NOTE: instead of parsing manually, we could in principle also use
-  ## ggplotnim's `read_csv` to parse it into a df!
+  result = newSlowControlLog(name = filename)
   var parsedDate = false
-  for line in lines(filename):
-    # skip the first line (header)
-    if line.startsWith("#"):
-      continue
-    elif line.strip.startsWith("DATE"):
-      continue # skip actual header
-    elif line.len == 0:
-      # indicates we reached end of file, empty line
+  var lineCnt = 0
+  var badLineCount = 0
+
+  #for line in content.splitLines():
+  var lineStart = 0
+  var lineBuf = newString(5000)
+  var d = newSeqWith(schema.len, newString(100))
+  var i = 0
+  #var fVal: float
+  #var iVal: int16
+  var isHeader = false
+  var validData = false
+  while i < content.len:
+    ## accumulate until line break
+    case content[i]
+    of '\r', '\n':
+      # process last line
+      lineStart = i+1
+      inc i
+    else:
+      # accumulate
+      # parse into seq
+      let count = splitMinTwo(d, i, lineBuf,
+                              validData, isHeader,
+                              content,
+                              schema.len, lineCnt)
+      # `d` now contains correct data
+      # skip the first line (header)
+      if isHeader:
+        inc lineCnt
+        isHeader = false
+        continue
+
+      # else add the data to the SlowControlLog object
+      if count == 0: # parsing of line unsuccessful
+        echo "bad line count+1 ", badLineCount, " in line : ", lineCnt
+        inc lineCnt
+        inc badLineCount
+        continue
+      if not parsedDate and not d[0].strip.startsWith("DATE"):
+        # set date based on first row
+        try:
+          result.date = tryParseTime(d[date_i.get], ["MM/dd/yyyy",
+                                                     "M/d/yyyy",
+                                                     "dd-MMM-yy"]) # DATE always exists, safe to get
+          parsedDate = true
+          if result.date.utc().year == 1970:
+            echo "fuck this file: ", filename
+            quit()
+        except TimeParseError:
+          ## Parsing *can* fail, because some files contain line breaks in the header...
+          if lineCnt > 5: # don't output for first few lines, as they often have more header etc
+            echo "Failed to parse the following date line: ", d[date_i.get]
+            #echo content
+            echo "Full line: ", d
+            echo "In file ", filename, " Trying again next line"
+          inc lineCnt
+          continue
+          #quit()
+      ## Different versions of the files have different fields set. Probably need to
+      ## skip files that don't have what we need?
+
+      if count != schema.len:
+        echo "INVALID FILE: ", filename, ". ", count, " columns found, but ", schema.len, " expected!"
+        echo "Offending line: ", content[lineStart .. i]
+        echo "split to: ", d.mapIt(it.strip(chars = {' ', '\0'}))
+        inc lineCnt
+        inc badLineCount
+        continue
+
+      # now parse both date and time & add as a unix timestamp
+      let date = tryParseTime(d[date_i.get], ["MM/dd/yyyy",
+                                              "M/d/yyyy",
+                                              "dd-MMM-yy"]) # DATE always exists, safe to get
+      if abs(date - result.date) > initDuration(days = 1): # one day is allowed to account for midnight to next day logs
+        # If there's a line with a different date suddenly, skip it. We cannot safely handle such cases!
+        echo "Line detected with mismatching date: ", date, " vs ", result.date
+        echo "Skipping line. File: ", filename
+        inc badLineCount
+        inc lineCnt
+        continue
+
+      let time = parseTime(d[time_i.get].strip(chars = {'\0'}))
+      result.timestamps.add (date + time).toUnix.int
+
+      template addIfAvailable(arg, body: untyped): untyped =
+        if arg.isSome:
+          let idx {.inject.} = arg.unsafeGet
+          body
+      addIfAvailable(pmm_i, result.pmm.add parseFloat(d[idx]))
+      addIfAvailable(p3_i, result.p3.add parseFloat(d[idx]))
+      addIfAvailable(p3_ba_i, result.p3_ba.add parseFloat(d[idx]))
+      addIfAvailable(Imag_i, result.B_magnet.add parseFloat(d[idx]))
+      addIfAvailable(tenv_i, result.T_env.add parseFloat(d[idx]))
+      addIfAvailable(hang_i, result.h_angle.add parseFloat(d[idx]))
+      addIfAvailable(vang_i, result.v_angle.add parseFloat(d[idx]))
+      addIfAvailable(hme_i, result.h_encoder.add uint16(parseInt(d[idx])))
+      addIfAvailable(vme_i, result.v_encoder.add uint16(parseInt(d[idx])))
+      addIfAvailable(mm_gas_i):
+        let mm_gas_b = d[idx][0] == '0'
+        result.mm_gas.add mm_gas_b
+
+      inc lineCnt
+  result.badLineCount = badLineCount
+
+proc read_sc_logfile(filename: string,
+                               schemaFile: VersionSchemaFile): SlowControlLog =
+  # get schema
+  let schema = schemaFile.getVersionSchema(filename)
+  result = parse_sc_logfile(readFile(filename), schema, filename)
+
+proc splitWhitespaceBuf(data: var seq[string],
+                        buf: var string,
+                        line: string): int =
+  ## splits the given `line` at spaces and inserts the elements into data fields
+  var idx = 0
+  var count = 0
+  var bufIdx = 0
+  var lastWasSpace = false
+  while idx < line.len:
+    case line[idx]
+    of '\0', '\n', '\r':
+      # done, break
       break
+    of ' ', '\t':
+      lastWasSpace = true
+    else:
+      if lastWasSpace and bufIdx > 0:
+        copyMemStrBuf(data[count], buf, bufIdx)
+        inc count
+        bufIdx = 0
+      lastWasSpace = false
+      buf[bufIdx] = line[idx]
+      inc bufIdx
+    inc idx
+  result = count
 
-    # else add the data to the SlowControlLog object
-    let d = line.splitWhitespace
-    if not parsedDate and not line.strip.startsWith("DATE"):
-      # set date based on first row
-      try:
-        result.date = toTime(parse(d[date_i], "MM/dd/yyyy"))
-        parsedDate = true
-        if result.date.utc().year == 1970:
-          echo "fuck this file: ", filename
-          quit()
-      except TimeParseError:
-        echo "Failed to parse the following date line: ", d[date_i]
-        echo "Full line: ", d
-        echo "In file ", filename
-        quit()
-    if d.len > 107:
-      ## NOTE: there are a number of lines in a few files with miss
-      ## some colums. E.g.
-      ## `SCDV4.00_2017-07-14.daq`
-      ## at some points only has 87 instead of 108 columns
-      result.times.add parse_time(d[time_i])
-      result.pmm.add parseFloat(d[pmm_i])
-      result.p3.add parseFloat(d[p3_i])
-      result.p3_ba.add parseFloat(d[p3ba_i])
-      result.B_magnet.add parseFloat(d[Imag_i])
-      result.T_env.add parseFloat(d[tenv_i])
-      result.h_angle.add parseFloat(d[hang_i])
-      result.v_angle.add parseFloat(d[vang_i])
-      result.h_encoder.add uint16(parseInt(d[hme_i]))
-      result.v_encoder.add uint16(parseInt(d[vme_i]))
-      let mm_gas_b = if d[mm_gas_i] == "0": false else: true
-      result.mm_gas.add mm_gas_b
-
-proc parseDateTime(date, time: string): Time =
-  result = toTime(parse(date, "MM/dd/yy"))
-  result += parseTime(time)
-
-proc read_tracking_logfile*(filename: string): TrackingLog =
+var seenHeaders: set[uint16]
+proc parse_tracking_logfile*(content: string, filename: string): TrackingLog =
   ## reads a tracking log file and returns an object, which stores
   ## the relevant data
   const
@@ -389,7 +651,7 @@ proc read_tracking_logfile*(filename: string): TrackingLog =
     magB_i = 22
 
   var
-    count = 0
+    lineCnt = 0
     h_me_p = 0
     v_me_p = 0
     tracking_p = false
@@ -398,61 +660,99 @@ proc read_tracking_logfile*(filename: string): TrackingLog =
     # helper bool, needed because some tracking logs start
     # before midnight
     date_set = false
-  for line in lines(filename):
-    if count < 2:
+    badLineCount = 0
+
+  var stream = newStringStream(content)
+  var line = newString(5000)
+  var d = newSeqWith(100, newString(50)) # just enough space for everything
+  var buf = newString(100)
+  while stream.readLine(line):
+    if lineCnt < 2:
+      let spl = line.split(",")
+      if spl.len.uint16 notin seenHeaders:
+        echo "header: ", line
+        for i, s in spl:
+          echo "index ", i, " = " , s
+        seenHeaders.incl spl.len.uint16
+
       # skip header
-      inc count
+      inc lineCnt
       continue
     if line.len == 0:
       break
-    let d = line.splitWhitespace
-    if count > 1 and not date_set:
-      # parse the date
-      let date = toTime(parse(d[date_i], "MM/dd/yy"))
-      if date.utc().year == 2003:
-        echo "Log ", filename
-        quit()
-
-      # check whether this date is at the end of day from the
-      # previous log file or already past midnight
+    let count = splitWhitespaceBuf(d, buf, line)
+    #echo d.len
+    ## Order of columns is ``kept`` in tracking logs. That means we only need to remove those
+    ## files that don't have the information we want, namely the "bare bones" files from the
+    ## commissioning
+    var date: Time
+    if lineCnt > 1 and not date_set and count >= 22:
+      date = toTime(parse(d[date_i], "MM/dd/yy"))
+      # check whether this date is at the end of day from the log file or already past midnight
       if date.utc().hour > 23:
         continue
       else:
         # set the date of the tracking log
         result.date = date
         date_set = true
+    elif count < 22:
+      inc badLineCount
+      continue
+    else:
+      # now parse date to make sure we have it
+      try:
+        date = toTime(parse(d[date_i], "MM/dd/yy"))
+      except:
+        echo "d was ", d, " with count ", count
+        raise
+
+    if abs(date - result.date) > initDuration(days = 7):# one week is allowed, because old tracking logs were sometimes multiple days
+      # If there's a line with a different date suddenly, skip it. We cannot safely handle such cases!
+      echo "Line detected with mismatching date: ", date, " vs ", result.date
+      echo "Skipping line. File: ", filename
+      inc badLineCount
+      continue
     let
       h_me = int(parseFloat(d[h_me]))
       v_me = int(parseFloat(d[v_me]))
-      timestamp = parse_time(d[time_i])
-      tracking = if int(parseFloat(d[tracking_i])) == 1: true else: false
+      daytime = parseTime(d[time_i]) # time on the current day since midnight
+      tracking = int(parseFloat(d[tracking_i])) == 1
       magB = parseFloat(d[magB_i])
     # determine magnet movement and set old encoder values
     let move = is_magnet_moving((h_me, h_me_p), (v_me, v_me_p))
     h_me_p = h_me
     v_me_p = v_me
     if not tracking_p and tracking:
-      tracking_start = result.date + timestamp
+      tracking_start = date + daytime
       tracking_p = not tracking_p
     elif tracking_p and not tracking:
-      tracking_stop = result.date + timestamp
+      tracking_stop = date + daytime
       tracking_p = not tracking_p
 
     # append seq data
-    result.timestamps.add parseDateTime(d[date_i], d[time_i]).toUnix.int
+    result.timestamps.add (date + daytime).toUnix.int
     result.isMoving.add move
     result.isTracking.add tracking
     result.magB.add magB
-    inc count
+    inc lineCnt
 
   # now set the tracking variant object depending on whether tracking took place
   # or not
   if tracking_start == tracking_stop:
     result = TrackingLog(kind: rkNoTracking,
-                         date: result.date)
+                         date: result.date,
+                         timestamps: result.timestamps,
+                         isMoving: result.isMoving,
+                         isTracking: result.isTracking,
+                         magB: result.magB)
   else:
     result.tracking_start = tracking_start
     result.tracking_stop = tracking_stop
+  result.name = filename
+  result.badLineCount = badLineCount
+
+proc read_tracking_logfile*(filename: string): TrackingLog =
+  result = parse_tracking_logfile(readFile(filename), filename)
 
 proc split_tracking_logs(logs: seq[TrackingLog]): (seq[TrackingLog], seq[TrackingLog]) =
   ## given a sequence of sorted tracking logs, splits them by `kind`, i.e.

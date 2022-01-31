@@ -954,6 +954,211 @@ proc toDf(tr: TrackingLog, enforceSameFields = false): DataFrame =
   df["Date"] = newTensorWith(df.len, tr.date.toUnix)
   #df["Date"] = constantColumn(tr.date.toUnix, df.len)
   result = df
+
+proc filterBasedOnLogType[T](df: DataFrame, _: typedesc[T]): DataFrame =
+  when T is TrackingLog:
+    # extract data up to 2010, because from 2010 on the magnet data is found
+    # in the slow control as well
+    result = df.filter(f{int: idx("Time / s") < dateTime(year = 2010,
+                                                         month = mJan,
+                                                         monthday = 1,
+                                                         zone = utc()).toTime.toUnix})
+  else:
+    # filter to larger 2010. Not strictly needed, as the data isn't there in the first
+    # place, but well.
+    result = df.filter(f{int: idx("Time / s") >= dateTime(year = 2010,
+                                                          month = mJan,
+                                                          monthday = 1,
+                                                          zone = utc()).toTime.toUnix})
+
+proc filterInvalidTimestamps(df: DataFrame): DataFrame =
+  let times = df["Time / s", int]
+  var last = times[0]
+  var idxToKeep = newSeqOfCap[int](df.len)
+  for i in 0 ..< times.len:
+    let time = times[i]
+    if time >= last:
+      idxToKeep.add i
+      last = time
+    # else we drop the line. Only update `last` if it was actually bigger. Otherwise we start
+    # counting 2 lines after a time jump again!
+  result = df.filterToIdx(idxToKeep)
+  # sanity check that indeed the data is now sorted already
+  #when true:
+  #  doAssert result == result.arrange("Time / s", SortOrder.Ascending)
+
+proc extractCycles[T](df: DataFrame, magnetField: float,
+                      _: typedesc[T]): DataFrame =
+  ## Extracts the number of magnet cycles found in the data as well as the
+  ## magnet on time for the given type of logfiles.
+  let df = df.filterBasedOnLogType(T) # filter based on log type
+    .arrange("Date", SortOrder.Ascending) # sort by date
+    .filterInvalidTimestamps()
+  let dates = df["Time / s", int]
+  let Bs = df["B / T", float]
+  var lastAbove = false
+  var magnetStart = 0
+  const minTimeCurrent = 10 * 60 # 10 min at least of magnet on
+  var cycles = 0
+  var magnetCycleStarts = initHashSet[int]() # starting indices to check if we've already increased cycle counter
+  var magnetCycleIdxs = newSeq[(int, int)]() # indices of magnet start ⇒ stop
+  var magCycleStart = 0
+  var sumTime = 0.Second
+  var cumTime = newSeq[int]()
+  var cycleLength = newSeq[int]()
+  for i in 1 ..< Bs.len:
+    # Logic dealing with sum of magnet on time
+    if lastAbove and Bs[i] > magnetField:
+      sumTime += abs(dates[i] - dates[i-1]).Second # safe, we start at idx == 1
+    # Logic dealing with magnet cycles
+    if not lastAbove and Bs[i] > magnetField:
+      # passed threshold
+      lastAbove = true
+      magnetStart = dates[i]
+      magCycleStart = i
+      magnetCycleStarts.incl i
+    elif lastAbove and Bs[i] < magnetField:
+      sumTime += abs(dates[i] - dates[i-1]).Second # safe, we start at idx == 1
+      # cycle done
+      magnetCycleIdxs.add (magCycleStart, i)
+      let length = abs(dates[i] - dates[magCycleStart])
+      cycleLength.add length
+      cumTime.add sumTime.int # add current time as cumulative
+      lastAbove = false
+  when false:
+    for (start, stop) in magnetCycleIdxs:
+      if stop - start < 10:
+        echo "Start at: ", start, " stop at ", stop
+        echo "Relevant df : ", df[start - 5 .. stop + 5]
+  # convert cycles to DF
+  result = seqsToDf({ "cumulativeTime / s" : cumTime,
+                      "cycleLength / s" : cycleLength,
+                      "cycleStart (unix)" : magnetCycleIdxs.mapIt(dates[it[0]]),
+                      "cycleStop (unix)" : magnetCycleIdxs.mapIt(dates[it[1]]),
+                      "Type" : $T })
+    .mutate(f{int -> string: "cycleStart" ~ $idx("cycleStart (unix)").fromUnix },
+            f{int -> string: "cycleStop" ~ $idx("cycleStop (unix)").fromUnix })
+  echo "Number of magnet cycles ", result.len, " from data: ", $T
+  echo "Total time the magnet was on: ", sumTime.to(Hour), " from data: ", $T
+  echo "Total time the magnet was on: ", sumTime.to(Day), " from data: ", $T
+
+proc handleAllLogs(all_logs_path: string, schemaFile: VersionSchemaFile,
+                   magnetField = 1.0) =
+  ## computes everything about the magnet from all log files
+  let scLogsTar = newTarFile(all_logs_path / "new_slowcontrol_logs.tar.gz")
+  let trLogsTar = newTarFile(all_logs_path / "old_logs.tar.gz")
+
+  var scLogs = newSeq[SlowControlLog]()
+
+  const scBinStore = "./slow_control_logs.bin"
+  if existsFile(scBinStore):
+    scLogs = fromFlatty(readFile(scBinStore), seq[SlowControlLog])
+  else:
+    for (fi, content) in walk(scLogsTar):
+      if fi.filename.extractFilename.startsWith("SCDV"):
+        echo "Trying to parse file: ", fi.filename
+        var scLog: SlowControlLog
+        try:
+          let schema = schemaFile.getVersionSchema(fi.filename)
+          scLog = parse_sc_logfile(content, schema, fi.filename)
+        except Exception as e:
+          echo "Exception: ", e.msg
+          continue
+        scLogs.add scLog
+
+    writeFile(scBinStore, toFlatty(scLogs))
+
+  var dfs = newSeqOfCap[DataFrame](scLogs.len)
+  for i, log in scLogs:
+    let df = toDf(log, enforceSameFields = true)
+    if df.len > 1:
+      dfs.add df
+
+  var df = assignStack(dfs)
+  # filter out NaN already for this block of data (files that have missing magnet columns
+  # fields are replaced by NaN)
+  df = df.filter(f{float: classify(idx("B / T")) != fcNaN })
+
+  var cycleDf = df.extractCycles(magnetField, SlowControlLog)
+  df["From"] = newTensorWith(df.len, "SlowControlLogs")
+  ## XXX: once switch back to stashed datamancer code:
+  #df["From"] = "SlowControlLogs"
+  echo df["From"].kind
+  echo df
+  #print_slow_control_logs(scLogs, 2.0)
+
+  var trLogs = newSeq[TrackingLog]()
+  const trBinStore = "./tracking_logs.bin"
+  if existsFile(trBinStore):
+    trLogs = fromFlatty(readFile(trBinStore), seq[TrackingLog])
+  else:
+    for (fi, content) in walk(trLogsTar):
+      let (dir, name, ext) = fi.filename.splitFile
+      if dir == "SlowControl/tracking-log" and ext == ".log": # skip `/old` subdir and other root dirs
+        echo fi.filename
+        let trLog = parse_tracking_logfile(content, name & ext)
+
+        trLogs.add trLog
+    writeFile(trBinStore, toFlatty(trLogs))
+
+  trLogs = trLogs.sortedByIt(it.date)
+  dfs = newSeqOfCap[DataFrame](trLogs.len)
+  for log in trLogs:
+    let dfLoc = toDf(log)
+    if dfLoc.len > 1:
+      dfs.add dfLoc
+
+  ## add this data as well
+  var dfTr = assignStack(dfs)
+  # TrackingLog covers time *before* sloc control. Thus add its cumulative time to cycleDf
+  let cycleDfTr = dfTr.extractCycles(magnetField, TrackingLog)
+  # get cumulative time so far and add to it
+  let cumTimeSc = cycleDfTr["cumulativeTime / s", int].max
+  cycleDf = cycleDf
+    .mutate(f{int: "cumulativeTime / s" ~ idx("cumulativeTime / s") + cumTimeSc})
+  cycleDf.add cycleDfTr
+  cycleDf = cycleDf.arrange("cycleStart (unix)", SortOrder.Ascending)
+
+  dfTr["From"] = newTensorWith(dfTr.len, "TrackingLogs")
+  #dfTr["From"] = "TrackingLogs"
+  df.add dfTr
+
+  # sort the data by date to do computations
+  df = df.arrange("Time / s", SortOrder.Ascending)
+  let breaks = toSeq(2003 .. 2022)
+    .mapIt(dateTime(year = it, month = mJan, monthDay = 1, zone = utc())
+      .toTime()
+      .toUnixFloat
+  )
+  # sort and plot
+  ggplot(df, aes("Time / s", "B / T", color = "From")) +
+    geom_line() +
+    xlab("Date", rotate = -45.0) +
+    margin(right = 6) +
+    ggtitle("Magnetic field in the CAST magnet between 2003 and 2021") +
+    scale_x_date(name = "Date", isTimestamp = true,
+                 breaks = breaks, formatString = "yyyy") +
+                        #dateSpacing = initDuration(weeks = 26), dateAlgo = dtaAddDuration) +
+    ggsave("/tmp/B_time_series.pdf", width = 800)
+
+  ggplot(cycleDf, aes("cycleStart (unix)",
+                      f{float: "cumulativeTime / h" ~ to(Second(idx("cumulativeTime / s")), Hour).float},
+                      color = "Type")) +
+    geom_line() +
+    xlab("Date", rotate = -45.0) +
+    margin(right = 6) +
+    ggtitle(&"Cumulative time the CAST magnet was under current > {magnetField} T between 2003 and 2021") +
+    scale_x_date(name = "Date", isTimestamp = true,
+                 breaks = breaks, formatString = "yyyy") +
+                        #dateSpacing = initDuration(weeks = 26), dateAlgo = dtaAddDuration) +
+    ggsave("/tmp/B_cumulative_time.pdf", width = 800)
+
+  cycleDf.showBrowser()
+  when false:
+    echo "Writing CSV"
+    df.writeCsv("/tmp/all_magnet_timeseries_data.csv")
+    cycleDf.writeCsv("/tmp/magnet_cycles_data.csv")
+
 proc sc(path: string, schemas: string, magnetField = 8.0) =
   # parse docopt string and determine
   # correct proc to call

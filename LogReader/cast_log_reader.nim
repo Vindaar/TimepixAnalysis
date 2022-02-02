@@ -1042,6 +1042,12 @@ proc extractCycles[T](df: DataFrame, magnetField: float,
   echo "Total time the magnet was on: ", sumTime.to(Hour), " from data: ", $T
   echo "Total time the magnet was on: ", sumTime.to(Day), " from data: ", $T
 
+proc print_total_magnet_information(df: DataFrame) =
+  echo "Number of magnet cycles ", df.len
+  let totalTime = df["cumulativeTime / s", float][df.high].Second
+  echo "Total time the magnet was on: ", totalTime.to(Hour)
+  echo "Total time the magnet was on: ", totalTime.to(Day)
+
 proc handleAllLogs(all_logs_path: string, schemaFile: VersionSchemaFile,
                    magnetField = 1.0) =
   ## computes everything about the magnet from all log files

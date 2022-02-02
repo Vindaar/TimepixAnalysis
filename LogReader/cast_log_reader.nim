@@ -1190,6 +1190,7 @@ proc handleAllLogs(all_logs_path: string, schemaFile: VersionSchemaFile,
                         #dateSpacing = initDuration(weeks = 26), dateAlgo = dtaAddDuration) +
     ggsave(&"/tmp/B_cumulative_time_magnet_{magnetField}_color_{colorPlots}.pdf", width = 800, useTex = pretty, standalone = true)
 
+  #df[0 .. 5000].showBrowser()
   cycleDf.showBrowser()
   when false:
     echo "Writing CSV"

@@ -1140,7 +1140,7 @@ proc handleAllLogs(all_logs_path: string, schemaFile: VersionSchemaFile,
 
   if filterOutliers:
     # remove outliers from df
-    df = df.filter(f{idx("B / T") > -0.5 and idx("B / T") <= 10.0})
+    df = df.filter(f{idx("B / T") > -0.1 and idx("B / T") <= 10.0})
 
 
   # Reduce the time series data to be more manageable by the likes of Cairo

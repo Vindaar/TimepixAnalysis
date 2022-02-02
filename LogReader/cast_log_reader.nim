@@ -1049,7 +1049,8 @@ proc print_total_magnet_information(df: DataFrame) =
   echo "Total time the magnet was on: ", totalTime.to(Day)
 
 proc handleAllLogs(all_logs_path: string, schemaFile: VersionSchemaFile,
-                   magnetField = 1.0) =
+                   magnetField = 1.0, colorPlots = true,
+                   filterOutliers = false, pretty = false) =
   ## computes everything about the magnet from all log files
   let scLogsTar = newTarFile(all_logs_path / "new_slowcontrol_logs.tar.gz")
   let trLogsTar = newTarFile(all_logs_path / "old_logs.tar.gz")
@@ -1136,28 +1137,58 @@ proc handleAllLogs(all_logs_path: string, schemaFile: VersionSchemaFile,
       .toTime()
       .toUnixFloat
   )
-  # sort and plot
-  ggplot(df, aes("Time / s", "B / T", color = "From")) +
-    geom_line() +
-    xlab("Date", rotate = -45.0) +
-    margin(right = 6) +
-    ggtitle("Magnetic field in the CAST magnet between 2003 and 2021") +
-    scale_x_date(name = "Date", isTimestamp = true,
-                 breaks = breaks, formatString = "yyyy") +
-                        #dateSpacing = initDuration(weeks = 26), dateAlgo = dtaAddDuration) +
-    ggsave("/tmp/B_time_series.pdf", width = 800)
 
-  ggplot(cycleDf, aes("cycleStart (unix)",
-                      f{float: "cumulativeTime / h" ~ to(Second(idx("cumulativeTime / s")), Hour).float},
-                      color = "Type")) +
+  if filterOutliers:
+    # remove outliers from df
+    df = df.filter(f{idx("B / T") > -0.5 and idx("B / T") <= 10.0})
+
+
+  # Reduce the time series data to be more manageable by the likes of Cairo
+  df["Index"] = toSeq(0 ..< df.len)
+  df = df.filter(f{int -> bool: `Index` mod 10 == 0}) # keep only every 10th row
+
+  # print the summarized information about cycles and time
+  print_total_magnet_information(cycleDf)
+
+  # sort and plot
+  var pltSeries: GgPlot
+  var pltCum: GgPlot
+  if colorPlots:
+    pltSeries = ggplot(df, aes("Time / s", "B / T", color = "From")) + margin(right = 6)
+    pltCum = ggplot(cycleDf, aes("cycleStart (unix)",
+                                 f{float: "cumulativeTime / h" ~ to(Second(idx("cumulativeTime / s")), Hour).float},
+                                 color = "Type")) +
+      margin(right = 6)
+  else:
+    # filter duplicate data, as it doesn'd add anything valuable without color
+    let yr2010 = dateTime(year = 2010, month = mJan, monthday = 1, zone = utc()).toTime.toUnix
+    let dfF = df.filter(f{int: (idx("From", string) == "TrackingLogs" and idx("Time / s") < yr2010) or
+                               (idx("From", string) == "SlowControlLogs" and idx("Time / s") >= yr2010)})
+    pltSeries = ggplot(dfF, aes("Time / s", "B / T"))
+    pltCum = ggplot(cycleDf, aes("cycleStart (unix)",
+                                 f{float: "cumulativeTime / Days" ~ to(Second(idx("cumulativeTime / s")), Day).float}))
+  let totalTime = (cycleDf["cumulativeTime / s", float][cycleDf.high]).Second.to(Day)
+  let yr = 1.Year.to(Second).float
+  pltSeries +
     geom_line() +
     xlab("Date", rotate = -45.0) +
-    margin(right = 6) +
-    ggtitle(&"Cumulative time the CAST magnet was under current > {magnetField} T between 2003 and 2021") +
+    ylim(-2, 12) +
+    xlim(breaks[0] - yr, breaks[^1] + yr) +
+    ggtitle(&"Magnetic field in the CAST magnet, 2003 to 2021. Total time on (> {magnetField} T): {totalTime}") +
     scale_x_date(name = "Date", isTimestamp = true,
                  breaks = breaks, formatString = "yyyy") +
                         #dateSpacing = initDuration(weeks = 26), dateAlgo = dtaAddDuration) +
-    ggsave("/tmp/B_cumulative_time.pdf", width = 800)
+    ggsave(&"/tmp/B_time_series_color_{colorPlots}_filtered_{filterOutliers}_magnetic_field_{magnetField}.pdf",
+           width = 800, useTex = pretty, standalone = true)
+  pltCum +
+    geom_line() +
+    xlab("Date", rotate = -45.0) +
+    xlim(breaks[0], breaks[^1]) +
+    ggtitle(&"Cumulative time the CAST magnet was at > {magnetField} T, between 2003 and 2021") +
+    scale_x_date(name = "Date", isTimestamp = true,
+                 breaks = breaks, formatString = "yyyy") +
+                        #dateSpacing = initDuration(weeks = 26), dateAlgo = dtaAddDuration) +
+    ggsave(&"/tmp/B_cumulative_time_magnet_{magnetField}_color_{colorPlots}.pdf", width = 800, useTex = pretty, standalone = true)
 
   cycleDf.showBrowser()
   when false:
@@ -1201,9 +1232,13 @@ proc h5file(file: string) =
   else:
     echo "INFO: The program was compiled with the `pure` flag. The `h5file` subcommand is not available."
 
-proc allLogs(path: string, schemas: string, magnetField = 1.0) =
+proc allLogs(path: string, schemas: string,
+             magnetField = 1.0,
+             noColorPlots = false,
+             filterOutliers = false,
+             pretty = false) =
   let schemaFile = parseVersionSchemaFile(schemas)
-  handleAllLogs(path, schemaFile)
+  handleAllLogs(path, schemaFile, magnetField, not noColorPlots, filterOutliers, pretty)
 
 proc main() =
   dispatchMulti([sc, help={"path" : "A path to a single slow control file or folder of SC log files is needed.",
@@ -1213,7 +1248,10 @@ proc main() =
                                  "h5out" : "A path to a H5 file is used to add tracking information to the file."}],
                 [allLogs, help={"path" : "A path to the location containing all logs in form of `.tar.gz` files is needed.",
                                 "schemas" : "The path to the `Versions.idx` schema file description is needed.",
-                                "magnetField" : "Optional cut off to determine if the magnet is on."}],
+                                "magnetField" : "Optional cut off to determine if the magnet is on.",
+                                "noColorPlots" : "Optional flag to disable coloring of magnet plots.",
+                                "filterOutliers" : "Optional flag to filter magnet outlier data (< -0.5 T and > 10 T).",
+                                "pretty" : "Optional flag to generate pretty plots."}],
                 [h5file, help={"file" : "A HDF5 file containing tracking logs, to delete them from."}])
 
 when isMainModule:

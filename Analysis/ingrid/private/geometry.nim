@@ -321,7 +321,7 @@ proc calcGeometry*[T: SomePix](cluster: Cluster[T],
     y_max, y_min: float
     i = 0
   for p in cluster:
-    when T is uint8:
+    when T is Pix:
       let (x, y) = applyPitchConversion(p.x, p.y, NPIX)
     else:
       let (x, y) = applyPitchConversion(p.x, p.y, NPIX * 3)

@@ -42,6 +42,9 @@ type
   #  value: uint16
 
 type
+  ## NOTE: this data structure is not efficient to store bits of course.
+  ## However, we only use it at CT to generate some lookup tables. Therefore
+  ## simplicity of the implementation trumps efficiency.
   BitArray[T: static[int]] = object
     data: array[T, bool]
 

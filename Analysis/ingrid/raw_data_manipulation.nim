@@ -125,7 +125,7 @@ proc parseTomlConfig(configFile: string): TomlValueRef =
   else:
     result = parseToml.parseFile(configFile)
 
-proc specialTypesAndEvKeys(): (hid_t, hid_t, array[7, string]) =
+proc specialTypesAndEvKeys(): (DatatypeID, DatatypeID, array[7, string]) =
   let
     # create datatypes for variable length data
     ev_type_xy = special_type(uint8)

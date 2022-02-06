@@ -51,7 +51,7 @@ const
                  "kurtosisLongitudinal", "kurtosisTransverse", "rotationAngle",
                  "eccentricity", "fractionInTransverseRms", "lengthDivRmsTrans",
                  "rmsLongitudinal", "rmsTransverse", "hits", "energyFromPixel",
-                 "energyFromCharge"]
+                 "energyFromCharge", "likelihood"]
   FadcDsets = ["minvals", "fallTime", "riseTime"]
   AllFadcDsets = ["argMinval", "baseline", "eventNumber", "fallStop", "fallTime",
                   "minvals", "noisy", "riseStart", "riseTime"]

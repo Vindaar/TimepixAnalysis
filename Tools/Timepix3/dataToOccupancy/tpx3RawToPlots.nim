@@ -13,7 +13,7 @@ const recoPrefix = "reco_"
 proc toName(path, prefix, suffix: string): string = path / prefix & suffix & ".h5"
 
 proc main(fname: string, suffix = "",
-          tpx3 = true, raw = true, reco = false, energy = false, plot = false,
+          tpx3 = false, raw = false, reco = false, energy = false, plot = false,
           outpath = "") =
   var suffix = suffix
   if suffix.len == 0:

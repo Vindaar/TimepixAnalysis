@@ -6,7 +6,12 @@
 # nim stdlib
 import os, sequtils, sugar, math, tables, strutils, strformat, macros, options
 #import threadpool
-import threadpool_simple
+when not defined(gcDestructors):
+  import threadpool_simple
+elif true:
+  import std / threadpool
+else:
+  import weave
 import logging
 import docopt
 import times
@@ -159,19 +164,18 @@ proc createDatasets[N: int](dset_tab: var Table[string, seq[H5DataSet]],
                                                 maxshape = @[int.high, 1],
                                                 filter = filter)
 
-proc writeRecoRunToH5*[T: SomePix](h5f: var H5FileObj,
-                                   h5fraw: var H5FileObj,
-                                   reco_run: seq[FlowVar[ref RecoEvent[T]]],
+proc writeRecoRunToH5*[T: SomePix](h5f: H5File,
+                                   h5fraw: H5File,
+                                   reco_run: seq[RecoEvent[T]],
                                    runNumber: int) =
   ## proc which writes the reconstructed event data from a single run into
   ## the given H5 file. Called after every processed run
   ## inputs:
-  ##     `h5f`: var H5FileObj = the H5 file object in which to store data
-  ##     `h5fraw`: var H5FileObj = the H5 file objcect containing the raw data,
+  ##     `h5f`: H5File = the H5 file object in which to store data
+  ##     `h5fraw`: H5File = the H5 file objcect containing the raw data,
   ##       may be the same file as `h5f`.
-  ##     `reco_run`: seq[FlowVar[ref RecoEvent]] = sequence of reconstructed events
-  ##       to write to file. FlowVar[ref Event], due to using threadpool / spawn
-  ##       to reconstruct the runs in parallel
+  ##     `reco_run`: seq[RecoEvent] = sequence of reconstructed events
+  ##       to write to file.
   ## outputs: -
   ## throws:
   ##     potentially throws HDF5LibraryError, if a call to the H5 library fails
@@ -222,10 +226,8 @@ proc writeRecoRunToH5*[T: SomePix](h5f: var H5FileObj,
     ch[chip] = @[]
   var count = 0
   var tUnpack = epochTime()
-  for event_f in reco_run:
+  for event in reco_run:
     let
-      # get the RecoEvent from the FlowVar ref
-      event = (^event_f)[]
       num = event.event_number
       chip = event.chip_number
 
@@ -245,7 +247,6 @@ proc writeRecoRunToH5*[T: SomePix](h5f: var H5FileObj,
       # add event number individually, since it's not part of some object we can
       # use our macro for
       int_data_tab["eventNumber"][chip].add num
-    #echoBenchCounted(count, tUnpack, 5000, msg = " clusters unpacked from FlowVars")
 
   # now that we have the data and now how many elements each type has
   # we can create the datasets
@@ -349,12 +350,10 @@ iterator readDataFromH5*(h5f: H5File, runNumber: int):
       yield (chip: chip_number, eventData: run_pix)
 
 {.experimental.}
-#proc reconstructSingleChip(data: seq[Pixels], run, chip: int): seq[ref RecoEvent] =
 proc reconstructSingleChip*(data: seq[tuple[pixels: Pixels, eventNumber: int]],
                             run, chip, searchRadius: int,
                             dbscanEpsilon: float,
-                            clusterAlgo: ClusteringAlgorithm): seq[FlowVar[ref RecoEvent[Pix]]] =
-                           #evNumbers: seq[int]): seq[FlowVar[ref RecoEvent]] =
+                            clusterAlgo: ClusteringAlgorithm): seq[RecoEvent[Pix]] =
   ## procedure which receives pixel data for a given chip and run number
   ## and performs the reconstruction on it
   ## inputs:
@@ -365,17 +364,49 @@ proc reconstructSingleChip*(data: seq[tuple[pixels: Pixels, eventNumber: int]],
   info &"We have {data.len} events to reconstruct"
   var count = 0
   let numElems = data.len
-  result = newSeq[FlowVar[ref RecoEvent[Pix]]](numElems)
-  let p = newThreadPool()
-  for event in 0 ..< numElems:
-    if event < result.len:
-      result[event] = p.spawn recoEvent(data[event], chip, run, searchRadius,
-                                        dbscanEpsilon = dbscanEpsilon,
-                                        clusterAlgo = clusterAlgo)
-    echoCount(count, 5000, msg = " clusters reconstructed")
-  p.sync()
+  result = newSeq[RecoEvent[Pix]](numElems)
+  when not defined(gcDestructors):
+    let p = newThreadPool()
+    var res = newSeq[FlowVar[RecoEvent[Pix]]](numElems)
+    for event in 0 ..< numElems:
+      if event < result.len:
+        res[event] = p.spawn recoEvent(data[event], chip, run, searchRadius,
+                                       dbscanEpsilon = dbscanEpsilon,
+                                       clusterAlgo = clusterAlgo)
+      echoCount(count, 5000, msg = " clusters reconstructed")
+    p.sync()
+    count = 0
+    for event in 0 ..< numElems:
+      result[event] = ^(res[event])
+      echoCount(count, 5000, msg = " cluster FlowVars unpacked")
+  elif true:
+    {.error: "Compiling with `--gc:arc` is currently unsupported as we don't have a working threadpool " &
+      "that can return objects containing seq / string like data that works with arc...".}
+    var res = newSeq[FlowVar[RecoEvent[Pix]]](numElems)
+    for event in 0 ..< numElems:
+      if event < result.len:
+        res[event] = spawn recoEvent(data[event], chip, run, searchRadius,
+                                     dbscanEpsilon = dbscanEpsilon,
+                                     clusterAlgo = clusterAlgo)
+      echoCount(count, 5000, msg = " clusters reconstructed")
+    sync()
+    count = 0
+    for event in 0 ..< numElems:
+      result[event] = ^(res[event])
+      echoCount(count, 5000, msg = " cluster FlowVars unpacked")
+  else:
+    {.error: "Compiling with `--gc:arc` is currently unsupported as we don't have a working threadpool " &
+      "that can return objects containing seq / string like data that works with arc...".}
+    init(Weave)
+    var resBuf = cast[ptr UncheckedArray[RecoEvent[Pix]]](result[0].addr)
+    parallelFor event in 0 ..< numElems:
+      captures: {resBuf, data, chip, run, searchRadius, dbscanEpsilon, clusterAlgo}
+      resBuf[event] = recoEvent(data[event], chip, run, searchRadius,
+                                dbscanEpsilon = dbscanEpsilon,
+                                clusterAlgo = clusterAlgo)
+      echoCounted(event, 5000, msg = " clusters reconstructed")
 
-proc createAndFitFeSpec(h5f: var H5FileObj,
+proc createAndFitFeSpec(h5f: H5File,
                         runNumber: int,
                         fittingOnly: bool) =
   ## create the Fe spectrum for the run, apply the charge calibration if possible
@@ -527,7 +558,7 @@ proc reconstructRunsInFile(h5f: H5File,
   ##   `runNumberArg`: optional run number, if given only this run is reconstructed
   ##   `h5fout`: output file to which the reconstructed data is written
   const batchsize = 5000
-  var reco_run: seq[FlowVar[ref RecoEvent[Pix]]] = @[]
+  var reco_run: seq[RecoEvent[Pix]] = @[]
   let showPlots = if cfShowPlots in cfgFlags: true else: false
   recordIterRuns(rawDataBase()):
     if (recoBase() & $runNumber) in h5fout:

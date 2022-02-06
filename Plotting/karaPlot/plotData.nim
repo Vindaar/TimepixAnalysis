@@ -11,7 +11,7 @@ import nimhdf5
 import seqmath
 
 import nimpy
-import docopt
+import cligen
 import chroma
 import parsetoml
 # import nimdata
@@ -22,12 +22,8 @@ import ingrid/tos_helpers
 import ingrid / calibration
 import ingrid / calibration / calib_fitting
 import helpers/utils
-import ingridDatabase / [databaseDefinitions, databaseRead]
+#import ingridDatabase / [databaseDefinitions, databaseRead]
 import protocol, common_types
-
-type
-  # for clarity define a type for the Docopt argument table
-  DocoptTab = Table[string, docopt.Value]
 
 template canImport(x: untyped): bool =
   compiles:
@@ -44,38 +40,7 @@ else:
 
 # get date using `CompileDate` magic
 const currentDate = CompileDate & " at " & CompileTime
-
-const docTmpl = """
-Version: $# built on: $#
-A tool to plot data from H5 files
-
-Usage:
-  plotData <H5file> [--runType=<type>] [--eventDisplay=<run>] [--server] [--backend=<val>] [options]
-
-Options:
-  --runType=<type>       Select run type (Calib | Back | Xray)
-                         The following are parsed case insensetive:
-                         Calib = {"calib", "calibration", "c"}
-                         Back = {"back", "background", "b"}
-                         Xray = {"xray", "xrayfinger", "x"}
-  --backend=<val>        Select the plotting backend to be chosen.
-                         The followoing backends are available:
-                         Python / Matplotlib: {"python", "py", "matplotlib", "mpl"}
-                         Nim / Plotly: {"nim", "plotly"}
-  --eventDisplay=<run>   If given will show event displays of the given run.
-  --server               If flag given, will launch client and send plots individually,
-                         instead of creating all plots and dumping them.
-  --fadc                 If set FADC plots will be created.
-  --ingrid               If set InGrid plots will be created.
-  --occupancy            If set occupancy plots will be created.
-  --polya                If set polya plots will be created.
-  --totPerPixel          If set totPerPixel plots will be created.
-  --fe_spec              If set Fe spectrum will be created.
-  --config <path>        Path to the TOML config file.
-  -h, --help             Show this help
-  --version              Show the version number
-"""
-const doc = docTmpl % [commitHash, currentDate]
+const Version = commitHash & " built on: " & currentDate
 
 const
   GoldenMean = (sqrt(5.0) - 1.0) / 2.0  # Aesthetic ratio
@@ -2349,34 +2314,43 @@ proc serve() =
 
   waitFor server.serveClient()
 
-proc plotData*() =
+proc plotData*(
+  h5file: string,
+  runType: RunTypeKind, backend: BackendKind, eventDisplay: int = -1,
+  h5Compare: seq[string] = @[], # additional files to compare against
+  server = false, fadc = false, ingrid = false, occupancy = false,
+  polya = false, totPerPixel = false, fe_spec = false, config = "",
+  version = false,
+  allowedChips: set[uint16] = {},
+  allowedRuns: set[uint16] = {}
+              ) =
   ## the main workhorse of the server end
-  let args = docopt(doc)
-  if $args["--config"] != "nil":
-    ConfigFile = $args["--config"]
+  if version:
+    echo "Version: ", version
+    return
 
-  info &"Received arguments:\n  {args}"
-  let h5file = $args["<H5file>"]
+  if config.len > 0:
+    ConfigFile = config
+
+  let cfg = initConfig(allowedChips, allowedRuns)
+
   fileDir = genPlotDirName(h5file, "figs")
   fileType = parseToml.parseFile(ConfigFile)["General"]["filetype"].getStr
   discard existsOrCreateDir(fileDir)
-  let runTypeStr = $args["--runType"]
-  let backendStr = $args["--backend"]
-  let evDisplayStr = $args["--eventDisplay"]
   var flags: set[ConfigFlagKind]
-  if $args["--fadc"] == "true":
+  if fadc:
     flags.incl cfFadc
-  if $args["--ingrid"] == "true":
+  if ingrid:
     flags.incl cfIngrid
-  if $args["--occupancy"] == "true":
+  if occupancy:
     flags.incl cfOccupancy
-  if $args["--polya"] == "true":
+  if polya:
     flags.incl cfPolya
-  if $args["--fe_spec"] == "true":
+  if fe_spec:
     flags.incl cfFeSpectrum
-  if $args["--totPerPixel"] == "true":
+  if totPerPixel:
     flags.incl cfTotPerPixel
-  if $args["--server"] == "true":
+  if server:
     flags.incl cfProvideServer
 
   info &"Flags are:\n  {flags}"
@@ -2387,17 +2361,15 @@ proc plotData*() =
     # create and run the websocket server
     thr.createThread(serve)
 
-  var runType: RunTypeKind
-  var bKind: BackendKind
   var evDisplayRun: Option[int] = none[int]()
-  if runTypeStr != "nil":
-    runType = parseRunType(runTypeStr)
-  if backendStr != "nil":
-    BKind = parseBackendType(backendStr)
-  if evDisplayStr != "nil":
-    evDisplayRun = some(parseInt(evDisplayStr))
+  BKind = backend
+  if eventDisplay >= 0:
+    evDisplayRun = some(eventDisplay)
 
-  handlePlotTypes(h5file, bKind, runType, flags, evDisplayRun = evDisplayRun)
+  if h5Compare.len == 0:
+    handlePlotTypes(h5file, backend, runType, flags, cfg, evDisplayRun = evDisplayRun)
+  else:
+    createComparePlots(h5file, h5Compare, backend, runType, flags, cfg)
 
   if cfProvideServer in flags:
     joinThread(thr)
@@ -2405,4 +2377,34 @@ proc plotData*() =
   echo "All plots were saved to:\n", fileDir
 
 when isMainModule:
-  plotData()
+  dispatch(plotData, help = {
+    "h5file" : "The h5 input file to use",
+    "runType" : """Select run type (Calib | Back | Xray)
+  The following are parsed case insensetive:
+  Calib = {"calib", "calibration", "c"}
+  Back = {"back", "background", "b"}
+  Xray = {"xray", "xrayfinger", "x"}""",
+
+    "backend" : """Select the plotting backend to be chosen.
+  The followoing backends are available:
+  Python / Matplotlib: {"python", "py", "matplotlib", "mpl"}
+  Nim / Plotly: {"nim", "plotly"}""",
+
+    "eventDisplay" : "If given will show event displays of the given run.",
+    "h5Compare" : "If any given, all plots will compare with same data from these files.",
+    "server" : """If flag given, will launch client and send plots individually,
+  instead of creating all plots and dumping them.""",
+
+    "allowedChips" : """If any given overwrites the `config.toml` field of `allowedChips`.
+  That means only generate plots for the given chips.""",
+    "allowedRuns" : """If any given overwrites the `config.toml` field of `allowedRuns`.
+  That means only generate plots for the given runs.""",
+
+    "fadc" : "If set FADC plots will be created.",
+    "ingrid" : "If set InGrid plots will be created.",
+    "occupancy" : "If set occupancy plots will be created.",
+    "polya" : "If set polya plots will be created.",
+    "totPerPixel" : "If set totPerPixel plots will be created.",
+    "fe_spec" : "If set Fe spectrum will be created.",
+    "config" : "Path to the TOML config file.",
+    "version" : "Show the version number"})

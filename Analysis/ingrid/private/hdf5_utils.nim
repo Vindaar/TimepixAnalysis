@@ -409,20 +409,20 @@ proc getGroupNameReco*(runNumber: int): string =
   # generates the reconstrution group name for a given run number
   result = recoBase() & $runNumber
 
-proc hasDset*(h5f: var H5FileObj, runNumber, chipNumber: int, dset: string):
+proc hasDset*(h5f: H5File, runNumber, chipNumber: int, dset: string):
                 bool =
   ## returns `true` if the given run and chip has the given `dset`
   let path = recoDataChipBase(runNumber) & $chipNumber / dset
   result = if path in h5f: true else: false
 
-proc hasTotalChargeDset*(h5f: var H5FileObj, runNumber, chipNumber: int):
+proc hasTotalChargeDset*(h5f: H5File, runNumber, chipNumber: int):
                            bool {.inline.} =
   ## returns `true` if the given run and chip has the
   ## `totalCharge`
   ## dataset
   result = h5f.hasDset(runNumber, chipNumber, "totalCharge")
 
-proc hasRawRun*(h5f: var H5FileObj, runNumber: int): bool =
+proc hasRawRun*(h5f: H5File, runNumber: int): bool =
   ## checks for the existence of the given run in the file
   let path = rawDataBase & $runNumber
   # this will be the implementation once we reran the whole analysis...
@@ -443,14 +443,14 @@ proc hasRawRun*(h5f: var H5FileObj, runNumber: int): bool =
     # old implementation
     result = if path in h5f: true else: false
 
-proc runFinished*(h5f: var H5FileObj, runNumber: int) =
+proc runFinished*(h5f: H5File, runNumber: int) =
   ## writes the `rawDataFinished` attribute to the run with
   ## `runNumber`
   let path = rawDataBase & $runNumber
   var grp = h5f[path.grp_str]
   grp.attrs["rawDataFinished"] = "true"
 
-proc getCenterChip*(h5f: var H5FileObj, runNumber: int): int =
+proc getCenterChip*(h5f: H5File, runNumber: int): int =
   ## reads the `centerChip` attribute from the run group corresponding to
   ## `runNumber`
   result = h5f[recoRunGrpStr(runNumber)].attrs["centerChip", int]
@@ -506,7 +506,7 @@ template eventNumberBasenameRaw*(runNumber: int): string =
 ##################### HDF5 related helper functions ############################
 ################################################################################
 
-proc getTrackingEvents*(h5f: var H5FileObj, group: H5Group, num_tracking: int = -1, tracking = true): seq[int] =
+proc getTrackingEvents*(h5f: H5File, group: H5Group, num_tracking: int = -1, tracking = true): seq[int] =
   ## given a `group` in a `h5f`, filter out all indices, which are part of
   ## a tracking (`tracking == true`) or not part of a tracking (`tracking == false`)
   ## NOTE: the indices of the whole timestamp array correspond to the event
@@ -585,7 +585,7 @@ proc filterTrackingEvents*[T: SomeInteger](cluster_events: seq[T], eventsInTrack
     result = toSeq(0 ..< cluster_events.len)
       .filterIt(cluster_events[it].int in eventsInTracking)
 
-proc filterTrackingEvents*(h5f: var H5FileObj, group: H5Group, tracking_inds: seq[int]): seq[int] =
+proc filterTrackingEvents*(h5f: H5File, group: H5Group, tracking_inds: seq[int]): seq[int] =
   ## wrapper around the above proc, which reads the data about which events are allowed
   ## by itself
   ## inputs:
@@ -601,7 +601,7 @@ proc removePrefix(s: string, prefix: string): string =
   result = s
   result.removePrefix(prefix)
 
-iterator runs*(h5f: H5FileObj, data_basename = recoBase()): (int, string) =
+iterator runs*(h5f: H5File, data_basename = recoBase()): (int, string) =
   ## simple iterator, which yields the run number and group name of runs in the file.
   ## If reco is true (default) we yield reconstruction groups, else raw groups
   ## Iterator saves the state of `h5f` during the first call to this iterator! If
@@ -623,7 +623,7 @@ iterator runs*(h5f: H5FileObj, data_basename = recoBase()): (int, string) =
       # now read some data. Return value will be added later
       yield (runNumber, grp)
 
-iterator chipGroups*(h5f: H5FileObj, data_basename = recoBase()): (int, int, string) =
+iterator chipGroups*(h5f: H5File, data_basename = recoBase()): (int, int, string) =
   ## simple iterator, which yields the run number and chip group name of runs in the file.
   ## If reco is true (default) we yield reconstruction groups, else raw groups
   ## Iterator saves the state of `h5f` during the first call to this iterator! If
@@ -641,7 +641,7 @@ iterator chipGroups*(h5f: H5FileObj, data_basename = recoBase()): (int, int, str
         grp.removePrefix(data_basename).scanf("/chip_$i$.", chipNumber)):
       yield (runNumber, chipNumber, grp)
 
-iterator dsets*(h5f: var H5FileObj,
+iterator dsets*(h5f: H5File,
                 dsetName: string,
                 dtype: typedesc,
                 chipNumber: int,
@@ -683,7 +683,7 @@ proc getRunInfo*(path: string): RunInfo =
   result.nEvents = files.len
   result.nFadcEvents = fadcFiles.len
 
-proc getFileInfo*(h5f: var H5FileObj, baseGroup = recoGroupGrpStr()): FileInfo =
+proc getFileInfo*(h5f: H5File, baseGroup = recoGroupGrpStr()): FileInfo =
   ## returns a set of all run numbers in the given file
   # visit file
   #h5f.visitFile()
@@ -719,7 +719,7 @@ proc parseTracking(grp: H5Group, idx: int): RunTimeInfo =
                        t_end: stop.parseTime("yyyy-MM-dd\'T\'HH:mm:sszzz", utc()))
   result.t_length = result.t_end - result.t_start
 
-proc getExtendedRunInfo*(h5f: var H5FileObj, runNumber: int,
+proc getExtendedRunInfo*(h5f: H5File, runNumber: int,
                          runType: RunTypeKind,
                          rfKind: RunFolderKind = rfNewTos): ExtendedRunInfo =
   ## reads the extended run info from a H5 file for `runNumber`
@@ -758,7 +758,7 @@ proc getExtendedRunInfo*(h5f: var H5FileObj, runNumber: int,
   result.rfKind = rfKind
   result.runType = runType
 
-proc genPlotDirname*(h5f: H5FileObj, outpath: string, attrName: string): string =
+proc genPlotDirname*(h5f: H5File, outpath: string, attrName: string): string =
   ## generates a unique name for the directory in which all plots for this H5
   ## file will be created.
   # first check whether this file already has such a name stored in its attributes

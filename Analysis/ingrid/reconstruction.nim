@@ -141,7 +141,7 @@ proc initDataTab[T: (float | int), N: int](tab: var Table[string, seq[seq[T]]],
       s = @[]
 
 proc createDatasets[N: int](dset_tab: var Table[string, seq[H5DataSet]],
-                            h5f: var H5FileObj,
+                            h5f: H5File,
                             names: array[N, string],
                             nchips: int,
                             lengths: seq[int],
@@ -316,7 +316,7 @@ proc writeRecoRunToH5*[T: SomePix](h5f: var H5FileObj,
     chip_groups[ch_numb].attrs["chipNumber"] = ch_numb
     chip_groups[ch_numb].attrs["chipName"] = ch_name
 
-iterator readDataFromH5*(h5f: var H5FileObj, runNumber: int):
+iterator readDataFromH5*(h5f: H5File, runNumber: int):
          tuple[chip: int, eventData: seq[tuple[pixels: Pixels, eventNumber: int]]] =
   ## proc to read data from the HDF5 file from `group`
   ## returns the chip number and a sequence containing the pixel data for this
@@ -390,7 +390,7 @@ proc createAndFitFeSpec(h5f: var H5FileObj,
          "more chips. Exception message:\n" & e.msg
   h5f.fitToFeSpectrum(runNumber, centerChip, fittingOnly)
 
-proc initRecoFadcInH5(h5f, h5fout: var H5FileObj, runNumber, batchsize: int) =
+proc initRecoFadcInH5(h5f, h5fout: H5File, runNumber, batchsize: int) =
   # proc to initialize the datasets etc in the HDF5 file for the FADC. Useful
   # since we don't want to do this every time we call the write function
 
@@ -434,7 +434,7 @@ proc initRecoFadcInH5(h5f, h5fout: var H5FileObj, runNumber, batchsize: int) =
   recoGroup.attrs["sampling_mode"] = fadcRaw.attrs["sampling_mode", int64]
   recoGroup.attrs["pedestal_run"] = fadcRaw.attrs["pedestal_run", int64]
 
-proc copyOverDataAttrs(h5f, h5fout: var H5FileObj, runNumber: int) =
+proc copyOverDataAttrs(h5f, h5fout: H5File, runNumber: int) =
   template copyAttrs(pout, pin: untyped): untyped =
     let recoGrp = h5fout.create_group(pout) # [pout.grp_str]
     let rawGrp = h5f[pin.grp_str]
@@ -458,7 +458,7 @@ proc copyOverDataAttrs(h5f, h5fout: var H5FileObj, runNumber: int) =
     else:
       doAssert false, "Unexpected dataset " & $dset & " with base type " & $dset.dtypeAnyKind
 
-proc calcTriggerFractions(h5f: var H5FileObj, runNumber: int) =
+proc calcTriggerFractions(h5f: H5File, runNumber: int) =
   ## calculates the fraction of events within a given run of events with
   ## - FADC triggers
   ## - non trivial scinti 1 and 2 triggers
@@ -510,8 +510,8 @@ template recordIterRuns*(base: string, body: untyped): untyped =
   # add all flags that were processed
 
 
-proc reconstructRunsInFile(h5f: var H5FileObj,
-                           h5fout: var H5FileObj,
+proc reconstructRunsInFile(h5f: H5File,
+                           h5fout: H5File,
                            flags: set[RecoFlagKind],
                            cfgFlags: set[ConfigFlagKind],
                            searchRadius: int,
@@ -586,7 +586,7 @@ proc reconstructRunsInFile(h5f: var H5FileObj,
       let h5grp = h5fout[(recoBase() & $runNumber).grp_str]
       h5grp.attrs["RawTransferFinished"] = "true"
 
-proc applyCalibrationSteps(h5f: var H5FileObj,
+proc applyCalibrationSteps(h5f: H5File,
                            flags: set[RecoFlagKind],
                            cfgFlags: set[ConfigFlagKind],
                            cfgTable: TomlValueRef,
@@ -672,7 +672,7 @@ proc parseOnlyFlags(args: DocoptTab): set[RecoFlagKind] =
   if $args["--only_energy_from_e"] == "true":
     result.incl rfOnlyEnergyElectrons
 
-proc flagsValid(h5f: H5FileObj, flags: set[RecoFlagKind]): bool =
+proc flagsValid(h5f: H5File, flags: set[RecoFlagKind]): bool =
   ## Checks whether the flags are actually valid for the given file
   let grp = h5f[recoGroupGrpStr()]
   result = true
@@ -731,7 +731,7 @@ proc main() =
     # `reconstruction` call w/o `--only-*` flag
     # visit the whole file to read which groups exist
     h5f.visitFile
-    var h5fout: H5FileObj
+    var h5fout: H5File
     if outfile != "None":
       h5fout = H5open(outfile, "rw")
       h5fout.visitFile

@@ -283,7 +283,7 @@ proc initPlotV(title: string, xlabel: string, ylabel: string, shape = ShapeKind.
                    height: FigHeight)
   else: discard
 
-proc read*(h5f: var H5FileObj,
+proc read*(h5f: H5File,
            runNumber: int,
            dsetName: string,
            chipNumber = 0,
@@ -317,7 +317,7 @@ proc read*(h5f: var H5FileObj,
         # manual conversion required
         result = dset[idx, subtype].reshape2D(dset.shape)
 
-proc readVlen(h5f: var H5FileObj,
+proc readVlen(h5f: H5File,
               runNumber: int,
               dsetName: string,
               chipNumber = 0,
@@ -517,7 +517,7 @@ proc getBinSizeAndBinRange*(dset: string): (float, (float, float)) =
       binSize = (binRange[1] - binRange[0]) / nBins.float
   result = (binSize, binRange)
 
-proc histograms(h5f: var H5FileObj, runType: RunTypeKind,
+proc histograms(h5f: H5File, runType: RunTypeKind,
                 fileInfo: FileInfo,
                 flags: set[ConfigFlagKind]): seq[PlotDescriptor] =
   # TODO: perform cut on photo peak and escape peak, done by getting the energy
@@ -690,7 +690,7 @@ proc makeSubplot(pd: PlotDescriptor, plts: seq[PlotV]): PlotV =
   else: echo "Subplots currently only supported for 2 plots!"
 
 # TODO: also plot occupancies without full frames (>4095 hits)?
-proc occupancies(h5f: var H5FileObj, runType: RunTypeKind,
+proc occupancies(h5f: H5File, runType: RunTypeKind,
                  fileInfo: FileInfo,
                  flags: set[ConfigFlagKind]): seq[PlotDescriptor] =
   ## creates occupancy plots for the given HDF5 file, iterating over
@@ -723,7 +723,7 @@ proc occupancies(h5f: var H5FileObj, runType: RunTypeKind,
       clampQ = 80
     result.add @[fullPd, clampAPd, clampQPd, clusterPd, clusterClampPd]
 
-#proc plotPolyas(h5f: var H5FileObj, group: H5Group,
+#proc plotPolyas(h5f: H5File, group: H5Group,
 #                chipNum: int, runNumber: string): seq[Trace[float]] =
 #  ## perform the plots of the polya distribution again (including the fits)
 #  ## and return the polya data as to allow a combined plot afterwards
@@ -754,7 +754,7 @@ proc occupancies(h5f: var H5FileObj, runType: RunTypeKind,
 #  let nameFit = &"Polya fit of chip {chipNum} for run {runNumber}"
 #  plotScatter(binCenterFit, countsFit, title, nameFit, outfile)
 
-proc polya(h5f: var H5FileObj, runType: RunTypeKind,
+proc polya(h5f: H5File, runType: RunTypeKind,
            fileInfo: FileInfo,
            flags: set[ConfigFlagKind]): seq[PlotDescriptor] =
   ## creates the plots for the polya distribution of the datasets
@@ -772,7 +772,7 @@ proc polya(h5f: var H5FileObj, runType: RunTypeKind,
                               plotKind: pkCombPolya,
                               chipsCP: fileInfo.chips)
 
-proc totPerPixel(h5f: var H5FileObj, runType: RunTypeKind,
+proc totPerPixel(h5f: H5File, runType: RunTypeKind,
                  fileInfo: FileInfo,
                  flags: set[ConfigFlagKind]): seq[PlotDescriptor] =
   ## creates the plots for the ToT per pixel distribution of the datasets
@@ -812,7 +812,7 @@ proc plotDates[T, U](x: seq[U], y: seq[T],
   else:
     discard
 
-proc feSpectrum(h5f: var H5FileObj, runType: RunTypeKind,
+proc feSpectrum(h5f: H5File, runType: RunTypeKind,
                 fileInfo: FileInfo,
                 flags: set[ConfigFlagKind]): seq[PlotDescriptor] =
   ## creates the plot of the Fe spectrum
@@ -889,7 +889,7 @@ proc feSpectrum(h5f: var H5FileObj, runType: RunTypeKind,
   #             photoChVsTime, photoChVsTimeHalfH,
   #             photoVsTimeHalfH, phPixDivChVsTimeHalfH]
 
-proc fePhotoDivEscape(h5f: var H5FileObj, runType: RunTypeKind,
+proc fePhotoDivEscape(h5f: H5File, runType: RunTypeKind,
                       fileInfo: FileInfo,
                       flags: set[ConfigFlagKind]): seq[PlotDescriptor] =
   result = @[PlotDescriptor(runType: runType,
@@ -915,7 +915,7 @@ proc buildEvents[T, U](x, y: seq[seq[T]], ch: seq[seq[U]],
       for (ix, iy, ich) in zipEm(xi, yi, chi):
         result[i, iy.int, ix.int] = ich.float
 
-proc readEvent*(h5f: var H5FileObj, run, chip: int, idx: seq[int]): Tensor[float] =
+proc readEvent*(h5f: H5File, run, chip: int, idx: seq[int]): Tensor[float] =
   ## helper proc to read data for given indices of events `idx` and
   ## builds a tensor of `idx.len` events.
   let
@@ -930,7 +930,7 @@ proc readEvent*(h5f: var H5FileObj, run, chip: int, idx: seq[int]): Tensor[float
                       dtype = uint16, idx = idx)
   result = buildEvents(x, y, ch, toOrderedSet(@[0]))
 
-proc readEventSparse*(h5f: var H5FileObj, run, chip: int, idx: int): DataFrame =
+proc readEventSparse*(h5f: H5File, run, chip: int, idx: int): DataFrame =
   ## helper proc to read data for given indices of events `idx` and
   ## builds a tensor of `idx.len` events.
   let
@@ -946,7 +946,7 @@ proc readEventSparse*(h5f: var H5FileObj, run, chip: int, idx: int): DataFrame =
   result = seqsToDf({"x" : x[0], "y" : y[0], "ch" : ch[0]})
 
 
-proc createEventDisplayPlots(h5f: var H5FileObj,
+proc createEventDisplayPlots(h5f: H5File,
                              run: int,
                              runType: RunTypeKind,
                              fileInfo: FileInfo,
@@ -962,7 +962,7 @@ proc createEventDisplayPlots(h5f: var H5FileObj,
                                 plotKind: pkInGridEvent,
                                 event: ev)
 
-proc createFadcPlots(h5f: var H5FileObj,
+proc createFadcPlots(h5f: H5File,
                      run: int,
                      runType: RunTypeKind,
                      fileInfo: FileInfo,
@@ -977,7 +977,7 @@ proc createFadcPlots(h5f: var H5FileObj,
                               plotKind: pkFadcEvent,
                               event: ev)
 
-proc createOuterChipHistograms*(h5f: var H5FileObj,
+proc createOuterChipHistograms*(h5f: H5File,
                                runType: RunTypeKind,
                                fileInfo: FileInfo,
                                cutRange: CutRange): seq[PlotDescriptor] =
@@ -994,7 +994,7 @@ proc createOuterChipHistograms*(h5f: var H5FileObj,
                             rangeCenter: cutRange,
                             plotKind: pkOuterChips)
 
-proc createInGridFadcEvDisplay(h5f: var H5FileObj,
+proc createInGridFadcEvDisplay(h5f: H5File,
                                run: int,
                                runType: RunTypeKind,
                                fileInfo: FileInfo,
@@ -1034,7 +1034,7 @@ proc clampedOccupancy[T](x, y: seq[T], pd: PlotDescriptor): Tensor[float] =
     result = result.clamp(0.0, quant)
   else: discard
 
-proc readPlotFit(h5f: var H5FileObj, pd: PlotDescriptor):
+proc readPlotFit(h5f: H5File, pd: PlotDescriptor):
      (seq[float], seq[float], seq[float], seq[float]) =
   ## reads the `plot` and `Fit` datasets for all runs in
   ## `pd`, stacks it and returns bins, counts for both
@@ -1077,7 +1077,7 @@ proc readPlotFit(h5f: var H5FileObj, pd: PlotDescriptor):
       countsFitFull = countsFit
   result = (lastBins, countsFull, lastBinsFit, countsFitFull)
 
-template createFeVsTimeDataFrame(h5f: var H5FileObj,
+template createFeVsTimeDataFrame(h5f: H5File,
                                  group: H5Group,
                                  pd: PlotDescriptor): untyped {.dirty.} =
   ## template to create the HDF5 data frame to read FeVsTime data
@@ -1161,7 +1161,7 @@ proc determineNumBatchesFeVsTime(length: int, pd: PlotDescriptor): int =
       inc result
       useLastBatch = true
 
-proc handleInGridDset(h5f: var H5FileObj,
+proc handleInGridDset(h5f: H5File,
                       fileInfo: FileInfo,
                       pd: PlotDescriptor): (string, PlotV) =
   let ranges = @[pd.range]
@@ -1183,7 +1183,7 @@ proc handleInGridDset(h5f: var H5FileObj,
   let title = buildTitle(pd)
   result[1] = plotHist(allData, title, pd.name, result[0], pd.binSize, pd.binRange)
 
-proc handleFadcDset(h5f: var H5FileObj,
+proc handleFadcDset(h5f: H5File,
                     fileInfo: FileInfo,
                     pd: PlotDescriptor): (string, PlotV) =
   # get the center chip group
@@ -1207,7 +1207,7 @@ proc handleFadcDset(h5f: var H5FileObj,
   let title = buildTitle(pd)
   result[1] = plotHist(allData, title, pd.name, result[0], pd.binSize, pd.binRange)
 
-proc handleOccupancy(h5f: var H5FileObj,
+proc handleOccupancy(h5f: H5File,
                      fileInfo: FileInfo,
                      pd: PlotDescriptor): (string, PlotV) =
   # get x and y datasets, stack and get occupancies
@@ -1224,7 +1224,7 @@ proc handleOccupancy(h5f: var H5FileObj,
   result[0] = buildOutfile(pd, fileDir, fileType)
   result[1] = plotHist2D(occFull, title, result[0])
 
-proc handleOccCluster(h5f: var H5FileObj,
+proc handleOccCluster(h5f: H5File,
                       fileInfo: FileInfo,
                       pd: PlotDescriptor): (string, PlotV) =
   # plot center positions
@@ -1242,7 +1242,7 @@ proc handleOccCluster(h5f: var H5FileObj,
   result[0] = buildOutfile(pd, fileDir, fileType)
   result[1] = plotHist2D(occFull, title, result[0])
 
-proc handleBarScatter(h5f: var H5FileObj,
+proc handleBarScatter(h5f: H5File,
                       fileInfo: FileInfo,
                       pd: PlotDescriptor): (string, PlotV) =
   result[0] = buildOutfile(pd, fileDir, fileType)
@@ -1254,7 +1254,7 @@ proc handleBarScatter(h5f: var H5FileObj,
   let nameFit = &"Fit of chip {pd.chip}"
   result[1].plotScatter(binsFit, countsFit, nameFit, result[0])
 
-proc handleCombPolya(h5f: var H5FileObj,
+proc handleCombPolya(h5f: H5File,
                      fileInfo: FileInfo,
                      pd: PlotDescriptor): (string, PlotV) =
   var
@@ -1276,7 +1276,7 @@ proc handleCombPolya(h5f: var H5FileObj,
   let xlabel = "Number of electrons"
   result[1] = plotBar(binsSeq, countsSeq, title, xlabel, dsets, result[0])
 
-proc handleFeVsTime(h5f: var H5FileObj,
+proc handleFeVsTime(h5f: H5File,
                     fileInfo: FileInfo,
                     pd: PlotDescriptor): (string, PlotV) =
   const kalphaPix = 10
@@ -1414,7 +1414,7 @@ proc handleFeVsTime(h5f: var H5FileObj,
   else: echo "WARNING: annotations unsupported on backend: " & $BKind
 
 
-proc handleFePixDivChVsTime(h5f: var H5FileObj,
+proc handleFePixDivChVsTime(h5f: H5File,
                             fileInfo: FileInfo,
                             pd: PlotDescriptor): (string, PlotV) =
   const kalphaPix = 10
@@ -1449,7 +1449,7 @@ proc handleFePixDivChVsTime(h5f: var H5FileObj,
                         outfile = result[0])
                         #ylabel = "# pix / charge in e^-")
 
-proc handleFePhotoDivEscape(h5f: var H5FileObj,
+proc handleFePhotoDivEscape(h5f: H5File,
                             fileInfo: FileInfo,
                             pd: PlotDescriptor): (string, PlotV) =
   const kalphaCharge = 3 # for the ``amplitude``! not the mean position
@@ -1480,7 +1480,7 @@ proc handleFePhotoDivEscape(h5f: var H5FileObj,
                         xlabel = pd.xlabel,
                         outfile = result[0])
 
-proc handleOuterChips(h5f: var H5FileObj,
+proc handleOuterChips(h5f: H5File,
                       fileInfo: FileInfo,
                       pd: PlotDescriptor): (string, PlotV) =
   var data: seq[int]
@@ -1512,7 +1512,7 @@ proc handleOuterChips(h5f: var H5FileObj,
   let outfile = buildOutfile(pd, fileDir, fileType)
   result[1] = plotHist(data, pd.title, pd.name, pd.title, binSize, binRange)
 
-proc handleToTPerPixel(h5f: var H5FileObj,
+proc handleToTPerPixel(h5f: H5File,
                        fileInfo: FileInfo,
                        pd: PlotDescriptor): (string, PlotV) =
   result[0] = buildOutfile(pd, fileDir, fileType)
@@ -1545,7 +1545,7 @@ proc handleToTPerPixel(h5f: var H5FileObj,
     result[1] = plotHist(tots.mapIt(it.int), title, pd.name, result[0],
                          binS = pd.binSize, binR = pd.binRange)
 
-iterator ingridEventIter(h5f: var H5FileObj,
+iterator ingridEventIter(h5f: H5File,
                          fileInfo: FileInfo,
                          pds: seq[PlotDescriptor]): (string, PlotV) =
   var events {.global.}: seq[int]
@@ -1604,7 +1604,7 @@ iterator ingridEventIter(h5f: var H5FileObj,
     pltV.annotations = texts
     yield (outfile, pltV)
 
-iterator fadcEventIter(h5f: var H5FileObj,
+iterator fadcEventIter(h5f: H5File,
                        fileInfo: FileInfo,
                        pds: seq[PlotDescriptor]): (string, PlotV) =
   var events {.global.}: seq[int]
@@ -1665,7 +1665,7 @@ iterator fadcEventIter(h5f: var H5FileObj,
       echo "FADC property annotations not supported on Matplotlib backend yet!"
     yield (outfile, pltV)
 
-proc handleIngridEvent(h5f: var H5FileObj,
+proc handleIngridEvent(h5f: H5File,
                        fileInfo: FileInfo,
                        pd: PlotDescriptor): (string, PlotV) =
   doAssert pd.plotKind == pkInGridEvent
@@ -1673,7 +1673,7 @@ proc handleIngridEvent(h5f: var H5FileObj,
     # only a single pd
     result = (outfile, pltV)
 
-proc handleFadcEvent(h5f: var H5FileObj,
+proc handleFadcEvent(h5f: H5File,
                      fileInfo: FileInfo,
                      pd: PlotDescriptor): (string, PlotV) =
   doAssert pd.plotKind == pkFadcEvent
@@ -1681,10 +1681,10 @@ proc handleFadcEvent(h5f: var H5FileObj,
     # only a single pd
     result = (outfile, pltV)
 
-proc createPlot*(h5f: var H5FileObj, fileInfo: FileInfo,
+proc createPlot*(h5f: H5File, fileInfo: FileInfo,
                  pd: PlotDescriptor): (string, PlotV)
 
-proc handleSubPlots(h5f: var H5FileObj,
+proc handleSubPlots(h5f: H5File,
                     fileInfo: FileInfo,
                     pd: PlotDescriptor): (string, PlotV) =
 #    result.add PlotDescriptor(runType: runType,
@@ -1705,7 +1705,7 @@ proc handleSubPlots(h5f: var H5FileObj,
   let plt = makeSubplot(pd, plts)
   plt.plPlotJson.show()
 
-proc createPlot*(h5f: var H5FileObj,
+proc createPlot*(h5f: H5File,
                  fileInfo: FileInfo,
                  pd: PlotDescriptor): (string, PlotV) =
   ## creates a plot of kind `plotKind` for the data from all runs in `runs`
@@ -1874,7 +1874,7 @@ proc handleOutput(basename: string, flags: set[ConfigFlagKind]): string =
   else:
     warn "Unsupported output file format!"
 
-proc plotsFromPds(h5f: var H5FileObj,
+proc plotsFromPds(h5f: H5File,
                   fileInfo: FileInfo,
                   pds: seq[PlotDescriptor]) =
   ## calls `createPlot` for each PD and saves filename to
@@ -1898,7 +1898,7 @@ proc awareSend[T](ch: var Channel[T], data: JsonNode, pKind: PacketKind) =
     echo "DataThread: sleeping to send ", pKind
     sleep(100)
 
-proc serveRequests(h5f: var H5FileObj,
+proc serveRequests(h5f: H5File,
                    fileInfo: FileInfo,
                    pds: seq[PlotDescriptor]) =
   while true:
@@ -1928,7 +1928,7 @@ proc serveRequests(h5f: var H5FileObj,
       echo "Unknown req kind in context: ", dp.reqKind
       discard
 
-proc serve(h5f: var H5FileObj,
+proc serve(h5f: H5File,
            fileInfo: FileInfo,
            pds: seq[PlotDescriptor],
            flags: set[ConfigFlagKind] = {}) =

@@ -56,7 +56,7 @@ proc getFadcIntTime(date: DateTime): FadcIntTime =
   elif date > t3:
     result = fk100
 
-proc noiseAnalysis(h5f: var H5FileObj): tuple[f50, f100: Table[string, float64]] =
+proc noiseAnalysis(h5f: H5File): tuple[f50, f100: Table[string, float64]] =
   ## proc which performs the analysis of the noise, i.e. ratio of active and dead
   ## detector. Read the timestamps in the files, gets start and end times of runs
   ## and compares total dead time for each run, depending on type of FADC setting
@@ -274,7 +274,7 @@ proc calcRiseAndFallTime*(fadc: seq[seq[float]],
     result = (baseline: baseline, xMin: xMin, riseStart: riseStart, fallStop: fallStop,
               riseTime: riseTime, fallTime: fallTime)
 
-proc calcRiseAndFallTimes*(h5f: var H5FileObj, run_number: int) =
+proc calcRiseAndFallTimes*(h5f: H5File, run_number: int) =
   ## proc which reads the FADC data from the given file
   ## then performs the calculation of fall and rise time
   ## starting from the index of the minimum

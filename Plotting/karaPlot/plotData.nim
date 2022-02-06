@@ -2082,6 +2082,85 @@ proc handlePlotTypes(h5file: string,
     shell:
       ./karaRun "-r" ($filecall) staticClient.nim
 
+proc find(pds: seq[PlotDescriptor], toFind: PlotDescriptor): Option[PlotDescriptor] =
+  ## Tries to find an equivalent PlotDescriptor as `toFind` in `pds`.
+  ##
+  ## This implies the same type of plot, but different input file / runs etc
+  for pdc in pds:
+    if pdc == toFind:
+      return some(pdc)
+
+proc add(p: var PlotV, p2: PlotV, f1, f2: string) =
+  ## adds `p2` to `p`, which implies combining the two plots onto one
+  ##
+  ## `f1` and `f2` are the names of the `From` field used for each DF
+  doAssert p.kind == p2.kind, $p.kind & " vs " & $p2.kind
+  case p.kind
+  of bGgPlot:
+    ## XXX: handle geom_raster!
+    # get the df of `p` re-emit with a different df based on a combination of two
+    var dfP = p.pltGg.data
+    var dfP2 = p2.pltGg.data
+    if "From" notin dfP:
+      dfP["From"] = f1
+    dfP2["From"] = f2
+    dfP.add dfP2
+    p.pltGg.data = dfP
+    # now update `aes` to use new `From` column
+    p.pltGg.aes.color = some(Scale(scKind: scColor, col: f{"From"}, hasDiscreteness: true,
+                                   ids: p.pltGg.aes.x.get.ids))
+    p.pltGg.aes.fill = some(Scale(scKind: scFillColor, col: f{"From"}, hasDiscreteness: true,
+                                   ids: p.pltGg.aes.x.get.ids))
+    ## add the existing geoms if they have non trivial data (otherwise they will be the same)
+    for g in p2.pltGg.geoms:
+      if g.data.isSome: #
+        p.pltGg.geoms.add g
+
+    for g in mitems(p.pltGg.geoms):
+      # update geom to include alpha and identity position
+      g.userStyle.alpha = some(0.5)
+      g.position = pkIdentity
+  else:
+    raise newException(Exception, "Not implemented to add plots of kind " & $p.kind)
+
+proc createComparePlots(h5file: string, h5Compare: seq[string],
+                        bKind: BackendKind,
+                        runType: RunTypeKind,
+                        flags: set[ConfigFlagKind],
+                        config: Config
+                       ) =
+  ## Generates plots comparing all plots that can be built from `h5file`
+  ## and add equivalent plot from data in each `h5Compare`
+  var h5f = H5open(h5file, "r")
+  var fileInfo = getFileInfo(h5f).appliedConfig(config)
+  var h5fs = h5Compare.mapIt(H5open(it, "r"))
+  var fInfos = h5fs.mapIt(getFileInfo(it).appliedConfig(config))
+
+  template genPds(file, runType, flags: untyped): untyped =
+    var res: seq[PlotDescriptor]
+    case runType
+    of rtCalibration: res = genCalibrationPlotPDs(file, runType, flags, config)
+    of rtBackground: res = genBackgroundPlotPDs(file, runType, flags, config)
+    else: discard
+    res
+  let pds = genPds(h5f, runType, flags)
+  var pdComp = newSeq[seq[PlotDescriptor]](h5Compare.len)
+  for i in 0 ..< h5Compare.len:
+    pdComp[i] = genPds(h5fs[i], runType, flags)
+
+  for pd in pds:
+    var (outfile, plt) = createPlot(h5f, fileInfo, pd)
+    if outfile.len == 0: continue # apparantly failed to create plot, skipping
+    for i in 0 ..< h5Compare.len:
+      let pdc = pdComp[i].find(pd)
+      if pdc.isSome:
+        let (_, cPlt) = createPlot(h5fs[i], fInfos[i], pdc.get)
+        # add to `plt`
+        plt.add(cPlt, h5f.name.extractFilename, h5fs[i].name.extractFilename & "_" & $i)
+    # now generate the plot
+    let outf = outfile & "_combined.pdf"
+    plt.savePlot(outf, fullPath = true)
+
 proc parseBackendType(backend: string): BackendKind =
   ## given a string describing a run type, return the correct
   ## `RunTypeKind`

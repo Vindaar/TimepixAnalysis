@@ -24,19 +24,19 @@ proc main(fname: string, suffix = "",
   let recof = if reco: toName(path, recoPrefix, suffix) else: rawf
   if tpx3:
     shell:
-      "./readTpx3RawTest -f" ($fname) "-o" ($out1)
+      "readTpx3RawTest -f" ($fname) "-o" ($out1)
   if raw:
     shell:
-      "./raw_data_manipulation --tpx3" ($out1) "--runType calib" "--out" ($rawf) "--config raw_reco_config.toml"
+      "raw_data_manipulation --tpx3" ($out1) "--runType calib" "--out" ($rawf) "--config raw_reco_config.toml"
   if reco:
     shell:
-      ./reconstruction ($rawf) "--out" ($recof) "--config raw_reco_config.toml"
+      reconstruction ($rawf) "--out" ($recof) "--config raw_reco_config.toml"
   if energy:
     shell:
-      ./reconstruction ($recof) "--only_energy 26.0" "--config raw_reco_config.toml"
+      reconstruction ($recof) "--only_energy 26.0" "--config raw_reco_config.toml"
   if plot:
     shell:
-      ./plotData ($recof) "--runType=calib --ingrid --occupancy --backend=ggplot" "--config plotData.toml"
+      plotData --h5file ($recof) --runType rtCalibration --ingrid --occupancy --backend bGgPlot --config plotData.toml
 
 
 when isMainModule:

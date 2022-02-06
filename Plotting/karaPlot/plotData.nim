@@ -1703,51 +1703,52 @@ proc createPlot*(h5f: H5File,
   # test reverse
   #let test2 = parsePd(test)
   #doAssert test2 == pd
+  try:
+    case pd.plotKind
+    of pkInGridDset:
+      result = handleInGridDset(h5f, fileInfo, pd)
+    of pkFadcDset:
+      result = handleFadcDset(h5f, fileInfo, pd)
+    of pkOccupancy:
+      result = handleOccupancy(h5f, fileInfo, pd)
+    of pkOccCluster:
+      result = handleOccCluster(h5f, fileInfo, pd)
+    of pkPolya, pkFeSpec, pkFeSpecCharge:
+      result = handleBarScatter(h5f, fileInfo, pd)
+    of pkCombPolya:
+      result = handleCombPolya(h5f, fileInfo, pd)
+    of pkFeVsTime, pkFeChVsTime:
+      result = handleFeVsTime(h5f, fileInfo, pd)
+    of pkFePixDivChVsTime:
+      result = handleFePixDivChVsTime(h5f, fileInfo, pd)
+    of pkFePhotoDivEscape:
+      result = handleFePhotoDivEscape(h5f, fileInfo, pd)
+    of pkInGridEvent:
+      # TODO: make this into a call to an `InGridEventIterator`
+      result = handleIngridEvent(h5f, fileInfo, pd)
+      #for outfile, pltV in ingridEventIter(h5f, fileInfo, pd):
+      #  yield (outfile, pltV)
+    of pkFadcEvent:
+      result = handleFadcEvent(h5f, fileInfo, pd)
+      #for outfile, pltV in fadcEventIter(h5f, fileInfo, pd):
+      #  yield (outfile, pltV)
+    of pkSubPlots:
+      result = handleSubPlots(h5f, fileInfo, pd)
+      #for outfile, pltV in subPlotsIter(h5f, fileInfo, pd):
+      #  yield (outfile, pltV)
+    of pkOuterChips:
+      result = handleOuterChips(h5f, fileInfo, pd)
+    of pkToTPerPixel:
+      result = handleToTPerPixel(h5f, fileInfo, pd)
+    else:
+      discard
 
-  case pd.plotKind
-  of pkInGridDset:
-    result = handleInGridDset(h5f, fileInfo, pd)
-  of pkFadcDset:
-    result = handleFadcDset(h5f, fileInfo, pd)
-  of pkOccupancy:
-    result = handleOccupancy(h5f, fileInfo, pd)
-  of pkOccCluster:
-    result = handleOccCluster(h5f, fileInfo, pd)
-  of pkPolya, pkFeSpec, pkFeSpecCharge:
-    result = handleBarScatter(h5f, fileInfo, pd)
-  of pkCombPolya:
-    result = handleCombPolya(h5f, fileInfo, pd)
-  of pkFeVsTime, pkFeChVsTime:
-    result = handleFeVsTime(h5f, fileInfo, pd)
-  of pkFePixDivChVsTime:
-    result = handleFePixDivChVsTime(h5f, fileInfo, pd)
-  of pkFePhotoDivEscape:
-    result = handleFePhotoDivEscape(h5f, fileInfo, pd)
-  of pkInGridEvent:
-    # TODO: make this into a call to an `InGridEventIterator`
-    result = handleIngridEvent(h5f, fileInfo, pd)
-    #for outfile, pltV in ingridEventIter(h5f, fileInfo, pd):
-    #  yield (outfile, pltV)
-  of pkFadcEvent:
-    result = handleFadcEvent(h5f, fileInfo, pd)
-    #for outfile, pltV in fadcEventIter(h5f, fileInfo, pd):
-    #  yield (outfile, pltV)
-  of pkSubPlots:
-    result = handleSubPlots(h5f, fileInfo, pd)
-    #for outfile, pltV in subPlotsIter(h5f, fileInfo, pd):
-    #  yield (outfile, pltV)
-  of pkOuterChips:
-    result = handleOuterChips(h5f, fileInfo, pd)
-  of pkToTPerPixel:
-    result = handleToTPerPixel(h5f, fileInfo, pd)
-  else:
-    discard
-
-  # finally call savePlot if we actually created a plot
-  #if not result[1].plPlot.isNil:
-  info &"Calling savePlot for {pd.plotKind} with filename {result[0]}"
-  savePlot(result[1], result[0], fullPath = true)
-
+    # finally call savePlot if we actually created a plot
+    #if not result[1].plPlot.isNil:
+    info &"Calling savePlot for {pd.plotKind} with filename {result[0]}"
+    savePlot(result[1], result[0], fullPath = true)
+  except KeyError:
+    echo "WARNING: Could not generate the plot: " & $pd & ". Skipping it."
 
 proc createOrg(outfile, fileType: string) =
   ## creates a simple org file consisting of headings and images

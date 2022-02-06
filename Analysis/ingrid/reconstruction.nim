@@ -238,15 +238,14 @@ proc writeRecoRunToH5*[T: SomePix](h5f: var H5FileObj,
         y[chip][^1][j] = cl.data[j].y
         ch[chip][^1][j] = cl.data[j].ch
 
-      expandMacros:
-        int_data_tab.setTabFields(int_cluster_names, chip, cl)
-        float_data_tab.setTabFields(float_cluster_names, chip, cl)
-        float_data_tab.setTabFields(float_geometry_names, chip, cl.geometry)
+      int_data_tab.setTabFields(int_cluster_names, chip, cl)
+      float_data_tab.setTabFields(float_cluster_names, chip, cl)
+      float_data_tab.setTabFields(float_geometry_names, chip, cl.geometry)
 
       # add event number individually, since it's not part of some object we can
       # use our macro for
       int_data_tab["eventNumber"][chip].add num
-    echoBenchCounted(count, tUnpack, 5000, msg = " clusters unpacked from FlowVars")
+    #echoBenchCounted(count, tUnpack, 5000, msg = " clusters unpacked from FlowVars")
 
   # now that we have the data and now how many elements each type has
   # we can create the datasets

@@ -152,17 +152,13 @@ proc resolveNode(n: NimNode, tab: OrderedTable[string, NimNode]): NimNode =
   #        discard
   #    result.add node
 
-
 proc resolveNodes(tab: OrderedTable[string, NimNode]): seq[NimNode] =
   ## resolve the potentially still ambiguous nodes (e.g. a reference to a
   ## parameter of a different line) and convert the `OrderedTable` into a
   ## serialized sequence of the nodes
   for k, v in tab:
-    echo "k ", k, " w/ val ", v.repr
     let ad = resolveNode(v, tab)
-    echo "ADDED ", ad.repr
     result.add ad
-
 
 proc incAndFill(tab: var OrderedTable[string, NimNode],
                 idx: var int, keyBase, lineName: string) =
@@ -312,7 +308,7 @@ macro declareFitFunc*(name, stmts: untyped): untyped =
       ffSeq.add ffArg
 
   result = buildFitFunc(funcId, ffSeq)
-  echo result.repr
+  # echo result.repr
 
 func filterNaN(s: openArray[float]): seq[float] =
   result = newSeqOfCap[float](s.len)

@@ -628,7 +628,7 @@ macro genTfToFitFunc(pname: untyped): untyped =
         .replace(".", "")
         .replace("kv", "") & "ChargeFunc"
       `caseStmtC`
-  echo result.repr
+  #echo result.repr
 
 # generate the =getCdlFitFunc= used to get the correct fit function
 # based on a `TargetKind` and `FilterKind`

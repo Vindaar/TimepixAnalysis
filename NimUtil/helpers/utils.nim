@@ -124,7 +124,7 @@ macro replace*(c: typed, x: untyped): untyped =
   for ch in x:
     cImpl = findReplace(cImpl, ch)
   result = cImpl
-  echo result.repr
+  #echo result.repr
 
 proc readNumLinesMemFile*(ff: var MemFile, buf: var seq[string], stop: int) {.inline.} =
   ## reads memory mapped slices from file `ff`, adds to buffer and

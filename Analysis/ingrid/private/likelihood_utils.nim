@@ -408,9 +408,10 @@ proc calcLikelihoodDataset*(h5f: var H5File,
        fracRmsTrans,
        energies) = h5f.readLogLVariableData(groupName)
 
+
   var refSetTuple {.global.}: tuple[ecc, ldivRms, fracRms: Table[string, histTuple]]
   var refDf {.global.}: DataFrame
-  var refDfEnergy: seq[float]
+  var refDfEnergy {.global.}: seq[float]
   case morphKind
   of mkNone: refSetTuple = readRefDsets(refFile, year)
   of mkLinear:
@@ -422,6 +423,7 @@ proc calcLikelihoodDataset*(h5f: var H5File,
         .getInterpolatedWideDf(num = num)
       let lineEnergies = getXrayFluorescenceLines()
       refDfEnergy = linspace(lineEnergies[0], lineEnergies[^1], num)
+
   # create seq to store data logL data for this chip
   ## create a crazy man's plot
   proc crazyPlot(name: string) =
@@ -447,7 +449,7 @@ proc calcLikelihoodDataset*(h5f: var H5File,
   #crazyPlot("igLengthDivRmsTrans")
   #crazyPlot("igFractionInTransverseRms")
   result = newSeq[float64](ecc.len)
-  echo "[INFO]: Performing likelihood compute using morph kind: ", morphKind
+  echo "[INFO]: Performing likelihood compute using morph kind: ", morphKind, " for chip: ", groupName
   for i in 0 .. ecc.high:
     case morphKind
     of mkNone:

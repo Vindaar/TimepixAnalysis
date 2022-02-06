@@ -1222,25 +1222,20 @@ proc main() =
     ## create the ROC curves and likelihood distributios. This requires to
     ## previously run this tool with the default parameters
     createRocCurves(h5f, cdlFile, refFile, year, region)
-  elif fkPlotLogL in flags:
+  if fkPlotLogL in flags:
     plotLogL(cdlFile, refFile, year, region)
-  elif extractFrom == "nil":
-    var h5fout: H5File
-    if h5foutfile != "":
-      h5fout = H5open(h5foutfile, "rw")
-    else:
-      # in case no outfile given, we write to the same file
-      h5fout = h5f
+  if fkComputeLogL in flags:
+    # perform likelihood calculation
+    h5f.calcLogLikelihood(cdlFile, refFile, year)
+    h5f.flush() # flush so the data is written already
+  if extractFrom == "nil" and h5foutfile.len > 0:
+    var h5fout = H5open(h5foutfile, "rw", {akTruncate})
 
     if fkFadc in flags:
       echo "Using FADC as veto"
     if fkScinti in flags:
       echo "Using scintillators as veto"
 
-    # perform likelihood calculation
-    ## TODO: do we need to do this? Cannot just skip if already exists?
-    if fkComputeLogL in flags:
-      h5f.calcLogLikelihood(cdlFile, refFile, year)
     # now perform the cut on the logL values stored in `h5f` and write
     # the results to h5fout
     h5f.filterClustersByLogL(h5fout,

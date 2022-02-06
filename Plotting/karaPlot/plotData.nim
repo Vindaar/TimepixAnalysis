@@ -776,8 +776,9 @@ proc plotDates[T, U](x: seq[U], y: seq[T],
     result.plPlot = Plot[T](layout: result.plLayout, traces: @[tr])
   of bMpl:
     let dtm = pyImport("datetime")
-    let xP = x.mapIt(dtm.datetime.utcfromtimestamp(int(it)))
-    discard result.ax.plot_date(xP, y, label = title)
+    raise newException(Exception, "`dtm.datetime` is broken. Hence a date plot on matplotlib is currently unsupported!")
+    #let xP = x.mapIt(dtm.datetime.utcfromtimestamp(int(it)))
+    #discard result.ax.plot_date(xP, y, label = title)
   of bGgPlot:
     let df = seqsToDf(x, y)
     result.pltGg = ggplot(df, aes("x", "y")) +

@@ -4,7 +4,7 @@ proc getBinRangeForDset*(dset: string): Option[(float, float)] =
   if dset == "hits":
     result = some((0.0, 500.0))
   elif dset == "energyFromPixel":
-    result = some((0.0, 10000.0))
+    result = some((0.0, 15000.0))
   elif "energyFromCharge" in dset:
     result = some((0.0, 15.0))
   elif dset == "sumTot":
@@ -15,11 +15,11 @@ proc getBinRangeForDset*(dset: string): Option[(float, float)] =
   elif dset == "kurtosisTransverse":
     result = some((-2.0, 8.0))
   elif dset == "rmsLongitudinal":
-    result = some((0.0, 3.0))
+    result = some((0.0, 6.0))
   elif dset == "rmsTransverse":
-    result = some((0.0, 3.0))
+    result = some((0.0, 6.0))
   elif dset == "eccentricity":
-    result = some((1.0, 3.5))
+    result = some((1.0, 8.0))
   elif dset == "ToT":
     result = some((0.0, 250.0))
   elif dset == "length_rmsTransverse":
@@ -27,7 +27,7 @@ proc getBinRangeForDset*(dset: string): Option[(float, float)] =
   elif dset == "energyCut":
     result = some((0.0, 10000.0))
   elif dset == "length":
-    result = some((0.0, 14.0))
+    result = some((0.0, 14.5))
   elif "minvals" in dset:
     result = some((-0.6, 0.0))
   elif "riseTime" in dset:

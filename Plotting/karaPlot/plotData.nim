@@ -363,7 +363,7 @@ proc plotHist[T](xIn: seq[T], title, dset, outfile: string,
     let df = seqsToDf(xs).filter(fn {float: `xs` >= binRange[0] and
                                             `xs` <= binRange[1]})
     result.pltGg = ggplot(df, aes("xs")) +
-        geom_histogram(binWidth = binSize) +
+        geom_histogram(binWidth = binSize, hdKind = hdOutline) +
         scale_x_continuous() + scale_y_continuous() +
         result.theme # just add the theme directly
   else: discard
@@ -420,13 +420,13 @@ proc plotBar[T](binsIn, countsIn: seq[seq[T]], title: string,
       df.add ldf
     if bins.len > 1:
       result.pltGg = ggplot(df, aes("bins", "counts")) +
-          geom_histogram(aes(fill = "dset"), stat = "identity") +
+          geom_histogram(aes(fill = "dset"), stat = "identity", hdKind = hdOutline) +
           scale_y_continuous() +
           result.theme # just add the theme directly
     else:
       # don't classify by `dset`
       result.pltGg = ggplot(df, aes("bins", "counts")) +
-          geom_histogram(stat = "identity") +
+          geom_histogram(stat = "identity", hdKind = hdOutline) +
           scale_y_continuous() +
           result.theme # just add the theme directly
 

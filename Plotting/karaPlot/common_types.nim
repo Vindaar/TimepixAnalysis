@@ -43,6 +43,10 @@ type
   Domain* = tuple
     left, bottom, width, height: float
 
+  Config* = object
+    allowedChips*: set[uint16]
+    allowedRuns*: set[uint16]
+
   PlotDescriptor* = object
     runType*: RunTypeKind
     name*: kstring
@@ -104,3 +108,8 @@ type
       rangeCenter*: CutRange
     else:
       discard
+
+proc initConfig*(allowedChips: set[uint16],
+                 allowedRuns: set[uint16]): Config =
+  result = Config(allowedChips: allowedChips,
+                  allowedRuns: allowedRuns)

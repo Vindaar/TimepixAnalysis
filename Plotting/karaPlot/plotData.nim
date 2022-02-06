@@ -332,32 +332,37 @@ proc readVlen(h5f: H5File,
   else:
     result = dset[vlenDtype, dtype]
 
-template applyFilter(key: string, tomlConfig, theSet, fileInfo, field: untyped): untyped =
+template buildFilter(key: string, tomlConfig, theSet, fileInfo, field: untyped): untyped =
   if tomlConfig["General"].hasKey(key):
     let allowed = tomlConfig["General"][key].getElems
     for el in allowed:
       theSet.incl el.getInt.uint16
+
+template applyFilter(theSet, fileInfo, field: untyped): untyped =
   if theSet.card > 0:
     fileInfo.field = fileInfo.field.filterIt(it.uint16 in theSet)
 
-
-proc applyConfig(fileInfo: var FileInfo) =
+proc applyConfig(fileInfo: var FileInfo, config: Config) =
   ## reads the  `config.toml` of the project and applies certain
   ## filters / settings to the fileInfo object. This allows us to
   ## disable certain plots / configurations
   # get allowed chips from toml
   let tomlConfig = parseToml.parseFile(ConfigFile)
-  var chipSet: set[uint16]
-  var runSet: set[uint16]
+  var chipSet: set[uint16] = config.allowedChips
+  var runSet: set[uint16] = config.allowedRuns
   # TODO: move elsewhere
   fileInfo.plotlySaveSvg = tomlConfig["General"]["plotlySaveSvg"].getBool
-  applyFilter("allowedChips", tomlConfig, chipSet, fileInfo, chips)
-  applyFilter("allowedRuns", tomlConfig, runSet, fileInfo, runs)
+  if config.allowedChips.card == 0:
+    buildFilter("allowedChips", tomlConfig, chipSet, fileInfo, chips)
+  if config.allowedRuns.card == 0:
+    buildFilter("allowedRuns", tomlConfig, runSet, fileInfo, runs)
+  applyFilter(chipSet, fileInfo, chips)
+  applyFilter(runSet, fileInfo, runs)
 
-proc appliedConfig(fileInfo: FileInfo): FileInfo =
+proc appliedConfig(fileInfo: FileInfo, config: Config): FileInfo =
   ## returns a copy of the given `FileInfo` with the config.toml applied
   result = fileInfo
-  result.applyConfig()
+  result.applyConfig(config)
 
 proc plotHist[T](xIn: seq[T], title, dset, outfile: string,
                  binS: float, binR: (float, float)): PlotV =
@@ -1978,11 +1983,12 @@ proc eventDisplay(h5file: string,
                   run: int,
                   runType: RunTypeKind,
                   bKind: BackendKind,
-                  flags: set[ConfigFlagKind]): string =
+                  flags: set[ConfigFlagKind],
+                  config: Config): string =
   ## use as event display tool
   var h5f = H5open(h5file, "r")
   let fileInfo = getFileInfo(h5f)
-  let fInfoConfig = fileInfo.appliedConfig()
+  let fInfoConfig = fileInfo.appliedConfig(config)
   let events = toOrderedSet(toSeq(0 .. 50))#initOrderedSet[int]())
   let pds = createEventDisplayPlots(h5f, run, runType, fInfoConfig, events)
 
@@ -1995,84 +2001,100 @@ proc eventDisplay(h5file: string,
 
   discard h5f.close()
 
+proc genCalibrationPlotPDs(h5f: H5File,
+                           runType: RunTypeKind,
+                           flags: set[ConfigFlagKind],
+                           config: Config
+                          ): seq[PlotDescriptor] =
+  ## Creates the PlotDescriptors for all calibration plots in the `h5file`
+  var fileInfo = getFileInfo(h5f)
+  let fInfoConfig = fileInfo.appliedConfig(config)
+  # var imageSet = initOrderedSet[string]()
+
+  if cfOccupancy in flags:
+    result.add occupancies(h5f, runType, fInfoConfig, flags) # plus center only
+  if cfPolya in flags:
+    result.add polya(h5f, runType, fInfoConfig, flags)
+  if cfToTPerPixel in flags:
+    result.add totPerPixel(h5f, runType, fInfoConfig, flags)
+  if cfFeSpectrum in flags:
+    result.add feSpectrum(h5f, runType, fInfoConfig, flags)
+  #result.add fePhotoDivEscape(h5f, runType, fInfoConfig, flags)
+  # energyCalib(h5f) # ???? plot of gas gain vs charge?!
+  if cfIngrid in flags:
+    result.add histograms(h5f, runType, fInfoConfig, flags) # including fadc
+
 proc createCalibrationPlots(h5file: string,
                             bKind: BackendKind,
                             runType: RunTypeKind,
-                            flags: set[ConfigFlagKind]): string =
+                            flags: set[ConfigFlagKind],
+                            config: Config): string =
   ## creates QA plots for calibration runs
-  var h5f = H5open(h5file, "r")
+  withH5(h5file, "r"):
+    var fileInfo = getFileInfo(h5f)
+    let fInfoConfig = fileInfo.appliedConfig(config)
+
+    let pds = genCalibrationPlotPDs(h5f, runType, flags, config)
+    if cfProvideServer in flags:
+      serveRequests(h5f, fileInfo, pds)
+      #serve(h5f, fileInfo, pds, flags)
+    else:
+      plotsFromPds(h5f, fInfoConfig, pds)
+      echo "Image set is ", imageSet.card
+
+      # likelihoodHistograms(h5f) # need to cut on photo peak and esc peak
+      # neighborPixels(h5f)
+      discard h5f.close()
+      let outfile = "calibration" & "_" & getRunsStr(fInfoConfig.runs)
+      result = handleOutput(outfile, flags)
+
+proc genBackgroundPlotPDs(h5f: H5File, runType: RunTypeKind,
+                          flags: set[ConfigFlagKind],
+                          config: Config): seq[PlotDescriptor] =
   var fileInfo = getFileInfo(h5f)
-  let fInfoConfig = fileInfo.appliedConfig()
-  # var imageSet = initOrderedSet[string]()
-  var pds: seq[PlotDescriptor]
-
-  const length = "length"
+  let fInfoConfig = fileInfo.appliedConfig(config)
   if cfOccupancy in flags:
-    pds.add occupancies(h5f, runType, fInfoConfig, flags) # plus center only
+    #occupancies(h5f, flags) # plus center only
+    result.add occupancies(h5f, runType, fInfoConfig, flags) # plus center only
   if cfPolya in flags:
-    pds.add polya(h5f, runType, fInfoConfig, flags)
-  if cfToTPerPixel in flags:
-    pds.add totPerPixel(h5f, runType, fInfoConfig, flags)
-  if cfFeSpectrum in flags:
-    pds.add feSpectrum(h5f, runType, fInfoConfig, flags)
-  #pds.add fePhotoDivEscape(h5f, runType, fInfoConfig, flags)
+    result.add polya(h5f, runType, fInfoConfig, flags)
   # energyCalib(h5f) # ???? plot of gas gain vs charge?!
-  if cfIngrid in flags:
-    pds.add histograms(h5f, runType, fInfoConfig, flags) # including fadc
-
-  if cfProvideServer in flags:
-    serveRequests(h5f, fileInfo, pds)
-    #serve(h5f, fileInfo, pds, flags)
-  else:
-    plotsFromPds(h5f, fInfoConfig, pds)
-    echo "Image set is ", imageSet.card
-
-    # likelihoodHistograms(h5f) # need to cut on photo peak and esc peak
-    # neighborPixels(h5f)
-    discard h5f.close()
-    let outfile = "calibration" & "_" & getRunsStr(fInfoConfig.runs)
-    result = handleOutput(outfile, flags)
+  result.add histograms(h5f, runType, fInfoConfig, flags) # including fadc
+  # result.add createCustomPlots(fInfoConfig)
 
 proc createBackgroundPlots(h5file: string,
                            bKind: BackendKind,
                            runType: RunTypeKind,
-                           flags: set[ConfigFlagKind]): string =
+                           flags: set[ConfigFlagKind],
+                           config: Config): string =
   ## creates QA plots for calibration runs
-  var h5f = H5open(h5file, "r")
-  var fileInfo = getFileInfo(h5f)
-  let fInfoConfig = fileInfo.appliedConfig()
-  var pds: seq[PlotDescriptor]
-  const length = "length"
-  if cfOccupancy in flags:
-    #occupancies(h5f, flags) # plus center only
-    pds.add occupancies(h5f, runType, fInfoConfig, flags) # plus center only
-  if cfPolya in flags:
-    pds.add polya(h5f, runType, fInfoConfig, flags)
-  # energyCalib(h5f) # ???? plot of gas gain vs charge?!
-  pds.add histograms(h5f, runType, fInfoConfig, flags) # including fadc
+  withH5(h5file, "r"):
+    var fileInfo = getFileInfo(h5f)
+    let fInfoConfig = fileInfo.appliedConfig(config)
 
-  # pds.add createCustomPlots(fInfoConfig)
+    let pds = genBackgroundPlotPDs(h5f, runType, flags, config)
+    if cfProvideServer in flags:
+      serveRequests(h5f, fileInfo, pds)
+      #serve(h5f, fileInfo, pds, flags)
+    else:
+      plotsFromPds(h5f, fInfoConfig, pds)
+      echo "Image set is ", imageSet.card
 
-  if cfProvideServer in flags:
-    serveRequests(h5f, fileInfo, pds)
-    #serve(h5f, fileInfo, pds, flags)
-  else:
-    plotsFromPds(h5f, fInfoConfig, pds)
-    echo "Image set is ", imageSet.card
+      # likelihoodHistograms(h5f) # need to cut on photo peak and esc peak
+      # neighborPixels(h5f)
+      discard h5f.close()
+      let outfile = "background" & "_" & getRunsStr(fInfoConfig.runs)
+      result = handleOutput(outfile, flags)
 
-    # likelihoodHistograms(h5f) # need to cut on photo peak and esc peak
-    # neighborPixels(h5f)
-    discard h5f.close()
-    let outfile = "background" & "_" & getRunsStr(fInfoConfig.runs)
-    result = handleOutput(outfile, flags)
-
-proc createXrayFingerPlots(bKind: BackendKind, flags: set[ConfigFlagKind]): string =
+proc createXrayFingerPlots(bKind: BackendKind, flags: set[ConfigFlagKind],
+                           config: Config): string =
   discard
 
 proc handlePlotTypes(h5file: string,
                      bKind: BackendKind,
                      runType: RunTypeKind,
                      flags: set[ConfigFlagKind],
+                     config: Config,
                      evDisplayRun = none[int]()) =
   ## handles dispatch of the correct data type / kind / mode to be plotted
   ## calibration, X-ray, background, event display...
@@ -2080,15 +2102,15 @@ proc handlePlotTypes(h5file: string,
   ## TODO: what happens for SVG? Need to check too.
   var outfile = ""
   if evDisplayRun.isSome():
-    outfile = eventDisplay(h5file, evDisplayRun.get, runType, BKind, flags)
+    outfile = eventDisplay(h5file, evDisplayRun.get, runType, BKind, flags, config)
   else:
     case runType
     of rtCalibration:
-      outfile = createCalibrationPlots(h5file, bKind, runType, flags)
+      outfile = createCalibrationPlots(h5file, bKind, runType, flags, config)
     of rtBackground:
-      outfile = createBackgroundPlots(h5file, bKind, runType, flags)
+      outfile = createBackgroundPlots(h5file, bKind, runType, flags, config)
     of rtXrayFinger:
-      outfile = createXrayFingerPlots(bKind, flags)
+      outfile = createXrayFingerPlots(bKind, flags, config)
     else:
       discard
   if cfProvideServer in flags:

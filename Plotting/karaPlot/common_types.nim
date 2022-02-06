@@ -48,6 +48,7 @@ type
     name*: kstring
     runs*: seq[int]
     chip*: int
+    isCenterChip*: bool
     xlabel*: kstring
     ylabel*: kstring
     title*: kstring

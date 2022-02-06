@@ -109,6 +109,61 @@ type
     else:
       discard
 
+
+proc `==`*(p1, p2: PlotDescriptor): bool =
+  if p1.runType != p2.runType: result = false
+  elif p1.plotKind != p2.plotKind: result = false
+  else:
+    result = true # start with true
+    template cmpField(f: untyped): untyped =
+      result = result and (p1.f == p2.f)
+    cmpField(name)
+    #cmpField(runs) # `runs` is *not* compared as they don't describe the *kind* of plot
+    cmpField(isCenterChip)
+    if not p1.isCenterChip and not p2.isCenterChip: # only compare the chip numbers if they are not
+      cmpField(chip)                                # center chips. Else
+    #cmpField(xlabel) # labels irrelevant
+    #cmpField(ylabel)
+    #cmpField(title) # title irrelevant
+    case p1.plotKind
+    of pkInGridDset, pkFadcDset, pkToTPerPixel:
+      cmpField(range)
+      cmpField(cutRegion)
+      cmpField(binSize)
+      cmpField(binRange)
+    of pkAnyScatter:
+      cmpField(x)
+      cmpField(y)
+    of pkMultiDset:
+      cmpField(names)
+    of pkInGridCluster:
+      cmpField(eventNum)
+    of pkOccupancy, pkOccCluster:
+      if p1.clampKind != p2.clampKind: result = false
+      else:
+        case p1.clampKind
+        of ckAbsolute:
+          cmpField(clampA)
+        of ckQuantile:
+          cmpField(clampQ)
+        else: discard
+    of pkCombPolya:
+      cmpField(chipsCP)
+    of pkInGridEvent, pkFadcEvent:
+      cmpField(event)
+    of pkFeVsTime, pkFeChVsTime, pkFePixDivChVsTime:
+      cmpField(splitBySec)
+      cmpField(lastSliceError)
+      cmpField(dropLastSlice)
+    of pkSubPlots:
+      cmpField(plots)
+      cmpField(domain)
+    of pkOuterChips:
+      cmpField(outerChips)
+      cmpField(rangeCenter)
+    else:
+      discard
+
 proc initConfig*(allowedChips: set[uint16],
                  allowedRuns: set[uint16]): Config =
   result = Config(allowedChips: allowedChips,

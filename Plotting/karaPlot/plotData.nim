@@ -1,3 +1,4 @@
+## A tool to plot data from H5 files
 import plotly, ggplotnim
 import os except FileInfo
 import strutils, strformat, times, sequtils, math, macros, algorithm, sets, stats, base64

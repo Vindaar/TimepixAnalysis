@@ -264,7 +264,7 @@ proc toData(x: uint64, opMode: uint8, vco = false, ToAExtension = none(uint64)):
     result.HitCounter = 0'u8
     result.FTOA = (x and 0xF).uint8
 
-  proc assignToAExtension(res: var Tpx3Data, ToAExtension: Option[uint64]) =
+  proc assignToAExtension(res: var Tpx3Data, ToAExtension: Option[uint64]) {.inline.} =
     if ToA_Extension.isSome:
       res.TOA_Extension = ToA_Extension.unsafeGet and 0xFFFFFFFFFFFF'u64 # remove header marking it as timestamp
       res.TOA_Combined = (ToA_Extension.unsafeGet and 0xFFFFFFFFC000'u64) + res.TOA

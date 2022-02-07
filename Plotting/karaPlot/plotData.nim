@@ -333,7 +333,7 @@ proc appliedConfig(fileInfo: FileInfo, config: Config): FileInfo =
 proc plotHist[T](xIn: seq[T], title, dset, outfile: string,
                  binS: float, binR: (float, float)): PlotV =
   ## plots the data in `x` as a histogram
-  let xs = xIn.mapIt(it.float)
+  let xs = xIn.mapIt(it.float).filterIt(classify(it) notin {fcInf, fcNegInf, fcNaN})
 
   var binRange = binR
   var binSize = binS

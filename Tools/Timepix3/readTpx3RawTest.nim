@@ -413,20 +413,38 @@ proc main(fname: string, outf: string = "/tmp/testtpx3.h5") =
 
   var cumRead = 0
   var batchIdx = 0
-  for i, slice in meta:
-    let num = slice.index_stop - slice.index_start
+  let uint32High = uint32.high.int
+
+  var uint32StartOverflows = 0
+  var uint32StopOverflows = 0
+  var sliceStart: int
+  var sliceStop: int
+
+  var lastStart = 0
+  var lastStop = 0
+  for i in 0 ..< meta.len:
+    let slice = meta[i]
+    if slice.index_start.int < lastStart:
+      inc uint32StartOverflows
+    if slice.index_stop.int < lastStop:
+      inc uint32StopOverflows
+    sliceStart = slice.index_start.int + (uint32StartOverflows * uint32High)
+    sliceStop = slice.index_stop.int + (uint32StopOverflows * uint32High)
+    let num = sliceStop - sliceStart
     if num > 0:
-      let startIdx = slice.index_start.int - oldIdx
-      let stopIdx = slice.index_stop.int - oldIdx
-      all.add rawDataToDut(data[startIdx ..< stopIdx], chunkNr = i)
+      let startIdx = sliceStart - oldIdx
+      let stopIdx = sliceStop - oldIdx
+      all.add rawDataToDut(toOpenArray(data, startIdx, stopIdx - 1), chunkNr = i)
       inc comb, num.int
+      lastStart = slice.index_start.int # store last start to check for overflow
+      lastStop = slice.index_stop.int
     if comb >= curIdx:
       echo "Writing dataset chunk: ", i
       dset.add all
       all.setLen(0)
       oldIdx = curIdx
       curIdx = findIdx(oldIdx + batch, cumNum)
-      echo "reading from ", oldIdx, " to ", curIdx
+      echo "reading from ", oldIdx, " to ", curIdx, " of ", meta.len, ", ", (i.float / meta.len.float) * 100.0, " %"
       data = inputDset.read_hyperslab(uint32, @[oldIdx, 0],
                                       count = @[curIdx - oldIdx, 1])
       inc batchIdx

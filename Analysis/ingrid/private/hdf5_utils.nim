@@ -29,6 +29,7 @@ type
     igLengthDivRmsTrans, # lengthDivRmsTrans,
     igRotationAngle, # rotationAngle, RotationAngle
     igEnergyFromCharge, # energyFromCharge, Energy
+    igEnergyFromPixel, # energyFromPixel, Energy
     igLikelihood, # likelihood, LikelihoodMarlin
     igFractionInTransverseRms, # fractionInTransverseRms, FractionWithinRmsTransverse
     igTotalCharge, # totalCharge, TotalCharge
@@ -69,7 +70,7 @@ const XrayReferenceDsets* = {
   igFractionInTransverseRms,
   igTotalCharge}
 
-proc toDset*(igKind: InGridDsetKind, frameworkKind: FrameworkKind): string =
+proc toDset*(igKind: InGridDsetKind, frameworkKind: FrameworkKind = fkTpa): string =
   ## Converts a InGridDsetKind enum element to the string representation given
   ## the framework the data was created with
   case igKind
@@ -138,6 +139,10 @@ proc toDset*(igKind: InGridDsetKind, frameworkKind: FrameworkKind): string =
     case frameworkKind
     of fkTpa: result = "energyFromCharge"
     of fkMarlin: result = "EnergyFromCharge"
+  of igEnergyFromPixel:
+    case frameworkKind
+    of fkTpa: result = "energyFromPixel"
+    of fkMarlin: result = "EnergyFromPixel"
   of igLikelihood:
     case frameworkKind
     of fkTpa: result = "likelihood"
@@ -173,6 +178,7 @@ proc toIngridDset*(dset: string): InGridDsetKind =
   elif dset == "lengthDivRmsTrans": result = igLengthDivRmsTrans
   elif dset in ["rotationAngle", "RotationAngle"]: result = igRotationAngle
   elif dset in ["energyFromCharge", "EnergyFromCharge"]: result = igEnergyFromCharge
+  elif dset in ["energyFromPixel", "EnergyFromPixel"]: result = igEnergyFromPixel
   elif dset in ["likelihood", "LikelihoodMarlin"]: result = igLikelihood
   elif dset in ["fractionInTransverseRms", "FractionWithinRmsTransverse"]: result = igFractionInTransverseRms
   elif dset in ["totalCharge", "TotalCharge"]: result = igTotalCharge

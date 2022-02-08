@@ -102,13 +102,15 @@ proc readRefDsetsDF(refFile: string,
 proc readMorphKind(): MorphingKind
 proc calcLikelihoodDataset*(h5f: var H5File, refFile: string,
                             groupName: string, year: YearKind,
-                            morphKind: MorphingKind): seq[float]
+                            morphKind: MorphingKind,
+                            energyDset: InGridDsetKind): seq[float]
 
 proc calcLikelihoodDatasetIfNeeded(h5f: var H5File,
                                    refFile: string,
                                    grp: string,
                                    logLDset: string,
-                                   year: YearKind) =
+                                   year: YearKind,
+                                   energyDset: InGridDsetKind) =
   ## Recomputes the likelihood dataset, either if it doesn't exist yet or
   ## if it was computed using a different morphing technique.
   # get the group of this dataset
@@ -119,7 +121,7 @@ proc calcLikelihoodDatasetIfNeeded(h5f: var H5File,
                         none[MorphingKind]()
   let morphKind = readMorphKind() # the morph kind that was used, assign it
   if morphKindUsed.isNone or morphKindUsed.get != morphKind:
-    let logLData = h5f.calcLikelihoodDataset(refFile, grp, year, morphKind)
+    let logLData = h5f.calcLikelihoodDataset(refFile, grp, year, morphKind, energyDset)
     let loglDset = h5f.create_dataset(grp / logLDset,
                                       (logLData.len, 1),
                                       float64,
@@ -131,6 +133,7 @@ proc calcLikelihoodDatasetIfNeeded(h5f: var H5File,
 
 proc buildLogLHist*(cdlFile, refFile, dset: string,
                     year: YearKind,
+                    energyDset: InGridDsetKind,
                     region: ChipRegion = crGold): tuple[logL, energy: seq[float]] =
   ## given a file `h5file` containing a CDL calibration dataset
   ## `dset` apply the cuts on all events and build the logL distribution
@@ -170,7 +173,7 @@ proc buildLogLHist*(cdlFile, refFile, dset: string,
     # for likelihood dataset: aside from `resources/calibration-cdl.h5`, every other file
     # may not yet have access to the likelihood dataset. So we have to check for that and
     # if it does not exist yet, it has to be calculated.
-    h5f.calcLikelihoodDatasetIfNeeded(refFile, grp_name, logLStr, year)
+    h5f.calcLikelihoodDatasetIfNeeded(refFile, grp_name, logLStr, year, energyDset)
 
     let
       energy = h5f.readAs(grp_name / energyStr, float64)
@@ -209,6 +212,7 @@ proc buildLogLHist*(cdlFile, refFile, dset: string,
   echo "max is inf ? ", min(result[0]), " ", max(result[0])
 
 proc computeLogLDistributions*(cdlFile, refFile: string, yearKind: YearKind,
+                               energyDset: InGridDsetKind,
                                region: ChipRegion = crGold): DataFrame =
   ## Computes the LogL distributions from thc CDL data file (`cdlFile`) by applying
   ## both sets of cuts (`getXraySpetrcumCuts` and `getEnergyBinMinMaxVals201*`) to the
@@ -228,7 +232,7 @@ proc computeLogLDistributions*(cdlFile, refFile: string, yearKind: YearKind,
     # cuts on properties and chip region
     rawLogHists = mapIt(toSeq(values(xray_ref)),
                         # build hist and get `[0]` to only get `logL` values
-                        buildLogLHist(cdlFile, refFile, it, yearKind, region)[0]
+                        buildLogLHist(cdlFile, refFile, it, yearKind, energyDset, region)[0]
     )
   # given raw log histograms, create the correctly binned histograms from it
   let energies = getXrayFluorescenceLines()
@@ -239,15 +243,18 @@ proc computeLogLDistributions*(cdlFile, refFile: string, yearKind: YearKind,
     result.add df
 
 proc readLogLVariableData*(h5f: var H5File,
-                           groupName: string):
+                           groupName: string,
+                           energyDset: InGridDsetKind
+                          ):
                              (seq[float], seq[float], seq[float], seq[float]) =
   # get the datasets needed for LogL
+  doAssert energyDset in {igEnergyFromPixel, igEnergyFromCharge}
   let
     ecc = h5f[(groupName / "eccentricity"), float64]
     lengthDivRmsTrans = h5f[(groupName / "lengthDivRmsTrans"), float64]
     fracRmsTrans = h5f[(groupName / "fractionInTransverseRms"), float64]
     # energy to choose correct bin
-    energies = h5f[(groupName / "energyFromCharge"), float64]
+    energies = h5f[(groupName / energyDset.toDset), float64]
   result = (ecc, lengthDivRmsTrans, fracRmsTrans, energies)
 
 proc readRefDsets*(refFile: string, yearKind: YearKind): tuple[ecc, ldivRms, fracRms: Table[string, histTuple]] =
@@ -401,12 +408,14 @@ proc calcLikelihoodDataset*(h5f: var H5File,
                             refFile: string,
                             groupName: string,
                             year: YearKind,
-                            morphKind: MorphingKind): seq[float] =
+                            morphKind: MorphingKind,
+                            energyDset: InGridDsetKind # the energy dataset to use (pixel / charge)
+                           ): seq[float] =
   const num = 1000
   let (ecc,
        lengthDivRmsTrans,
        fracRmsTrans,
-       energies) = h5f.readLogLVariableData(groupName)
+       energies) = h5f.readLogLVariableData(groupName, energyDset)
 
 
   var refSetTuple {.global.}: tuple[ecc, ldivRms, fracRms: Table[string, histTuple]]

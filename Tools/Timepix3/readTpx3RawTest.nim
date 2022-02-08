@@ -1,6 +1,5 @@
-import std / [sequtils, strformat, endians, sets, algorithm, tables, options]
+import std / [sequtils, strformat, endians, sets, algorithm, tables, options, sugar]
 import nimhdf5
-import ggplotnim
 import cligen
 
 when not defined(blosc):
@@ -297,13 +296,15 @@ template hasTimestamp(x: uint32 | uint64): untyped =
   else:
     (x and 0xF000000000000'u64) shr 48 == 0b0101
 
-proc rawDataToDut(data: seq[uint32], chunkNr: int): seq[Tpx3Data] =
+proc rawDataToDut(data: openArray[uint32], chunkNr: int,
+                  tstamp: var seq[uint64], indices: var seq[int], res: var seq[uint64],
+                  idxToKeep: var OrderedSet[int], resultSeq: var seq[Tpx3Data]) =
   if data.len < 10: return # TODO: arbitrary
   var idx = 0
-  var tstamp = newSeqOfCap[uint64](data.len div 2 + 1)
-  # indices stores the indices at which the timestamps start in the raw data
-  var indices = newSeqOfCap[int](data.len div 2 + 1)
-  var res = newSeq[uint64](data.len) # div 2 + 1)
+  ## it has capacity, so setlen is "free"
+  tstamp.setLen(0)
+  indices.setLen(0)
+  res.setLen(data.len)
 
   var linkIdxs = newSeq[int](8)
   var linksEven = newSeqWith[bool](8, true)
@@ -321,7 +322,7 @@ proc rawDataToDut(data: seq[uint32], chunkNr: int): seq[Tpx3Data] =
   var lastIndex = 0
   # keep track of all indices we have touched. Then we know which
   # indices we have to copy to final result
-  var idxToKeep = initHashSet[int]()
+  idxToKeep.clear()
   for i, el in data:
     let link = (el and 0xfe000000'u32) shr 25
     if el.hasTimestamp:
@@ -359,7 +360,7 @@ proc rawDataToDut(data: seq[uint32], chunkNr: int): seq[Tpx3Data] =
   ## Why? Cannot just append (using `newSeqOfCap` and `add`?) instead of
   ## accessing `i`.
   ## Do both and compare
-  result = newSeq[Tpx3Data](idxToKeep.card)
+  resultSeq.setLen(idxToKeep.card) # `.card` is maximum needed sice, reality will be less
   if indices.len > 0:
     doAssert res.len >= indices[^1]
     # TOA extension
@@ -372,14 +373,24 @@ proc rawDataToDut(data: seq[uint32], chunkNr: int): seq[Tpx3Data] =
         tstamp = res[idx]
       else:
         # data
-        result[i] = toData(res[idx], 0b00, ToA_Extension = some(tstamp))
+        resultSeq[i] = toData(res[idx], 0b00, ToA_Extension = some(tstamp))
         inc i
-    result.setLen(i)
+    resultSeq.setLen(i) # clip length to length that is actually used
   else:
     # no TOA extension
     for i, val in idxToKeep.toSeq.sorted:
-      result[i] = toData(res[val], 0b00)
-  result = result.sortedByIt(it.TOA)
+      resultSeq[i] = toData(res[val], 0b00)
+
+  resultSeq.sort((x, y: Tpx3Data) => system.cmp(x.TOA, y.TOA))
+
+proc rawDataToDut(data: openArray[uint32], chunkNr: int): seq[Tpx3Data] =
+  var tstamp = newSeqOfCap[uint64](data.len div 2 + 1)
+  # indices stores the indices at which the timestamps start in the raw data
+  var indices = newSeqOfCap[int](data.len div 2 + 1)
+  var res = newSeq[uint64](data.len) # div 2 + 1)
+  var idxToKeep = initOrderedSet[int]()
+  result = newSeqOfCap[Tpx3Data](data.len)
+  rawDataToDut(data, chunkNr, tstamp, indices, res, idxToKeep, result)
 
 proc main(fname: string, outf: string = "/tmp/testtpx3.h5") =
   let h5f = H5file(fname, "r")
@@ -396,7 +407,7 @@ proc main(fname: string, outf: string = "/tmp/testtpx3.h5") =
   let dset = h5fout.create_dataset("interpreted/hit_data_0", (0, 1), dtype = Tpx3Data,
                                    chunksize = @[50_000, 1],
                                    maxshape = @[int.high, 1], filter = filter)
-  var all: seq[Tpx3Data]
+  var all: seq[Tpx3Data] = newSeqOfCap[Tpx3Data](batch)
   var comb = 0
   let inputDset = h5f[path.dset_str]
   let cumNum = meta.mapIt(it.data_length.int).cumsum

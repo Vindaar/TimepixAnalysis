@@ -433,6 +433,17 @@ proc main(fname: string, outf: string = "/tmp/testtpx3.h5") =
 
   var lastStart = 0
   var lastStop = 0
+
+  # our local buffers to avoid too many reallocations
+  when false:
+    var tstamp = newSeqOfCap[uint64](2000) #data.len div 2 + 1)
+    # indices stores the indices at which the timestamps start in the raw data
+    var indices = newSeqOfCap[int](2000) #data.len div 2 + 1)
+    var res = newSeqOfCap[uint64](2000) #data.len) # div 2 + 1)
+    var idxToKeep = initOrderedSet[int]()
+    var tpx3Data = newSeqOfCap[Tpx3Data](2000) #data.len)
+
+
   for i in 0 ..< meta.len:
     let slice = meta[i]
     if slice.index_start.int < lastStart:
@@ -445,6 +456,10 @@ proc main(fname: string, outf: string = "/tmp/testtpx3.h5") =
     if num > 0:
       let startIdx = sliceStart - oldIdx
       let stopIdx = sliceStop - oldIdx
+      ## when using the following, replace `all.add tpx3Data` by just using `tpx3Data` of course
+      ## Means we need to handle starting indices in `rawDataToDut` though
+      #rawDataToDut(toOpenArray(data, startIdx, stopIdx - 1), i, tstamp, indices, res, idxToKeep, tpx3Data)
+      #all.add tpx3Data
       all.add rawDataToDut(toOpenArray(data, startIdx, stopIdx - 1), chunkNr = i)
       inc comb, num.int
       lastStart = slice.index_start.int # store last start to check for overflow

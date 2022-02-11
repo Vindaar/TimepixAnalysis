@@ -42,6 +42,13 @@ proc main(files: seq[string], parameter = "theta") =
     ggsave(&"/tmp/{parameter}_values_by_files.pdf", width = 1200, height = 800)
 
 
+  ggplot(df, aes("theta", "G_fit", fill = factor("Chip"))) +
+    facet_wrap("File", scales = "free") +
+    geom_point(size = some(2.0), alpha = some(0.9)) +
+    ggtitle("Input files: " & $files.mapIt(it.extractFilename).join(", ")) +
+    ggsave(&"/tmp/theta_vs_G_fit_values_by_files.pdf", width = 1200, height = 800)
+
+
   #let dfG = df.gather(["N", "G_fit", "theta", "redChiSq"], key = "Parameter", value = "Value")
   #ggplot(dfG, aes("Value", fill = factor("Chip"))) +
   #  facet_wrap("Parameter", scales = "free") +

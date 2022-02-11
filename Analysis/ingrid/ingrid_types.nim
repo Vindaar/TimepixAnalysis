@@ -259,11 +259,6 @@ type
     centerChip*: int
     centerChipName*: kstring
     hasFadc*: bool # reads if FADC group available
-    # TODO: move the following to a CONFIG object
-    plotlySaveSvg*: bool
-    # NOTE: add other flags for other optional plots?
-    # if e.g. FeSpec not available yet, we can just call the
-    # procedure to create it for us
 
   ## Tpx3Data is the compound data type stored in the "interpreted" branch of the
   ## H5 files after running "analyse_data.py" from `tpx3-daq`.

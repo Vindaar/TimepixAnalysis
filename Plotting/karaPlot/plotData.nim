@@ -377,7 +377,6 @@ proc applyCuts(h5f: H5File, selector: DataSelector, dset: H5Dataset, idx: seq[in
         result = cutOnProperties(h5f, parentGrp, cut.get)
         performedCut = true
 
-  echo "Cut data is length : ", result
   if selector.idxs.len > 0:
     if result.len == 0 and not performedCut:
       let maxIdx = min(selector.idxs.len, dset.shape[0])
@@ -389,7 +388,6 @@ proc applyCuts(h5f: H5File, selector: DataSelector, dset: H5Dataset, idx: seq[in
     else:
       echo "result is length 0? ", result, " for ", selector
     # else leave as is
-  echo "Remaining: ", result
 
 proc readFull*(h5f: H5File,
                runNumber: int,

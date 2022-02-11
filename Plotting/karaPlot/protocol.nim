@@ -368,6 +368,13 @@ proc toFilename(s: DataSelector): string =
   let sRegion = &"region_{s.region}"
   result = @[sRegion, sCuts, sApplyAll, numIdxs].join("_")
 
+proc toTitle(s: DataSelector): string =
+  let sCuts = s.cuts.mapIt(&"{it.dset}: [{it.lower:.2f}, {it.upper:.2f}]").join(", ")
+  let numIdxs = if s.idxs.len > 0: &"numIdxs: {s.idxs.len}" else: ""
+  let sApplyAll = if s.cuts.len > 0: &"applyAll: {s.applyAll}" else: ""
+  let sRegion = &"region: {s.region}"
+  result = @[sRegion, sCuts, sApplyAll, numIdxs].join(", ")
+
 proc buildOutfile*(pd: PlotDescriptor, prefix, filetype: string): kstring =
   var name = ""
   let runsStr = getRunsStr(pd.runs)
@@ -509,3 +516,4 @@ proc buildTitle*(pd: PlotDescriptor): kstring =
       result &= pd.buildTitle()
   else:
     discard
+  result.add ":" & toTitle(pd.selector)

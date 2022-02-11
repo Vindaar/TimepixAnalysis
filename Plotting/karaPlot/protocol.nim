@@ -58,8 +58,8 @@ type
 # is why it's not close to 32768
 const FakeFrameSize* = 32000
 
-const InGridFnameTemplate* = "$1_run$2_chip$3_$4_binSize$5_binRange$6_$7_chipRegion_$8"
-const InGridTitleTemplate* = "Dataset: $1 for run $2, chip $3 in range: $4, chipRegion: $5"
+const InGridFnameTemplate* = "$1_run$2_chip$3_$4_binSize_binRange$5_$6"
+const InGridTitleTemplate* = "Dataset: $1 for run $2, chip $3 in range: $4"
 const AnyScatterFnameTemplate* = "$1_run$2_chip$3_x_$4_y_$5_z_$6"
 const AnyScatterTitleTemplate* = "Dataset: $4 / $5 by $6, for run $2, chip $3"
 const FadcFnameTemplate* = "fadc_$1_run$2_$3_binSize$4_binRange$5_$6"
@@ -453,7 +453,8 @@ proc buildTitle*(pd: PlotDescriptor): kstring =
   of pkInGridDset:
     result = InGridTitleTemplate %% [pd.name,
                                      runsStr,
-                                     $pd.chip]
+                                     $pd.chip,
+                                     $pd.binRange]
   of pkAnyScatter:
     result = AnyScatterTitleTemplate %% [pd.name,
                                        runsStr,

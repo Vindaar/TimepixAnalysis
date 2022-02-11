@@ -38,14 +38,19 @@ type
   DataKind* = enum
     dkInGrid, dkFadc
 
-  CutRange* = tuple[low, high: float, name: kstring]
+  ## A generic cut on input data using dset & low / high values
+  GenericCut* = tuple[dset: string, lower, upper: float]
+
+  ## Helper that is used to store combined cuts as well as a region
+  DataSelector* = object
+    region*: ChipRegion ## Region defaults to full chip
+    cuts*: seq[GenericCut]
+    idxs*:  seq[int] ## Optional indices. If given we extract *these* indices from the
+                    ## resulting data after cuts are applied. Used to implement `head`, `tail`
+    applyAll*: bool ## set to indicate to apply all cuts instead of matching dataset names
 
   Domain* = tuple
     left, bottom, width, height: float
-
-  Config* = object
-    allowedChips*: set[uint16]
-    allowedRuns*: set[uint16]
 
   PlotDescriptor* = object
     runType*: RunTypeKind
@@ -56,11 +61,10 @@ type
     xlabel*: kstring
     ylabel*: kstring
     title*: kstring
+    selector*: DataSelector
     # bKind: BackendKind <- to know which backend to use for interactive plot creation
     case plotKind*: PlotKind
     of pkInGridDset, pkFadcDset, pkToTPerPixel:
-      range*: CutRange
-      cutRegion*: ChipRegion
       # optional fields for bin size and range
       binSize*: float
       binRange*: tuple[low, high: float]
@@ -68,6 +72,7 @@ type
       # read any dataset as X and plot it against Y
       x*: kstring
       y*: kstring
+      color*: kstring
     of pkMultiDset:
       # histogram of all these datasets in one
       names*: seq[string]
@@ -105,14 +110,13 @@ type
                            # plot canvas for each subplot
     of pkOuterChips:
       outerChips*: seq[int] # seq of all chips considered "outer"
-      rangeCenter*: CutRange
     else:
       discard
 
-
 proc `==`*(p1, p2: PlotDescriptor): bool =
-  if p1.runType != p2.runType: result = false
-  elif p1.plotKind != p2.plotKind: result = false
+  ## `runType` is ignored to allow to compare rtBackground with rtCalibration files!
+  #if p1.runType != p2.runType: result = false
+  if p1.plotKind != p2.plotKind: result = false
   else:
     result = true # start with true
     template cmpField(f: untyped): untyped =
@@ -127,8 +131,6 @@ proc `==`*(p1, p2: PlotDescriptor): bool =
     #cmpField(title) # title irrelevant
     case p1.plotKind
     of pkInGridDset, pkFadcDset, pkToTPerPixel:
-      cmpField(range)
-      cmpField(cutRegion)
       cmpField(binSize)
       cmpField(binRange)
     of pkAnyScatter:
@@ -160,11 +162,5 @@ proc `==`*(p1, p2: PlotDescriptor): bool =
       cmpField(domain)
     of pkOuterChips:
       cmpField(outerChips)
-      cmpField(rangeCenter)
     else:
       discard
-
-proc initConfig*(allowedChips: set[uint16],
-                 allowedRuns: set[uint16]): Config =
-  result = Config(allowedChips: allowedChips,
-                  allowedRuns: allowedRuns)

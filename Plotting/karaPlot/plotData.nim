@@ -15,12 +15,9 @@ import nimpy
 import cligen
 import chroma
 import parsetoml
-# import nimdata
 
 import dataset_helpers
-import ingrid/ingrid_types
-import ingrid/tos_helpers
-import ingrid / calibration
+import ingrid/[ingrid_types, tos_helpers, calibration]
 import ingrid / calibration / calib_fitting
 import helpers/utils
 #import ingridDatabase / [databaseDefinitions, databaseRead]
@@ -58,8 +55,41 @@ const
                   "minvals", "noisy", "riseStart", "riseTime"]
 
 type
-  ConfigFlagKind = enum
-    cfNone, cfFadc, cfInGrid, cfOccupancy, cfPolya, cfFeSpectrum, cfTotPerPixel, cfProvideServer
+  OutputFiletypeKind = enum
+    ofUnknown,
+    ofJson = "json"
+    ofOrg = "org"
+
+  FiletypeKind = enum
+    ftSvg = "svg"
+    ftPdf = "pdf"
+    ftPng = "png"
+
+  ConfigFlagKind* = enum
+    cfNone, cfFadc, cfInGrid, cfOccupancy, cfPolya, cfFeSpectrum, cfTotPerPixel, cfProvideServer, cfShow,
+    cfApplyAllCuts # if true, will apply all cuts to all datasets. If not given (default) a cut on
+                   # a single dataset will only apply on that dataset
+
+  ## For now: simple object storing x/y datasets to plot against in scatter
+  ## From it a correct `PlotDescriptor` will be generated once the file is known
+  CustomPlot = object
+    x: string
+    y: string
+    color: string
+
+  Config* = object
+    flags*: set[ConfigFlagKind]
+    chips*: set[uint16]
+    runs*: set[uint16]
+    outputType*: OutputFiletypeKind # the file format to use for the file containing all plots
+    fileType*: FiletypeKind
+    ingridDsets*: set[IngridDsetKind]
+    fadcDsets*: seq[string] # currently don't have an enum for them
+    cuts*: seq[GenericCut] ## Used to fill the `DataSelector`
+    region*: ChipRegion    ## From input to preselect a region
+    idxs*: seq[int]        ## Indices to read. Negative indices are interpreted as seen from the end of dset
+    plotlySaveSvg*: bool
+    customPlots*: seq[CustomPlot]
 
   BackendKind* = enum
     bNone, bMpl, bPlotly, bGgPlot
@@ -89,11 +119,83 @@ type
   ShapeKind = enum
     Rectangle, Square
 
-  OutputFiletypeKind = enum
-    ofUnknown,
-    ofJson = "json"
-    ofOrg = "org"
+## is the directory for the current input file to store the plots
+var fileDir: string
+var fileType: string
 
+template buildFilter(key: string, tomlConfig, theSet: untyped): untyped =
+  if tomlConfig["General"].hasKey(key):
+    let allowed = tomlConfig["General"][key].getElems
+    for el in allowed:
+      theSet.incl el.getInt.uint16
+
+proc contains*(dset: string, cuts: seq[GenericCut]): bool =
+  for c in cuts:
+    if dset == c.dset:
+      return true
+
+proc get*(cuts: seq[GenericCut], dset: string): Option[GenericCut] =
+  for c in cuts:
+    if dset == c.dset:
+      return some(c)
+
+
+proc initConfig*(chips: set[uint16],
+                 runs: set[uint16],
+                 flags: set[ConfigFlagKind],
+                 cuts: seq[GenericCut],
+                 tomlConfig: TomlValueRef,
+                 ingridDsets: set[IngridDsetKind] = {},
+                 fadcDsets: seq[string] = @[],
+                 head: int = 0,
+                 xDset: string = "",
+                 yDset: string = "",
+                 zDset: string = ""
+                ): Config =
+  let fType = tomlConfig["General"]["filetype"].getStr
+  let outputType = tomlConfig["General"]["outputFormat"].getStr
+  let combinedFormat = parseEnum[OutputFiletypeKind](outputType)
+  let fileFormat = parseEnum[FiletypeKind](fType)
+
+  ## XXX: remove this, set global
+  fileType = fType
+
+  var customPlots: seq[CustomPlot]
+  if xDset.len > 0 or yDset.len > 0:
+    doAssert xDset.len > 0, "Need to give both x and y datasets if one given!"
+    doAssert yDset.len > 0, "Need to give both x and y datasets if one given!"
+    customPlots = @[CustomPlot(x: xDset, y: yDset, color: zDset)]
+
+  ## Add the runs & chips from the configuration file to the user input
+  var chips = chips
+  var runs = runs
+  buildFilter("allowedChips", tomlConfig, chips)
+  buildFilter("allowedRuns", tomlConfig, runs)
+  result = Config(flags: flags,
+                  chips: chips,
+                  runs: runs,
+                  ingridDsets: ingridDsets,
+                  fadcDsets: fadcDsets,
+                  cuts: cuts,
+                  idxs: toSeq(0 ..< head),
+                  fileType: fileFormat,
+                  outputType: combinedFormat,
+                  customPlots: customPlots)
+
+proc initSelector(config: Config, cuts: seq[GenericCut] = @[],
+                  chipRegion: ChipRegion = crAll,
+                  applyAll: Option[bool] = none[bool]()
+                 ): DataSelector =
+  let appAll = if applyAll.isSome: applyAll.get
+               else: cfApplyAllCuts in config.flags
+  result = DataSelector(region: chipRegion,
+                        cuts: concat(config.cuts, cuts),
+                        idxs: config.idxs,
+                        applyAll: appAll)
+
+## #############################################
+## Globals
+## #############################################
 
 # global variable which stores the backend the user selected
 var BKind*: BackendKind = bNone
@@ -133,10 +235,6 @@ proc genPlotDirname(h5name, outdir: string): string =
   let timeStr = format(now(), "yyyy-MM-dd'_'HH-mm-ss")
   result = outdir / name & "_" & timeStr
 
-## is the directory for the current input file to store the plots
-var fileDir: string
-var fileType: string
-
 # karax client
 # - static table of
 #   Table[PlotDescriptor, string]
@@ -165,22 +263,35 @@ proc jsonPlotly(pltV: PlotV): JsonNode =
   else:
     warn "Unsuitable type for Json " & $(pltV.kind)
 
-proc savePlot(p: PlotV, outfile: string, fullPath = false) =
+proc showPlot(p: PlotV, config: Config, fname: string) =
+  ## If the `show` flag is set, show it
+  case BKind
+  of bMpl:
+    discard callMethod(p.plt, "show")
+  of bGgPlot:
+    echo "Opening plot: ", fname
+    case config.fileType
+    of ftSvg:
+      shell:
+        inkview ($fname)
+    of ftPdf:
+      shell:
+        evince ($fname)
+    of ftPng:
+      shell:
+        nomacs ($fname)
+  else:
+    discard # nothing to show / already showing (plotly)
+
+proc savePlot(p: PlotV, outfile: string, config: Config, fullPath = false) =
   # TODO: move elsewhere!!!
-  var
-    plotlySaveSvg = false
-    mplShowPlots = false
-  if existsFile(ConfigFile):
-    let tomlConfig = parseToml.parseFile(ConfigFile)
-    plotlySaveSvg = tomlConfig["General"]["plotlySaveSvg"].getBool
-    mplShowPlots = tomlConfig["General"]["mplShowPlots"].getBool
   var fname = outfile
   if not fullPath:
     fname = "figs" / outfile & ".svg"
   info &"Saving file: {fname}"
   case BKind
   of bPlotly:
-    if not plotlySaveSvg:
+    if not config.plotlySaveSvg:
       plotlyJson[outfile] = jsonPlotly(p)
     else:
       if not p.plPlot.isNil:
@@ -190,10 +301,8 @@ proc savePlot(p: PlotV, outfile: string, fullPath = false) =
     if not p.plt.isNil:
       discard p.plt.savefig(fname)
       imageSet.incl(fname)
-    if mplShowPlots:
-      discard callMethod(p.plt, "show")
-    else:
-      discard callMethod(p.plt, "close", "all")
+      if cfShow notin config.flags:
+        discard callMethod(p.plt, "close", "all")
   of bGgPlot:
     if p.kind == bGgPlot: # if plot was not initialized
       if not p.invalid:
@@ -204,6 +313,8 @@ proc savePlot(p: PlotV, outfile: string, fullPath = false) =
           echo "WARNING: raised AssertionError trying to plot " & $fname
           discard
   else: discard
+  if cfShow in config.flags:
+    showPlot(p, config, fname)
 
 proc importPyplot(): PyObject =
   let mpl = pyImport("matplotlib")
@@ -218,7 +329,7 @@ proc initPlotV(title: string, xlabel: string, ylabel: string, shape = ShapeKind.
     width = FigWidth.int
   of ShapeKind.Square:
     # for square take height as width
-    width = FigHeight.int
+    width = (FigHeight * 1.2).int
   case BKind
   of bPlotly:
     let plLayout = Layout(title: title,
@@ -249,13 +360,45 @@ proc initPlotV(title: string, xlabel: string, ylabel: string, shape = ShapeKind.
                    height: FigHeight)
   else: discard
 
-proc read*(h5f: H5File,
-           runNumber: int,
-           dsetName: string,
-           chipNumber = 0,
-           isFadc = false,
-           dtype: typedesc = float,
-           idx: seq[int] = @[]): seq[dtype] =
+proc applyCuts(h5f: H5File, selector: DataSelector, dset: H5Dataset, idx: seq[int]): seq[int] =
+  ## Apply potential cut to this dataset
+  result = idx
+  let parentGrp = h5f[dset.parent.grp_str]
+  #let cuts = config.cuts.mapIt((dset: it.dset, lower: it.lower, upper
+  var performedCut = false
+  if idx.len == 0: # only apply if no indices already specified
+    if selector.applyAll:
+      result = cutOnProperties(h5f, parentGrp, selector.cuts)
+      performedCut = true
+    else:
+      let cut = selector.cuts.get(dset.name)
+      if cut.isSome:
+        # get the cut indices to only read passing data
+        result = cutOnProperties(h5f, parentGrp, cut.get)
+        performedCut = true
+
+  echo "Cut data is length : ", result
+  if selector.idxs.len > 0:
+    if result.len == 0 and not performedCut:
+      let maxIdx = min(selector.idxs.len, dset.shape[0])
+      result = selector.idxs.filterIt(it < maxIdx)
+    elif result.len > 0:
+      let maxIdx = min(selector.idxs.len, result.len)
+      let idxs = selector.idxs.filterIt(it < maxIdx)
+      result = idxs.mapIt(result[it])
+    else:
+      echo "result is length 0? ", result, " for ", selector
+    # else leave as is
+  echo "Remaining: ", result
+
+proc readFull*(h5f: H5File,
+               runNumber: int,
+               dsetName: string,
+               selector: DataSelector,
+               chipNumber = 0,
+               isFadc = false,
+               dtype: typedesc = float,
+               idx: seq[int] = @[]): (seq[int], seq[dtype]) =
   ## reads the given dataset from the H5 file and returns it
   ## (potentially) converted to ``dtype``
   var dset: H5DataSet
@@ -263,12 +406,16 @@ proc read*(h5f: H5File,
     dset = h5f[(fadcRecoPath(runNumber) / dsetName).dset_str]
   else:
     dset = h5f[(recoPath(runNumber, chipNumber).string / dsetName).dset_str]
+
+  ## possibly set indices to a subset based on cuts
+  let idx = h5f.applyCuts(selector, dset, idx)
+
   when dtype is SomeNumber:
     if idx.len == 0:
-      result = dset.readAs(dtype)
+      result[1] = dset.readAs(dtype)
     else:
       # manual conversion required
-      result = dset.readAs(idx, dtype)
+      result[1] = dset.readAs(idx, dtype)
   else:
     type subtype = getInnerType(dtype)
     # NOTE: only support 2D seqs
@@ -278,14 +425,27 @@ proc read*(h5f: H5File,
     else:
       if idx.len == 0:
         # convert to subtype and reshape to dsets shape
-        result = dset.readAs(subtype).reshape2D(dset.shape)
+        result[1] = dset.readAs(subtype).reshape2D(dset.shape)
       else:
         # manual conversion required
-        result = dset[idx, subtype].reshape2D(dset.shape)
+        result[1] = dset[idx, subtype].reshape2D(dset.shape)
+  result[0] = idx
+
+proc read*(h5f: H5File,
+           runNumber: int,
+           dsetName: string,
+           selector: DataSelector,
+           chipNumber = 0,
+           isFadc = false,
+           dtype: typedesc = float,
+           idx: seq[int] = @[]): seq[dtype] =
+  let (idxs, res) = readFull(h5f, runNumber, dsetName, selector, chipNumber, isFadc, dtype, idx)
+  result = res
 
 proc readVlen(h5f: H5File,
               runNumber: int,
               dsetName: string,
+              selector: DataSelector,
               chipNumber = 0,
               dtype: typedesc = float,
               idx: seq[int] = @[]): seq[seq[dtype]] =
@@ -293,37 +453,21 @@ proc readVlen(h5f: H5File,
   ## In contrast to `read` this proc does *not* convert the data.
   let vlenDtype = special_type(dtype)
   let dset = h5f[(recoPath(runNumber, chipNumber).string / dsetName).dset_str]
+  let idx = h5f.applyCuts(selector, dset, idx)
   if idx.len > 0:
     result = dset[vlenDType, dtype, idx]
   else:
     result = dset[vlenDtype, dtype]
-
-template buildFilter(key: string, tomlConfig, theSet, fileInfo, field: untyped): untyped =
-  if tomlConfig["General"].hasKey(key):
-    let allowed = tomlConfig["General"][key].getElems
-    for el in allowed:
-      theSet.incl el.getInt.uint16
 
 template applyFilter(theSet, fileInfo, field: untyped): untyped =
   if theSet.card > 0:
     fileInfo.field = fileInfo.field.filterIt(it.uint16 in theSet)
 
 proc applyConfig(fileInfo: var FileInfo, config: Config) =
-  ## reads the  `config.toml` of the project and applies certain
-  ## filters / settings to the fileInfo object. This allows us to
-  ## disable certain plots / configurations
-  # get allowed chips from toml
-  let tomlConfig = parseToml.parseFile(ConfigFile)
-  var chipSet: set[uint16] = config.allowedChips
-  var runSet: set[uint16] = config.allowedRuns
-  # TODO: move elsewhere
-  fileInfo.plotlySaveSvg = tomlConfig["General"]["plotlySaveSvg"].getBool
-  if config.allowedChips.card == 0:
-    buildFilter("allowedChips", tomlConfig, chipSet, fileInfo, chips)
-  if config.allowedRuns.card == 0:
-    buildFilter("allowedRuns", tomlConfig, runSet, fileInfo, runs)
-  applyFilter(chipSet, fileInfo, chips)
-  applyFilter(runSet, fileInfo, runs)
+  ## Applies the given configuration to the `fileInfo` object, i.e.
+  ## restricting the allowed runs & chips from the file.
+  applyFilter(config.chips, fileInfo, chips)
+  applyFilter(config.runs, fileInfo, runs)
 
 proc appliedConfig(fileInfo: FileInfo, config: Config): FileInfo =
   ## returns a copy of the given `FileInfo` with the config.toml applied
@@ -440,26 +584,40 @@ iterator chips(group: var H5Group): (int, H5Group) =
       let chipNum = grp.attrs["chipNumber", int]
       yield (chipNum, grp)
 
-proc createCustomPlots(fileInfo: FileInfo): seq[PlotDescriptor] =
+proc createCustomPlots(fileInfo: FileInfo, config: Config): seq[PlotDescriptor] =
   ## define any plot that doesn't fit any of the other descriptions here
-  block:
-    let range = (low: -Inf, high: Inf, name: "All")
+  let selector = initSelector(config)
+  for plt in config.customPlots:
     result.add PlotDescriptor(runType: fileInfo.runType,
-                              name: "riseTime",
+                              name: plt.x & "_vs_" & plt.y,
+                              xLabel: plt.x,
+                              yLabel: plt.y,
+                              title: plt.x & "/" & plt.y,
+                              selector: selector,
+                              isCenterChip: true,
+                              chip: -1, ## will be set to center chip when reading data!
                               runs: fileInfo.runs,
-                              plotKind: pkFadcDset,
-                              range: range,
-                              binSize: 1.0,
-                              binRange: (2.0, 502.0))
-  block:
-    let range = (low: -Inf, high: Inf, name: "All")
-    result.add PlotDescriptor(runType: fileInfo.runType,
-                              name: "fallTime",
-                              runs: fileInfo.runs,
-                              plotKind: pkFadcDset,
-                              range: range,
-                              binSize: 1.0,
-                              binRange: (7.0, 707.0))
+                              plotKind: pkAnyScatter,
+                              x: plt.x,
+                              y: plt.y,
+                              color: plt.color)
+  when false:
+    block:
+      result.add PlotDescriptor(runType: fileInfo.runType,
+                                name: "riseTime",
+                                selector: selector,
+                                runs: fileInfo.runs,
+                                plotKind: pkFadcDset,
+                                binSize: 1.0,
+                                binRange: (2.0, 502.0))
+    block:
+      result.add PlotDescriptor(runType: fileInfo.runType,
+                                name: "fallTime",
+                                selector: selector,
+                                runs: fileInfo.runs,
+                                plotKind: pkFadcDset,
+                                binSize: 1.0,
+                                binRange: (7.0, 707.0))
 
 proc getBinSizeAndBinRange*(dset: string): (float, (float, float)) =
   ## accesses the helper procs to unwrap the options from the `dataset_helper`
@@ -490,50 +648,53 @@ proc getBinSizeAndBinRange*(dset: string): (float, (float, float)) =
 
 proc histograms(h5f: H5File, runType: RunTypeKind,
                 fileInfo: FileInfo,
-                flags: set[ConfigFlagKind]): seq[PlotDescriptor] =
+                config: Config): seq[PlotDescriptor] =
   # TODO: perform cut on photo peak and escape peak, done by getting the energy
   # and performing a cut around peak +- 300 eV maybe
   # NOTE: need photo peak and escape peak plenty of times here. Just write wrapper
   # which takes energy and performs cuts, *then* creates plots
-  var ranges: seq[CutRange]
+  var selectors: seq[DataSelector]
+  let energyDset = "energyFromCharge" ## XXX: make configurable!!!
   case runType
   of rtCalibration:
     # creates 3 plots for the given dataset.
     # - 1 around photo peak
     # - 1 around escape peak
     # - 1 without cut
-    ranges = @[(low: 5.5, high: 6.2, name: "Photopeak"),
-               (low: 2.7, high: 3.2, name: "Escapepeak"),
-               (low: -Inf, high: 15.0, name: "All")]
+    let ranges = @[(dset: "energyFromCharge", lower: 5.5, upper: 6.2),
+                   (dset: "energyFromCharge", lower: 2.7, upper: 3.2,)]
+    selectors = ranges.mapIt(initSelector(config, @[it], applyAll = some(false)))
+    selectors.add initSelector(config)
   else:
     # else just take all
-    ranges = @[(low: -Inf, high: Inf, name: "All")]
+    selectors = @[initSelector(config)]
 
   ## TODO: make datasets and chip regions selectable!
-  for r in ranges:
-    if cfInGrid in flags:
+  for selector in selectors:
+    if cfInGrid in config.flags:
       for region in ChipRegion:
+        var sel = selector
+        sel.region = region
         for ch in fileInfo.chips:
           for dset in InGridDsets:
             let (binSize, binRange) = getBinSizeAndBinRange(dset)
             result.add PlotDescriptor(runType: runType,
                                       name: dset,
+                                      selector: sel,
                                       runs: fileInfo.runs,
                                       plotKind: pkInGridDset,
                                       chip: ch,
                                       isCenterChip: fileInfo.centerChip == ch,
-                                      range: r,
-                                      cutRegion: region,
                                       binSize: binSize,
                                       binRange: binRange)
-    if cfFadc in flags:
+    if cfFadc in config.flags:
       for dset in FadcDsets:
         let (binSize, binRange) = getBinSizeAndBinRange(dset)
         result.add PlotDescriptor(runType: runType,
                                   name: dset,
+                                  selector: selector,
                                   runs: fileInfo.runs,
                                   plotKind: pkFadcDset,
-                                  range: r,
                                   binSize: binSize,
                                   binRange: binRange)
 
@@ -600,6 +761,24 @@ proc plotHist2D(data: Tensor[float], title, outfile: string): PlotV =
   else:
     discard
 
+proc plotSparseEvent(df: DataFrame, title, outfile: string): PlotV =
+  ## creates a 2D histogram plot (basically an image) of the given 2D
+  ## Tensor
+  result = initPlotV(title, "pixel x", "pixel y", ShapeKind.Rectangle)
+  case BKind
+  of bPlotly:
+    discard
+  of bMpl:
+    discard
+  of bGgPlot:
+    result.pltGg = ggplot(df, aes("x", "y", color = "ch")) +
+      geom_point() +
+      margin(left = 9.0, right = 3) +
+      xlim(0, NPix) + ylim(0, NPix) +
+      result.theme # just add the theme directly
+  else:
+    discard
+
 proc plotScatter(pltV: var PlotV, x, y: seq[float], name, outfile: string,
                  isNew = false) =
   case BKind
@@ -631,6 +810,44 @@ proc plotScatter(pltV: var PlotV, x, y: seq[float], name, outfile: string,
         pltV.theme # just add the theme directly
   else:
     warn &"Unsupported backend kind: {BKind}"
+
+proc plotCustomScatter(x, y: seq[float],
+                       pd: PlotDescriptor,
+                       #name: string,
+                       title: string,
+                       z: seq[float] = @[] # z is the coloring
+                      ): PlotV =
+  result = initPlotV(title, pd.xlabel, pd.ylabel, ShapeKind.Rectangle)
+  case BKind
+  of bPlotly:
+    # in this case plot is defined
+    let trFit = Trace[float](`type`: PlotType.Scatter,
+                             xs: x,
+                             ys: y,
+                             name: title)
+    result.plPlot.traces.add @[trFit]
+  of bMpl:
+    # in this case `ax` is defined
+    discard result.ax.plot(x,
+                         y,
+                         label = title,
+                         color = "r")
+  of bGgPlot:
+    if z.len > 0:
+      let df = seqsToDf(x, y, z)
+      let pSize = if df.len > 1_000: some(1.5) else: some(3.0)
+      result.pltGg = ggplot(df, aes("x", "y", color = "z")) +
+        geom_point(size = pSize) +
+        result.theme # just add the theme directly
+    else:
+      let df = seqsToDf(x, y)
+      let pSize = if df.len > 1_000: some(1.5) else: some(3.0)
+      result.pltGg = ggplot(df, aes("x", "y")) +
+        geom_point(size = pSize) +
+        result.theme # just add the theme directly
+  else:
+    warn &"Unsupported backend kind: {BKind}"
+
 
 proc plotScatter(x, y: seq[float], title, name, outfile: string): PlotV =
   ## wrapper around the above if no `PlotV` yet defined
@@ -664,15 +881,17 @@ proc makeSubplot(pd: PlotDescriptor, plts: seq[PlotV]): PlotV =
 # TODO: also plot occupancies without full frames (>4095 hits)?
 proc occupancies(h5f: H5File, runType: RunTypeKind,
                  fileInfo: FileInfo,
-                 flags: set[ConfigFlagKind]): seq[PlotDescriptor] =
+                 config: Config): seq[PlotDescriptor] =
   ## creates occupancy plots for the given HDF5 file, iterating over
   ## all runs and chips
   const
     quantile = 95
     clamp3 = 10.0
+  let selector = initSelector(config)
   for ch in fileInfo.chips:
     let basePd = PlotDescriptor(runType: runType,
                                 name: "occupancy",
+                                selector: selector,
                                 runs: fileInfo.runs,
                                 plotKind: pkOccupancy,
                                 chip: ch,
@@ -729,11 +948,13 @@ proc occupancies(h5f: H5File, runType: RunTypeKind,
 
 proc polya(h5f: H5File, runType: RunTypeKind,
            fileInfo: FileInfo,
-           flags: set[ConfigFlagKind]): seq[PlotDescriptor] =
+           config: Config): seq[PlotDescriptor] =
   ## creates the plots for the polya distribution of the datasets
+  let selector = initSelector(config)
   for ch in fileInfo.chips:
     result.add PlotDescriptor(runType: runType,
                               name: "polya",
+                              selector: selector,
                               xlabel: "Number of electrons",
                               runs: fileInfo.runs,
                               chip: ch,
@@ -742,19 +963,22 @@ proc polya(h5f: H5File, runType: RunTypeKind,
   if fileInfo.chips.len > 1:
     result.add PlotDescriptor(runType: runType,
                               name: "polya",
+                              selector: selector,
                               runs: fileInfo.runs,
                               plotKind: pkCombPolya,
                               chipsCP: fileInfo.chips)
 
 proc totPerPixel(h5f: H5File, runType: RunTypeKind,
                  fileInfo: FileInfo,
-                 flags: set[ConfigFlagKind]): seq[PlotDescriptor] =
+                 config: Config): seq[PlotDescriptor] =
   ## creates the plots for the ToT per pixel distribution of the datasets
   ## i.e. the raw ToT histogram (equivalent to polya for raw ToT)
+  let selector = initSelector(config)
   let (binSize, binRange) = getBinSizeAndBinRange("totPerPixel")
   for ch in fileInfo.chips:
     result.add PlotDescriptor(runType: runType,
                               name: "totPerPixel",
+                              selector: selector,
                               xlabel: "ToT [clock cycles]",
                               runs: fileInfo.runs,
                               chip: ch,
@@ -790,11 +1014,13 @@ proc plotDates[T, U](x: seq[U], y: seq[T],
 
 proc feSpectrum(h5f: H5File, runType: RunTypeKind,
                 fileInfo: FileInfo,
-                flags: set[ConfigFlagKind]): seq[PlotDescriptor] =
+                config: Config): seq[PlotDescriptor] =
   ## creates the plot of the Fe spectrum
+  let selector = initSelector(config)
   for r in fileInfo.runs:
     let basePd = PlotDescriptor(runType: runType,
                                 name: "FeSpectrumPlot",
+                                selector: selector,
                                 xlabel: "# pixels",
                                 runs: @[r],
                                 chip: fileInfo.centerChip,
@@ -816,9 +1042,11 @@ proc feSpectrum(h5f: H5File, runType: RunTypeKind,
     #  plotKind = pkEnergyCalibCharge
     result.add @[basePd] #, energyPd, feChargePd, energyChargePd]
 
+  ## TODO: turn these into a separate thing from the `feSpectrum`
   #let photoVsTime = PlotDescriptor(runType: runType,
   #                                 name: "PhotoPeakVsTime",
   #                                 xlabel: "Time / unix",
+  #                                 selector: selector,
   #                                 runs: fileInfo.runs,
   #                                 chip: fileInfo.centerChip,
   #                                 isCenterChip: true,
@@ -826,6 +1054,7 @@ proc feSpectrum(h5f: H5File, runType: RunTypeKind,
   #let photoChVsTime = PlotDescriptor(runType: runType,
   #                                   name: "PhotoPeakChargeVsTime",
   #                                   xlabel: "Time / unix",
+  #                                   selector: selector,
   #                                   runs: fileInfo.runs,
   #                                   chip: fileInfo.centerChip,
   #                                   isCenterChip: true,
@@ -833,6 +1062,7 @@ proc feSpectrum(h5f: H5File, runType: RunTypeKind,
   #let phPixDivChVsTime = PlotDescriptor(runType: runType,
   #                                 name: "PhotoPixDivChVsTime",
   #                                 xlabel: "Time / unix",
+  #                                 selector: selector,
   #                                 runs: fileInfo.runs,
   #                                 chip: fileInfo.centerChip,
   #                                 isCenterChip: true,
@@ -840,6 +1070,7 @@ proc feSpectrum(h5f: H5File, runType: RunTypeKind,
   #let photoVsTimeHalfH = PlotDescriptor(runType: runType,
   #                                      name: "PhotoPeakVsTimeHalfHour",
   #                                      xlabel: "Time / unix",
+  #                                      selector: selector,
   #                                      runs: fileInfo.runs,
   #                                      chip: fileInfo.centerChip,
   #                                      isCenterChip: true,
@@ -850,6 +1081,7 @@ proc feSpectrum(h5f: H5File, runType: RunTypeKind,
   #let photoChVsTimeHalfH = PlotDescriptor(runType: runType,
   #                                        name: "PhotoPeakChargeVsTimeHalfHour",
   #                                        xlabel: "Time / unix",
+  #                                        selector: selector,
   #                                        runs: fileInfo.runs,
   #                                        chip: fileInfo.centerChip,
   #                                        isCenterChip: true,
@@ -860,6 +1092,7 @@ proc feSpectrum(h5f: H5File, runType: RunTypeKind,
   #let phPixDivChVsTimeHalfH = PlotDescriptor(runType: runType,
   #                                           name: "PhotoPixDivChVsTimeHalfHour",
   #                                           xlabel: "Time / unix",
+  #                                           selector: selector,
   #                                           runs: fileInfo.runs,
   #                                           chip: fileInfo.centerChip,
   #                                           isCenterChip: true,
@@ -874,10 +1107,13 @@ proc feSpectrum(h5f: H5File, runType: RunTypeKind,
 
 proc fePhotoDivEscape(h5f: H5File, runType: RunTypeKind,
                       fileInfo: FileInfo,
-                      flags: set[ConfigFlagKind]): seq[PlotDescriptor] =
+                      config: Config
+                     ): seq[PlotDescriptor] =
+  let selector = initSelector(config)
   result = @[PlotDescriptor(runType: runType,
                             name: "Photopeak / Escape peak",
                             xlabel: "Time / unix",
+                            selector: selector,
                             runs: fileInfo.runs,
                             chip: fileInfo.centerChip,
                             isCenterChip: true,
@@ -899,62 +1135,95 @@ proc buildEvents[T, U](x, y: seq[seq[T]], ch: seq[seq[U]],
       for (ix, iy, ich) in zipEm(xi, yi, chi):
         result[i, iy.int, ix.int] = ich.float
 
-proc readEvent*(h5f: H5File, run, chip: int, idx: seq[int]): Tensor[float] =
+#proc readEvents*(h5f: H5File, run, chip: int, idx: seq[int],
+#                config: Config): Tensor[float] =
+#  ## helper proc to read data for given indices of events `idx` and
+#  ## builds a tensor of `idx.len` events.
+#  let
+#    x = h5f.readVlen(run, "x", pd.
+#                     chipNumber = chip,
+#                     dtype = uint8, idx = idx)
+#    y = h5f.readVlen(run, "y", config,
+#                     chipNumber = chip,
+#                     dtype = uint8, idx = idx)
+#    ch = h5f.readVlen(run, "ToT", config,
+#                      chipNumber = chip,
+#                      dtype = uint16, idx = idx)
+#  result = buildEvents(x, y, ch, toOrderedSet(@[0]))
+
+proc readEventsSparse*(h5f: H5File, run, chip: int, #idx: int,
+                       selector: DataSelector): DataFrame =
   ## helper proc to read data for given indices of events `idx` and
   ## builds a tensor of `idx.len` events.
   let
-    x = h5f.readVlen(run, "x",
+    x = h5f.readVlen(run, "x", selector,
                      chipNumber = chip,
-                     dtype = uint8, idx = idx)
-    y = h5f.readVlen(run, "y",
+                     dtype = uint8)
+    y = h5f.readVlen(run, "y", selector,
                      chipNumber = chip,
-                     dtype = uint8, idx = idx)
-    ch = h5f.readVlen(run, "ToT",
+                     dtype = uint8)
+    ch = h5f.readVlen(run, "ToT", selector,
                       chipNumber = chip,
-                      dtype = uint16, idx = idx)
-  result = buildEvents(x, y, ch, toOrderedSet(@[0]))
+                      dtype = uint16)
+    ## XXX: currently broken on timepix3! We don't generate event numbers yet
+    ## thus use indices
+    (events, _) = h5f.readFull(run, "eventNumber", selector,
+                               chipNumber = chip,
+                               dtype = int)
+  result = newDataFrame()
+  doAssert events.len == x.len, "Events are: " & $events.len & " and x.len " & $x.len
+  for i in 0 ..< x.len:
+    let dfLoc = seqsToDf({ "x" : x[i], "y" : y[i], "ch" : ch[i],
+                           "Index" : events[i] })
+    echo "Adding df ", dfLoc
+    result.add dfLoc
 
-proc readEventSparse*(h5f: H5File, run, chip: int, idx: int): DataFrame =
+proc readIngridForEventDisplay*(h5f: H5File, run, chip: int, #idx: int,
+                                selector: DataSelector): DataFrame =
   ## helper proc to read data for given indices of events `idx` and
   ## builds a tensor of `idx.len` events.
-  let
-    x = h5f.readVlen(run, "x",
-                     chipNumber = chip,
-                     dtype = uint8, idx = @[idx])
-    y = h5f.readVlen(run, "y",
-                     chipNumber = chip,
-                     dtype = uint8, idx = @[idx])
-    ch = h5f.readVlen(run, "ToT",
-                      chipNumber = chip,
-                      dtype = uint16, idx = @[idx])
-  result = seqsToDf({"x" : x[0], "y" : y[0], "ch" : ch[0]})
-
+  result = newDataFrame()
+  for dset in InGridDsets:
+    echo "Attpmting to read: ", dset
+    try:
+      result[dset] = h5f.read(run, dset, selector,
+                              chipNumber = chip,
+                              dtype = float)
+    except KeyError:
+      echo "Could not read dataset ", dset
+      continue # drop this key
 
 proc createEventDisplayPlots(h5f: H5File,
                              run: int,
                              runType: RunTypeKind,
                              fileInfo: FileInfo,
+                             config: Config,
                              events: OrderedSet[int]): seq[PlotDescriptor] =
+  let selector = initSelector(config)
   for ch in fileInfo.chips:
-    for ev in events:
-      result.add PlotDescriptor(runType: runType,
-                                name: "EventDisplay",
-                                xlabel: "x",
-                                ylabel: "y",
-                                runs: @[run],
-                                chip: ch,
-                                isCenterChip: fileInfo.centerChip == ch,
-                                plotKind: pkInGridEvent,
-                                event: ev)
+    #for ev in events:
+    result.add PlotDescriptor(runType: runType,
+                              name: "EventDisplay",
+                              selector: selector,
+                              xlabel: "x",
+                              ylabel: "y",
+                              runs: @[run],
+                              chip: ch,
+                              isCenterChip: fileInfo.centerChip == ch,
+                              plotKind: pkInGridEvent)
+                              #event: ev)
 
 proc createFadcPlots(h5f: H5File,
                      run: int,
                      runType: RunTypeKind,
                      fileInfo: FileInfo,
+                     config: Config,
                      events: OrderedSet[int]): seq[PlotDescriptor] =
+  let selector = initSelector(config)
   for ev in events:
     result.add PlotDescriptor(runType: runType,
                               name: "EventDisplay FADC",
+                              selector: selector,
                               xlabel: "Clock cycles FADC",
                               ylabel: "U / V",
                               runs: @[run],
@@ -966,7 +1235,9 @@ proc createFadcPlots(h5f: H5File,
 proc createOuterChipHistograms*(h5f: H5File,
                                runType: RunTypeKind,
                                fileInfo: FileInfo,
-                               cutRange: CutRange): seq[PlotDescriptor] =
+                               config: Config,
+                               cutRange: GenericCut): seq[PlotDescriptor] =
+  let selector = initSelector(config, @[cutRange])
   var chips = fileInfo.chips
   let oldLen = chips.len
   chips.delete(chips.find(fileInfo.centerChip))
@@ -975,21 +1246,23 @@ proc createOuterChipHistograms*(h5f: H5File,
                             name: &"Outer chips # pix hit {runType}",
                             xlabel: "# pixels on outer chips",
                             ylabel: "#",
+                            selector: selector,
                             runs: fileInfo.runs,
                             outerChips: chips,
-                            rangeCenter: cutRange,
                             plotKind: pkOuterChips)
 
 proc createInGridFadcEvDisplay(h5f: H5File,
                                run: int,
                                runType: RunTypeKind,
                                fileInfo: FileInfo,
+                               config: Config,
                                events: OrderedSet[int]): seq[PlotDescriptor] =
+  let selector = initSelector(config)
   var finfo = fileInfo
   finfo.chips = @[finfo.centerChip]
-  let ingridPds = createEventDisplayPlots(h5f, run, runType, fInfo, events)
+  let ingridPds = createEventDisplayPlots(h5f, run, runType, fInfo, config, events)
   let ingridDomain = (left: 0.0, bottom: 0.0, width: 0.45, height: 1.0)
-  let fadcPds = createFadcPlots(h5f, run, runType, fInfo, events)
+  let fadcPds = createFadcPlots(h5f, run, runType, fInfo, config, events)
   let fadcDomain = (left: 0.525, bottom: 0.05, width: 0.575, height: 0.6)
   for tup in zip(ingridPds, fadcPds):
     let
@@ -998,6 +1271,7 @@ proc createInGridFadcEvDisplay(h5f: H5File,
     result.add PlotDescriptor(runType: runType,
                               name: "Event display InGrid + FADC",
                               runs: @[run],
+                              selector: selector,
                               chip: fileInfo.centerChip,
                               isCenterChip: true,
                               plotKind: pkSubPlots,
@@ -1041,10 +1315,12 @@ proc readPlotFit(h5f: H5File, pd: PlotDescriptor):
     # TODO: replace this after rewriting `calcGasGain` in calibration.nim
     # There: disentangle data reading from the fitting data processing etc.
     # Then we can read raw data and hand that to the fitting proc here
+    if pd.selector.cuts.len > 0:
+      echo "WARN: Cutting on fit datasets. This may have unintended consequences!"
     let
-      data = h5f.read(r, pd.name, pd.chip,
+      data = h5f.read(r, pd.name, pd.selector, pd.chip,
                        dtype = seq[float])
-      dataFit = h5f.read(r, pd.name & "Fit", pd.chip,
+      dataFit = h5f.read(r, pd.name & "Fit", pd.selector, pd.chip,
                           dtype = seq[float])
     let nbins = data.shape[0]
     let (bins, counts) = data.split(SplitSeq.Seq2Col)
@@ -1150,45 +1426,30 @@ proc determineNumBatchesFeVsTime(length: int, pd: PlotDescriptor): int =
 
 proc handleInGridDset(h5f: H5File,
                       fileInfo: FileInfo,
-                      pd: PlotDescriptor): (string, PlotV) =
-  let ranges = @[pd.range]
+                      pd: PlotDescriptor,
+                      config: Config): (string, PlotV) =
   var allData: seq[float]
   for r in pd.runs:
-    let data = h5f.read(r, pd.name, pd.chip, dtype = float)
+    allData.add h5f.read(r, pd.name, pd.selector, pd.chip, dtype = float)
     # perform cut on range
-    let group = h5f[recoPath(r, pd.chip)]
-    if pd.range[0] != -Inf and pd.range[1] != Inf and "energyFromCharge" in group:
-      let idx = cutOnProperties(h5f, group, pd.cutRegion,
-                    ("energyFromCharge", pd.range[0], pd.range[1]))
-      allData.add idx.mapIt(data[it])
-    elif pd.cutRegion != crAll:
-      let idx = cutOnProperties(h5f, group, pd.cutRegion)
-      allData.add idx.mapIt(data[it])
-    else:
-      allData.add data
   result[0] = buildOutfile(pd, fileDir, fileType)
   let title = buildTitle(pd)
   result[1] = plotHist(allData, title, pd.name, result[0], pd.binSize, pd.binRange)
 
 proc handleFadcDset(h5f: H5File,
                     fileInfo: FileInfo,
-                    pd: PlotDescriptor): (string, PlotV) =
+                    pd: PlotDescriptor,
+                    config: Config): (string, PlotV) =
   # get the center chip group
   var allData: seq[float]
   for r in pd.runs:
     let group = h5f[recoPath(r, fileInfo.centerChip)]
-    let evNumInGrid = h5f.read(r, "eventNumber", fileInfo.centerChip, dtype = int)
-    let idx = if "energyFromCharge" in group:
-                 cutOnProperties(h5f, group,
-                  ("energyFromCharge", pd.range[0], pd.range[1]))
-              else: toSeq(0 ..< evNumInGrid.len)
-    # filter out correct indices passing cuts
-    var inGridSet = initSet[int]()
-    for i in idx:
-      inGridSet.incl evNumInGrid[i]
-    let evNumFadc = h5f.read(r, "eventNumber", isFadc = true, dtype = int) # [group.name / "eventNumber", int]
+    let inGridSet = h5f.read(r, "eventNumber", pd.selector, fileInfo.centerChip, dtype = int)
+      .toSet()
+    let evNumFadc = h5f.read(r, "eventNumber", pd.selector,
+                             isFadc = true, dtype = int) # [group.name / "eventNumber", int]
     let idxFadc = (toSeq(0 .. evNumFadc.high)) --> filter(evNumFadc[it] in inGridSet)
-    let data = h5f.read(r, pd.name, pd.chip, isFadc = true, dtype = float)
+    let data = h5f.read(r, pd.name, pd.selector, pd.chip, isFadc = true, dtype = float)
     allData.add idxFadc --> map(data[it])
   result[0] = buildOutfile(pd, fileDir, fileType)
   let title = buildTitle(pd)
@@ -1196,14 +1457,15 @@ proc handleFadcDset(h5f: H5File,
 
 proc handleOccupancy(h5f: H5File,
                      fileInfo: FileInfo,
-                     pd: PlotDescriptor): (string, PlotV) =
+                     pd: PlotDescriptor,
+                     config: Config): (string, PlotV) =
   # get x and y datasets, stack and get occupancies
   let vlenDtype = special_type(uint8)
   var occFull = newTensor[float]([NPix, NPix])
   for r in pd.runs:
     let
-      x = h5f.readVlen(r, "x", pd.chip, dtype = uint8)
-      y = h5f.readVlen(r, "y", pd.chip, dtype = uint8)
+      x = h5f.readVlen(r, "x", pd.selector, pd.chip, dtype = uint8)
+      y = h5f.readVlen(r, "y", pd.selector, pd.chip, dtype = uint8)
     let occ = clampedOccupancy(x, y, pd)
     # stack this run onto the full data tensor
     occFull = occFull .+ occ
@@ -1213,7 +1475,8 @@ proc handleOccupancy(h5f: H5File,
 
 proc handleOccCluster(h5f: H5File,
                       fileInfo: FileInfo,
-                      pd: PlotDescriptor): (string, PlotV) =
+                      pd: PlotDescriptor,
+                      config: Config): (string, PlotV) =
   # plot center positions
   var occFull = newTensor[float]([NPix, NPix])
   for r in pd.runs:
@@ -1231,7 +1494,8 @@ proc handleOccCluster(h5f: H5File,
 
 proc handleBarScatter(h5f: H5File,
                       fileInfo: FileInfo,
-                      pd: PlotDescriptor): (string, PlotV) =
+                      pd: PlotDescriptor,
+                      config: Config): (string, PlotV) =
   result[0] = buildOutfile(pd, fileDir, fileType)
   let xlabel = pd.xlabel
   let title = buildTitle(pd)
@@ -1243,7 +1507,8 @@ proc handleBarScatter(h5f: H5File,
 
 proc handleCombPolya(h5f: H5File,
                      fileInfo: FileInfo,
-                     pd: PlotDescriptor): (string, PlotV) =
+                     pd: PlotDescriptor,
+                     config: Config): (string, PlotV) =
   var
     binsSeq: seq[seq[float]]
     countsSeq: seq[seq[float]]
@@ -1265,7 +1530,8 @@ proc handleCombPolya(h5f: H5File,
 
 proc handleFeVsTime(h5f: H5File,
                     fileInfo: FileInfo,
-                    pd: PlotDescriptor): (string, PlotV) =
+                    pd: PlotDescriptor,
+                    config: Config): (string, PlotV) =
   const kalphaPix = 10
   const kalphaCharge = 4
   var kalphaIdx: int
@@ -1403,7 +1669,8 @@ proc handleFeVsTime(h5f: H5File,
 
 proc handleFePixDivChVsTime(h5f: H5File,
                             fileInfo: FileInfo,
-                            pd: PlotDescriptor): (string, PlotV) =
+                            pd: PlotDescriptor,
+                            config: Config): (string, PlotV) =
   const kalphaPix = 10
   const kalphaCharge = 4
   const parPrefix = "p"
@@ -1438,7 +1705,8 @@ proc handleFePixDivChVsTime(h5f: H5File,
 
 proc handleFePhotoDivEscape(h5f: H5File,
                             fileInfo: FileInfo,
-                            pd: PlotDescriptor): (string, PlotV) =
+                            pd: PlotDescriptor,
+                            config: Config): (string, PlotV) =
   const kalphaCharge = 3 # for the ``amplitude``! not the mean position
   const escapeCharge = 0
   const parPrefix = "p"
@@ -1467,47 +1735,52 @@ proc handleFePhotoDivEscape(h5f: H5File,
                         xlabel = pd.xlabel,
                         outfile = result[0])
 
-proc handleOuterChips(h5f: H5File,
-                      fileInfo: FileInfo,
-                      pd: PlotDescriptor): (string, PlotV) =
-  var data: seq[int]
-  const
-    rmsTransHigh = 1.2
-    eccHigh = 1.3
+## XXX: Outer chip is broken, as our `DataSelector` doesn't yet allow to select data
+## on *another* chip!
 
-  for r in pd.runs:
-    # cut on `centerChip` for rms and eccentricity
-    let
-      grp = h5f[recoPath(r, fileInfo.centerChip)]
-      idx = cutOnProperties(h5f, grp,
-                            ("eccentricity", -Inf, eccHigh),
-                            ("rmsTransverse", -Inf, rmsTransHigh),
-                            ("energyFromCharge", pd.rangeCenter.low, pd.rangeCenter.high))
-      evNumCenterAll = h5f.read(r, "eventNumber", fileInfo.centerChip, dtype = int)
-      evNumCenter = toSet(idx.mapIt(evNumCenterAll[it]))
-    for c in pd.outerChips:
-      let
-        hitsAll = h5f.read(r, "hits", c, dtype = int)
-        evNumAll = h5f.read(r, "eventNumber", c, dtype = int)
-      # now add all hits passing
-      for i, ev in evNumAll:
-        if ev in evNumCenter and hitsAll[i] > 3:
-          data.add hitsAll[i]
-  result[0] = pd.title
-  const binSize = 3.0
-  const binRange = (0.0, 400.0)
-  let outfile = buildOutfile(pd, fileDir, fileType)
-  result[1] = plotHist(data, pd.title, pd.name, pd.title, binSize, binRange)
+#proc handleOuterChips(h5f: H5File,
+#                      fileInfo: FileInfo,
+#                      pd: PlotDescriptor,
+#                      config: Config): (string, PlotV) =
+#  var data: seq[int]
+#  const
+#    rmsTransHigh = 1.2
+#    eccHigh = 1.3
+#
+#  for r in pd.runs:
+#    # cut on `centerChip` for rms and eccentricity
+#    let
+#      grp = h5f[recoPath(r, fileInfo.centerChip)]
+#      idx = cutOnProperties(h5f, grp,
+#                            ("eccentricity", -Inf, eccHigh),
+#                            ("rmsTransverse", -Inf, rmsTransHigh),
+#                            ("energyFromCharge", pd.rangeCenter.low, pd.rangeCenter.high))
+#      evNumCenterAll = h5f.read(r, "eventNumber", pd.selector, fileInfo.centerChip, dtype = int)
+#      evNumCenter = toSet(idx.mapIt(evNumCenterAll[it]))
+#    for c in pd.outerChips:
+#      let
+#        hitsAll = h5f.read(r, "hits", pd.selector, c, dtype = int)
+#        evNumAll = h5f.read(r, "eventNumber", pd.selector, c, dtype = int)
+#      # now add all hits passing
+#      for i, ev in evNumAll:
+#        if ev in evNumCenter and hitsAll[i] > 3:
+#          data.add hitsAll[i]
+#  result[0] = pd.title
+#  const binSize = 3.0
+#  const binRange = (0.0, 400.0)
+#  let outfile = buildOutfile(pd, fileDir, fileType)
+#  result[1] = plotHist(data, pd.title, pd.name, pd.title, binSize, binRange)
 
 proc handleToTPerPixel(h5f: H5File,
                        fileInfo: FileInfo,
-                       pd: PlotDescriptor): (string, PlotV) =
+                       pd: PlotDescriptor,
+                       config: Config): (string, PlotV) =
   result[0] = buildOutfile(pd, fileDir, fileType)
   let xlabel = pd.xlabel
   let title = buildTitle(pd)
   var tots: seq[uint16]
   for run in pd.runs:
-    tots.add flatten(h5f.readVlen(run, "ToT",
+    tots.add flatten(h5f.readVlen(run, "ToT", pd.selector,
                                   chipNumber = pd.chip,
                                   dtype = uint16))
   # if tots longer than `10_000_000`, compute in batches
@@ -1534,44 +1807,64 @@ proc handleToTPerPixel(h5f: H5File,
 
 iterator ingridEventIter(h5f: H5File,
                          fileInfo: FileInfo,
-                         pds: seq[PlotDescriptor]): (string, PlotV) =
-  var events {.global.}: seq[int]
+                         #pds: seq[PlotDescriptor],
+                         pd: PlotDescriptor,
+                         config: Config): (string, PlotV) =
+  #var events {.global.}: seq[int]
   # all PDs are guaranteed to be from  the same run!
-  let run = pds[0].runs[0]
+  let run = pd.runs[0] #pds[0].runs[0]
   # TODO: check if all PDs necessarily have same chip. Will be the case for
   # InGrid = FADC, but not necessarily only chip?
-  let chip = pds[0].chip
+  let chip = pd.chip #pds[0].chip
 
-  var lastRun {.global.} = 0
-  var evNums {.global.}: seq[int]
-  var evTab {.global.}: Table[int, int]
-  if run != lastRun:
-    evNums = h5f.read(run, "eventNumber", dtype = int,
-                      chipNumber = chip)
-    evTab = initTable[int, int]()
-    for i, ev in evNums:
-      evTab[i] = ev
-      events.add ev
-    lastRun = run
+  when false:
+    var lastRun {.global.} = 0
+    var evNums {.global.}: seq[int]
+    var evTab {.global.}: Table[int, int]
+    if run != lastRun:
+      evNums = h5f.read(run, "eventNumber", pd.selector, dtype = int,
+                        chipNumber = chip)
+      evTab = initTable[int, int]()
+      for i, ev in evNums:
+        evTab[i] = ev
+        events.add ev
+      lastRun = run
 
-  events.setLen(0)
-  for pd in pds:
-    events.add evTab[pd.event]
+    events.setLen(0)
+    for pd in pds:
+      events.add evTab[pd.event]
 
-  let ev = readEvent(h5f, run, chip, events)
-  for i, pd in pds:
-    var texts: seq[string]
-    let event = evTab[pd.event]
-    for d in InGridDsets:
-      let val = h5f.read(run, d,
-                         chipNumber = chip,
-                         dtype = float, idx = @[event])[0]
-      let s = &"{d:>20}: {val:6.4f}"
-      texts.add s
+    let ev = readEvent(h5f, run, chip, events, config)
+    for i, pd in pds:
+      discard
+  let events = readEventsSparse(h5f, run, chip, pd.selector)
+  let dfDsets = readIngridForEventDisplay(h5f, run, chip, pd.selector)
+  var idx = 0
+  for (tup, subDf) in groups(group_by(events, "Index")):
+    let event = tup[0][1].toInt
 
+    echo "Generating event display for ", tup, " is ", subDf
+    ## XXX: HACK: change to sometingn better to generate filenames
+    var pd = pd
+    pd.event = event
     let title = buildTitle(pd)
     var outfile = buildOutfile(pd, fileDir, fileType)
-    var pltV = plotHist2D(ev[i,_,_].squeeze.clone, title, outfile)
+    var pltV = plotSparseEvent(subDf, title, outfile)
+
+    var texts: seq[string]
+    if pd.selector.cuts.len > 0:
+      texts.add &"{\" \":>15}Cuts used: "
+      for c in pd.selector.cuts:
+        texts.add &"{c.dset:>15}: [{c.lower:.2f}, {c.upper:.2f}]"
+    for dset in InGridDsets:
+      try:
+        let val = dfDsets[dset, idx, float]
+        let s = &"{dset:>25}: {val:6.4f}"
+        texts.add s
+      except KeyError:
+        echo "Ignoring missing key: ", dset, " for annotation!"
+        continue # ignore this field
+    echo "Have texts : ", texts
     case BKind
     of bPlotly:
       for i, a in texts:
@@ -1581,19 +1874,25 @@ iterator ingridEventIter(h5f: H5File,
                                                              yshift: 600.0 - (i.float * 20.0),
                                                              text: texts[i])
     of bGgPlot:
+      # create a font to use using the `ggplotnim.font` helper
+      let font = font(10.0, family = "monospace")
       for i, a in texts:
-        pltV.pltGg.annotations.add ggplotnim.Annotation(left: some(0.1),
-                                                        bottom: some(0.9 - i.float * 0.05),
+        pltV.pltGg.annotations.add ggplotnim.Annotation(left: some(-0.3),
+                                                        bottom: some(0.15 + i.float * 0.03),
+                                                        font: font,
                                                         text: texts[i])
     else:
       echo "InGrid Event property annotations not supported on " &
         "Matplotlib backend yet!"
     pltV.annotations = texts
+    echo "Plot has annotations: ", pltV.annotations
     yield (outfile, pltV)
+    inc idx
 
 iterator fadcEventIter(h5f: H5File,
                        fileInfo: FileInfo,
-                       pds: seq[PlotDescriptor]): (string, PlotV) =
+                       pds: seq[PlotDescriptor],
+                       config: Config): (string, PlotV) =
   var events {.global.}: seq[int]
   # all PDs are guaranteed to be from  the same run!
   let run = pds[0].runs[0]
@@ -1602,7 +1901,7 @@ iterator fadcEventIter(h5f: H5File,
   var evNums {.global.}: seq[int]
   var evTab {.global.}: Table[int, int]
   if run != lastRun:
-    evNums = h5f.read(run, "eventNumber", dtype = int,
+    evNums = h5f.read(run, "eventNumber", pds[0].selector, dtype = int,
                       isFadc = true)
     evTab = initTable[int, int]()
     for i, ev in evNums:
@@ -1622,7 +1921,7 @@ iterator fadcEventIter(h5f: H5File,
     var texts: seq[string]
     let event = evTab[pd.event]
     for d in AllFadcDsets:
-      let val = h5f.read(run, d, isFadc = true,
+      let val = h5f.read(run, d, pd.selector, isFadc = true,
                          dtype = float, idx = @[event])[0]
       let s = &"{d:15}: {val:6.4f}"
       texts.add s
@@ -1654,26 +1953,57 @@ iterator fadcEventIter(h5f: H5File,
 
 proc handleIngridEvent(h5f: H5File,
                        fileInfo: FileInfo,
-                       pd: PlotDescriptor): (string, PlotV) =
+                       pd: PlotDescriptor,
+                       config: Config): (string, PlotV) =
   doAssert pd.plotKind == pkInGridEvent
-  for outfile, pltV in ingridEventIter(h5f, fileInfo, @[pd]):
-    # only a single pd
+  for outfile, pltV in ingridEventIter(h5f, fileInfo, pd, config):
+    # result will be last event, HACK
     result = (outfile, pltV)
+    # call save here
+    ## XXX: HACK!!!
+    info &"Calling savePlot for {pd.plotKind} with filename {result[0]}"
+    try:
+      savePlot(result[1], result[0], config, fullPath = true)
+    except Exception as e:
+      echo "Failed to generate plot with error ", e.msg
+      continue
 
 proc handleFadcEvent(h5f: H5File,
                      fileInfo: FileInfo,
-                     pd: PlotDescriptor): (string, PlotV) =
+                     pd: PlotDescriptor,
+                     config: Config): (string, PlotV) =
   doAssert pd.plotKind == pkFadcEvent
-  for outfile, pltV in fadcEventIter(h5f, fileInfo, @[pd]):
+  for outfile, pltV in fadcEventIter(h5f, fileInfo, @[pd], config):
     # only a single pd
     result = (outfile, pltV)
 
+proc handleAnyScatter(h5f: H5File,
+                      fileInfo: FileInfo,
+                      pd: PlotDescriptor,
+                      config: Config): (string, PlotV) =
+  doAssert pd.plotKind == pkAnyScatter
+  var allX: seq[float]
+  var allY: seq[float]
+  var allZ: seq[float]
+  for r in pd.runs:
+    allX.add h5f.read(r, pd.x, pd.selector, dtype = float,
+                     chipNumber = fileInfo.centerChip)
+    allY.add h5f.read(r, pd.y, pd.selector, dtype = float,
+                     chipNumber = fileInfo.centerChip)
+    if pd.color.len > 0:
+      allZ.add h5f.read(r, pd.color, pd.selector, dtype = float,
+                        chipNumber = fileInfo.centerChip)
+  let title = buildTitle(pd)
+  result[0] = buildOutfile(pd, fileDir, fileType)
+  result[1] = plotCustomScatter(allX, allY, pd, title, allZ)
+
 proc createPlot*(h5f: H5File, fileInfo: FileInfo,
-                 pd: PlotDescriptor): (string, PlotV)
+                 pd: PlotDescriptor, config: Config): (string, PlotV)
 
 proc handleSubPlots(h5f: H5File,
                     fileInfo: FileInfo,
-                    pd: PlotDescriptor): (string, PlotV) =
+                    pd: PlotDescriptor,
+                    config: Config): (string, PlotV) =
 #    result.add PlotDescriptor(runType: runType,
 #                              name: "Event display InGrid + FADC",
 #                              runs: @[run],
@@ -1685,7 +2015,7 @@ proc handleSubPlots(h5f: H5File,
   var fnames: seq[string]
   var plts: seq[PlotV]
   for p in pd.plots:
-    let (outfile, pltV) = createPlot(h5f, fileInfo, p)
+    let (outfile, pltV) = createPlot(h5f, fileInfo, p, config)
     fnames.add outfile
     plts.add pltV
 
@@ -1695,7 +2025,9 @@ proc handleSubPlots(h5f: H5File,
 
 proc createPlot*(h5f: H5File,
                  fileInfo: FileInfo,
-                 pd: PlotDescriptor): (string, PlotV) =
+                 pd: PlotDescriptor,
+                 config: Config
+                ): (string, PlotV) =
   ## creates a plot of kind `plotKind` for the data from all runs in `runs`
   ## for chip `chip`
   # TODO: think: have createPlot return the `PlotV` object. Then we could
@@ -1708,47 +2040,49 @@ proc createPlot*(h5f: H5File,
   try:
     case pd.plotKind
     of pkInGridDset:
-      result = handleInGridDset(h5f, fileInfo, pd)
+      result = handleInGridDset(h5f, fileInfo, pd, config)
     of pkFadcDset:
-      result = handleFadcDset(h5f, fileInfo, pd)
+      result = handleFadcDset(h5f, fileInfo, pd, config)
     of pkOccupancy:
-      result = handleOccupancy(h5f, fileInfo, pd)
+      result = handleOccupancy(h5f, fileInfo, pd, config)
     of pkOccCluster:
-      result = handleOccCluster(h5f, fileInfo, pd)
+      result = handleOccCluster(h5f, fileInfo, pd, config)
     of pkPolya, pkFeSpec, pkFeSpecCharge:
-      result = handleBarScatter(h5f, fileInfo, pd)
+      result = handleBarScatter(h5f, fileInfo, pd, config)
     of pkCombPolya:
-      result = handleCombPolya(h5f, fileInfo, pd)
+      result = handleCombPolya(h5f, fileInfo, pd, config)
     of pkFeVsTime, pkFeChVsTime:
-      result = handleFeVsTime(h5f, fileInfo, pd)
+      result = handleFeVsTime(h5f, fileInfo, pd, config)
     of pkFePixDivChVsTime:
-      result = handleFePixDivChVsTime(h5f, fileInfo, pd)
+      result = handleFePixDivChVsTime(h5f, fileInfo, pd, config)
     of pkFePhotoDivEscape:
-      result = handleFePhotoDivEscape(h5f, fileInfo, pd)
+      result = handleFePhotoDivEscape(h5f, fileInfo, pd, config)
     of pkInGridEvent:
       # TODO: make this into a call to an `InGridEventIterator`
-      result = handleIngridEvent(h5f, fileInfo, pd)
-      #for outfile, pltV in ingridEventIter(h5f, fileInfo, pd):
+      result = handleIngridEvent(h5f, fileInfo, pd, config)
+      #for outfile, pltV in ingridEventIter(h5f, fileInfo, pd, config):
       #  yield (outfile, pltV)
     of pkFadcEvent:
-      result = handleFadcEvent(h5f, fileInfo, pd)
-      #for outfile, pltV in fadcEventIter(h5f, fileInfo, pd):
+      result = handleFadcEvent(h5f, fileInfo, pd, config)
+      #for outfile, pltV in fadcEventIter(h5f, fileInfo, pd, config):
       #  yield (outfile, pltV)
     of pkSubPlots:
-      result = handleSubPlots(h5f, fileInfo, pd)
-      #for outfile, pltV in subPlotsIter(h5f, fileInfo, pd):
+      result = handleSubPlots(h5f, fileInfo, pd, config)
+      #for outfile, pltV in subPlotsIter(h5f, fileInfo, pd, config):
       #  yield (outfile, pltV)
-    of pkOuterChips:
-      result = handleOuterChips(h5f, fileInfo, pd)
+    #of pkOuterChips:
+    #  result = handleOuterChips(h5f, fileInfo, pd, config)
     of pkToTPerPixel:
-      result = handleToTPerPixel(h5f, fileInfo, pd)
+      result = handleToTPerPixel(h5f, fileInfo, pd, config)
+    of pkAnyScatter:
+      result = handleAnyScatter(h5f, fileInfo, pd, config)
     else:
       discard
 
     # finally call savePlot if we actually created a plot
     #if not result[1].plPlot.isNil:
     info &"Calling savePlot for {pd.plotKind} with filename {result[0]}"
-    savePlot(result[1], result[0], fullPath = true)
+    savePlot(result[1], result[0], config, fullPath = true)
   except KeyError:
     echo "WARNING: Could not generate the plot: " & $pd & ". Skipping it."
 
@@ -1788,7 +2122,6 @@ $2
           name,
           &"""<img alt="My Image" src="data:image/png;base64,{encode(data)}" />"""
         ]
-
       else: doAssert false, "Invalid filetype: " & $filetype
 
   var f = open(outfile, fmWrite)
@@ -1838,7 +2171,7 @@ proc jsonDump(outfile = "", clear = false): string =
   if clear:
     clearPlots()
 
-proc handleOutput(basename: string, flags: set[ConfigFlagKind]): string =
+proc handleOutput(basename: string, config: Config): string =
   ## handles output file creation. Reads the config.toml file
   ## and uses it to decide whether to store data as Org file or
   ## dump to Json
@@ -1846,14 +2179,9 @@ proc handleOutput(basename: string, flags: set[ConfigFlagKind]): string =
   # startup of the program
   # TODO: when Org is used, we need to save all plots as SVG!
   result = basename
-  let tomlConfig = parseToml.parseFile(ConfigFile)
-  let outfileKind = parseEnum[OutputFiletypeKind](
-    tomlConfig["General"]["outputFormat"].getStr,
-    ofUnknown
-  )
-  for fl in flags:
+  for fl in config.flags:
     result &= "_" & $fl
-  case outfileKind
+  case config.outputType
   of ofOrg:
     result &= ".org"
     createOrg(result, fileType)
@@ -1865,18 +2193,20 @@ proc handleOutput(basename: string, flags: set[ConfigFlagKind]): string =
 
 proc plotsFromPds(h5f: H5File,
                   fileInfo: FileInfo,
-                  pds: seq[PlotDescriptor]) =
+                  pds: seq[PlotDescriptor],
+                  config: Config) =
   ## calls `createPlot` for each PD and saves filename to
   ## `imageSet` if necessary
   for p in pds:
-    let (fileF, pltV) = h5f.createPlot(fileInfo, p)
+    let (fileF, pltV) = h5f.createPlot(fileInfo, p, config)
     case BKind
     of bPlotly:
-      if fileInfo.plotlySaveSvg:
+      if config.plotlySaveSvg:
         imageSet.incl fileF
     of bGgPlot:
       imageSet.incl fileF
     else: discard
+
 
 proc serveNewClient(): bool =
   let (newClient, _)  = serveNewClientCh.tryRecv()
@@ -1889,7 +2219,8 @@ proc awareSend[T](ch: var Channel[T], data: JsonNode, pKind: PacketKind) =
 
 proc serveRequests(h5f: H5File,
                    fileInfo: FileInfo,
-                   pds: seq[PlotDescriptor]) =
+                   pds: seq[PlotDescriptor],
+                   config: Config) =
   while true:
     # receive data packet
     # TODO: replace by a `reqChannel`?
@@ -1901,7 +2232,7 @@ proc serveRequests(h5f: H5File,
     of rqPlot:
       let pd = dp.payload.parseJson.parsePd
       #for sp in createPlotIter(h5f, fileInfo, pd):
-      discard createPlot(h5f, fileInfo, pd)
+      discard createPlot(h5f, fileInfo, pd, config)
       let jData = jsonDump(imageSet, plotlyJson)
       # echo "Jdata corresponding: ", jData
       awareSend(channel, jData, PacketKind.Plots)
@@ -1920,7 +2251,7 @@ proc serveRequests(h5f: H5File,
 proc serve(h5f: H5File,
            fileInfo: FileInfo,
            pds: seq[PlotDescriptor],
-           flags: set[ConfigFlagKind] = {}) =
+           config: Config) =
   ## serves the client
   # before we do anything, send all PDs to the client
 
@@ -1933,7 +2264,7 @@ proc serve(h5f: H5File,
 
     for p in pds:
       #for sp in createPlotIter(h5f, fileInfo, p):
-      discard createPlot(h5f,fileInfo, p)
+      discard createPlot(h5f,fileInfo, p, config)
       echo "Number of pds ", pds.len
       echo "Current plot ", p
       let jData = jsonDump(imageSet, plotlyJson)
@@ -1951,27 +2282,26 @@ proc eventDisplay(h5file: string,
                   run: int,
                   runType: RunTypeKind,
                   bKind: BackendKind,
-                  flags: set[ConfigFlagKind],
                   config: Config): string =
   ## use as event display tool
   var h5f = H5open(h5file, "r")
   let fileInfo = getFileInfo(h5f)
   let fInfoConfig = fileInfo.appliedConfig(config)
   let events = toOrderedSet(toSeq(0 .. 50))#initOrderedSet[int]())
-  let pds = createEventDisplayPlots(h5f, run, runType, fInfoConfig, events)
+  ## XXX: events irrelevant
+  let pds = createEventDisplayPlots(h5f, run, runType, fInfoConfig, config, events)
 
-  if cfProvideServer in flags:
-    serve(h5f, fileInfo, pds, flags)
+  if cfProvideServer in config.flags:
+    serve(h5f, fileInfo, pds, config)
   else:
-    plotsFromPds(h5f, fInfoConfig, pds)
+    plotsFromPds(h5f, fInfoConfig, pds, config)
     let outfile = "eventDisplay"  & "_" & getRunsStr(fInfoConfig.runs)
-    result = handleOutput(outfile, flags)
+    result = handleOutput(outfile, config)
 
   discard h5f.close()
 
 proc genCalibrationPlotPDs(h5f: H5File,
                            runType: RunTypeKind,
-                           flags: set[ConfigFlagKind],
                            config: Config
                           ): seq[PlotDescriptor] =
   ## Creates the PlotDescriptors for all calibration plots in the `h5file`
@@ -1979,89 +2309,89 @@ proc genCalibrationPlotPDs(h5f: H5File,
   let fInfoConfig = fileInfo.appliedConfig(config)
   # var imageSet = initOrderedSet[string]()
 
-  if cfOccupancy in flags:
-    result.add occupancies(h5f, runType, fInfoConfig, flags) # plus center only
-  if cfPolya in flags:
-    result.add polya(h5f, runType, fInfoConfig, flags)
-  if cfToTPerPixel in flags:
-    result.add totPerPixel(h5f, runType, fInfoConfig, flags)
-  if cfFeSpectrum in flags:
-    result.add feSpectrum(h5f, runType, fInfoConfig, flags)
-  #result.add fePhotoDivEscape(h5f, runType, fInfoConfig, flags)
+  if cfOccupancy in config.flags:
+    result.add occupancies(h5f, runType, fInfoConfig, config) # plus center only
+  if cfPolya in config.flags:
+    result.add polya(h5f, runType, fInfoConfig, config)
+  if cfToTPerPixel in config.flags:
+    result.add totPerPixel(h5f, runType, fInfoConfig, config)
+  if cfFeSpectrum in config.flags:
+    result.add feSpectrum(h5f, runType, fInfoConfig, config)
+  #result.add fePhotoDivEscape(h5f, runType, fInfoConfig, config)
   # energyCalib(h5f) # ???? plot of gas gain vs charge?!
-  if cfIngrid in flags:
-    result.add histograms(h5f, runType, fInfoConfig, flags) # including fadc
+  if cfIngrid in config.flags:
+    result.add histograms(h5f, runType, fInfoConfig, config) # including fadc
+  # now deal with custom plots
+  if config.customPlots.len > 0:
+    result.add createCustomPlots(fInfoConfig, config)
 
 proc createCalibrationPlots(h5file: string,
                             bKind: BackendKind,
                             runType: RunTypeKind,
-                            flags: set[ConfigFlagKind],
                             config: Config): string =
   ## creates QA plots for calibration runs
   withH5(h5file, "r"):
     var fileInfo = getFileInfo(h5f)
     let fInfoConfig = fileInfo.appliedConfig(config)
 
-    let pds = genCalibrationPlotPDs(h5f, runType, flags, config)
-    if cfProvideServer in flags:
-      serveRequests(h5f, fileInfo, pds)
+    let pds = genCalibrationPlotPDs(h5f, runType, config)
+    if cfProvideServer in config.flags:
+      serveRequests(h5f, fileInfo, pds, config)
       #serve(h5f, fileInfo, pds, flags)
     else:
-      plotsFromPds(h5f, fInfoConfig, pds)
+      plotsFromPds(h5f, fInfoConfig, pds, config)
       echo "Image set is ", imageSet.card
 
       # likelihoodHistograms(h5f) # need to cut on photo peak and esc peak
       # neighborPixels(h5f)
       discard h5f.close()
       let outfile = "calibration" & "_" & getRunsStr(fInfoConfig.runs)
-      result = handleOutput(outfile, flags)
+      result = handleOutput(outfile, config)
 
 proc genBackgroundPlotPDs(h5f: H5File, runType: RunTypeKind,
-                          flags: set[ConfigFlagKind],
                           config: Config): seq[PlotDescriptor] =
   var fileInfo = getFileInfo(h5f)
   let fInfoConfig = fileInfo.appliedConfig(config)
-  if cfOccupancy in flags:
-    #occupancies(h5f, flags) # plus center only
-    result.add occupancies(h5f, runType, fInfoConfig, flags) # plus center only
-  if cfPolya in flags:
-    result.add polya(h5f, runType, fInfoConfig, flags)
+  if cfOccupancy in config.flags:
+    result.add occupancies(h5f, runType, fInfoConfig, config) # plus center only
+  if cfPolya in config.flags:
+    result.add polya(h5f, runType, fInfoConfig, config)
   # energyCalib(h5f) # ???? plot of gas gain vs charge?!
-  result.add histograms(h5f, runType, fInfoConfig, flags) # including fadc
-  # result.add createCustomPlots(fInfoConfig)
+  result.add histograms(h5f, runType, fInfoConfig, config) # including fadc
+  # result.add createCustomPlots(fInfoConfig, config)
+  if config.customPlots.len > 0:
+    result.add createCustomPlots(fInfoConfig, config)
 
 proc createBackgroundPlots(h5file: string,
                            bKind: BackendKind,
                            runType: RunTypeKind,
-                           flags: set[ConfigFlagKind],
                            config: Config): string =
   ## creates QA plots for calibration runs
   withH5(h5file, "r"):
     var fileInfo = getFileInfo(h5f)
     let fInfoConfig = fileInfo.appliedConfig(config)
 
-    let pds = genBackgroundPlotPDs(h5f, runType, flags, config)
-    if cfProvideServer in flags:
-      serveRequests(h5f, fileInfo, pds)
-      #serve(h5f, fileInfo, pds, flags)
+    let pds = genBackgroundPlotPDs(h5f, runType, config)
+    if cfProvideServer in config.flags:
+      serveRequests(h5f, fileInfo, pds, config)
+      #serve(h5f, fileInfo, pds, config.flags)
     else:
-      plotsFromPds(h5f, fInfoConfig, pds)
+      plotsFromPds(h5f, fInfoConfig, pds, config)
       echo "Image set is ", imageSet.card
 
       # likelihoodHistograms(h5f) # need to cut on photo peak and esc peak
       # neighborPixels(h5f)
       discard h5f.close()
       let outfile = "background" & "_" & getRunsStr(fInfoConfig.runs)
-      result = handleOutput(outfile, flags)
+      result = handleOutput(outfile, config)
 
-proc createXrayFingerPlots(bKind: BackendKind, flags: set[ConfigFlagKind],
+proc createXrayFingerPlots(bKind: BackendKind,
                            config: Config): string =
   discard
 
 proc handlePlotTypes(h5file: string,
                      bKind: BackendKind,
                      runType: RunTypeKind,
-                     flags: set[ConfigFlagKind],
                      config: Config,
                      evDisplayRun = none[int]()) =
   ## handles dispatch of the correct data type / kind / mode to be plotted
@@ -2070,18 +2400,18 @@ proc handlePlotTypes(h5file: string,
   ## TODO: what happens for SVG? Need to check too.
   var outfile = ""
   if evDisplayRun.isSome():
-    outfile = eventDisplay(h5file, evDisplayRun.get, runType, BKind, flags, config)
+    outfile = eventDisplay(h5file, evDisplayRun.get, runType, BKind, config)
   else:
     case runType
     of rtCalibration:
-      outfile = createCalibrationPlots(h5file, bKind, runType, flags, config)
+      outfile = createCalibrationPlots(h5file, bKind, runType, config)
     of rtBackground:
-      outfile = createBackgroundPlots(h5file, bKind, runType, flags, config)
+      outfile = createBackgroundPlots(h5file, bKind, runType, config)
     of rtXrayFinger:
-      outfile = createXrayFingerPlots(bKind, flags, config)
+      outfile = createXrayFingerPlots(bKind, config)
     else:
       discard
-  if cfProvideServer in flags:
+  if cfProvideServer in config.flags:
     # if not using server, start client, in case the data is being stored as
     # JSON
     let filecall = &"--file:{outfile}"
@@ -2132,40 +2462,44 @@ proc add(p: var PlotV, p2: PlotV, f1, f2: string) =
 proc createComparePlots(h5file: string, h5Compare: seq[string],
                         bKind: BackendKind,
                         runType: RunTypeKind,
-                        flags: set[ConfigFlagKind],
+                        compareRunTypes: seq[RunTypeKind],
                         config: Config
                        ) =
   ## Generates plots comparing all plots that can be built from `h5file`
   ## and add equivalent plot from data in each `h5Compare`
   var h5f = H5open(h5file, "r")
   var fileInfo = getFileInfo(h5f).appliedConfig(config)
+  if compareRunTypes.len > 0 and compareRunTypes.len != h5Compare.len:
+    raise newException(Exception, "If `compareRunTypes` given, must be the same length " &
+      "as `h5Compare` files!")
   var h5fs = h5Compare.mapIt(H5open(it, "r"))
   var fInfos = h5fs.mapIt(getFileInfo(it).appliedConfig(config))
 
   template genPds(file, runType, flags: untyped): untyped =
     var res: seq[PlotDescriptor]
     case runType
-    of rtCalibration: res = genCalibrationPlotPDs(file, runType, flags, config)
-    of rtBackground: res = genBackgroundPlotPDs(file, runType, flags, config)
+    of rtCalibration: res = genCalibrationPlotPDs(file, runType, config)
+    of rtBackground: res = genBackgroundPlotPDs(file, runType, config)
     else: discard
     res
-  let pds = genPds(h5f, runType, flags)
+  let pds = genPds(h5f, runType, config.flags)
   var pdComp = newSeq[seq[PlotDescriptor]](h5Compare.len)
   for i in 0 ..< h5Compare.len:
-    pdComp[i] = genPds(h5fs[i], runType, flags)
+    let rt = if compareRunTypes.len > 0: compareRunTypes[i] else: runType
+    pdComp[i] = genPds(h5fs[i], rt, config.flags)
 
   for pd in pds:
-    var (outfile, plt) = createPlot(h5f, fileInfo, pd)
+    var (outfile, plt) = createPlot(h5f, fileInfo, pd, config)
     if outfile.len == 0: continue # apparantly failed to create plot, skipping
     for i in 0 ..< h5Compare.len:
       let pdc = pdComp[i].find(pd)
       if pdc.isSome:
-        let (_, cPlt) = createPlot(h5fs[i], fInfos[i], pdc.get)
+        let (_, cPlt) = createPlot(h5fs[i], fInfos[i], pdc.get, config)
         # add to `plt`
         plt.add(cPlt, h5f.name.extractFilename, h5fs[i].name.extractFilename & "_" & $i)
     # now generate the plot
     let outf = outfile & "_combined.pdf"
-    plt.savePlot(outf, fullPath = true)
+    plt.savePlot(outf, config, fullPath = true)
 
 proc parseBackendType(backend: string): BackendKind =
   ## given a string describing a run type, return the correct
@@ -2319,13 +2653,23 @@ proc serve() =
 
 proc plotData*(
   h5file: string,
-  runType: RunTypeKind, backend: BackendKind, eventDisplay: int = -1,
+  runType: RunTypeKind,
+  backend: BackendKind = bGgPlot,
+  eventDisplay: int = -1,
   h5Compare: seq[string] = @[], # additional files to compare against
+  compareRunTypes: seq[RunTypeKind] = @[],
   server = false, fadc = false, ingrid = false, occupancy = false,
   polya = false, totPerPixel = false, fe_spec = false, config = "",
   version = false,
-  allowedChips: set[uint16] = {},
-  allowedRuns: set[uint16] = {}
+  chips: set[uint16] = {},
+  runs: set[uint16] = {},
+  show = false,
+  cuts: seq[GenericCut] = @[],
+  applyAllCuts = false,
+  head: int = 0,
+  x: string = "",
+  y: string = "",
+  z: string = ""
               ) =
   ## the main workhorse of the server end
   if version:
@@ -2335,10 +2679,8 @@ proc plotData*(
   if config.len > 0:
     ConfigFile = config
 
-  let cfg = initConfig(allowedChips, allowedRuns)
-
   fileDir = genPlotDirName(h5file, "figs")
-  fileType = parseToml.parseFile(ConfigFile)["General"]["filetype"].getStr
+  let tomlConfig = parseToml.parseFile(ConfigFile)
   discard existsOrCreateDir(fileDir)
   var flags: set[ConfigFlagKind]
   if fadc:
@@ -2355,8 +2697,25 @@ proc plotData*(
     flags.incl cfTotPerPixel
   if server:
     flags.incl cfProvideServer
+  if show:
+    flags.incl cfShow
+  if applyAllCuts:
+    flags.incl cfApplyAllCuts
+
+  let cfg = initConfig(chips, runs, flags,
+                       cuts = cuts,
+                       tomlConfig = tomlConfig,
+                       head = head,
+                       xDset = x,
+                       yDset = y,
+                       zDset = z
+  )
 
   info &"Flags are:\n  {flags}"
+
+  if cfShow in flags and cfProvideServer in flags:
+    echo "Please either use `--show` or `--server`, but not both!"
+    return
 
   var thr: Thread[void]
   if cfProvideServer in flags:
@@ -2370,9 +2729,9 @@ proc plotData*(
     evDisplayRun = some(eventDisplay)
 
   if h5Compare.len == 0:
-    handlePlotTypes(h5file, backend, runType, flags, cfg, evDisplayRun = evDisplayRun)
+    handlePlotTypes(h5file, backend, runType, cfg, evDisplayRun = evDisplayRun)
   else:
-    createComparePlots(h5file, h5Compare, backend, runType, flags, cfg)
+    createComparePlots(h5file, h5Compare, backend, runType, compareRunTypes, cfg)
 
   if cfProvideServer in flags:
     joinThread(thr)
@@ -2380,6 +2739,25 @@ proc plotData*(
   echo "All plots were saved to:\n", fileDir
 
 when isMainModule:
+  import cligen/argcvt
+  proc argParse(dst: var GenericCut, dfl: GenericCut,
+                a: var ArgcvtParams): bool =
+    echo "Parsing ", a.val
+    var vals = a.val.strip(chars = {'(', ')'}).split(',')
+    if vals.len != 3: return false
+    try:
+      echo "vals: ", vals
+      dst = (dset: vals[0].strip(chars = {'"'}),
+             lower: parseFloat(vals[1].strip),
+             upper: parseFloat(vals[2].strip))
+      echo "Parsed it to ", dst
+      result = true
+    except:
+      result = false
+
+  proc argHelp*(dfl: GenericCut; a: var ArgcvtParams): seq[string] =
+    result = @[ a.argKeys, "(dset: string, lower, upper: float)", $dfl ]
+
   dispatch(plotData, help = {
     "h5file" : "The h5 input file to use",
     "runType" : """Select run type (Calib | Back | Xray)
@@ -2397,10 +2775,12 @@ when isMainModule:
     "h5Compare" : "If any given, all plots will compare with same data from these files.",
     "server" : """If flag given, will launch client and send plots individually,
   instead of creating all plots and dumping them.""",
+    "compareRunTypes" : """If any given will use these as the run types of the compare files.
+  Interpreted in the same order as `runType`. If missing assume same type as `runType`.""",
 
-    "allowedChips" : """If any given overwrites the `config.toml` field of `allowedChips`.
+    "chips" : """If any given overwrites the `config.toml` field of `allowedChips`.
   That means only generate plots for the given chips.""",
-    "allowedRuns" : """If any given overwrites the `config.toml` field of `allowedRuns`.
+    "runs" : """If any given overwrites the `config.toml` field of `allowedRuns`.
   That means only generate plots for the given runs.""",
 
     "fadc" : "If set FADC plots will be created.",
@@ -2409,5 +2789,15 @@ when isMainModule:
     "polya" : "If set polya plots will be created.",
     "totPerPixel" : "If set totPerPixel plots will be created.",
     "fe_spec" : "If set Fe spectrum will be created.",
+
+    "x" : "Generate plot of dataset `x` against `y`.",
+    "y" : "Generate plot of dataset `x` against `y`.",
+    "z" : "Generate plot of dataset `x` against `y` colored by `z`",
+
+    "show" : "If given will open each generated plot using inkview (svg) / evince (pdf) / nomacs (png).",
+    "cuts" : "Allows to cut data used for event display. Only shows events of data passing these cuts.",
+    "applyAllCuts" : "If given will apply all given cuts to all data reads.",
+    "head" : "Only process the first this many elements (mainly useful for event display).",
+
     "config" : "Path to the TOML config file.",
     "version" : "Show the version number"})

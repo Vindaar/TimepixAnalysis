@@ -60,6 +60,8 @@ const FakeFrameSize* = 32000
 
 const InGridFnameTemplate* = "$1_run$2_chip$3_$4_binSize$5_binRange$6_$7_chipRegion_$8"
 const InGridTitleTemplate* = "Dataset: $1 for run $2, chip $3 in range: $4, chipRegion: $5"
+const AnyScatterFnameTemplate* = "$1_run$2_chip$3_x_$4_y_$5_z_$6"
+const AnyScatterTitleTemplate* = "Dataset: $4 / $5 by $6, for run $2, chip $3"
 const FadcFnameTemplate* = "fadc_$1_run$2_$3_binSize$4_binRange$5_$6"
 const FadcTitleTemplate* = "Dataset: $1 for run $2, fadc in range: $3"
 const PolyaFnameTemplate* = "polya_run$1_chip$2"
@@ -206,6 +208,18 @@ proc parseDataPacket*(packet: kstring): DataPacket =
 # PlotDescriptor object
 # storing all needed information to create a specific plot
 
+func `%`*(c: GenericCut): JsonNode =
+  result = %* { kstring"dset": % ($c.dset),
+                kstring"lower": % ($c.lower),
+                kstring"upper": % ($c.upper) }
+
+func `%`*(s: DataSelector): JsonNode =
+  result = newJObject()
+  result[kstring"region"] = % $(s.region)
+  result[kstring"cuts"] = % $(s.cuts)
+  result[kstring"idxs"] = % $(s.idxs)
+  result[kstring"applyAll"] = % $(s.applyAll)
+
 func `%`*(pd: PlotDescriptor): JsonNode =
   ## serialize `PlotDescriptor` to Json
   result = newJObject()
@@ -219,14 +233,11 @@ func `%`*(pd: PlotDescriptor): JsonNode =
   result[kstring"plotKind"] = % $pd.plotKind
   case pd.plotKind
   of pkInGridDset, pkFadcDset:
-    result[kstring"range"] = %* { kstring"low": % ($pd.range[0]),
-                                  kstring"high": % ($pd.range[1]),
-                                  kstring"name": % pd.range[2] }
+    result[kstring"selector"] = % pd.selector
     result[kstring"binSize"] = % ($pd.binSize)
     # binRange is a float, but we should never encounter `Inf`, thus keep as float
     result[kstring"binRange"] = %* { kstring"low": % ($pd.binRange[0]),
                                      kstring"high": % ($pd.binRange[1]) }
-    result[kstring"cutRegion"] = % ($pd.cutRegion)
 
   of pkOccupancy, pkOccCluster:
     result[kstring"clampKind"] = % $pd.clampKind
@@ -244,6 +255,19 @@ func `$`*(pd: PlotDescriptor): kstring =
   ## use JSON representation as string
   result = (% pd).pretty
 
+func parseGenericCut*(j: JsonNode): GenericCut =
+  result = (dset: j[kstring"dset"].getStr,
+            lower: j[kstring"lower"].getStr.parseFloat,
+            upper: j[kstring"upper"].getStr.parseFloat)
+
+func parseSelector*(j: JsonNode): DataSelector =
+  result = DataSelector(region: parseEnum[ChipRegion](j[kstring"region"].getStr, crAll),
+                        applyAll: parseBool(j[kstring"applyAll"].getStr))
+  for jch in j[kstring"cuts"]:
+    result.cuts.add parseGenericCut(jch)
+  for idx in j[kstring"idxs"]:
+    result.idxs.add parseInt(idx.getStr)
+
 func parsePd*(pd: JsonNode): PlotDescriptor =
   ## parse a PlotDescriptor stored as JsonNode back to an object
   result.runType = parseEnum[RunTypeKind](pd["runType"].getStr, rtNone)
@@ -255,16 +279,12 @@ func parsePd*(pd: JsonNode): PlotDescriptor =
   result.title = pd[kstring"title"].getStr
   result.plotKind = parseEnum[PlotKind](pd[kstring"plotKind"].getStr,
                                         pkInGridDset)
+  result.selector = parseSelector(pd[kstring"selector"])
   case result.plotKind
   of pkInGridDset, pkFadcDset:
-    result.range = (low: pd[kstring"range"][kstring"low"].getStr.parseFloat,
-                    high: pd[kstring"range"][kstring"high"].getStr.parseFloat,
-                    name: pd[kstring"range"][kstring"name"].getStr)
     result.binSize = pd[kstring"binSize"].getStr.parseFloat
     result.binRange = (low: pd[kstring"binRange"]["low"].getStr.parseFloat,
                        high: pd[kstring"binRange"]["high"].getStr.parseFloat)
-    result.cutRegion = parseEnum[ChipRegion](pd[kstring"cutRegion"].getStr,
-                                             crAll)
   of pkOccupancy, pkOccCluster:
     result.clampKind = parseEnum[ClampKind](pd[kstring"clampKind"].getStr,
                                             ckFullRange)
@@ -341,6 +361,13 @@ proc getRunsStr*(runs: seq[int]): kstring =
   else:
     result = runs.foldl($a & " " & $b, "").strip(chars = {' '})
 
+proc toFilename(s: DataSelector): string =
+  let sCuts = s.cuts.mapIt(&"{it.dset}_{it.lower}_{it.upper}").join("_")
+  let numIdxs = if s.idxs.len > 0: &"numIdxs_{s.idxs.len}" else: ""
+  let sApplyAll = if s.cuts.len > 0: &"applyAll_{s.applyAll}" else: ""
+  let sRegion = &"region_{s.region}"
+  result = @[sRegion, sCuts, sApplyAll, numIdxs].join("_")
+
 proc buildOutfile*(pd: PlotDescriptor, prefix, filetype: string): kstring =
   var name = ""
   let runsStr = getRunsStr(pd.runs)
@@ -349,15 +376,19 @@ proc buildOutfile*(pd: PlotDescriptor, prefix, filetype: string): kstring =
     name = InGridFnameTemplate %% [pd.name,
                                    runsStr,
                                    $pd.chip,
-                                   $pd.range[2],
                                    $pd.binSize,
                                    $pd.binRange[0],
-                                   $pd.binRange[1],
-                                   $pd.cutRegion]
+                                   $pd.binRange[1]]
+  of pkAnyScatter:
+    name = AnyScatterFnameTemplate %% [pd.name,
+                                       runsStr,
+                                       $pd.chip,
+                                       $pd.x,
+                                       $pd.y,
+                                       $pd.color]
   of pkFadcDset:
     name = FadcFnameTemplate %% [pd.name,
                                  runsStr,
-                                 $pd.range[2],
                                  $pd.binSize,
                                  $pd.binRange[0],
                                  $pd.binRange[1]]
@@ -408,6 +439,8 @@ proc buildOutfile*(pd: PlotDescriptor, prefix, filetype: string): kstring =
                                         $pd.chip]
   else:
     discard
+  # now add generic selector
+  name.add "_" & toFilename(pd.selector)
   result = &"{prefix}/{name}.{filetype}"
 
 proc buildTitle*(pd: PlotDescriptor): kstring =
@@ -419,14 +452,19 @@ proc buildTitle*(pd: PlotDescriptor): kstring =
   case pd.plotKind
   of pkInGridDset:
     result = InGridTitleTemplate %% [pd.name,
-                                    runsStr,
-                                    $pd.chip,
-                                    $pd.range[2],
-                                    $pd.cutRegion]
+                                     runsStr,
+                                     $pd.chip]
+  of pkAnyScatter:
+    result = AnyScatterTitleTemplate %% [pd.name,
+                                       runsStr,
+                                       $pd.chip,
+                                       $pd.x,
+                                       $pd.y,
+                                       $pd.color]
   of pkFadcDset:
     result = FadcTitleTemplate %% [pd.name,
-                                  runsStr,
-                                  $pd.range[2]]
+                                  runsStr]
+
   of pkOccupancy:
     let clampStr = cKindStr(pd, "@")
     result = OccupancyTitleTemplate %% [runsStr,

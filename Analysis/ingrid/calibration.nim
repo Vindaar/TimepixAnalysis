@@ -130,6 +130,12 @@ proc cutOnProperties*(h5f: H5File,
   ## wrapper around the above for the case of the whole chip as region
   result = h5f.cutOnProperties(group, crAll, cuts)
 
+proc cutOnProperties*(h5f: H5File,
+                      group: H5Group,
+                      cuts: seq[tuple[dset: string,
+                                      lower, upper: float]]): seq[int] {.inline.} =
+  result = h5f.cutOnProperties(group, crAll, cuts)
+
 proc cutFeSpectrum(pos_x, pos_y, ecc, rms_trans: seq[float], eventNum, hits: seq[int64]):
                     (seq[int64], seq[int64], seq[int64]) =
   ## proc which receives the data for the cut, performs the cut and returns tuples of

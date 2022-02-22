@@ -21,6 +21,8 @@ proc addTpx3Placeholder(): (Table[string, string], Table[string, string]) =
   e_header["dateTime"] = "2021-05-05.23:52:22"
   result = (e_header, c_header)
 
+  FIX EVENT HEADER
+
 proc addTpx3RunPlaceholder(): Table[string, string] =
   result = initTable[string, string]()
   result["runNumber"] = "0"
@@ -35,7 +37,9 @@ proc addTpx3RunPlaceholder(): Table[string, string] =
   result["dateTime"] = "2021-05-05.23:52:22"
   result["shutterMode"] = "stream"
 
-proc computeTpx3RunParameters*(data: seq[Tpx3Data], clusterTimeCutoff: int): ProcessedRun =
+  FIX RUN HEADER, CHIP NAME
+
+proc computeTpx3RunParameters*(data: seq[Tpx3Data], startIdx, clusterTimeCutoff: int): ProcessedRun =
   ## this procedure walks over the Timepix3 data and returns all data
   ## we can extract from it that fits into the `ProcessedRun`. This means
   ## that `ProcessedRun` is still incomplete after this!
@@ -60,9 +64,11 @@ proc computeTpx3RunParameters*(data: seq[Tpx3Data], clusterTimeCutoff: int): Pro
         clusters.add ev
         lengths.add ev.length
         hits.add cluster.pixels.len.uint16
-      cluster = ChipEvent(pixels: newSeqOfCap[Pix](400))
+      cluster = ChipEvent(version: Timepix3, pixels: newSeqOfCap[Pix](400))
       startT = el.chunk_start_time
     cluster.pixels.add (x: el.x, y: el.y, ch: el.TOT)
+    cluster.toa.add el.TOA
+    cluster.toaCombined.add el.TOA_Combined
     tots.add el.TOT
     clusterTime = el.TOA.int
     lastT = el.chunk_start_time

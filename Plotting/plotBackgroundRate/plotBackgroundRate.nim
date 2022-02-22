@@ -2,7 +2,7 @@ import ggplotnim, seqmath, sequtils, os, sugar, strscans, strformat, strutils, s
 import ingrid / [tos_helpers, ingrid_types]
 from arraymancer import tensor
 
-import nimhdf5, numericalnim
+import nimhdf5, numericalnim, unchained
 
 import cligen
 
@@ -63,8 +63,9 @@ proc readFiles(files: seq[string], names: seq[string], region: ChipRegion): seq[
   doAssert names.len == 0 or names.len == files.len, "Need one name for each input file!"
   for idx, file in files:
     let h5f = H5open(file, "r")
-    var df = h5f.readDsets(likelihoodBase(), some((3, DsetNames)))
-      .rename(f{Ecol <- "energyFromCharge"})
+    var df = h5f.readDsets(likelihoodBase(), some((0, DsetNames)))
+      .rename(f{Ecol <- "energyFromPixel"})
+      .mutate(f{"Energy" ~ `Energy` / 1000.0})
     let fname = if names.len > 0: names[idx]
                 else: file.extractFilename
     df["File"] = constantColumn(fname, df.len)
@@ -82,6 +83,7 @@ proc histogram(df: DataFrame): DataFrame =
   ## Calculates the histogam of the energy data in the `df` and returns
   ## a histogram of the binned data
   ## TODO: allow to do this by combining different `File` values
+  echo df[Ecol].toTensor(float).toRawSeq
   let (hist, bins) = histogram(df[Ecol].toTensor(float).toRawSeq,
                                range = (0.0, 20.0), bins = 100)
   result = seqsToDf({ Ecol : bins, Ccol : concat(hist, @[0]) })
@@ -102,6 +104,7 @@ proc flatScale(files: seq[LogLFile], factor: float, dropCounts = true): DataFram
     if not f.df.isNil:
       df.add f.df
   result = newDataFrame()
+  df.showBrowser()
 
   proc getTotalTime(f: string): float =
     ## retrieves the correct `totalTime` for the given file `f` from the input `files`
@@ -109,13 +112,14 @@ proc flatScale(files: seq[LogLFile], factor: float, dropCounts = true): DataFram
       if file.name == f:
         return file.totalTime
 
-  for tup, subDf in groups(df.group_by("File")):
-    let fname = tup[0][1].toStr
+  #for tup, subDf in groups(df.group_by("File")):
+  when true:
+    let fname = "tpx3" #tup[0][1].toStr
     let totalTime = fname.getTotalTime() # before: files.sumIt(it.totalTime)
     #subDf.showBrowser()
   #for tup, subDf in groups(df.group_by("L<L_median")):
     var dfLoc = newDataFrame()
-    dfLoc = subDf.histogram()
+    dfLoc = df.histogram()
     dfLoc = dfLoc.mutate(f{float: "CountErr" ~ sqrt(`Counts`)})
     dfLoc[Rcol] = dfLoc[Ccol].scaleDset(totalTime, factor)
     dfLoc["RateErr"] = dfLoc["CountErr"].scaleDset(totalTime, factor)
@@ -298,6 +302,7 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
           plotMedianBools = false,
           combName = "", # name for combined data (i.e. `separateFiles == false`)
           combYear = 0, # year for combined data (i.e. `separateFiles == false`)
+          totalTime = -1, # total time to use in hours # not supported with `names` or `separateFiles`!
           region: ChipRegion = crAll, # use either all data or cut to given region
           useTeX = false
          ) =
@@ -338,6 +343,8 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
         else:
           logL.totalTime += l.totalTime
           logL.df.add l.df.clone()
+      if totalTime.Hour > 0.0.Hour:
+        logL.totalTime = totalTime.Hour.to(Second).float
       echo "[INFO]: total total time: ", logL.totalTime
       logL.name = combName
       logL.year = combYear

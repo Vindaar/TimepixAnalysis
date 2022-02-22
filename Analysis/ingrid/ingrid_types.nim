@@ -21,9 +21,17 @@ type
 
   Chip* = tuple[name: string, number: int]
 
+  TimepixVersion = enum
+    Timepix1, Timepix3
+
   ChipEvent* = object
     chip*: Chip
     pixels*: Pixels
+    case version: TimepixVersion
+    of Timepix1: discard
+    of Timepix3:
+      toa*: seq[uint16]      # Time of Arrival (ToA) in "local" time
+      toaCombined*: seq[int] # ToA extended by "run wide" counter
 
   ProtoFile* = object
     name*: string
@@ -375,28 +383,28 @@ when not defined(pure) and not defined(js):
 
     # process events stores all data for septemboard
     # of a given run
-    ProcessedRun* = tuple[
+    ProcessedRun* = object
+      # indicates which Timepix was/were used to take this run
+      timepix: TimepixVersion
       # just the number of chips in the run
-      nChips: int,
+      nChips: int
       # the chips as (name, number) tuples
-      chips: seq[Chip],
+      chips: seq[Chip]
       # run number
-      runNumber: int,
+      runNumber: int
       # table containing run header ([General] in data file)
-      runHeader: Table[string, string],
+      runHeader: Table[string, string]
       # event which stores raw data
-      events: seq[Event],
+      events: seq[Event]
       # time the shutter was open in seconds, one value for each
       # event
-      length: seq[float],
+      length: seq[float]
       # tots = ToT per pixel of whole run
-      tots: seq[seq[uint16]],
+      tots: seq[seq[uint16]]
       # hits = num hits per event of whole run
-      hits: seq[seq[uint16]],
+      hits: seq[seq[uint16]]
       # occupancies = occupancies of each chip for run
       occupancies: Tensor[int64]
-      #occupancies: seq[Tensor[int]]
-    ]
 
     # object to store actual FADC data, which is
     # used (ch0 already extracted)

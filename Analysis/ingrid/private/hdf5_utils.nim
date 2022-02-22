@@ -691,6 +691,10 @@ proc getRunInfo*(path: string): RunInfo =
 
 proc getFileInfo*(h5f: H5File, baseGroup = recoGroupGrpStr()): FileInfo =
   ## returns a set of all run numbers in the given file
+
+  ## XXX: Extend this to automatically determine the base group! There's only 3 different cases
+  ## and we could do that automatically and store it in the `FileInfo`. From there we wouldn't
+  ## have to worry about it anymore!
   # visit file
   #h5f.visitFile()
   var readAux = false

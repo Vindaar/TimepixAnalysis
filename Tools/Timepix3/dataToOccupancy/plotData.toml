@@ -11,7 +11,7 @@
         #         "kurtosisLongitudinal", "kurtosisTransverse", "rotationAngle",
         #         "eccentricity", "fractionInTransverseRms", "lengthDivRmsTrans",
         #         "hits"]
-        dsets = ["energyFromCharge"]
+        #dsets = ["energyFromCharge"]
 [Fadc]
         dsets = ["minvals", "fallTime", "riseTime"]
 

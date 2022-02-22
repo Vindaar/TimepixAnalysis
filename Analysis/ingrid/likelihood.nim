@@ -651,10 +651,11 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
         quit(1)
       # given the full frame run through the full reconstruction for this cluster
       # here we give chip number as -1, indicating "Septem"
+      echo "Recoing event number ", evNum.toInt, " from run ", runNumber
       let recoEv = recoEvent((septemFrame.pixels, evNum.toInt.int), -1,
                              runNumber, searchRadius = searchRadius,
                              dbscanEpsilon = epsilon,
-                             clusterAlgo = clusterAlgo)[]
+                             clusterAlgo = clusterAlgo)
 
       # extract the correct gas gain slices for this event
       var gainVals: seq[float]
@@ -690,6 +691,7 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
         if centerData.energies[septemFrame.centerEvIdx] < PlotCutEnergy:
           # shorten to actual number of stored pixels. Otherwise elements with ToT / charge values will remain
           # in the `septemFrame`
+          echo "Number of pixels? ", septemFrame.numRecoPixels
           septemFrame.pixels.setLen(septemFrame.numRecoPixels)
           plotSeptemEvent(septemFrame.pixels, runNumber, evNum.toInt,
                           lines = septemGeometry.lines,
@@ -822,7 +824,9 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
       # hash set containing all indices of clusters, which pass the cuts
       var passedInds = initSet[int]()
       # iterate through all clusters not part of tracking and apply logL cut
+      echo "passed indices for loop"
       for ind in indicesInTracking:
+        echo "Index ", ind
         when false:
           # see above, not yet implemented
           # add current ind to total duration; note before cut, since we want
@@ -862,7 +866,10 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
           # only those events that otherwise wouldn't have made it by logL only
           inc totalScintiRemovedNotLogRemoved
 
+      echo "Loop done! passedInds : ", passedInds, " group ", chpGrp.name
+      echo "facd ", fadcVetoCount, " scinti ", scintiVetoCount, " flags ", flags
       chpGrp.writeVetoInfos(fadcVetoCount, scintiVetoCount, flags)
+      echo "wrote infos"
       if chipNumber == centerChip:
         totalScintiRemoveCount += scintiVetoCount
 
@@ -880,6 +887,7 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
 
         if passedInds.card > 0:
           # call function which handles writing the data
+          echo "write logl data"
           h5f.writeLikelihoodData(h5fout,
                                   mgrp,
                                   cdlFile, refFile,
@@ -905,6 +913,7 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
         totalDurationsPassed[chipNumber] += totalDurationRunPassed
 
   # once done write total duration as attributes to `likelihood` group
+  echo "creating logl group?? "
   var lhGrp = h5fout.getOrCreateGroup(likelihoodGroupGrpStr().string)
   when false:
     for key, val in totalDurations:
@@ -1236,6 +1245,7 @@ proc main() =
   if $args["--h5out"] != "nil":
     h5foutfile = $args["--h5out"]
 
+  echo "OUTFILE : ", h5foutfile
   var h5f = H5open(h5f_file, "rw")
   h5f.visitFile
 

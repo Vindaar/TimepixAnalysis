@@ -660,7 +660,7 @@ proc processEventWithScanf*(data: ProtoFile): Event =
         let nhits = valMatch.parseInt
         pix_to_read = if nhits < 4096: nhits else: 4095
         if pix_to_read == 0:
-          var ch_event = ChipEvent()
+          var ch_event = ChipEvent(version: Timepix1)
           ch_event.chip = (c_header["chipName"], parseInt(c_header["chipNumber"]))
           ch_event.pixels = pixels
           # add the chip event object to the sequence
@@ -698,7 +698,7 @@ proc processEventWithScanf*(data: ProtoFile): Event =
       inc pix_counter
       if pix_counter == pix_to_read:
         # now we are reading the last hit, process chip header and pixels
-        var ch_event = ChipEvent()
+        var ch_event = ChipEvent(version: Timepix1)
         ch_event.chip = (c_header["chipName"], parseInt(c_header["chipNumber"]))
         ch_event.pixels = pixels
         # add  the chip event object to the sequence
@@ -870,7 +870,7 @@ proc processOldEventScanf*(data: ProtoFile): OldEvent =
                      filepath)
 
   # now we are reading the last hit, process chip header and pixels
-  var ch_event = ChipEvent()
+  var ch_event = ChipEvent(version: Timepix1)
   ch_event.chip = (c_header["chipName"], c_header["chipNumber"].parseInt)
   ch_event.pixels = pixels
   # add  the chip event object to the sequence
@@ -970,7 +970,7 @@ proc processSrsEventScanf*(data: ProtoFile): SrsEvent =
           pixels.add((x.uint8, y.uint8, ch.uint16))
     # once we're done with all pixels, add chip header
     # now we are reading the last hit, process chip header and pixels
-    var ch_event = ChipEvent()
+    var ch_event = ChipEvent(version: Timepix1)
     ch_event.chip = (SrsDefaultChipName, parseInt(c_header["chipNumber"]))
     ch_event.pixels = pixels
     # add  the chip event object to the sequence

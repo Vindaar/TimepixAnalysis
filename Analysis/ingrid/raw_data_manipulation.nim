@@ -48,7 +48,15 @@ if fileExists(OldTosRunListPath):
   oldTosXrayRuns  = parseOldTosRunlist(OldTosRunListPath, rtXrayFinger)
   oldTosRunListFound = true
 
+when defined(linux):
+  const commitHash = staticExec("git rev-parse --short HEAD")
+else:
+  const commitHash = ""
+# get date using `CompileDate` magic
+const currentDate = CompileDate & " at " & CompileTime
+
 const docStr = """
+Version: $# built on: $#
 InGrid raw data manipulation.
 
 Usage:
@@ -552,7 +560,9 @@ proc createChipGroups(h5f: var H5FileObj,
   let chipGroupName = getGroupNameRaw(runNumber) & "/chip_$#"
   result = mapIt(toSeq(0 ..< nChips), h5f.create_group(chipGroupName % $it))
 
-proc initInGridInH5*(h5f: var H5FileObj, runNumber, nChips, batchsize: int) =
+proc initInGridInH5*(h5f: var H5FileObj, runNumber, nChips,
+                     batchsize: int,
+                     createToADset = false) =
   ## This proc creates the groups and dataset for the InGrid data in the H5 file
   ## inputs:
   ##   h5f: H5file = the H5 file object of the writeable HDF5 file
@@ -587,6 +597,11 @@ proc initInGridInH5*(h5f: var H5FileObj, runNumber, nChips, batchsize: int) =
 
     # other single column data
     durationDset = h5f.datasetCreation(joinPath(groupName, "eventDuration"), float)
+
+  if createToADset:
+    toa_dsets = mapIt(chip_groups, h5f.datasetCreation(it.name & "/raw_toa", special_type(ev_type_ch))
+    toa_combined_dsets = mapIt(chip_groups, h5f.datasetCreation(it.name & "/raw_toa_combined", special_type(uint64)))
+
   let names = chipGroups.mapIt(it.name)
   var
     totDset = mapIt(names, h5f.datasetCreation(it & "/ToT", uint16))
@@ -627,6 +642,9 @@ proc writeRawAttrs*(h5f: var H5FileObj,
   # NOTE: the run length will be wrong by the duration of the last event!
   rawG.attrs["totalRunDuration"] = (parseTOSDateString(stop) -
                                     parseTOSDateString(start)).inSeconds
+  ## Write global variables of `raw_data_manipulation`
+  rawG.attrs["raw_data_manipulation_version"] = commitHash
+  rawG.attrs["raw_data_manipulation_compiled_on"] = commitDate
 
 proc writeRunGrpAttrs*(h5f: var H5FileObj, group: var H5Group,
                        runType: RunTypeKind,
@@ -657,6 +675,9 @@ proc writeRunGrpAttrs*(h5f: var H5FileObj, group: var H5Group,
   # initialize the attribute for the current number of stored events to 0
   group.attrs["numEventsStored"] = 0
   group.attrs["runType"] = $runType
+  ## Write global variables of `raw_data_manipulation`
+  group.attrs["raw_data_manipulation_version"] = commitHash
+  group.attrs["raw_data_manipulation_compiled_on"] = commitDate
 
 proc writeChipAttrs*(h5f: var H5FileObj,
                      chipGroups: var seq[H5Group],
@@ -768,6 +789,13 @@ proc writeProcessedRunToH5*(h5f: var H5FileObj, run: ProcessedRun) =
     x  = newSeq[seq[seq[uint8]]](nChips)
     y  = newSeq[seq[seq[uint8]]](nChips)
     ch = newSeq[seq[seq[uint16]]](nChips)
+
+  var
+    toa_dsets: seq[H5Dataset]
+    toa_combined_dsets: seq[H5Dataset]
+
+  if run.
+
 
   # prepare event header keys and value (init seqs)
   for key in eventHeaderKeys:
@@ -976,9 +1004,9 @@ proc processAndWriteFadc(run_folder: string, runNumber: int, h5f: var H5FileObj)
   readWriteFadcData(run_folder, runNumber, h5f)
   info "FADC took $# data" % $(getOccupiedMem() - mem1)
 
-proc createProcessedTpx3Run(data: seq[Tpx3Data], cutoff: int): ProcessedRun =
+proc createProcessedTpx3Run(data: seq[Tpx3Data], startIdx, cutoff: int): ProcessedRun =
   # add new cluster if diff in time larger than 50 clock cycles
-  result = computeTpx3RunParameters(data, clusterTimeCutoff = cutoff)
+  result = computeTpx3RunParameters(data, startIdx, clusterTimeCutoff = cutoff)
   result.nChips = 1 ## TODO: allow multiple chips, find out where to best read from input file
   result.chips = @[(name: "W15 E5", number: 0)]
   result.runNumber = 0
@@ -1196,13 +1224,13 @@ proc handleTimepix3(h5file: string, runType: RunTypeKind,
     oldIdx += countIdx
     countIdx = if oldIdx + tpx3Buf < pixNum: tpx3Buf
                else: pixNum - oldIdx
-    let r = createProcessedTpx3Run(data, cutoff = clusterCutoff)
+    let r = createProcessedTpx3Run(data, oldIdx, cutoff = clusterCutoff)
     if r.events.len > 0:
       if not attrsWritten:
         runNumber = r.runNumber
         #nChips = processedRun.nChips
         # create datasets in H5 file
-        initInGridInH5(h5fout, runNumber, nChips, batchsize = FILE_BUFSIZE)
+        initInGridInH5(h5fout, runNumber, nChips, batchsize = FILE_BUFSIZE, createToADset = true)
         # now init attributes
         writeInGridAttrs(h5fout, r, rfUnknown, runType)
         for chip in 0 ..< nChips:

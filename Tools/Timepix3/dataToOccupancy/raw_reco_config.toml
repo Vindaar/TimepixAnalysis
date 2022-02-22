@@ -25,7 +25,7 @@ gasGainEnergyKind = "Individual"
 
 [RawData]
 plotDirectory = "out"
-tpx3ToACutoff = 50 # ToA cluster cutoff
+tpx3ToACutoff = 500 # ToA cluster cutoff
 
 [Reconstruction]
 # the search radius for the cluster finding algorithm in pixel

@@ -98,6 +98,7 @@ proc readRefDsetsDF(refFile: string,
       dfDset["Energy"] = constantColumn(energies[idx], dfDset.len)
       dfDset["Variable"] = constantColumn($dkKind, dfDset.len)
       result.add dfDset
+  echo result.getKeys(), " len ", result.len
 
 proc readMorphKind(): MorphingKind
 proc calcLikelihoodDataset*(h5f: var H5File, refFile: string,

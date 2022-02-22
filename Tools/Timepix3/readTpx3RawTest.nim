@@ -245,6 +245,8 @@ const Lfsr10Lut = initLfsr10Lut()
 const Lfsr4Lut = initLfsr4Lut()
 const Gray14Lut = initGray14Lut()
 
+## XXX: replace `ToAExtension` `Option` by a static boolean. That way don't have
+## to do runtime check on whether variable isSome
 proc toData(x: uint64, opMode: uint8, vco = false, ToAExtension = none(uint64)): Tpx3Data =
   #echo x
   let pixel = (x shr 28) and 0b111'u64
@@ -402,7 +404,7 @@ proc main(fname: string, outf: string = "/tmp/testtpx3.h5") =
   #  echo el.configuration
   #  echo el.value
   var h5fout = H5File(outf, "rw")
-  const batch = 50_000_000
+  const batch = 200_000_000
   let filter = H5Filter(kind: fkZlib, zlibLevel: 2)
   let dset = h5fout.create_dataset("interpreted/hit_data_0", (0, 1), dtype = Tpx3Data,
                                    chunksize = @[50_000, 1],
@@ -419,6 +421,7 @@ proc main(fname: string, outf: string = "/tmp/testtpx3.h5") =
 
   var curIdx = findIdx(batch, cumNum)
   var oldIdx = 0
+  #var data = h5f[inputDset.name, uint32]
   var data = inputDset.read_hyperslab(uint32, @[0, 0],
                                       count = @[curIdx, 1])
 
@@ -473,6 +476,7 @@ proc main(fname: string, outf: string = "/tmp/testtpx3.h5") =
       echo "reading from ", oldIdx, " to ", curIdx, " of ", meta.len, ", ", (i.float / meta.len.float) * 100.0, " %"
       data = inputDset.read_hyperslab(uint32, @[oldIdx, 0],
                                       count = @[curIdx - oldIdx, 1])
+      echo "reading done"
       inc batchIdx
   dset.add all
   discard h5fout.close()

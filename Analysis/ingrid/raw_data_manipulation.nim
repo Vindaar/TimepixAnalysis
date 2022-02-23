@@ -560,7 +560,9 @@ proc createChipGroups(h5f: var H5FileObj,
   let chipGroupName = getGroupNameRaw(runNumber) & "/chip_$#"
   result = mapIt(toSeq(0 ..< nChips), h5f.create_group(chipGroupName % $it))
 
-proc initInGridInH5*(h5f: var H5FileObj, runNumber, nChips, batchsize: int) =
+proc initInGridInH5*(h5f: var H5FileObj, runNumber, nChips,
+                     batchsize: int,
+                     createToADset = false) =
   ## This proc creates the groups and dataset for the InGrid data in the H5 file
   ## inputs:
   ##   h5f: H5file = the H5 file object of the writeable HDF5 file
@@ -595,6 +597,13 @@ proc initInGridInH5*(h5f: var H5FileObj, runNumber, nChips, batchsize: int) =
 
     # other single column data
     durationDset = h5f.datasetCreation(joinPath(groupName, "eventDuration"), float)
+  if createToADset:
+    var toa_dsets = chip_groups.mapIt(
+      h5f.datasetCreation(it.name & "/raw_toa", ev_type_ch)
+    )
+    var toa_combined_dsets = chip_groups.mapIt(
+      h5f.datasetCreation(it.name & "/raw_toa_combined", special_type(uint64))
+    )
   let names = chipGroups.mapIt(it.name)
   var
     totDset = mapIt(names, h5f.datasetCreation(it & "/ToT", uint16))
@@ -648,9 +657,18 @@ proc writeRunGrpAttrs*(h5f: var H5FileObj, group: var H5Group,
   # now write attribute data (containing the event run header, for a start
   # NOTE: unfortunately we cannot write all of it simply using applyIt,
   # because we need to parse some numbers as ints, leave some as strings
-  let asInt = ["runNumber", "runTime", "runTimeFrames", "numChips", "shutterTime",
-               "runMode", "fastClock", "externalTrigger"]
-  let asString = ["pathName", "dateTime", "shutterMode"]
+  var asInt: seq[string]
+  var asString: seq[string]
+  case run.timepix
+  of Timepix1:
+    asInt = @["runNumber", "runTime", "runTimeFrames", "numChips", "shutterTime",
+              "runMode", "fastClock", "externalTrigger"]
+    asString = @["pathName", "dateTime", "shutterMode"]
+  of Timepix3:
+    asInt = @["runNumber", "runTime", "runTimeFrames", "numChips",
+              "runMode", "fastClock", "externalTrigger"]
+    asString = @["pathName", "dateTime", "shutterMode", "shutterTime"]
+
 
   # write run header
   # Note: need to check for existence of the keys, because for old TOS data,
@@ -700,19 +718,25 @@ proc writeInGridAttrs*(h5f: var H5FileObj, run: ProcessedRun,
   writeChipAttrs(h5f, chipGroups, run)
 
 proc fillDataForH5(x, y: var seq[seq[seq[uint8]]],
-                   ch: var seq[seq[seq[uint16]]],
+                   ch, toa: var seq[seq[seq[uint16]]],
+                   toaCombined: var seq[seq[seq[uint64]]],
                    evHeaders: var Table[string, seq[int]],
                    duration: var seq[float],
                    events: seq[Event],
                    startEvent: int) =
+  doAssert events.len > 0, "Need at least one event to process!"
   let
     nEvents = events.len
     # take 0 event to get number of chips, since same for whole run
     nChips = events[0].nChips
+    hasToa = events[0].chips[0].version == Timepix3
   for i in 0 ..< nChips:
     x[i]  = newSeq[seq[uint8]](nEvents)
     y[i]  = newSeq[seq[uint8]](nEvents)
     ch[i] = newSeq[seq[uint16]](nEvents)
+    if hasToa:
+      toa[i] = newSeq[seq[uint16]](nEvents)
+      toaCombined[i] = newSeq[seq[uint64]](nEvents)
   for i, event in events:
     duration[i] = event.length
     # add event header information
@@ -733,13 +757,17 @@ proc fillDataForH5(x, y: var seq[seq[seq[uint8]]],
         xl: seq[uint8] = newSeq[uint8](hits)
         yl: seq[uint8] = newSeq[uint8](hits)
         chl: seq[uint16] = newSeq[uint16](hits)
-      for i, p in chp.pixels:
-        xl[i] = uint8(p[0])
-        yl[i] = uint8(p[1])
-        chl[i] = uint16(p[2])
+      for j, p in chp.pixels:
+        xl[j] = uint8(p[0])
+        yl[j] = uint8(p[1])
+        chl[j] = uint16(p[2])
       x[num][i] = xl
       y[num][i] = yl
       ch[num][i] = chl
+      if hasToa:
+        # possibly assign ToA
+        toa[num][i] = chp.toa
+        toaCombined[num][i] = chp.toaCombined
 
 proc writeProcessedRunToH5*(h5f: var H5FileObj, run: ProcessedRun) =
   ## this procedure writes the data from the processed run to a HDF5
@@ -784,6 +812,19 @@ proc writeProcessedRunToH5*(h5f: var H5FileObj, run: ProcessedRun) =
     y  = newSeq[seq[seq[uint8]]](nChips)
     ch = newSeq[seq[seq[uint16]]](nChips)
 
+  let hasToa = run.timepix == Timepix3
+
+  var
+    toa_dsets: seq[H5Dataset]
+    toa_combined_dsets: seq[H5Dataset]
+    toa = newSeq[seq[seq[uint16]]](nChips)
+    toaCombined = newSeq[seq[seq[uint64]]](nChips)
+
+  if hasToa:
+    # also write ToA
+    toa_dsets = chipGroups.mapIt(h5f[(it.name & "/raw_toa").dset_str])
+    toa_combined_dsets = chipGroups.mapIt(h5f[(it.name & "/raw_toa_combined").dset_str])
+
   # prepare event header keys and value (init seqs)
   for key in eventHeaderKeys:
     evHeaders[key] = newSeq[int](nEvents)
@@ -799,7 +840,7 @@ proc writeProcessedRunToH5*(h5f: var H5FileObj, run: ProcessedRun) =
   runGroup.attrs["numEventsStored"] = newsize
 
   # call proc to write the data from the events to the seqs, tables
-  fillDataForH5(x, y, ch, evHeaders, duration, run.events, oldsize)
+  fillDataForH5(x, y, ch, toa, toaCombined, evHeaders, duration, run.events, oldsize)
 
   ##############################
   ###### Write the data ########
@@ -815,6 +856,9 @@ proc writeProcessedRunToH5*(h5f: var H5FileObj, run: ProcessedRun) =
     withDebug:
       info "Shape of x ", x[i].len, " ", x[i].shape
       info "Shape of dset ", x_dsets[i].shape
+    if hasToa:
+      toa_dsets[i].add toa[i]
+      toa_combined_dsets[i].add toaCombined[i]
 
   for key, dset in mpairs(evHeadersDsetTab):
     withDebug:
@@ -1217,7 +1261,7 @@ proc handleTimepix3(h5file: string, runType: RunTypeKind,
         runNumber = r.runNumber
         #nChips = processedRun.nChips
         # create datasets in H5 file
-        initInGridInH5(h5fout, runNumber, nChips, batchsize = FILE_BUFSIZE)
+        initInGridInH5(h5fout, runNumber, nChips, batchsize = FILE_BUFSIZE, createToADset = true)
         # now init attributes
         writeInGridAttrs(h5fout, r, rfUnknown, runType)
         for chip in 0 ..< nChips:

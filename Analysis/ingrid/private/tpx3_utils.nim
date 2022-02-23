@@ -66,8 +66,13 @@ proc computeTpx3RunParameters*(data: seq[Tpx3Data], startIdx, clusterTimeCutoff:
         lengths.add ev.length
         hits.add cluster.pixels.len.uint16
         inc eventIdx
+      cluster = ChipEvent(version: Timepix3, pixels: newSeqOfCap[Pix](400),
+                          toa: newSeqOfCap[uint16](400),
+                          toaCombined: newSeqOfCap[uint64](400))
       startT = el.chunk_start_time
     cluster.pixels.add (x: el.x, y: el.y, ch: el.TOT)
+    cluster.toa.add el.TOA
+    cluster.toaCombined.add el.TOA_Combined
     tots.add el.TOT
     clusterTime = el.TOA.int
     lastT = el.chunk_start_time

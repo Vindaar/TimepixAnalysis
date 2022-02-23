@@ -60,8 +60,8 @@ const FakeFrameSize* = 32000
 
 const InGridFnameTemplate* = "$1_run$2_chip$3_$4_binSize_binRange$5_$6"
 const InGridTitleTemplate* = "Dataset: $1 for run $2, chip $3 in range: $4"
-const AnyScatterFnameTemplate* = "$1_run$2_chip$3_x_$4_y_$5_z_$6"
-const AnyScatterTitleTemplate* = "Dataset: $4 / $5 by $6, for run $2, chip $3"
+const CustomPlotFnameTemplate* = "$1_run$2_chip$3_$4"
+const CustomPlotTitleTemplate* = "$1, for run $2, chip $3"
 const FadcFnameTemplate* = "fadc_$1_run$2_$3_binSize$4_binRange$5_$6"
 const FadcTitleTemplate* = "Dataset: $1 for run $2, fadc in range: $3"
 const PolyaFnameTemplate* = "polya_run$1_chip$2"
@@ -366,7 +366,11 @@ proc toFilename(s: DataSelector): string =
   let numIdxs = if s.idxs.len > 0: &"numIdxs_{s.idxs.len}" else: ""
   let sApplyAll = if s.cuts.len > 0: &"applyAll_{s.applyAll}" else: ""
   let sRegion = &"region_{s.region}"
-  result = @[sRegion, sCuts, sApplyAll, numIdxs].join("_")
+  result = @[sRegion, sCuts, sApplyAll, numIdxs].filterIt(it.len > 0).join("_")
+
+proc toFilename(c: CustomPlot): string =
+  let kind = &"kind_{c.kind}"
+  result = @[kind, c.x, c.y, c.color].filterIt(it.len > 0).join("_")
 
 proc toTitle(s: DataSelector): string =
   let sCuts = s.cuts.mapIt(&"{it.dset}: [{it.lower:.2f}, {it.upper:.2f}]").join(", ")
@@ -374,6 +378,10 @@ proc toTitle(s: DataSelector): string =
   let sApplyAll = if s.cuts.len > 0: &"applyAll: {s.applyAll}" else: ""
   let sRegion = &"region: {s.region}"
   result = @[sRegion, sCuts, sApplyAll, numIdxs].join(", ")
+
+proc toTitle(c: CustomPlot): string =
+  let kind = &"Custom: {c.kind}"
+  result = &"{kind}, x: {c.x}, y: {c.y}, color: {c.color}"
 
 proc buildOutfile*(pd: PlotDescriptor, prefix, filetype: string): kstring =
   var name = ""
@@ -386,13 +394,11 @@ proc buildOutfile*(pd: PlotDescriptor, prefix, filetype: string): kstring =
                                    $pd.binSize,
                                    $pd.binRange[0],
                                    $pd.binRange[1]]
-  of pkAnyScatter:
-    name = AnyScatterFnameTemplate %% [pd.name,
+  of pkCustomPlot:
+    name = CustomPlotFnameTemplate %% [pd.name,
                                        runsStr,
                                        $pd.chip,
-                                       $pd.x,
-                                       $pd.y,
-                                       $pd.color]
+                                       pd.customPlot.toFilename]
   of pkFadcDset:
     name = FadcFnameTemplate %% [pd.name,
                                  runsStr,
@@ -462,13 +468,11 @@ proc buildTitle*(pd: PlotDescriptor): kstring =
                                      runsStr,
                                      $pd.chip,
                                      $pd.binRange]
-  of pkAnyScatter:
-    result = AnyScatterTitleTemplate %% [pd.name,
-                                       runsStr,
-                                       $pd.chip,
-                                       $pd.x,
-                                       $pd.y,
-                                       $pd.color]
+  of pkCustomPlot:
+    result = CustomPlotTitleTemplate %% [pd.name,
+                                         runsStr,
+                                         $pd.chip,
+                                         pd.customPlot.toTitle]
   of pkFadcDset:
     result = FadcTitleTemplate %% [pd.name,
                                   runsStr]

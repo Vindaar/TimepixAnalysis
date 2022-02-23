@@ -1,5 +1,6 @@
 ## A tool to plot data from H5 files
-import plotly, ggplotnim
+import plotly
+import ggplotnim
 import os except FileInfo
 import strutils, strformat, times, sequtils, math, macros, algorithm, sets, stats, base64
 import options, logging, typeinfo, json
@@ -55,67 +56,6 @@ const
                   "minvals", "noisy", "riseStart", "riseTime"]
 
 type
-  OutputFiletypeKind = enum
-    ofUnknown,
-    ofJson = "json"
-    ofOrg = "org"
-
-  FiletypeKind = enum
-    ftSvg = "svg"
-    ftPdf = "pdf"
-    ftPng = "png"
-
-  ConfigFlagKind* = enum
-    cfNone, cfFadc, cfInGrid, cfOccupancy, cfPolya, cfFeSpectrum, cfTotPerPixel, cfProvideServer, cfShow,
-    cfApplyAllCuts # if true, will apply all cuts to all datasets. If not given (default) a cut on
-                   # a single dataset will only apply on that dataset
-
-  ## For now: simple object storing x/y datasets to plot against in scatter
-  ## From it a correct `PlotDescriptor` will be generated once the file is known
-  CustomPlot = object
-    x: string
-    y: string
-    color: string
-
-  Config* = object
-    flags*: set[ConfigFlagKind]
-    chips*: set[uint16]
-    runs*: set[uint16]
-    outputType*: OutputFiletypeKind # the file format to use for the file containing all plots
-    fileType*: FiletypeKind
-    ingridDsets*: set[IngridDsetKind]
-    fadcDsets*: seq[string] # currently don't have an enum for them
-    cuts*: seq[GenericCut] ## Used to fill the `DataSelector`
-    region*: ChipRegion    ## From input to preselect a region
-    idxs*: seq[int]        ## Indices to read. Negative indices are interpreted as seen from the end of dset
-    plotlySaveSvg*: bool
-    customPlots*: seq[CustomPlot]
-
-  BackendKind* = enum
-    bNone, bMpl, bPlotly, bGgPlot
-
-  # variant object for the layout combining both
-  # TODO: make generic or always use float?
-  PlotV* = object
-    annotations*: seq[string]
-    invalid*: bool
-    case kind*: BackendKind
-    of bMpl:
-      # what needs to go here?
-      plt*: PyObject
-      fig*: PyObject
-      ax*: PyObject
-    of bPlotly:
-      plLayout*: Layout
-      plPlot*: Plot[float]
-      plPlotJson*: PlotJson
-    of bGgPlot:
-      pltGg*: GgPlot
-      width*: float
-      height*: float
-      theme*: Theme
-    else: discard
-
   ShapeKind = enum
     Rectangle, Square
 
@@ -155,7 +95,7 @@ proc initConfig*(chips: set[uint16],
   let fType = tomlConfig["General"]["filetype"].getStr
   let outputType = tomlConfig["General"]["outputFormat"].getStr
   let combinedFormat = parseEnum[OutputFiletypeKind](outputType)
-  let fileFormat = parseEnum[FiletypeKind](fType)
+  let fileFormat = parseEnum[PlotFiletypeKind](fType)
 
   ## XXX: remove this, set global
   fileType = fType
@@ -198,7 +138,7 @@ proc initSelector(config: Config, cuts: seq[GenericCut] = @[],
 ## #############################################
 
 # global variable which stores the backend the user selected
-var BKind*: BackendKind = bNone
+var BKind*: PlottingBackendKind = bNone
 # global OrderedSet to store all files we save to later
 # combine to single PDF
 var imageSet = initOrderedSet[string]()
@@ -586,6 +526,10 @@ proc createCustomPlots(fileInfo: FileInfo, config: Config): seq[PlotDescriptor] 
   ## define any plot that doesn't fit any of the other descriptions here
   let selector = initSelector(config)
   for plt in config.customPlots:
+    let customPlot = CustomPlot(kind: cpScatter,
+                                x: plt.x,
+                                y: plt.y,
+                                color: plt.color)
     result.add PlotDescriptor(runType: fileInfo.runType,
                               name: plt.x & "_vs_" & plt.y,
                               xLabel: plt.x,
@@ -595,10 +539,8 @@ proc createCustomPlots(fileInfo: FileInfo, config: Config): seq[PlotDescriptor] 
                               isCenterChip: true,
                               chip: -1, ## will be set to center chip when reading data!
                               runs: fileInfo.runs,
-                              plotKind: pkAnyScatter,
-                              x: plt.x,
-                              y: plt.y,
-                              color: plt.color)
+                              plotKind: pkCustomPlot,
+                              customPlot: customPlot)
   when false:
     block:
       result.add PlotDescriptor(runType: fileInfo.runType,
@@ -1664,7 +1606,6 @@ proc handleFeVsTime(h5f: H5File,
     result[1].pltGg.annotations.add @[stdAnn, meanAnn]
   else: echo "WARNING: annotations unsupported on backend: " & $BKind
 
-
 proc handleFePixDivChVsTime(h5f: H5File,
                             fileInfo: FileInfo,
                             pd: PlotDescriptor,
@@ -1975,25 +1916,32 @@ proc handleFadcEvent(h5f: H5File,
     # only a single pd
     result = (outfile, pltV)
 
-proc handleAnyScatter(h5f: H5File,
+proc handleCustomPlot(h5f: H5File,
                       fileInfo: FileInfo,
                       pd: PlotDescriptor,
                       config: Config): (string, PlotV) =
-  doAssert pd.plotKind == pkAnyScatter
-  var allX: seq[float]
-  var allY: seq[float]
-  var allZ: seq[float]
-  for r in pd.runs:
-    allX.add h5f.read(r, pd.x, pd.selector, dtype = float,
-                     chipNumber = fileInfo.centerChip)
-    allY.add h5f.read(r, pd.y, pd.selector, dtype = float,
-                     chipNumber = fileInfo.centerChip)
-    if pd.color.len > 0:
-      allZ.add h5f.read(r, pd.color, pd.selector, dtype = float,
-                        chipNumber = fileInfo.centerChip)
-  let title = buildTitle(pd)
-  result[0] = buildOutfile(pd, fileDir, fileType)
-  result[1] = plotCustomScatter(allX, allY, pd, title, allZ)
+  doAssert pd.plotKind == pkCustomPlot
+  if pd.processData.isNil:
+    ## Assume this is a scatter plot
+    let cPlt = pd.customPlot
+    doAssert cPlt.kind == cpScatter, "Non scatter plots currently not supported " &
+      "without a custom `processData` function!"
+    var allX: seq[float]
+    var allY: seq[float]
+    var allZ: seq[float]
+    for r in pd.runs:
+      allX.add h5f.read(r, cPlt.x, pd.selector, dtype = float,
+                       chipNumber = fileInfo.centerChip)
+      allY.add h5f.read(r, cPlt.y, pd.selector, dtype = float,
+                       chipNumber = fileInfo.centerChip)
+      if cPlt.color.len > 0:
+        allZ.add h5f.read(r, cPlt.color, pd.selector, dtype = float,
+                          chipNumber = fileInfo.centerChip)
+    let title = buildTitle(pd)
+    result[0] = buildOutfile(pd, fileDir, fileType)
+    result[1] = plotCustomScatter(allX, allY, pd, title, allZ)
+  else:
+    result = pd.processData(h5f, fileInfo, pd, config)
 
 proc createPlot*(h5f: H5File, fileInfo: FileInfo,
                  pd: PlotDescriptor, config: Config): (string, PlotV)
@@ -2072,8 +2020,8 @@ proc createPlot*(h5f: H5File,
     #  result = handleOuterChips(h5f, fileInfo, pd, config)
     of pkToTPerPixel:
       result = handleToTPerPixel(h5f, fileInfo, pd, config)
-    of pkAnyScatter:
-      result = handleAnyScatter(h5f, fileInfo, pd, config)
+    of pkCustomPlot:
+      result = handleCustomPlot(h5f, fileInfo, pd, config)
     else:
       discard
 
@@ -2081,8 +2029,9 @@ proc createPlot*(h5f: H5File,
     #if not result[1].plPlot.isNil:
     info &"Calling savePlot for {pd.plotKind} with filename {result[0]}"
     savePlot(result[1], result[0], config, fullPath = true)
-  except KeyError:
+  except KeyError as e:
     echo "WARNING: Could not generate the plot: " & $pd & ". Skipping it."
+    echo "Exception message: ", e.msg
 
 proc createOrg(outfile, fileType: string) =
   ## creates a simple org file consisting of headings and images
@@ -2279,7 +2228,7 @@ proc serve(h5f: H5File,
 proc eventDisplay(h5file: string,
                   run: int,
                   runType: RunTypeKind,
-                  bKind: BackendKind,
+                  bKind: PlottingBackendKind,
                   config: Config): string =
   ## use as event display tool
   var h5f = H5open(h5file, "r")
@@ -2324,7 +2273,7 @@ proc genCalibrationPlotPDs(h5f: H5File,
     result.add createCustomPlots(fInfoConfig, config)
 
 proc createCalibrationPlots(h5file: string,
-                            bKind: BackendKind,
+                            bKind: PlottingBackendKind,
                             runType: RunTypeKind,
                             config: Config): string =
   ## creates QA plots for calibration runs
@@ -2361,7 +2310,7 @@ proc genBackgroundPlotPDs(h5f: H5File, runType: RunTypeKind,
     result.add createCustomPlots(fInfoConfig, config)
 
 proc createBackgroundPlots(h5file: string,
-                           bKind: BackendKind,
+                           bKind: PlottingBackendKind,
                            runType: RunTypeKind,
                            config: Config): string =
   ## creates QA plots for calibration runs
@@ -2383,12 +2332,12 @@ proc createBackgroundPlots(h5file: string,
       let outfile = "background" & "_" & getRunsStr(fInfoConfig.runs)
       result = handleOutput(outfile, config)
 
-proc createXrayFingerPlots(bKind: BackendKind,
+proc createXrayFingerPlots(bKind: PlottingBackendKind,
                            config: Config): string =
   discard
 
 proc handlePlotTypes(h5file: string,
-                     bKind: BackendKind,
+                     bKind: PlottingBackendKind,
                      runType: RunTypeKind,
                      config: Config,
                      evDisplayRun = none[int]()) =
@@ -2458,7 +2407,7 @@ proc add(p: var PlotV, p2: PlotV, f1, f2: string) =
     raise newException(Exception, "Not implemented to add plots of kind " & $p.kind)
 
 proc createComparePlots(h5file: string, h5Compare: seq[string],
-                        bKind: BackendKind,
+                        bKind: PlottingBackendKind,
                         runType: RunTypeKind,
                         compareRunTypes: seq[RunTypeKind],
                         config: Config
@@ -2499,7 +2448,7 @@ proc createComparePlots(h5file: string, h5Compare: seq[string],
     let outf = outfile & "_combined.pdf"
     plt.savePlot(outf, config, fullPath = true)
 
-proc parseBackendType(backend: string): BackendKind =
+proc parseBackendType(backend: string): PlottingBackendKind =
   ## given a string describing a run type, return the correct
   ## `RunTypeKind`
   if backend.normalize in ["python", "py", "matplotlib", "mpl"]:
@@ -2652,7 +2601,7 @@ proc serve() =
 proc plotData*(
   h5file: string,
   runType: RunTypeKind,
-  backend: BackendKind = bGgPlot,
+  backend: PlottingBackendKind = bGgPlot,
   eventDisplay: int = -1,
   h5Compare: seq[string] = @[], # additional files to compare against
   compareRunTypes: seq[RunTypeKind] = @[],

@@ -3,6 +3,87 @@ import sets, tables
 
 import ingrid / ingrid_types
 
+when defined(js):
+  # just some opaque thing
+  type
+    H5File* = object
+    Config* = object
+    PlotV* = object
+else:
+  from nimhdf5 import H5File
+  from nimpy import PyObject
+  import plotly
+  import ggplotnim
+  import ingrid / tos_helpers
+  type
+    CustomPlotKind* = enum
+      cpScatter, cpHistogram #, ...
+    ## For now: simple object storing x/y datasets to plot against in scatter
+    ## From it a correct `PlotDescriptor` will be generated once the file is known
+    CustomPlot* = object
+      kind*: CustomPlotKind
+      x*: kstring
+      y*: kstring     # not used for histogram
+      color*: kstring
+
+    OutputFiletypeKind* = enum
+      ofUnknown,
+      ofJson = "json"
+      ofOrg = "org"
+
+    PlotFiletypeKind* = enum
+      ftSvg = "svg"
+      ftPdf = "pdf"
+      ftPng = "png"
+
+    ConfigFlagKind* = enum
+      cfNone, cfFadc, cfInGrid, cfOccupancy, cfPolya, cfFeSpectrum, cfTotPerPixel, cfProvideServer, cfShow,
+      cfApplyAllCuts # if true, will apply all cuts to all datasets. If not given (default) a cut on
+                     # a single dataset will only apply on that dataset
+
+    ## A generic cut on input data using dset & low / high values
+    GenericCut* = tuple[dset: string, lower, upper: float]
+
+    Config* = object
+      flags*: set[ConfigFlagKind]
+      chips*: set[uint16]
+      runs*: set[uint16]
+      outputType*: OutputFiletypeKind # the file format to use for the file containing all plots
+      fileType*: PlotFiletypeKind
+      ingridDsets*: set[IngridDsetKind]
+      fadcDsets*: seq[string] # currently don't have an enum for them
+      cuts*: seq[GenericCut] ## Used to fill the `DataSelector`
+      region*: ChipRegion    ## From input to preselect a region
+      idxs*: seq[int]        ## Indices to read. Negative indices are interpreted as seen from the end of dset
+      plotlySaveSvg*: bool
+      customPlots*: seq[CustomPlot]
+
+    PlottingBackendKind* = enum
+      bNone, bMpl, bPlotly, bGgPlot
+
+    # variant object for the layout combining both
+    # TODO: make generic or always use float?
+    PlotV* = object
+      annotations*: seq[string]
+      invalid*: bool
+      case kind*: PlottingBackendKind
+      of bMpl:
+        # what needs to go here?
+        plt*: PyObject
+        fig*: PyObject
+        ax*: PyObject
+      of bPlotly:
+        plLayout*: Layout
+        plPlot*: Plot[float]
+        plPlotJson*: PlotJson
+      of bGgPlot:
+        pltGg*: GgPlot
+        width*: float
+        height*: float
+        theme*: Theme
+      else: discard
+
+
 type
   ## enum listing all available `plot types` we can produce
   PlotKind* = enum
@@ -23,7 +104,7 @@ type
     pkInGridEvent          ## Individual InGrid event
     pkFadcEvent            ## Individual FADC event
     pkCalibRandom          ## ? to be filled for different calibration plots
-    pkAnyScatter           ## Scatter plot of some x vs. some y
+    pkCustomPlot           ## Custom plot of: scatter: some x vs. some y, histogram, ...
     pkMultiDset            ## Plot of multiple histograms. Will be removed and replaced
                            ## by redesign of `createPlot`
     pkSubPlots             ## several subplots in one plot
@@ -38,9 +119,6 @@ type
   DataKind* = enum
     dkInGrid, dkFadc
 
-  ## A generic cut on input data using dset & low / high values
-  GenericCut* = tuple[dset: string, lower, upper: float]
-
   ## Helper that is used to store combined cuts as well as a region
   DataSelector* = object
     region*: ChipRegion ## Region defaults to full chip
@@ -51,6 +129,9 @@ type
 
   Domain* = tuple
     left, bottom, width, height: float
+
+  ## The type corresponding to the procedures that
+  PlotHandlerProc = proc(h5f: H5File, fileInfo: FileInfo, pd: PlotDescriptor, config: Config): (string, PlotV)
 
   PlotDescriptor* = object
     runType*: RunTypeKind
@@ -68,11 +149,10 @@ type
       # optional fields for bin size and range
       binSize*: float
       binRange*: tuple[low, high: float]
-    of pkAnyScatter:
+    of pkCustomPlot:
       # read any dataset as X and plot it against Y
-      x*: kstring
-      y*: kstring
-      color*: kstring
+      customPlot*: CustomPlot
+      processData*: PlotHandlerProc
     of pkMultiDset:
       # histogram of all these datasets in one
       names*: seq[string]
@@ -133,9 +213,8 @@ proc `==`*(p1, p2: PlotDescriptor): bool =
     of pkInGridDset, pkFadcDset, pkToTPerPixel:
       cmpField(binSize)
       cmpField(binRange)
-    of pkAnyScatter:
-      cmpField(x)
-      cmpField(y)
+    of pkCustomPlot:
+      cmpField(customPlot)
     of pkMultiDset:
       cmpField(names)
     of pkInGridCluster:

@@ -245,6 +245,8 @@ const Lfsr10Lut = initLfsr10Lut()
 const Lfsr4Lut = initLfsr4Lut()
 const Gray14Lut = initGray14Lut()
 
+## XXX: replace `ToAExtension` `Option` by a static boolean. That way don't have
+## to do runtime check on whether variable isSome
 proc toData(x: uint64, opMode: uint8, vco = false, ToAExtension = none(uint64)): Tpx3Data =
   #echo x
   let pixel = (x shr 28) and 0b111'u64

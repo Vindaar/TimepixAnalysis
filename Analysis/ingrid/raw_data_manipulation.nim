@@ -638,6 +638,7 @@ proc writeRawAttrs*(h5f: var H5FileObj,
   ## Write global variables of `raw_data_manipulation`
   rawG.attrs["raw_data_manipulation_version"] = commitHash
   rawG.attrs["raw_data_manipulation_compiled_on"] = compileDate
+  rawG.attrs["TimepixVersion"] = $run.timepix
 
 proc writeRunGrpAttrs*(h5f: var H5FileObj, group: var H5Group,
                        runType: RunTypeKind,

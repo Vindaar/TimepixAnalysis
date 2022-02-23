@@ -689,6 +689,17 @@ proc getRunInfo*(path: string): RunInfo =
   result.nEvents = files.len
   result.nFadcEvents = fadcFiles.len
 
+proc timepixVersion*(h5f: H5File): TimepixVersion =
+  result = Timepix1
+  template tryGroup(grp: untyped): untyped =
+    if grp.string in h5f:
+      let group = h5f[grp]
+      if "TimepixVersion" in group.attrs:
+        result = parseEnum[TimepixVersion](group.attrs["TimepixVersion", string])
+  tryGroup(rawGroupGrpStr())
+  tryGroup(recoGroupGrpStr())
+  tryGroup(likelihoodGroupGrpStr())
+
 proc getFileInfo*(h5f: H5File, baseGroup = recoGroupGrpStr()): FileInfo =
   ## returns a set of all run numbers in the given file
   # visit file
@@ -713,9 +724,12 @@ proc getFileInfo*(h5f: H5File, baseGroup = recoGroupGrpStr()): FileInfo =
       let nChips = grp.attrs["numChips", int]
       result.chips = toSeq(0 ..< nChips)#.mapIt(it)
       readAux = true
+  # set timepix version
+  result.timepix = h5f.timepixVersion()
   # sort the run numbers
   result.runs.sort
   echo result
+
 
 proc parseTracking(grp: H5Group, idx: int): RunTimeInfo =
   let

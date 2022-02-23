@@ -728,8 +728,6 @@ proc getFileInfo*(h5f: H5File, baseGroup = recoGroupGrpStr()): FileInfo =
   result.timepix = h5f.timepixVersion()
   # sort the run numbers
   result.runs.sort
-  echo result
-
 
 proc parseTracking(grp: H5Group, idx: int): RunTimeInfo =
   let
@@ -791,6 +789,39 @@ proc genPlotDirname*(h5f: H5File, outpath: string, attrName: string): string =
     let timeStr = format(now(), "yyyy-MM-dd'_'HH-mm-ss")
     result = outpath / name & "_" & timeStr
     h5f.attrs[attrName] = result
+
+proc toString[N](a: array[N, char]): string =
+  ## Returns all non `\0` characters as a string
+  for c in a:
+    if c != '\0':
+      result.add c
+    else:
+      break
+
+proc readTpx3RunConfig*(h5f: H5File): Tpx3RunConfig =
+  ## Reads the `run_config` dataset in the `/configuration` group and returns
+  ## it turned into a `Table[string, string]`
+  let data = h5f["/configuration/run_config", Tpx3RunConfigRaw]
+  for el in data:
+    let attr = el.attribute.toString
+    let val = el.value.toString
+    for field, fval in fieldPairs(result):
+      if field.nimIdentNormalize == attr.nimIdentNormalize:
+        when typeof(fval) is int:
+          fval = parseInt(val)
+        elif typeof(fval) is char:
+          fval = val[0]
+        else:
+          fval = val
+
+proc timeFromTpx3RunConfig*(tpx3: Tpx3RunConfig): DateTime =
+  ## Parses the date / time from the `runName` and returns it as a `DateTime`
+  let tstr = tpx3.runName.removePrefix("data_take_")
+  result = parse(tstr, "YYYY-MM-dd'_'HH-mm-ss")
+
+proc chipNameFromTpx3RunConfig*(tpx3: Tpx3RunConfig): string =
+  ## Parses the date / time from the `runName` and returns it as a `DateTime`
+  result = &"{tpx3.chipX}{tpx3.chipY:2}W{tpx3.chipWafer}"
 
 when isMainModule:
   assert combineRawBasenameToT(0, 1) == "/runs/combined/ToT_0_1"

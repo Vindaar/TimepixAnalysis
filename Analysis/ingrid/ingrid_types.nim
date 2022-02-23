@@ -296,6 +296,26 @@ type
     TOA_Extension*: uint64
     TOA_Combined*: uint64
 
+  ## The `run_config` dataset in the Tpx3 H5 files is stored as a compound
+  ## type of this
+  Tpx3RunConfigRaw* = object
+    ## IMPORTANT: I don't know if these sizes may ever change!
+    attribute*: array[64, char]
+    value*: array[128, char]
+
+  ## The above merged into a sane typed object
+  Tpx3RunConfig* = object
+    scanId*: string ## why is this a string?
+    runName*: string
+    softwareVersion*: string
+    boardName*: string
+    firmwareVersion*: int
+    chipWafer*: int   ## The number of the wafer
+    chipX*: char      ## The 'X' coordinate on the wafer, a character
+    chipY*: int       ## The 'Y' coordinate on the wafer, a number
+    thrFile*: string  ## Path to the threshold file
+    maskFile*: string ## Path to the mask file
+
   ## GasGainIntervalData stores the information about binning the data for the
   ## calculation of the gas gain in a run by a fixed time interval, e.g.
   ## 100 minutes

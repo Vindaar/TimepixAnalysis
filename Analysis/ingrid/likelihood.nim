@@ -654,7 +654,7 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
       let recoEv = recoEvent((septemFrame.pixels, evNum.toInt.int), -1,
                              runNumber, searchRadius = searchRadius,
                              dbscanEpsilon = epsilon,
-                             clusterAlgo = clusterAlgo)[]
+                             clusterAlgo = clusterAlgo)
 
       # extract the correct gas gain slices for this event
       var gainVals: seq[float]

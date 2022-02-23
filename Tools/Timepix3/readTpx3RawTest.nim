@@ -404,6 +404,11 @@ proc main(fname: string, outf: string = "/tmp/testtpx3.h5") =
   #  echo el.configuration
   #  echo el.value
   var h5fout = H5File(outf, "rw")
+  # first copy over `configuration` group
+  let cfg = h5f["/configuration".grp_str]
+  let status = h5f.copy(cfg, some("/configuration"), some(h5fout))
+  if not status:
+    raise newException(IOError, "Could not copy over `/configuration` from " & $fname & " to " & $outf)
   const batch = 50_000_000
   let filter = H5Filter(kind: fkZlib, zlibLevel: 2)
   let dset = h5fout.create_dataset("interpreted/hit_data_0", (0, 1), dtype = Tpx3Data,

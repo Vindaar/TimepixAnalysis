@@ -475,9 +475,12 @@ proc main(fname: string, outf: string = "/tmp/testtpx3.h5") =
       echo "reading from ", oldIdx, " to ", curIdx, " of ", meta.len, ", ", (i.float / meta.len.float) * 100.0, " %"
       data = inputDset.read_hyperslab(uint32, @[oldIdx, 0],
                                       count = @[curIdx - oldIdx, 1])
+      echo "reading done"
       inc batchIdx
   dset.add all
+  echo "Closing output file ", h5fout.name
   discard h5fout.close()
+  echo "Closing input file ", h5f.name
   discard h5f.close()
 
 when isMainModule:

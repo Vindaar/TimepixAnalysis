@@ -991,13 +991,11 @@ proc processAndWriteFadc(run_folder: string, runNumber: int, h5f: var H5FileObj)
   readWriteFadcData(run_folder, runNumber, h5f)
   info "FADC took $# data" % $(getOccupiedMem() - mem1)
 
-proc createProcessedTpx3Run(data: seq[Tpx3Data], cutoff: int): ProcessedRun =
+proc createProcessedTpx3Run(data: seq[Tpx3Data], startIdx, cutoff: int,
+                            runConfig: Tpx3RunConfig): ProcessedRun =
   # add new cluster if diff in time larger than 50 clock cycles
-  result = computeTpx3RunParameters(data, clusterTimeCutoff = cutoff)
-  result.nChips = 1 ## TODO: allow multiple chips, find out where to best read from input file
-  result.chips = @[(name: "W15 E5", number: 0)]
-  result.runNumber = 0
-  #result.runHeader =
+  result = computeTpx3RunParameters(data, startIdx, clusterTimeCutoff = cutoff,
+                                    runConfig = runConfig)
 
 proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string,
                               flags: set[RawFlagKind],
@@ -1199,6 +1197,7 @@ proc handleTimepix3(h5file: string, runType: RunTypeKind,
   var h5f = H5File(h5file, "rw")
   const tpx3Buf = 50_000_000
   let dset = h5f["interpreted/hit_data_0".dset_str]
+  let runConfig = h5f.readTpx3RunConfig()
   let pixNum = dset.shape[0]
   let batches = ceil(pixNum.float / tpx3Buf.float).int
   var oldIdx = 0
@@ -1211,7 +1210,8 @@ proc handleTimepix3(h5file: string, runType: RunTypeKind,
     oldIdx += countIdx
     countIdx = if oldIdx + tpx3Buf < pixNum: tpx3Buf
                else: pixNum - oldIdx
-    let r = createProcessedTpx3Run(data, cutoff = clusterCutoff)
+    let r = createProcessedTpx3Run(data, oldIdx, cutoff = clusterCutoff,
+                                   runConfig = runConfig)
     if r.events.len > 0:
       if not attrsWritten:
         runNumber = r.runNumber

@@ -48,7 +48,15 @@ if fileExists(OldTosRunListPath):
   oldTosXrayRuns  = parseOldTosRunlist(OldTosRunListPath, rtXrayFinger)
   oldTosRunListFound = true
 
+when defined(linux):
+  const commitHash = staticExec("git rev-parse --short HEAD")
+else:
+  const commitHash = ""
+# get date using `CompileDate` magic
+const compileDate = CompileDate & " at " & CompileTime
+
 const docStr = """
+Version: $# built on: $#
 InGrid raw data manipulation.
 
 Usage:
@@ -627,6 +635,9 @@ proc writeRawAttrs*(h5f: var H5FileObj,
   # NOTE: the run length will be wrong by the duration of the last event!
   rawG.attrs["totalRunDuration"] = (parseTOSDateString(stop) -
                                     parseTOSDateString(start)).inSeconds
+  ## Write global variables of `raw_data_manipulation`
+  rawG.attrs["raw_data_manipulation_version"] = commitHash
+  rawG.attrs["raw_data_manipulation_compiled_on"] = compileDate
 
 proc writeRunGrpAttrs*(h5f: var H5FileObj, group: var H5Group,
                        runType: RunTypeKind,
@@ -657,6 +668,9 @@ proc writeRunGrpAttrs*(h5f: var H5FileObj, group: var H5Group,
   # initialize the attribute for the current number of stored events to 0
   group.attrs["numEventsStored"] = 0
   group.attrs["runType"] = $runType
+  ## Write global variables of `raw_data_manipulation`
+  group.attrs["raw_data_manipulation_version"] = commitHash
+  group.attrs["raw_data_manipulation_compiled_on"] = compileDate
 
 proc writeChipAttrs*(h5f: var H5FileObj,
                      chipGroups: var seq[H5Group],

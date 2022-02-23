@@ -46,7 +46,7 @@ proc newClusterGeometry*(): ClusterGeometry =
                            fractionInTransverseRms: Inf)
 
 
-proc newClusterObject*[T: SomePix](c: Cluster[T]): ClusterObject[T] =
+proc newClusterObject*[T: SomePix](c: Cluster[T], timepix: TimepixVersion): ClusterObject[T] =
   ## initialize variables with Inf for now
   # TODO: should we initialize geometry values by Inf as well?
   let geometry = ClusterGeometry()
@@ -54,7 +54,27 @@ proc newClusterObject*[T: SomePix](c: Cluster[T]): ClusterObject[T] =
                             centerX: Inf,
                             centerY: Inf,
                             energy: Inf,
-                            geometry: geometry)
+                            geometry: geometry,
+                            version: timepix)
+
+proc to*[T: SomePix; U: SomePix](c: Cluster[T], _: typedesc[U]): Cluster[U] =
+  ## Converts the input pix type to the output
+  ## May throw away information
+  when T is U: result = c
+  elif T is Pix and U is PixTpx3:
+    # return with empty `toa`, `toaCombined`
+    warn("Conversion from `Pix` to `PixTpx3` adds empty ToA data!")
+    result = newSeq[U](c.len)
+    for i in 0 ..< result.len:
+      result[i] = (x: c[i].x, y: c[i].y, ch: c[i].ch, toa: 0'u16, toaCombined: 0'u64)
+  elif T is PixTpx3 and U is Pix:
+    warn("Conversion from `PixTpx3` to `Pix` throws away ToA information!")
+    result = newSeq[U](c.len)
+    for i in 0 ..< result.len:
+      result[i] = (x: c[i].x, y: c[i].y, ch: c[i].ch)
+  elif T is PixInt or U is PixInt:
+    error("Currently unsupported for `PixInt` type! Need to make sure we perform " &
+      "coordinate transformation correctly!")
 
 template withSeptemXY*(chipNumber: int, actions: untyped): untyped =
   ## injects the x0, y0 coordinates of the given chip number embedded into
@@ -321,10 +341,12 @@ proc calcGeometry*[T: SomePix](cluster: Cluster[T],
     y_max, y_min: float
     i = 0
   for p in cluster:
-    when T is Pix:
+    when T is Pix or T is PixTpx3:
       let (x, y) = applyPitchConversion(p.x, p.y, NPIX)
-    else:
+    elif T is PixInt:
       let (x, y) = applyPitchConversion(p.x, p.y, NPIX * 3)
+    else:
+      error("Invalid type: " & $T)
     xRot[i] = cos(-rot_angle) * (x - pos_x) - sin(-rot_angle) * (y - pos_y)
     yRot[i] = sin(-rot_angle) * (x - pos_x) + cos(-rot_angle) * (y - pos_y)
 
@@ -514,12 +536,16 @@ proc fitRotAngle*[T: SomePix](cl_obj: ClusterObject[T],
   # now return the optimized parameters and the corresponding min value
   result = (params[0], min_val)
 
-proc recoCluster*[T: SomePix](c: Cluster[T]): ClusterObject[T] {.gcsafe, hijackMe.} =
+
 #proc recoCluster*(c: Cluster[Pix]): ClusterObject[Pix] {.gcsafe.} =
-  result = newClusterObject(c)
+proc recoCluster*[T: SomePix; U: SomePix](c: Cluster[T],
+                                          timepix: TimepixVersion = Timepix1,
+                                          _: typedesc[U]): ClusterObject[U] {.gcsafe, hijackMe.} =
+  let cl = c.to(U)
+  result = newClusterObject(cl, timepix)
   let
     clustersize: int = len(c)
-    (sum_x, sum_y, sumTotInCluster) = sum(c)
+    (sum_x, sum_y, sumTotInCluster) = sum(cl)
     # using map and sum[Pix] we can calculate sum of x^2, y^2 and x*y in one line
     (sum_x2, sum_y2, sum_xy) = sum(c.mapIt((it.x.int * it.x.int,
                                             it.y.int * it.y.int,
@@ -542,10 +568,12 @@ proc recoCluster*[T: SomePix](c: Cluster[T]): ClusterObject[T] {.gcsafe, hijackM
   # set number of hits in cluster
   result.hits = clustersize
   # set the position
-  when T is Pix:
+  when T is Pix or T is PixTpx3:
     (result.centerX, result.centerY) = applyPitchConversion(pos_x, pos_y, NPIX)
-  else:
+  elif T is PixInt:
     (result.centerX, result.centerY) = applyPitchConversion(pos_x, pos_y, NPIX * 3)
+  else:
+    error("Invalid type: " & $T)
   # prepare rot angle fit
   if rotAngleEstimate < 0:
     #echo "correcting 1"
@@ -565,18 +593,53 @@ proc recoCluster*[T: SomePix](c: Cluster[T]): ClusterObject[T] {.gcsafe, hijackM
   # now we still need to use the rotation angle to calculate the different geometric
   # properties, i.e. RMS, skewness and kurtosis along the long axis of the cluster
   result.geometry = calcGeometry(c, result.centerX, result.centerY, rot_angle)
+  when T is PixTpx3:
+    result.toa = c.mapIt(it.toa)
+    result.toaCombined = c.mapIt(it.toaCombined)
 
-proc recoEvent*[T: SomePix](dat: tuple[pixels: seq[T], eventNumber: int],
+proc getPixels[T](dat: RecoInputEvent, _: typedesc[T]): seq[T] =
+  when T is Pix:
+    result = dat.pixels
+  elif T is PixTpx3:
+    doAssert dat.pixels.len == dat.toa.len
+    result = newSeq[PixTpx3](dat.pixels.len)
+    for i in 0 ..< result.len:
+      result[i] = (x: dat.pixels[i].x, y: dat.pixels[i].y, ch: dat.pixels[i].ch,
+                   toa: dat.toa[i], toaCombined: dat.toaCombined[i])
+  else:
+    error("Invalid type : " & $T)
+
+proc recoEvent*[T: SomePix](dat: RecoInputEvent[T],
                             chip, run, searchRadius: int,
                             dbscanEpsilon: float,
-                            clusterAlgo: ClusteringAlgorithm): RecoEvent[T] {.gcsafe, hijackMe.} =
+                            clusterAlgo: ClusteringAlgorithm,
+                            timepixVersion = Timepix1): RecoEvent[T] {.gcsafe, hijackMe.} =
   result.event_number = dat.eventNumber
   result.chip_number = chip
-  var cluster: seq[Cluster[T]]
-  if dat[0].len > 0:
+
+  ## NOTE: The usage of a `PixTpx3` is rather wasteful and is only done, because
+  ## it's currently easier to perform the clustering using the default algorithm
+  ## with such data. Otherwise we need to keep track which indices end up in what
+  ## cluster.
+  ## However: it may anyway be smart to avoid the logic of `deleteIntersection` and
+  ## instead mark indices in a set (?) and keep track of each index being in what
+  ## cluster?
+  ## I remember trying *some* kind of set based approach before which turned out
+  ## slower, so gotta be careful.
+  template recoClusterTmpl(typ, pixels: untyped): untyped {.dirty.} =
+    var cluster: seq[Cluster[typ]]
     case clusterAlgo
-    of caDefault: cluster = findSimpleCluster(dat.pixels, searchRadius)
-    of caDBSCAN:  cluster = findClusterDBSCAN(dat.pixels, dbscanEpsilon)
+    of caDefault: cluster = findSimpleCluster(pixels, searchRadius)
+    of caDBSCAN:  cluster = findClusterDBSCAN(pixels, dbscanEpsilon)
     result.cluster = newSeq[ClusterObject[T]](cluster.len)
     for i, cl in cluster:
-      result.cluster[i] = recoCluster(cl)
+      result.cluster[i] = recoCluster(cl, timepixVersion, T)
+
+  if dat[0].len > 0:
+    case timepixVersion
+    of Timepix1:
+      let pixels = getPixels(dat, Pix)
+      recoClusterTmpl(Pix, pixels)
+    of Timepix3:
+      let pixels = getPixels(dat, PixTpx3)
+      recoClusterTmpl(PixTpx3, pixels)

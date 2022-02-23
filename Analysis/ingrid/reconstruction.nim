@@ -167,7 +167,8 @@ proc createDatasets[N: int](dset_tab: var Table[string, seq[H5DataSet]],
 proc writeRecoRunToH5*[T: SomePix](h5f: H5File,
                                    h5fraw: H5File,
                                    reco_run: seq[RecoEvent[T]],
-                                   runNumber: int) =
+                                   runNumber: int,
+                                   timepixVersion: TimepixVersion) =
   ## proc which writes the reconstructed event data from a single run into
   ## the given H5 file. Called after every processed run
   ## inputs:
@@ -219,6 +220,8 @@ proc writeRecoRunToH5*[T: SomePix](h5f: H5File,
     x  = newSeq[seq[seq[uint8]]](nChips)
     y  = newSeq[seq[seq[uint8]]](nChips)
     ch = newSeq[seq[seq[uint16]]](nChips)
+    toa = newSeq[seq[seq[uint16]]](nChips)
+    toaCombined = newSeq[seq[seq[uint64]]](nChips)
 
   for chip in 0 ..< nChips:
     x[chip]  = @[]
@@ -247,6 +250,11 @@ proc writeRecoRunToH5*[T: SomePix](h5f: H5File,
       # add event number individually, since it's not part of some object we can
       # use our macro for
       int_data_tab["eventNumber"][chip].add num
+
+      # add the found clusters in ToA
+      if timepixVersion == Timepix3:
+        toa[chip].add cl.toa
+        toaCombined[chip].add cl.toaCombined
 
   # now that we have the data and now how many elements each type has
   # we can create the datasets
@@ -282,6 +290,17 @@ proc writeRecoRunToH5*[T: SomePix](h5f: H5File,
                     h5f.datasetCreation(chip_groups[it].name & "/ToT",
                                         ch[it].len,
                                         ev_type_ch))
+    toa_dsets: seq[H5DataSet]
+    toa_combined_dsets: seq[H5DataSet]
+  if timepixVersion == Timepix3:
+    toa_dsets = mapIt(toSeq(0..<nChips),
+                      h5f.datasetCreation(chip_groups[it].name & "/ToA",
+                                          ch[it].len,
+                                          ev_type_ch))
+    toa_combined_dsets = mapIt(toSeq(0..<nChips),
+                      h5f.datasetCreation(chip_groups[it].name & "/ToACombined",
+                                          ch[it].len,
+                                          ev_type_ch))
 
   # variable to store number of events for each chip
   let eventsPerChip = mapIt(x, it.len)
@@ -307,6 +326,10 @@ proc writeRecoRunToH5*[T: SomePix](h5f: H5File,
     y_dsets[chip][all] = y[chip]
     ch_dsets[chip][all] = ch[chip]
 
+    if timepixVersion == Timepix3:
+      toa_dsets[chip][all] = toa[chip]
+      toa_combined_dsets[chip][all] = toaCombined[chip]
+
     # anyways, write the chip dataset attributes
     let raw_chip_group_name = raw_groups & $chip
     var raw_group = h5fraw[raw_chip_group_name.grp_str]
@@ -316,8 +339,10 @@ proc writeRecoRunToH5*[T: SomePix](h5f: H5File,
     chip_groups[ch_numb].attrs["chipNumber"] = ch_numb
     chip_groups[ch_numb].attrs["chipName"] = ch_name
 
-iterator readDataFromH5*(h5f: H5File, runNumber: int):
-         tuple[chip: int, eventData: seq[tuple[pixels: Pixels, eventNumber: int]]] =
+iterator readDataFromH5*(h5f: H5File, runNumber: int,
+                         timepixVersion: TimepixVersion):
+    tuple[chip: int,
+          eventData: RecoInputData[Pix]] =
   ## proc to read data from the HDF5 file from `group`
   ## returns the chip number and a sequence containing the pixel data for this
   ## event and its event number
@@ -333,27 +358,37 @@ iterator readDataFromH5*(h5f: H5File, runNumber: int):
       # given group and chip number, we can read vlen data
       let vlen_xy = special_type(uint8)
       let vlen_ch = special_type(uint16)
-      var
-        raw_x_dset  = h5f[(grp / "raw_x").dset_str]
-        raw_y_dset  = h5f[(grp / "raw_y").dset_str]
-        raw_ch_dset = h5f[(grp / "raw_ch").dset_str]
       let
-        raw_x  = raw_x_dset[vlen_xy, uint8]
-        raw_y  = raw_y_dset[vlen_xy, uint8]
-        raw_ch = raw_ch_dset[vlen_ch, uint16]
-
-      var runPix = newSeq[(Pixels, int)](raw_x.len)
+        raw_x  = h5f[grp / "raw_x", vlen_xy, uint8]
+        raw_y  = h5f[grp / "raw_y", vlen_xy, uint8]
+        raw_ch = h5f[grp / "raw_ch", vlen_ch, uint16]
+      var
+        raw_toa: seq[seq[uint16]]
+        raw_toa_combined: seq[seq[uint64]]
+      if timepixVersion == Timepix3:
+        raw_toa = h5f[grp / "raw_toa", vlen_ch, uint16]
+        raw_toa_combined = h5f[grp / "raw_toa_combined", special_type(uint64), uint64]
+      var runPix = newSeq[RecoInputEvent[Pix]](raw_x.len)
       for i in 0 ..< runPix.len:
         let rpix = zipEm(raw_x[i], raw_y[i], raw_ch[i])
-        runPix[i] = (pixels: rpix, eventNumber: evNumbers[i])
+        case timepixVersion
+        of Timepix1:
+          runPix[i] = (pixels: rpix, eventNumber: evNumbers[i],
+                       toa: newSeq[uint16](), toaCombined: newSeq[uint64]())
+        of Timepix3:
+          runPix[i] = (pixels: rpix, eventNumber: evNumbers[i],
+                       toa: raw_toa[i], toaCombined: raw_toa_combined[i])
+
       # and yield them
       yield (chip: chip_number, eventData: run_pix)
 
 {.experimental.}
-proc reconstructSingleChip*(data: seq[tuple[pixels: Pixels, eventNumber: int]],
+proc reconstructSingleChip*(data: RecoInputData[Pix],
                             run, chip, searchRadius: int,
                             dbscanEpsilon: float,
-                            clusterAlgo: ClusteringAlgorithm): seq[RecoEvent[Pix]] =
+                            clusterAlgo: ClusteringAlgorithm,
+                            timepixVersion: TimepixVersion
+                           ): seq[RecoEvent[Pix]] =
   ## procedure which receives pixel data for a given chip and run number
   ## and performs the reconstruction on it
   ## inputs:
@@ -372,7 +407,8 @@ proc reconstructSingleChip*(data: seq[tuple[pixels: Pixels, eventNumber: int]],
       if event < result.len:
         res[event] = p.spawn recoEvent(data[event], chip, run, searchRadius,
                                        dbscanEpsilon = dbscanEpsilon,
-                                       clusterAlgo = clusterAlgo)
+                                       clusterAlgo = clusterAlgo,
+                                       timepixVersion = timepixVersion)
       echoCount(count, 5000, msg = " clusters reconstructed")
     p.sync()
     count = 0
@@ -387,7 +423,8 @@ proc reconstructSingleChip*(data: seq[tuple[pixels: Pixels, eventNumber: int]],
       if event < result.len:
         res[event] = spawn recoEvent(data[event], chip, run, searchRadius,
                                      dbscanEpsilon = dbscanEpsilon,
-                                     clusterAlgo = clusterAlgo)
+                                     clusterAlgo = clusterAlgo,
+                                     timepixVersion = timepixVersion)
       echoCount(count, 5000, msg = " clusters reconstructed")
     sync()
     count = 0
@@ -403,7 +440,8 @@ proc reconstructSingleChip*(data: seq[tuple[pixels: Pixels, eventNumber: int]],
       captures: {resBuf, data, chip, run, searchRadius, dbscanEpsilon, clusterAlgo}
       resBuf[event] = recoEvent(data[event], chip, run, searchRadius,
                                 dbscanEpsilon = dbscanEpsilon,
-                                clusterAlgo = clusterAlgo)
+                                clusterAlgo = clusterAlgo,
+                                timepixVersion = timepixVersion)
       echoCounted(event, 5000, msg = " clusters reconstructed")
 
 proc createAndFitFeSpec(h5f: H5File,
@@ -539,7 +577,6 @@ template recordIterRuns*(base: string, body: untyped): untyped =
   info $runNumbersIterated
   # add all flags that were processed
 
-
 proc reconstructRunsInFile(h5f: H5File,
                            h5fout: H5File,
                            flags: set[RecoFlagKind],
@@ -560,6 +597,8 @@ proc reconstructRunsInFile(h5f: H5File,
   const batchsize = 5000
   var reco_run: seq[RecoEvent[Pix]] = @[]
   let showPlots = if cfShowPlots in cfgFlags: true else: false
+  # read the timepix version from the input file
+  let timepixVersion = h5f.timepixVersion()
   recordIterRuns(rawDataBase()):
     if (recoBase() & $runNumber) in h5fout:
       # check attributes whether this run was actually finished
@@ -588,17 +627,18 @@ proc reconstructRunsInFile(h5f: H5File,
       #    - need to interface with Python code, i.e. call fitting procedure,
       #      which returns the value to the Nim program as its return value
       let t1 = epochTime()
-      for chip, pixdata in h5f.readDataFromH5(runNumber):
+      for chip, pixdata in h5f.readDataFromH5(runNumber, timepixVersion):
         # given single runs pixel data, call reconstruct run proc
         # NOTE: the data returned from the iterator contains all
         # events in ascending order of event number, i.e.
         # [0] -> eventNumber == 0 and so on
         reco_run.add reconstructSingleChip(pixdata, runNumber, chip,
-                                           searchRadius, dbscanEpsilon, clusterAlgo)
+                                           searchRadius, dbscanEpsilon, clusterAlgo,
+                                           timepixVersion)
         info &"Reco run now contains {reco_run.len} elements"
       info "Reconstruction of run $# took $# seconds" % [$runNumber, $(epochTime() - t1)]
       # finished run, so write run to H5 file
-      h5fout.writeRecoRunToH5(h5f, reco_run, runNumber)
+      h5fout.writeRecoRunToH5(h5f, reco_run, runNumber, timepixVersion)
       # now flush both files
       h5fout.flush
       h5f.flush

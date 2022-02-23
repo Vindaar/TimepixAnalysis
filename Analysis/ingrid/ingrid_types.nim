@@ -8,9 +8,10 @@ type
   EventHeader* = Table[string, string]
   ChipHeader*  = Table[string, string]
   Pix*         = tuple[x, y: uint8, ch: uint16]
+  PixTpx3*     = tuple[x, y: uint8, ch, toa: uint16, toaCombined: uint64]
   # Integer based pixels are used for full Septemboard frames, due to 3x256 pixels per direction
   PixInt*      = tuple[x, y: int, ch: int]
-  SomePix*     = Pix | PixInt
+  SomePix*     = Pix | PixInt | PixTpx3
   Pixels*      = seq[Pix]
   PixelsInt*   = seq[PixInt]
 
@@ -147,6 +148,15 @@ when not defined(js):
   # Reconstruction related types #
   ################################
 type
+
+  ## The base element for a single event to be reconstructed
+  RecoInputEvent*[T: SomePix] = tuple
+    pixels: seq[T] # SomePix
+    eventNumber: int
+    toa: seq[uint16]
+    toaCombined: seq[uint64]
+  RecoInputData*[T: SomePix] = seq[RecoInputEvent[T]]
+
   # object which stores the geometry information of a single
   # `ClusterObject`
   ClusterGeometry* = object

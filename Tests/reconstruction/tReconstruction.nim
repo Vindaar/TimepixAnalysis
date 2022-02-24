@@ -6,6 +6,8 @@ import shell
 import seqmath
 
 import helpers / testUtils
+from ingrid / calibration / fit_functions import polyaImpl
+from ingrid / calibration import calcMeanGainFit
 
 import ggplotnim
 from ginger import ggColorHue
@@ -42,6 +44,48 @@ const FadcDatasetSet = toHashSet(["fadc_data",
                                   "minvals",
                                   "noisy",
                                   "eventNumber"])
+
+proc toDsetSuffix(idx, interval: int): string =
+  result = &"_{idx}_{interval}"
+
+proc plotGasGain(h5f: H5File, grp: H5Group, run: int) =
+  let polyaGrp = h5f[(grp.name / "polyaDsets").grp_str]
+  let numIntervals = polyaGrp.attrs["numGasGainSlices", int]
+  let interval = polyaGrp.attrs["gasGainInterval", int]
+
+  for idx in 0 ..< numIntervals:
+    let polyaDset = h5f[(polyaGrp.name / "polya" & $toDsetSuffix(idx, interval)).dset_str]
+    let shapePolya = polyaDset.shape
+    let polya = polyaDset[float64].reshape2D(shapePolya)
+
+    # Read fit parameters from polya
+    let N = polyaDset.attrs["N", float]
+    let G_fit = polyaDset.attrs["G_fit", float]
+    let theta = polyaDset.attrs["theta", float]
+
+    let (x, p) = polya.split(SplitSeq.Seq2Col)
+    let xFit = linspace(x.min, x.max, 1000)
+    let pFit = xFit.mapIt(polyaImpl(@[N, G_fit, theta], it))
+    let dfR = seqsToDf({ "x" : x,
+                        "polya" : p })
+    let dfFit = seqsToDf({ "x" : xFit,
+                           "polya" : pFit })
+    let dfAlt = bind_rows([("Polya", dfR), ("Fit", dfFit)],
+                          id = "From")
+      # filter to max 2e4 electrons
+      .filter(fn {c"x" <= 2.0e4})
+    ## Compute the mean of the polya data & data described by fit
+    let G = histMean(x, p)
+    let G_fitmean = calcMeanGainFit(xFit, pFit)
+    ggplot(dfAlt, aes("x", "polya")) +
+      geom_histogram(data = dfAlt.filter(fn {c"From" == "Polya"}),
+                     stat = "identity",
+                     fillColor = ggColorHue(2)[1]) +
+      geom_line(data = dfAlt.filter(fn {c"From" == "Fit"}),
+                color = ggColorHue(2)[0]) +
+      ggtitle(&"Polya fit of run {run}; G = {G:.1f}, G_fit = {G_fit:.1f}, " &
+        &"G_fitMean = {G_fitmean:.1f}") +
+      ggsave(&"gasgain_run_{run}_slice_{idx}.pdf")
 
 proc customFloatRepr(s: var string, f: float) =
   s.add &"{f:.1f}"
@@ -119,16 +163,22 @@ proc checkContent(h5f: H5FileObj, runNumber: int, withFadc = false): bool =
           runGrp.name / "chip_" & $chip / it notin h5f
         ).len == FeDsets.len
 
+      ## XXX: generate plots for the Fe55 fit & store it. THat way if we do something
+      ## that changes the plot we can visually inspect whether it's a regression
+
   # TODO: Write total charge test
 
 suite "reconstruction":
-  const runs = [(inName: "run_240.h5", outName: "reco_240.h5",
+  const runs = [(inName: "run_240.h5", outName: pwd / "reco_240.h5",
                  runType: "rtBackground", num: 240),
-                (inName: "run_241.h5", outName: "reco_241.h5",
+                (inName: "run_241.h5", outName: pwd / "reco_241.h5",
                  runType: "rtCalibration", num: 241)]
   test "Default args":
     for r in runs:
       check fileExists(dataInPath/r.inName)
+      # remove existing file
+      shell:
+        rm ($r.outName)
       var res = shellVerbose:
         reconstruction ($(dataInPath/r.inName)) "--out" ($r.outName)
       check res[1] == 0
@@ -156,6 +206,10 @@ suite "reconstruction":
       removeFile(r.inName)
 
   test "Gas gain":
+    # delete existing raw / reco files
+    shell:
+      rm ($pwd"/raw_241_full.h5")
+      rm ($pwd"/reco_241_full.h5")
     let r = runs[1]
     var res = shellVerbose:
       raw_data_manipulation ($resourcePath"gas_gain/Run_241_181022-16-16") "--out" ($pwd"/raw_241_full.h5") "--runType rtCalibration"
@@ -163,70 +217,31 @@ suite "reconstruction":
       reconstruction ($pwd"/reco_241_full.h5") "--only_charge"
       reconstruction ($pwd"/reco_241_full.h5") "--only_gas_gain"
 
-    var h5f = H5open("reco_241_full.h5", "r")
-    let shapePolya = h5f[("reconstruction/run_" & $241 / "chip_3/polya").dset_str].shape
-    let polya = h5f["reconstruction/run_" & $r.num / "chip_3/polya", float64].reshape2D(shapePolya)
-    let polyaF = h5f["reconstruction/run_" & $r.num / "chip_3/polyaFit", float64].reshape2D(shapePolya)
+    var h5f = H5open(pwd / "reco_241_full.h5", "r")
+    let grp = h5f[("reconstruction/run_" & $241 / "chip_3").grp_str]
+    plotGasGain(h5f, grp, r.num)
 
-    let (x, p) = polya.split(SplitSeq.Seq2Col)
-    let (xFit, pFit) = polyaF.split(SplitSeq.Seq2Col)
-    let dfR = seqsToDf({ "x" : x,
-                        "polya" : p })
-    let dfFit = seqsToDf({ "x" : xFit,
-                           "polya" : pFit })
-    let dfAlt = bind_rows([("Polya", dfR), ("Fit", dfFit)],
-                          id = "From")
-    ggplot(dfAlt, aes("x", "polya")) +
-      geom_histogram(data = dfAlt.filter(fn {c"From" == "Polya"}),
-                     stat = "identity",
-                     color = some(ggColorHue(2)[1])) +
-      geom_line(data = dfAlt.filter(fn {c"From" == "Fit"}),
-                color = some(ggColorHue(2)[0])) +
-      ggsave("gasgain.pdf")
     discard h5f.close()
    # now check the gas gain
    # now remove the files
    # removeFile(r.outName)
 
   test "Gas gain 2014 data compare":
+    ## Remove the raw files if they exist
+    shell:
+      rm ($pwd"/raw_525_full.h5")
+      rm ($pwd"/reco_525_full.h5")
     var res = shellVerbose:
       raw_data_manipulation ($resourcePath"/gas_gain/525-Run151111_21-31-47") "--out" ($pwd"/raw_525_full.h5") "--runType back" #rtBackground"
       reconstruction ($pwd"/raw_525_full.h5") "--out" ($pwd"/reco_525_full.h5")
       reconstruction ($pwd"/reco_525_full.h5") "--only_charge"
       reconstruction ($pwd"/reco_525_full.h5") "--only_gas_gain"
 
-    var h5f = H5open("reco_525_full.h5", "r")
-    let shapePolya = h5f[("reconstruction/run_" & $525 / "chip_0/polya").dset_str].shape
-    let polya = h5f["reconstruction/run_" & $525 / "chip_0/polya", float64].reshape2D(shapePolya)
-    let polyaF = h5f["reconstruction/run_" & $525 / "chip_0/polyaFit", float64].reshape2D(shapePolya)
+    var h5f = H5open($pwd / "reco_525_full.h5", "r")
 
-    let (x, p) = polya.split(SplitSeq.Seq2Col)
-    let (xFit, pFit) = polyaF.split(SplitSeq.Seq2Col)
-    let dfR = seqsToDf({ "x" : x,
-                        "polya" : p })
-    let dfFit = seqsToDf({ "x" : xFit,
-                           "polya" : pFit })
-    let dfAlt = bind_rows([("Polya", dfR), ("Fit", dfFit)],
-                          id = "From")
-      # filter to max 2e4 electrons
-      .filter(fn {c"x" <= 2.0e4})
-    let dsetFit = h5f[("reconstruction/run_" & $525 / "chip_0/polyaFit").dset_str]
-    let attrs = dsetFit.attrsToJson
-    echo attrs.pretty
-    let G = attrs["G"].getFloat
-    let G_fit = attrs["G_fit"].getFloat
-    let G_fitmean = attrs["G_fitmean"].getFloat
+    let grp = h5f[("reconstruction/run_" & $525 / "chip_0").grp_str]
+    plotGasGain(h5f, grp, 525)
 
-
-    ggplot(dfAlt, aes("x", "polya")) +
-      geom_histogram(data = dfAlt.filter(fn {c"From" == "Polya"}),
-                     stat = "identity",
-                     color = some(ggColorHue(2)[1])) +
-      geom_line(data = dfAlt.filter(fn {c"From" == "Fit"}),
-                color = some(ggColorHue(2)[0])) +
-      ggtitle(&"Polya fit of run 525; G = {G:.1f}, G_fit = {G_fit:.1f}, " &
-        &"G_fitMean = {G_fitmean:.1f}") +
-      ggsave("gasgain_2014.pdf")
     discard h5f.close()
     # now check the gas gain
     # now remove the files

@@ -72,7 +72,7 @@ proc ggplotMoreClusters[T](recoCluster, expCluster: seq[ClusterObject[T]],
                            idx, eventNumber: int) =
   let dfReco = bindToDf(recoCluster)
   let dfExp = bindToDf(expCluster)
-  let df = bind_rows([dfReco, dfExp], id = "origin")
+  let df = bind_rows([("TPA", dfReco), ("Marlin", dfExp)], id = "origin")
   ggplot(df, aes("x", "y", color = "from")) +
     geom_point() +
     facet_wrap(~origin) +

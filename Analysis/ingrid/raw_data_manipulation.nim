@@ -637,13 +637,26 @@ proc writeRawAttrs*(h5f: var H5FileObj,
   let (centerChip, centerName) = getCenterChipAndName(run)
   rawG.attrs["centerChip"] = centerChip
   rawG.attrs["centerChipName"] = centerName
-  let start = run.events[0].evHeader["dateTime"]
-  let stop = run.events[^1].evHeader["dateTime"]
-  rawG.attrs["runStart"] = start
-  rawG.attrs["runStop"] = stop
-  # NOTE: the run length will be wrong by the duration of the last event!
-  rawG.attrs["totalRunDuration"] = (parseTOSDateString(stop) -
-                                    parseTOSDateString(start)).inSeconds
+  let first = run.events[0]
+  let last = run.events[^1]
+  if "dateTime" in first.evHeader:
+    let start = first.evHeader["dateTime"]
+    let stop  = last.evHeader["dateTime"]
+    rawG.attrs["runStart"] = start
+    rawG.attrs["runStop"]  = stop
+    # NOTE: the run length will be wrong by the duration of the last event!
+    rawG.attrs["totalRunDuration"] = (parseTOSDateString(stop) -
+                                      parseTOSDateString(start)).inSeconds
+  else:
+    doAssert "timestamp" in first.evHeader, "Neither `dateTime` nor `timestamp` found in " &
+      "event header. Invalid!"
+    let tStart = first.evHeader["timestamp"].parseInt
+    let tStop  = last.evHeader["timestamp"].parseInt
+    rawG.attrs["runStart"] = $fromUnix(tStart)
+    rawG.attrs["runStop"] = $fromUnix(tStop)
+    # NOTE: the run length will be wrong by the duration of the last event!
+    rawG.attrs["totalRunDuration"] = abs(tStop - tStart)
+
   ## Write global variables of `raw_data_manipulation`
   rawG.attrs["raw_data_manipulation_version"] = commitHash
   rawG.attrs["raw_data_manipulation_compiled_on"] = compileDate

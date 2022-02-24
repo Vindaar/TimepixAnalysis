@@ -20,10 +20,12 @@ let plotSuffix = $getTime().toUnix & ".pdf"
 # MarlinTPC has
 const CorrectOneOffXError = true
 
-func almostEqual[T: SomeNumber](x, y: T, ep = 1e-6): bool =
+func almostEq[T: SomeNumber](x, y: T, ep = 1e-6): bool =
   ## checks very roughly if the values match. Anything beyond
   ## 1e-5 should be of no issue for us
-  result = (x - y).float < ep
+  ## NOTE: We explicitly do *not* use the `stdlib` `almostEqual` as we don't care about
+  ## any kind of smart comparison!
+  result = abs((x - y).float) < ep
 
 proc `%`(p: Pix): JsonNode =
   result = %* { "x" : % p.x,
@@ -45,8 +47,8 @@ template red(s: string): untyped =
   "\e[91m" & s & "\e[0m"
 
 template echoCheck(name, cond1, cond2: untyped, eps = 1e-5): untyped =
-  echo "| $# | $# | $# | $# |" % [$name, $cond1, $cond2, $abs(cond2 - cond1)]
-  let condres = almostEqual(cond1, cond2, eps) == true
+  echo "| $# | $# | $# | $# | $# |" % [$name, $cond1, $cond2, $abs(cond2 - cond1), $eps]
+  let condres = almostEq(cond1, cond2, eps) == true
   if not condres:
     echo red"Check: ", astToStr(cond1), "~=~", astToStr(cond2), " failed"
     echo red"Was: ", astToStr(cond1), " == ", cond1

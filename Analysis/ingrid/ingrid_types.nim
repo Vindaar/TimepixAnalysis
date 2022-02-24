@@ -578,3 +578,23 @@ proc `[]`*(cv: CutValueInterpolator, s: string): float =
 proc `[]=`*(cv: var CutValueInterpolator, s: string, val: float) =
   doAssert cv.kind == mkNone
   cv.cutTab[s] = val
+
+proc `==`*[T: SomePix](c1, c2: ClusterObject[T]): bool =
+  result = true
+  result = result and c1.data     == c2.data
+  result = result and c1.hits     == c2.hits
+  result = result and c1.centerX  == c2.centerX
+  result = result and c1.centerY  == c2.centerY
+  result = result and c1.sumTot   == c2.sumTot
+  result = result and c1.energy   == c2.energy
+  result = result and c1.energy   == c2.energy
+  result = result and c1.geometry == c2.geometry
+  result = result and c1.version  == c2.version
+  if result and c1.version == Timepix3:
+    result = result and c1.toa    == c2.toa
+    result = result and c1.toaCombined == c2.toaCombined
+
+proc `==`*[T: SomePix](r1, r2: RecoEvent[T]): bool =
+  result = true
+  for name, f1, f2 in fieldPairs(r1, r2):
+    result = result and f1 == f2

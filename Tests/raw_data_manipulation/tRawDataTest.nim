@@ -118,11 +118,11 @@ proc checkRun(number: int, name: string, withFadc = false): bool =
     let grpAttrsJson = grp.attrsToJson(withType = true)
     #writeFile(&"run_{number}_attrs_rawgrp.json", rawAttrsJson.pretty)
     #writeFile(&"run_{number}_attrs_rungrp.json", grpAttrsJson.pretty)
-    check compareJObjects(
+    check compareJson(
       rawAttrsJson,
       parseFile(&"run_{number}_attrs_rawgrp.json")
     )
-    check compareJObjects(
+    check compareJson(
       grpAttrsJson,
       parseFile(&"run_{number}_attrs_rungrp.json")
     )
@@ -147,7 +147,7 @@ proc checkRun(number: int, name: string, withFadc = false): bool =
       "pretrig": 15000
     }
     let jattrs = fadcgrp.attrsToJson
-    check compareJObjects(expFadcAttrs, jattrs)
+    check compareJson(expFadcAttrs, jattrs)
 
 suite "raw data manipulation":
   ## these tests check whether the raw data manipulation produces HDF5

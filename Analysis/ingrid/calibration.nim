@@ -350,6 +350,13 @@ proc applyChargeCalibration*(h5f: H5File, runNumber: int,
       chargeDset.writeDset(charge)
       totalChargeDset.writeDset(totalCharge)
 
+proc calcMeanGainFit*(x, y: seq[float]): float =
+  ## Computes the `G_fitmean` value, i.e. the *mean* of the data
+  ## described by the fit to the polya distribution.
+  result = (zip(x, y) -->
+            map(it[0] * it[1]) -->
+            fold(0.0, a + it)) / y.sum.float
+
 proc initGasGainIntervalResult(g: GasGainIntervalData,
                                fitResult: FitResult,
                                binned: seq[int], bin_edges: seq[float],
@@ -370,10 +377,7 @@ proc initGasGainIntervalResult(g: GasGainIntervalData,
   # also calculate the mean of the polya fit. This usually is *not* the same
   # as the `meanGain` (mean of data). `meanGainFit` is what we used errorneously
   # in the past!
-  let meanGainFit = (zip(fitResult.x, fitResult.y) -->
-                     map(it[0] * it[1]) -->
-                     fold(0.0, a + it)) / fitResult.y.sum.float
-  result.G_fitmean = meanGainFit
+  result.G_fitmean = calcMeanGainFit(fitResult.x, fitResult.y)
   # calculate the mean of the data histogram. This is what Krieger calls
   # `G_mean` and uses for the rest of the calculation!
   let meanGain = histMean(binned, bin_edges[0 .. ^2])

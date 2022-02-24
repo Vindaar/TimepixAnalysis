@@ -1,18 +1,42 @@
 {
+  "TimepixVersion": {
+    "value": "Timepix1",
+    "type": "dkString"
+  },
   "centerChipName": {
     "value": "H 10 W69",
-    "type": "akString"
+    "type": "dkString"
   },
   "runType": {
     "value": "rtCalibration",
-    "type": "akString"
+    "type": "dkString"
+  },
+  "raw_data_manipulation_compiled_on": {
+    "value": "2022-02-23 at 10:37:16",
+    "type": "dkString"
+  },
+  "runStop": {
+    "value": "2018-10-22.16:28:51",
+    "type": "dkString"
   },
   "runFolderKind": {
     "value": "rfNewTos",
-    "type": "akString"
+    "type": "dkString"
+  },
+  "totalRunDuration": {
+    "value": 750,
+    "type": "dkInt64"
+  },
+  "raw_data_manipulation_version": {
+    "value": "d1349c8",
+    "type": "dkString"
+  },
+  "runStart": {
+    "value": "2018-10-22.16:16:21",
+    "type": "dkString"
   },
   "centerChip": {
     "value": 3,
-    "type": "akInt64"
+    "type": "dkInt64"
   }
 }

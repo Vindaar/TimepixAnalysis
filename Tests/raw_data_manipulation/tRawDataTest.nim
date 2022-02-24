@@ -15,21 +15,28 @@ const dataPwd = pwd / "../../resources/TPAresources/raw_data_manipulation/"
 ## commit it was compiled with. We could then compare that with the current commit
 ## of the repo and fail if it doesn't match.
 
-proc checkRun(number: int, name: string, withFadc = false): bool =
+## In addition this test requires the `raw_data_manipulation` tool to be in `PATH`
+
+#template checkReturn(arg: untyped): untyped {.dirty.} =
+#  result = arg
+#  if not result:
+#    return
+
+template checkRun(number: int, name: string, withFadc = false): untyped =
   ## helper proc, which checks whether our reduced run 240 HDF5 file actually
   ## looks the way we expect it to, if created with `--nofadc` flag.
   var h5f = H5open(name, "r")
   defer: discard h5f.close()
   # first check that "reconstruction" is no longer part of this file
-  result = "reconstruction" notin h5f
+  check "reconstruction" notin h5f
   # "runs" is in file
-  result = "runs" in h5f
-  template getDset(name, number: untyped): untyped =
-    h5f[("runs/run_" & $number / name).dset_str]
-  template checkDims(name, `type`: untyped): untyped =
-    let dset = getDset(name, number)
-    result = dset.shape == @[1001, 1]
-    result = dset.dtype == $`type`
+  check "runs" in h5f
+  template getDset(n, num: untyped): untyped =
+    h5f[("runs/run_" & $num / n).dset_str]
+  template checkDims(n, `type`: untyped): untyped =
+    let dset = getDset(n, number)
+    check dset.shape == @[1001, 1]
+    check dset.dtype == $`type`
   checkDims("eventDuration", float64)
   checkDims("eventNumber", int64)
   checkDims("fadcReadout", int64)
@@ -42,9 +49,9 @@ proc checkRun(number: int, name: string, withFadc = false): bool =
   let meanDuration = sum(h5f["runs/run_" & $number / "eventDuration", float]) / 1001.0
   echo meanDuration
   if number == 240:
-    result = almostEqual(meanDuration, 2.121233475324665)
+    check almostEq(meanDuration, 2.121233475324665)
   else:
-    result = almostEqual(meanDuration, 0.03090720322177823)
+    check almostEq(meanDuration, 0.03090720322177823)
   const occSum240 = @[37307,
                       37640,
                       45560,
@@ -91,40 +98,44 @@ proc checkRun(number: int, name: string, withFadc = false): bool =
                  "runMode", "fastClock", "externalTrigger", "pathName", "dateTime", "shutterMode"]
   template checkChips(chip, numTot: int): untyped =
     let hits = getDset("chip_" & $chip / "Hits", number)
-    result = hits.shape == @[1001, 1]
+    check hits.shape == @[1001, 1]
     let occ = getDset("chip_" & $chip / "Occupancy", number)
-    result = occ.shape == @[256, 256]
+    check occ.shape == @[256, 256]
     let tot = getDset("chip_" & $chip / "ToT", number)
-    result = hits.shape == @[1001, 1]
+    check hits.shape == @[1001, 1]
     let raw_x = getDset("chip_" & $chip / "raw_x", number)
     let raw_y = getDset("chip_" & $chip / "raw_y", number)
     let raw_ch = getDset("chip_" & $chip / "raw_ch", number)
     if number == 240:
-      result = occSum240[chip] == occ[int64].sum
-      result = totSum240[chip].uint16 == tot[uint16].sum
-      result = averageHits240[chip] == raw_x[special_type(uint8), uint8].mapIt(it.len).sum.float / 1001.0
-      result = averageHits240[chip] == raw_y[special_type(uint8), uint8].mapIt(it.len).sum.float / 1001.0
-      result = averageHits240[chip] == raw_ch[special_type(uint16), uint16].mapIt(it.len).sum.float / 1001.0
+      check occSum240[chip] == occ[int64].sum
+      check totSum240[chip].uint16 == tot[uint16].sum
+      check almostEq(averageHits240[chip], raw_x[special_type(uint8), uint8].mapIt(it.len).sum.float / 1001.0, 1e-8)
+      check almostEq(averageHits240[chip], raw_y[special_type(uint8), uint8].mapIt(it.len).sum.float / 1001.0, 1e-8)
+      check almostEq(averageHits240[chip], raw_ch[special_type(uint16), uint16].mapIt(it.len).sum.float / 1001.0, 1e-8)
     else:
-      result = occSum241[chip] == occ[int64].sum
-      result = totSum241[chip].uint16 == tot[uint16].sum
-      result = averageHits241[chip] == raw_x[special_type(uint8), uint8].mapIt(it.len).sum.float / 1001.0
-      result = averageHits241[chip] == raw_y[special_type(uint8), uint8].mapIt(it.len).sum.float / 1001.0
-      result = averageHits241[chip] == raw_ch[special_type(uint16), uint16].mapIt(it.len).sum.float / 1001.0
+      check occSum241[chip] == occ[int64].sum
+      check totSum241[chip].uint16 == tot[uint16].sum
+      check almostEq(averageHits241[chip], raw_x[special_type(uint8), uint8].mapIt(it.len).sum.float / 1001.0, 1e-8)
+      check almostEq(averageHits241[chip], raw_y[special_type(uint8), uint8].mapIt(it.len).sum.float / 1001.0, 1e-8)
+      check almostEq(averageHits241[chip], raw_ch[special_type(uint16), uint16].mapIt(it.len).sum.float / 1001.0, 1e-8)
     let grp = h5f[("runs/run_" & $number).grp_str]
     let rawGrp = h5f["runs".grp_str]
     # compare the attributes
     let rawAttrsJson = rawGrp.attrsToJson(withType = true)
     let grpAttrsJson = grp.attrsToJson(withType = true)
-    #writeFile(&"run_{number}_attrs_rawgrp.json", rawAttrsJson.pretty)
-    #writeFile(&"run_{number}_attrs_rungrp.json", grpAttrsJson.pretty)
+    ## Run the following line to update the JSON files (e.g. after a new attribute
+    ## was added)
+    #writeFile(pwd / "run_" & $number & "_attrs_rawgrp.json", rawAttrsJson.pretty)
+    #writeFile(pwd / "run_" & $number & "_attrs_rungrp.json", grpAttrsJson.pretty)
     check compareJson(
       rawAttrsJson,
-      parseFile(&"run_{number}_attrs_rawgrp.json")
+      parseFile(pwd / "run_" & $number & "_attrs_rawgrp.json"),
+      exceptKeys = @["raw_data_manipulation_version", "raw_data_manipulation_compiled_on"]
     )
     check compareJson(
       grpAttrsJson,
-      parseFile(&"run_{number}_attrs_rungrp.json")
+      parseFile(pwd / "run_" & $number & "_attrs_rungrp.json"),
+      exceptKeys = @["raw_data_manipulation_version", "raw_data_manipulation_compiled_on"]
     )
 
   for i in 0 .. 6:
@@ -160,19 +171,25 @@ suite "raw data manipulation":
   # first raw data of both
   test "Without fadc: --nofadc":
     for r in runs:
+      ## First remove existing file, if any
+      shell:
+        rm ($r.outName)
       let res = shellVerbose:
-        "../../Analysis/ingrid/raw_data_manipulation" ($(dataPwd/r.run)) "--nofadc" "--out" ($r.outName) "--runType" ($r.runType)
+        raw_data_manipulation ($(dataPwd/r.run)) "--nofadc" "--out" ($r.outName) "--runType" ($r.runType)
       check fileExists(r.outName)
-      check checkRun(r.num, r.outName)
+      checkRun(r.num, r.outName)
       shell:
         rm ($r.outName)
 
   test "With fadc":
     for r in runs:
+      ## First remove existing file, if any
+      shell:
+        rm ($r.outName)
       let res = shellVerbose:
-        "../../Analysis/ingrid/raw_data_manipulation" ($(dataPwd/r.run)) "--out" ($r.outName) "--runType" ($r.runType)
+        raw_data_manipulation ($(dataPwd/r.run)) "--out" ($r.outName) "--runType" ($r.runType)
       check fileExists(r.outName)
-      check checkRun(r.num, r.outName, withFadc = true)
+      checkRun(r.num, r.outName, withFadc = true)
       # test does not delete file, is input for ../reconstruction/tReconstruction.nim
       #shell:
       #  rm ($r.outName)

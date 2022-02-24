@@ -429,6 +429,28 @@ proc writePolyaDsets(h5f: H5File, group: H5Group,
   polyaDset.attrs["G_fit"] = fitResult.pRes[1]
   polyaDset.attrs["theta"] = fitResult.pRes[2]
 
+proc writeGasGainAttributes(h5f: H5File, group: H5Group, sliceCount: int,
+                            interval: int) =
+  ## Writes the attributes about the number of gas gain slices to the relevant
+  ## objects (charge dset & polya group) as well as the "current" gas gain
+  ## slice length
+  # Note: a `sliceCount` of 0 means that *no* slicing  was used, not that there
+  # is no available gas gain! (this also implies interval = 0)
+  var gainDsetName = group.name / "gasGainSlices" & $interval
+  if gainDsetName notin h5f:
+    raise newException(KeyError, "The gas gain dataset : " & $gainDsetName &
+      "does not exist in the H5 file: " & $h5f.name & ". Did you call " &
+      "`writeGasGainAttributes` before calling `writeGasGainSliceData`?")
+  let chargeDset = h5f[(group.name / "charge").dset_str]
+  let polyaGrp = h5f[(group.name / "polyaDsets").grp_str]
+  let gainDset = h5f[gainDsetName.dset_str]
+  template writeAttrs(h5o: untyped): untyped =
+    h5o.attrs["numGasGainSlices"] = sliceCount
+    h5o.attrs["gasGainInterval"] = interval
+  writeAttrs(chargeDset)
+  writeAttrs(polyaGrp)
+  writeAttrs(gainDset)
+
 proc writeGasGainSliceData(h5f: H5File, group: H5Group, slices: seq[GasGainIntervalResult],
                            cutFormula: string) =
   ## writes the information about the gas gain slices, including the fit results
@@ -705,8 +727,9 @@ proc calcGasGain*(h5f: H5File, runNumber: int,
                                                          df["eventNumber", slice.b, int])
           inc sliceCount
 
-        chargeDset.attrs["numGasGainSlices"] = sliceCount
+        # write gas gain slice data and attributes
         h5f.writeGasGainSliceData(group, gasGainSliceData, cutFormula)
+        h5f.writeGasGainAttributes(group, sliceCount, interval.round.int)
       else:
         let cutFormula = "No formula available, due to usage of `cutOnProperties`"
         let passIdx = applyGasGainCut(h5f, group)
@@ -729,6 +752,9 @@ proc calcGasGain*(h5f: H5File, runNumber: int,
                                               0, group.attrs["numEventsStored"])
         h5f.writePolyaDsets(group, chargeDset, binned, bin_edges, fitResult, cutFormula)
         h5f.writeGasGainSliceData(group, @[ggRes], cutFormula)
+
+        # write gas gain slice attribute
+        h5f.writeGasGainAttributes(group, sliceCount = 0, interval = 0)
 
 proc writeFeFitParameters(dset: var H5DataSet,
                           popt, popt_E: seq[float],

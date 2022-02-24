@@ -1,4 +1,4 @@
-import helpers/utils
+import seqmath ## `zipEm` has since been moved to `seqmath`
 import unittest
 
 suite "Helper tests":

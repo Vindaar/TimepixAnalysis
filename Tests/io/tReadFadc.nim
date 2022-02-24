@@ -48,13 +48,13 @@ suite "Fadc data":
     # test readFadcFileMem
     let fadcMem = readFadcFileMem(fname)
 
-    check fadc[] == fadcMem[]
+    check fadc == fadcMem
 
     # check equal to expecations
-    check fadc[].checkEqual
-    check fadcMem[].checkEqual
+    check fadc.checkEqual
+    check fadcMem.checkEqual
 
-  test "Fadc returns nil if file broken":
+  test "Fadc isValid false if file broken":
     # write a broken file to disk and read it. See it fails.
     var data = readFile(fname).strip.splitLines
     # create a broken file
@@ -63,15 +63,15 @@ suite "Fadc data":
     writeFile(brokenFname, data.join("\n"))
 
     let brokenFadc = readFadcFileMem(brokenFname)
-    check brokenFadc == nil
+    check not brokenFadc.isValid
     removeFile(brokenFname)
 
-  test "Fadc returns nil if cannot be opened":
+  test "Fadc isValid false if cannot be opened":
     # try to open file that doesn't exist to trigger OSError
     let brokenFadc = readFadcFileMem("I_dont_exist.txt")
-    check brokenFadc == nil
+    check not brokenFadc.isValid
 
-  test "Fadc returns nil if header is broken":
+  test "Fadc isValid false if header is broken":
     # write a broken file to disk and read it. See it fails.
     var data = readFile(fname).strip.splitLines
     # create a broken file
@@ -80,13 +80,13 @@ suite "Fadc data":
     writeFile(brokenFname, data.join("\n"))
 
     let brokenFadc = readFadcFileMem(brokenFname)
-    check brokenFadc == nil
+    check not brokenFadc.isValid
     removeFile(brokenFname)
 
   test "Checking FADC data transformation":
     let fadcMem = readFadcFileMem(fname)
     let pedestalRun = getPedestalRun()
-    let fData = fadcFileToFadcData(fadcMem[], pedestalRun)
+    let fData = fadcFileToFadcData(fadcMem, pedestalRun)
 
     check fData.data.shape == @[2560]
 
@@ -153,7 +153,7 @@ suite "Fadc data":
     # we now check all calculations that extract information from the spectrum
     let fadcMem = readFadcFileMem(fname)
     let pedestalRun = getPedestalRun()
-    let fData = fadcFileToFadcData(fadcMem[], pedestalRun)
+    let fData = fadcFileToFadcData(fadcMem, pedestalRun)
     let fadc = fdata.data.toRawSeq
 
     # - call `calcMinOfPulse`
@@ -215,16 +215,16 @@ suite "Fadc data":
                         "fallStop" : fallStopX})
     # Comparison has to be done by hand unfortunately
     let path = pwd / "plots/fadc_spectrum_baseline"
-    ggplot(df, aes(x ~ data)) + geom_line() +
+    ggplot(df, aes("x", "data")) + geom_line() +
       geom_point(color = color(0.1, 0.1, 0.1, 0.1)) +
-      geom_line(aes(x ~ baseline),
-                color = color(0.0, 0.0)) +
-      geom_line(data = df.filter(f{isNull("xminY") == false}), aes = aes(xminX ~ xminY),
-                color = color(1.0, 0.0, 0.0)) +
-      geom_line(data = df.filter(f{isNull("xminY") == false}), aes = aes(riseStart ~ xminY),
-                color = color(0.5, 0.0, 1.0)) +
-      geom_line(data = df.filter(f{isNull("xminY") == false}), aes = aes(fallStop ~ xminY),
-                color = color(0.0, 1.0, 0.0)) +
+      geom_line(aes = aes("x", "baseline"),
+                color = "blue") +
+      geom_line(data = df.filter(f{Value -> bool: isNull(`xminY`) == false}), aes = aes("xminX", "xminY"),
+                color = "red") +
+      geom_line(data = df.filter(f{Value -> bool: isNull(`xminY`) == false}), aes = aes("riseStart", "xminY"),
+                color = "green") +
+      geom_line(data = df.filter(f{Value -> bool: isNull(`xminY`) == false}), aes = aes("fallStop", "xminY"),
+                color = "pink") +
       ggsave(path & plotSuffix)
     # TODO: compare the output of these plots! Can either be done the same way as we do
     # in gglotnim repo or via a SHA hash

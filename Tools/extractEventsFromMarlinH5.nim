@@ -4,6 +4,14 @@ A simple script to extract a few events from the
 `TimepixAnalysis/resources/background_splitted.2014+2015.h5`
 file to be able to compare them to the reconstructed raw data.
 
+*NOTE*: When using this tool to re-generate the data stored in the TPAresources
+repository, the important things are:
+- the events are selected based on random sampling using the seed
+  `299792458`
+- the random seeding in Nim's stdlib =random= library changed between
+  version 1.4 and 1.6. To regenerate the same events, compile the
+  tool with `-d:nimLegacyRandomInitRand`!
+
 ]#
 
 import ingrid / [ingrid_types, tos_helpers]
@@ -60,6 +68,7 @@ proc readCluster(h5f: var H5FileObj, group: string, ind, evNum: int): Option[Clu
   cGeom.lengthDivRmsTrans = cGeom.length / cGeom.rmsTransverse
 
   cObj.geometry = cGeom
+  cObj.version = Timepix1
 
   # finally read data of pixels
   let vlenUint8 = special_type(uint8)
@@ -149,11 +158,9 @@ proc bindToDf[T](df: var DataFrame, clusters: seq[ClusterObject[T]]) =
     dfs.add ldf
   df = bind_rows(dfs, id = "from")
   if "from" notin df:
-    df["from"] = toVector(toSeq(0 ..< df.len).mapIt(%~ "-1"))
-
+    df["from"] = "-1"
 
 proc main =
-
   var h5f = H5open(path, "r")
   defer: discard h5f.close()
   var showPlots = false

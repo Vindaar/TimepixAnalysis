@@ -228,7 +228,6 @@ proc writeRecoRunToH5*[T: SomePix](h5f: H5File,
     y[chip]  = @[]
     ch[chip] = @[]
   var count = 0
-  var tUnpack = epochTime()
   for event in reco_run:
     let
       num = event.event_number
@@ -410,11 +409,11 @@ proc reconstructSingleChip*(data: RecoInputData[Pix],
                                        clusterAlgo = clusterAlgo,
                                        timepixVersion = timepixVersion)
       echoCount(count, 5000, msg = " clusters reconstructed")
-    p.sync()
     count = 0
     for event in 0 ..< numElems:
       result[event] = ^(res[event])
-      echoCount(count, 5000, msg = " cluster FlowVars unpacked")
+      echoCount(count, 100, msg = " cluster FlowVars unpacked")
+    p.sync()
   elif true:
     {.error: "Compiling with `--gc:arc` is currently unsupported as we don't have a working threadpool " &
       "that can return objects containing seq / string like data that works with arc...".}

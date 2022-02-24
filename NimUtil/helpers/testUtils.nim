@@ -39,3 +39,10 @@ proc compareJObjects*(j1, j2: JsonNode): bool =
       returnOnFalse(almostEqual(v.getFloat, j2[k].getFloat), true)
     else:
       returnOnFalse(v, j2[k])
+
+func almostEq*[T: SomeNumber](x, y: T, ep = 1e-6): bool =
+  ## checks very roughly if the values match. Anything beyond
+  ## 1e-5 should be of no issue for us
+  ## NOTE: We explicitly do *not* use the `stdlib` `almostEqual` as we don't care about
+  ## any kind of smart comparison!
+  result = abs((x - y).float) < ep

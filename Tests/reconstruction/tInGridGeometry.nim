@@ -8,6 +8,8 @@ import json, sugar
 import ggplotnim
 import seqmath
 
+import helpers / testUtils
+
 const pwd = currentSourcePath().parentDir
 const dataPwd = pwd / "../../resources/TPAresources/reconstruction/marlinExtracted"
 
@@ -21,13 +23,6 @@ let plotSuffix = $getTime().toUnix & ".pdf"
 # if false we do not correct for the "one-off" error that
 # MarlinTPC has
 const CorrectOneOffXError = true
-
-func almostEq[T: SomeNumber](x, y: T, ep = 1e-6): bool =
-  ## checks very roughly if the values match. Anything beyond
-  ## 1e-5 should be of no issue for us
-  ## NOTE: We explicitly do *not* use the `stdlib` `almostEqual` as we don't care about
-  ## any kind of smart comparison!
-  result = abs((x - y).float) < ep
 
 proc `%`(p: Pix): JsonNode =
   result = %* { "x" : % p.x,

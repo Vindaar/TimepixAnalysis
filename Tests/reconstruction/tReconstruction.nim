@@ -14,6 +14,7 @@ const pwd = currentSourcePath().parentDir
 # `dataInPath` contains the H5 files created by the tRawDataManipulation.nim test,
 # which serve as the input for this test
 const dataInPath = pwd / "../raw_data_manipulation/"
+const resourcePath = pwd / "../../resources/TPAresources/"
 
 const DatasetSet = ["skewnessTransverse",
                     "length",
@@ -59,7 +60,7 @@ proc checkContent(h5f: H5FileObj, runNumber: int, withFadc = false): bool =
   # screw it, we compare by string. For some reason it appears `==` for Json doesn't
   # properly handle comparisons?!
   #writeFile(&"run_{runNumber}.json", runAttrs.pretty)
-  check compareJObjects(runAttrs, parseFile(&"run_{runNumber}.json"))
+  check compareJson(runAttrs, parseFile(pwd / &"run_{runNumber}.json"))
   check "/reconstruction" / r in h5f
   for ch in ChipGroupsSet:
     check "/reconstruction" / r / ch in h5f
@@ -101,15 +102,17 @@ proc checkContent(h5f: H5FileObj, runNumber: int, withFadc = false): bool =
             feDsetHashes[dsetName] = % $secureHash($(% data))
           else:
             doAssert false, "what " & $dset
-        #writeFile(&"hashes_fe_spetrum_run_{runNumber}.json", feDsetHashes.pretty)
-        check compareJObjects(
+        ## Run the following two commands to regenaret the JSON containing the SHA
+        ## hashes, if the reconstruction changes
+        #writeFile(&"{pwd}/hashes_fe_spetrum_run_{runNumber}.json", feDsetHashes.pretty)
+        #writeFile(&"{pwd}/fe_spectrum_attributes_run_{runNumber}.json", feAttrs.pretty)
+        check compareJson(
           feDsetHashes,
-          parseFile(&"hashes_fe_spetrum_run_{runNumber}.json")
+          parseFile(pwd / &"hashes_fe_spetrum_run_{runNumber}.json")
         )
-        #writeFile(&"fe_spectrum_attributes_run_{runNumber}.json", feAttrs.pretty)
-        check compareJObjects(
+        check compareJson(
           feAttrs,
-          parseFile(&"fe_spectrum_attributes_run_{runNumber}.json")
+          parseFile(pwd / &"fe_spectrum_attributes_run_{runNumber}.json")
         )
       else:
         check FeDsets.filterIt(
@@ -127,7 +130,7 @@ suite "reconstruction":
     for r in runs:
       check fileExists(dataInPath/r.inName)
       var res = shellVerbose:
-        "../../Analysis/ingrid/reconstruction" ($(dataInPath/r.inName)) "--out" ($r.outName)
+        reconstruction ($(dataInPath/r.inName)) "--out" ($r.outName)
       check res[1] == 0
       check fileExists(r.outName)
 
@@ -140,12 +143,12 @@ suite "reconstruction":
 
       # giving run number should be exactly the same as above
       res = shellVerbose:
-        "../../Analysis/ingrid/reconstruction" ($(dataInPath/r.inName)) "--out" ($r.outName) "--runNumber" ($r.num)
+        reconstruction ($(dataInPath/r.inName)) "--out" ($r.outName) "--runNumber" ($r.num)
       withH5(r.outName, "r"):
         check checkContent(h5f, r.num, withFadc = true)
 
       res = shellVerbose:
-        "../../Analysis/ingrid/reconstruction" ($r.outName) "--only_charge"
+        reconstruction ($r.outName) "--only_charge"
       withH5(r.outName, "r"):
         check checkContent(h5f, r.num, withFadc = true)
       ## TODO: write test to check the fit of the Fe spectrum!
@@ -155,10 +158,10 @@ suite "reconstruction":
   test "Gas gain":
     let r = runs[1]
     var res = shellVerbose:
-      "../../Analysis/ingrid/raw_data_manipulation ../../resources/TPAresources/gas_gain/Run_241_181022-16-16 --out raw_241_full.h5 --runType rtCalibration"
-      "../../Analysis/ingrid/reconstruction raw_241_full.h5 --out reco_241_full.h5"
-      "../../Analysis/ingrid/reconstruction reco_241_full.h5 --only_charge"
-      "../../Analysis/ingrid/reconstruction reco_241_full.h5 --only_gas_gain"
+      raw_data_manipulation ($resourcePath"gas_gain/Run_241_181022-16-16") "--out" ($pwd"/raw_241_full.h5") "--runType rtCalibration"
+      reconstruction ($pwd"/raw_241_full.h5") "--out" ($pwd"/reco_241_full.h5")
+      reconstruction ($pwd"/reco_241_full.h5") "--only_charge"
+      reconstruction ($pwd"/reco_241_full.h5") "--only_gas_gain"
 
     var h5f = H5open("reco_241_full.h5", "r")
     let shapePolya = h5f[("reconstruction/run_" & $241 / "chip_3/polya").dset_str].shape
@@ -187,10 +190,10 @@ suite "reconstruction":
 
   test "Gas gain 2014 data compare":
     var res = shellVerbose:
-      "../../Analysis/ingrid/raw_data_manipulation ../../resources/TPAresources/gas_gain/525-Run151111_21-31-47 --out raw_525_full.h5 --runType back" #rtBackground"
-      "../../Analysis/ingrid/reconstruction raw_525_full.h5 --out reco_525_full.h5"
-      "../../Analysis/ingrid/reconstruction reco_525_full.h5 --only_charge"
-      "../../Analysis/ingrid/reconstruction reco_525_full.h5 --only_gas_gain"
+      raw_data_manipulation ($resourcePath"/gas_gain/525-Run151111_21-31-47") "--out" ($pwd"/raw_525_full.h5") "--runType back" #rtBackground"
+      reconstruction ($pwd"/raw_525_full.h5") "--out" ($pwd"/reco_525_full.h5")
+      reconstruction ($pwd"/reco_525_full.h5") "--only_charge"
+      reconstruction ($pwd"/reco_525_full.h5") "--only_gas_gain"
 
     var h5f = H5open("reco_525_full.h5", "r")
     let shapePolya = h5f[("reconstruction/run_" & $525 / "chip_0/polya").dset_str].shape

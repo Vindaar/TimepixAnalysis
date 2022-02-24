@@ -30,10 +30,11 @@ func almostEqual(x, y: float, ep = 1e-5): bool =
 
 suite "InGrid data":
   test "Reading old TOS InGrid data":
-    let fileContent = readFile(fnameOldTos).strip.splitLines
-    let data = concat(@[fnameOldTos], fileContent)
+    let fileContent = readFile(fnameOldTos).strip
+    let data = ProtoFile(name: fnameOldTos,
+                         fileData: fileContent)
 
-    let ev: OldEvent = processOldEventScanf(data)[]
+    let ev: OldEvent = processOldEventScanf(data)
 
     proc checkHeader(header: Table[string, string]): bool =
       check header["numChips"] == $1
@@ -78,10 +79,11 @@ suite "InGrid data":
     # an alternative is to use git lfs for this purpose.
 
   test "Reading SRS TOS InGrid data":
-    let fileContent = readFile(fnameSrsTos).strip.splitLines
-    let data = concat(@[fnameSrsTos], fileContent)
+    let fileContent = readFile(fnameSrsTos).strip
+    let data = ProtoFile(name: fnameSrsTos,
+                         fileData: fileContent)
 
-    let ev: SrsEvent = processSrsEventScanf(data)[]
+    let ev: SrsEvent = processSrsEventScanf(data)
 
     proc checkHeader(header: Table[string, string]): bool =
       check header["dateTime"] == "2016-05-02T17:53:31+02:00"
@@ -140,10 +142,11 @@ suite "InGrid data":
     discard
 
   test "Reading current Virtex TOS InGrid data, calibration example":
-    let fileContent = readFile(fnameVcalib).strip.splitLines
-    let data = concat(@[fnameVcalib], fileContent)
+    let fileContent = readFile(fnameVcalib).strip
+    let data = ProtoFile(name: fnameVcalib,
+                         fileData: fileContent)
 
-    let ev: Event = processEventWithScanf(data)[]
+    let ev: Event = processEventWithScanf(data)
 
     proc checkHeader(header: Table[string, string]): bool =
       check header["runNumber"] == "302"
@@ -204,10 +207,11 @@ suite "InGrid data":
       check checkChip(ev.chips[i], i)
 
   test "Reading current Virtex TOS InGrid data, background example":
-    let fileContent = readFile(fnameVbackground).strip.splitLines
-    let data = concat(@[fnameVbackground], fileContent)
+    let fileContent = readFile(fnameVbackground).strip
+    let data = ProtoFile(name: fnameVbackground,
+                         fileData: fileContent)
 
-    let ev: Event = processEventWithScanf(data)[]
+    let ev: Event = processEventWithScanf(data)
 
     proc checkHeader(header: Table[string, string]): bool =
       check header["runNumber"] == "76"

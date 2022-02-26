@@ -422,6 +422,8 @@ proc isPixInSearchRadius[T: SomeInteger](p1, p2: Coord[T], search_r: int): bool 
   ## outpuits:
   ##   bool = true if within search_r
   ##          false if not
+
+  # XXX: THIS searches in a ``*square*``. Add option to search in a ``*circle*``
   let
     # determine boundary of search space
     right = p1.x.int + search_r

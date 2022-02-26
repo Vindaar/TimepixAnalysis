@@ -1,15 +1,15 @@
 {
   "FeSpectrum": {
     "pErr_11": {
-      "value": 0.0,
+      "value": 1.671481560919766,
       "type": "dkFloat64"
     },
     "text_2": {
-      "value": "sigma = 6.60 %",
+      "value": "sigma = 6.84 %",
       "type": "dkString"
     },
     "p12": {
-      "value": -2.971728214389711,
+      "value": -1.115431126388275,
       "type": "dkFloat64"
     },
     "pErr_6": {
@@ -17,15 +17,15 @@
       "type": "dkFloat64"
     },
     "eV_per_pix": {
-      "value": 21.12430933491545,
+      "value": 21.00366488582159,
       "type": "dkFloat64"
     },
     "p9": {
-      "value": 7.076426207501364,
+      "value": 7.100609000504741,
       "type": "dkFloat64"
     },
     "pErr_9": {
-      "value": 0.2501138012273461,
+      "value": 0.2240707272584178,
       "type": "dkFloat64"
     },
     "pErr_12": {
@@ -33,23 +33,23 @@
       "type": "dkFloat64"
     },
     "p13": {
-      "value": 0.0108990549881451,
+      "value": 0.003771750105234463,
       "type": "dkFloat64"
     },
     "text_1": {
-      "value": "21.1 ev / pix",
+      "value": "21.0 ev / pix",
       "type": "dkString"
     },
     "p_E_0": {
-      "value": 47.33882581179323,
+      "value": 47.61073867042341,
       "type": "dkFloat64"
     },
     "p4": {
-      "value": 8.743646352496095,
+      "value": 9.2939139527229,
       "type": "dkFloat64"
     },
     "pErr_4": {
-      "value": 2.136505084523328,
+      "value": 2.300643310388593,
       "type": "dkFloat64"
     },
     "p5": {
@@ -57,27 +57,27 @@
       "type": "dkFloat64"
     },
     "p_E_Err_0": {
-      "value": 0.1662521515568537,
+      "value": 1.285575428860489e-06,
       "type": "dkFloat64"
     },
     "p1": {
-      "value": 0.004418322498915026,
+      "value": -0.002242263036788366,
       "type": "dkFloat64"
     },
     "pErr_0": {
-      "value": 9.172379003186585,
+      "value": 3.077540080405723,
       "type": "dkFloat64"
     },
     "pErr_3": {
-      "value": 2.226306550099543,
+      "value": 2.305253065912829,
       "type": "dkFloat64"
     },
     "p3": {
-      "value": 135.5469387837444,
+      "value": 135.9200984908991,
       "type": "dkFloat64"
     },
     "p8": {
-      "value": 0.04284232650668976,
+      "value": 0.05421855008858261,
       "type": "dkFloat64"
     },
     "pErr_5": {
@@ -89,39 +89,39 @@
       "type": "dkFloat64"
     },
     "d_eV_per_pix": {
-      "value": 0.07418776906391519,
+      "value": 5.671366638553341e-07,
       "type": "dkFloat64"
     },
     "p11": {
-      "value": 18.0,
+      "value": 18.73693184546733,
       "type": "dkFloat64"
     },
     "pErr_14": {
-      "value": 0.04623065048350789,
+      "value": 0.05926046677264197,
       "type": "dkFloat64"
     },
     "p14": {
-      "value": 0.07878071826494108,
+      "value": 0.02169412758613649,
       "type": "dkFloat64"
     },
     "p10": {
-      "value": 272.7226955567897,
+      "value": 273.9998010483042,
       "type": "dkFloat64"
     },
     "pErr_8": {
-      "value": 0.02534771978426729,
+      "value": 0.04235218899344993,
       "type": "dkFloat64"
     },
     "p7": {
-      "value": -10.13284889032834,
+      "value": -12.37967597714193,
       "type": "dkFloat64"
     },
     "pErr_2": {
-      "value": 0.3139989300335242,
+      "value": 0.3037601596264782,
       "type": "dkFloat64"
     },
     "pErr_10": {
-      "value": 0.9804561155736758,
+      "value": 7.398486588011216e-06,
       "type": "dkFloat64"
     },
     "p6": {
@@ -129,29 +129,29 @@
       "type": "dkFloat64"
     },
     "pErr_1": {
-      "value": 0.1284470531379226,
+      "value": 0.05111527349420525,
       "type": "dkFloat64"
     },
     "pErr_7": {
-      "value": 5.725368910687819,
+      "value": 10.68197533516852,
       "type": "dkFloat64"
     },
     "text_0": {
-      "value": "mu = 272.7 pix",
+      "value": "mu = 274.0 pix",
       "type": "dkString"
     },
     "p2": {
-      "value": 1.455263024938104,
+      "value": 1.426307255817612,
       "type": "dkFloat64"
     },
     "p0": {
-      "value": -4.021686415987368,
+      "value": -2.749260908153268,
       "type": "dkFloat64"
     }
   },
   "FeSpectrumCharge": {
     "keV_per_electron": {
-      "value": 6.762604930212707e-06,
+      "value": 6.769297933132648e-06,
       "type": "dkFloat64"
     },
     "text_1": {
@@ -159,77 +159,77 @@
       "type": "dkString"
     },
     "p_E_0": {
-      "value": 147.8720123856986,
+      "value": 147.7258070006718,
       "type": "dkFloat64"
     },
     "p4": {
-      "value": 872.3816729239848,
+      "value": 871.519127838636,
       "type": "dkFloat64"
     },
     "pErr_4": {
-      "value": 3.059324667875802,
+      "value": 3.063175459948319,
       "type": "dkFloat64"
     },
     "p5": {
-      "value": 72.06025482024577,
+      "value": 72.16100235920362,
       "type": "dkFloat64"
     },
     "p_E_Err_0": {
-      "value": 0.5174179214497987,
+      "value": 0.5180516436817992,
       "type": "dkFloat64"
     },
     "p1": {
-      "value": 425.9428237397895,
+      "value": 425.6526029338793,
       "type": "dkFloat64"
     },
     "pErr_0": {
-      "value": 0.2193183818160711,
+      "value": 0.2195483515000961,
       "type": "dkFloat64"
     },
     "pErr_3": {
-      "value": 0.172439712306443,
+      "value": 0.1722980887482796,
       "type": "dkFloat64"
     },
     "p3": {
-      "value": 4.593076577192626,
+      "value": 4.590003873500834,
       "type": "dkFloat64"
     },
     "pErr_5": {
-      "value": 3.192833609789103,
+      "value": 3.196733902438385,
       "type": "dkFloat64"
     },
     "d_keV_per_electron": {
-      "value": 2.366298348229711e-08,
+      "value": 2.373888484369713e-08,
       "type": "dkFloat64"
     },
     "pErr_2": {
-      "value": 25.64752742886959,
+      "value": 25.44747011184684,
       "type": "dkFloat64"
     },
     "pErr_1": {
-      "value": 22.39384047000935,
+      "value": 22.25937754026373,
       "type": "dkFloat64"
     },
     "text_2": {
-      "value": "sigma = 8.26 %",
+      "value": "sigma = 8.28 %",
       "type": "dkString"
     },
     "text_0": {
-      "value": "mu = 872.4e3 e^-",
+      "value": "mu = 871.5e3 e^-",
       "type": "dkString"
     },
     "p2": {
-      "value": 53.38266574003902,
+      "value": 53.2029329873563,
       "type": "dkFloat64"
     },
     "p0": {
-      "value": 0.6054188315932291,
+      "value": 0.6066934425936614,
       "type": "dkFloat64"
     }
   },
   "FeSpectrumChargePlot": {
     "p0": {
-      "value": 0.6054188315932291,
+      "value": 0.6066934425936614,
       "type": "dkFloat64"
     },
     "text_1": {
@@ -237,77 +237,77 @@
       "type": "dkString"
     },
     "p_E_0": {
-      "value": 147.8720123856986,
+      "value": 147.7258070006718,
       "type": "dkFloat64"
     },
     "p4": {
-      "value": 872.3816729239848,
+      "value": 871.519127838636,
       "type": "dkFloat64"
     },
     "pErr_4": {
-      "value": 3.059324667875802,
+      "value": 3.063175459948319,
       "type": "dkFloat64"
     },
     "p5": {
-      "value": 72.06025482024577,
+      "value": 72.16100235920362,
       "type": "dkFloat64"
     },
     "p_E_Err_0": {
-      "value": 0.5174179214497987,
+      "value": 0.5180516436817992,
       "type": "dkFloat64"
     },
     "p1": {
-      "value": 425.9428237397895,
+      "value": 425.6526029338793,
       "type": "dkFloat64"
     },
     "pErr_0": {
-      "value": 0.2193183818160711,
+      "value": 0.2195483515000961,
       "type": "dkFloat64"
     },
     "pErr_3": {
-      "value": 0.172439712306443,
+      "value": 0.1722980887482796,
       "type": "dkFloat64"
     },
     "p3": {
-      "value": 4.593076577192626,
+      "value": 4.590003873500834,
       "type": "dkFloat64"
     },
     "pErr_5": {
-      "value": 3.192833609789103,
+      "value": 3.196733902438385,
       "type": "dkFloat64"
     },
     "d_keV_per_electron": {
-      "value": 2.366298348229711e-08,
+      "value": 2.373888484369713e-08,
       "type": "dkFloat64"
     },
     "pErr_2": {
-      "value": 25.64752742886959,
+      "value": 25.44747011184684,
       "type": "dkFloat64"
     },
     "pErr_1": {
-      "value": 22.39384047000935,
+      "value": 22.25937754026373,
       "type": "dkFloat64"
     },
     "text_2": {
-      "value": "sigma = 8.26 %",
+      "value": "sigma = 8.28 %",
       "type": "dkString"
     },
     "text_0": {
-      "value": "mu = 872.4e3 e^-",
+      "value": "mu = 871.5e3 e^-",
       "type": "dkString"
     },
     "keV_per_electron": {
-      "value": 6.762604930212707e-06,
+      "value": 6.769297933132648e-06,
       "type": "dkFloat64"
     },
     "p2": {
-      "value": 53.38266574003902,
+      "value": 53.2029329873563,
       "type": "dkFloat64"
     }
   },
   "FeSpectrumChargePlotFit": {
     "p0": {
-      "value": 0.6054188315932291,
+      "value": 0.6066934425936614,
       "type": "dkFloat64"
     },
     "text_1": {
@@ -315,71 +315,71 @@
       "type": "dkString"
     },
     "p_E_0": {
-      "value": 147.8720123856986,
+      "value": 147.7258070006718,
       "type": "dkFloat64"
     },
     "p4": {
-      "value": 872.3816729239848,
+      "value": 871.519127838636,
       "type": "dkFloat64"
     },
     "pErr_4": {
-      "value": 3.059324667875802,
+      "value": 3.063175459948319,
       "type": "dkFloat64"
     },
     "p5": {
-      "value": 72.06025482024577,
+      "value": 72.16100235920362,
       "type": "dkFloat64"
     },
     "p_E_Err_0": {
-      "value": 0.5174179214497987,
+      "value": 0.5180516436817992,
       "type": "dkFloat64"
     },
     "p1": {
-      "value": 425.9428237397895,
+      "value": 425.6526029338793,
       "type": "dkFloat64"
     },
     "pErr_0": {
-      "value": 0.2193183818160711,
+      "value": 0.2195483515000961,
       "type": "dkFloat64"
     },
     "pErr_3": {
-      "value": 0.172439712306443,
+      "value": 0.1722980887482796,
       "type": "dkFloat64"
     },
     "p3": {
-      "value": 4.593076577192626,
+      "value": 4.590003873500834,
       "type": "dkFloat64"
     },
     "pErr_5": {
-      "value": 3.192833609789103,
+      "value": 3.196733902438385,
       "type": "dkFloat64"
     },
     "d_keV_per_electron": {
-      "value": 2.366298348229711e-08,
+      "value": 2.373888484369713e-08,
       "type": "dkFloat64"
     },
     "pErr_2": {
-      "value": 25.64752742886959,
+      "value": 25.44747011184684,
       "type": "dkFloat64"
     },
     "pErr_1": {
-      "value": 22.39384047000935,
+      "value": 22.25937754026373,
       "type": "dkFloat64"
     },
     "text_2": {
-      "value": "sigma = 8.26 %",
+      "value": "sigma = 8.28 %",
       "type": "dkString"
     },
     "text_0": {
-      "value": "mu = 872.4e3 e^-",
+      "value": "mu = 871.5e3 e^-",
       "type": "dkString"
     },
     "keV_per_electron": {
-      "value": 6.762604930212707e-06,
+      "value": 6.769297933132648e-06,
       "type": "dkFloat64"
     },
     "p2": {
-      "value": 53.38266574003902,
+      "value": 53.2029329873563,
       "type": "dkFloat64"
     }
   },
@@ -387,15 +387,15 @@
   "FeSpectrumIndices": {},
   "FeSpectrumPlot": {
     "pErr_11": {
-      "value": 0.0,
+      "value": 1.671481560919766,
       "type": "dkFloat64"
     },
     "text_2": {
-      "value": "sigma = 6.60 %",
+      "value": "sigma = 6.84 %",
       "type": "dkString"
     },
     "p12": {
-      "value": -2.971728214389711,
+      "value": -1.115431126388275,
       "type": "dkFloat64"
     },
     "pErr_6": {
@@ -403,15 +403,15 @@
       "type": "dkFloat64"
     },
     "eV_per_pix": {
-      "value": 21.12430933491545,
+      "value": 21.00366488582159,
       "type": "dkFloat64"
     },
     "p9": {
-      "value": 7.076426207501364,
+      "value": 7.100609000504741,
       "type": "dkFloat64"
     },
     "pErr_9": {
-      "value": 0.2501138012273461,
+      "value": 0.2240707272584178,
       "type": "dkFloat64"
     },
     "pErr_12": {
@@ -419,23 +419,23 @@
       "type": "dkFloat64"
     },
     "p13": {
-      "value": 0.0108990549881451,
+      "value": 0.003771750105234463,
       "type": "dkFloat64"
     },
     "text_1": {
-      "value": "21.1 ev / pix",
+      "value": "21.0 ev / pix",
       "type": "dkString"
     },
     "p_E_0": {
-      "value": 47.33882581179323,
+      "value": 47.61073867042341,
       "type": "dkFloat64"
     },
     "p4": {
-      "value": 8.743646352496095,
+      "value": 9.2939139527229,
       "type": "dkFloat64"
     },
     "pErr_4": {
-      "value": 2.136505084523328,
+      "value": 2.300643310388593,
       "type": "dkFloat64"
     },
     "p5": {
@@ -443,27 +443,27 @@
       "type": "dkFloat64"
     },
     "p_E_Err_0": {
-      "value": 0.1662521515568537,
+      "value": 1.285575428860489e-06,
       "type": "dkFloat64"
     },
     "p1": {
-      "value": 0.004418322498915026,
+      "value": -0.002242263036788366,
       "type": "dkFloat64"
     },
     "pErr_0": {
-      "value": 9.172379003186585,
+      "value": 3.077540080405723,
       "type": "dkFloat64"
     },
     "pErr_3": {
-      "value": 2.226306550099543,
+      "value": 2.305253065912829,
       "type": "dkFloat64"
     },
     "p3": {
-      "value": 135.5469387837444,
+      "value": 135.9200984908991,
       "type": "dkFloat64"
     },
     "p8": {
-      "value": 0.04284232650668976,
+      "value": 0.05421855008858261,
       "type": "dkFloat64"
     },
     "pErr_5": {
@@ -475,39 +475,39 @@
       "type": "dkFloat64"
     },
     "d_eV_per_pix": {
-      "value": 0.07418776906391519,
+      "value": 5.671366638553341e-07,
       "type": "dkFloat64"
     },
     "p11": {
-      "value": 18.0,
+      "value": 18.73693184546733,
       "type": "dkFloat64"
     },
     "pErr_14": {
-      "value": 0.04623065048350789,
+      "value": 0.05926046677264197,
       "type": "dkFloat64"
     },
     "p14": {
-      "value": 0.07878071826494108,
+      "value": 0.02169412758613649,
       "type": "dkFloat64"
     },
     "p10": {
-      "value": 272.7226955567897,
+      "value": 273.9998010483042,
       "type": "dkFloat64"
     },
     "pErr_8": {
-      "value": 0.02534771978426729,
+      "value": 0.04235218899344993,
       "type": "dkFloat64"
     },
     "p7": {
-      "value": -10.13284889032834,
+      "value": -12.37967597714193,
       "type": "dkFloat64"
     },
     "pErr_2": {
-      "value": 0.3139989300335242,
+      "value": 0.3037601596264782,
       "type": "dkFloat64"
     },
     "pErr_10": {
-      "value": 0.9804561155736758,
+      "value": 7.398486588011216e-06,
       "type": "dkFloat64"
     },
     "p6": {
@@ -515,37 +515,37 @@
       "type": "dkFloat64"
     },
     "pErr_1": {
-      "value": 0.1284470531379226,
+      "value": 0.05111527349420525,
       "type": "dkFloat64"
     },
     "pErr_7": {
-      "value": 5.725368910687819,
+      "value": 10.68197533516852,
       "type": "dkFloat64"
     },
     "text_0": {
-      "value": "mu = 272.7 pix",
+      "value": "mu = 274.0 pix",
       "type": "dkString"
     },
     "p2": {
-      "value": 1.455263024938104,
+      "value": 1.426307255817612,
       "type": "dkFloat64"
     },
     "p0": {
-      "value": -4.021686415987368,
+      "value": -2.749260908153268,
       "type": "dkFloat64"
     }
   },
   "FeSpectrumPlotFit": {
     "pErr_11": {
-      "value": 0.0,
+      "value": 1.671481560919766,
       "type": "dkFloat64"
     },
     "p0": {
-      "value": -4.021686415987368,
+      "value": -2.749260908153268,
       "type": "dkFloat64"
     },
     "p12": {
-      "value": -2.971728214389711,
+      "value": -1.115431126388275,
       "type": "dkFloat64"
     },
     "pErr_6": {
@@ -553,15 +553,15 @@
       "type": "dkFloat64"
     },
     "eV_per_pix": {
-      "value": 21.12430933491545,
+      "value": 21.00366488582159,
       "type": "dkFloat64"
     },
     "p9": {
-      "value": 7.076426207501364,
+      "value": 7.100609000504741,
       "type": "dkFloat64"
     },
     "pErr_9": {
-      "value": 0.2501138012273461,
+      "value": 0.2240707272584178,
       "type": "dkFloat64"
     },
     "pErr_12": {
@@ -569,23 +569,23 @@
       "type": "dkFloat64"
     },
     "p13": {
-      "value": 0.0108990549881451,
+      "value": 0.003771750105234463,
       "type": "dkFloat64"
     },
     "text_1": {
-      "value": "21.1 ev / pix",
+      "value": "21.0 ev / pix",
       "type": "dkString"
     },
     "p_E_0": {
-      "value": 47.33882581179323,
+      "value": 47.61073867042341,
       "type": "dkFloat64"
     },
     "p4": {
-      "value": 8.743646352496095,
+      "value": 9.2939139527229,
       "type": "dkFloat64"
     },
     "pErr_4": {
-      "value": 2.136505084523328,
+      "value": 2.300643310388593,
       "type": "dkFloat64"
     },
     "p5": {
@@ -593,27 +593,27 @@
       "type": "dkFloat64"
     },
     "p_E_Err_0": {
-      "value": 0.1662521515568537,
+      "value": 1.285575428860489e-06,
       "type": "dkFloat64"
     },
     "p1": {
-      "value": 0.004418322498915026,
+      "value": -0.002242263036788366,
       "type": "dkFloat64"
     },
     "pErr_0": {
-      "value": 9.172379003186585,
+      "value": 3.077540080405723,
       "type": "dkFloat64"
     },
     "pErr_3": {
-      "value": 2.226306550099543,
+      "value": 2.305253065912829,
       "type": "dkFloat64"
     },
     "p3": {
-      "value": 135.5469387837444,
+      "value": 135.9200984908991,
       "type": "dkFloat64"
     },
     "p8": {
-      "value": 0.04284232650668976,
+      "value": 0.05421855008858261,
       "type": "dkFloat64"
     },
     "pErr_5": {
@@ -625,39 +625,39 @@
       "type": "dkFloat64"
     },
     "d_eV_per_pix": {
-      "value": 0.07418776906391519,
+      "value": 5.671366638553341e-07,
       "type": "dkFloat64"
     },
     "p11": {
-      "value": 18.0,
+      "value": 18.73693184546733,
       "type": "dkFloat64"
     },
     "pErr_14": {
-      "value": 0.04623065048350789,
+      "value": 0.05926046677264197,
       "type": "dkFloat64"
     },
     "p14": {
-      "value": 0.07878071826494108,
+      "value": 0.02169412758613649,
       "type": "dkFloat64"
     },
     "p10": {
-      "value": 272.7226955567897,
+      "value": 273.9998010483042,
       "type": "dkFloat64"
     },
     "pErr_8": {
-      "value": 0.02534771978426729,
+      "value": 0.04235218899344993,
       "type": "dkFloat64"
     },
     "p7": {
-      "value": -10.13284889032834,
+      "value": -12.37967597714193,
       "type": "dkFloat64"
     },
     "pErr_2": {
-      "value": 0.3139989300335242,
+      "value": 0.3037601596264782,
       "type": "dkFloat64"
     },
     "pErr_10": {
-      "value": 0.9804561155736758,
+      "value": 7.398486588011216e-06,
       "type": "dkFloat64"
     },
     "p6": {
@@ -665,23 +665,23 @@
       "type": "dkFloat64"
     },
     "pErr_1": {
-      "value": 0.1284470531379226,
+      "value": 0.05111527349420525,
       "type": "dkFloat64"
     },
     "text_2": {
-      "value": "sigma = 6.60 %",
+      "value": "sigma = 6.84 %",
       "type": "dkString"
     },
     "pErr_7": {
-      "value": 5.725368910687819,
+      "value": 10.68197533516852,
       "type": "dkFloat64"
     },
     "text_0": {
-      "value": "mu = 272.7 pix",
+      "value": "mu = 274.0 pix",
       "type": "dkString"
     },
     "p2": {
-      "value": 1.455263024938104,
+      "value": 1.426307255817612,
       "type": "dkFloat64"
     }
   }

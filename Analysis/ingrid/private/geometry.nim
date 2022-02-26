@@ -478,14 +478,10 @@ proc findSimpleCluster*[T: SomePix](pixels: seq[T], searchRadius: int): seq[Clus
     let p1: Coord[type(c[i].x)] = (x: c[i].x, y: c[i].y)
     # alternatively:
     let t = raw_event.filterIt(isPixInSearchRadius(p1, (it.x, it.y), searchRadius))
-    #let t = filter(raw_event, (p: tuple[x, y: uint8, ch: uint16]) ->
-    #               bool => isPixInSearchRadius(p1, (p.x, p.y), searchRadius))
-
     # add all found pixels to current cluster
-    c = concat(c, t)
+    c.add t
     # remove elements from t in raw_event
     deleteIntersection(raw_event, t)
-
     if i == c.len - 1 and raw_event.len > 0:
       # if we are at the last hit pixel in the event, but raw_events is not empty,
       # this means there is more than 1 cluster in the frame. Thus, add the current

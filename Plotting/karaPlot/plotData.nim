@@ -2279,6 +2279,8 @@ proc eventDisplay(h5file: string,
 
   discard h5f.close()
 
+include ./moreCustomPlots
+
 proc genCalibrationPlotPDs(h5f: H5File,
                            runType: RunTypeKind,
                            config: Config
@@ -2300,9 +2302,11 @@ proc genCalibrationPlotPDs(h5f: H5File,
   # energyCalib(h5f) # ???? plot of gas gain vs charge?!
   if cfIngrid in config.flags:
     result.add histograms(h5f, runType, fInfoConfig, config) # including fadc
-  # now deal with custom plots
   if config.customPlots.len > 0:
     result.add createCustomPlots(fInfoConfig, config)
+
+  # now deal with custom plots
+  result.add moreCustom(fInfoConfig, config)
 
 proc createCalibrationPlots(h5file: string,
                             bKind: PlottingBackendKind,
@@ -2340,6 +2344,8 @@ proc genBackgroundPlotPDs(h5f: H5File, runType: RunTypeKind,
   # result.add createCustomPlots(fInfoConfig, config)
   if config.customPlots.len > 0:
     result.add createCustomPlots(fInfoConfig, config)
+  # now deal with custom plots
+  result.add moreCustom(fInfoConfig, config)
 
 proc createBackgroundPlots(h5file: string,
                            bKind: PlottingBackendKind,

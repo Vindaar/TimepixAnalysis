@@ -134,7 +134,7 @@ macro setTabFields(tab: Table[string, seq[seq[typed]]],
     result.add quote do:
       `tab`[`name`][`chip`].add `obj`.`field`
 
-proc initDataTab[T: (float | int), N: int](tab: var Table[string, seq[seq[T]]],
+proc initDataTab[T; N: int](tab: var Table[string, seq[seq[T]]],
                                            nchips: int,
                                            names: array[N, string]) =
   ## convenienve proc to initialize the seqs inside a table `tab` storing the
@@ -203,6 +203,9 @@ proc writeRecoRunToH5*[T: SomePix](h5f: H5File,
     float_geometry_names = getFloatGeometryNames()
     float_cluster_names = getFloatClusterNames()
     float_dset_names = getFloatDsetNames()
+    # and tpx3 toA
+    float_toa_names = getFloatToANames()
+    uint16_toa_names = getUint16ToANames()
   # now parsing all the data is really fucking ugly, thanks to the tons of
   # different variables, which we want to write :( Unfortunately, we cannot
   # simply make that a compound datatype or something. Well
@@ -212,8 +215,14 @@ proc writeRecoRunToH5*[T: SomePix](h5f: H5File,
   # create a table containing the sequences for int datasets and corresponding names
   var int_data_tab = initTable[string, seq[seq[int]]]()
   var float_data_tab = initTable[string, seq[seq[float]]]()
+  var uint16_data_tab = initTable[string, seq[seq[uint16]]]()
   int_data_tab.initDataTab(nChips, int_dset_names)
   float_data_tab.initDataTab(nChips, float_dset_names)
+
+  ## If Tpx3, also init the table fields for
+  if timepixVersion == Timepix3:
+    float_data_tab.initDataTab(nChips, float_toa_names)
+    uint16_data_tab.initDataTab(nChips, uint16_toa_names)
 
   var
     # before we create the datasets, first parse the data we will write
@@ -254,6 +263,9 @@ proc writeRecoRunToH5*[T: SomePix](h5f: H5File,
       if timepixVersion == Timepix3:
         toa[chip].add cl.toa
         toaCombined[chip].add cl.toaCombined
+        # and ToA variables
+        float_data_tab.setTabFields(float_toa_names, chip, cl.toaGeometry)
+        uint16_data_tab.setTabFields(uint16_toa_names, chip, cl.toaGeometry)
 
   # now that we have the data and now how many elements each type has
   # we can create the datasets
@@ -276,6 +288,7 @@ proc writeRecoRunToH5*[T: SomePix](h5f: H5File,
     # datasets for x, y and charge
     int_dsets = initTable[string, seq[H5DataSet]]()
     float_dsets = initTable[string, seq[H5DataSet]]()
+    uint16_dsets = initTable[string, seq[H5DataSet]]()
     # x, y and charge datasets
     x_dsets = mapIt(toSeq(0..<nChips),
                     h5f.datasetCreation(chip_groups[it].name & "/x",
@@ -306,6 +319,10 @@ proc writeRecoRunToH5*[T: SomePix](h5f: H5File,
   # now create all datasets and store them in the dataset tables
   int_dsets.createDatasets(h5f, int_dset_names, nChips, eventsPerChip, chip_groups, int)
   float_dsets.createDatasets(h5f, float_dset_names, nChips, eventsPerChip, chip_groups, float)
+  # also create datasets for Tpx3
+  if timepixVersion == Timepix3:
+    float_dsets.createDatasets(h5f, float_toa_names, nChips, eventsPerChip, chip_groups, float)
+    uint16_dsets.createDatasets(h5f, uint16_toa_names, nChips, eventsPerChip, chip_groups, uint16)
 
   # now that we have the datasets, write everything...
   let all = x_dsets[0].all
@@ -316,9 +333,7 @@ proc writeRecoRunToH5*[T: SomePix](h5f: H5File,
   for chip in 0 ..< nChips:
     for dset in int_dset_names:
       int_dsets[dset][chip][all] = int_data_tab[dset][chip]
-    for dset in float_cluster_names:
-      float_dsets[dset][chip][all] = float_data_tab[dset][chip]
-    for dset in float_geometry_names:
+    for dset in float_dset_names:
       float_dsets[dset][chip][all] = float_data_tab[dset][chip]
     # pixel specific seqs
     x_dsets[chip][all] = x[chip]
@@ -328,6 +343,10 @@ proc writeRecoRunToH5*[T: SomePix](h5f: H5File,
     if timepixVersion == Timepix3:
       toa_dsets[chip][all] = toa[chip]
       toa_combined_dsets[chip][all] = toaCombined[chip]
+      for dset in float_toa_names:
+        float_dsets[dset][chip][all] = float_data_tab[dset][chip]
+      for dset in uint16_toa_names:
+        uint16_dsets[dset][chip][all] = uint16_data_tab[dset][chip]
 
     # anyways, write the chip dataset attributes
     let raw_chip_group_name = raw_groups & $chip

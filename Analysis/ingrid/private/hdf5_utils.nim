@@ -349,6 +349,16 @@ proc getFloatGeometryNames*(): array[12, string] =
             "kurtosisLongitudinal", "kurtosisTransverse", "eccentricity", "rotationAngle",
             "length", "width", "fractionInTransverseRms", "lengthDivRmsTrans"]
 
+proc getFloatToANames*(): array[3, string] =
+  ## returns all dataset names in the H5 output file, which are members
+  ## of a `ToAGeometry` object
+  result = ["toaLength", "toaMean", "toaRms"]
+
+proc getUint16ToANames*(): array[1, string] =
+  ## returns all dataset names in the H5 output file, which are members
+  ## of a `ToAGeometry` object
+  result = ["toaMin"]
+
 proc getFloatClusterNames*(): array[2, string] =
   ## returns all dataset names in the H5 output file, which are members of
   ## a `ClusterObject` object

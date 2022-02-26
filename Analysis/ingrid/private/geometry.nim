@@ -412,36 +412,6 @@ proc calcToAGeometry*[T: SomePix](cluster: var ClusterObject[T]): ToAGeometry =
   result.toaRms = stat.standardDeviation()
   result.toaMin = minToA
 
-proc isPixInSearchRadius[T: SomeInteger](p1, p2: Coord[T], search_r: int): bool =
-  ## given two pixels, p1 and p2, we check whether p2 is within one square search
-  ## of p1
-  ## inputs:
-  ##   p1: Pix = pixel from which to start search
-  ##   p2: Pix = pixel for which to check
-  ##   search_r: int = search radius (square) in which to check for p2 in (p1 V search_r)
-  ## outpuits:
-  ##   bool = true if within search_r
-  ##          false if not
-
-  # XXX: THIS searches in a ``*square*``. Add option to search in a ``*circle*``
-  let
-    # determine boundary of search space
-    right = p1.x.int + search_r
-    left  = p1.x.int - search_r
-    up    = p1.y.int + search_r
-    down  = p1.y.int - search_r
-  # NOTE: for performance we may want to use the fact that we may know that
-  # p1 is either to the left (if in the same row) or below (if not in same row)
-  var
-    in_x: bool = false
-    in_y: bool = false
-
-  if p2.x.int < right and p2.x.int > left:
-    in_x = true
-  if p2.y.int < up and p2.y.int > down:
-    in_y = true
-  result = if in_x == true and in_y == true: true else: false
-
 proc wrapDbscan(p: Tensor[float], eps: float, minSamples: int): seq[int] =
   ## This is a wrapper around `dbscan`. Without it for some reason `seqmath's` `arange`
   ## is bound in the context of the `kdtree` code for some reason (binding manually is

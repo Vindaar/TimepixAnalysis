@@ -46,12 +46,11 @@ proc newClusterGeometry*(): ClusterGeometry =
                            fractionInTransverseRms: Inf)
 
 
-proc newClusterObject*[T: SomePix](c: Cluster[T], timepix: TimepixVersion): ClusterObject[T] =
+proc newClusterObject*[T: SomePix](timepix: TimepixVersion): ClusterObject[T] =
   ## initialize variables with Inf for now
   # TODO: should we initialize geometry values by Inf as well?
   let geometry = ClusterGeometry()
-  result = ClusterObject[T](data: c,
-                            centerX: Inf,
+  result = ClusterObject[T](centerX: Inf,
                             centerY: Inf,
                             energy: Inf,
                             geometry: geometry,
@@ -541,19 +540,37 @@ proc fitRotAngle*[T: SomePix](cl_obj: ClusterObject[T],
 proc recoCluster*[T: SomePix; U: SomePix](c: Cluster[T],
                                           timepix: TimepixVersion = Timepix1,
                                           _: typedesc[U]): ClusterObject[U] {.gcsafe, hijackMe.} =
-  let cl = c.to(U)
-  result = newClusterObject(cl, timepix)
+  result = newClusterObject[U](timepix)
+
+  let clustersize: int = len(c)
+  ##
+  const NeedConvert = T is PixTpx3 and U is Pix
+  var cl = newSeq[U](clustersize)
+  var
+    sum_x, sum_x2: int
+    sum_y, sum_y2, sum_xy: int
+    sum_ToT: int
+    minToA: uint16
+  when T is PixTpx3:
+    result.toa = newSeq[uint16](clustersize)
+    result.toaCombined = newSeq[uint64](clustersize)
+  for i in 0 ..< clustersize:
+    let ci = c[i]
+    sum_x  += ci.x.int
+    sum_y  += ci.y.int
+    sumToT += ci.ch.int
+    sum_x2 += ci.x.int * ci.x.int
+    sum_y2 += ci.y.int * ci.y.int
+    sum_xy += ci.x.int * ci.y.int
+    when NeedConvert:
+      cl[i] = (x: ci.x, y: ci.y, ch: ci.ch)
+      result.toa[i] = ci.toa
+      result.toaCombined[i] = ci.toaCombined
+  when NeedConvert:
+    result.data = cl
+  else:
+    result.data = c
   let
-    clustersize: int = len(c)
-    (sum_x, sum_y, sumTotInCluster) = sum(cl)
-    # using map and sum[Pix] we can calculate sum of x^2, y^2 and x*y in one line
-    (sum_x2, sum_y2, sum_xy) = sum(c.mapIt((it.x.int * it.x.int,
-                                            it.y.int * it.y.int,
-                                            it.x.int * it.y.int)))
-    #(sum_x2, sum_y2, sum_xy) = sum(map(c, (p: Pix) ->
-    #                               (int, int, int) => (p.x.int * p.x.int,
-    #                                                   p.y.int * p.y.int,
-    #                                                   p.x.int * p.y.int)))
     pos_x = float64(sum_x) / float64(clustersize)
     pos_y = float64(sum_y) / float64(clustersize)
   var
@@ -564,7 +581,7 @@ proc recoCluster*[T: SomePix; U: SomePix](c: Cluster[T],
 
   # set the total "charge" in the cluster (sum of ToT values), can be
   # converted to electrons with ToT calibration
-  result.sum_tot = sumTotInCluster.int
+  result.sum_tot = sumTot
   # set number of hits in cluster
   result.hits = clustersize
   # set the position
@@ -594,8 +611,6 @@ proc recoCluster*[T: SomePix; U: SomePix](c: Cluster[T],
   # properties, i.e. RMS, skewness and kurtosis along the long axis of the cluster
   result.geometry = calcGeometry(c, result.centerX, result.centerY, rot_angle)
   when T is PixTpx3:
-    result.toa = c.mapIt(it.toa)
-    result.toaCombined = c.mapIt(it.toaCombined)
 
 proc getPixels[T](dat: RecoInputEvent, _: typedesc[T]): seq[T] =
   when T is Pix:

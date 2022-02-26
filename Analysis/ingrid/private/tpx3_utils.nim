@@ -1,4 +1,4 @@
-import std / [tables, times]
+import std / [tables, times, math]
 import ../ingrid_types
 import ./hdf5_utils
 import arraymancer
@@ -50,14 +50,38 @@ proc computeTpx3RunParameters*(data: seq[Tpx3Data], startIdx, clusterTimeCutoff:
   var cluster: ChipEvent
   var ev = Event(isValid: true, chips: newSeq[ChipEvent](1), nChips: 1,
                  evHeader: e_header)
-  var clusterTime = 0
+  var lastToa = 0 # int64.high
+  var clusterStart = 0 # start in ToA cycles
   var startT = 0.0
   var lastT = 0.0
+
   var occ = zeros[int64]([1, 256, 256])
   var eventIdx = 0
+  const overflow = 2^14
+  var numOverflows = 0
   for i, el in data:
-    ## XXX: make sure we don't cut off things based on ToA overflowing!
-    if el.TOA.int > clusterTime + clusterTimeCutoff:
+    let toa = el.TOA.int
+    ## 3 Cases decide whether we keep accumulating to this cluster
+    ## (0.: this TOA is equal to last TOA)
+    ## 1. this ToA value is *smaller* than the last + user defined cutoff (and larger than start)
+    ## 2. this ToA value is *larger* than cluster start - user cutoff. (and smaller than last)
+    ##    This implies ToA values are not sorted correctly, but the new ToA is still
+    ##    within one cutoff of the starting time
+    ## 3. this ToA value + 2^14 (counter max vaule) is *smaller* than last ToA + user defined cutoff
+    ##    This is for overflows of the counter, such that we keep accumulating
+    ##    as long as we're technically within one cutoff
+    if not ( toa == lastToa or # 0.
+      ( toa <= lastToa + clusterTimeCutoff and
+        toa > clusterStart ) or  # 1.
+      ( toa >= (clusterStart - clusterTimeCutoff) and
+        toa < lastToa ) or # 2.
+      (overflow + toa) <= (lastToa + clusterTimeCutoff)):
+      if false and cluster.pixels.len == 1:
+        ## Debug output to help
+        echo "looking at index ", i, " toa ", toa, " cluster ", lastToa
+        echo "toa <= lastToa + clusterTimeCutoff ",  toa <= lastToa + clusterTimeCutoff
+        echo "toa >= (clusterStart - clusterTimeCutoff) ", toa >= (clusterStart - clusterTimeCutoff)
+        echo "(overflow + toa) <= (lastToa + clusterTimeCutoff) ", (overflow + toa) <= (lastToa)
       ev.length = lastT - startT
       if cluster.pixels.len > 0:
         ev.chips = @[cluster]
@@ -70,11 +94,25 @@ proc computeTpx3RunParameters*(data: seq[Tpx3Data], startIdx, clusterTimeCutoff:
                           toa: newSeqOfCap[uint16](400),
                           toaCombined: newSeqOfCap[uint64](400))
       startT = el.chunk_start_time
+      clusterStart = toa
+      lastToa = 0 #int64.high
+      numOverflows = 0
     cluster.pixels.add (x: el.x, y: el.y, ch: el.TOT)
-    cluster.toa.add el.TOA
+    if toa < clusterTimeCutoff and lastToa + clusterTimeCutoff > overflow:
+      inc numOverflows
+      # means we had an overflow. As it's a 14 bit counter, we have plenty of space
+      # to correct the overflows
+      # check `lastToa != int64.high` as we set it such when adding new
+      echo "Overflow detected : ", el.TOA, " and ", lastToa
+      if numOverflows > 3:
+        echo "Current data ", cluster.toa
+        echo "Maximum number of overflows detected! BAD BAD BAD"
+        raise newException(IOError, "Input data has more than 3 overflows in a single cluster! " &
+          "Our current data model cannot handle this.")
+    cluster.toa.add (el.TOA + (numOverflows * overflow).uint16)
     cluster.toaCombined.add el.TOA_Combined
     tots.add el.TOT
-    clusterTime = el.TOA.int
+    lastToa = toa
     lastT = el.chunk_start_time
     occ[0, el.y.int, el.x.int] += el.TOT.int64
   result.timepix = Timepix3

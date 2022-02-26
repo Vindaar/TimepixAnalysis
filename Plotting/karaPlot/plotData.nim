@@ -101,10 +101,10 @@ proc initConfig*(chips: set[uint16],
   fileType = fType
 
   var customPlots: seq[CustomPlot]
-  if xDset.len > 0 or yDset.len > 0:
-    doAssert xDset.len > 0, "Need to give both x and y datasets if one given!"
-    doAssert yDset.len > 0, "Need to give both x and y datasets if one given!"
+  if xDset.len > 0:
     customPlots = @[CustomPlot(x: xDset, y: yDset, color: zDset)]
+  elif yDset.len > 0:
+    doAssert false, "If a y axis is given, also supply an x axis! Otherwise only give x"
 
   ## Add the runs & chips from the configuration file to the user input
   var chips = chips
@@ -526,21 +526,38 @@ proc createCustomPlots(fileInfo: FileInfo, config: Config): seq[PlotDescriptor] 
   ## define any plot that doesn't fit any of the other descriptions here
   let selector = initSelector(config)
   for plt in config.customPlots:
-    let customPlot = CustomPlot(kind: cpScatter,
-                                x: plt.x,
-                                y: plt.y,
-                                color: plt.color)
-    result.add PlotDescriptor(runType: fileInfo.runType,
-                              name: plt.x & "_vs_" & plt.y,
-                              xLabel: plt.x,
-                              yLabel: plt.y,
-                              title: plt.x & "/" & plt.y,
-                              selector: selector,
-                              isCenterChip: true,
-                              chip: -1, ## will be set to center chip when reading data!
-                              runs: fileInfo.runs,
-                              plotKind: pkCustomPlot,
-                              customPlot: customPlot)
+    if plt.x.len > 0 and plt.y.len > 0:
+      let customPlot = CustomPlot(kind: cpScatter,
+                                  x: plt.x,
+                                  y: plt.y,
+                                  color: plt.color)
+      result.add PlotDescriptor(runType: fileInfo.runType,
+                                name: plt.x & "_vs_" & plt.y,
+                                xLabel: plt.x,
+                                yLabel: plt.y,
+                                title: plt.x & "/" & plt.y,
+                                selector: selector,
+                                isCenterChip: true,
+                                chip: -1, ## will be set to center chip when reading data!
+                                runs: fileInfo.runs,
+                                plotKind: pkCustomPlot,
+                                customPlot: customPlot)
+    elif plt.x.len > 0 and plt.y.len == 0:
+      let customPlot = CustomPlot(kind: cpHistogram,
+                                  x: plt.x,
+                                  color: plt.color)
+      result.add PlotDescriptor(runType: fileInfo.runType,
+                                name: plt.x,
+                                xLabel: plt.x,
+                                yLabel: "Counts",
+                                title: "Histogram: " & plt.x,
+                                selector: selector,
+                                isCenterChip: true,
+                                chip: -1, ## will be set to center chip when reading data!
+                                runs: fileInfo.runs,
+                                plotKind: pkCustomPlot,
+                                customPlot: customPlot)
+
   when false:
     block:
       result.add PlotDescriptor(runType: fileInfo.runType,
@@ -1924,22 +1941,34 @@ proc handleCustomPlot(h5f: H5File,
   if pd.processData.isNil:
     ## Assume this is a scatter plot
     let cPlt = pd.customPlot
-    doAssert cPlt.kind == cpScatter, "Non scatter plots currently not supported " &
-      "without a custom `processData` function!"
-    var allX: seq[float]
-    var allY: seq[float]
-    var allZ: seq[float]
-    for r in pd.runs:
-      allX.add h5f.read(r, cPlt.x, pd.selector, dtype = float,
-                       chipNumber = fileInfo.centerChip)
-      allY.add h5f.read(r, cPlt.y, pd.selector, dtype = float,
-                       chipNumber = fileInfo.centerChip)
-      if cPlt.color.len > 0:
-        allZ.add h5f.read(r, cPlt.color, pd.selector, dtype = float,
-                          chipNumber = fileInfo.centerChip)
-    let title = buildTitle(pd)
-    result[0] = buildOutfile(pd, fileDir, fileType)
-    result[1] = plotCustomScatter(allX, allY, pd, title, allZ)
+    case cPlt.kind
+    of cpScatter:
+      var allX: seq[float]
+      var allY: seq[float]
+      var allZ: seq[float]
+      for r in pd.runs:
+        allX.add h5f.read(r, cPlt.x, pd.selector, dtype = float,
+                         chipNumber = fileInfo.centerChip)
+        allY.add h5f.read(r, cPlt.y, pd.selector, dtype = float,
+                         chipNumber = fileInfo.centerChip)
+        if cPlt.color.len > 0:
+          allZ.add h5f.read(r, cPlt.color, pd.selector, dtype = float,
+                            chipNumber = fileInfo.centerChip)
+      let title = buildTitle(pd)
+      result[0] = buildOutfile(pd, fileDir, fileType)
+      result[1] = plotCustomScatter(allX, allY, pd, title, allZ)
+    of cpHistogram:
+      var allX: seq[float]
+      var allZ: seq[float]
+      for r in pd.runs:
+        allX.add h5f.read(r, cPlt.x, pd.selector, dtype = float,
+                         chipNumber = fileInfo.centerChip)
+        if cPlt.color.len > 0:
+          allZ.add h5f.read(r, cPlt.color, pd.selector, dtype = float,
+                            chipNumber = fileInfo.centerChip)
+      let title = buildTitle(pd)
+      result[0] = buildOutfile(pd, fileDir, fileType)
+      result[1] = plotHist(allX, title, cPlt.x, result[0], binS = 1.0, binR = (0.0, 0.0))
   else:
     result = pd.processData(h5f, fileInfo, pd, config)
 

@@ -607,3 +607,14 @@ proc `==`*[T: SomePix](r1, r2: RecoEvent[T]): bool =
   result = true
   for name, f1, f2 in fieldPairs(r1, r2):
     result = result and f1 == f2
+
+when false:
+  ## XXX:  write some macro code to clean up the whole int / float dataset debacle
+  macro objFields*(t: typed): untyped =
+    ## Given the type `t`, generate code returning names of each field
+    ## that is of a primitive type (int + float)
+    let typ = t.getType[1].getImpl
+    doAssert typ.kind == nnkTypeDef
+    let recLs = typ[2][2] # objTy, recList
+
+    echo typ.treerepr

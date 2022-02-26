@@ -2,7 +2,7 @@ import math, stats
 import ingrid / ingrid_types
 import helpers / utils
 import logging
-import ingrid / private / [pure, cdl_cuts]
+import ingrid / private / [pure, cdl_cuts, clustering]
 
 import sequtils, nlopt
 import arraymancer # for tensor and dbscan
@@ -441,59 +441,6 @@ proc isPixInSearchRadius[T: SomeInteger](p1, p2: Coord[T], search_r: int): bool 
   if p2.y.int < up and p2.y.int > down:
     in_y = true
   result = if in_x == true and in_y == true: true else: false
-
-proc findSimpleCluster*[T: SomePix](pixels: seq[T], searchRadius: int): seq[Cluster[T]] =
-  ## this procedure searches for clusters based on a fixed search radius, whether
-  ## a pixel is found within that boundary, e.g. searchRadius = 50:
-  ## if within 50 pixels another pixel is found, add pixel to cluster, continue
-  ## inputs:
-  ##   -
-  ## ouputs:
-  ##   -
-
-  # - iterate over all hit pixels in event
-  # - check next pixel, is it within search bound? yes,
-  #   add pixel to hit
-  var
-    # sequence in which to store the hits, which are part of a cluster
-    c: Cluster[T] = @[]
-    # create copy of pixels so that we can remove elements from it
-    raw_event = pixels
-    # counter
-    i = 0
-  result = @[] #new seq[Cluster]
-
-  when defined(onlySingleCluster):
-    let
-      cutoff_size = 1
-  else:
-    let
-      cutoff_size = 2
-
-  # add the first pixel of the given sequence to have a starting pixel, from which we
-  # look for other pixels in the cluster
-  c.add(pixels[0])
-  raw_event.deleteIntersection(@[pixels[0]])
-  while raw_event.len > 0 and i < c.len:
-    let p1: Coord[type(c[i].x)] = (x: c[i].x, y: c[i].y)
-    # alternatively:
-    let t = raw_event.filterIt(isPixInSearchRadius(p1, (it.x, it.y), searchRadius))
-    # add all found pixels to current cluster
-    c.add t
-    # remove elements from t in raw_event
-    deleteIntersection(raw_event, t)
-    if i == c.len - 1 and raw_event.len > 0:
-      # if we are at the last hit pixel in the event, but raw_events is not empty,
-      # this means there is more than 1 cluster in the frame. Thus, add the current
-      # cluster 'c' to the seq of clusters and call this function recursively with
-      # raw_events as the starting parameter
-      if len(c) > cutoff_size:
-        result.add(c)
-      if len(raw_event) > cutoff_size:
-        result.add(findSimpleCluster(raw_event, searchRadius))
-    elif raw_event.len == 0 and len(c) > cutoff_size:
-      result.add(c)
-    inc i
 
 proc wrapDbscan(p: Tensor[float], eps: float, minSamples: int): seq[int] =
   ## This is a wrapper around `dbscan`. Without it for some reason `seqmath's` `arange`

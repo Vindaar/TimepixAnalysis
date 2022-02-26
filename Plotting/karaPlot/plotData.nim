@@ -632,7 +632,8 @@ proc histograms(h5f: H5File, runType: RunTypeKind,
   ## TODO: make datasets and chip regions selectable!
   for selector in selectors:
     if cfInGrid in config.flags:
-      for region in ChipRegion:
+      ## XXX: make region selection CLI argument & config file!
+      for region in [crAll]: #ChipRegion:
         var sel = selector
         sel.region = region
         for ch in fileInfo.chips:

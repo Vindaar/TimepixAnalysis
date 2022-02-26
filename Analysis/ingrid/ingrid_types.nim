@@ -173,6 +173,14 @@ type
     fractionInTransverseRms*: float
     lengthDivRmsTrans*: float
 
+  ## An object that stores information that describes the "geometry" of the
+  ## ToA data in an object
+  ToAGeometry* = object
+    toaLength*: float # length in ToA ## XXX: ideally this would be a small integer type, i.e. int32
+    toaMean*: float   # mean ToA value
+    toaRms* : float   # RMS of ToA values
+    toaMin* : uint16  # the minimal ToA value found before subtraction
+
   # object which stores a single `Cluster` in combination with information
   # about itself, e.g. energy, geometry etc.
   ClusterObject*[T: SomePix] = object
@@ -189,6 +197,7 @@ type
     of Timepix3:
       toa*: seq[uint16]
       toaCombined*: seq[uint64]
+      toaGeometry*: ToAGeometry
 
   # object which stores information about a reconstructed event, i.e.
   # split into different clusters and information about it, chip and

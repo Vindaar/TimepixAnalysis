@@ -386,6 +386,32 @@ proc calcGeometry*[T: SomePix](cluster: Cluster[T],
              distance(it[0], it[1]) <= result.rmsTransverse).len
   ).float / float(npix)
 
+proc calcToAGeometry*[T: SomePix](cluster: var ClusterObject[T]): ToAGeometry =
+  ## Given a cluster, computes different ToA based "geometric" properties (i.e.
+  ## the length in ToA etc.) and also (hence `cluster` is `var`) modifies the
+  ## `toa` field such that each cluster starts at 0.
+
+  ## XXX: `toaLength` is already computed in `raw_data_manipulation` as `length` field of
+  ## the `ProcessedRun`!
+  var minToA = uint16.high
+  var maxToA = 0'u16
+  for i, toa in cluster.toa:
+    minToA = min(minToA, toa)
+    maxToA = max(maxToA, toa)
+  ## use min ToA knowledge to push subtracted values to stat and modify `toa`
+  var
+    stat: RunningStat
+  for i, toa in mpairs(cluster.toa):
+    let toaZ = toa.int - minToA.int
+    stat.push(toaZ.float)
+    doAssert toaZ >= 0
+    toa = toaZ.uint16
+  ## Cannot safely treat `toaLength` as uint16 due to underflow danger
+  result.toaLength = (maxToA.float - minToA.float)
+  result.toaMean = stat.mean()
+  result.toaRms = stat.standardDeviation()
+  result.toaMin = minToA
+
 proc isPixInSearchRadius[T: SomeInteger](p1, p2: Coord[T], search_r: int): bool =
   ## given two pixels, p1 and p2, we check whether p2 is within one square search
   ## of p1
@@ -611,6 +637,8 @@ proc recoCluster*[T: SomePix; U: SomePix](c: Cluster[T],
   # properties, i.e. RMS, skewness and kurtosis along the long axis of the cluster
   result.geometry = calcGeometry(c, result.centerX, result.centerY, rot_angle)
   when T is PixTpx3:
+    result.toaGeometry = calcToAGeometry(result)
+
 
 proc getPixels[T](dat: RecoInputEvent, _: typedesc[T]): seq[T] =
   when T is Pix:

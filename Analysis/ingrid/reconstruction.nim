@@ -399,7 +399,16 @@ proc reconstructSingleChip*(data: RecoInputData[Pix],
   var count = 0
   let numElems = data.len
   result = newSeq[RecoEvent[Pix]](numElems)
-  when not defined(gcDestructors):
+  when false:#true: # single threaded code
+    for event in 0 ..< numElems:
+      if event < result.len:
+        result[event] = recoEvent(data[event], chip, run, searchRadius,
+                                  dbscanEpsilon = dbscanEpsilon,
+                                  clusterAlgo = clusterAlgo,
+                                  timepixVersion = timepixVersion,
+                                  index = event)
+      echoCount(count, 5000, msg = " clusters reconstructed")
+  elif not defined(gcDestructors):
     let p = newThreadPool()
     var res = newSeq[FlowVar[RecoEvent[Pix]]](numElems)
     for event in 0 ..< numElems:

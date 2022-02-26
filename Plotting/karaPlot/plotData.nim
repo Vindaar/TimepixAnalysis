@@ -426,9 +426,9 @@ proc plotHist[T](xIn: seq[T], title, dset, outfile: string,
     binSize = (binRange[1] - binRange[0]) / 100
 
   info &"Bin range {binRange} for dset: {dset}"
-  result = initPlotV(title, dset, "#")
   case BKind
   of bPlotly:
+    result = initPlotV(title, dset, "#")
     var traces: seq[Trace[float]]
     traces.add Trace[float](`type`: PlotType.Histogram,
                             bins: binRange,
@@ -438,6 +438,7 @@ proc plotHist[T](xIn: seq[T], title, dset, outfile: string,
                             name: dset)
     result.plPlot = Plot[float](layout: result.plLayout, traces: traces)
   of bMpl:
+    result = initPlotV(title, dset, "#")
     let nbins = ((binRange[1] - binRange[0]) / binSize).round.int
     discard result.ax.hist(xs,
                          bins = nbins,
@@ -445,8 +446,10 @@ proc plotHist[T](xIn: seq[T], title, dset, outfile: string,
   of bGgPlot:
     let df = seqsToDf(xs).filter(fn {float: `xs` >= binRange[0] and
                                             `xs` <= binRange[1]})
+    result = initPlotV(title & " # entries: " & $df.len, dset, "#")
     result.pltGg = ggplot(df, aes("xs")) +
         geom_histogram(binWidth = binSize, hdKind = hdOutline) +
+        margin(top = 2) +
         scale_x_continuous() + scale_y_continuous() +
         result.theme # just add the theme directly
   else: discard

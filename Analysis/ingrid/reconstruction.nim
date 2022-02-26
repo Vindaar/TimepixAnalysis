@@ -386,18 +386,17 @@ iterator readDataFromH5*(h5f: H5File, runNumber: int,
       if timepixVersion == Timepix3:
         raw_toa = h5f[grp / "raw_toa", vlen_ch, uint16]
         raw_toa_combined = h5f[grp / "raw_toa_combined", special_type(uint64), uint64]
-      var runPix = newSeq[RecoInputEvent[Pix]](raw_x.len)
-      for i in 0 ..< runPix.len:
+      var runPix = newSeqOfCap[RecoInputEvent[Pix]](raw_x.len)
+      for i in 0 ..< raw_x.len:
+        if raw_x[i].len == 0: continue # skip empty events
         let rpix = zipEm(raw_x[i], raw_y[i], raw_ch[i])
         case timepixVersion
         of Timepix1:
-          runPix[i] = (pixels: rpix, eventNumber: evNumbers[i],
+          runPix.add (pixels: rpix, eventNumber: evNumbers[i],
                        toa: newSeq[uint16](), toaCombined: newSeq[uint64]())
         of Timepix3:
-          runPix[i] = (pixels: rpix, eventNumber: evNumbers[i],
+          runPix.add (pixels: rpix, eventNumber: evNumbers[i],
                        toa: raw_toa[i], toaCombined: raw_toa_combined[i])
-
-      # and yield them
       yield (chip: chip_number, eventData: run_pix)
 
 {.experimental.}

@@ -342,7 +342,7 @@ proc calcGeometry*[T: SomePix](cluster: Cluster[T],
   for p in cluster:
     when T is Pix or T is PixTpx3:
       let (x, y) = applyPitchConversion(p.x, p.y, NPIX)
-    elif T is PixInt:
+    elif T is PixInt or T is PixIntTpx3:
       let (x, y) = applyPitchConversion(p.x, p.y, NPIX * 3)
     else:
       error("Invalid type: " & $T)
@@ -485,7 +485,8 @@ proc recoCluster*[T: SomePix; U: SomePix](c: Cluster[T],
 
   let clustersize: int = len(c)
   ##
-  const NeedConvert = T is PixTpx3 and U is Pix
+  const NeedConvert = T is PixTpx3 and U is Pix or
+                      T is PixIntTpx3 and U is PixInt
   var cl = newSeq[U](clustersize)
   var
     sum_x, sum_x2: int
@@ -528,7 +529,7 @@ proc recoCluster*[T: SomePix; U: SomePix](c: Cluster[T],
   # set the position
   when T is Pix or T is PixTpx3:
     (result.centerX, result.centerY) = applyPitchConversion(pos_x, pos_y, NPIX)
-  elif T is PixInt:
+  elif T is PixInt or T is PixIntTpx3:
     (result.centerX, result.centerY) = applyPitchConversion(pos_x, pos_y, NPIX * 3)
   else:
     error("Invalid type: " & $T)
@@ -555,8 +556,8 @@ proc recoCluster*[T: SomePix; U: SomePix](c: Cluster[T],
     result.toaGeometry = calcToAGeometry(result)
 
 
-proc getPixels[T](dat: RecoInputEvent, _: typedesc[T]): seq[T] =
-  when T is Pix:
+proc getPixels[T; U](dat: RecoInputEvent[U], _: typedesc[T]): seq[T] =
+  when T is U:
     result = dat.pixels
   elif T is PixTpx3:
     doAssert dat.pixels.len == dat.toa.len
@@ -596,8 +597,16 @@ proc recoEvent*[T: SomePix](dat: RecoInputEvent[T],
   if dat[0].len > 0:
     case timepixVersion
     of Timepix1:
-      let pixels = getPixels(dat, Pix)
-      recoClusterTmpl(Pix, pixels)
+      when T is PixInt or T is PixIntTpx3:
+        let pixels = getPixels(dat, PixInt)
+        recoClusterTmpl(PixInt, pixels)
+      else:
+        let pixels = getPixels(dat, Pix)
+        recoClusterTmpl(Pix, pixels)
     of Timepix3:
-      let pixels = getPixels(dat, PixTpx3)
-      recoClusterTmpl(PixTpx3, pixels)
+      when T is PixIntTpx3 or T is PixInt:
+        let pixels = getPixels(dat, PixIntTpx3)
+        recoClusterTmpl(PixIntTpx3, pixels)
+      else:
+        let pixels = getPixels(dat, PixTpx3)
+        recoClusterTmpl(PixTpx3, pixels)

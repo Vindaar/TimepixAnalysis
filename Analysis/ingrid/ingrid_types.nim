@@ -11,7 +11,8 @@ type
   PixTpx3*     = tuple[x, y: uint8, ch, toa: uint16, toaCombined: uint64]
   # Integer based pixels are used for full Septemboard frames, due to 3x256 pixels per direction
   PixInt*      = tuple[x, y: int, ch: int]
-  SomePix*     = Pix | PixInt | PixTpx3
+  PixIntTpx3*  = tuple[x, y, ch: int, toa: uint16, toaCombined: uint64]
+  SomePix*     = Pix | PixInt | PixTpx3 | PixIntTpx3
   Pixels*      = seq[Pix]
   PixelsInt*   = seq[PixInt]
 

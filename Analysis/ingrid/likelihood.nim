@@ -643,7 +643,11 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
         quit(1)
       # given the full frame run through the full reconstruction for this cluster
       # here we give chip number as -1, indicating "Septem"
-      let recoEv = recoEvent((septemFrame.pixels, evNum.toInt.int), -1,
+      ## XXX: for full ToA support in Timepix3, need to also read the `toa` data and insert
+      ## it here!
+      let inp = (pixels: septemFrame.pixels, eventNumber: evNum.toInt.int,
+                 toa: newSeq[uint16](), toaCombined: newSeq[uint64]())
+      let recoEv = recoEvent(inp, -1,
                              runNumber, searchRadius = searchRadius,
                              dbscanEpsilon = epsilon,
                              clusterAlgo = clusterAlgo)

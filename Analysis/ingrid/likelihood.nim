@@ -1,16 +1,8 @@
-import os
+import std / [os, tables, strutils, strformat, algorithm, sets,
+              stats, sequtils, typetraits]
 import docopt except Value
-import tables
-import strutils, strformat, ospaths
-import algorithm
-import sets
-import stats
-import nimhdf5
-import tos_helpers
+import nimhdf5, tos_helpers, seqmath, arraymancer
 import helpers/utils
-import sequtils
-import seqmath
-import arraymancer
 import ingrid / [ingrid_types, calibration]
 import ingrid/calibration/fit_functions
 from ingrid / private / geometry import recoEvent

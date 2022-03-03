@@ -1226,7 +1226,8 @@ proc main() =
                      toIngridDset($args["--energyDset"])# , igEnergyFromCharge)
                    else:
                      igEnergyFromCharge
-  doAssert energyDset != igInvalid, "Please enter a valid energy dataset"
+  doAssert energyDset != igInvalid, "Please enter a valid energy dataset. " &
+    "Choices: {energyFromCharge, energyFromPixel}"
 
   var h5foutfile: string = ""
   if $args["--h5out"] != "nil":

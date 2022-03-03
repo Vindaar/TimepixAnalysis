@@ -231,8 +231,8 @@ proc writeLikelihoodData(h5f: var H5File,
                          year: YearKind,
                          chipNumber: int,
                          cutTab: CutValueInterpolator,
-                         passedInds: HashSet[int],
                          energyDset: InGridDsetKind # pixel or charge
+                         passedInds: OrderedSet[int],
                         ) =
                          #durations: (float64, float64)) =
   ## writes all relevant cluster data of events corresponding to `passedInds` in
@@ -589,7 +589,7 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
                      runNumber: int,
                      year: YearKind,
                      energyDset: InGridDsetKind, # pixel or charge
-                     passedInds: var HashSet[int],
+                     passedInds: var OrderedSet[int],
                      cutTab: CutValueInterpolator,
                      flags: set[FlagKind]) =
   ## Applies the septem board veto to the given `passedInds` in `runNumber` of `h5f`.
@@ -812,7 +812,7 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
         totalEvCount += indicesInTracking.len
 
       # hash set containing all indices of clusters, which pass the cuts
-      var passedInds = initSet[int]()
+      var passedInds = initOrderedSet[int]()
       # iterate through all clusters not part of tracking and apply logL cut
       for ind in indicesInTracking:
         when false:

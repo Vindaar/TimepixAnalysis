@@ -231,8 +231,9 @@ proc writeLikelihoodData(h5f: var H5File,
                          year: YearKind,
                          chipNumber: int,
                          cutTab: CutValueInterpolator,
-                         energyDset: InGridDsetKind # pixel or charge
                          passedInds: OrderedSet[int],
+                         energyDset: InGridDsetKind, # pixel or charge
+                         version: TimepixVersion # determines if we need to write ToA data
                         ) =
                          #durations: (float64, float64)) =
   ## writes all relevant cluster data of events corresponding to `passedInds` in
@@ -244,28 +245,19 @@ proc writeLikelihoodData(h5f: var H5File,
   # TODO: add copy of attributes from energyFromPixel dataset, which contains
   # the calibration factor!
   # read all float datasets, which we want to write to the output file
-  var float_dset_names = @(getFloatDsetNames())
+  var dsetNames = @(getFloatDsetNames())
   # add the final two datasets, which we'd like to write
-  float_dset_names.add "likelihood"
-  float_dset_names.add energyDset.toDset
-  var float_data_tab = initTable[string, seq[float]]()
+  dsetNames.add @["likelihood", energyDset.toDset, "x", "y", "ToT"]
+  if version == Timepix3:
+    dsetNames.add getFloatToANames()
+    dsetNames.add @["ToA", "ToACombined", "toaMin"]
+
   let chpGrpName = group.name / &"chip_{chipNumber}"
   # get mutable group for this chip to copy attributes
   var chpGrpIn = h5f[chpGrpName.grp_str]
-  # fill table of float data sets
-  for dset in float_dset_names:
-    float_data_tab[dset] = h5f[(chpGrpName / dset), float64]
 
   # now get the event numbers to compare against the indices
   let evNumbers = h5f[(chpGrpName / "eventNumber"), int64]
-  var float_data_passed = initTable[string, seq[float]]()
-  # create new seqs of correct size in float_data_passed
-  for dset in keys(float_data_tab):
-    float_data_passed[dset] = newSeqOfCap[float](passedInds.card)
-    for i in 0 .. float_data_tab[dset].high:
-      if i in passedInds:
-        # add element of index `i` to "passed data"
-        float_data_passed[dset].add float_data_tab[dset][i]
   # then write to the new likelihood group for this chip
   # create the groups for the likelihood file, run group and chip group
   let
@@ -275,14 +267,17 @@ proc writeLikelihoodData(h5f: var H5File,
   var
     runGrp = h5fout.create_group(runGrpName)
     chpGrpOut = h5fout.create_group(logLgroup)
-
-  # got all datasets ready for write
-  for dset_name in keys(float_data_passed):
-    var dset = h5fout.create_dataset((logLgroup / dset_name),
-                                     (float_data_passed[dset_name].len, 1),
-                                     float64)
-    # write the data to the file
-    dset[dset.all] = float_data_passed[dset_name]
+  ## walk all datasets and read data, filter to indices and write to output
+  for dsetName in dsetNames: # all datasets including vlen
+    let h5dset = h5f[(chpGrpName / dsetName).dset_str]
+    withDset(h5dset): # reads full dataset into injected `dset` variable
+      var data = newSeqOfCap[elementType(dset)](passedInds.card)
+      for idx in passedInds:
+        data.add dset[idx]
+      var outDset = h5fout.create_dataset((logLgroup / dsetName),
+                                          (passedInds.len, 1),
+                                          elementType(dset))
+      outDset[outDset.all] = data
 
   # get all event numbers from hash set by using elements as indices for event numbers
   let evNumsPassed = mapIt(passedInds, evNumbers[it]).sorted do (x, y: int64) -> int:
@@ -591,6 +586,7 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
                      energyDset: InGridDsetKind, # pixel or charge
                      passedInds: var OrderedSet[int],
                      cutTab: CutValueInterpolator,
+                     version: TimepixVersion,
                      flags: set[FlagKind]) =
   ## Applies the septem board veto to the given `passedInds` in `runNumber` of `h5f`.
   ## Writes the resulting clusters, which pass to the `septem` subgroup (parallel to
@@ -701,6 +697,7 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
                           cdlFile, refFile: string,
                           year: YearKind,
                           energyDset: InGridDsetKind, # pixel or charge
+                          version: TimepixVersion,
                           flags: set[FlagKind],
                           region = crGold) =
   ## filters all clusters with a likelihood value in the given `h5f` by
@@ -876,6 +873,7 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
                               energyDset,
                               passedInds,
                               cutTab = cutTab,
+                              version = version,
                               flags = flags)
 
         if passedInds.card > 0:
@@ -887,7 +885,8 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
                                   chipNumber,
                                   cutTab,
                                   passedInds,
-                                  energyDset)
+                                  energyDset,
+                                  version)
 
         if chipNumber == centerChip:
           totalLogLCount += passedInds.card
@@ -1239,6 +1238,7 @@ proc main() =
 
   var h5f = H5open(h5f_file, "rw")
   h5f.visitFile
+  let timepix = h5f.timepixVersion()
 
   if fkRocCurve in flags:
     ## create the ROC curves and likelihood distributios. This requires to
@@ -1263,7 +1263,7 @@ proc main() =
     h5f.filterClustersByLogL(h5fout,
                              cdlFile,
                              refFile,
-                             year, energyDset, flags, region)
+                             year, energyDset, timepix, flags, region)
     # given the cut values and the likelihood values for all events
     # based on the X-ray reference distributions, we can now cut away
     # all events not passing the cuts :)

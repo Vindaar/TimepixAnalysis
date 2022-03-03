@@ -10,19 +10,12 @@ proc main(fname: string, chip: int, run: int, dset: string,
     path = "/likelihood"
   let grp = h5f[(&"{path}/run_{run}/chip_{chip}/").grp_str]
   let h5dset = h5f[(grp.name / dset).dset_str]
-  template readit(typ: untyped): untyped =
+  echo "Dataset: ", dset
+  withDset(h5dset):
     if head > 0:
-      echo h5Dset.readVlen(typ)[0 ..< head]
+      echo dset[0 ..< head]
     else:
-      echo h5Dset.readVlen(typ)
-  case h5dset.dtypeBaseKind
-  of dkUint8: readit(uint8)
-  of dkUint16: readit(uint16)
-  of dkUint64: readit(uint64)
-  of dkInt: readit(int)
-  of dkFloat: readit(float)
-  else:
-    echo "Unsupported data type kind ", h5dset.dtype
+      echo dset
 
 when isMainModule:
   dispatch main

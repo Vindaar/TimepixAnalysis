@@ -2477,15 +2477,20 @@ proc createComparePlots(h5file: string, h5Compare: seq[string],
   for pd in pds:
     var (outfile, plt) = createPlot(h5f, fileInfo, pd, config)
     if outfile.len == 0: continue # apparantly failed to create plot, skipping
+    var validCompare = true
     for i in 0 ..< h5Compare.len:
       let pdc = pdComp[i].find(pd)
       if pdc.isSome:
         let (_, cPlt) = createPlot(h5fs[i], fInfos[i], pdc.get, config)
         # add to `plt`
-        plt.add(cPlt, h5f.name.extractFilename, h5fs[i].name.extractFilename & "_" & $i)
+        if cPlt.kind != bNone:
+          plt.add(cPlt, h5f.name.extractFilename, h5fs[i].name.extractFilename & "_" & $i)
+        else:
+          validCompare = false
     # now generate the plot
-    let outf = outfile & "_combined.pdf"
-    plt.savePlot(outf, config, fullPath = true)
+    if validCompare:
+      let outf = outfile & "_combined.pdf"
+      plt.savePlot(outf, config, fullPath = true)
 
 proc parseBackendType(backend: string): PlottingBackendKind =
   ## given a string describing a run type, return the correct

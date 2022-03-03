@@ -771,6 +771,10 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
       scinti2Trigger = h5f[group / "szint2ClockInt", int64]
 
     for (_, chipNumber, chipGroup) in chipGroups(h5f, group):
+      if energyDset.toDset notin h5f[chipGroup.grp_str]:
+        raise newException(IOError, "The input file " & $h5f.name & " does not contain the dataset " &
+          energyDset.toDset() & " in the group: " & $chipGroup & ".")
+
       var fadcVetoCount = 0
       var scintiVetoCount = 0
       let chpGrp = h5f[chipGroup.grp_str]

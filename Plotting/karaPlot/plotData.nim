@@ -734,7 +734,7 @@ proc plotSparseEvent(df: DataFrame, title, outfile: string): PlotV =
   of bGgPlot:
     result.pltGg = ggplot(df, aes("x", "y", color = "ch")) +
       geom_point() +
-      margin(left = 9.0, right = 3) +
+      margin(left = 9.0, right = 3, top = 2) +
       xlim(0, NPix) + ylim(0, NPix) +
       result.theme # just add the theme directly
   else:

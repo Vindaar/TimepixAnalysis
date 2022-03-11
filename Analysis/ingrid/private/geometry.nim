@@ -114,8 +114,11 @@ template withSeptemXY*(chipNumber: int, actions: untyped): untyped =
   else: doAssert false, "Invalid chip number encountered in `withSeptemXY`"
   actions
 
-func determineChip*[T:  SomePix](p: T): int =
+func determineChip*[T:  SomePix](p: T, allowOutsideChip = false): int =
   ## determines which chip the given septem pixel coordinate corresponds to
+  ##
+  ## If `allowOutsideChip` is true, we return `-1` for any position that is not in the
+  ## valid chip pixels. This can happen for e.g. cluster centers on SeptemEvents
   if p.y in 0 .. 255 and p.x in 128 .. 128 + 255:
     # bottom left
     result = 0
@@ -138,7 +141,10 @@ func determineChip*[T:  SomePix](p: T): int =
     # top left
     result = 6
   else:
-    raise newException(Exception, "This chip should not exist! " & $p)
+    if allowOutsideChip:
+      result = -1
+    else:
+      raise newException(Exception, "This chip should not exist! " & $p)
 
 func septemPixToChpPix*[T: SomePix](p: T, chipNumber: range[0 .. 6]): T =
   ## inverse of chpPixToSeptemPix

@@ -479,7 +479,7 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
   ## In the unchanged case, let's compare the energy and cluster pixels
 
   ## XXX: make the actual region based on argument to `applySeptemVeto`!
-  let inRegionOfInterest = inRegion(cl.centerX - 14.0, cl.centerY - 14.0, crAll) #crGold)
+  let inRegionOfInterest = inRegion(cl.centerX - 14.0, cl.centerY - 14.0, crGold)
 
   var lineVetoPassed = true #
   if fkLineVeto in flags and not inRegionOfInterest: ## perform the line cut
@@ -658,6 +658,7 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
 
       # calculate log likelihood of all reconstructed clusters
       var passed = false
+      var lineVetoRejected = false
       var septemGeometry: SeptemEventGeometry # no need for constructor. `default` is fine
       for clusterTup in pairs(recoEv.cluster):
         let (logL, energy, lineVetoPassed) = evaluateCluster(clusterTup, rs, septemFrame, septemGeometry,
@@ -665,12 +666,15 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
                                                              gainVals,
                                                              calibTuple,
                                                              refSetTuple, flags)
-        if logL < cutTab[energy] and lineVetoPassed: # and inGoldRegion: ## XXX: only allowed if still in gold region!
-          # first attempt. Unless passing throw event from passindIngs
-          passed = true
-          ## TODO: change this by inserting a `and centers.inGoldRegion` logic
-
-      if not passed:
+        let cX = toXPix(clusterTup[1].centerX)
+        let cY = toYPix(clusterTup[1].centerY)
+        let chipClusterCenter = (x: cX, y: cY, ch: 0).determineChip(allowOutsideChip = true)
+        if chipClusterCenter == centerChip and # this cluster's center is on center chip
+           logL < cutTab[energy]:              # cluster passes logL cut
+             passed = true
+        if not lineVetoRejected and not lineVetoPassed:
+          lineVetoRejected = true
+      if not passed or lineVetoRejected:
         ## If `passed` is still false, it means *no* reconstructed cluster passed the logL now. Given that
         ## the original cluster which *did* pass logL is part of the septem event, the conclusion is that
         ## it was now part of a bigger cluster that did *not* pass anymore.
@@ -687,6 +691,7 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
                           lines = septemGeometry.lines,
                           centers = septemGeometry.centers,
                           passed = passed,
+                          lineVetoRejected = lineVetoRejected,
                           xCenter = septemGeometry.xCenter,
                           yCenter = septemGeometry.yCenter,
                           radius = septemGeometry.centerRadius,

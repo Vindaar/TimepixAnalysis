@@ -250,7 +250,7 @@ proc plotSeptemEvent*(evData: PixelsInt, run, eventNumber: int,
                       lines: seq[tuple[m, b: float]],
                       centers: seq[tuple[x, y: float]],
                       xCenter, yCenter: int, radius: float,
-                      passed: bool, energyCenter: float) =
+                      passed, lineVetoRejected: bool, energyCenter: float) =
   ## plots a septem event of the input data for `eventNumber` of `run`.
   ## Shows outlines of the septem chips.
   var xCol = newColumn(colInt, evData.len)
@@ -307,5 +307,5 @@ proc plotSeptemEvent*(evData: PixelsInt, run, eventNumber: int,
     geom_line(data = dfCircle, aes = aes(x = "xCircle", y = "yCircle")) +
     margin(top = 1.5) +
     ggtitle(&"Septem event of event {eventNumber} and run {run}. " &
-      &"Center cluster energy: {energyCenter:.2f}, passed: {passed}") +
+            &"Center cluster energy: {energyCenter:.2f}, passed: {passed}, lineVetoRejected: {lineVetoRejected}") +
     ggsave(&"plots/septemEvents/septemEvent_run_{run}_event_{eventNumber}.pdf")

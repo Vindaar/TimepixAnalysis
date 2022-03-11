@@ -129,6 +129,7 @@ proc plotCdlFile(cdlFile, refFile: string) =
   for idx, key in xrayTab:
     let (logL, energies) = buildLogLHist(cdlFile, refFile, key,
                                          year = yr2018,
+                                         energyDset = igEnergyFromCharge,
                                          region = crGold)
     var dfLoc = seqsToDf({"logL" : logL, "Energy" : energies})
     dfLoc["Dset"] = constantColumn(key, dfLoc.len)
@@ -153,6 +154,12 @@ proc plotCdlFile(cdlFile, refFile: string) =
                    hdKind = hdOutline) +
     ggtitle("LogL distributions from CDL data") +
     ggsave(&"out/logL_outline.pdf")
+
+  ggplot(df, aes("Energy", fill = "Dset")) +
+    geom_histogram(position = "identity", alpha = 0.5, bins = 300, hdKind = hdOutline) +
+    xlab("Energy [keV]") + ylab("#") +
+    ggtitle("Energy spectra of all GridPix Feb 2019 X-ray tube data") +
+    ggsave(&"out/cdl_energies.pdf")
 
 proc main(files: seq[string] = @[],
           refFile: string = "/home/basti/CastData/data/CDL_2019/XrayReferenceFile2018.h5",

@@ -410,6 +410,7 @@ const TosDateString* = "yyyy-MM-dd'.'hh:mm:ss"
 # and some general InGrid related constants
 const NPIX* = 256
 const PITCH* = 0.055
+const TimepixSize* = NPIX * PITCH
 
 const SrsRunIncomplete* = "incomplete"
 const SrsRunIncompleteMsg* = "This run does not contain a run.txt and so " &

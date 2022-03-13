@@ -1444,8 +1444,8 @@ proc handleOccCluster(h5f: H5File,
     let
       group = h5f[recoPath(r, pd.chip)]
       # get centers and rescale to 256 max value
-      centerX = h5f[(group.name / "centerX"), float].mapIt(it * NPix.float / 14.0)
-      centerY = h5f[(group.name / "centerY"), float].mapIt(it * NPix.float / 14.0)
+      centerX = h5f[(group.name / "centerX"), float].mapIt(it * NPix.float / TimepixSize)
+      centerY = h5f[(group.name / "centerY"), float].mapIt(it * NPix.float / TimepixSize)
     let occ = clampedOccupancy(centerX, centerY, pd)
     # stack this run onto the full data tensor
     occFull = occFull .+ occ

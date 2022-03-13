@@ -241,9 +241,9 @@ func getEnergyBinMinMaxVals2014*(): Table[string, Cuts] =
 func getRegionCut*(region: ChipRegion): CutsRegion =
   const
     xMinChip = 0.0
-    xMaxChip = 14.0
+    xMaxChip = TimepixSize
     yMinChip = 0.0
-    yMaxChip = 14.0
+    yMaxChip = TimepixSize
 
   case region
   of crGold:
@@ -267,7 +267,7 @@ func getRegionCut*(region: ChipRegion): CutsRegion =
                         radius: 5.5)
   of crAll:
     result = CutsRegion(xMin: 0.0,
-                        xMax: 14.0,
+                        xMax: TimepixSize,
                         yMin: 0.0,
                         yMax: 0.0,
                         radius: 0.0)

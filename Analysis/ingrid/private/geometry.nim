@@ -269,7 +269,7 @@ func inRegion*(centerX, centerY: float, region: ChipRegion): bool {.inline.} =
   ## returns the result of a cut on a certain chip `region`. Inputs the
   ## `centerX` and `centerY` position of a cluster and returns true if
   ## the cluster is within the region
-  const centerChip = 7.0
+  const centerChip = TimepixSize / 2.0
   case region
   of crGold:
     # make sure this is only initialized once somehow...

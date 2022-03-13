@@ -375,10 +375,10 @@ proc writeVetoInfos(grp: H5Group, fadcVetoCount, scintiVetoCount: int,
 # subtract from 768 as we do the same in `applyPitchConversion` (why?)
 # normalize by full width (14 mm * 3 chips) and scale to all pixels
 proc toXPix(x: float): int =
-  clamp((768 - (x / (14.0 * 3.0)) * 768.0).int, 0, 767)
+  clamp((768 - (x / (TimepixSize * 3.0)) * 768.0).int, 0, 767)
 
 proc toYPix(y: float): int =
-  clamp(((y / (14.0 * 3.0)) * 768.0).int, 0, 767)
+  clamp(((y / (TimepixSize * 3.0)) * 768.0).int, 0, 767)
 
 type
   SeptemFrame = object
@@ -427,6 +427,7 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
                      centerData: CenterChipData,
                      gainVals: seq[float],
                      calibTuple: tuple[b, m: float], ## contains the parameters required to perform energy calibration
+                     region: ChipRegion,
                      refSetTuple: tuple[ecc, ldivRms, fracRms: Table[string, histTuple]],
                      flags: set[FlagKind]
                     ): tuple[logL, energy: float, lineVetoPassed: bool] =
@@ -479,7 +480,7 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
   ## In the unchanged case, let's compare the energy and cluster pixels
 
   ## XXX: make the actual region based on argument to `applySeptemVeto`!
-  let inRegionOfInterest = inRegion(cl.centerX - 14.0, cl.centerY - 14.0, crGold)
+  let inRegionOfInterest = inRegion(cl.centerX - TimepixSize, cl.centerY - TimepixSize, region)
 
   var lineVetoPassed = true #
   if fkLineVeto in flags and not inRegionOfInterest: ## perform the line cut
@@ -490,8 +491,8 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
     let orthSlope = -1.0 / slope
     ## TODO: XXX: eccentricity check. Using a line of a cluster that is not very eccentric makes no sense!
     # determine y axis intersection
-    septemGeometry.xCenter = clamp(256 - (centerData.cXCenter[centerEvIdx] / 14.0 * 256.0).int, 0, 255) + 256
-    septemGeometry.yCenter = clamp((centerData.cYCenter[centerEvIdx] / 14.0 * 256).int, 0, 256) + 256
+    septemGeometry.xCenter = clamp(256 - (centerData.cXCenter[centerEvIdx] / TimepixSize * 256.0).int, 0, 255) + 256
+    septemGeometry.yCenter = clamp((centerData.cYCenter[centerEvIdx] / TimepixSize * 256).int, 0, 256) + 256
 
     let centerInter = septemGeometry.yCenter.float - orthSlope * septemGeometry.xCenter.float
 
@@ -505,7 +506,7 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
     septemGeometry.centerRadius = ((centerData.rmsTCenter[centerEvIdx] +
                                     centerData.rmsLCenter[centerEvIdx]) /
                                    2.0 * 3.0) /
-                                   14.0 * 256.0
+                                   TimepixSize * 256.0
     if dist < septemGeometry.centerRadius:
       lineVetoPassed = false
     septemGeometry.lines.add (m: orthSlope, b: centerInter)
@@ -587,6 +588,7 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
                      passedInds: var OrderedSet[int],
                      cutTab: CutValueInterpolator,
                      version: TimepixVersion,
+                     region: ChipRegion,
                      flags: set[FlagKind]) =
   ## Applies the septem board veto to the given `passedInds` in `runNumber` of `h5f`.
   ## Writes the resulting clusters, which pass to the `septem` subgroup (parallel to
@@ -665,6 +667,7 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
                                                              centerData,
                                                              gainVals,
                                                              calibTuple,
+                                                             region,
                                                              refSetTuple, flags)
         let cX = toXPix(clusterTup[1].centerX)
         let cY = toYPix(clusterTup[1].centerY)
@@ -879,6 +882,7 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
                               passedInds,
                               cutTab = cutTab,
                               version = version,
+                              region = region,
                               flags = flags)
 
         if passedInds.card > 0:

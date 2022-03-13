@@ -274,16 +274,14 @@ func inRegion*(centerX, centerY: float, region: ChipRegion): bool {.inline.} =
   of crGold:
     # make sure this is only initialized once somehow...
     let regCut = getRegionCut(region)
-    result = if centerX >= regCut.xMin and
-                centerX <= regCut.xMax and
-                centerY >= regCut.yMin and
-                centerY <= regCut.yMax:
-               true
-             else:
-               false
+    result = centerX >= regCut.xMin and
+             centerX <= regCut.xMax and
+             centerY >= regCut.yMin and
+             centerY <= regCut.yMax
   of crAll:
-    # simply always return good
-    result = true
+    # return true `iff` the coordinate is actually a valid coordinate on the chip!
+    result = centerX >= 0.0 and centerX <= TimepixSize and
+             centerY >= 0.0 and centerY <= TimepixSize
   else:
     # make sure this is only initialized once somehow...
     let regCut = getRegionCut(region)

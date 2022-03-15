@@ -38,8 +38,10 @@ else:
 
     ConfigFlagKind* = enum
       cfNone, cfFadc, cfInGrid, cfOccupancy, cfPolya, cfFeSpectrum, cfTotPerPixel, cfProvideServer, cfShow,
-      cfApplyAllCuts # if true, will apply all cuts to all datasets. If not given (default) a cut on
-                     # a single dataset will only apply on that dataset
+      cfApplyAllCuts, # if true, will apply all cuts to all datasets. If not given (default) a cut on
+                      # a single dataset will only apply on that dataset
+      cfCutFePeak # if true and input is calibration, will create plots cut to Photopeak & Escape peak
+
 
     ## A generic cut on input data using dset & low / high values
     GenericCut* = tuple[dset: string, lower, upper: float]

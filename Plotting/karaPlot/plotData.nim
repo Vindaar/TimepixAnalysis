@@ -621,10 +621,13 @@ proc histograms(h5f: H5File, runType: RunTypeKind,
     # - 1 around photo peak
     # - 1 around escape peak
     # - 1 without cut
-    let ranges = @[(dset: "energyFromCharge", lower: 5.5, upper: 6.2),
-                   (dset: "energyFromCharge", lower: 2.7, upper: 3.2,)]
-    selectors = ranges.mapIt(initSelector(config, @[it], applyAll = some(false)))
-    selectors.add initSelector(config)
+    if cfCutFePeak in config.flags:
+      let ranges = @[(dset: "energyFromCharge", lower: 5.5, upper: 6.2),
+                     (dset: "energyFromCharge", lower: 2.7, upper: 3.2,)]
+      selectors = ranges.mapIt(initSelector(config, @[it], applyAll = some(false)))
+      selectors.add initSelector(config)
+    else:
+      selectors = @[initSelector(config)]
   else:
     # else just take all
     selectors = @[initSelector(config)]
@@ -2657,6 +2660,7 @@ proc plotData*(
   show = false,
   cuts: seq[GenericCut] = @[],
   applyAllCuts = false,
+  cutFePeak = false,
   head: int = 0,
   x: string = "",
   y: string = "",
@@ -2692,6 +2696,8 @@ proc plotData*(
     flags.incl cfShow
   if applyAllCuts:
     flags.incl cfApplyAllCuts
+  if cutFePeak:
+    flags.incl cfCutFePeak
 
   let cfg = initConfig(chips, runs, flags,
                        cuts = cuts,
@@ -2780,6 +2786,7 @@ when isMainModule:
     "polya" : "If set polya plots will be created.",
     "totPerPixel" : "If set totPerPixel plots will be created.",
     "fe_spec" : "If set Fe spectrum will be created.",
+    "cutFePeak" : "If set will create plots cut to Photo & Escape peak for calibration data",
 
     "x" : "Generate plot of dataset `x` against `y`.",
     "y" : "Generate plot of dataset `x` against `y`.",

@@ -83,16 +83,18 @@ proc plotFeSpectrum*(feSpec: FeSpecFitData,
     suffix = "_charge"
 
   ggplot(df, aes("bins")) +
-    geom_histogram(aes(y = "hist"), stat = "identity") +
+    geom_histogram(aes(y = "hist"), stat = "identity",
+                   hdKind = hdOutline) +
     geom_line(aes("bins", y = "fit"),
               color = some(parseHex("FF00FF"))) +
     xlab(xlabel) +
     ylab(ylabel) +
     annotate(texts.join("\n"),
              left = 0.02,
-             bottom = 0.15) +
+             bottom = 0.175) +
     ggtitle(&"Fe spectrum for run: {runNumber}") +
-    ggsave(&"{pathPrefix}/fe_spec_run_{runNumber}_chip_{chipNumber}{suffix}.pdf")
+    ggsave(&"{pathPrefix}/fe_spec_run_{runNumber}_chip_{chipNumber}{suffix}.pdf",
+           width = 800, height = 480)
 
 proc plotFeEnergyCalib*(ecData: EnergyCalibFitData,
                         runNumber: int,

@@ -817,11 +817,12 @@ proc buildTextForFeSpec(feSpec: FeSpecFitData,
                         ecData: EnergyCalibFitData,
                         isPixel = true): seq[string] =
   if isPixel:
-    result.add &"mu = {feSpec.k_alpha:.1f} pix"
+    result.add &"μ = {feSpec.k_alpha:.1f} pix"
   else:
-    result.add &"mu = {feSpec.k_alpha:.1f}e3 e^-"
+    result.add &"μ = {feSpec.k_alpha:.1f}e3 e^-"
   result.add &"{ecData.aInv:.1f} ev / pix"
-  result.add &"sigma = {feSpec.sigma_kalpha / feSpec.k_alpha * 100.0:.2f} %"
+  result.add &"σ = {feSpec.sigma_kalpha / feSpec.k_alpha * 100.0:.2f} %"
+  result.add &"χ²/dof = {feSpec.chiSq / feSpec.nDof.float:.2f}"
 
 proc fitToFeSpectrum*(h5f: H5File, runNumber, chipNumber: int,
                       fittingOnly = false, outfiles: seq[string] = @[],

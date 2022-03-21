@@ -199,8 +199,8 @@ proc plotMedianBools(df: DataFrame, fnameSuffix, title: string,
 
   ggplot(df, aes(Ecol, Rcol, fill = "Value")) +
     facet_wrap("Variable", scales = "free") +
-    geom_histogram(stat = "identity", position = "identity", alpha = some(0.5),
-                   color = some(transparent),
+    geom_histogram(stat = "identity", position = "identity", alpha = 0.5,
+                   color = transparent,
                    hdKind = hdOutline) +
     # too busy in small plot
     #geom_point(binPosition = "center", position = "identity") +
@@ -216,48 +216,69 @@ proc plotMedianBools(df: DataFrame, fnameSuffix, title: string,
 
 proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
                         show2014: bool, suffix: string,
-                        useTeX: bool) =
+                        hidePoints, hideErrors, fill: bool,
+                        useTeX, showPreliminary, genTikZ: bool) =
   var df = df.filter(f{c"Energy" < 12.0})
   let titleSuff = if title.len > 0: title
-                  elif show2014: " compared to 2014/15"
-                  else: ""
+                  elif show2014:
+                    "Background rate of Run 2 & 3 (2017/18) compared to 2014/15"
+                  else:
+                    "Background rate of Run 2 & 3 (2017/18)"
   let transparent = color(0, 0, 0, 0)
   let fname = &"plots/background_rate_{fnameSuffix}.pdf"
   echo "INFO: storing plot in ", fname
   echo df
 
   var plt: GgPlot
-  if df.unique("Dataset").len > 1:
-    plt = ggplot(df, aes(Ecol, Rcol, fill = "Dataset"))
+  let numDsets = df.unique("Dataset").len
+  if numDsets > 1 and fill:
+    plt = ggplot(df, aes(Ecol, Rcol, fill = "Dataset")) +
+      geom_histogram(stat = "identity", position = "identity", alpha = 0.5,
+                     color = transparent,
+                     hdKind = hdOutline)
+  elif numDsets > 1:
+    plt = ggplot(df, aes(Ecol, Rcol, color = "Dataset")) +
+      geom_histogram(
+        stat = "identity", position = "identity", alpha = 0.0,
+        lineWidth = 2.0,
+        hdKind = hdOutline
+      )
   else:
     plt = ggplot(df, aes(Ecol, Rcol)) +
+      geom_histogram(stat = "identity", position = "identity",
+                     alpha = 0.5, color = transparent, hdKind = hdOutline) +
       scale_x_continuous(breaks = 20)
-  plt = plt +
-    geom_histogram(stat = "identity", position = "identity", alpha = some(0.5),
-                   color = some(transparent),
-                   hdKind = hdOutline) +
-    geom_point(binPosition = "center", position = "identity") +
-    geom_errorbar(binPosition = "center",
+  if not hidePoints:
+    plt = plt + geom_point(binPosition = "center", position = "identity")
+  if not hideErrors:
+    plt = plt + geom_errorbar(binPosition = "center",
                   aes = aes(yMin = "yMin", yMax = "yMax"),
-                  errorBarKind = ebLines) +
-    scale_y_continuous() +
+                  errorBarKind = ebLines)
+  # force y continuous scales & set limit
+  plt = plt + scale_y_continuous() +
     xlim(0, 12.0)
+  if useTeX and showPreliminary:
+    plt = plt + annotate("GridPix preliminary",
+                         x = 4.3, y = 2.0,
+                         rotate = -30.0,
+                         font = font(16.0, color = color(0.92, 0.92, 0.92)),
+                         backgroundColor = transparent)
   if useTeX:
-    plt + annotate("GridPix preliminary",
-             x = 4.3, y = 2.0,
-             rotate = -30.0,
-             font = font(16.0, color = color(0.92, 0.92, 0.92)),
-             backgroundColor = transparent) +
+    plt = plt +
     xlab(r"Energy [\si{keV}]") +
     ylab(r"Rate [\SI{1e-5}{keV⁻¹ cm⁻² s⁻¹}]", margin = 1.1) +
     #minorGridLines() +
     ggtitle(title) +
     theme_latex() +
-    ggsave(fname, width = 800, height = 480, useTex = true, standalone = true)
+    theme_transparent()
+    if genTikZ:
+      plt + ggsave(fname.replace(".pdf", ".tex"), width = 800, height = 480, useTeX = true, onlyTikZ = true)
+    else:
+      plt + ggsave(fname, width = 800, height = 480, useTex = true, standalone = true)
   else:
     plt + xlab("Energy [keV]") +
     ylab("Rate [10⁻⁵ keV⁻¹ cm⁻² s⁻¹]") +
-    ggtitle(&"Background rate of Run 2 & 3 (2017/18){titleSuff}{suffix}") +
+    ggtitle(title) +
     ggsave(fname, width = 800, height = 480)
 
   df = df.drop(["Dataset", "yMin", "yMax"])
@@ -309,12 +330,19 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
           plotMedianBools = false,
           combName = "", # name for combined data (i.e. `separateFiles == false`)
           combYear = 0, # year for combined data (i.e. `separateFiles == false`)
+          totalTime = -1, # total time to use in hours # not supported with `names` or `separateFiles`!
+          hidePoints = false, ## disables the `geom_point` call
+          hideErrors = false, ## disables the `geom_errorbar` call
+          fill = false, ## If true, will `fill` with alpha 0.5 for case of multiple datasets.
+                        ## Else will color outline
           region: ChipRegion = crAll, # use either all data or cut to given region
-          useTeX = false
+          useTeX = false,
+          showPreliminary = false,
+          genTikZ = false
          ) =
   discard existsOrCreateDir("plots")
   let logLFiles = readFiles(files, names, region)
-  let fnameSuffix = logLFiles.mapIt($it.year).join("_") & "_show2014_" & $show2014 & "_separate_" & $separateFiles & suffix
+  let fnameSuffix = logLFiles.mapIt($it.year).join("_") & "_show2014_" & $show2014 & "_separate_" & $separateFiles & "_" & suffix.replace(" ", "_")
 
   let factor = if log: 1.0 else: 1e5
 
@@ -349,6 +377,8 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
         else:
           logL.totalTime += l.totalTime
           logL.df.add l.df.clone()
+      if totalTime.Hour > 0.0.Hour:
+        logL.totalTime = totalTime.Hour.to(Second).float
       echo "[INFO]: total total time: ", logL.totalTime
       logL.name = combName
       logL.year = combYear
@@ -388,7 +418,11 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
       df2014["Dataset"] = constantColumn("2014/15", df2014.len)
       echo df2014
       df.add df2014
-    plotBackgroundRate(df, fnameSuffix, title, show2014, suffix, useTeX = useTeX)
+    plotBackgroundRate(
+      df, fnameSuffix, title, show2014, suffix,
+      hidePoints = hidePoints, hideErrors = hideErrors, fill = fill,
+      useTeX = useTeX, showPreliminary = showPreliminary, genTikZ = genTikZ
+    )
 
 when isMainModule:
   dispatch main

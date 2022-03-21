@@ -42,6 +42,8 @@ Options:
   --fadcveto             If flag is set, we use the FADC as a veto
   --septemveto           If flag is set, we use the Septemboard as a veto
   --lineveto             If flag is set, we use an additional septem veto based on eccentric clusters
+  --aggressive           If set, use aggressive veto. DO NOT USE (unless as a *reference*. Requires deep thought
+                         about random coincidences & dead time of detector!)
   --plotSeptem           If flag is set, plots the SeptemEvents of all center clusters passing logL cut
   --createRocCurve       If flag is set, we create ROC curves for all energy bins. This
                          requires the input to already have a `likelihood` dataset!
@@ -71,7 +73,7 @@ const RmsCleaningCut = 1.5
 
 type
   FlagKind = enum
-    fkTracking, fkFadc, fkScinti, fkSeptem, fkLineVeto, fkRocCurve, fkComputeLogL, fkPlotLogL, fkPlotSeptem
+    fkTracking, fkFadc, fkScinti, fkSeptem, fkLineVeto, fkAggressive, fkRocCurve, fkComputeLogL, fkPlotLogL, fkPlotSeptem
 
 template withConfig(body: untyped): untyped =
   const sourceDir = currentSourcePath().parentDir
@@ -662,6 +664,11 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
       var passed = false
       var lineVetoRejected = false
       var septemGeometry: SeptemEventGeometry # no need for constructor. `default` is fine
+      if fkAggressive in flags:
+        # if there's more than 1 cluster, remove
+        if recoEv.cluster.len > 1:
+          passedInds.excl septemFrame.centerEvIdx
+          continue # skip to next iteration
       for clusterTup in pairs(recoEv.cluster):
         let (logL, energy, lineVetoPassed) = evaluateCluster(clusterTup, rs, septemFrame, septemGeometry,
                                                              centerData,
@@ -1213,6 +1220,7 @@ proc main() =
   if $args["--fadcveto"] == "true": flags.incl fkFadc
   if $args["--septemveto"] == "true": flags.incl fkSeptem
   if $args["--lineveto"] == "true": flags.incl fkLineVeto
+  if $args["--aggressive"] == "true": flags.incl fkAggressive
   if $args["--createRocCurve"] == "true": flags.incl fkRocCurve
   if $args["--computeLogL"] == "true": flags.incl fkComputeLogL
   if $args["--plotLogL"] == "true": flags.incl fkPlotLogL

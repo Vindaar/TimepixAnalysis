@@ -396,13 +396,19 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
     ## NOTE: this has to be calculated before we add 2014 data if we do, of course,
     ## because otherwise we have everything duplicated!
     proc intBackRate(df: DataFrame, factor: float, energyRange: Slice[float]) =
-      let intBackRate = calcIntegratedBackgroundRate(df, factor, energyRange)
-      let size = energyRange.b - energyRange.a
-      echo &"Integrated background rate in range: {energyRange}: {intBackRate:.4e} cm⁻² s⁻¹"
-      echo &"Integrated background rate/keV in range: {energyRange}: {intBackRate / size:.4e} keV⁻¹ cm⁻² s⁻¹"
+      for tup, subDf in groups(df.group_by("Dataset")): # for each `name` argument separately!
+        let f = tup[0][1].toStr
+        let intBackRate = calcIntegratedBackgroundRate(subDf, factor, energyRange)
+        let size = energyRange.b - energyRange.a
+        echo &"Dataset: {f}"
+        echo &"\t Integrated background rate in range: {energyRange}: {intBackRate:.4e} cm⁻² s⁻¹"
+        echo &"\t Integrated background rate/keV in range: {energyRange}: {intBackRate / size:.4e} keV⁻¹ cm⁻² s⁻¹"
     intBackRate(df, factor, 0.0 .. 12.0)
     intBackRate(df, factor, 0.5 .. 2.5)
     intBackRate(df, factor, 0.5 .. 5.0)
+    intBackRate(df, factor, 0.0 .. 2.5)
+    intBackRate(df, factor, 4.0 .. 8.0)
+    intBackRate(df, factor, 0.0 .. 8.0)
     if show2014:
       df.drop(Ccol)
       var df2014 = toDf(readCsv(Data2014, sep = ' ', header = "#"))

@@ -75,24 +75,55 @@ proc toDf(cTab: CountTable[(int, int)]): DataFrame =
   result = seqsToDf({"x" : cX, "y" : cY, "count" : cC})
     .arrange("count", order = SortOrder.Ascending)
 
-proc main(files: seq[string], suffix = "", title = "",
-          useTikZ = false) =
-  let df = readClusters(files).toDf()
-  let totalEvs = df["count", int].sum()
+proc main(
+  files: seq[string], suffix = "", title = "",
+  names: seq[string] = @[], # can be used to create facet plot. All files with same names will be stacked
+  useTikZ = false) =
+
+  var df = newDataFrame()
+  if names.len == 0 or names.deduplicate.len == 1:
+    df = readClusters(files).toDf()
+  else:
+    doAssert names.len == files.len, "Need same number of names as input files!"
+    for i in 0 ..< names.len:
+      var dfLoc = readClusters(@[files[i]]).toDf()
+      dfLoc["Type"] = names[i]
+      df.add dfLoc
+    # now sort all again
+    df = df.arrange("count", order = SortOrder.Ascending)
 
   createDir("plots")
-  let plt = ggplot(df, aes("x", "y", color = "count")) +
-    geom_point(size = some(1.0)) +
-    xlim(0, 256) + ylim(0, 256) +
-    xlab("x [Pixel]") + ylab("y [Pixel]") +
-    margin(top = 1.75) +
-    scale_color_continuous(scale = (low: 0.0, high: 15.0))
-  if not useTikZ:
-    plt + ggtitle(title & &". Total # cluster = {totalEvs}") +
-      ggsave(&"plots/background_cluster_centers{suffix}.pdf")
+  if names.len == 0 or names.deduplicate.len == 1:
+    let totalEvs = df["count", int].sum()
+    let plt = ggplot(df, aes("x", "y", color = "count")) +
+      geom_point(size = some(1.0)) +
+      xlim(0, 256) + ylim(0, 256) +
+      xlab("x [Pixel]") + ylab("y [Pixel]") +
+      margin(top = 1.75) +
+      scale_color_continuous(scale = (low: 0.0, high: 15.0))
+    if not useTikZ:
+      plt + ggtitle(title & &". Total # cluster = {totalEvs}") +
+        ggsave(&"plots/background_cluster_centers{suffix}.pdf")
+    else:
+      plt + ggtitle(title & r". Total \# cluster = " & $totalEvs) +
+        ggvegatex(&"/home/basti/phd/Figs/backgroundClusters/background_cluster_centers{suffix}")
   else:
-    plt + ggtitle(title & r". Total \# cluster = " & $totalEvs) +
-      ggvegatex(&"/home/basti/phd/Figs/backgroundClusters/background_cluster_centers{suffix}")
+    var totalEvs = newSeq[string]()
+    for tup, subDf in groups(df.group_by("Type")):
+      let numEvs = subDf["count", int].sum()
+      totalEvs.add &"{tup[0][1]}: {numEvs}"
+    ggplot(df, aes("x", "y", color = "count")) +
+      facet_wrap("Type") +
+      geom_point(size = some(1.0)) +
+      xlim(0, 256) + ylim(0, 256) +
+      #xlab("x [Pixel]", tickMargin = 2.0) + ylab("y [Pixel]", margin = 2.0, tickMargin = -0.5) + # for TikZ
+      xlab("x [Pixel]") + ylab("y [Pixel]") +
+      margin(top = 1.75) +
+      scale_color_continuous(scale = (low: 0.0, high: 15.0)) +
+      ggtitle(r"Total # clusters " & $totalEvs.join(", ")) +
+      ggsave(&"/home/basti/org/Figs/statusAndProgress/IAXO_TDR/background_cluster_centers{suffix}.pdf",
+             width = 900, height = 480)
+             #useTeX = true, standalone = true) # onlyTikZ = true)
 
   when false:
     # convert center positions to a 256x256 map

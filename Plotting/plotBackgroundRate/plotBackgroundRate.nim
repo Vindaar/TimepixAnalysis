@@ -2,7 +2,9 @@ import ggplotnim, seqmath, sequtils, os, sugar, strscans, strformat, strutils, s
 import ingrid / [tos_helpers, ingrid_types]
 from arraymancer import tensor
 
-import nimhdf5, numericalnim
+import nimhdf5, numericalnim, unchained
+
+import ggplotnim / ggplot_vegatex
 
 import cligen
 
@@ -63,8 +65,13 @@ proc readFiles(files: seq[string], names: seq[string], region: ChipRegion): seq[
   doAssert names.len == 0 or names.len == files.len, "Need one name for each input file!"
   for idx, file in files:
     let h5f = H5open(file, "r")
-    var df = h5f.readDsets(likelihoodBase(), some((3, DsetNames)))
-      .rename(f{Ecol <- "energyFromCharge"})
+    when false: #TPX3
+      var df = h5f.readDsets(likelihoodBase(), some((0, DsetNames)))
+        .rename(f{Ecol <- "energyFromPixel"})
+        .mutate(f{"Energy" ~ `Energy` / 1000.0})
+    else:
+      var df = h5f.readDsets(likelihoodBase(), some((3, DsetNames)))
+        .rename(f{Ecol <- "energyFromCharge"})
     let fname = if names.len > 0: names[idx]
                 else: file.extractFilename
     df["File"] = constantColumn(fname, df.len)
@@ -109,12 +116,16 @@ proc flatScale(files: seq[LogLFile], factor: float, dropCounts = true): DataFram
       if file.name == f:
         return file.totalTime
 
+  when false: ## XXX: hack to support Tpx3. Implement properly!
+    let fname = "tpx3" #tup[0][1].toStr
+    let totalTime = fname.getTotalTime() # before: files.sumIt(it.totalTime)
   for tup, subDf in groups(df.group_by("File")):
     let fname = tup[0][1].toStr
     let totalTime = fname.getTotalTime() # before: files.sumIt(it.totalTime)
     #subDf.showBrowser()
   #for tup, subDf in groups(df.group_by("L<L_median")):
     var dfLoc = newDataFrame()
+    #dfLoc = df.histogram() ## XXX: Tpx3
     dfLoc = subDf.histogram()
     dfLoc = dfLoc.mutate(f{float: "CountErr" ~ sqrt(`Counts`)})
     dfLoc[Rcol] = dfLoc[Ccol].scaleDset(totalTime, factor)

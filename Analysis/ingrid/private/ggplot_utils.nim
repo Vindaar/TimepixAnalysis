@@ -250,7 +250,8 @@ proc plotSeptemEvent*(evData: PixelsInt, run, eventNumber: int,
                       lines: seq[tuple[m, b: float]],
                       centers: seq[tuple[x, y: float]],
                       xCenter, yCenter: int, radius: float,
-                      passed, lineVetoRejected: bool, energyCenter: float) =
+                      passed, lineVetoRejected: bool, energyCenter: float,
+                      useTeX: bool) =
   ## plots a septem event of the input data for `eventNumber` of `run`.
   ## Shows outlines of the septem chips.
   var xCol = newColumn(colInt, evData.len)
@@ -261,7 +262,7 @@ proc plotSeptemEvent*(evData: PixelsInt, run, eventNumber: int,
     yCol[i] = ev.y
     chCol[i] = ev.ch
     doAssert ev.ch < 10, "More than 10 clusters indicates something is wrong here. Event: " & $eventNumber & " run: " & $run
-  let df = seqsToDf({"x" : xCol, "y" : yCol, "clusterId" : chCol})
+  let df = seqsToDf({"x" : xCol, "y" : yCol, "cluster ID" : chCol})
 
   # create DF for the lines
   proc line(m, b: float, x: float): float =
@@ -271,21 +272,22 @@ proc plotSeptemEvent*(evData: PixelsInt, run, eventNumber: int,
   for l in lines:
     let xs = toSeq(0 .. 767)
     let ys = xs.mapIt(line(l.m, l.b, it.float))
-    dfLines.add seqsToDf({"xs" : xs, "ys" : ys, "clusterId" : idx})
+    dfLines.add seqsToDf({"xs" : xs, "ys" : ys, "cluster ID" : idx})
     inc idx
 
   var dfCenters = newDataFrame()
   idx = 0
   for c in centers:
-    dfCenters.add seqsToDf({"x" : c.x, "y" : c.y, "clusterId" : idx})
+    dfCenters.add seqsToDf({"x" : c.x, "y" : c.y, "cluster ID" : idx})
     inc idx
 
   let (xCircle, yCircle) = drawCircle(xCenter, yCenter, radius)
   let dfCircle = seqsToDf(xCircle, yCircle)
 
   writeCsv(df, &"/tmp/septemEvent_run_{run}_event_{eventNumber}.csv")
-  ggplot(df, aes(x, y)) +
-    geom_point(aes = aes(color = factor(clusterId)), size = some(1.0)) +
+
+  var plt = ggplot(df, aes(x, y)) +
+    geom_point(aes = aes(color = factor("cluster ID")), size = 1.0) +
     xlim(0, 768) + ylim(0, 768) + scale_x_continuous() + scale_y_continuous() +
     geom_linerange(aes = aes(y = 0, xMin = 128, xMax = 640)) +
     geom_linerange(aes = aes(y = 256, xMin = 0, xMax = 768)) +
@@ -301,11 +303,18 @@ proc plotSeptemEvent*(evData: PixelsInt, run, eventNumber: int,
     geom_linerange(aes = aes(x = 128, yMin = 512, yMax = 768)) +
     geom_linerange(aes = aes(x = 384, yMin = 512, yMax = 768)) +
     geom_linerange(aes = aes(x = 640, yMin = 512, yMax = 768)) +
-    geom_line(data = dfLines, aes = aes(x = "xs", y = "ys", color = factor(clusterId))) +
-    geom_point(data = dfCenters, aes = aes(x = "x", y = "y"),
-               color = some(parseHex("FF0000")), size = some(4.0)) +
-    geom_line(data = dfCircle, aes = aes(x = "xCircle", y = "yCircle")) +
-    margin(top = 1.5) +
-    ggtitle(&"Septem event of event {eventNumber} and run {run}. " &
-            &"Center cluster energy: {energyCenter:.2f}, passed: {passed}, lineVetoRejected: {lineVetoRejected}") +
-    ggsave(&"plots/septemEvents/septemEvent_run_{run}_event_{eventNumber}.pdf")
+    geom_line(data = dfCircle, aes = aes(x = "xCircle", y = "yCircle"))
+  if dfLines.len > 0:
+    plt = plt +
+      geom_line(data = dfLines, aes = aes(x = "xs", y = "ys", color = factor("cluster ID"))) +
+      geom_point(data = dfCenters, aes = aes(x = "x", y = "y"),
+                 color = "red", size = 4.0)
+  if not useTeX:
+    plt +
+      margin(top = 1.5) +
+      ggtitle(&"Septem event of event {eventNumber} and run {run}. " &
+              &"Center cluster energy: {energyCenter:.2f}, passed: {passed}, lineVetoRejected: {lineVetoRejected}") +
+      ggsave(&"plots/septemEvents/septemEvent_run_{run}_event_{eventNumber}.pdf")
+  else:
+    plt + ggsave(&"plots/septemEvents/septemEvent_run_{run}_event_{eventNumber}.tex",
+                  useTeX = true, onlyTikZ = true)

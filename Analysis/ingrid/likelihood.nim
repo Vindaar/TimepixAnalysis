@@ -690,6 +690,8 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
           # shorten to actual number of stored pixels. Otherwise elements with ToT / charge values will remain
           # in the `septemFrame`
           septemFrame.pixels.setLen(septemFrame.numRecoPixels)
+          if fkLineVeto notin flags: # if no line veto, don't draw lines
+            septemGeometry.lines = newSeq[tuple[m, b: float]]()
           plotSeptemEvent(septemFrame.pixels, runNumber, evNum.toInt,
                           lines = septemGeometry.lines,
                           centers = septemGeometry.centers,
@@ -698,7 +700,8 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
                           xCenter = septemGeometry.xCenter,
                           yCenter = septemGeometry.yCenter,
                           radius = septemGeometry.centerRadius,
-                          energyCenter = centerData.energies[septemFrame.centerEvIdx])
+                          energyCenter = centerData.energies[septemFrame.centerEvIdx],
+                          useTeX = true)
   echo "Passed indices after septem veto ", passedInds.card
 
 proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,

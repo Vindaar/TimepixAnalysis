@@ -477,11 +477,9 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
                                     cl.geometry.lengthDivRmsTrans,
                                     cl.geometry.fractionInTransverseRms,
                                     refSetTuple)
-  ## Check if the current cluster is in gold region. If it is, either it is part of something
+  ## Check if the current cluster is in input chip region. If it is, either it is part of something
   ## super big that makes the center still fall into the gold region or it remains unchanged.
   ## In the unchanged case, let's compare the energy and cluster pixels
-
-  ## XXX: make the actual region based on argument to `applySeptemVeto`!
   let inRegionOfInterest = inRegion(cl.centerX - TimepixSize, cl.centerY - TimepixSize, region)
 
   var lineVetoPassed = true #
@@ -756,6 +754,8 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
     totalEvCount = 0
     totalLogLCount = 0
   for num, group in runs(h5f):
+    ## XXX: turn the following into a proper feature
+    #if num != 261: continue
     echo &"Start logL cutting of run {group}"
     # get number of chips from attributes
     var mgrp = h5f[group.grp_str]
@@ -1206,6 +1206,9 @@ proc plotLogL(cdlFile, refFile: string,
     ggsave("signalLogL_ridgeline.pdf",
            height = 600.0)
 
+# switch to cligen, then do:
+# runs: seq[int] = @[]) = # `runs` allows to overwrite whihc run is logL cut'd
+## Also do same for a `--useTeX` argument & flag! for Septem veto plots
 proc main() =
   # create command line arguments
   let args = docopt(doc)

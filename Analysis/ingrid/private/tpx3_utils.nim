@@ -36,7 +36,7 @@ proc tpx3RunHeader(tpx3: Tpx3RunConfig): Table[string, string] =
   result["dateTime"] = format(timeFromTpx3RunConfig(tpx3), "YYYY-MM-dd'.'HH:mm:ss")
   result["shutterMode"] = "stream"
 
-proc computeTpx3RunParameters*(data: seq[Tpx3Data], startIdx, clusterTimeCutoff: int,
+proc computeTpx3RunParameters*(data: seq[Tpx3Data], startIdx, clusterTimeCutoff, runNumber: int,
                                runConfig: Tpx3RunConfig): ProcessedRun =
   ## this procedure walks over the Timepix3 data and returns all data
   ## we can extract from it that fits into the `ProcessedRun`. This means
@@ -127,5 +127,5 @@ proc computeTpx3RunParameters*(data: seq[Tpx3Data], startIdx, clusterTimeCutoff:
 
   result.nChips = 1 ## TODO: allow multiple chips, find out where to best read from input file
   result.chips = @[(name: chipNameFromTpx3RunConfig(runConfig), number: 0)]
-  ## XXX: generate a run number?
-  result.runNumber = 0
+  ## XXX: generate a run number?. For now CL argument to `raw_data_manipulation`
+  result.runNumber = runNumber

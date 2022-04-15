@@ -1048,10 +1048,11 @@ proc processAndWriteFadc(run_folder: string, runNumber: int, h5f: var H5FileObj)
   readWriteFadcData(run_folder, runNumber, h5f)
   info "FADC took $# data" % $(getOccupiedMem() - mem1)
 
-proc createProcessedTpx3Run(data: seq[Tpx3Data], startIdx, cutoff: int,
+proc createProcessedTpx3Run(data: seq[Tpx3Data], startIdx, cutoff, runNumber: int,
                             runConfig: Tpx3RunConfig): ProcessedRun =
   # add new cluster if diff in time larger than 50 clock cycles
   result = computeTpx3RunParameters(data, startIdx, clusterTimeCutoff = cutoff,
+                                    runNumber = runNumber,
                                     runConfig = runConfig)
 
 proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string,
@@ -1237,7 +1238,9 @@ proc handleTimepix1(folder: string, runType: RunTypeKind, outfile: string,
     quit()
 
 proc handleTimepix3(h5file: string, runType: RunTypeKind,
-                    outfile: string, flags: set[RawFlagKind],
+                    outfile: string,
+                    runNumber: int,
+                    flags: set[RawFlagKind],
                     configFile: string) =
   ## handles converting a Timepix3 input file from tpx3-daq / basil format to required TPA format
   info "Converting Tpx3 data from " & $h5file & " and storing it in " & $outfile
@@ -1260,7 +1263,6 @@ proc handleTimepix3(h5file: string, runType: RunTypeKind,
   var oldIdx = 0
   var countIdx = min(tpx3Buf, pixNum)
   var attrsWritten = false
-  var runNumber = 0
   for idx in 0 ..< batches:
     var data = dset.read_hyperslab(Tpx3Data, @[oldIdx, 0],
                                    count = @[countIdx, 1])
@@ -1268,10 +1270,11 @@ proc handleTimepix3(h5file: string, runType: RunTypeKind,
     countIdx = if oldIdx + tpx3Buf < pixNum: tpx3Buf
                else: pixNum - oldIdx
     let r = createProcessedTpx3Run(data, oldIdx, cutoff = clusterCutoff,
+                                   runNumber = runNumber,
                                    runConfig = runConfig)
     if r.events.len > 0:
       if not attrsWritten:
-        runNumber = r.runNumber
+        #runNumber = r.runNumber
         #nChips = processedRun.nChips
         # create datasets in H5 file
         initInGridInH5(h5fout, runNumber, nChips, batchsize = FILE_BUFSIZE, createToADset = true)

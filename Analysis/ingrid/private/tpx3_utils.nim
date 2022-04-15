@@ -109,6 +109,8 @@ proc computeTpx3RunParameters*(data: seq[Tpx3Data], startIdx, clusterTimeCutoff:
         echo "Maximum number of overflows detected! BAD BAD BAD"
         raise newException(IOError, "Input data has more than 3 overflows in a single cluster! " &
           "Our current data model cannot handle this.")
+    ## XXX: note: this currently does not account for the fact that in theory maybe one pixel
+    ## is overflowed, but then we receive a pixel that is *not* overflown yet? Order being wrong?
     cluster.toa.add (el.TOA + (numOverflows * overflow).uint16)
     cluster.toaCombined.add el.TOA_Combined
     tots.add el.TOT

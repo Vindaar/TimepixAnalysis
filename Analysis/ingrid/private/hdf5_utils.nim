@@ -425,8 +425,7 @@ proc getGroupNameReco*(runNumber: int): string =
   # generates the reconstrution group name for a given run number
   result = recoBase() & $runNumber
 
-proc hasDset*(h5f: H5File, runNumber, chipNumber: int, dset: string):
-                bool =
+proc hasDset*(h5f: H5File, runNumber, chipNumber: int, dset: string): bool =
   ## returns `true` if the given run and chip has the given `dset`
   let path = recoDataChipBase(runNumber) & $chipNumber / dset
   result = if path in h5f: true else: false

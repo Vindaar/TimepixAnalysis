@@ -633,7 +633,7 @@ proc deleteAllAttrStartingWith(dset: H5DataSet, start: string) =
       discard dset.deleteAttribute(key)
 
 proc calcGasGain*(h5f: H5File, runNumber: int,
-                  interval, minInterval: float) =
+                  interval, minInterval: float, fullRunGasGain: bool) =
   ## fits the polya distribution to the charge values and writes the
   ## fit parameters (including the gas gain) to the H5 file
   ## `interval` is the time interval width on which we apply the binning
@@ -680,7 +680,7 @@ proc calcGasGain*(h5f: H5File, runNumber: int,
       # get all charge values as seq[seq[float]], ``then`` apply the `passIdx`
       # and only flatten ``after`` that
       let chFull = chargeDset.readVlen(float)
-      when not defined(fullRunGasGain):
+      if not fullRunGasGain:
         # read required data for gas gain cuts & to map clusters to timestamps
         let cutFormula = $getGasGainCutFormula()
         let df = h5f.readGasGainDf(grp, @["centerX", "centerY", "rmsTransverse", "hits"])
@@ -729,23 +729,25 @@ proc calcGasGain*(h5f: H5File, runNumber: int,
       else:
         let cutFormula = "No formula available, due to usage of `cutOnProperties`"
         let passIdx = applyGasGainCut(h5f, group)
-        let chs = passIdx.mapIt(chFull[it])
+        let chs = passIdx.mapIt(chFull[it]).flatten
         let (binned, fitResult) = gasGainHistoAndFit(chs, bin_edges, #totBins,
                                                                      # chipName,
                                                      chipNumber, runNumber,
                                                      plotPath)
 
+        let runGroup = h5f[group.name.parentDir.grp_str]
+        let tstampDset = h5f[(group.name.parentDir / "timestamp").dset_str]
         let tStart = if "runStart" in group.attrs: group.attrs["runStart", string].parseTOSDateString()
-                     else: h5f[group.name / "timestamp", 0, int].fromUnix()
+                     else: tstampDset[0, int].fromUnix()
         let tStop = if "runStop" in group.attrs: group.attrs["runStop", string].parseTOSDateString()
-                     else: h5f[group.name / "timestamp",
-                               h5f[(group.name / "timestamp").dset_str].shape[0],
-                               int].fromUnix()
-        let gasGainSingle = GasGainIntervalData(idx: 0, interval: 0.0, tStart: tStart.toUnix(),
-                                                tStop: tStop.toUnix())
-        let ggRes = initGasGainIntervalResult(gasGainSingle, fitResult, binned, bin_edges,
+                     else: tstampDset[tstampDset.shape[0],
+                                      int].fromUnix()
+        let gasGainSingle = GasGainIntervalData(idx: 0, interval: 0.0, tStart: tStart.toUnix().int,
+                                                tStop: tStop.toUnix().int)
+        let ggRes = initGasGainIntervalResult(gasGainSingle, fitResult,
+                                              binned, bin_edges,
                                               0 ..< passIdx.max,
-                                              0, group.attrs["numEventsStored"])
+                                              0, runGroup.attrs["numEventsStored", int])
         h5f.writePolyaDsets(group, chargeDset, binned, bin_edges, fitResult, cutFormula)
         h5f.writeGasGainSliceData(group, @[ggRes], cutFormula)
 

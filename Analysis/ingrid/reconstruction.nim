@@ -731,7 +731,8 @@ proc applyCalibrationSteps(h5f: H5File,
         if rfOnlyGasGain in flags:
           let interval = cfgTable["Calibration"]["gasGainInterval"].getFloat
           let minInterval = cfgTable["Calibration"]["minimumGasGainInterval"].getFloat
-          h5f.calcGasGain(runNumber, interval, minInterval)
+          let fullRunGasGain = cfgTable["Calibration"]["fullRunGasGain"].getBool
+          h5f.calcGasGain(runNumber, interval, minInterval, fullRunGasGain)
         if rfOnlyFadc in flags:
           h5f.calcRiseAndFallTimes(runNumber)
         if rfOnlyFeSpec in flags:

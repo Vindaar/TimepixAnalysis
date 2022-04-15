@@ -1,4 +1,4 @@
-import std / [sequtils, strformat, endians, sets, algorithm, tables, options, sugar]
+import std / [sequtils, strformat, endians, sets, algorithm, tables, options, sugar, os]
 import nimhdf5
 import cligen
 
@@ -403,17 +403,27 @@ proc main(fname: string, outf: string = "/tmp/testtpx3.h5") =
   #for el in config:
   #  echo el.configuration
   #  echo el.value
+
+  # if output file already exists, it means we simply only _add_ the data of the new input file
+  # to the existing file. All configuration data etc. is kept as is.
+  const batch = 50_000_000
+
+  let exists = existsFile(outf)
   var h5fout = H5File(outf, "rw")
   # first copy over `configuration` group
-  let cfg = h5f["/configuration".grp_str]
-  let status = h5f.copy(cfg, some("/configuration"), some(h5fout))
-  if not status:
-    raise newException(IOError, "Could not copy over `/configuration` from " & $fname & " to " & $outf)
-  const batch = 50_000_000
-  let filter = H5Filter(kind: fkZlib, zlibLevel: 2)
-  let dset = h5fout.create_dataset("interpreted/hit_data_0", (0, 1), dtype = Tpx3Data,
-                                   chunksize = @[50_000, 1],
-                                   maxshape = @[int.high, 1], filter = filter)
+  var dset: H5Dataset
+  if not exists:
+    let cfg = h5f["/configuration".grp_str]
+    let status = h5f.copy(cfg, some("/configuration"), some(h5fout))
+    if not status:
+      raise newException(IOError, "Could not copy over `/configuration` from " & $fname & " to " & $outf)
+    let filter = H5Filter(kind: fkZlib, zlibLevel: 2)
+    dset = h5fout.create_dataset("interpreted/hit_data_0", (0, 1), dtype = Tpx3Data,
+                                 chunksize = @[50_000, 1],
+                                 maxshape = @[int.high, 1], filter = filter)
+  else:
+    echo "[INFO]: Appending input data from ", fname, " to ", outf
+    dset = h5fout["interpreted/hit_data_0".dset_str]
   var all: seq[Tpx3Data] = newSeqOfCap[Tpx3Data](batch)
   var comb = 0
   let inputDset = h5f[path.dset_str]

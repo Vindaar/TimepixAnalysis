@@ -288,23 +288,54 @@ proc plotInterpolatedRaster(df: DataFrame, dset: string, interpolated = false) =
                             size = some(4.0))
   plt + ggsave(&"out/cdl_as_raster_interpolated_{dset}.pdf")
 
-proc main(files: seq[string],
+proc computeMorphingSysetmatics(df: DataFrame): Table[string, float] =
+  ## Computes statistics for the systematics introduced via morphing.
+  ##
+  ## We compute the sumo of squared differences between the real line & the morphed
+  ## result for the input. The input contains a column `runType` that designates whether
+  ## it's real data (CDL) or morphed (morph).
+  ## For each target/filter (aside the outer two) we compute the difference in each bin.
+
+  let dfCdl = df.filter(f{`runType` == "CDL"})
+  let dfMorph = df.filter(f{`runType` == "Morph"})
+
+  let xrayRef = getXrayRefTable()
+  var diffs = initTable[string, float]()
+  for idx in 0 ..< xrayRef.len:
+    let dset_name = xrayRef[idx]
+    if dsetName notin ["Cu-Ni-15kV", "C-EPIC-0.6kV"]:
+      # compute differences
+      let dfC = dfCdl.filter(f{`Dset` == dsetName})
+      let dfM = dfMorph.filter(f{`Dset` == dsetName})
+
+      let cH = dfC["Hist", float]
+      let mH = dfM["Hist", float]
+      doAssert cH.size == mH.size
+      diffs[dsetName] = abs(cH -. mH).sum() / cH.size.float # normalize to number of bins
+  echo "Diffs: ", diffs
+  result = diffs
+
+proc main(#files: seq[string],
           refFile: string = "/mnt/1TB/CAST/CDL_2019/XrayReferenceFile2018.h5",
           fkKind: FrameworkKind = fkTpa) =
 
   const dkKinds = [igEccentricity, igLengthDivRmsTrans, igFractionInTransverseRms]
   var df = newDataFrame()
+  var diffTab = initTable[string, Table[string, float]]()
   for dkKind in dkKinds:
     let dfRef = readRefDsets(refFile, dkKind, yr2018)
       .normalize
     let dset = dkKind.toDset(fkKind)
-    let res = morphKde(dfRef, dset)
+    #let res = morphKde(dfRef, dset)
     #let res = getMorphedDfSpline(dfRef)
-    echo res
-    #var res = getMorphedDf(dfRef)
-    plotRef(res,
-            dset,
-            refFile, yr2018, isKde = true)
+    #echo res
+    var res = getMorphedDf(dfRef)
+    diffTab[$dkKind] = computeMorphingSysetmatics(res)
+    #res.showBrowser()
+
+    #plotRef(res,
+    #        dset,
+    #        refFile, yr2018, isKde = true)
     #res["Variable"] = constantColumn(dset, res.len)
     #
     #ggplot(res, aes("Bins", "Energy", color = "Hist")) +
@@ -318,6 +349,19 @@ proc main(files: seq[string],
 
   #echo df.pretty(-1)
 
+  # print info about morphing systematic differences
+  let xrayRef = getXrayRefTable()
+  var meanDiff = 0.0
+  for idx in 0 ..< xrayRef.len:
+    let dsetName = xrayRef[idx]
+    if dsetName in ["Cu-Ni-15kV", "C-EPIC-0.6kV"]: continue
+    var diff = 0.0
+    for dkKind in dkKinds:
+      diff += diffTab[$dkKind][dsetName]
+    diff /= 3.0
+    echo "Target/Filter: ", dsetName, " = ", diff
+    meanDiff += diff
+  echo "Mean difference ", meanDiff / 6.0
 
 when isMainModule:
   dispatch main

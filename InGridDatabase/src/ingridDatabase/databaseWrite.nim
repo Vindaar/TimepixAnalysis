@@ -1,3 +1,4 @@
+
 import nimhdf5, seqmath, sequtils, parsetoml
 import tables
 import times
@@ -44,9 +45,11 @@ proc writeCalibVsGasGain*(gain, calib, calibErr: seq[float64],
   let grpName = chipNameToGroup(chipName, runPeriod)
   var mgrp = db[grpName.grp_str]
   # create new dataset
-  var mdset = db.create_dataset(grpName / (ChargeCalibGasGain & suffix),
-                                 (gain.len, 3),
-                                 dtype = float64)
+  let dsetName = grpName / (ChargeCalibGasGain & suffix)
+  var mdset = db.create_dataset(dsetName,
+                                (gain.len, 3),
+                                dtype = float64,
+                                overwrite = true)
   let data = zip(gain, calib, calibErr) --> map(@[it[0], it[1], it[2]]) --> to(seq[seq[float]])
   # store data as (N, 3) dataset.
   mdset[mdset.all] = data

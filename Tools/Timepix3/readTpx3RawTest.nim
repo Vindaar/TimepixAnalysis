@@ -9,8 +9,8 @@ when not defined(blosc):
 
 type
   Tpx3MetaData = object
-    index_start: uint32
-    index_stop: uint32
+    index_start: uint64
+    index_stop: uint64
     data_length: uint32
     timestamp_start: float
     timestamp_stop: float
@@ -431,18 +431,22 @@ proc main(fname: string, outf: string = "/tmp/testtpx3.h5") =
 
   var cumRead = 0
   var batchIdx = 0
-  let uint32High = uint32.high.int
+  when false: ## Add code to decide if using uint32 or uint64?
+    let uint64High = uint64.high.int
 
-  var uint32StartOverflows = 0
-  var uint32StopOverflows = 0
-  var sliceStart: int
-  var sliceStop: int
+    var uint64StartOverflows = 0
+    var uint64StopOverflows = 0
+  var sliceStart: uint64
+  var sliceStop: uint64
 
-  var lastStart = 0
-  var lastStop = 0
+  when false:
+    var lastStart = 0
+    var lastStop = 0
+
 
   # our local buffers to avoid too many reallocations
   when false:
+
     var tstamp = newSeqOfCap[uint64](2000) #data.len div 2 + 1)
     # indices stores the indices at which the timestamps start in the raw data
     var indices = newSeqOfCap[int](2000) #data.len div 2 + 1)
@@ -453,24 +457,28 @@ proc main(fname: string, outf: string = "/tmp/testtpx3.h5") =
 
   for i in 0 ..< meta.len:
     let slice = meta[i]
-    if slice.index_start.int < lastStart:
-      inc uint32StartOverflows
-    if slice.index_stop.int < lastStop:
-      inc uint32StopOverflows
-    sliceStart = slice.index_start.int + (uint32StartOverflows * uint32High)
-    sliceStop = slice.index_stop.int + (uint32StopOverflows * uint32High)
+    when false:
+      if slice.index_start.int < lastStart:
+        inc uint64StartOverflows
+      if slice.index_stop.int < lastStop:
+        inc uint64StopOverflows
+    sliceStart = slice.index_start# + (uint64StartOverflows * uint64High)
+    sliceStop = slice.index_stop #+ (uint64StopOverflows * uint64High)
     let num = sliceStop - sliceStart
     if num > 0:
-      let startIdx = sliceStart - oldIdx
-      let stopIdx = sliceStop - oldIdx
+      doAssert oldIdx.uint64 <= sliceStart and oldIdx.uint64 <= sliceStop, "uint64 underflow detected!"
+      let startIdx = sliceStart - oldIdx.uint64
+      let stopIdx = sliceStop - oldIdx.uint64
       ## when using the following, replace `all.add tpx3Data` by just using `tpx3Data` of course
       ## Means we need to handle starting indices in `rawDataToDut` though
       #rawDataToDut(toOpenArray(data, startIdx, stopIdx - 1), i, tstamp, indices, res, idxToKeep, tpx3Data)
       #all.add tpx3Data
-      all.add rawDataToDut(toOpenArray(data, startIdx, stopIdx - 1), chunkNr = i)
+      doAssert startIdx < (int64.high).uint64 and stopIdx < (int64.high).uint64, "int64 overflow detected"
+      all.add rawDataToDut(toOpenArray(data, startIdx.int, stopIdx.int - 1), chunkNr = i)
       inc comb, num.int
-      lastStart = slice.index_start.int # store last start to check for overflow
-      lastStop = slice.index_stop.int
+      when false:
+        lastStart = slice.index_start.int # store last start to check for overflow
+        lastStop = slice.index_stop.int
     if comb >= curIdx:
       echo "Writing dataset chunk: ", i
       dset.add all

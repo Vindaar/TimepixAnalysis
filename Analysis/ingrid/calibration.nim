@@ -1,12 +1,8 @@
-import sequtils, strutils, strformat
-import os, ospaths
-import future
+import std / [sequtils, strutils, strformat, os, tables, math, times]
 import seqmath, fenv
 import nimhdf5
-import tables
 import mpfit
 import zero_functional
-import math
 import chroma
 
 import tos_helpers

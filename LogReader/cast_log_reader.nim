@@ -44,6 +44,14 @@ type
   LogFileKind* = enum
     lkSlowControl, lkTracking
   # object storing all slow control log data
+  Temperatures = object
+    amb: float
+    iron: float
+    mrb: float
+    mfb: float
+    ext: float
+    vent: float
+
   SlowControlLog = object
     filename: string
     # store date of log file as string or Time?
@@ -57,7 +65,8 @@ type
     # magnetic field in tesla!
     B_magnet: seq[float]
     # environmental ambient temperature
-    T_env: seq[float]
+    temps: seq[Temperatures]
+    humidity: seq[float]
     # pointing positions as angles
     h_angle, v_angle: seq[float]
     # and encoder values
@@ -171,17 +180,6 @@ proc getVersionSchema(schemaFile: VersionSchemaFile, fname: string): VersionSche
 proc newSlowControlLog(name: string): SlowControlLog =
   result.filename = name
   result.date = fromUnix(0)
-  result.timestamps = @[]
-  result.pmm = @[]
-  result.p3 = @[]
-  result.p3_ba = @[]
-  result.B_magnet = @[]
-  result.T_env = @[]
-  result.h_angle = @[]
-  result.v_angle = @[]
-  result.h_encoder = @[]
-  result.v_encoder = @[]
-  result.mm_gas = @[]
 
 proc hash(x: TrackingLog): Hash =
   ## proc to define a hash value for a tracking log object
@@ -460,7 +458,13 @@ proc parse_sc_logfile(content: string,
     p3_i = schema["P-3"]
     p3ba_i = schema["P3_BA"]
     Imag_i = schema["I_magnet"] # is actually the magnetic field in ``T``
-    tenv_i = schema["Tenv_Amb"]
+    tamb_i = schema["Tenv_Amb"]
+    tiron_i = schema["Tenv_Iron"]
+    tmrb_i = schema["Tenv_MRB"]
+    tmfb_i = schema["Tenv_MFB"]
+    text_i = schema["TEnv_Ext"]
+    tvent_i = schema["TEnv_Vent"]
+    humid_i = schema["Humidity"]
     mm_gas_i = schema["MM GAS"]
     hang_i = schema["Horiz_Angle"]
     vang_i = schema["Verti_Angle"]
@@ -558,11 +562,17 @@ proc parse_sc_logfile(content: string,
         if arg.isSome:
           let idx {.inject.} = arg.unsafeGet
           body
+      template getIf(arg: untyped): untyped =
+        if arg.isSome:
+          let idx = arg.unsafeGet
+          parseFloat d[idx]
+        else:
+          0.0
       addIfAvailable(pmm_i, result.pmm.add parseFloat(d[idx]))
       addIfAvailable(p3_i, result.p3.add parseFloat(d[idx]))
       addIfAvailable(p3_ba_i, result.p3_ba.add parseFloat(d[idx]))
       addIfAvailable(Imag_i, result.B_magnet.add parseFloat(d[idx]))
-      addIfAvailable(tenv_i, result.T_env.add parseFloat(d[idx]))
+      addIfAvailable(humid_i, result.humidity.add parseFloat(d[idx]))
       addIfAvailable(hang_i, result.h_angle.add parseFloat(d[idx]))
       addIfAvailable(vang_i, result.v_angle.add parseFloat(d[idx]))
       addIfAvailable(hme_i, result.h_encoder.add uint16(parseInt(d[idx])))
@@ -570,6 +580,14 @@ proc parse_sc_logfile(content: string,
       addIfAvailable(mm_gas_i):
         let mm_gas_b = d[idx][0] == '0'
         result.mm_gas.add mm_gas_b
+      # finally try to add all temperatures
+      let temps = Temperatures(amb: getIf(tamb_i),
+                               iron: getIf(tiron_i),
+                               mrb: getIf(tmrb_i),
+                               mfb: getIf(tmfb_i),
+                               ext: getIf(text_i),
+                               vent: getIf(tvent_i))
+      result.temps.add temps
 
       inc lineCnt
   result.badLineCount = badLineCount
@@ -866,6 +884,27 @@ proc toDf(sc: SlowControlLog, enforceSameFields = false): DataFrame =
   df["Date"] = newTensorWith(df.len, sc.date.toUnix) #constantColumn(sc.date.toUnix, df.len)
   result = df
 
+proc plotTemperatures(scLogs: seq[SlowControlLog]) =
+  ## Plots the different temperatures recorded in the CAST hall in the given time range
+  let df = seqstoDf({ "Time" : scLogs.mapIt(it.timestamps).flatten,
+                  "T_amb" : scLogs.mapIt(it.temps.mapIt(it.amb)).flatten,
+                  "T_iron" : scLogs.mapIt(it.temps.mapIt(it.iron)).flatten,
+                  "T_mrb" : scLogs.mapIt(it.temps.mapIt(it.mrb)).flatten,
+                  "T_mfb" : scLogs.mapIt(it.temps.mapIt(it.mfb)).flatten,
+                  "T_ext" : scLogs.mapIt(it.temps.mapIt(it.ext)).flatten,
+                  "T_vent" : scLogs.mapIt(it.temps.mapIt(it.vent)).flatten,
+                  "Humidity" : scLogs.mapIt(it.humidity).flatten })
+    .gather(["T_amb", "T_iron", "T_mrb", "T_mfb", "T_ext", "T_vent"], key = "Temperature", value = "TempVal")
+    .arrange("Time")
+  ggplot(df, aes("Time", "TempVal", color = "Temperature")) +
+    geom_line() +
+    scale_x_date(name = "Date", isTimestamp = true,
+                 dateSpacing = initDuration(weeks = 12),
+                 formatString = "yyyy-MM") +
+                        #dateSpacing = initDuration(weeks = 26), dateAlgo = dtaAddDuration) +
+    ggtitle("Temperatures in CAST hall & outside") +
+    ggsave("/tmp/temperatures_cast.png", width = 1200, height = 800)
+
 proc read_sc_log_folder(log_folder: string,
                         schemaFile: VersionSchemaFile,
                         magnetField = 8.0) =
@@ -916,6 +955,8 @@ proc read_sc_log_folder(log_folder: string,
          &"{$firstDate} and {$lastDate} based on number of rows (assuming 1 row == 60 s)."
 
   print_slow_control_logs(scLogs, magnetField)
+  # plot the temperature data
+  plotTemperatures(scLogs)
 
 proc process_log_folder(folder: string, logKind: LogFileKind,
                         h5file = "",

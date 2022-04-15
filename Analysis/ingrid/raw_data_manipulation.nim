@@ -1,3 +1,4 @@
+## InGrid raw data manipulation.
 ## this script performs the raw data manipulation of a given run or list of runs
 ## and outputs the resulting data to a HDF5 file
 ## steps which are performed
@@ -7,7 +8,8 @@
 ## - calculating the num_pix / event histogram
 ## - caluclating the FADC signal depth / event histogram
 ## - calculate the ToT per pixel histogram
-## standard lib
+
+# standard lib
 import std / [os, osproc, logging, sequtils, sugar, algorithm, tables, times,
               strutils, strformat, rdstdin]
 
@@ -22,7 +24,7 @@ import seqmath
 import nimhdf5
 import arraymancer
 import parsetoml
-import docopt
+import cligen
 
 type
   RawFlagKind = enum
@@ -54,11 +56,8 @@ else:
   const commitHash = ""
 # get date using `CompileDate` magic
 const compileDate = CompileDate & " at " & CompileTime
-
+const versionStr = "Version: $# built on: $#" % [commitHash, compileDate]
 const docStr = """
-Version: $# built on: $#
-InGrid raw data manipulation.
-
 Usage:
   raw_data_manipulation <folder> [options]
   raw_data_manipulation <folder> --runType <type> [options]
@@ -88,9 +87,7 @@ Options:
   --config <path>     Path to the configuration file to use.
   -h --help           Show this help
   --version           Show version.
-
 """
-const doc = withDocopt(docStr)
 
 # define the compression filter we use
 #let filter = H5Filter(kind: fkZlib, zlibLevel: 6) # on run 146 took: 0.889728331565857 min
@@ -1295,44 +1292,60 @@ proc handleTimepix3(h5file: string, runType: RunTypeKind,
   runFinished(h5fout, runNumber)
   discard h5fout.close()
 
-proc main() =
-
-  # use the usage docstring to generate an CL argument table
-  let args = docopt(doc)
-  echo args
-
-  #echo oldTosBackRuns
-
-  let folder = $args["<folder>"]
-  let configFile = if $args["--config"] != "nil": $args["--config"]
-                   else: ""
-  var runTypeStr = $args["--runType"]
+proc main(path: string, runType: RunTypeKind,
+          `out` = "", nofadc = false, ignoreRunList = false,
+          config = "", overwrite = false, tpx3 = false,
+          run = 0
+         ) =
+  echo "Running main! ", run
   var runType: RunTypeKind
   var flags: set[RawFlagKind]
-  var outfile = $args["--out"]
-  if runTypeStr != "nil":
-    runType = parseRunType(runTypeStr)
-  if outfile == "nil":
-    outfile = "run_file.h5"
-  if $args["--nofadc"] == "true":
+  let outfile = if `out`.len == 0: "run_file.h5" else: `out`
+  if nofadc:
     flags.incl rfNoFadc
-  if $args["--ignoreRunList"] != "false":
+  if ignoreRunList:
     flags.incl rfIgnoreRunList
-  if $args["--overwrite"] == "true":
+  if overwrite:
     flags.incl rfOverwrite
-  let tpx3File = if $args["--tpx3"] == "nil": "" else: $args["--tpx3"]
-  if tpx3File.len > 0:
+  if tpx3:
     flags.incl rfTpx3
 
   echo &"Flags are is {flags}"
   let t0 = epochTime()
 
   if rfTpx3 notin flags:
-    handleTimepix1(folder, runType, outfile, flags, configFile)
+    handleTimepix1(path, runType, outfile, flags, config)
   else:
-    handleTimepix3(tpx3File, runType, outfile, flags, configFile)
+    handleTimepix3(path, runType, outfile, run, flags, config)
 
   info "Processing all given runs took $# minutes" % $( (epochTime() - t0) / 60'f )
 
 when isMainModule:
-  main()
+  import cligen/argcvt
+  proc argParse(dst: var RunTypeKind, dfl: RunTypeKind,
+                a: var ArgcvtParams): bool =
+    dst = parseRunType(a.val)
+    if dst != rtNone:
+      result = true
+
+  proc argHelp*(dfl: RunTypeKind; a: var ArgcvtParams): seq[string] =
+    result = @[ a.argKeys, "RunTypeKind", $dfl ]
+
+  dispatch(main, help = {
+    "tpx3" : "Convert data from a Timepix3 H5 file to TPA format instead of a Tpx1 run directory",
+    "run" : "(only Tpx3) If given uses the given number as the run number for the input file.",
+    "runType" : """Select run type (Calib | Back | Xray)
+The following are parsed case insensetive:
+  Calib = {"calib", "calibration", "c"}
+  Back = {"back", "background", "b"}
+  Xray = {"xray", "xrayfinger", "x"}""",
+    "out" : "Filename of output file. If none given will be set to `run_file.h5`.",
+    "nofadc" : "Do not read FADC files.",
+    "ignoreRunList" : "If set ignores the run list 2014/15 to indicate using any rfOldTos run",
+    "overwrite" : """If set will overwrite runs already existing in the
+file. By default runs found in the file will be skipped.
+HOWEVER: overwriting is assumed, if you only hand a
+run folder!""",
+    "config" : """Path to the configuration file to use. Default is `config.toml`
+in directory of this source file.""",
+    "version" : "Print the version of the binary."})

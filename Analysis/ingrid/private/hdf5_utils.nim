@@ -829,7 +829,8 @@ proc readTpx3RunConfig*(h5f: H5File): Tpx3RunConfig =
 
 proc timeFromTpx3RunConfig*(tpx3: Tpx3RunConfig): DateTime =
   ## Parses the date / time from the `runName` and returns it as a `DateTime`
-  let tstr = tpx3.runName.removePrefix("data_take_")
+  # either two options is possible. lower case is older file version
+  let tstr = tpx3.runName.removePrefix("data_take_").removePrefix("DataTake_")
   result = parse(tstr, "YYYY-MM-dd'_'HH-mm-ss")
 
 proc chipNameFromTpx3RunConfig*(tpx3: Tpx3RunConfig): string =

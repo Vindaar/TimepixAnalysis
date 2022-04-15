@@ -8,7 +8,7 @@ plotDirectory = "out"
 # `fullRunGasGain` is true, the below options are ignored
 fullRunGasGain = false
 # minutes for binning of gas gain
-gasGainInterval = 240
+gasGainInterval = 90
 # minutes the gas gain interval has to be long at least. This comes into play
 # at the end of a run `(tRun mod gasGainInterval) = lastSliceLength`. If the
 # remaining time `lastSliceLength` is less than `minimumGasGainInterval`, the

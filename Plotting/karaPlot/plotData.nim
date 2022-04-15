@@ -876,7 +876,7 @@ proc occupancies(h5f: H5File, runType: RunTypeKind,
       plotKind = pkOccCluster
       # only consider full range for cluster centers
       clampKind = ckQuantile
-      clampQ = 80
+      clampQ = 95
     result.add @[fullPd, clampAPd, clampQPd, clusterPd, clusterClampPd]
 
 #proc plotPolyas(h5f: H5File, group: H5Group,

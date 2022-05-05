@@ -105,12 +105,12 @@ proc calcLikelihoodDataset*(h5f: var H5File, refFile: string,
                             morphKind: MorphingKind,
                             energyDset: InGridDsetKind): seq[float]
 
-proc calcLikelihoodDatasetIfNeeded(h5f: var H5File,
-                                   refFile: string,
-                                   grp: string,
-                                   logLDset: string,
-                                   year: YearKind,
-                                   energyDset: InGridDsetKind) =
+proc calcLikelihoodDatasetIfNeeded*(h5f: var H5File,
+                                    refFile: string,
+                                    grp: string,
+                                    logLDset: string,
+                                    year: YearKind,
+                                    energyDset: InGridDsetKind) =
   ## Recomputes the likelihood dataset, either if it doesn't exist yet or
   ## if it was computed using a different morphing technique.
   # get the group of this dataset

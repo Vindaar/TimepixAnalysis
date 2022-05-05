@@ -131,17 +131,9 @@ proc calcLikelihoodDatasetIfNeeded(h5f: var H5File,
     cdlGroup.attrs["MorphingKind"] = $morphKind
   # else nothing to do
 
-proc buildLogLHist*(cdlFile, refFile, dset: string,
-                    year: YearKind,
-                    energyDset: InGridDsetKind,
-                    region: ChipRegion = crGold): tuple[logL, energy: seq[float]] =
-  ## given a file `h5file` containing a CDL calibration dataset
-  ## `dset` apply the cuts on all events and build the logL distribution
-  ## for the energy range.
-  ## `dset` needs to be of the elements contained in the returned map
-  ## of tos_helpers.`getXrayRefTable`
-  ## Default `region` is the gold region
-  ## Returns a tuple of the actual `logL` values and the corresponding `energy`.
+template applyLogLFilterCuts*(cdlFile, refFile, dset: string,
+                              year: YearKind, energyDset: InGridDsetKind,
+                              body: untyped): untyped =
   var grp_name = cdlPrefix($year) & dset
   # create global vars for xray and normal cuts table to avoid having
   # to recreate them each time
@@ -174,10 +166,9 @@ proc buildLogLHist*(cdlFile, refFile, dset: string,
     # may not yet have access to the likelihood dataset. So we have to check for that and
     # if it does not exist yet, it has to be calculated.
     h5f.calcLikelihoodDatasetIfNeeded(refFile, grp_name, logLStr, year, energyDset)
-
     let
-      energy = h5f.readAs(grp_name / energyStr, float64)
-      logL = h5f.readAs(grp_name / logLStr, float64)
+      energy {.inject.} = h5f.readAs(grp_name / energyStr, float64)
+      logL {.inject.} = h5f.readAs(grp_name / logLStr, float64)
       centerX = h5f.readAs(grp_name / centerXStr, float64)
       centerY = h5f.readAs(grp_name / centerYStr, float64)
       ecc = h5f.readAs(grp_name / eccStr, float64)
@@ -188,26 +179,40 @@ proc buildLogLHist*(cdlFile, refFile, dset: string,
       # get the cut values for this dataset
       cuts = cutsTab[dset]
       xrayCuts = xrayCutsTab[dset]
-    result[0] = newSeqOfCap[float](energy.len)
-    result[1] = newSeqOfCap[float](energy.len)
-    for i in 0 .. energy.high:
+    for i {.inject.} in 0 .. energy.high:
       let
         # first apply Xray cuts (see C. Krieger PhD Appendix B & C)
         regionCut  = inRegion(centerX[i], centerY[i], crSilver)
-        xRmsCut    = rmsTrans[i] >= xrayCuts.minRms and rmsTrans[i] <= xrayCuts.maxRms
-        xLengthCut = length[i]   <= xrayCuts.maxLength
-        xEccCut    = ecc[i]      <= xrayCuts.maxEccentricity
+        xRmsCut    = rmsTrans[i].float >= xrayCuts.minRms and rmsTrans[i] <= xrayCuts.maxRms
+        xLengthCut = length[i].float   <= xrayCuts.maxLength
+        xEccCut    = ecc[i].float      <= xrayCuts.maxEccentricity
         # then apply reference cuts
-        chargeCut  = charge[i]   > cuts.minCharge and charge[i]   < cuts.maxCharge
-        rmsCut     = rmsTrans[i] > cuts.minRms    and rmsTrans[i] < cuts.maxRms
-        lengthCut  = length[i]   < cuts.maxLength
-        pixelCut   = npix[i]     > cuts.minPix
+        chargeCut  = charge[i].float   > cuts.minCharge and charge[i]   < cuts.maxCharge
+        rmsCut     = rmsTrans[i].float > cuts.minRms    and rmsTrans[i] < cuts.maxRms
+        lengthCut  = length[i].float   < cuts.maxLength
+        pixelCut   = npix[i].float     > cuts.minPix
       # add event to likelihood if all cuts passed
       if allIt([regionCut, xRmsCut, xLengthCut, xEccCut, chargeCut, rmsCut, lengthCut, pixelCut], it):
         if logL[i] != Inf:
-          result[0].add logL[i]
-          result[1].add energy[i]
+          body
 
+proc buildLogLHist*(cdlFile, refFile, dset: string,
+                    year: YearKind,
+                    energyDset: InGridDsetKind,
+                    region: ChipRegion = crGold): tuple[logL, energy: seq[float]] =
+  ## given a file `h5file` containing a CDL calibration dataset
+  ## `dset` apply the cuts on all events and build the logL distribution
+  ## for the energy range.
+  ## `dset` needs to be of the elements contained in the returned map
+  ## of tos_helpers.`getXrayRefTable`
+  ## Default `region` is the gold region
+  ## Returns a tuple of the actual `logL` values and the corresponding `energy`.
+  # decent size that is O(correct)
+  result[0] = newSeqOfCap[float](100_000)
+  result[1] = newSeqOfCap[float](100_000)
+  applyLogLFilterCuts(cdlFile, refFile, dset, year, energyDset):
+    result[0].add logL[i]
+    result[1].add energy[i]
   # now create plots of all ref likelihood distributions
   echo "max is inf ? ", min(result[0]), " ", max(result[0])
 

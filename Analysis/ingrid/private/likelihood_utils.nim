@@ -483,3 +483,75 @@ proc readMorphKind(): MorphingKind =
   ## reads the `morphingKind` field from the TOML file
   withConfig:
     result = parseEnum[MorphingKind](config["Likelihood"]["morphingKind"].getStr)
+
+proc readSignalEff(): float =
+  ## reads the `signalEfficiency` field from the TOML file
+  withConfig:
+    result = config["Likelihood"]["signalEfficiency"].getFloat
+
+proc determineCutValue*[T: seq | Tensor](hist: T, eff: float): int =
+  ## given a histogram `hist`, determine the correct bin to cut at to achieve
+  ## a software efficiency of `eff`
+  var
+    cur_eff = 0.0
+    last_eff = 0.0
+  let hist_sum = hist.sum.float
+  while cur_eff < eff:
+    inc result
+    last_eff = cur_eff
+    cur_eff = hist[0 .. result].sum.float / hist_sum
+  echo "Efficiency is at ", cur_eff, " and last Eff was ", last_eff
+
+proc calcCutValueTab*(cdlFile, refFile: string, yearKind: YearKind,
+                      energyDset: InGridDsetKind): CutValueInterpolator =
+  ## returns a table mapping the different CDL datasets to the correct cut values
+  ## based on the chip center region
+  # read signal efficiency (default 80%) from TOML file
+  let efficiency = readSignalEff()
+  let morphKind = readMorphKind()
+  let xray_ref = getXrayRefTable()
+  let logHists = computeLogLDistributions(cdlFile, refFile, yearKind, energyDset, crGold)
+  case morphKind
+  of mkNone:
+    # get the cut value for a software efficiency of 80%
+    result = initCutValueInterpolator(morphKind)
+    for tup, subDf in groups(logHists.group_by("Dset")):
+      echo "Starting FOR LOOP--------------------------------------------------"
+      let dset = tup[0][1].toStr
+      let cutVal = determineCutValue(subDf["Hist", float], efficiency)
+      # incl the correct values for the logL cut values
+      result[dset] = subDf["Bins", float][cutVal]
+      echo "Cut value of ", dset, " is ", result[dset]
+    #if true: quit()
+  of mkLinear:
+    ## given logLHist compute interpolated DF from it
+    ## first need a logLHist in DF format
+    result = initCutValueInterpolator(morphKind)
+    let dfInterp = logHists.getInterpolatedDf()
+      .filter(f{string: `Dset` == "Morph"})
+    var
+      energies = newSeq[float]()
+      cutVals = newSeq[float]()
+    for tup, subDf in groups(dfInterp.group_by("Energy")):
+      let energy = tup[0][1].toFloat
+      when false:
+        var efficiency = 0.8
+        echo energy
+        if energy < 1.0:
+          efficiency = 0.6
+      let cutVal = determineCutValue(subDf["Hist", float], efficiency)
+      # incl the correct values for the logL cut values
+      energies.add energy
+      cutVals.add subDf["Bins", float][cutVal]
+    let sorted = zip(energies, cutVals).sortedByIt(it[0])
+    result.cutEnergies = sorted.mapIt(it[0])
+    result.cutValues = sorted.mapIt(it[1]).toTensor
+  else:
+    result = getChristophCutVals()
+  when not defined(release) or defined(DEBUG):
+    #echo logHists
+    echo "logHists ", logHists
+    #echo "Bins are ", bins
+    echo "Cut values are ", result
+    #echo mapIt(logHists, it.sum)
+    #echo "Corresponding to logL values of ", result

@@ -138,7 +138,7 @@ template applyLogLFilterCuts*(cdlFile, refFile, dset: string,
   # create global vars for xray and normal cuts table to avoid having
   # to recreate them each time
   let xrayCutsTab {.global.} = getXrayCleaningCuts()
-  var cutsTab {.global.}: Table[string, Cuts]
+  var cutsTab {.global.}: OrderedTable[string, Cuts]
   case year
   of yr2014:
     cutsTab = getEnergyBinMinMaxVals2014()
@@ -226,24 +226,18 @@ proc computeLogLDistributions*(cdlFile, refFile: string, yearKind: YearKind,
   const
     xray_ref = getXrayRefTable()
     # logL binning range
-    nbins = 200 # NO CHANGE IF SET TO 200
+    nbins = 200 # TODO: Increase number of bins for logL cut value closer to target?
     # range of histogram in logL
     logLrange = (0.0, 30.0)
 
-  let
-    # get the correct binning for the histograms
-    bins = linspace(logLrange[0], logLrange[1], nbins + 1, endpoint = true)
-    # get the raw log likelihood histograms (seq of individual values). Takes into account
-    # cuts on properties and chip region
-    rawLogHists = mapIt(toSeq(values(xray_ref)),
-                        # build hist and get `[0]` to only get `logL` values
-                        buildLogLHist(cdlFile, refFile, it, yearKind, energyDset, region)[0]
-    )
-  # given raw log histograms, create the correctly binned histograms from it
+  # get the correct binning for the histograms
+  let bins = linspace(logLrange[0], logLrange[1], nbins + 1, endpoint = true)
   let energies = getXrayFluorescenceLines()
-  for idx, val in xrayRef:
-    var df = seqsToDf( {"Bins" : bins[0 .. ^2], "Hist" : histogram(rawLogHists[idx], nbins, logLrange)[0] })
-    df["Dset"] = constantColumn(val, df.len)
+  for idx, dset in xrayRef:
+    # compute the histogram of the CDL data
+    let hist = buildLogLHist(cdlFile, refFile, dset, yearKind, energyDset, region)[0]
+    var df = seqsToDf( {"Bins" : bins[0 .. ^2], "Hist" : histogram(hist, nbins, logLrange)[0] })
+    df["Dset"] = constantColumn(dset, df.len)
     df["Energy"] = constantColumn(energies[idx], df.len)
     result.add df
 

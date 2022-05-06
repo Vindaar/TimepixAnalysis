@@ -482,7 +482,7 @@ when not defined(pure) and not defined(js):
       case kind*: MorphingKind
       of mkNone:
         ## just the regular table containing a cut value for each target/filter combination
-        cutTab*: Table[string, float]
+        cutTab*: OrderedTable[string, float]
       of mkLinear:
         ## two tensors: `cutEnergies` stores the energy values we used to
         ## compute different morphed distributions. `cutValues` stores the cut
@@ -570,11 +570,11 @@ proc initCutValueInterpolator*(kind: MorphingKind): CutValueInterpolator =
   case kind
   of mkNone:
     result = CutValueInterpolator(kind: mkNone)
-    result.cutTab = initTable[string, float]()
+    result.cutTab = initOrderedTable[string, float]()
   of mkLinear:
     result = CutValueInterpolator(kind: mkLinear)
 
-proc initCutValueInterpolator*(tab: Table[string, float]): CutValueInterpolator =
+proc initCutValueInterpolator*(tab: OrderedTable[string, float]): CutValueInterpolator =
   result = initCutValueInterpolator(mkNone)
   result.cutTab = tab
 

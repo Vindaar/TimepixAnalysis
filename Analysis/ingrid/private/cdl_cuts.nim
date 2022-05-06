@@ -27,10 +27,10 @@ proc getChristophCutVals*(): CutValueInterpolator =
                  "Ag-Ag-6kV" :     8.1,
                  "Ti-Ti-9kV" :     7.7,
                  "Mn-Cr-12kV" :    7.6,
-                 "Cu-Ni-15kV" :    7.4 }.toTable()
+                 "Cu-Ni-15kV" :    7.4 }.toOrderedTable()
   result = initCutValueInterpolator(cutTab)
 
-proc getXrayRefTable*(): Table[int, string] =
+proc getXrayRefTable*(): OrderedTable[int, string] =
   ## returns a table mapping the different energy bins to the correct
   ## datasets in the X-ray reference file
   # NOTE: we could also simply store this in a seq...
@@ -41,7 +41,7 @@ proc getXrayRefTable*(): Table[int, string] =
              4: "Ag-Ag-6kV",
              5: "Ti-Ti-9kV",
              6: "Mn-Cr-12kV",
-             7: "Cu-Ni-15kV" }.toTable()
+             7: "Cu-Ni-15kV" }.toOrderedTable()
 
 proc getEnergyBinning*(): seq[float] =
   ## returns the binning of the energy (upper range for each bin)
@@ -58,7 +58,7 @@ proc toRefDset*(energy: float): string =
   let ind = binning.lowerBound(energy)
   result = xray_table[ind]
 
-func getXrayFluorescenceTable*(): Table[string, string] =
+func getXrayFluorescenceTable*(): OrderedTable[string, string] =
   ## returns a table mapping the target filter combinations to the
   ## names of the fluorescence lines
   result = { "C-EPIC-0.6kV" :  "C Kα",
@@ -68,14 +68,14 @@ func getXrayFluorescenceTable*(): Table[string, string] =
              "Ag-Ag-6kV" :     "Ag Lα",
              "Ti-Ti-9kV" :     "Ti Kα",
              "Mn-Cr-12kV" :    "Mn Kα",
-             "Cu-Ni-15kV" :    "Cu Kα"}.toTable()
+             "Cu-Ni-15kV" :    "Cu Kα"}.toOrderedTable()
 
 func getXrayFluorescenceLines*(): seq[float] =
   ## returns a sequence of the energey of the fluorescence lines in each target
   ## filter combination. Energy in keV
   result = @[8.04, 5.89, 4.51, 2.98, 1.49, 0.930, 0.525, 0.277].reversed
 
-func getXrayCleaningCuts*(): Table[string, Cuts] =
+func getXrayCleaningCuts*(): OrderedTable[string, Cuts] =
   ## returns a table of Cuts (kind ckXray) objects, one for each energy bin. These
   ## cuts are used to remove likely background candidates contaminating the CDL
   ## dataset. They are applied to the raw CDL data before computing the logL
@@ -119,11 +119,11 @@ func getXrayCleaningCuts*(): Table[string, Cuts] =
     ranges = [range0, range1, range2, range3, range4, range5, range6, range7]
     xray_ref = getXrayRefTable()
 
-  result = initTable[string, Cuts]()
+  result = initOrderedTable[string, Cuts]()
   for key, vals in pairs(xray_ref):
     result[vals] = ranges[key]
 
-func getEnergyBinMinMaxVals2018*(): Table[string, Cuts] =
+func getEnergyBinMinMaxVals2018*(): OrderedTable[string, Cuts] =
   ## returns a table of Cuts (kind ckReference) objects, one for each energy bin for the
   ## CDL data from February 2019.
   ## The charge cut values are derived from the fits to the main peaks in the spectra.
@@ -186,11 +186,11 @@ func getEnergyBinMinMaxVals2018*(): Table[string, Cuts] =
     ranges = [range0, range1, range2, range3, range4, range5, range6, range7]
     xray_ref = getXrayRefTable()
 
-  result = initTable[string, Cuts]()
+  result = initOrderedTable[string, Cuts]()
   for key, vals in pairs(xray_ref):
     result[vals] = ranges[key]
 
-func getEnergyBinMinMaxVals2014*(): Table[string, Cuts] =
+func getEnergyBinMinMaxVals2014*(): OrderedTable[string, Cuts] =
   ## returns a table of Cuts (kind ckReference) objects, one for each energy bin
   ##
   ## `NOTE:` See the docstring of `getEnergyBinMinMaxVals2018` for more information on the
@@ -234,7 +234,7 @@ func getEnergyBinMinMaxVals2014*(): Table[string, Cuts] =
     ranges = [range0, range1, range2, range3, range4, range5, range6, range7]
     xray_ref = getXrayRefTable()
 
-  result = initTable[string, Cuts]()
+  result = initOrderedTable[string, Cuts]()
   for key, vals in pairs(xray_ref):
     result[vals] = ranges[key]
 

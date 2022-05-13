@@ -525,7 +525,7 @@ proc fitEnergyCalib*(x_ph, x_esc, x_ph_err, x_esc_err: float,
                         pixels_peaks,
                         pixels_err)
   echoResult(pRes, res = res)
-  let E_calc = linspace(2.0, 7.0, 1000)
+  let E_calc = linspace(2.0, 7.0, 100)
   let H_calc = E_calc.mapIt(linearFuncNoOffset(pRes, it))
 
   let ecData = initEnergyCalibData(energies, pixels_peaks, pixels_err, pRes, res.error,

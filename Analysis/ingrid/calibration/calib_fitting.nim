@@ -418,7 +418,7 @@ proc fitFeSpectrumImpl(hist, binning: seq[float]): FeSpecFitData =
   let idx_tofit = toSeq(0 .. binning.high).filterIt(binning[it] < 350)
   let data_tofit = idx_tofit.mapIt(hist[it])
   let bins_tofit = idx_tofit.mapIt(binning[it])
-  let err = data_tofit.mapIt(1.0)
+  let err = data_tofit.mapIt(if it > 0.0: sqrt(it) else: 1.0)
 
   when false:
     dumpStartParamsPlot(bins_to_fit, data_to_fit, params, feSpectrumFunc)
@@ -468,7 +468,7 @@ proc fitFeSpectrumChargeImpl(hist, binning: seq[float]): FeSpecFitData =
   let idx_tofit = toSeq(0 .. binning.high).filterIt(binning[it] >= 200 and binning[it] < 4000)
   let data_tofit = idx_tofit.mapIt(hist[it])
   let bins_tofit = idx_tofit.mapIt(binning[it])
-  let err = data_tofit.mapIt(1.0)
+  let err = data_tofit.mapIt(if it > 0.0: sqrt(it) else: 1.0)
 
   when false:
     dumpStartParamsPlot(bins_to_fit, data_to_fit, params, feSpectrumChargeFunc)

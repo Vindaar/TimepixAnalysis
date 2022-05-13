@@ -482,10 +482,12 @@ proc applyGasGainCut(h5f: H5File, group: H5Group): seq[int] =
   ## macro found in `resources`.
   const cut_rms_trans_low = 0.1
   const cut_rms_trans_high = 1.5
+  const cut_hits_high = 500.0
   result = cutOnProperties(h5f,
                            group,
                            crSilver,
-                           ("rmsTransverse", cut_rms_trans_low, cut_rms_trans_high))
+                           ("rmsTransverse", cut_rms_trans_low, cut_rms_trans_high),
+                           ("hits", 0.0, cut_hits_high))
 
 proc getGasGainCutFormula(): FormulaNode =
   ## the actual cut formula used for the gas gain input data to clean it

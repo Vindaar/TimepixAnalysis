@@ -241,13 +241,16 @@ proc createFeSpectrum*(h5f: H5File, runNumber, centerChip: int) =
   let
     spectrumDset  = h5f.create_dataset(group.name & "/FeSpectrum",
                                        nEventsPassed,
-                                       dtype = int)
+                                       dtype = int,
+                                       overwrite = true)
     specEventDset = h5f.create_dataset(group.name & "/FeSpectrumEvents",
                                        nEventsPassed,
-                                       dtype = int)
+                                       dtype = int,
+                                       overwrite = true)
     specIndDset = h5f.create_dataset(group.name & "/FeSpectrumIndices",
                                        nEventsPassed,
-                                       dtype = int)
+                                       dtype = int,
+                                       overwrite = true)
   spectrumDset[spectrumDset.all] = hitsSpectrum
   specEventDset[specEventDset.all] = eventSpectrum
   specIndDset[specIndDset.all] = specIndices
@@ -804,7 +807,8 @@ proc writeFeDset(h5f: H5File,
   template createWriteDset(x, y: seq[float], name: string): untyped =
     var dset = h5f.create_dataset(group / name,
                                   (x.len, 2),
-                                  dtype = float)
+                                  dtype = float,
+                                  overwrite = true)
     let data = zip(x, y) --> map(@[it[0], it[1]]) --> to(seq[seq[float]])
     dset[dset.all] = data
     dset
@@ -888,7 +892,7 @@ proc fitToFeSpectrum*(h5f: H5File, runNumber, chipNumber: int,
       outfilesCharge = outfiles.mapIt(parent / ("charge_" & it.removePref(parent & "/")))
     var totChDset: H5DataSet
     if writeToFile:
-      totChDset = h5f.write_dataset(groupName / "FeSpectrumCharge", totChSpec)
+      totChDset = h5f.write_dataset(groupName / "FeSpectrumCharge", totChSpec, overwrite = true)
     info "Fit charge spectrum of run: " & $runNumber & " and chip: " & $chipNumber
     let feSpecCharge = fitFeSpectrumCharge(totChSpec)
     info "Fit charge energy calibration of run: " & $runNumber & " and chip: " & $chipNumber

@@ -124,15 +124,20 @@ iterator getDataframes*(h5f: H5File): DataFrame =
         if chipNum == 3:
           yield h5f.readAllDsets(num, chipNum)
 
-proc getSeptemDataFrame*(h5f: H5File, runNumber: int, allowedChips: seq[int] = @[]): DataFrame =
+proc getSeptemDataFrame*(h5f: H5File, runNumber: int, allowedChips: seq[int] = @[],
+                         charge = true, ToT = false
+                        ): DataFrame =
   ## Returns a subset data frame of the given `runNumber` and `chipNumber`, which
   ## contains only the zero suppressed event data
   var
     xs, ys: seq[uint8]
     chs: seq[float]
+    tots: seq[uint16]
     evs: seq[int]
-    chips = newColumn(colNone)
+    cls: seq[int]
+    chips = newColumn(colInt)
   let group = recoBase() & $runNumber
+  var clusterCount = initCountTable[(int, int)]()
   for run, chip, groupName in chipGroups(h5f):
     if run == runNumber and (allowedChips.len == 0 or chip in allowedChips):
       let grp = h5f[groupName.grp_str]
@@ -140,30 +145,35 @@ proc getSeptemDataFrame*(h5f: H5File, runNumber: int, allowedChips: seq[int] = @
       echo "Reading chip ", chipNum, " of run ", runNumber
       let eventNumbersSingle = h5f[grp.name / "eventNumber", int64]
       var eventNumbers = newSeq[int]()
+      var clusters = newSeq[int]()
       let vlenXY = special_type(uint8)
       let vlenCh = special_type(float64)
-      let
-        x = h5f[grp.name / "x", vlenXY, uint8]
-        y = h5f[grp.name / "y", vlenXY, uint8]
-        ch = h5f[grp.name / "charge", vlenCh, float64]
-
-      let
-        xAll = flatten(x)
-        yAll = flatten(y)
-        chAll = flatten(ch)
-        chipNumCol = constantColumn(chipNum, xAll.len)
+      # need to read x for shape information (otherwise would need dataset)
+      let x = h5f[grp.name / "x", vlenXY, uint8]
       for i in 0 ..< x.len:
         # convert each event into a dataframe
-        let event = eventNumbersSingle[i]
-        let eventCol = toSeq(0 ..< x[i].len).mapIt(event.int)
-        eventNumbers.add eventCol
-      xs.add(xAll)
-      ys.add(yAll)
-      chs.add(chAll)
+        let event = eventNumbersSingle[i].int
+        clusterCount.inc((event, chipNum))
+        let count = clusterCount[(event, chipNum)]
+        for j in 0 ..< x[i].len:
+          eventNumbers.add event
+          clusters.add count
+      let chipNumCol = constantColumn(chipNum, eventNumbers.len)
+      xs.add x.flatten
+      ys.add h5f[grp.name / "y", vlenXY, uint8].flatten()
+      if charge:
+        chs.add h5f[grp.name / "charge", vlenCh, float64].flatten()
+      if ToT:
+        tots.add h5f[grp.name / "ToT", special_type(uint16), uint16].flatten()
       evs.add(eventNumbers)
       chips = add(chips, chipNumCol)
-  result = seqsToDf({"eventNumber" : evs, "x" : xs, "y" : ys, "charge" : chs,
-                     "chipNumber" : chips})
+      cls.add clusters
+  result = seqsToDf({ "eventNumber" : evs, "x" : xs, "y" : ys, "chipNumber" : chips,
+                      "cluster" : cls })
+  if charge:
+    result["charge"] = chs
+  if ToT:
+    result["ToT"] = tots
 
 proc getSeptemEventDF*(h5f: H5File, runNumber: int): DataFrame =
   ## Returns a DataFrame for the given `runNumber`, which contains two columns

@@ -114,7 +114,9 @@ proc flatScale(files: seq[LogLFile], factor: float, dropCounts = true): DataFram
     ## retrieves the correct `totalTime` for the given file `f` from the input `files`
     for file in files:
       if file.name == f:
-        return file.totalTime
+        ## Accumulate all times of files that match `f` (either same input file or
+        ## same `--names` argument
+        result += file.totalTime
 
   when false: ## XXX: hack to support Tpx3. Implement properly!
     let fname = "tpx3" #tup[0][1].toStr

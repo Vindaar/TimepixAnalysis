@@ -124,8 +124,9 @@ when isMainModule:
   dispatch(main, help = {
     "fname" : "The input file name to print data from",
     "chip" : "Chip to read data from in the file",
-    "run" : "Run to read data from in the file",
+    "run" : "Run to read data from in the file. If not given all runs (and summary) will be printed.",
     "dset" : "The dataset to read",
+    "global" : "If set will read a 'global' (i.e. in root of run group) dataset.",
     "reco" : "If true will read from `/reconstruction/` path",
     "likelihood" : "If true will read from `/likelihood/` path",
     "head" : "Only print `head` first elements",

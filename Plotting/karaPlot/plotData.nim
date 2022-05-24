@@ -2434,6 +2434,7 @@ proc add(p: var PlotV, p2: PlotV, f1, f2: string) =
   case p.kind
   of bGgPlot:
     ## XXX: handle geom_raster!
+    let hasRaster = p.pltGg.geoms.anyIt(it.kind == gkRaster)
     # get the df of `p` re-emit with a different df based on a combination of two
     var dfP = p.pltGg.data
     var dfP2 = p2.pltGg.data
@@ -2443,10 +2444,13 @@ proc add(p: var PlotV, p2: PlotV, f1, f2: string) =
     dfP.add dfP2
     p.pltGg.data = dfP
     # now update `aes` to use new `From` column
-    p.pltGg.aes.color = some(Scale(scKind: scColor, col: f{"From"}, hasDiscreteness: true,
-                                   ids: p.pltGg.aes.x.get.ids))
-    p.pltGg.aes.fill = some(Scale(scKind: scFillColor, col: f{"From"}, hasDiscreteness: true,
-                                   ids: p.pltGg.aes.x.get.ids))
+    if not hasRaster:
+      p.pltGg.aes.color = some(Scale(scKind: scColor, col: f{"From"}, hasDiscreteness: true,
+                                     ids: p.pltGg.aes.x.get.ids))
+      p.pltGg.aes.fill = some(Scale(scKind: scFillColor, col: f{"From"}, hasDiscreteness: true,
+                                     ids: p.pltGg.aes.x.get.ids))
+    else:
+      p.pltGg.facet = some(Facet(columns: @["From"]))
     ## add the existing geoms if they have non trivial data (otherwise they will be the same)
     for g in p2.pltGg.geoms:
       if g.data.isSome: #

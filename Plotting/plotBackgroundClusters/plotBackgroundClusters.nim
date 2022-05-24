@@ -48,22 +48,52 @@ proc goldRegionOutline(maxVal: int): Tensor[int] =
         coord[0] in {min .. max}):
       result[coord[0], coord[1]] = maxVal
 
-proc readClusters(file: string, cTab: var CountTable[(int, int)]) =
+const noisyPixels = [(64, 109),
+                     (64, 110),
+                     (67, 112),
+                     (65, 108),
+                     (66, 108),
+                     (67, 108),
+                     (65, 109),
+                     (66, 109),
+                     (67, 109),
+                     (68, 109),
+                     (65, 110),
+                     (66, 110),
+                     (67, 110),
+                     (65, 111),
+                     (66, 111),
+                     (67, 111),
+                     (68, 110),
+                     (68, 109),
+                     (68, 111),
+                     (68, 108),
+                     (67, 107),
+                     (66, 111),
+                     (69, 110)]
+
+proc readClusters(file: string, cTab: var CountTable[(int, int)],
+                  filterNoisyPixels: bool) =
   var h5f = H5open(file, "r")
   func toPixel(s: float): int = (256.0 * s / 14.0).round.int
   for centerX, centerY in extractClusters(h5f):
     for (cX, cY) in zip(centerX, centerY):
-      cTab.inc((cX.toPixel, cY.toPixel))
+      let (pX, pY) = (cX.toPixel, cY.toPixel)
+      echo (pX, pY) in noisyPixels, " pos ", (pX, pY)
+      if filterNoisyPixels and (pX, pY) notin noisyPixels:
+        cTab.inc((cX.toPixel, cY.toPixel))
+      elif not filterNoisyPixels:
+        cTab.inc((cX.toPixel, cY.toPixel))
   doAssert h5f.close() >= 0
 
-proc readClusters(file: string): CountTable[(int, int)] =
+proc readClusters(file: string, filterNoisyPixels: bool): CountTable[(int, int)] =
   result = initCountTable[(int, int)]()
-  file.readClusters(result)
+  file.readClusters(result, filterNoisyPixels)
 
-proc readClusters(files: seq[string]): CountTable[(int, int)] =
+proc readClusters(files: seq[string], filterNoisyPixels: bool): CountTable[(int, int)] =
   result = initCountTable[(int, int)]()
   for f in files:
-    f.readClusters(result)
+    f.readClusters(result, filterNoisyPixels)
 
 proc toDf(cTab: CountTable[(int, int)]): DataFrame =
   var
@@ -78,15 +108,16 @@ proc toDf(cTab: CountTable[(int, int)]): DataFrame =
 proc main(
   files: seq[string], suffix = "", title = "",
   names: seq[string] = @[], # can be used to create facet plot. All files with same names will be stacked
+  filterNoisyPixels = false,
   useTikZ = false) =
 
   var df = newDataFrame()
   if names.len == 0 or names.deduplicate.len == 1:
-    df = readClusters(files).toDf()
+    df = readClusters(files, filterNoisyPixels).toDf()
   else:
     doAssert names.len == files.len, "Need same number of names as input files!"
     for i in 0 ..< names.len:
-      var dfLoc = readClusters(@[files[i]]).toDf()
+      var dfLoc = readClusters(@[files[i]], filterNoisyPixels).toDf()
       dfLoc["Type"] = names[i]
       df.add dfLoc
     # now sort all again
@@ -100,7 +131,7 @@ proc main(
       xlim(0, 256) + ylim(0, 256) +
       xlab("x [Pixel]") + ylab("y [Pixel]") +
       margin(top = 1.75) +
-      scale_color_continuous(scale = (low: 0.0, high: 15.0))
+      scale_color_continuous(scale = (low: 0.0, high: 5.0))
     if not useTikZ:
       plt + ggtitle(title & &". Total # cluster = {totalEvs}") +
         ggsave(&"plots/background_cluster_centers{suffix}.pdf")

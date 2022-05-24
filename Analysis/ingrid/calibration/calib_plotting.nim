@@ -124,7 +124,8 @@ proc plotFeEnergyCalib*(ecData: EnergyCalibFitData,
      xlab("E / keV") +
      ylab(yLabel) +
      ggtitle(&"Detector response to X-rays of energies `E` for run: {runNumber}") +
-     ggsave(&"{pathPrefix}/energy_calib_run_{runNumber}{suffix}.pdf")
+     ggsave(&"{pathPrefix}/energy_calib_run_{runNumber}{suffix}.pdf",
+             width = 800, height = 480)
 
 proc plotGasGainVsChargeCalib*(gainVals, calib, calibErr: seq[float],
                                fitResult: FitResult,
@@ -155,7 +156,8 @@ proc plotGasGainVsChargeCalib*(gainVals, calib, calibErr: seq[float],
     xlab("Gas gain G") +
     ylab("Calibration factor a⁻¹ [10⁻⁶ keV / e]") +
     ggtitle("Energy calibration factors vs gas gain") +
-    ggsave(&"{pathPrefix}/gasgain_vs_energy_calibration_factors_{fnameHash}.pdf")
+    ggsave(&"{pathPrefix}/gasgain_vs_energy_calibration_factors_{fnameHash}.pdf",
+           width = 800, height = 480)
 
 proc plotFeSpectrumInfoFacet*(pos_x, pos_y, ecc, rms_trans: seq[float],
                               hits: seq[int64],

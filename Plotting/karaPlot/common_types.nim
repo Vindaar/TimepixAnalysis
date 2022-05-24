@@ -38,9 +38,11 @@ else:
 
     ConfigFlagKind* = enum
       cfNone, cfFadc, cfInGrid, cfOccupancy, cfPolya, cfFeSpectrum, cfTotPerPixel, cfProvideServer, cfShow,
-      cfApplyAllCuts, # if true, will apply all cuts to all datasets. If not given (default) a cut on
-                      # a single dataset will only apply on that dataset
-      cfCutFePeak # if true and input is calibration, will create plots cut to Photopeak & Escape peak
+      cfApplyAllCuts,  # if true, will apply all cuts to all datasets. If not given (default) a cut on
+                       # a single dataset will only apply on that dataset
+      cfCutFePeak,     # if true and input is calibration, will create plots cut to Photopeak & Escape peak
+      cfCompiledCustom # if given will create the compiled custom plots (i.e. in file `moreCustomPlots`).
+                       # A change requires a recompilation!
 
 
     ## A generic cut on input data using dset & low / high values

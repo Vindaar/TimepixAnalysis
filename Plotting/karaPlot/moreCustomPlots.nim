@@ -2,7 +2,6 @@ template plotHandler(body: untyped): untyped {.dirty.} =
   (proc(h5f: H5FileObj, fileInfo: FileInfo, pd: PlotDescriptor, config: Config): (string, PlotV) =
      body)
 
-
 proc moreCustom(fileInfo: FileInfo, config: Config): seq[PlotDescriptor] =
   let selector = initSelector(config)
   let customPlot = CustomPlot(kind: cpHistogram, x: "ToA")

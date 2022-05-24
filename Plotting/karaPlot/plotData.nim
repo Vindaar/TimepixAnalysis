@@ -2310,7 +2310,18 @@ proc genCalibrationPlotPDs(h5f: H5File,
     result.add createCustomPlots(fInfoConfig, config)
 
   # now deal with custom plots
-  result.add moreCustom(fInfoConfig, config)
+  if cfCompiledCustom in config.flags:
+    const path = currentSourcePath().parentDir
+    const FileAtCompileTime = readFile(path / "moreCustomPlots.nim")
+    if fileExists(path / "moreCustomPlots.nim"):
+      let fileAtRunTime = readFile(path / "moreCustomPlots.nim")
+      if FileAtCompileTime != fileAtRunTime:
+        raise newException(Exception, "The existing file `moreCustomPlots.nim` changed compared to the " &
+          "version we compiled against! You gave the `--compiledCustom` option, which implies you wish to " &
+          "generate these plots. Please recompile this program (`plotData.nim`).")
+    else:
+      echo "INFO: Cannot find `moreCustomPlots.nim` source file. Using compiled version!"
+    result.add moreCustom(fInfoConfig, config)
 
 proc createCalibrationPlots(h5file: string,
                             bKind: PlottingBackendKind,
@@ -2653,7 +2664,8 @@ proc plotData*(
   h5Compare: seq[string] = @[], # additional files to compare against
   compareRunTypes: seq[RunTypeKind] = @[],
   server = false, fadc = false, ingrid = false, occupancy = false,
-  polya = false, totPerPixel = false, fe_spec = false, config = "",
+  polya = false, totPerPixel = false, fe_spec = false,
+  compiledCustom = false, config = "",
   version = false,
   chips: set[uint16] = {},
   runs: set[uint16] = {},
@@ -2698,6 +2710,8 @@ proc plotData*(
     flags.incl cfApplyAllCuts
   if cutFePeak:
     flags.incl cfCutFePeak
+  if compiledCustom:
+    flags.incl cfCompiledCustom
 
   let cfg = initConfig(chips, runs, flags,
                        cuts = cuts,
@@ -2787,6 +2801,7 @@ when isMainModule:
     "totPerPixel" : "If set totPerPixel plots will be created.",
     "fe_spec" : "If set Fe spectrum will be created.",
     "cutFePeak" : "If set will create plots cut to Photo & Escape peak for calibration data",
+    "compiledCustom" : "If set will create the custom plots that require recompilation (moreCustomPlots.nim)",
 
     "x" : "Generate plot of dataset `x` against `y`.",
     "y" : "Generate plot of dataset `x` against `y`.",

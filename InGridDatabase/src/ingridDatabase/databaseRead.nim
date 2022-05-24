@@ -99,7 +99,7 @@ proc getThreshold*(chipName: string, run: int): Threshold =
     runPeriod = h5f.findRunPeriodFor(chipName, run)
   result = getThreshold(chipName, runPeriod)
 
-proc getTotCalibParameters*(chipName: string, run: int):
+proc getTotCalibParameters*(chipName: string, runPeriod: string):
                           (float, float, float, float)
     {.raises: [KeyError, IOError, Exception].} =
   ## returns the factors of the TOT calibration result:
@@ -107,7 +107,6 @@ proc getTotCalibParameters*(chipName: string, run: int):
   ## may raise a `KeyError` if the calibration wasn't performed
   ## for the given chip
   withDatabase:
-    let runPeriod = h5f.findRunPeriodFor(chipName, run)
     let groupName = chipNameToGroup(chipName, runPeriod).grp_str
     var grp = h5f[groupName]
     let
@@ -116,6 +115,18 @@ proc getTotCalibParameters*(chipName: string, run: int):
       c = grp.attrs["c", float64]
       t = grp.attrs["t", float64]
     result = (a, b, c, t)
+
+proc getTotCalibParameters*(chipName: string, run: int):
+                          (float, float, float, float)
+    {.raises: [KeyError, IOError, Exception].} =
+  ## returns the factors of the TOT calibration result:
+  ## `a`, `b`, `c`, `t`
+  ## may raise a `KeyError` if the calibration wasn't performed
+  ## for the given chip
+  var runPeriod: string
+  withDatabase:
+    runPeriod = h5f.findRunPeriodFor(chipName, run)
+  result = getTotCalibParameters(chipName, runPeriod)
 
 proc getCalibVsGasGainFactors*(chipName: string, run: int, suffix = ""): tuple[b, m: float] =
   ## returns the fit parameters (no errors) for the given chip

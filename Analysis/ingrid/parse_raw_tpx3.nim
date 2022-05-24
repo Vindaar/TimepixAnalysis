@@ -74,42 +74,42 @@ proc createBitarray(size: static[int]): BitArray[size] =
     result.data[i] = false
 
 proc `[]=`*[T, U](b: var BitArray, inds: HSlice[T, U], val: SomeInteger) =
-    let iStart = b ^^ inds.a
-    let iEnd   = b ^^ inds.b
-    let nInds = abs(iEnd - iStart) + 1
+  let iStart = b ^^ inds.a
+  let iEnd   = b ^^ inds.b
+  let nInds = abs(iEnd - iStart) + 1
 
-    if nInds > b.len:
-      raise newException(IndexError, &"Slice of {inds} is out of range for BitArray of size {b.len}")
-    if val.uint64 > (2 ^ nInds).uint64:
-      raise newException(ValueError, &"Value of {val} is too large for {nInds} bits slice! " &
-                                     &"Max size is {2 ^ nInds}")
+  if nInds > b.len:
+    raise newException(IndexError, &"Slice of {inds} is out of range for BitArray of size {b.len}")
+  if val.uint64 > (2 ^ nInds).uint64:
+    raise newException(ValueError, &"Value of {val} is too large for {nInds} bits slice! " &
+                                   &"Max size is {2 ^ nInds}")
 
-    var m = 0
-    var mval = val.uint
-    var i = 0
-    while mval > 0:
-        b.data[i] = (mval and 1).bool
-        mval = mval shr 1
-        inc i
-    return
-    if iEnd > iStart:
-      for x in iStart .. iEnd:
-        let isBitOne = (mval and 1.uint).bool
-        b.data[x] = if isBitOne: true else: false
-        mval = mval shr 1
-    else:
-      for x in countdown(iStart, iEnd):
-        let isBitOne = (mval and 1.uint).bool
-        b.data[x] = if isBitOne: true else: false
-        mval = val shr x
+  var m = 0
+  var mval = val.uint
+  var i = 0
+  while mval > 0:
+      b.data[i] = (mval and 1).bool
+      mval = mval shr 1
+      inc i
+  return
+  if iEnd > iStart:
+    for x in iStart .. iEnd:
+      let isBitOne = (mval and 1.uint).bool
+      b.data[x] = if isBitOne: true else: false
+      mval = mval shr 1
+  else:
+    for x in countdown(iStart, iEnd):
+      let isBitOne = (mval and 1.uint).bool
+      b.data[x] = if isBitOne: true else: false
+      mval = val shr x
 
 proc `[]=`[T: not HSlice, U: SomeInteger | bool](b: var BitArray, ind: T, val: U) =
-    when val is SomeInteger:
-      let boolVal = if val == 1: true else: false
-    elif val is bool:
-      let boolVal = val
-    let i = b ^^ ind
-    b.data[i] = boolVal
+  when val is SomeInteger:
+    let boolVal = if val == 1: true else: false
+  elif val is bool:
+    let boolVal = val
+  let i = b ^^ ind
+  b.data[i] = boolVal
 
 proc `[]`[T: BackwardsIndex | SomeInteger](b: BitArray, ind: T): uint =
   let i = b ^^ ind

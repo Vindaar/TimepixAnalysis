@@ -154,7 +154,7 @@ var dpChannel: Channel[DataPacket]
 var serveNewClientCh: Channel[bool]
 
 # global storing the path to the config file
-var ConfigFile = "config.toml" # default in current dir
+var ConfigFile = currentSourcePath().parentDir / "config.toml" # default in current dir
 
 # create directories, if not exist
 if not dirExists("logs"):

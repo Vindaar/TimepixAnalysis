@@ -14,8 +14,14 @@ type
     fileSuffix: string # suffix for the currently processed file
     plotDataSuffix: string # suffix controlling which plots to create etc
 
+const SourcePath = currentSourcePath().parentDir
+
 proc readConfig(path: string, outpath = "", rawRecoConfig = "", plotDataSuffix = ""): Config =
-  let cfg = parseToml.parseFile(path)
+  let configPath = if path.len == 0:
+                     SourcePath / "config_tpx3.toml"
+                   else: path
+  echo "Reading config: ", configPath
+  let cfg = parseToml.parseFile(configPath)
   let outpath = if outpath.len > 0: outpath else: cfg["General"]["outpath"].getStr
   let recoCfg = if rawRecoConfig.len > 0: rawRecoConfig else: cfg["General"]["rawRecoConfigFile"].getStr
   let plotSuffix = if plotDataSuffix.len > 0: plotDataSuffix
@@ -40,7 +46,7 @@ proc toName(path, prefix, suffix: string): string = path / prefix & suffix & ".h
 proc main(
   fnames: seq[string], names: seq[string] = @[],
   tpx3 = false, raw = false, reco = false, energy = false, plot = false,
-  outpath = "", config = "config_tpx3.toml", runType = "rtCalibration",
+  outpath = "", config = "", runType = "rtCalibration",
   rawRecoConfig = "",
   plotDataSuffix = ""
      ) =
@@ -98,20 +104,21 @@ proc main(
     if tpx3 or all:
       walkFiles("", cfg.tpxPrefix):
         shell:
-          readTpx3RawTest -f ($fname) "-o" ($outname)
-    let cfgPath = cfg.rawRecoConfig
+          parse_raw_tpx3 -f ($fname) "-o" ($outname)
+    let cfgPath = if cfg.rawRecoConfig.len > 0: "--config " & cfg.rawRecoConfig
+                  else: ""
     if raw or all:
       walkFiles(cfg.tpxPrefix, cfg.rawPrefix):
         shell:
-          raw_data_manipulation -p ($inName) --runType ($runType) --tpx3 "--out" ($outName) "--config" ($cfgPath)
+          raw_data_manipulation -p ($inName) --runType ($runType) --tpx3 "--out" ($outName) ($cfgPath)
     if reco or all:
       walkFiles(cfg.rawPrefix, cfg.recoPrefix):
         shell:
-          reconstruction ($inName) "--out" ($outName) "--config" ($cfgPath)
+          reconstruction ($inName) "--out" ($outName) ($cfgPath)
     if energy or all:
       walkFiles(cfg.recoPrefix, ""):
         shell:
-          reconstruction ($inName) "--only_energy 26.0 --config" ($cfgPath)
+          reconstruction ($inName) "--only_energy 26.0" ($cfgPath)
     if plot or all:
       var files = newSeq[string]()
       walkFiles(cfg.recoPrefix, ""):

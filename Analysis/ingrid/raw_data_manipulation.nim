@@ -124,11 +124,13 @@ template ch_len(): int = 2560
 template all_ch_len(): int = ch_len() * 4
 
 proc parseTomlConfig(configFile: string): TomlValueRef =
-  if configFile.len == 0:
-    const sourceDir = currentSourcePath().parentDir
-    result = parseToml.parseFile(sourceDir / "config.toml")
-  else:
-    result = parseToml.parseFile(configFile)
+  let configPath = if configFile.len == 0:
+                     const sourceDir = currentSourcePath().parentDir
+                     sourceDir / "config.toml"
+                   else:
+                     configFile
+  info "Reading config file: ", configPath
+  result = parseToml.parseFile(configPath)
 
 proc specialTypesAndEvKeys(): (DatatypeID, DatatypeID, array[7, string]) =
   let

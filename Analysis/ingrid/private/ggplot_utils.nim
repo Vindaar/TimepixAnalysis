@@ -15,7 +15,6 @@ macro echoType(x: typed): untyped =
 
 type SupportedRead = SomeFloat | SomeInteger | string | bool | Value
 
-
 proc getDf*(h5f: H5File, path: string, keys: varargs[string]): DataFrame =
   ## read the datasets form `path` in the `h5f` file and combine them to a single
   ## DataFrame
@@ -45,9 +44,11 @@ proc readDsets*(h5f: H5FileObj, df: var DataFrame, names: seq[string], baseName:
     else:
       echo &"INFO: Run {baseName} does not have any data for dataset {name}"
 
-proc readDsets*(h5f: H5FileObj, path = recoBase(),
-                chipDsets = none[tuple[chip: int, dsets: seq[string]]](),
-                commonDsets: openArray[string] = @[]): DataFrame =
+proc readRunDsets*(h5f: H5File, run: int, # path to specific run
+                   chipDsets = none[tuple[chip: int, dsets: seq[string]]](),
+                   commonDsets: openArray[string] = @[],
+                   basePath = recoBase()
+                  ): DataFrame =
   ## reads all desired datasets `chipDsets, commonDsets` in the given `h5f`
   ## file of `chip` under the given `path`. The result is returned as a
   ## `DataFrame`.
@@ -57,6 +58,10 @@ proc readDsets*(h5f: H5FileObj, path = recoBase(),
   ## If input for both is given they are read as individual dataframes, which
   ## are then joined using the eventNumber dataset (which thus will always be
   ## read).
+  let path = basePath & $run
+  if path notin h5f:
+    raise newException(ValueError, "Run " & $run & " does not exist in input file " & $h5f.name & ".")
+
   let readChip = chipDsets.isSome
   var
     chipDsetNames: seq[string]
@@ -70,21 +75,46 @@ proc readDsets*(h5f: H5FileObj, path = recoBase(),
     if commonDsets.len > 0 and evNumDset notin commonDsets:
       commonDsets.add evNumDset
     chip = chipDsets.get.chip
+  var dfChip = newDataFrame()
+  var dfAll = newDataFrame()
+  if readChip:
+    h5f.readDsets(dfChip, chipDsetNames, path / "chip_" & $chip)
+  h5f.readDsets(dfAll, commonDsets, path)
+  result = if dfChip.len > 0 and dfAll.len > 0:
+             innerJoin(dfChip, dfAll, evNumDset)
+           elif dfChip.len > 0:
+             dfChip
+           else: #elif dfAll.len > 0:
+             dfAll
+  result["runNumber"] = run
+
+proc readDsets*(h5f: H5File, path = recoBase(),
+                chipDsets = none[tuple[chip: int, dsets: seq[string]]](),
+                commonDsets: openArray[string] = @[]): DataFrame =
+  ## reads all desired datasets `chipDsets, commonDsets` in the given `h5f`
+  ## file of `chip` under the given `path`. The result is returned as a
+  ## `DataFrame`.
+  ##
+  ## `chipDsets` are datasets from the chip groups, whereas `commonDsets` are
+  ## those from the run group (timestamp, FADC datasets etc)
+  ## If input for both is given they are read as individual dataframes, which
+  ## are then joined using the eventNumber dataset (which thus will always be
+  ## read).
   for run, grp in runs(h5f, path):
-    var dfChip = newDataFrame()
-    var dfAll = newDataFrame()
-    if readChip:
-      h5f.readDsets(dfChip, chipDsetNames, grp / "chip_" & $chip)
-    h5f.readDsets(dfAll, commonDsets, grp)
-    var df = if dfChip.len > 0 and dfAll.len > 0:
-               innerJoin(dfChip, dfAll, evNumDset)
-             elif dfChip.len > 0:
-               dfChip
-             else: #elif dfAll.len > 0:
-               dfAll
-    df["runNumber"] = constantColumn(run, df.len)
+    let df = h5f.readRunDsets(run = run, chipDsets = chipDsets, commonDsets = commonDsets,
+                              basePath = path)
     if df.len > 0:
       result.add df
+
+proc readAllDsets*(h5f: H5File, run: int, chip = 3): DataFrame =
+  ## Reads all (scalar) datasets of the given run in the file.
+  result = h5f.readRunDsets(
+    run,
+    chipDsets = some((
+      chip: chip,
+      dsets: concat(getFloatDsetNames().mapIt(it),
+                    getIntDsetNames().mapIt(it))))
+  )
 
 iterator getDataframes*(h5f: H5File): DataFrame =
   for num, group in runs(h5f):
@@ -92,11 +122,7 @@ iterator getDataframes*(h5f: H5File): DataFrame =
       if "fadc" notin grp.name:
         let chipNum = grp.attrs["chipNumber", int]
         if chipNum == 3:
-          let df = h5f.getDf(grp.name,
-                             concat(@["eventNumber"],
-                                    @(getFloatGeometryNames()),
-                                    @(getIntClusterNames())))
-          yield df
+          yield h5f.readAllDsets(num, chipNum)
 
 proc getSeptemDataFrame*(h5f: H5File, runNumber: int, allowedChips: seq[int] = @[]): DataFrame =
   ## Returns a subset data frame of the given `runNumber` and `chipNumber`, which

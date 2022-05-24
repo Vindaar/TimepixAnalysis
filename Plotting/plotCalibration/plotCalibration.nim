@@ -2,6 +2,8 @@ import std / [os, strutils, strformat, sequtils, algorithm, math]
 import pkg / [mpfit, zero_functional, seqmath, chroma, docopt, plotly, ggplotnim]
 import ingrid / [ingrid_types, tos_helpers]
 import ingrid / calibration / calib_fitting
+import ingrid / calibration
+
 import helpers/utils
 import ingridDatabase / [databaseDefinitions, databaseRead]
 
@@ -32,11 +34,12 @@ Version: $# built on: $#
 A simple tool to plot SCurves or ToT calibrations.
 
 Usage:
-  plotCalibration (--scurve | --tot) (--db=chip --runPeriod=period | --file=FILE | --folder=FOLDER) [options]
+  plotCalibration (--scurve | --tot | --charge) (--db=chip --runPeriod=period | --file=FILE | --folder=FOLDER) [options]
 
 Options:
   --scurve              If set, perform SCurve analysis
   --tot                 If set, perform ToT calibration analysis
+  --charge              If set plot charge calibration (inverse of ToT)
   --db=chip             If given will read information from InGrid database, if
                         available. Either chip number or chip name supported.
                         NOTE: if a chip number is used, it is assumed that it
@@ -143,6 +146,20 @@ proc plotToTCalib*(totCalib: FitResult, tot: Tot, chip = 0, chipName = "") =
     ggtitle(title) +
     theme_latex() +
     ggsave(&"out/tot_calib_{chip}.pdf", useTex = true, standalone = true)
+
+proc plotCharge*(a, b, c, t: float, chip: int, chipName = "") =
+  let tots = linspace(0.0, 150.0, 1000)
+  let charges = tots.mapIt(calibrateCharge(it, a, b, c, t))
+  let df = seqsToDf({ "ToT" : tots,
+                      "Q" : charges })
+  let title = &"Charge calibration of Chip {chipName}"
+  ggplot(df, aes("ToT", "Q")) +
+    geom_line() +
+    xlab(r"ToT [clock cycles]") +
+    ylab(r"Charge [e⁻]") +
+    ggtitle(title) +
+    #theme_latex() +
+    ggsave(&"out/charge_calib_{chip}.pdf") #, useTex = true, standalone = true)
 
 iterator sCurves(args: DocoptTab): SCurve =
   ## yields the traces of the correct argument given to
@@ -253,6 +270,21 @@ proc totCalib(args: DocoptTab, startFit = 0.0, startTot = 0.0) =
   let totCalib = fitToTCalib(tot, startFit)
   plotToTCalib(totCalib, tot, chip, chipName)
 
+proc chargeCalib(args: DocoptTab) =
+  ## perform plotting and analysis of charge calibration (inverse of ToT)
+  let chip = $args["--db"]
+  let runPeriod = $args["--runPeriod"]
+
+  var chipName = ""
+  if chip != "nil":
+    when declared(ingridDatabase):
+      chipName = parseDbChipArg(chip)
+  else:
+    quit("Need a chip from the database!")
+
+  let (a, b, c, t) = getTotCalibParameters(chipName, runPeriod)
+  plotCharge(a, b, c, t, chip.parseInt, chipName)
+
 proc main() =
 
   let args = docopt(doc)
@@ -269,9 +301,10 @@ proc main() =
   let
     scurve = ($args["--scurve"]).parseBool
     tot = ($args["--tot"]).parseBool
-  if scurve == true:
+    charge = ($args["--charge"]).parseBool
+  if scurve:
     sCurve(args, chip)
-  elif tot == true:
+  elif tot:
     var startFit = 0.0
     var startTot = 0.0
     if startFitStr != "nil":
@@ -279,7 +312,8 @@ proc main() =
     if startTotStr != "nil":
       startTot = startTotStr.parseFloat
     totCalib(args, startFit, startTot)
-
+  elif charge:
+    chargeCalib(args)
 
 when isMainModule:
   main()

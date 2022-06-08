@@ -665,7 +665,7 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
   # TODO: should the argument to calcCutValueTab not be crGold all the time?
   # We want to extract that data from the CDL data that most resembles the X-rays
   # we measured. This is guaranteed by using the gold region.
-  let cutTab = calcCutValueTab(cdlFile, refFile, year, energyDset)
+  let cutTab = calcCutValueTab(cdlFile, year, energyDset)
   # get the likelihood and energy datasets
   # get the group from file
   when false:
@@ -937,7 +937,7 @@ proc readLikelihoodDsets(h5f: H5File, energyDset: InGridDsetKind): DataFrame =
                       "Energy" : energies,
                       "Likelihood" : logLs })
 
-proc readLikelihoodDsetsCdl(cdlFile, refFile: string,
+proc readLikelihoodDsetsCdl(cdlFile: string,
                             yearKind: YearKind,
                             energyDset: InGridDsetKind,
                             region: ChipRegion): DataFrame =
@@ -950,7 +950,7 @@ proc readLikelihoodDsetsCdl(cdlFile, refFile: string,
     logLs: seq[float]
     bins: seq[string]
   for bin in values(xray_ref):
-    let (logL, energy) = buildLogLHist(cdlFile, refFile, bin, yearKind,
+    let (logL, energy) = buildLogLHist(cdlFile, bin, yearKind,
                                        energyDset, crGold)
     logLs.add logL
     energies.add energy
@@ -1017,7 +1017,7 @@ proc calcRocCurve(dfSignal, dfBackground: DataFrame): DataFrame =
   result = innerJoin(sigEffDf, backRejDf, by = "cutVals")
 
 proc createRocCurves(h5Back: H5File,
-                     cdlFile, refFile: string,
+                     cdlFile: string,
                      yearKind: YearKind,
                      energyDset: InGridDsetKind, # pixel or charge
                      region: ChipRegion
@@ -1027,7 +1027,7 @@ proc createRocCurves(h5Back: H5File,
   ## the given background file.
   ## By default the file containing signal like events will be
   ## the X-ray reference file.
-  let dfSignal = readLikelihoodDsetsCdl(cdlFile, refFile, yearKind, energyDset, region)
+  let dfSignal = readLikelihoodDsetsCdl(cdlFile, yearKind, energyDset, region)
   let dfBack = readLikelihoodDsets(h5Back, energyDset)
     .filter(f{float: `Likelihood` != Inf})
   ggplot(dfBack, aes("Likelihood", fill = "Bin")) +
@@ -1100,7 +1100,7 @@ proc createRocCurves(h5Back: H5File,
   #  geom_line() +
   #  ggsave("roc_curve_full_range.pdf")
 
-proc plotLogL(cdlFile, refFile: string,
+proc plotLogL(cdlFile: string,
               yearKind: YearKind,
               energyDset: InGridDsetKind,
               region: ChipRegion) =
@@ -1109,7 +1109,7 @@ proc plotLogL(cdlFile, refFile: string,
   ## the given background file.
   ## By default the file containing signal like events will be
   ## the X-ray reference file.
-  let dfSignal = readLikelihoodDsetsCdl(cdlFile, refFile, yearKind, energyDset, region)
+  let dfSignal = readLikelihoodDsetsCdl(cdlFile, yearKind, energyDset, region)
   ggplot(dfSignal, aes("Likelihood", fill = "Bin")) +
     geom_histogram(binWidth = 0.2) +
     ggtitle("-LnL distributions of cdl calibration data, stacked",
@@ -1202,9 +1202,9 @@ proc main() =
   if fkRocCurve in flags:
     ## create the ROC curves and likelihood distributios. This requires to
     ## previously run this tool with the default parameters
-    createRocCurves(h5f, cdlFile, refFile, year, energyDset, region)
+    createRocCurves(h5f, cdlFile, year, energyDset, region)
   if fkPlotLogL in flags:
-    plotLogL(cdlFile, refFile, year, energyDset, region)
+    plotLogL(cdlFile, year, energyDset, region)
   if fkComputeLogL in flags:
     # perform likelihood calculation
     h5f.calcLogLikelihood(cdlFile, refFile, year, energyDset)
@@ -1220,8 +1220,7 @@ proc main() =
     # now perform the cut on the logL values stored in `h5f` and write
     # the results to h5fout
     h5f.filterClustersByLogL(h5fout,
-                             cdlFile,
-                             refFile,
+                             cdlFile, refFile,
                              year, energyDset, timepix, flags, region)
     # given the cut values and the likelihood values for all events
     # based on the X-ray reference distributions, we can now cut away

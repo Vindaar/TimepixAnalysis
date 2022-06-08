@@ -131,7 +131,7 @@ proc calcLikelihoodDatasetIfNeeded*(h5f: var H5File,
     cdlGroup.attrs["MorphingKind"] = $morphKind
   # else nothing to do
 
-template applyLogLFilterCuts*(cdlFile, refFile, dset: string,
+template applyLogLFilterCuts*(cdlFile, dset: string,
                               year: YearKind, energyDset: InGridDsetKind,
                               body: untyped): untyped =
   var grp_name = cdlPrefix($year) & dset
@@ -165,7 +165,9 @@ template applyLogLFilterCuts*(cdlFile, refFile, dset: string,
     # for likelihood dataset: aside from `resources/calibration-cdl.h5`, every other file
     # may not yet have access to the likelihood dataset. So we have to check for that and
     # if it does not exist yet, it has to be calculated.
-    h5f.calcLikelihoodDatasetIfNeeded(refFile, grp_name, logLStr, year, energyDset)
+    if grp_name / logLStr notin h5f:
+      raise newException(ValueError, "Likelihood dataset does not yet exist in cdlFile " & $cdlFile & ".")
+      # h5f.calcLikelihoodDatasetIfNeeded(refFile, grp_name, logLStr, year, energyDset)
     let
       energy {.inject.} = h5f.readAs(grp_name / energyStr, float64)
       logL {.inject.} = h5f.readAs(grp_name / logLStr, float64)
@@ -196,7 +198,7 @@ template applyLogLFilterCuts*(cdlFile, refFile, dset: string,
         if logL[i] != Inf:
           body
 
-proc buildLogLHist*(cdlFile, refFile, dset: string,
+proc buildLogLHist*(cdlFile, dset: string,
                     year: YearKind,
                     energyDset: InGridDsetKind,
                     region: ChipRegion = crGold): tuple[logL, energy: seq[float]] =
@@ -210,13 +212,13 @@ proc buildLogLHist*(cdlFile, refFile, dset: string,
   # decent size that is O(correct)
   result[0] = newSeqOfCap[float](100_000)
   result[1] = newSeqOfCap[float](100_000)
-  applyLogLFilterCuts(cdlFile, refFile, dset, year, energyDset):
+  applyLogLFilterCuts(cdlFile, dset, year, energyDset):
     result[0].add logL[i]
     result[1].add energy[i]
   # now create plots of all ref likelihood distributions
   echo "max is inf ? ", min(result[0]), " ", max(result[0])
 
-proc computeLogLDistributions*(cdlFile, refFile: string, yearKind: YearKind,
+proc computeLogLDistributions*(cdlFile: string, yearKind: YearKind,
                                energyDset: InGridDsetKind,
                                region: ChipRegion = crGold): DataFrame =
   ## Computes the LogL distributions from thc CDL data file (`cdlFile`) by applying
@@ -235,7 +237,7 @@ proc computeLogLDistributions*(cdlFile, refFile: string, yearKind: YearKind,
   let energies = getXrayFluorescenceLines()
   for idx, dset in xrayRef:
     # compute the histogram of the CDL data
-    let hist = buildLogLHist(cdlFile, refFile, dset, yearKind, energyDset, region)[0]
+    let hist = buildLogLHist(cdlFile, dset, yearKind, energyDset, region)[0]
     var df = seqsToDf( {"Bins" : bins[0 .. ^2], "Hist" : histogram(hist, nbins, logLrange)[0] })
     df["Dset"] = constantColumn(dset, df.len)
     df["Energy"] = constantColumn(energies[idx], df.len)
@@ -501,7 +503,7 @@ proc determineCutValue*[T: seq | Tensor](hist: T, eff: float): int =
     cur_eff = hist[0 .. result].sum.float / hist_sum
   echo "Efficiency is at ", cur_eff, " and last Eff was ", last_eff
 
-proc calcCutValueTab*(cdlFile, refFile: string, yearKind: YearKind,
+proc calcCutValueTab*(cdlFile: string, yearKind: YearKind,
                       energyDset: InGridDsetKind): CutValueInterpolator =
   ## returns a table mapping the different CDL datasets to the correct cut values
   ## based on the chip center region
@@ -509,7 +511,7 @@ proc calcCutValueTab*(cdlFile, refFile: string, yearKind: YearKind,
   let efficiency = readSignalEff()
   let morphKind = readMorphKind()
   let xray_ref = getXrayRefTable()
-  let logHists = computeLogLDistributions(cdlFile, refFile, yearKind, energyDset, crGold)
+  let logHists = computeLogLDistributions(cdlFile, yearKind, energyDset, crGold)
   case morphKind
   of mkNone:
     # get the cut value for a software efficiency of 80%

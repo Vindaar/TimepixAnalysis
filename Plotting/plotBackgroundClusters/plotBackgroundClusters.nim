@@ -13,7 +13,7 @@ creates a heatmap of the cluster centers that still remain visible on the plot.
 In addition it highligths the gold region on the plot.
 """
 
-iterator extractClusters(h5f: var H5FileObj): (seq[float], seq[float]) =
+iterator extractClusters(h5f: var H5FileObj): (seq[float], seq[float], seq[float]) =
   for num, grp in runs(h5f, likelihoodBase()):
     var mgrp = h5f[grp.grp_str]
     var centerChip: int
@@ -30,7 +30,8 @@ iterator extractClusters(h5f: var H5FileObj): (seq[float], seq[float]) =
       continue
     let cX = h5f[chipGrp.name / "centerX", float]
     let cY = h5f[chipGrp.name / "centerY", float]
-    yield (cX, cY)
+    let cE = h5f[chipGrp.name / "energyFromCharge", float]
+    yield (cX, cY, cE)
 
 proc goldRegionOutline(maxVal: int): Tensor[int] =
   ## returns the outline of the gold region
@@ -73,27 +74,33 @@ const noisyPixels = [(64, 109),
                      (69, 110)]
 
 proc readClusters(file: string, cTab: var CountTable[(int, int)],
-                  filterNoisyPixels: bool) =
+                  filterNoisyPixels: bool,
+                  filterEnergy: float) =
   var h5f = H5open(file, "r")
   func toPixel(s: float): int = (256.0 * s / 14.0).round.int
-  for centerX, centerY in extractClusters(h5f):
-    for (cX, cY) in zip(centerX, centerY):
+  for centerX, centerY, energy in extractClusters(h5f):
+    for (cX, cY, cE) in zipEm(centerX, centerY, energy):
+      # drop clusters with energy too large
+      if filterEnergy > 0.0 and cE > filterEnergy: continue
+
       let (pX, pY) = (cX.toPixel, cY.toPixel)
-      echo (pX, pY) in noisyPixels, " pos ", (pX, pY)
+      #echo (pX, pY) in noisyPixels, " pos ", (pX, pY)
       if filterNoisyPixels and (pX, pY) notin noisyPixels:
         cTab.inc((cX.toPixel, cY.toPixel))
       elif not filterNoisyPixels:
         cTab.inc((cX.toPixel, cY.toPixel))
   doAssert h5f.close() >= 0
 
-proc readClusters(file: string, filterNoisyPixels: bool): CountTable[(int, int)] =
+proc readClusters(file: string, filterNoisyPixels: bool,
+                  filterEnergy: float): CountTable[(int, int)] =
   result = initCountTable[(int, int)]()
-  file.readClusters(result, filterNoisyPixels)
+  file.readClusters(result, filterNoisyPixels, filterEnergy)
 
-proc readClusters(files: seq[string], filterNoisyPixels: bool): CountTable[(int, int)] =
+proc readClusters(files: seq[string], filterNoisyPixels: bool,
+                  filterEnergy: float): CountTable[(int, int)] =
   result = initCountTable[(int, int)]()
   for f in files:
-    f.readClusters(result, filterNoisyPixels)
+    f.readClusters(result, filterNoisyPixels, filterEnergy)
 
 proc toDf(cTab: CountTable[(int, int)]): DataFrame =
   var
@@ -109,15 +116,17 @@ proc main(
   files: seq[string], suffix = "", title = "",
   names: seq[string] = @[], # can be used to create facet plot. All files with same names will be stacked
   filterNoisyPixels = false,
+  filterEnergy = 0.0,
   useTikZ = false) =
 
   var df = newDataFrame()
   if names.len == 0 or names.deduplicate.len == 1:
-    df = readClusters(files, filterNoisyPixels).toDf()
+    echo files
+    df = readClusters(files, filterNoisyPixels, filterEnergy).toDf()
   else:
     doAssert names.len == files.len, "Need same number of names as input files!"
     for i in 0 ..< names.len:
-      var dfLoc = readClusters(@[files[i]], filterNoisyPixels).toDf()
+      var dfLoc = readClusters(@[files[i]], filterNoisyPixels, filterEnergy).toDf()
       dfLoc["Type"] = names[i]
       df.add dfLoc
     # now sort all again
@@ -133,16 +142,22 @@ proc main(
       margin(top = 1.75) +
       scale_color_continuous(scale = (low: 0.0, high: 5.0))
     if not useTikZ:
+      let fname = &"plots/background_cluster_centers{suffix}.pdf"
+      echo "[INFO]: Saving plot to ", fname
       plt + ggtitle(title & &". Total # cluster = {totalEvs}") +
-        ggsave(&"plots/background_cluster_centers{suffix}.pdf")
+        ggsave(fname)
     else:
+      let fname = &"/home/basti/phd/Figs/backgroundClusters/background_cluster_centers{suffix}"
+      echo "[INFO]: Saving plot to ", fname
       plt + ggtitle(title & r". Total \# cluster = " & $totalEvs) +
-        ggvegatex(&"/home/basti/phd/Figs/backgroundClusters/background_cluster_centers{suffix}")
+        ggvegatex(fname)
   else:
     var totalEvs = newSeq[string]()
     for tup, subDf in groups(df.group_by("Type")):
       let numEvs = subDf["count", int].sum()
       totalEvs.add &"{tup[0][1]}: {numEvs}"
+    let fname = &"/home/basti/org/Figs/statusAndProgress/IAXO_TDR/background_cluster_centers{suffix}.pdf"
+    echo "[INFO]: Saving plot to ", fname
     ggplot(df, aes("x", "y", color = "count")) +
       facet_wrap("Type") +
       geom_point(size = some(1.0)) +
@@ -152,7 +167,7 @@ proc main(
       margin(top = 1.75) +
       scale_color_continuous(scale = (low: 0.0, high: 15.0)) +
       ggtitle(r"Total # clusters " & $totalEvs.join(", ")) +
-      ggsave(&"/home/basti/org/Figs/statusAndProgress/IAXO_TDR/background_cluster_centers{suffix}.pdf",
+      ggsave(fname,
              width = 900, height = 480)
              #useTeX = true, standalone = true) # onlyTikZ = true)
 

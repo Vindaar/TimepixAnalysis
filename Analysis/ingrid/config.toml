@@ -28,13 +28,13 @@ gasGainEnergyKind = "Individual"
 
 [RawData]
 plotDirectory = "out"
-tpx3ToACutoff = 50 # ToA cluster cutoff
+tpx3ToACutoff = 50 # ToA cluster cutoff!
 
 [Reconstruction]
+# clustering algorithm to use (for reconstruction only! See likelihood for septem veto!)
+clusterAlgo = "default" # choose from {"default", "dbscan"}
 # the search radius for the cluster finding algorithm in pixel
 searchRadius = 50 # for default clustering algorithm
-# clustering algorithm to use
-clusterAlgo = "default" # choose from {"default", "dbscan"}
 epsilon = 65 # for DBSCAN algorithm
 
 [Likelihood]
@@ -43,3 +43,8 @@ epsilon = 65 # for DBSCAN algorithm
 signalEfficiency = 0.8
 # the CDL morphing technique to be used (see `MorphingKind` enum), none or linear
 morphingKind = "Linear"
+# clustering algorithm for septem veto
+clusterAlgo = "dbscan" # choose from {"default", "dbscan"}
+# the search radius for the cluster finding algorithm in pixel
+searchRadius = 50 # for default clustering algorithm
+epsilon = 65 # for DBSCAN algorithm

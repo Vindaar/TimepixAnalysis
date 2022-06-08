@@ -93,17 +93,17 @@ proc readMorphKind(): MorphingKind =
 proc readSearchRadius(): int =
   ## reads the cluster finding `searchRadius` field from the TOML file
   withConfig:
-    result = config["Reconstruction"]["searchRadius"].getInt
+    result = config["Likelihood"]["searchRadius"].getInt
 
 proc readClusterAlgo(): ClusteringAlgorithm =
   ## Reads the clustering algorithm to use for the septem veto clustering
   withConfig:
-    result = parseEnum[ClusteringAlgorithm](config["Reconstruction"]["clusterAlgo"].getStr)
+    result = parseEnum[ClusteringAlgorithm](config["Likelihood"]["clusterAlgo"].getStr)
 
 proc readDbscanEpsilon(): float =
   ## Reads the `ε` to use for the DBSCAN algorithm septem veto clustering
   withConfig:
-    result = config["Reconstruction"]["epsilon"].getFloat
+    result = config["Likelihood"]["epsilon"].getFloat
 
 proc writeLogLDsetAttributes[T: H5DataSet | H5Group](dset: var T,
                              cdlFile, refFile: string,

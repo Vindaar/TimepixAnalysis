@@ -16,6 +16,13 @@ type
 
 const SourcePath = currentSourcePath().parentDir
 
+template safeShell(cmd: untyped): untyped =
+  let (res, err) = shellVerbose:
+    cmd
+  if err != 0:
+    raise newException(IOError, "Failed to run last command: " & $cmd & ". Potentially unsafe to " &
+      "continue. Quitting")
+
 proc readConfig(path: string, outpath = "", rawRecoConfig = "", plotDataSuffix = ""): Config =
   let configPath = if path.len == 0:
                      SourcePath / "config_tpx3.toml"
@@ -82,6 +89,8 @@ proc main(
   ##
   ## `outpath` (either via CL argument or in config file) controls the path where the H5
   ## files will be stored.
+  if not existsOrCreateDir(outpath):
+    raise newException(IOError, "Could not create desired output directory `" & $outpath & "`. Quitting.")
   var cfg = readConfig(config, outpath, rawRecoConfig, plotDataSuffix)
   if fnames.len > 1 and names.len != fnames.len:
     echo "Error: Please give one name for each input file using the `--names` argument!"

@@ -396,6 +396,9 @@ template recoGroupGrpStr*(): grp_str =
 template likelihoodGroupGrpStr*(): grp_str =
   "/likelihood/".grp_str
 
+template tpx3InterpGroupGrpStr*(): grp_str =
+  "/interpreted/".grp_str
+
 template rawDataBase*(): string =
   "/runs/run_"
 
@@ -708,39 +711,48 @@ proc timepixVersion*(h5f: H5File): TimepixVersion =
   tryGroup(rawGroupGrpStr())
   tryGroup(recoGroupGrpStr())
   tryGroup(likelihoodGroupGrpStr())
+  tryGroup(tpx3InterpGroupGrpStr())
 
 proc getFileInfo*(h5f: H5File, baseGroup = recoGroupGrpStr()): FileInfo =
   ## returns a set of all run numbers in the given file
+  # 1. determine the `TpaFileKind` (determines `baseGroup`)
+  result.tpaFileKind =
+    if "/runs" in h5f: tpkRawData
+    elif "/reconstruction" in h5f: tpkReco
+    elif "/likelihood" in h5f: tpkLogL
+    elif "meta_data" in h5f and "raw_data" in h5f: tpkTpx3Raw
+    elif "/interpreted" in h5f: tpkTpx3Interp
+    else:
+      raise newException(IOError, "The input file " & $h5f.name & " is not a valid TPA H5 file.")
+  # 2. read information based on type of file
+  case result.tpaFileKind
+  of tpkTpx3Raw:
+    result.timepix = Timepix3
+  else:
+    var readAux = false
+    # get reconstruction group
+    let group = h5f[baseGroup]
+    if "runType" in group.attrs:
+      result.runType = parseEnum[RunTypeKind](group.attrs["runType", string], rtNone)
+    if "runFolderKind" in group.attrs:
+      result.rfKind = parseEnum[RunFolderKind](group.attrs["runFolderKind", string],
+                                               rfUnknown)
+    if "centerChip" in group.attrs:
+      result.centerChip = group.attrs["centerChip", int]
+    if "centerChipName" in group.attrs:
+      result.centerChipName = group.attrs["centerChipName", string]
 
-  ## XXX: Extend this to automatically determine the base group! There's only 3 different cases
-  ## and we could do that automatically and store it in the `FileInfo`. From there we wouldn't
-  ## have to worry about it anymore!
-  # visit file
-  #h5f.visitFile()
-  var readAux = false
-  # get reconstruction group
-  let group = h5f[baseGroup]
-  if "runType" in group.attrs:
-    result.runType = parseEnum[RunTypeKind](group.attrs["runType", string], rtNone)
-  if "runFolderKind" in group.attrs:
-    result.rfKind = parseEnum[RunFolderKind](group.attrs["runFolderKind", string],
-                                             rfUnknown)
-  if "centerChip" in group.attrs:
-    result.centerChip = group.attrs["centerChip", int]
-  if "centerChipName" in group.attrs:
-    result.centerChipName = group.attrs["centerChipName", string]
-
-  for runNumber, group in runs(h5f, data_basename = baseGroup.string / "run_"):
-    result.runs.add runNumber
-    if not readAux:
-      let grp = h5f[group.grp_str]
-      let nChips = grp.attrs["numChips", int]
-      result.chips = toSeq(0 ..< nChips)#.mapIt(it)
-      readAux = true
-  # set timepix version
-  result.timepix = h5f.timepixVersion()
-  # sort the run numbers
-  result.runs.sort
+    for runNumber, group in runs(h5f, data_basename = baseGroup.string / "run_"):
+      result.runs.add runNumber
+      if not readAux:
+        let grp = h5f[group.grp_str]
+        let nChips = grp.attrs["numChips", int]
+        result.chips = toSeq(0 ..< nChips)
+        readAux = true
+    # set timepix version
+    result.timepix = h5f.timepixVersion()
+    # sort the run numbers
+    result.runs.sort
 
 proc parseTracking(grp: H5Group, idx: int): RunTimeInfo =
   let

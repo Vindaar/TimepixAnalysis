@@ -98,6 +98,7 @@ type
     rtNone, rtCalibration, rtBackground, rtXrayFinger
 
   RunFolderKind* = enum
+    ## TODO: add `rfTpx3Daq` and replace current usage of `rfUnknown`
     rfNewTos, rfOldTos, rfSrsTos, rfUnknown
 
   # The enum which determines how the gas gain vs energy calbration is done
@@ -282,9 +283,17 @@ type
     pErr*: seq[float]
     redChiSq*: float
 
+  TpaFileKind = enum
+    tpkRawData = "/runs"           # output of `raw_data_manipulation`
+    tpkReco = "/reconstruction"    # output of `reconstruction`
+    tpkLogL = "/likelihood"        # output of `likelihood`
+    tpkTpx3Raw = ""                # raw Tpx3 data straight from the Tpx3 DAQ. Has no base group
+    tpkTpx3Interp = "/interpreted" # interpreted raw data, output of `parse_raw_tpx3`
+
   # a simple object storing the runs, chips etc. from a given
   # H5 file
   FileInfo* = object
+    tpaFileKind*: TpaFileKind
     runs*: seq[int]
     chips*: seq[int]
     runType*: RunTypeKind

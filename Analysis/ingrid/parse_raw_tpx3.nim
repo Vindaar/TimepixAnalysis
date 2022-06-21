@@ -495,11 +495,14 @@ proc main(fname: string, outf: string = "/tmp/testtpx3.h5") =
       all.setLen(0)
       oldIdx = curIdx
       curIdx = findIdx(oldIdx + batch, cumNum)
-      echo "reading from ", oldIdx, " to ", curIdx, " of ", meta.len, ", ", (i.float / meta.len.float) * 100.0, " %"
-      data = inputDset.read_hyperslab(uint32, @[oldIdx, 0],
-                                      count = @[curIdx - oldIdx, 1])
-      echo "reading done"
-      inc batchIdx
+      if curIdx > oldIdx:
+        echo "[INFO]: Reading from ", oldIdx, " to ", curIdx, " of ", meta.len, ", ", (i.float / meta.len.float) * 100.0, " %"
+        ## TODO: need to wrap this in a `try except` for `HDF5LibraryError`, because the decompression of the blosc
+        ## data can fail in some cases (bad data?).
+        data = inputDset.read_hyperslab(uint32, @[oldIdx, 0],
+                                        count = @[curIdx - oldIdx, 1])
+        echo "[INFO]: Reading done"
+        inc batchIdx
   dset.add all
   echo "Closing output file ", h5fout.name
   discard h5fout.close()

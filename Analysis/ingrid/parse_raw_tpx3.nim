@@ -1,6 +1,8 @@
-import std / [sequtils, strformat, endians, sets, algorithm, tables, options, sugar, os]
+import std / [sequtils, strformat, endians, sets, algorithm, tables, options, sugar, os, strutils]
 import nimhdf5
 import cligen
+
+from ingrid / ingrid_types import RunTypeKind
 
 when not defined(blosc):
   import macros
@@ -354,7 +356,7 @@ proc rawDataToDut(data: openArray[uint32], chunkNr: int,
       else:
         var x: uint32
         swapEndian32(x.addr, k.addr)
-        let lkIdx = linkIdxs[link] # this is the index last modifieyd for link# `link`
+        let lkIdx = linkIdxs[link] # this is the index last modified for link# `link`
         res[lkIdx] = (x.uint64 shl 16) + res[lkIdx]
       linksEven[link] = not linksEven[link]
 
@@ -394,7 +396,27 @@ proc rawDataToDut(data: openArray[uint32], chunkNr: int): seq[Tpx3Data] =
   result = newSeqOfCap[Tpx3Data](data.len)
   rawDataToDut(data, chunkNr, tstamp, indices, res, idxToKeep, result)
 
-proc main(fname: string, outf: string = "/tmp/testtpx3.h5") =
+proc toRunPath(run: int): string = "/interpreted/run_" & $run & "/"
+
+proc writeAttributes(h5f: H5File, runType: RunTypeKind, run = -1) =
+  ## Writes all (at this point knowable) attributes to the `/interpreted` group and run
+  ## group (if run number given).
+  ## These attributes are the main ones that describe the `FileInfo` object defined in `ingrid_types`.
+  var grp = h5f["/interpreted".grp_str]
+  grp.attrs["TimepixVersion"] = "Timepix3"
+  grp.attrs["runType"] = $runType
+  grp.attrs["runFolderKind"] = "rfUnknown"
+  grp.attrs["centerChip"] = 0 ## TODO: once multi links are in place, this needs to be adjusted
+  #grp.attrs["centerChipName"] = chipName
+  if run >= 0:
+    var runGrp = h5f[toRunPath(run).grp_str]
+    runGrp.attrs["numChips"] = 1 ## TODO: once multi links are in place, this needs to be adjusted
+
+proc parseInputFile(h5fout: H5File, # file we write to
+                    fname: string, # file we will parse
+                    runType: RunTypeKind,
+                    run: int,
+                    allowErrors: bool) =
   let h5f = H5file(fname, "r")
   let path = "raw_data"
   let meta = h5f["meta_data", Tpx3MetaData]
@@ -408,24 +430,23 @@ proc main(fname: string, outf: string = "/tmp/testtpx3.h5") =
   # to the existing file. All configuration data etc. is kept as is.
   const batch = 50_000_000
 
-  let exists = existsFile(outf)
-  var h5fout = H5File(outf, "rw")
+  # check if this run exists in the output file
+  let exists = toRunPath(run) in h5fout
   # first copy over `configuration` group
   var dset: H5Dataset
   if not exists:
     let cfg = h5f["/configuration".grp_str]
-    let status = h5f.copy(cfg, some("/configuration"), some(h5fout))
+    let status = h5f.copy(cfg, some(toRunPath(run) / "configuration"), some(h5fout))
     if not status:
-      raise newException(IOError, "Could not copy over `/configuration` from " & $fname & " to " & $outf)
+      raise newException(IOError, "Could not copy over `/configuration` from " & $fname & " to " & $h5fout.name)
     let filter = H5Filter(kind: fkZlib, zlibLevel: 2)
-    dset = h5fout.create_dataset("interpreted/hit_data_0", (0, 1), dtype = Tpx3Data,
+    dset = h5fout.create_dataset(toRunPath(run) / "hit_data", (0, 1), dtype = Tpx3Data,
                                  chunksize = @[50_000, 1],
                                  maxshape = @[int.high, 1], filter = filter)
   else:
-    echo "[INFO]: Appending input data from ", fname, " to ", outf
-    dset = h5fout["interpreted/hit_data_0".dset_str]
+    echo "[INFO]: Appending input data from ", fname, " to ", h5fout.name
+    dset = h5fout[(toRunPath(run) / "hit_data").dset_str]
   var all: seq[Tpx3Data] = newSeqOfCap[Tpx3Data](batch)
-  var comb = 0
   let inputDset = h5f[path.dset_str]
   let cumNum = meta.mapIt(it.data_length.int).cumsum
   proc findIdx(num: int, cumNum: seq[int]): int =
@@ -439,24 +460,16 @@ proc main(fname: string, outf: string = "/tmp/testtpx3.h5") =
   var data = inputDset.read_hyperslab(uint32, @[0, 0],
                                       count = @[curIdx, 1])
 
-  var cumRead = 0
   var batchIdx = 0
   when false: ## Add code to decide if using uint32 or uint64?
     let uint64High = uint64.high.int
 
     var uint64StartOverflows = 0
     var uint64StopOverflows = 0
-  var sliceStart: uint64
-  var sliceStop: uint64
-
-  when false:
     var lastStart = 0
     var lastStop = 0
-
-
-  # our local buffers to avoid too many reallocations
+  # our local buffers to avoid too many reallocations (decreases performance for some reason)
   when false:
-
     var tstamp = newSeqOfCap[uint64](2000) #data.len div 2 + 1)
     # indices stores the indices at which the timestamps start in the raw data
     var indices = newSeqOfCap[int](2000) #data.len div 2 + 1)
@@ -464,17 +477,25 @@ proc main(fname: string, outf: string = "/tmp/testtpx3.h5") =
     var idxToKeep = initOrderedSet[int]()
     var tpx3Data = newSeqOfCap[Tpx3Data](2000) #data.len)
 
-
+  var sliceStart: uint64
+  var sliceStop: uint64
+  var processedIdx = 0
   for i in 0 ..< meta.len:
     let slice = meta[i]
+    sliceStart = slice.index_start# + (uint64StartOverflows * uint64High)
+    sliceStop = slice.index_stop #+ (uint64StopOverflows * uint64High)
+    let num = sliceStop - sliceStart
+    if not allowErrors and
+      (slice.discard_error > 0'u32 or slice.decode_error > 0'u32):
+      # drop chunks with discard or decoding errors
+      inc processedIdx, num.int
+      continue
+
     when false:
       if slice.index_start.int < lastStart:
         inc uint64StartOverflows
       if slice.index_stop.int < lastStop:
         inc uint64StopOverflows
-    sliceStart = slice.index_start# + (uint64StartOverflows * uint64High)
-    sliceStop = slice.index_stop #+ (uint64StopOverflows * uint64High)
-    let num = sliceStop - sliceStart
     if num > 0:
       doAssert oldIdx.uint64 <= sliceStart and oldIdx.uint64 <= sliceStop, "uint64 underflow detected!"
       let startIdx = sliceStart - oldIdx.uint64
@@ -484,13 +505,14 @@ proc main(fname: string, outf: string = "/tmp/testtpx3.h5") =
       #rawDataToDut(toOpenArray(data, startIdx, stopIdx - 1), i, tstamp, indices, res, idxToKeep, tpx3Data)
       #all.add tpx3Data
       doAssert startIdx < (int64.high).uint64 and stopIdx < (int64.high).uint64, "int64 overflow detected"
+      doAssert stopIdx.int - 1 <= data.len # can't really have `stopIdx > int64.high`, so `int` conversion is fine
       all.add rawDataToDut(toOpenArray(data, startIdx.int, stopIdx.int - 1), chunkNr = i)
-      inc comb, num.int
+      inc processedIdx, num.int
       when false:
         lastStart = slice.index_start.int # store last start to check for overflow
         lastStop = slice.index_stop.int
-    if comb >= curIdx:
-      echo "Writing dataset chunk: ", i
+    if processedIdx >= curIdx:
+      echo "[INFO]: Writing dataset chunk: ", i, " at curIdx= ", curIdx, " processedIdx= ", processedIdx, " num= ", num
       dset.add all
       all.setLen(0)
       oldIdx = curIdx
@@ -504,10 +526,62 @@ proc main(fname: string, outf: string = "/tmp/testtpx3.h5") =
         echo "[INFO]: Reading done"
         inc batchIdx
   dset.add all
-  echo "Closing output file ", h5fout.name
-  discard h5fout.close()
-  echo "Closing input file ", h5f.name
+
+  ## Write some attributes
+  h5fout.writeAttributes(runType, run)
+  echo "[INFO]: Closing input file ", h5f.name
   discard h5f.close()
+
+proc checkValidTpx3H5(s: string) =
+  let fname = s.extractFilename
+  if not fname.startsWith("DataTake") or not fname.endsWith(".h5"):
+    raise newException(IOError, "The given input file does not match the pattern `DataTake*.h5`. Please hand " &
+      "a valid Tpx3 H5 file.")
+
+proc main(path: string,
+          outf: string = "/tmp/testtpx3.h5",
+          runType: RunTypeKind = rtNone,
+          run: int = 0,
+          allowErrors = false
+         ) =
+  ## This tool is used to parse the raw Tpx3 data as it comes from the Tpx3 DAQ, sorts it from
+  ## the 48-bit words into single 64-bit data chunks and writes it to an output H5 file.
+  ##
+  ## If `path` is the path to a single H5 data file, we perform the data parsing and output that
+  ## single run into the given `outf`.
+  ## If `path` is pointing to a directory containing multiple H5 files, we parse them according to
+  ## their timestamp and place all of them into `outf`. They will be split into separate groups
+  ## in the output of the type `/run_i` where `i` is an increasing integer, starting from `run`.
+  ##
+  ## For a single input file `run` is simply the run number associated with the given file. It can
+  ## also be used to manually place multiple files into the same output file by calling this tool
+  ## multiple times with different run numbers.
+  ##
+  ## If `allowErrors` is set to `true`, data chunks with errors (as noted in the `discard_error` and
+  ## `decode_error` column of the `meta_data`) will be *kept*. By default those chunks are dropped
+  ## completely.
+
+  # 0. open output h5 file
+  var h5fout = H5open(outf, "rw")
+  # 1. determine if input is an H5 file or a directory
+  let fInfo = getFileInfo(path)
+  case fInfo.kind
+  of pcDir:
+    # iterate all files in directory that match `DataTake_*.h5`
+    var runNum = run
+    for file in walkFiles(path / "DataTake*.h5"):
+      echo file
+      h5fout.parseInputFile(file, runType, runNum, allowErrors)
+      inc runNum
+  of pcFile:
+    checkValidTpx3H5(path) # raises if not a valid filn
+    h5fout.parseInputFile(path, runType, run, allowErrors)
+  else:
+    raise newException(IOError, "The given input is neither a file containing Tpx3 H5 files, nor a H5 file.")
+
+  echo "[INFO]: Closing output file ", h5fout.name
+  discard h5fout.close()
+
 
 when isMainModule:
   dispatch main

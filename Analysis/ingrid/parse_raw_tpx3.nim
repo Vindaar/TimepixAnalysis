@@ -1,6 +1,9 @@
-import std / [sequtils, strformat, endians, sets, algorithm, tables, options, sugar, os, strutils]
+import std / [sequtils, strformat, endians, algorithm, tables, options, sugar, os, strutils]
 import nimhdf5
 import cligen
+
+import std / intsets
+
 
 from ingrid / ingrid_types import RunTypeKind
 
@@ -302,7 +305,7 @@ template hasTimestamp(x: uint32 | uint64): untyped =
 
 proc rawDataToDut(data: openArray[uint32], chunkNr: int,
                   tstamp: var seq[uint64], indices: var seq[int], res: var seq[uint64],
-                  idxToKeep: var OrderedSet[int], resultSeq: var seq[Tpx3Data]) =
+                  idxToKeep: var IntSet, resultSeq: var seq[Tpx3Data]) =
   if data.len < 10: return # TODO: arbitrary
   var idx = 0
   ## it has capacity, so setlen is "free"
@@ -368,7 +371,7 @@ proc rawDataToDut(data: openArray[uint32], chunkNr: int,
   if indices.len > 0:
     doAssert res.len >= indices[^1]
     # TOA extension
-    let indIdx = indices.toSet
+    let indIdx = indices.toIntSet
     var tstamp: uint64
     var i = 0
     for idx in idxToKeep.toSeq.sorted:
@@ -392,7 +395,7 @@ proc rawDataToDut(data: openArray[uint32], chunkNr: int): seq[Tpx3Data] =
   # indices stores the indices at which the timestamps start in the raw data
   var indices = newSeqOfCap[int](data.len div 2 + 1)
   var res = newSeq[uint64](data.len) # div 2 + 1)
-  var idxToKeep = initOrderedSet[int]()
+  var idxToKeep = initIntSet()
   result = newSeqOfCap[Tpx3Data](data.len)
   rawDataToDut(data, chunkNr, tstamp, indices, res, idxToKeep, result)
 

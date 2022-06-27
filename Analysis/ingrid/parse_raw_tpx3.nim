@@ -398,7 +398,7 @@ proc rawDataToDut(data: openArray[uint32], chunkNr: int): seq[Tpx3Data] =
 
 proc toRunPath(run: int): string = "/interpreted/run_" & $run & "/"
 
-proc writeAttributes(h5f: H5File, runType: RunTypeKind, run = -1) =
+proc writeAttributes(h5f: H5File, runType: RunTypeKind, run, badSliceCount, badBatchCount, batchSize: int) =
   ## Writes all (at this point knowable) attributes to the `/interpreted` group and run
   ## group (if run number given).
   ## These attributes are the main ones that describe the `FileInfo` object defined in `ingrid_types`.
@@ -411,13 +411,100 @@ proc writeAttributes(h5f: H5File, runType: RunTypeKind, run = -1) =
   if run >= 0:
     var runGrp = h5f[toRunPath(run).grp_str]
     runGrp.attrs["numChips"] = 1 ## TODO: once multi links are in place, this needs to be adjusted
+    runGrp.attrs["batchSize"] = batchSize
+    runGrp.attrs["badSliceCount"] = badSliceCount # number of dropped slices due to errors
+    runGrp.attrs["badBatchCount"] = badBatchCount # number of dropped batches (of `batchSize` words)
+                                                  # due to decompression failure
+proc processSlice(data: seq[uint32], slice: Tpx3MetaData, oldIdx, loopIdx: int): seq[Tpx3Data] =
+  ## Performs processing of a single slice of data from `sliceStart` to `sliceStop`, while taking into
+  ## account sanity checks and conversion of global slicing indices to `data` 'local' ones (`data` is
+  ## a single `batch` instead of all data in the file).
+  let
+    sliceStart = slice.index_start
+    sliceStop = slice.index_stop
+  doAssert oldIdx.uint64 <= sliceStart and oldIdx.uint64 <= sliceStop, "uint64 underflow detected! oldIdx = " & $oldIdx &
+    " sliceStart = " & $sliceStart & " sliceStop = " & $sliceStop
+  let startIdx = sliceStart - oldIdx.uint64
+  let stopIdx = sliceStop - oldIdx.uint64
+  doAssert startIdx < (int64.high).uint64 and stopIdx < (int64.high).uint64, "int64 overflow detected"
+  # can't really have `stopIdx > int64.high`, so `int` conversion is fine
+  doAssert stopIdx.int - 1 <= data.len, " Stop idx: " & $stopIdx & " data.len " & $data.len
+  result = rawDataToDut(toOpenArray(data, startIdx.int, stopIdx.int - 1), chunkNr = loopIdx)
+
+proc findSliceIdx(num: int, cumNum: seq[int]): int =
+  ## finds the correct index up to where to read given a desired
+  ## number (upper bound) of `num` elements.
+  ## Returns the *index* of the slice and not the data word index!
+  ##
+  ## Note: we use `upperBound` to handle the case `num == cumNum[result]`
+  ## such that we get the *next* index.
+  result = cumNum.lowerBound(num)
+  if result == cumNum.len: # `lowerBound` returns index *after* seq, if bigger than every element
+    dec result
+
+proc readNextChunk(data: var seq[uint32], h5f: var H5File, inputDset: var H5Dataset, cumNum: seq[int],
+                   dataFromIdx, dataToIdx, batchIdx, processedIdx, sliceIdx, badBatchCount: var int,
+                   batchSize, numSlices: int) =
+  ## Reads the next (readable) chunk of size `batchSize` from the input dataset `inputDset`.
+  ## Takes into account to adjust the indices correctly.
+  ##
+  ## `h5f` and `inputDset` are given to reopen file in case of decompression error.
+  ##
+  ## If the decompression of the data fails, will jump to the next batch. This means we
+  ## might drop data of the size of `batchSize` if "bad sectors" are found in the file.
+  ## In the future we might want to bisect the data to find the good data inside the
+  ## `batchSize` blocks.
+  ##
+  ## `dataFromIdx`   : index of first slice part of current `data`
+  ## `dataToIdx`     : index of last slice still part of current `data`
+  ## `batchIdx`      : index of `batchSize` words processed so far
+  ## `processedIdx`  : number of data word (`uint32`) elements processed in total
+  ## `sliceIdx`      : current data slice we are processing
+  ## `batchSize`     : size of batch chunk (O(50 Mio.) data words)
+  ## `badBatchCount` : number of batches (of size `batchSize`) dropped due to bad data.
+  # we loop here to handle possible `blosc` decompression errors
+  var success = false
+  while not success:
+    dataFromIdx = dataToIdx # new start is previous end
+    let fromIdx = cumNum[dataFromIdx] # (we read up to `toIdx - 1` in last read)
+    dataToIdx = findSliceIdx(fromIdx + batchSize, cumNum) # find index up to where to read
+    let toIdx = cumNum[dataToIdx] # and the corresponding data index
+    try:
+      if toIdx > fromIdx: # if the last slice is empty, `toIdx == fromIdx` will hold
+        let perc = (sliceIdx.float / numSlices.float) * 100.0
+        echo &"[INFO]: Reading from word {fromIdx} to {toIdx} of {numSlices} slices, {perc:.2f} % processed"
+        data = inputDset.read_hyperslab(uint32, @[fromIdx],
+                                        count = @[toIdx - fromIdx])
+        echo "[INFO]: ...reading done"
+        inc batchIdx
+      # regardless, we succeeded (even if we didn't have anything to do)
+      success = true
+    except HDF5BloscDecompressionError:
+      # faled to decompress blosc data! update indices, continue and try again
+      echo "[WARN]: Decompression of batch after ", batchIdx, " failed!"
+      inc processedIdx, (toIdx - fromIdx) # skip `batchSize` words (mark them "processed")
+      inc badBatchCount
+      inc batchIdx
+      # after skip, continue with next slice after one up to which we tried to read
+      sliceIdx = dataToIdx + 1
+      ## NOTE: in order to continue after a decompression error, we have to fully close the file
+      ## and reopen. Not sure why, but if we don't any further read will also trigger a decompression
+      ## error (or even a completely different "duplicate link" error).
+      let fname = h5f.name
+      discard h5f.close()
+      h5f = H5open(fname, "r")
+      inputDset = h5f[inputDset.name.dset_str]
+      continue
 
 proc parseInputFile(h5fout: H5File, # file we write to
                     fname: string, # file we will parse
                     runType: RunTypeKind,
                     run: int,
-                    allowErrors: bool) =
-  let h5f = H5file(fname, "r")
+                    allowErrors: bool,
+                    verbose: bool,
+                    batchSize: int
+                   ) =
+  var h5f = H5file(fname, "r")
   let path = "raw_data"
   let meta = h5f["meta_data", Tpx3MetaData]
   # TODO: reading config still broken
@@ -426,13 +513,8 @@ proc parseInputFile(h5fout: H5File, # file we write to
   #  echo el.configuration
   #  echo el.value
 
-  # if output file already exists, it means we simply only _add_ the data of the new input file
-  # to the existing file. All configuration data etc. is kept as is.
-  const batch = 50_000_000
-
-  # check if this run exists in the output file
+  # check if run exists in output file, if not copy over `configuration` group
   let exists = toRunPath(run) in h5fout
-  # first copy over `configuration` group
   var dset: H5Dataset
   if not exists:
     let cfg = h5f["/configuration".grp_str]
@@ -446,89 +528,52 @@ proc parseInputFile(h5fout: H5File, # file we write to
   else:
     echo "[INFO]: Appending input data from ", fname, " to ", h5fout.name
     dset = h5fout[(toRunPath(run) / "hit_data").dset_str]
-  var all: seq[Tpx3Data] = newSeqOfCap[Tpx3Data](batch)
-  let inputDset = h5f[path.dset_str]
+  var all: seq[Tpx3Data] = newSeqOfCap[Tpx3Data](batchSize)
+  var inputDset = h5f[path.dset_str]
   let cumNum = meta.mapIt(it.data_length.int).cumsum
-  proc findIdx(num: int, cumNum: seq[int]): int =
-    ## finds the correct index up to where to read given a desired
-    ## number (lower bound) of `num` elements
-    let idx = cumNum.lowerBound(num)
-    result = if idx == cumNum.len: cumNum[^1] else: cumNum[idx]
+  var
+    batchIdx = 0
+    processedIdx = 0
+    badSliceCount = 0 ## number of bad slices (size of the chunk) discarded with errors in the data
+    badBatchCount = 0 ## number of bad batches (size `batchSize`) discarded as it could not be decompressed
+    dataFromIdx = 0
+    dataToIdx = 0
+    i = 0
 
-  var curIdx = findIdx(batch, cumNum)
-  var oldIdx = 0
-  var data = inputDset.read_hyperslab(uint32, @[0, 0],
-                                      count = @[curIdx, 1])
-
-  var batchIdx = 0
-  when false: ## Add code to decide if using uint32 or uint64?
-    let uint64High = uint64.high.int
-
-    var uint64StartOverflows = 0
-    var uint64StopOverflows = 0
-    var lastStart = 0
-    var lastStop = 0
-  # our local buffers to avoid too many reallocations (decreases performance for some reason)
-  when false:
-    var tstamp = newSeqOfCap[uint64](2000) #data.len div 2 + 1)
-    # indices stores the indices at which the timestamps start in the raw data
-    var indices = newSeqOfCap[int](2000) #data.len div 2 + 1)
-    var res = newSeqOfCap[uint64](2000) #data.len) # div 2 + 1)
-    var idxToKeep = initOrderedSet[int]()
-    var tpx3Data = newSeqOfCap[Tpx3Data](2000) #data.len)
-
-  var sliceStart: uint64
-  var sliceStop: uint64
-  var processedIdx = 0
-  for i in 0 ..< meta.len:
+  # read first chunk of data
+  var data: seq[uint32]
+  data.readNextChunk(h5f, inputDset, cumNum, dataFromIdx, dataToIdx, batchIdx, processedIdx, i, badBatchCount, batchSize, meta.len)
+  while i < meta.len:
     let slice = meta[i]
-    sliceStart = slice.index_start# + (uint64StartOverflows * uint64High)
-    sliceStop = slice.index_stop #+ (uint64StopOverflows * uint64High)
-    let num = sliceStop - sliceStart
+    let num = (slice.index_stop - slice.index_start).int
     if not allowErrors and
       (slice.discard_error > 0'u32 or slice.decode_error > 0'u32):
       # drop chunks with discard or decoding errors
-      inc processedIdx, num.int
+      if verbose:
+        echo "[INFO]: Skipping chunk with discard_error=", slice.discard_error, " decode_error= ", slice.decode_error, " at index ", i
+      inc processedIdx, num
+      inc badSliceCount
+      inc i
       continue
-
-    when false:
-      if slice.index_start.int < lastStart:
-        inc uint64StartOverflows
-      if slice.index_stop.int < lastStop:
-        inc uint64StopOverflows
-    if num > 0:
-      doAssert oldIdx.uint64 <= sliceStart and oldIdx.uint64 <= sliceStop, "uint64 underflow detected!"
-      let startIdx = sliceStart - oldIdx.uint64
-      let stopIdx = sliceStop - oldIdx.uint64
-      ## when using the following, replace `all.add tpx3Data` by just using `tpx3Data` of course
-      ## Means we need to handle starting indices in `rawDataToDut` though
-      #rawDataToDut(toOpenArray(data, startIdx, stopIdx - 1), i, tstamp, indices, res, idxToKeep, tpx3Data)
-      #all.add tpx3Data
-      doAssert startIdx < (int64.high).uint64 and stopIdx < (int64.high).uint64, "int64 overflow detected"
-      doAssert stopIdx.int - 1 <= data.len # can't really have `stopIdx > int64.high`, so `int` conversion is fine
-      all.add rawDataToDut(toOpenArray(data, startIdx.int, stopIdx.int - 1), chunkNr = i)
+    if num > 0: # only process if slice length > 0
+      all.add processSlice(data, slice, cumNum[dataFromIdx], i)
       inc processedIdx, num.int
-      when false:
-        lastStart = slice.index_start.int # store last start to check for overflow
-        lastStop = slice.index_stop.int
-    if processedIdx >= curIdx:
-      echo "[INFO]: Writing dataset chunk: ", i, " at curIdx= ", curIdx, " processedIdx= ", processedIdx, " num= ", num
-      dset.add all
-      all.setLen(0)
-      oldIdx = curIdx
-      curIdx = findIdx(oldIdx + batch, cumNum)
-      if curIdx > oldIdx:
-        echo "[INFO]: Reading from ", oldIdx, " to ", curIdx, " of ", meta.len, ", ", (i.float / meta.len.float) * 100.0, " %"
-        ## TODO: need to wrap this in a `try except` for `HDF5LibraryError`, because the decompression of the blosc
-        ## data can fail in some cases (bad data?).
-        data = inputDset.read_hyperslab(uint32, @[oldIdx, 0],
-                                        count = @[curIdx - oldIdx, 1])
-        echo "[INFO]: Reading done"
-        inc batchIdx
+    if i >= dataToIdx: # if this slice is the last slice we read, write & read more data
+      echo "[INFO]: Writing dataset batch: ", batchIdx, " from slice = ", dataFromIdx, " to ", dataToIdx, " processedIdx = ", processedIdx
+      dset.add all # write to file
+      all.setLen(0) # reset resulting seq
+      data.readNextChunk(h5f, inputDset, cumNum, # and read new data
+                         dataFromIdx, dataToIdx, batchIdx,
+                         processedIdx, i, badBatchCount,
+                         batchSize, meta.len)
+    # increase slice index
+    inc i
   dset.add all
 
   ## Write some attributes
-  h5fout.writeAttributes(runType, run)
+  h5fout.writeAttributes(runType, run, badSliceCount, badBatchCount, batchSize)
+  echo &"[INFO]: === Summary ===\n\tNumber of slices processed: {i}\n\tNumber of dropped slices: {badSliceCount}"
+  echo &"\tNumber of dropped batches: {badBatchCount} of batch size: {batchSize}"
   echo "[INFO]: Closing input file ", h5f.name
   discard h5f.close()
 
@@ -542,7 +587,9 @@ proc main(path: string,
           outf: string = "/tmp/testtpx3.h5",
           runType: RunTypeKind = rtNone,
           run: int = 0,
-          allowErrors = false
+          allowErrors = false,
+          verbose = false,
+          batchSize = 100_000_000
          ) =
   ## This tool is used to parse the raw Tpx3 data as it comes from the Tpx3 DAQ, sorts it from
   ## the 48-bit words into single 64-bit data chunks and writes it to an output H5 file.
@@ -571,11 +618,11 @@ proc main(path: string,
     var runNum = run
     for file in walkFiles(path / "DataTake*.h5"):
       echo file
-      h5fout.parseInputFile(file, runType, runNum, allowErrors)
+      h5fout.parseInputFile(file, runType, runNum, allowErrors, verbose, batchSize)
       inc runNum
   of pcFile:
-    checkValidTpx3H5(path) # raises if not a valid filn
-    h5fout.parseInputFile(path, runType, run, allowErrors)
+    checkValidTpx3H5(path) # raises if not a valid file
+    h5fout.parseInputFile(path, runType, run, allowErrors, verbose, batchSize)
   else:
     raise newException(IOError, "The given input is neither a file containing Tpx3 H5 files, nor a H5 file.")
 

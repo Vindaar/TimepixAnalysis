@@ -525,9 +525,9 @@ proc parseInputFile(h5fout: H5File, # file we write to
     if not status:
       raise newException(IOError, "Could not copy over `/configuration` from " & $fname & " to " & $h5fout.name)
     let filter = H5Filter(kind: fkZlib, zlibLevel: 2)
-    dset = h5fout.create_dataset(toRunPath(run) / "hit_data", (0, 1), dtype = Tpx3Data,
-                                 chunksize = @[50_000, 1],
-                                 maxshape = @[int.high, 1], filter = filter)
+    dset = h5fout.create_dataset(toRunPath(run) / "hit_data", 0, dtype = Tpx3Data,
+                                 chunksize = @[50_000],
+                                 maxshape = @[int.high], filter = filter)
   else:
     echo "[INFO]: Appending input data from ", fname, " to ", h5fout.name
     dset = h5fout[(toRunPath(run) / "hit_data").dset_str]
@@ -575,7 +575,10 @@ proc parseInputFile(h5fout: H5File, # file we write to
 
   ## Write some attributes
   h5fout.writeAttributes(runType, run, badSliceCount, badBatchCount, batchSize)
-  echo &"[INFO]: === Summary ===\n\tNumber of slices processed: {i}\n\tNumber of dropped slices: {badSliceCount}"
+  echo &"[INFO]: === Summary ==="
+  echo &"\tProcessed file: {fname}, run number: {run} written to {h5fout.name}"
+  echo &"\tNumber of slices processed: {i}"
+  echo &"\tNumber of dropped slices: {badSliceCount}"
   echo &"\tNumber of dropped batches: {badBatchCount} of batch size: {batchSize}"
   echo "[INFO]: Closing input file ", h5f.name
   discard h5f.close()

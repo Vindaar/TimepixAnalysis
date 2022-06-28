@@ -44,7 +44,7 @@ when defined(linux):
 else:
   const commitHash = ""
 # get date using `CompileDate` magic
-const currentDate = CompileDate & " at " & CompileTime
+const compileDate = CompileDate & " at " & CompileTime
 
 const docTmpl = """
 Version: $# built on: $#
@@ -93,7 +93,7 @@ Options:
   -h --help               Show this help
   --version               Show version.
 """
-const doc = docTmpl % [commitHash, currentDate]
+const doc = docTmpl % [commitHash, compileDate]
 
 # the filter we use globally in this file
 let filter = H5Filter(kind: fkZlib, zlibLevel: 4)

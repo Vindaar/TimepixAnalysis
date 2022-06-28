@@ -144,9 +144,9 @@ proc specialTypesAndEvKeys(): (DatatypeID, DatatypeID, array[7, string]) =
   result[1] = ev_type_ch
   result[2] = eventHeaderKeys
 
-proc getTotHitOccDsets(h5f: var H5FileObj, chipGroups: seq[H5Group]):
+proc getTotHitOccDsets(h5f: var H5File, chipGroups: seq[H5Group]):
                       (seq[H5DataSet], seq[H5DataSet], seq[H5DataSet]) =
-  proc fromChipGroups(h5f: var H5FileObj, chipGroups: seq[H5Group], name: string): seq[H5DataSet] =
+  proc fromChipGroups(h5f: var H5File, chipGroups: seq[H5Group], name: string): seq[H5DataSet] =
     chipGroups.mapIt(h5f[(it.name & name).dset_str])
   var
     totDset = h5f.fromChipGroups(chipGroups, "/ToT")
@@ -414,7 +414,7 @@ proc processFadcData(fadcFiles: seq[FadcFile]): ProcessedFadcData {.inline.} =
   #     sync()
   info "Calculation of $# events took $# seconds" % [$nEvents, $(epochTime() - t0)]
 
-proc initFadcInH5(h5f: var H5FileObj, runNumber, batchsize: int, filename: string) =
+proc initFadcInH5(h5f: var H5File, runNumber, batchsize: int, filename: string) =
   # proc to initialize the datasets etc in the HDF5 file for the FADC. Useful
   # since we don't want to do this every time we call the write function
   const
@@ -424,11 +424,17 @@ proc initFadcInH5(h5f: var H5FileObj, runNumber, batchsize: int, filename: strin
   let groupName = fadcRawPath(runNumber)
   template datasetCreation(h5f, name, shape, `type`: untyped): untyped =
     ## inserts the correct data set creation parameters
+    when typeof(shape) is tuple:
+      let chnkS = @[batchsize, shape[1]]
+      let mxS = @[int.high, shape[1]]
+    else:
+      let chnkS = @[batchSize]
+      let mxS = @[int.high]
     h5f.create_dataset(name,
                        shape,
                        dtype = `type`,
-                       chunksize = @[batchsize, shape[1]],
-                       maxshape = @[int.high, shape[1]],
+                       chunksize = chnkS,
+                       maxshape = mxS,
                        filter = filter)
   var
     runGroup = h5f.create_group(groupName)
@@ -438,9 +444,9 @@ proc initFadcInH5(h5f: var H5FileObj, runNumber, batchsize: int, filename: strin
     # the data to dset.len onwards!
     raw_fadc_dset    = h5f.datasetCreation(rawFadcBasename(runNumber), (0, all_ch_len), uint16)
     #fadc_dset        = h5f.datasetCreation(fadcDataBasename(runNumber), (0, ch_len), float)
-    trigrec_dset     = h5f.datasetCreation(trigrecBasename(runNumber), (0, 1), int)
+    trigrec_dset     = h5f.datasetCreation(trigrecBasename(runNumber), 0, int)
     # dataset of eventNumber
-    eventNumber_dset = h5f.datasetCreation(eventNumberBasenameRaw(runNumber), (0, 1), int)
+    eventNumber_dset = h5f.datasetCreation(eventNumberBasenameRaw(runNumber), 0, int)
     # dataset stores flag whether FADC event was a noisyo one (using our algorithm)
     #noisy_dset       = h5f.datasetCreation(noiseBasename(runNumber), (0, 1), int)
     # dataset stores minima of each FADC event, dip voltage
@@ -458,7 +464,7 @@ proc initFadcInH5(h5f: var H5FileObj, runNumber, batchsize: int, filename: strin
   runGroup.attrs["sampling_mode"] = fadc_for_attrs.sampling_mode
   runGroup.attrs["pedestal_run"] = if fadc_for_attrs.pedestal_run == true: 1 else: 0
 
-proc writeFadcDataToH5(h5f: var H5FileObj, runNumber: int, f_proc: ProcessedFadcData) =
+proc writeFadcDataToH5(h5f: var H5File, runNumber: int, f_proc: ProcessedFadcData) =
   # proc to write the current FADC data to the H5 file
   # now write the data
   let
@@ -508,7 +514,7 @@ proc writeFadcDataToH5(h5f: var H5FileObj, runNumber: int, f_proc: ProcessedFadc
   #                             count = @[nEvents, 1])
   info "Writing of FADC data took $# seconds" % $(epochTime() - t0)
 
-proc readWriteFadcData(run_folder: string, runNumber: int, h5f: var H5FileObj) =
+proc readWriteFadcData(run_folder: string, runNumber: int, h5f: var H5File) =
   ## given a run_folder it reads all fadc files (data<number>.txt-fadc),
   ## processes it (FadcFile -> FadcRaw) and writes it to the HDF5 file
   # get a sorted list of files, sorted by inode
@@ -553,13 +559,13 @@ proc readWriteFadcData(run_folder: string, runNumber: int, h5f: var H5FileObj) =
   # finally finish writing to the HDF5 file
   # finishFadcWriteToH5(h5f, runNumber)
 
-proc createChipGroups(h5f: var H5FileObj,
+proc createChipGroups(h5f: var H5File,
                       runNumber: int,
                       nChips: int = 0): seq[H5Group] =
   let chipGroupName = getGroupNameRaw(runNumber) & "/chip_$#"
   result = mapIt(toSeq(0 ..< nChips), h5f.create_group(chipGroupName % $it))
 
-proc initInGridInH5*(h5f: var H5FileObj, runNumber, nChips,
+proc initInGridInH5*(h5f: var H5File, runNumber, nChips,
                      batchsize: int,
                      createToADset = false) =
   ## This proc creates the groups and dataset for the InGrid data in the H5 file
@@ -574,10 +580,10 @@ proc initInGridInH5*(h5f: var H5FileObj, runNumber, nChips,
   template datasetCreation(h5f: untyped, name: untyped, `type`: untyped): untyped =
     ## inserts the correct data set creation parameters
     h5f.create_dataset(name,
-                       (0, 1),
+                       0,
                        dtype = `type`,
-                       chunksize = @[batchsize, 1],
-                       maxshape = @[int.high, 1],
+                       chunksize = @[batchsize],
+                       maxshape = @[int.high],
                        filter = filter)
 
   var
@@ -625,7 +631,7 @@ proc getCenterChipAndName(run: ProcessedRun): (int, string) =
   let centerName = run.chips[centerChip].name
   result = (centerChip, centerName)
 
-proc writeRawAttrs*(h5f: var H5FileObj,
+proc writeRawAttrs*(h5f: var H5File,
                     run: ProcessedRun,
                     rfKind: RunFolderKind,
                     runType: RunTypeKind) =
@@ -661,7 +667,7 @@ proc writeRawAttrs*(h5f: var H5FileObj,
   rawG.attrs["raw_data_manipulation_compiled_on"] = compileDate
   rawG.attrs["TimepixVersion"] = $run.timepix
 
-proc writeRunGrpAttrs*(h5f: var H5FileObj, group: var H5Group,
+proc writeRunGrpAttrs*(h5f: var H5File, group: var H5Group,
                        runType: RunTypeKind,
                        run: ProcessedRun) =
   ## writes all attributes to given `group` that can be extracted from
@@ -703,7 +709,7 @@ proc writeRunGrpAttrs*(h5f: var H5FileObj, group: var H5Group,
   group.attrs["raw_data_manipulation_version"] = commitHash
   group.attrs["raw_data_manipulation_compiled_on"] = compileDate
 
-proc writeChipAttrs*(h5f: var H5FileObj,
+proc writeChipAttrs*(h5f: var H5File,
                      chipGroups: var seq[H5Group],
                      run: ProcessedRun) =
   # write attributes for each chip
@@ -781,7 +787,7 @@ proc fillDataForH5(x, y: var seq[seq[seq[uint8]]],
         toa[num][i] = chp.toa
         toaCombined[num][i] = chp.toaCombined
 
-proc writeProcessedRunToH5*(h5f: var H5FileObj, run: ProcessedRun) =
+proc writeProcessedRunToH5*(h5f: var H5File, run: ProcessedRun) =
   ## this procedure writes the data from the processed run to a HDF5
   ## (opened already) given by h5file_id
   ## inputs:
@@ -918,7 +924,7 @@ proc writeProcessedRunToH5*(h5f: var H5FileObj, run: ProcessedRun) =
     let stackOcc = occDset[int64].toTensor.reshape([256, 256]) .+ occ
     occDset.unsafeWrite(stackOcc.get_data_ptr, stackOcc.size)
 
-#proc linkRawToReco(h5f: var H5FileObj, runNumber, nChips: int) =
+#proc linkRawToReco(h5f: var H5File, runNumber, nChips: int) =
 #  ## perform linking from raw group to reco group
 #  let (groupName,
 #       recoGroupName,
@@ -1038,7 +1044,7 @@ proc readAndProcessInGrid*(listOfFiles: seq[string],
     let run = createRun(runHeader, runNumber, sortedIngrid, rfKind)
     result = processRawInGridData(run)
 
-proc processAndWriteFadc(run_folder: string, runNumber: int, h5f: var H5FileObj) =
+proc processAndWriteFadc(run_folder: string, runNumber: int, h5f: var H5File) =
   # for the FADC we call a single function here, which works on
   # the FADC files in a buffered way, always reading 1000 FADC
   # filsa at a time.
@@ -1054,13 +1060,13 @@ proc createProcessedTpx3Run(data: seq[Tpx3Data], startIdx, cutoff, runNumber: in
                                     runNumber = runNumber,
                                     runConfig = runConfig)
 
-proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string,
+proc processAndWriteSingleRun(h5f: var H5File, run_folder: string,
                               flags: set[RawFlagKind],
                               runType: RunTypeKind = rtNone,
                               configFile: string) =
   ## proc to process and write a single run
   ## inputs:
-  ##     h5f: var H5FileObj = mutable copy of the H5 file object to which we will write
+  ##     h5f: var H5File = mutable copy of the H5 file object to which we will write
   ##         the data
   ##     flags: set[RawFlagKind] = flags indicating different settings, e.g. `nofadc`
   const batchsize = FILE_BUFSIZE * 2
@@ -1141,7 +1147,7 @@ proc handleTimepix1(folder: string, runType: RunTypeKind, outfile: string,
     flags.incl rfNoFadc
 
   if is_run_folder == true and contains_run_folder == false:
-    # hand H5FileObj to processSingleRun, because we need to write intermediate
+    # hand H5File to processSingleRun, because we need to write intermediate
     # steps to the H5 file for the FADC, otherwise we use too much RAM
     # in order to write the processed run and FADC data to file, open the HDF5 file
     var h5f = H5open(outfile, "rw")
@@ -1184,7 +1190,7 @@ proc handleTimepix1(folder: string, runType: RunTypeKind, outfile: string,
     # in this case loop over all folder again and call processSingleRun() for each
     # run folder
     # open H5 output file to check if run already exists
-    var h5f: H5FileObj
+    var h5f: H5File
     if fileExists(outfile):
       h5f = H5open(outfile, "r")
     else:

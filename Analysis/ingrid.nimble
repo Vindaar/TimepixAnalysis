@@ -16,7 +16,7 @@ requires "helpers >= 0.2.0"
 requires "arraymancer >= 0.7.12"
 requires "https://github.com/vindaar/seqmath >= 0.1.5"
 requires "ggplotnim >= 0.5.1"
-requires "nimhdf5 >= 0.4.7"
+requires "nimhdf5 >= 0.4.8"
 # optimization dependencies
 requires "mpfit >= 0.1.1"
 requires "nlopt >= 0.3.1"

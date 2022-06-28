@@ -123,7 +123,7 @@ proc calcLikelihoodDatasetIfNeeded*(h5f: var H5File,
   if morphKindUsed.isNone or morphKindUsed.get != morphKind:
     let logLData = h5f.calcLikelihoodDataset(refFile, grp, year, morphKind, energyDset)
     let loglDset = h5f.create_dataset(grp / logLDset,
-                                      (logLData.len, 1),
+                                      logLData.len,
                                       float64,
                                       overwrite = true)
     logLDset[logLDset.all] = logLData

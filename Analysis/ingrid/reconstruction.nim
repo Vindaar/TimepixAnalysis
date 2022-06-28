@@ -160,8 +160,8 @@ proc createDatasets[N: int](dset_tab: var Table[string, seq[H5DataSet]],
     for chip in 0 ..< nchips:
       dset_tab[dset][chip] = h5f.create_dataset(groups[chip].name / dset, lengths[chip],
                                                 dtype = dtype,
-                                                chunksize = @[Chunksize, 1],
-                                                maxshape = @[int.high, 1],
+                                                chunksize = @[Chunksize],
+                                                maxshape = @[int.high],
                                                 filter = filter)
 
 proc writeRecoRunToH5*[T: SomePix](h5f: H5File,
@@ -280,8 +280,8 @@ proc writeRecoRunToH5*[T: SomePix](h5f: H5File,
     h5f.create_dataset(name,
                        dlen,
                        dtype = `type`,
-                       chunksize = @[Chunksize, 1],
-                       maxshape = @[int.high, 1],
+                       chunksize = @[Chunksize],
+                       maxshape = @[int.high],
                        filter = filter)
 
   var
@@ -339,7 +339,6 @@ proc writeRecoRunToH5*[T: SomePix](h5f: H5File,
     x_dsets[chip][all] = x[chip]
     y_dsets[chip][all] = y[chip]
     ch_dsets[chip][all] = ch[chip]
-
     if timepixVersion == Timepix3:
       toa_dsets[chip][all] = toa[chip]
       toa_combined_dsets[chip][all] = toaCombined[chip]
@@ -499,11 +498,17 @@ proc initRecoFadcInH5(h5f, h5fout: H5File, runNumber, batchsize: int) =
   let groupName = fadcRecoPath(runNumber)
   template datasetCreation(h5f, name, shape, `type`: untyped): untyped =
     ## inserts the correct data set creation parameters
+    when typeof(shape) is tuple:
+      let chnkS = @[batchsize, shape[1]]
+      let mxS = @[int.high, shape[1]]
+    else:
+      let chnkS = @[batchSize]
+      let mxS = @[int.high]
     h5f.create_dataset(name,
                        shape,
                        dtype = `type`,
-                       chunksize = @[batchsize, shape[1]],
-                       maxshape = @[int.high, shape[1]],
+                       chunksize = chnkS,
+                       maxshape = mxS,
                        filter = filter)
   var
     # NOTE: we initialize all datasets with a size of 0. This means we need to extend
@@ -512,11 +517,11 @@ proc initRecoFadcInH5(h5f, h5fout: H5File, runNumber, batchsize: int) =
     recoGroup = h5fout.create_group(groupName)
     fadc_dset        = h5fout.datasetCreation(fadcDataBasename(runNumber), (0, ch_len), float)
     # dataset of eventNumber
-    eventNumber_dset = h5fout.datasetCreation(eventNumberBasenameReco(runNumber), (0, 1), int)
+    eventNumber_dset = h5fout.datasetCreation(eventNumberBasenameReco(runNumber), 0, int)
     # dataset stores flag whether FADC event was a noisyo one (using our algorithm)
-    noisy_dset       = h5fout.datasetCreation(noiseBasename(runNumber), (0, 1), int)
+    noisy_dset       = h5fout.datasetCreation(noiseBasename(runNumber), 0, int)
     # dataset stores minima of each FADC event, dip voltage
-    minVals_dset     = h5fout.datasetCreation(minValsBasename(runNumber), (0, 1), float)
+    minVals_dset     = h5fout.datasetCreation(minValsBasename(runNumber), 0, float)
 
   # write attributes to FADC groups
   let fadcRaw = h5f[fadcRawPath(runNumber).grp_str]

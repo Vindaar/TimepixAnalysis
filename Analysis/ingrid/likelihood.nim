@@ -152,7 +152,7 @@ proc calcLogLikelihood*(h5f: var H5File,
       logL_chips[chipNumber] = logL
     # after we added all logL data to the seqs, write it to the file
     var logL_dsets = mapIt(toSeq(0..<nChips), h5f.create_dataset((group / &"chip_{it}/likelihood"),
-                                                                 (logL_chips[it].len, 1),
+                                                                 logL_chips[it].len,
                                                                  float64,
                                                                  overwrite = true))
     # write the data to the file
@@ -213,7 +213,7 @@ proc writeLikelihoodData(h5f: var H5File,
       for idx in passedInds:
         data.add dset[idx]
       var outDset = h5fout.create_dataset((logLgroup / dsetName),
-                                          (passedInds.len, 1),
+                                          passedInds.len,
                                           elementType(dset))
       outDset[outDset.all] = data
 
@@ -222,7 +222,7 @@ proc writeLikelihoodData(h5f: var H5File,
     result = cmp(x, y)
   # create dataset for allowed indices
   var evDset = h5fout.create_dataset((logLgroup / "eventNumber"),
-                                     (evNumsPassed.len, 1),
+                                     evNumsPassed.len,
                                      int)
   # write event numbers
   evDset[evDset.all] = evNumsPassed

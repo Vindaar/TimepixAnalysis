@@ -761,7 +761,7 @@ proc cutAndWrite(h5file: string) =
 
       proc writeDset(r: CDLRun, dsetWrite, dsetRead: string, datatype: typedesc) =
         var
-          dset = h5f.create_dataset(grp.name / dsetWrite, (nevents, 1),
+          dset = h5f.create_dataset(grp.name / dsetWrite, nevents,
                                     datatype)
         if dsetWrite == "CdlSpectrumIndices":
           dset[dset.all] = passIdx
@@ -1112,8 +1112,8 @@ template datasetCreation(h5f: untyped, name, dlen, `type`: untyped): untyped =
   h5f.create_dataset(name,
                      dlen,
                      dtype = `type`,
-                     chunksize = @[5000, 1], # some hardcoded chunk size
-                     maxshape = @[int.high, 1])
+                     chunksize = @[5000], # some hardcoded chunk size
+                     maxshape = @[int.high])
 
 template createAndWrite(h5read, h5write, `type`, dset, outname: untyped): untyped =
   let vlenType = special_type(`type`)

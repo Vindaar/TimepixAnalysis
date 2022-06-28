@@ -771,3 +771,83 @@ Interesting things to take in mind / to try out:
   observation!
 - [ ] what else?
   
+
+
+** Timepix3
+
+=parse_raw_tpx3=
+
+Mini benchmark of parsing performance when comparing usage of
+=OrderedSet[int]= with =IntSet= (=std/intsets=):
+#+begin_quote
+Both with debugger native:
+
+OrderedSet
+        Number of dropped batches: 0 of batch size: 100000000
+[INFO]: Closing input file /home/basti/CastData/data/Tpx3Data/Data/DataTake_2022-05-18_20-21-53.h5
+[INFO]: Closing output file /t/t.h5
+./parse_raw_tpx3 -p  --out /t/t.h5  18.42s user 0.36s system 99% cpu 18.794 total
+basti at voidRipper in ~/CastData/ExternCode/TimepixAnalysis/Analysis/ingrid ツ nim c -d:b
+
+
+IntSet
+        Number of dropped slices: 48664
+        Number of dropped batches: 0 of batch size: 100000000
+[INFO]: Closing input file /home/basti/CastData/data/Tpx3Data/Data/DataTake_2022-05-18_20-21-53.h5
+[INFO]: Closing output file /t/t.h5
+./parse_raw_tpx3 -p  --out /t/t.h5  14.43s user 0.51s system 98% cpu 15.144 total
+basti at voidRipper in ~/CastData/ExternCode/TimepixAnalysis/Analysis/ingrid ツ
+
+IntSet for `idxToKeep` and for `indices`:
+ Processed file: /home/basti/CastData/data/Tpx3Data/Data/DataTake_2022-05-18_20-21-53.h5, run number: 0 written to /t/t.h5
+        Number of slices processed: 461788
+        Number of dropped slices: 48664
+        Number of dropped batches: 0 of batch size: 100000000
+[INFO]: Closing input file /home/basti/CastData/data/Tpx3Data/Data/DataTake_2022-05-18_20-21-53.h5
+[INFO]: Closing output file /t/t.h5
+./parse_raw_tpx3 -p  --out /t/t.h5  13.23s user 0.37s system 99% cpu 13.609 total
+basti at voidRipper in ~/CastData/ExternCode/TimepixAnalysis/Analysis/ingrid ツ
+
+
+both with lto and w/o debugger native:
+
+       Number of slices processed: 461788
+        Number of dropped slices: 48664
+        Number of dropped batches: 0 of batch size: 100000000
+[INFO]: Closing input file /home/basti/CastData/data/Tpx3Data/Data/DataTake_2022-05-18_20-21-53.h5
+[INFO]: Closing output file /t/t.h5
+./parse_raw_tpx3 -p  --out /t/t.h5  15.59s user 0.36s system 99% cpu 15.967 total
+basti at voidRipper in ~/CastData/ExternCode/TimepixAnalysis/Analysis/ingrid ツ
+
+IntSet
+
+[INFO]: === Summary ===
+        Processed file: /home/basti/CastData/data/Tpx3Data/Data/DataTake_2022-05-18_20-21-53.h5, run number: 0 written to /t/t.h5
+        Number of slices processed: 461788
+        Number of dropped slices: 48664
+        Number of dropped batches: 0 of batch size: 100000000
+[INFO]: Closing input file /home/basti/CastData/data/Tpx3Data/Data/DataTake_2022-05-18_20-21-53.h5
+[INFO]: Closing output file /t/t.h5
+./parse_raw_tpx3 -p  --out /t/t.h5  11.87s user 0.36s system 99% cpu 12.235 total
+basti at voidRipper in
+        ~/CastData/ExternCode/TimepixAnalysis/Analysis/ingrid ツ
+
+
+IntSet & IntSet for to `indices`:
+
+        Number of slices processed: 461788
+        Number of dropped slices: 48664
+        Number of dropped batches: 0 of batch size: 100000000
+[INFO]: Closing input file /home/basti/CastData/data/Tpx3Data/Data/DataTake_2022-05-18_20-21-53.h5
+[INFO]: Closing output file /t/t.h5
+./parse_raw_tpx3 -p  --out /t/t.h5  10.85s user 0.38s system 99% cpu 11.242 total
+basti at voidRipper in ~/CastData/ExternCode/TimepixAnalysis/Analysis/ingrid ツ
+
+#+end_quote
+
+All run with:
+#+begin_src sh
+basti at voidRipper in ~/CastData/ExternCode/TimepixAnalysis/Analysis/ingrid ツ time \
+      ./parse_raw_tpx3 -p /home/basti/CastData/data/Tpx3Data/Data/DataTake_2022-05-18_20-21-53.h5 \
+      --out /t/t.h5
+#+end_src

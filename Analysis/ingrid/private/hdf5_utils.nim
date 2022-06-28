@@ -653,11 +653,22 @@ iterator chipGroups*(h5f: H5File, data_basename = recoBase()): (int, int, string
   var
     runNumber = -1 # if run number is already part of `data_basename` we return -1
     chipNumber: int
-  for grp in groups:
-    if grp.startsWith(data_basename) and
-       (grp.removePrefix(data_basename).scanf("$i/chip_$i$.", runNumber, chipNumber) or
-        grp.removePrefix(data_basename).scanf("/chip_$i$.", chipNumber)):
-      yield (runNumber, chipNumber, grp)
+  # determine whether user gave us a `base` path (i.e. ending on `run_`)
+  let isBasePath = data_basename.endsWith("run_")
+  if isBasePath:
+    for grp in groups:
+      if grp.startsWith(data_basename) and
+         grp.removePrefix(data_basename).scanf("$i/chip_$i$.", runNumber, chipNumber):
+        yield (runNumber, chipNumber, grp)
+  else:
+    # this must already contain a run number!
+    let nameFormat = data_basename
+    doAssert nameFormat[^1] in Digits, "Given path must be a run group, i.e. with a digit for a run number."
+    for grp in groups:
+      if grp.startsWith(nameFormat) and
+         grp.removePrefix(nameFormat).scanf("/chip_$i$.", chipNumber):
+        yield (runNumber, chipNumber, grp)
+
 
 iterator dsets*(h5f: H5File,
                 dsetName: string,

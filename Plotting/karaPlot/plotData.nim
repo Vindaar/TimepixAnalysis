@@ -2354,8 +2354,11 @@ proc genBackgroundPlotPDs(h5f: H5File, runType: RunTypeKind,
     result.add occupancies(h5f, runType, fInfoConfig, config) # plus center only
   if cfPolya in config.flags:
     result.add polya(h5f, runType, fInfoConfig, config)
+  if cfToTPerPixel in config.flags:
+    result.add totPerPixel(h5f, runType, fInfoConfig, config)
   # energyCalib(h5f) # ???? plot of gas gain vs charge?!
-  result.add histograms(h5f, runType, fInfoConfig, config) # including fadc
+  if cfIngrid in config.flags:
+    result.add histograms(h5f, runType, fInfoConfig, config) # including fadc
   # result.add createCustomPlots(fInfoConfig, config)
   if config.customPlots.len > 0:
     result.add createCustomPlots(fInfoConfig, config)

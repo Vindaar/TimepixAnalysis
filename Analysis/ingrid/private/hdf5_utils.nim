@@ -470,7 +470,7 @@ proc hasRawRun*(h5f: H5File, runNumber: int): bool =
 proc runFinished*(h5f: H5File, runNumber: int) =
   ## writes the `rawDataFinished` attribute to the run with
   ## `runNumber`
-  let path = rawDataBase & $runNumber
+  let path = rawDataBase() & $runNumber
   var grp = h5f[path.grp_str]
   grp.attrs["rawDataFinished"] = "true"
 
@@ -730,7 +730,7 @@ proc timepixVersion*(h5f: H5File): TimepixVersion =
   tryGroup(likelihoodGroupGrpStr())
   tryGroup(tpx3InterpGroupGrpStr())
 
-proc getFileInfo*(h5f: H5File, baseGroup = recoGroupGrpStr()): FileInfo =
+proc getFileInfo*(h5f: H5File): FileInfo =
   ## returns a set of all run numbers in the given file
   # 1. determine the `TpaFileKind` (determines `baseGroup`)
   result.tpaFileKind =
@@ -741,6 +741,7 @@ proc getFileInfo*(h5f: H5File, baseGroup = recoGroupGrpStr()): FileInfo =
     elif "/interpreted" in h5f: tpkTpx3Interp
     else:
       raise newException(IOError, "The input file " & $h5f.name & " is not a valid TPA H5 file.")
+  let baseGroup = ($result.tpaFileKind).grp_str
   # 2. read information based on type of file
   case result.tpaFileKind
   of tpkTpx3Raw:

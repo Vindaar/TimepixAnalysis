@@ -1,6 +1,8 @@
 import strutils, ospaths, re, tables, macros, os, times
 import parsetoml
 
+import ingrid / ingrid_types
+
 # helper proc to remove the ``src`` which is part of `nimble path`s output
 # this is a bug, fix it.
 proc removeSuffix(s: string, rm: string): string {.compileTime.} =
@@ -38,6 +40,8 @@ const
   FsrPattern* = "fsr*.txt"
   TotPrefix* = "TOTCalib"
   TotPattern* = TotPrefix & r"*\.txt"
+  TotPrefixTpx3* = "ToTCalib"
+  TotPatternTpx3* = TotPrefixTpx3 & r"*\.h5"
   ThresholdPrefix* = "threshold"
   ThresholdPattern* = r"threshold[0-9]\.txt"
   ThresholdMeansPrefix* = ThresholdPrefix & "Means"
@@ -68,6 +72,7 @@ const
 let
   ChipNameLineReg* = "chipName:"
   RunPeriodLineReg* = "runPeriod:"
+  TimepixVersionReg* = "timepixVersion:"
   ChipNameReg* = re(r".*([A-Z])\s*([0-9]+)\s*W\s*([0-9]{2}).*")
   FsrReg* = re(FsrPrefix & r"([0-9])\.txt")
   FsrContentReg* = re(r"(\w+)\s([0-9]+)")
@@ -83,6 +88,7 @@ type
   Chip* = object
     name*: ChipName
     run*: string # name of run period (has to exist in file!)
+    version*: TimepixVersion
     info*: Table[string, string]
 
   TotType* = object

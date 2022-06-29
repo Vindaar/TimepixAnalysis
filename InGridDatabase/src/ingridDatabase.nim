@@ -114,6 +114,9 @@ proc parseChipInfo(filename: string): Chip =
   # fill the `name` and `run` field
   result.name = parseChipName(chipStr)
   result.run = info[1].removePrefix(RunPeriodLineReg).strip
+  ## TODO: possibly use the `version` field instead of using the `info` table
+  ## as we currently do for things like TimepixVersion
+  #result.version = parseEnum[TimepixVersion](info[2].removePrefix(TimepixVersionReg).strip)
   # parse the optional content of further notes on the chip
   # e.g. board, chip number on that board etc.
   result.info = initTable[string, string]()
@@ -221,6 +224,9 @@ proc addChip(folder: string) =
   var tot: Tot
   for f in walkFiles(joinPath(folder, TotPattern)):
     tot = parseTotFile(f)
+  for f in walkFiles(joinPath(folder, TotPatternTpx3)):
+    tot = parseTotFile(f)
+
 
   # check for threshold / threshold means
   var

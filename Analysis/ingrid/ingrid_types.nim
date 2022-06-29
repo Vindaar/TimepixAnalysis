@@ -345,6 +345,32 @@ type
     thrFile*: string  ## Path to the threshold file
     maskFile*: string ## Path to the mask file
 
+  Tpx3DacsRaw* = object
+    ## IMPORTANT: I don't know if these sizes may ever change!
+    attribute*: array[64, char]
+    value*: uint16
+
+  Tpx3Dacs* = object
+    Ibias_Preamp_ON*:   uint16
+    Ibias_Preamp_OFF*:  uint16
+    VPreamp_NCAS*:      uint16
+    Ibias_Ikrum*:       uint16
+    Vfbk*:              uint16
+    Vthreshold_fine*:   uint16
+    Vthreshold_coarse*: uint16
+    Ibias_DiscS1_ON*:   uint16
+    Ibias_DiscS1_OFF*:  uint16
+    Ibias_DiscS2_ON*:   uint16
+    Ibias_DiscS2_OFF*:  uint16
+    Ibias_PixelDAC*:    uint16
+    Ibias_TPbufferIn*:  uint16
+    Ibias_TPbufferOut*: uint16
+    VTP_coarse*:        uint16
+    VTP_fine*:          uint16
+    Ibias_CP_PLL*:      uint16
+    PLL_Vcntrl*:        uint16
+    Sense_DAC*:         uint16
+
   ## GasGainIntervalData stores the information about binning the data for the
   ## calculation of the gas gain in a run by a fixed time interval, e.g.
   ## 100 minutes

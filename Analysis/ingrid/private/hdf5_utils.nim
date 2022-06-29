@@ -841,13 +841,16 @@ proc toString[N](a: array[N, char]): string =
     else:
       break
 
-proc readTpx3RunConfig*(h5f: H5File): Tpx3RunConfig =
+proc readTpx3CompoundKeyValue*[T; U](h5f: H5File, path: string): U =
   ## Reads the `run_config` dataset in the `/configuration` group and returns
   ## it turned into a `Table[string, string]`
-  let data = h5f["/configuration/run_config", Tpx3RunConfigRaw]
+  let data = h5f[path, T]
   for el in data:
     let attr = el.attribute.toString
-    let val = el.value.toString
+    when typeof(el.value) is array[128, char]:
+      let val = el.value.toString
+    elif typeof(el.value) is uint16:
+      let val = el.value
     for field, fval in fieldPairs(result):
       if field.nimIdentNormalize == attr.nimIdentNormalize:
         when typeof(fval) is int:
@@ -856,6 +859,18 @@ proc readTpx3RunConfig*(h5f: H5File): Tpx3RunConfig =
           fval = val[0]
         else:
           fval = val
+
+proc readTpx3RunConfig*(h5f: H5File, run: int): Tpx3RunConfig =
+  ## Reads the `run_config` dataset in the `/configuration` group and returns
+  ## it turned into a `Table[string, string]`
+  let runPath = tpx3Base() & $run
+  let cfgPath = runPath / "configuration/run_config"
+  result = readTpx3CompoundKeyValue[Tpx3RunConfigRaw, Tpx3RunConfig](h5f, cfgPath)
+
+proc readTpx3Dacs*(h5f: H5File, path: string): Tpx3Dacs =
+  ## Reads the `run_config` dataset in the `/configuration` group and returns
+  ## it turned into a `Table[string, string]`
+  result = readTpx3CompoundKeyValue[Tpx3DacsRaw, Tpx3Dacs](h5f, path)
 
 proc timeFromTpx3RunConfig*(tpx3: Tpx3RunConfig): DateTime =
   ## Parses the date / time from the `runName` and returns it as a `DateTime`

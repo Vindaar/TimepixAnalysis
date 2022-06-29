@@ -689,6 +689,9 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
     totalScintiRemovedNotLogRemoved = 0
     totalEvCount = 0
     totalLogLCount = 0
+
+
+  let fileInfo = getFileInfo(h5f)
   for num, group in runs(h5f):
     ## XXX: turn the following into a proper feature
     #if num != 261: continue
@@ -700,10 +703,16 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
     let centerChip = run_attrs["centerChip", int]
     # get timestamp for run
     let tstamp = h5f[(group / "timestamp"), int64]
-    let evDurations = h5f[group / "eventDuration", float64]
     let eventNumbers = h5f[group / "eventNumber", int64]
-    # add sum of event durations
-    totalDuration += evDurations.foldl(a + b, 0.0)
+    case fileInfo.timepix
+    of Timepix1:
+      # determine total duration based on `eventDuration`
+      let evDurations = h5f[group / "eventDuration", float64]
+      totalDuration += evDurations.foldl(a + b, 0.0)
+    of Timepix3:
+      # in case of stream based readout, total duration is just stop - start of run
+      # (stored as an attribute already)
+      totalDuration += h5f[group.grp_str].attrs["totalRunDuration", int].float
 
     var
       fadcTrigger: seq[int64]

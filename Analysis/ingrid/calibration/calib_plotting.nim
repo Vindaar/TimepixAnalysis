@@ -183,7 +183,7 @@ proc plotFeSpectrumInfoFacet*(pos_x, pos_y, ecc, rms_trans: seq[float],
 
   # gather and filter NaN
   let dfGath = df.gather(getKeys(df), key = "Property", value = "Value")
-    .filter(f{float -> bool: not `Value`.isNaN})
+    .filter(f{float -> bool: classify(`Value`) notin {fcNaN, fcNegInf, fcInf} })
   ggplot(dfGath, aes("Value")) +
     facet_wrap("Property", scales = "free") +
     geom_histogram(bins = 100, position = "identity", binBy = "subset") +

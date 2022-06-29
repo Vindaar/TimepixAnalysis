@@ -106,6 +106,7 @@ proc fitToTCalib*(tot: Tot, startFit = 0.0): FitResult =
   result.pRes = pRes
   result.pErr = res.error
   result.redChiSq = res.reducedChiSq
+  result.resText = pretty(pRes, res)
 
 proc fitSCurve*(curve: SCurve): FitResult =
   ## performs the fit of the `sCurveFunc` to the given `thl` and `hits`

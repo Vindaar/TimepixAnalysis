@@ -282,6 +282,7 @@ type
     pRes*: seq[float]
     pErr*: seq[float]
     redChiSq*: float
+    resText*: string
 
   TpaFileKind* = enum
     tpkRawData = "/runs"           # output of `raw_data_manipulation`

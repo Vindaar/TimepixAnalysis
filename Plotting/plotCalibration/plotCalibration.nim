@@ -135,17 +135,18 @@ proc plotToTCalib*(totCalib: FitResult, tot: Tot, chip = 0, chipName = "") =
     title = &"ToT calibration of Chip {chipName}"
   else:
     title = &"ToT calibration of Chip {chip}"
+
   ggplot(dfData, aes("U / mV", "ToT")) +
-    geom_line(data = dfFit, color = some(color(1.0, 0.0, 1.0))) +
     geom_point() +
-    geom_linerange(aes = aes(x = 50.0, yMin = 50, yMax = 200)) +
-    annotate("Test text", x = 50.0, y = 100.0, font = font(10.0)) +
     geom_errorbar(aes = aes(yMin = f{`ToT` - `std`}, yMax = f{`ToT` + `std`})) +
+    geom_line(data = dfFit, color = some(color(1.0, 0.0, 1.0))) +
+    annotate(totCalib.resText, x = 50.0, y = 150.0, font = font(10.0, family = "monospace"),
+             backgroundColor = color(0.0, 0.0, 0.0, 0.0)) +
     xlab(r"$U_\text{injected} / \si{mV}$") +
     ylab("ToT / clock cycles") +
     ggtitle(title) +
-    theme_latex() +
-    ggsave(&"out/tot_calib_{chip}.pdf", useTex = true, standalone = true)
+    #theme_latex() +
+    ggsave(&"out/tot_calib_{chip}.pdf") # , useTex = true, standalone = true)
 
 proc plotCharge*(a, b, c, t: float, chip: int, chipName = "") =
   let tots = linspace(0.0, 150.0, 1000)
@@ -252,7 +253,6 @@ proc parseTotInput(args: DocoptTab, startTot = 0.0): (int, string, Tot) =
       tot = getTotCalib(chipName, runPeriod)
   elif file != "nil":
     (chip, tot) = readToTFile(file, startTot)
-
   else:
     for f in walkFiles(folder.expandTilde & "/*.txt"):
       # TODO: implement multiple in same plot?

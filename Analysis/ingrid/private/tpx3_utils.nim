@@ -47,7 +47,7 @@ proc computeTpx3RunParameters*(data: seq[Tpx3Data], startIdx, clusterTimeCutoff,
   var lengths = newSeq[float]()
   var hits = newSeq[uint16]()
   var tots = newSeq[uint16]()
-  var cluster: ChipEvent
+  var cluster = ChipEvent(version: Timepix3)
   var ev = Event(isValid: true, chips: newSeq[ChipEvent](1), nChips: 1,
                  evHeader: e_header)
   var lastToa = 0 # int64.high
@@ -86,6 +86,9 @@ proc computeTpx3RunParameters*(data: seq[Tpx3Data], startIdx, clusterTimeCutoff,
       if cluster.pixels.len > 0:
         ev.chips = @[cluster]
         ev.evHeader["eventNumber"] = $eventIdx
+        ev.evHeader["numHits"] = $cluster.pixels.len
+        ev.evHeader["timestamp"] = $(el.chunkStartTime.round.int)
+        ev.evHeader["dateTime"] = format(fromUnixFloat(el.chunkStartTime.float), "YYYY-MM-dd'.'HH:mm:ss")
         clusters.add ev
         lengths.add ev.length
         hits.add cluster.pixels.len.uint16

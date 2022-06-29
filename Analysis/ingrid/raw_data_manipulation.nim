@@ -1155,6 +1155,52 @@ proc processAndWriteSingleRun(h5f: var H5File, run_folder: string,
   # TODO: write all other settings to file too? e.g. `nofadc`,
   # `ignoreRunList` etc?
 
+proc processAndWriteSingleRunTpx3(h5f: H5File, h5fout: var H5File,
+                                  runNumber: int,
+                                  clusterCutoff: int,
+                                  plotDirPrefix: string,
+                                  runType: RunTypeKind = rtNone) =
+  const tpx3Buf = 50_000_000
+  const nChips = 1 ## NOTE: so far we just use 1 chip for simplicity
+
+  let runPath = tpx3Base() & $runNumber
+  let dset = h5f[(runPath / "hit_data").dset_str]
+  let runConfig = h5f.readTpx3RunConfig(runNumber)
+  let pixNum = dset.shape[0]
+  let batches = ceil(pixNum.float / tpx3Buf.float).int
+  var oldIdx = 0
+  var countIdx = min(tpx3Buf, pixNum)
+  var ingridInit = false
+  for idx in 0 ..< batches:
+    info "Processing batch index from ", oldIdx, " to ", countIdx
+    var data = dset.read_hyperslab(Tpx3Data, @[oldIdx],
+                                   count = @[countIdx])
+    oldIdx += countIdx
+    countIdx = if oldIdx + tpx3Buf < pixNum: tpx3Buf
+               else: pixNum - oldIdx
+    let r = createProcessedTpx3Run(data, oldIdx, cutoff = clusterCutoff,
+                                   runNumber = runNumber,
+                                   runConfig = runConfig)
+    if r.events.len > 0:
+      if not ingridInit:
+        #runNumber = r.runNumber
+        #nChips = processedRun.nChips
+        # create datasets in H5 file
+        initInGridInH5(h5fout, runNumber, nChips, batchsize = FILE_BUFSIZE, createToADset = true)
+      # now attributes
+      writeInGridAttrs(h5fout, r, rfUnknown, runType, ingridInit,
+                       clusterCutoff)
+      ingridInit = true
+      for chip in 0 ..< nChips:
+        plotOccupancy(squeeze(r.occupancies[chip,_,_]),
+                      plotDirPrefix, runNumber, chip,
+                      batchNum = idx)
+      writeProcessedRunToH5(h5fout, r)
+      runFinished(h5fout, runNumber)
+      info "Size of total ProcessedRun object = ", sizeof(r)
+    else:
+      warn "Skipped writing to file, since ProcessedRun contains no events!"
+
 proc askNoRunListContinue(): bool =
   var buf: string
   while true:
@@ -1277,14 +1323,11 @@ proc handleTimepix1(folder: string, runType: RunTypeKind, outfile: string,
 
 proc handleTimepix3(h5file: string, runType: RunTypeKind,
                     outfile: string,
-                    runNumber: int,
                     flags: set[RawFlagKind],
                     configFile: string) =
   ## handles converting a Timepix3 input file from tpx3-daq / basil format to required TPA format
   info "Converting Tpx3 data from " & $h5file & " and storing it in " & $outfile
   var h5fout = H5File(outfile, "rw")
-
-  const nChips = 1 ## NOTE: so far we just use 1 chip for simplicity
   # parse config toml file
   let cfgTable = parseTomlConfig(configFile)
   let plotOutPath = cfgTable["RawData"]["plotDirectory"].getStr
@@ -1292,53 +1335,18 @@ proc handleTimepix3(h5file: string, runType: RunTypeKind,
 
   let plotDirPrefix = h5fout.genPlotDirname(plotOutPath, PlotDirRawPrefixAttr)
 
-  var h5f = H5File(h5file, "rw")
-  const tpx3Buf = 50_000_000
-  let dset = h5f["interpreted/hit_data_0".dset_str]
-  let runConfig = h5f.readTpx3RunConfig()
-  let pixNum = dset.shape[0]
-  let batches = ceil(pixNum.float / tpx3Buf.float).int
-  var oldIdx = 0
-  var countIdx = min(tpx3Buf, pixNum)
-  var attrsWritten = false
-  for idx in 0 ..< batches:
-    var data = dset.read_hyperslab(Tpx3Data, @[oldIdx, 0],
-                                   count = @[countIdx, 1])
-    oldIdx += countIdx
-    countIdx = if oldIdx + tpx3Buf < pixNum: tpx3Buf
-               else: pixNum - oldIdx
-    let r = createProcessedTpx3Run(data, oldIdx, cutoff = clusterCutoff,
-                                   runNumber = runNumber,
-                                   runConfig = runConfig)
-    if r.events.len > 0:
-      if not attrsWritten:
-        #runNumber = r.runNumber
-        #nChips = processedRun.nChips
-        # create datasets in H5 file
-        initInGridInH5(h5fout, runNumber, nChips, batchsize = FILE_BUFSIZE, createToADset = true)
-        # now init attributes
-        writeInGridAttrs(h5fout, r, rfUnknown, runType)
-        for chip in 0 ..< nChips:
-          plotOccupancy(squeeze(r.occupancies[chip,_,_]),
-                        plotDirPrefix, runNumber, chip,
-                        batchNum = idx)
-        attrsWritten = true
-      writeProcessedRunToH5(h5fout, r)
-      info "Size of total ProcessedRun object = ", sizeof(r)
-    else:
-      warn "Skipped writing to file, since ProcessedRun contains no events!"
-
+  var h5f = H5File(h5file, "r")
+  let fileInfo = getFileInfo(h5f)
+  for runNumber in fileInfo.runs:
+    h5f.processAndWriteSingleRunTpx3(h5fout, runNumber, clusterCutoff, plotOutPath, fileInfo.runType)
   discard h5f.close()
   # finally once we're done, add `rawDataFinished` attribute
-  runFinished(h5fout, runNumber)
   discard h5fout.close()
 
 proc main(path: string, runType: RunTypeKind,
           `out` = "", nofadc = false, ignoreRunList = false,
           config = "", overwrite = false, tpx3 = false,
-          run = 0
          ) =
-  echo "Running main! ", run
   var runType: RunTypeKind
   var flags: set[RawFlagKind]
   let outfile = if `out`.len == 0: "run_file.h5" else: `out`
@@ -1357,7 +1365,7 @@ proc main(path: string, runType: RunTypeKind,
   if rfTpx3 notin flags:
     handleTimepix1(path, runType, outfile, flags, config)
   else:
-    handleTimepix3(path, runType, outfile, run, flags, config)
+    handleTimepix3(path, runType, outfile, flags, config)
 
   info "Processing all given runs took $# minutes" % $( (epochTime() - t0) / 60'f )
 
@@ -1374,7 +1382,6 @@ when isMainModule:
 
   dispatch(main, help = {
     "tpx3" : "Convert data from a Timepix3 H5 file to TPA format instead of a Tpx1 run directory",
-    "run" : "(only Tpx3) If given uses the given number as the run number for the input file.",
     "runType" : """Select run type (Calib | Back | Xray)
 The following are parsed case insensetive:
   Calib = {"calib", "calibration", "c"}

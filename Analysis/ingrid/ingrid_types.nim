@@ -283,7 +283,7 @@ type
     pErr*: seq[float]
     redChiSq*: float
 
-  TpaFileKind = enum
+  TpaFileKind* = enum
     tpkRawData = "/runs"           # output of `raw_data_manipulation`
     tpkReco = "/reconstruction"    # output of `reconstruction`
     tpkLogL = "/likelihood"        # output of `likelihood`
@@ -331,6 +331,7 @@ type
     ## IMPORTANT: I don't know if these sizes may ever change!
     attribute*: array[64, char]
     value*: array[128, char]
+
 
   ## The above merged into a sane typed object
   Tpx3RunConfig* = object

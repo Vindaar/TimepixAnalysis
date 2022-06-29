@@ -556,6 +556,23 @@ proc copyOverDataAttrs(h5f, h5fout: H5File, runNumber: int) =
     else:
       doAssert false, "Unexpected dataset " & $dset & " with base type " & $dset.dtypeAnyKind
 
+proc writeRecoAttrs(h5f: H5File, runNumber: int, clusterAlgo: ClusteringAlgorithm,
+                    searchRadius: int, epsilon: float, ingridInit: bool) =
+  ## Write the reconstruction specific
+  template writeAttrs(group: untyped): untyped =
+    group.attrs["clusterAlgo"] = $clusterAlgo
+    group.attrs["searchRadius"] = searchRadius
+    group.attrs["dbscanEpsilon"] = epsilon
+
+    ## Write global variables of `raw_data_manipulation`
+    group.attrs["reconstruction_version"] = commitHash
+    group.attrs["reconstruction_compiled_on"] = compileDate
+  var recoGrp = h5f[recoGroupGrpStr()]
+  var runGrp = h5f[(recoBase() & $runNumber).grp_str]
+  if not ingridInit:
+    writeAttrs(recoGrp)
+  writeAttrs(runGrp)
+
 proc calcTriggerFractions(h5f: H5File, runNumber: int) =
   ## calculates the fraction of events within a given run of events with
   ## - FADC triggers
@@ -629,6 +646,7 @@ proc reconstructRunsInFile(h5f: H5File,
   let showPlots = if cfShowPlots in cfgFlags: true else: false
   # read the timepix version from the input file
   let timepixVersion = h5f.timepixVersion()
+  var ingridInit = false
   recordIterRuns(rawDataBase()):
     if (recoBase() & $runNumber) in h5fout:
       # check attributes whether this run was actually finished
@@ -648,6 +666,9 @@ proc reconstructRunsInFile(h5f: H5File,
       # initialize groups in `h5fout`
       initRecoFadcInH5(h5f, h5fout, runNumber, batchsize)
       copyOverDataAttrs(h5f, h5fout, runNumber)
+
+      writeRecoAttrs(h5fout, runNumber, clusterAlgo, searchRadius, dbscanEpsilon, ingridInit)
+      ingridInit = true
 
       var runGroupForAttrs = h5f[grp.grp_str]
       let nChips = runGroupForAttrs.attrs["numChips", int]

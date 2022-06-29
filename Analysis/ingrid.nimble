@@ -14,7 +14,7 @@ requires "nim >= 1.4.0"
 requires "helpers >= 0.2.0"
 # major dependencies
 requires "arraymancer >= 0.7.12"
-requires "https://github.com/vindaar/seqmath >= 0.1.5"
+requires "https://github.com/vindaar/seqmath >= 0.1.15"
 requires "ggplotnim >= 0.5.1"
 requires "nimhdf5 >= 0.4.8"
 # optimization dependencies

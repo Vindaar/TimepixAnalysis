@@ -882,6 +882,61 @@ proc chipNameFromTpx3RunConfig*(tpx3: Tpx3RunConfig): string =
   ## Parses the date / time from the `runName` and returns it as a `DateTime`
   result = &"{tpx3.chipX}{tpx3.chipY:2}W{tpx3.chipWafer}"
 
+
+type
+  Tpx3RunConfigToT = object
+    scan_id: string
+    run_name: string
+    software_version: string
+    board_name: string
+    firmware_version: int
+    chip_wafer: int
+    chip_x: char
+    chip_y: int
+    VTP_fine_start: int
+    VTP_fine_stop: int
+    mask_step: int
+    tp_period: int
+    thrfile: string
+    maskfile: string
+
+type
+  Tpx3TotMean = object
+    tot: float32
+    totError: float32
+
+import unchained
+proc readToTFileTpx3*(filename: string,
+                      startRead = 0.0,
+                      totPrefix = "TOTCalib"): (int, Tot) =
+  # 1. read chip number ⇐ does not exist in H5 file at the moment for Tpx3
+  # 2. read VTP values and use them to compute voltages
+
+  var h5f = H5open(filename, "r")
+  let tpx3Dacs = h5f.readTpx3Dacs("/configuration/dacs")
+
+  let vtpCoarse = tpx3Dacs.VTP_coarse
+
+  # 3. read start and stop VTP_fine values via runConfig
+  let runConfig = readTpx3CompoundKeyValue[Tpx3RunConfigRaw, Tpx3RunConfigToT](h5f, "/configuration/run_config")
+  let vtpStart = runConfig.VTP_fine_start
+  let vtpStop = runConfig.VTP_fine_stop
+  # 3. read ToT & error values
+
+  proc toMilliVolt(vtpCoarse, vtpFine: int): MilliVolt =
+    result = (-5.0.mV * vtpCoarse + 2.5.mV * vtpFine).to(mV)
+
+  let data = h5f["interpreted/mean_curve", Tpx3TotMean]
+  let vtps = arange(vtpStart, vtpStop)
+  doAssert vtps.len == data.len
+  var tot: ToT
+  for i in 0 ..< data.len:
+    if data[i].totError > 0.0:
+      tot.mean.add data[i].tot
+      tot.std.add data[i].totError
+      tot.pulses.add toMilliVolt(vtpCoarse.int, vtps[i]).float
+  result = (0, tot) # chip assume 0 for now
+
 when isMainModule:
   assert combineRawBasenameToT(0, 1) == "/runs/combined/ToT_0_1"
   assert combineRecoBasenameToT(0, 1) == "/reconstruction/combined/ToT_0_1"

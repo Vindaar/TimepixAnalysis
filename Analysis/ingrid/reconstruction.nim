@@ -544,7 +544,6 @@ proc copyOverDataAttrs(h5f, h5fout: H5File, runNumber: int) =
   template copyOver(path, dtype: untyped): untyped =
     # don't care for the returned group here
     discard h5fout.write_dataset(recoBase() & path, h5f[rawDataBase() & path, dtype])
-  h5f.visit_file() # is this required?
   let rawGrp = h5f[(rawDataBase() & $runNumber).grp_str]
   info "Copying over data from input ", h5f.name, " to ", h5fout.name
   for dset in items(rawGrp): # copy one level (nested is not copied)

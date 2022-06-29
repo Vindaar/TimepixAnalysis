@@ -402,11 +402,23 @@ template tpx3InterpGroupGrpStr*(): grp_str =
 template rawDataBase*(): string =
   "/runs/run_"
 
+template recoBase*(): string =
+  "/reconstruction/run_"
+
+template likelihoodBase*(): string =
+  "/likelihood/run_"
+
+template tpx3Base*(): string =
+  "/interpreted/run_"
+
 template rawDataChipBase*(runNumber: int): string =
   "/runs/run_$#/chip_" % $runNumber # & "$#"
 
 template recoDataChipBase*(runNumber: int): string =
   "/reconstruction/run_$#/chip_" % $runNumber # & "$#"
+
+template tpx3DataChipBase*(runNumber: int): string =
+  "/interpreted/run_$#/chip_" % $runNumber # & "$#"
 
 proc recoPath*(runNumber, chipNumber: int): grp_str {.inline.} =
   result = (recoDataChipBase(runNumber) & $chipNumber).grp_str
@@ -415,14 +427,8 @@ proc getGroupNameRaw*(runNumber: int): string =
   # generates the group name for a given run number
   result = rawDataBase() & $runNumber
 
-template recoBase*(): string =
-  "/reconstruction/run_"
-
 proc recoRunGrpStr*(runNumber: int): grp_str {.inline.} =
   result = (recoBase() & $runNumber).grp_str
-
-template likelihoodBase*(): string =
-  "/likelihood/run_"
 
 proc getGroupNameReco*(runNumber: int): string =
   # generates the reconstrution group name for a given run number

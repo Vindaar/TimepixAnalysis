@@ -54,7 +54,9 @@ proc extractYear(f: string): int =
   if fname.scanf("$*_$i_$*", dummy, result, dummy):
     echo "found a year ", result
 
-proc readFiles(files: seq[string], names: seq[string], region: ChipRegion): seq[LogLFile] =
+proc readFiles(files: seq[string], names: seq[string], region: ChipRegion,
+               energyDset: string,
+               centerChip: int): seq[LogLFile] =
   ## reads all H5 files given and stacks them to a single
   ## DF. An additional column is added, which corresponds to
   ## the filename. That way one can later differentiate which
@@ -65,13 +67,11 @@ proc readFiles(files: seq[string], names: seq[string], region: ChipRegion): seq[
   doAssert names.len == 0 or names.len == files.len, "Need one name for each input file!"
   for idx, file in files:
     let h5f = H5open(file, "r")
-    when false: #TPX3
-      var df = h5f.readDsets(likelihoodBase(), some((0, DsetNames)))
-        .rename(f{Ecol <- "energyFromPixel"})
-        .mutate(f{"Energy" ~ `Energy` / 1000.0})
-    else:
-      var df = h5f.readDsets(likelihoodBase(), some((3, DsetNames)))
-        .rename(f{Ecol <- "energyFromCharge"})
+    var df = h5f.readDsets(likelihoodBase(), some((centerChip, DsetNames)))
+    doAssert not df.isNil, "Read DF is nil. Likely you gave a non existant chip number. Is " &
+      $centerChip & " really the center chip in your input file?"
+    df = df
+      .rename(f{Ecol <- energyDset})
     let fname = if names.len > 0: names[idx]
                 else: file.extractFilename
     df["File"] = constantColumn(fname, df.len)
@@ -131,6 +131,7 @@ proc flatScale(files: seq[LogLFile], factor: float, dropCounts = true): DataFram
     dfLoc = subDf.histogram()
     dfLoc = dfLoc.mutate(f{float: "CountErr" ~ sqrt(`Counts`)})
     dfLoc[Rcol] = dfLoc[Ccol].scaleDset(totalTime, factor)
+    dfLoc["totalTime"] = totalTime.Second.to(Hour).float
     dfLoc["RateErr"] = dfLoc["CountErr"].scaleDset(totalTime, factor)
     dfLoc["Dataset"] = constantColumn(fname, dfLoc.len) #"2017/18_" & $count, dfLoc.len)
     dfLoc = dfLoc.mutate(f{"yMin" ~ `Rate` - `RateErr`}, f{"yMax" ~ `Rate` + `RateErr`})
@@ -219,9 +220,11 @@ proc plotMedianBools(df: DataFrame, fnameSuffix, title: string,
 proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
                         show2014: bool, suffix: string,
                         hidePoints, hideErrors, fill: bool,
-                        useTeX, showPreliminary, genTikZ: bool) =
+                        useTeX, showPreliminary, genTikZ: bool,
+                        showNumClusters, showTotalTime: bool,
+                        topMargin: float) =
   var df = df.filter(f{c"Energy" < 12.0})
-  let titleSuff = if title.len > 0: title
+  var titleSuff = if title.len > 0: title
                   elif show2014:
                     "Background rate of Run 2 & 3 (2017/18) compared to 2014/15"
                   else:
@@ -233,6 +236,18 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
 
   var plt: GgPlot
   let numDsets = df.unique("Dataset").len
+
+  if showNumClusters:
+    titleSuff.add &" #clusters={df.len}"
+
+  if showTotalTime:
+    if numDsets > 1:
+      echo "[WARNING]: Printing total background time currently only supported " &
+        "for single datasets."
+    else:
+      let time = df["totalTime", float][0]
+      titleSuff.add &" background time={time.Hour}"
+
   if numDsets > 1 and fill:
     plt = ggplot(df, aes(Ecol, Rcol, fill = "Dataset")) +
       geom_histogram(stat = "identity", position = "identity", alpha = 0.5,
@@ -270,7 +285,7 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
     xlab(r"Energy [\si{keV}]") +
     ylab(r"Rate [\SI{1e-5}{keV⁻¹ cm⁻² s⁻¹}]", margin = 1.1) +
     #minorGridLines() +
-    ggtitle(title) +
+    ggtitle(titleSuff) +
     theme_latex() +
     theme_transparent()
     if genTikZ:
@@ -280,7 +295,8 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
   else:
     plt + xlab("Energy [keV]") +
     ylab("Rate [10⁻⁵ keV⁻¹ cm⁻² s⁻¹]") +
-    ggtitle(title) +
+    ggtitle(titleSuff) +
+    margin(top = topMargin) +
     ggsave(fname, width = 800, height = 480)
 
   df = df.drop(["Dataset", "yMin", "yMax"])
@@ -338,12 +354,17 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
           fill = false, ## If true, will `fill` with alpha 0.5 for case of multiple datasets.
                         ## Else will color outline
           region: ChipRegion = crAll, # use either all data or cut to given region
+          energyDset = "energyFromCharge",
+          centerChip = 3,
+          topMargin = 1.0,
           useTeX = false,
           showPreliminary = false,
+          showNumClusters = false,
+          showTotalTime = false,
           genTikZ = false
          ) =
   discard existsOrCreateDir("plots")
-  let logLFiles = readFiles(files, names, region)
+  let logLFiles = readFiles(files, names, region, energyDset, centerChip)
   let fnameSuffix = logLFiles.mapIt($it.year).join("_") & "_show2014_" & $show2014 & "_separate_" & $separateFiles & "_" & suffix.replace(" ", "_")
 
   let factor = if log: 1.0 else: 1e5
@@ -411,6 +432,7 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
     intBackRate(df, factor, 0.0 .. 2.5)
     intBackRate(df, factor, 4.0 .. 8.0)
     intBackRate(df, factor, 0.0 .. 8.0)
+
     if show2014:
       df.drop(Ccol)
       var df2014 = toDf(readCsv(Data2014, sep = ' ', header = "#"))
@@ -429,7 +451,9 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
     plotBackgroundRate(
       df, fnameSuffix, title, show2014, suffix,
       hidePoints = hidePoints, hideErrors = hideErrors, fill = fill,
-      useTeX = useTeX, showPreliminary = showPreliminary, genTikZ = genTikZ
+      useTeX = useTeX, showPreliminary = showPreliminary, genTikZ = genTikZ,
+      showNumClusters = showNumClusters, showTotalTime = showTotalTime,
+      topMargin = topMargin
     )
 
 when isMainModule:

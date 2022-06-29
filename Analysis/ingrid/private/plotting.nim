@@ -13,7 +13,6 @@ proc plotOccupancy*[T](occ: Tensor[T], path: string, run, chip: int,
   echo "Creating directory: ", path.parentDir
   createDir(path)
   let fname = path / &"occupancy_run_{run}_chip_{chip}_{batchNum}.pdf"
-  echo "plotting occupancy!"
   var
     x = newTensorUninit[int](NPix * NPix)
     y = newTensorUninit[int](NPix * NPix)
@@ -33,4 +32,3 @@ proc plotOccupancy*[T](occ: Tensor[T], path: string, run, chip: int,
       xlim(0, NPix) + ylim(0, NPix) +
       ggtitle(&"Occupancy of run {run} for chip {chip}") +
       ggsave(fname, height = 800, width = 800)
-  echo "we tried and failed"

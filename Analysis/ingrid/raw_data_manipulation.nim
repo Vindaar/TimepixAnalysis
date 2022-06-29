@@ -565,6 +565,10 @@ proc createChipGroups(h5f: var H5File,
   let chipGroupName = getGroupNameRaw(runNumber) & "/chip_$#"
   result = mapIt(toSeq(0 ..< nChips), h5f.create_group(chipGroupName % $it))
 
+proc getChipGroups(h5f: H5File, runNumber: int, nChips: int = 0): seq[H5Group] =
+  let chipGroupName = getGroupNameRaw(runNumber) & "/chip_$#"
+  result = mapIt(toSeq(0 ..< nChips), h5f[(chipGroupName % $it).grp_str])
+
 proc initInGridInH5*(h5f: var H5File, runNumber, nChips,
                      batchsize: int,
                      createToADset = false) =
@@ -642,25 +646,6 @@ proc writeRawAttrs*(h5f: var H5File,
   let (centerChip, centerName) = getCenterChipAndName(run)
   rawG.attrs["centerChip"] = centerChip
   rawG.attrs["centerChipName"] = centerName
-  let first = run.events[0]
-  let last = run.events[^1]
-  if "dateTime" in first.evHeader:
-    let start = first.evHeader["dateTime"]
-    let stop  = last.evHeader["dateTime"]
-    rawG.attrs["runStart"] = start
-    rawG.attrs["runStop"]  = stop
-    # NOTE: the run length will be wrong by the duration of the last event!
-    rawG.attrs["totalRunDuration"] = (parseTOSDateString(stop) -
-                                      parseTOSDateString(start)).inSeconds
-  else:
-    doAssert "timestamp" in first.evHeader, "Neither `dateTime` nor `timestamp` found in " &
-      "event header. Invalid!"
-    let tStart = first.evHeader["timestamp"].parseInt
-    let tStop  = last.evHeader["timestamp"].parseInt
-    rawG.attrs["runStart"] = $fromUnix(tStart)
-    rawG.attrs["runStop"] = $fromUnix(tStop)
-    # NOTE: the run length will be wrong by the duration of the last event!
-    rawG.attrs["totalRunDuration"] = abs(tStop - tStart)
 
   ## Write global variables of `raw_data_manipulation`
   rawG.attrs["raw_data_manipulation_version"] = commitHash
@@ -669,12 +654,14 @@ proc writeRawAttrs*(h5f: var H5File,
 
 proc writeRunGrpAttrs*(h5f: var H5File, group: var H5Group,
                        runType: RunTypeKind,
-                       run: ProcessedRun) =
+                       run: ProcessedRun,
+                       toaClusterCutoff: int) =
   ## writes all attributes to given `group` that can be extracted from
   ## the `ProcessedRun`, `rfKind` and `runType`.
   # now write attribute data (containing the event run header, for a start
   # NOTE: unfortunately we cannot write all of it simply using applyIt,
   # because we need to parse some numbers as ints, leave some as strings
+  # see https://github.com/Vindaar/TimepixAnalysis/issues/51 for a solution
   var asInt: seq[string]
   var asString: seq[string]
   case run.timepix
@@ -686,8 +673,6 @@ proc writeRunGrpAttrs*(h5f: var H5File, group: var H5Group,
     asInt = @["runNumber", "runTime", "runTimeFrames", "numChips",
               "runMode", "fastClock", "externalTrigger"]
     asString = @["pathName", "dateTime", "shutterMode", "shutterTime"]
-
-
   # write run header
   # Note: need to check for existence of the keys, because for old TOS data,
   # not all keys are set!
@@ -699,6 +684,47 @@ proc writeRunGrpAttrs*(h5f: var H5File, group: var H5Group,
     if it in run.runHeader:
       let att = run.runHeader[it]
       group.attrs[it] = att
+
+  # now write information about run length (in time)
+  let first = run.events[0]
+  let last = run.events[^1]
+  if "dateTime" in first.evHeader:
+    let start = first.evHeader["dateTime"]
+    let stop  = last.evHeader["dateTime"]
+    group.attrs["runStart"] = start
+    group.attrs["runStop"]  = stop
+    # NOTE: the run length will be wrong by the duration of the last event!
+    group.attrs["totalRunDuration"] = (parseTOSDateString(stop) -
+                                      parseTOSDateString(start)).inSeconds
+  else:
+    doAssert "timestamp" in first.evHeader, "Neither `dateTime` nor `timestamp` found in " &
+      "event header. Invalid!"
+    let tStart = first.evHeader["timestamp"].parseInt
+    let tStop  = last.evHeader["timestamp"].parseInt
+
+    # Note: given that we may be processing a run in batches, we need to read the start / stop
+    # attributes and possibly overwrite if they are smaller / larger and recompute the total
+    # run duration!
+    var runStart = inZone(fromUnix(tStart), utc())
+    var runStop = inZone(fromUnix(tStop), utc())
+    if "runStart" in group.attrs:
+      # keep existing if smaller than new
+      let writtenRunStart = parse(group.attrs["runStart", string], "yyyy-MM-dd'T'HH:mm:sszzz")
+      if runStart > writtenRunStart:
+        runStart = writtenRunStart
+    if "runStop" in group.attrs:
+      # keep existing if larger than new
+      let writtenRunStop = parse(group.attrs["runStop", string], "yyyy-MM-dd'T'HH:mm:sszzz")
+      if runStop < writtenRunStop:
+        runStop = writtenRunStop
+    group.attrs["runStart"] = $runStart
+    group.attrs["runStop"] = $runStop
+    # NOTE: the run length will be wrong by the duration of the last event!
+    group.attrs["totalRunDuration"] = inSeconds(runStop - runStart)
+  if toaClusterCutoff > 0:
+    ## dealing with Tpx3 data. Write ToA cluster cutoff
+    group.attrs["toaClusterCutoff"] = toaClusterCutoff
+
   let (centerChip, centerName) = getCenterChipAndName(run)
   group.attrs["centerChipName"] = centerName
   group.attrs["centerChip"] = centerChip
@@ -719,20 +745,25 @@ proc writeChipAttrs*(h5f: var H5File,
     # initialize the attribute for the current number of stored events to 0
     grp.attrs["numEventsStored"] = 0
 
-proc writeInGridAttrs*(h5f: var H5FileObj, run: ProcessedRun,
-                       rfKind: RunFolderKind, runType: RunTypeKind) =
+proc writeInGridAttrs*(h5f: var H5File, run: ProcessedRun,
+                       rfKind: RunFolderKind, runType: RunTypeKind,
+                       ingridInit: bool,
+                       toaClusterCutoff = -1) =
+  ## `ingridInit` is used to indicate whether we need to write the `RawAttrs`
   # writes all attributes into the output file. This includes
   # - "runs" group attributes
   # - individual run group attributes
   # - chip group attributes
   # "runs" group
-  writeRawAttrs(h5f, run, rfKind, runType)
+  if not ingridInit:
+    writeRawAttrs(h5f, run, rfKind, runType)
   # individual run group
   let groupName = getGroupNameRaw(run.runNumber)
   var group = h5f[groupName.grp_str]
-  writeRunGrpAttrs(h5f, group, runType, run)
+  writeRunGrpAttrs(h5f, group, runType, run, toaClusterCutoff)
   # chip groups
-  var chipGroups = createChipGroups(h5f, run.runNumber, run.nChips)
+  var chipGroups = if not ingridInit: createChipGroups(h5f, run.runNumber, run.nChips)
+                   else: getChipGroups(h5f, run.runNumber, run.nChips)
   writeChipAttrs(h5f, chipGroups, run)
 
 proc fillDataForH5(x, y: var seq[seq[seq[uint8]]],
@@ -1070,7 +1101,6 @@ proc processAndWriteSingleRun(h5f: var H5File, run_folder: string,
   ##         the data
   ##     flags: set[RawFlagKind] = flags indicating different settings, e.g. `nofadc`
   const batchsize = FILE_BUFSIZE * 2
-  var attrsWritten = false
   var nChips: int
   # parse config toml file
   let cfgTable = parseTomlConfig(configFile)
@@ -1084,18 +1114,21 @@ proc processAndWriteSingleRun(h5f: var H5File, run_folder: string,
                                    rfKind)
   let plotDirPrefix = h5f.genPlotDirname(plotOutPath, PlotDirRawPrefixAttr)
   var batchNum = 0
+
+  var ingridInit = false
   batchFiles(files, batchsize):
     let r = readAndProcessInGrid(files[0 .. ind_high], runNumber, rfKind)
     if r.events.len > 0:
       nChips = r.nChips
 
-      if not attrsWritten:
+      if not ingridInit:
+        ## XXX: this actually runs for every single run, because this whole procedure is
+        ## *single run* and not multiple runs
         # create datasets in H5 file
         initInGridInH5(h5f, runNumber, nChips, batchsize)
-        # now init attributes
-        writeInGridAttrs(h5f, r, rfKind, runType)
-        attrsWritten = true
-
+      # now attributes, possibly overwrite start/stop times of run, hence needed
+      writeInGridAttrs(h5f, r, rfKind, runType, ingridInit)
+      ingridInit = true
       for chip in 0 ..< nChips:
         plotOccupancy(squeeze(r.occupancies[chip,_,_]),
                       plotDirPrefix, r.runNumber, chip, batchNum = batchNum)

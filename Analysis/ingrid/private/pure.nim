@@ -40,9 +40,9 @@ const
   OldChipName* = "D3 W63"
   OldTosRunDescriptorPrefix* = r".*\/(\d{1,3})-"
 
-proc readToTFile*(filename: string,
-                  startRead = 0.0,
-                  totPrefix = "TOTCalib"): (int, Tot) =
+proc readToTFileTpx1*(filename: string,
+                      startRead = 0.0,
+                      totPrefix = "TOTCalib"): (int, Tot) =
   ## reads the given TOT file and returns a tuple of seqs containing
   ## the chip number, pulse heights, mean and std values
   let
@@ -96,7 +96,7 @@ proc readToTFile*(filename: string,
   # filter out elements with std == 0.0
   let nonZero = zip(std, pulses, mean) --> filter(it[0] > 0.0)
   # see zips above for indices
-  result[1].pulses = nonZero.mapIt(it[1].round.int)
+  result[1].pulses = nonZero.mapIt(it[1])
   result[1].mean = nonZero.mapIt(it[2])
   result[1].std = nonZero.mapIt(it[0])
 

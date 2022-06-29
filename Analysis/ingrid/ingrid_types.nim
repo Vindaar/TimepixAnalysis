@@ -68,7 +68,7 @@ type
   #############################
 
   Tot* = object
-    pulses*: seq[int]
+    pulses*: seq[float]
     mean*: seq[float]
     std*: seq[float]
 

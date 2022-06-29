@@ -1,10 +1,11 @@
-import ospaths, sequtils, tables, strformat
+import std / [os, sequtils, tables, strformat, strutils]
 import nimhdf5, seqmath, helpers/utils, arraymancer
 
 import databaseUtils
 import databaseDefinitions
 
-import ingrid/ingrid_types
+import ingrid / ingrid_types
+import ingrid / private / [hdf5_utils, pure]
 
 
 # procs to get data from the file
@@ -12,7 +13,7 @@ proc getTotCalib*(h5f: H5File, chipName: string, runPeriod: string): Tot =
   let dsetName = joinPath(chipNameToGroup(chipName, runPeriod), TotPrefix)
   var dset = h5f[dsetName.dset_str]
   let data = dset[float64].reshape2D(dset.shape).transpose
-  result.pulses = data[0].asType(int)
+  result.pulses = data[0]
   result.mean = data[1]
   result.std = data[2]
 
@@ -155,3 +156,14 @@ proc inDatabase*(chipName: string, run: int): bool =
     h5f.visitFile()
     let runPeriod = h5f.findRunPeriodFor(chipName, run)
     result = chipNameToGroup(chipName, runPeriod) in h5f
+
+proc readToTFile*(filename: string,
+                  startRead = 0.0,
+                  totPrefix = "TOTCalib"): (int, Tot) =
+  if filename.endsWith(".txt"):
+    result = readToTFileTpx1(filename, startRead, totPrefix)
+  elif filename.endsWith(".h5"):
+    result = readToTFileTpx3(filename, startRead, totPrefix)
+  else:
+    raise newException(IOError, "Given filename " & $filename & " does not seem to be a " &
+      "ToT calibration file.")

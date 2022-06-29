@@ -880,7 +880,7 @@ proc timeFromTpx3RunConfig*(tpx3: Tpx3RunConfig): DateTime =
 
 proc chipNameFromTpx3RunConfig*(tpx3: Tpx3RunConfig): string =
   ## Parses the date / time from the `runName` and returns it as a `DateTime`
-  result = &"{tpx3.chipX}{tpx3.chipY:2}W{tpx3.chipWafer}"
+  result = &"{tpx3.chipX}{tpx3.chipY:<2}W{tpx3.chipWafer}"
 
 
 type

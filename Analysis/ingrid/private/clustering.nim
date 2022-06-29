@@ -96,6 +96,11 @@ proc maskIntersection[T](p: var PixelSearch[T], toMask: seq[int]) =
       p.mask.excl m
 
 proc toCluster[T](pixels: seq[T], idxs: seq[int]): Cluster[T] =
+  ## Converts the given pixels to a `Cluster`. For Timepix3 it also takes care
+  ## of removing any pixels that are activated multiple times within a short
+  ## time window (i.e. within this same ToA based cluster). We remove all
+  ## those pixels that have the largest ToA value. Only the first is kept
+  ## (according to the given order, which *should* {but check} be ToA ordered).
   when T is PixTpx3:
     result = newSeqOfCap[T](idxs.len)
     var pixMap = initHashSet[(uint8, uint8)]()
@@ -103,7 +108,7 @@ proc toCluster[T](pixels: seq[T], idxs: seq[int]): Cluster[T] =
     result = newSeq[T](idxs.len)
   for i, idx in idxs:
     when T is PixTpx3: # in Tpx3 case filter out all pixels that appear multiple times in a
-                       # short time
+                       # short time, (multi ToA pixel filter)
       let p = pixels[idx]
       let pi = (x: p.x, y: p.y)
       if pi notin pixMap:

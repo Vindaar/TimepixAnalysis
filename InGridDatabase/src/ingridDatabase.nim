@@ -12,8 +12,6 @@ import ingridDatabase/databaseUtils
 import ingrid/ingrid_types except Chip
 import ingrid / calibration / calib_fitting
 
-import docopt
-
 when defined(linux):
   const commitHash = staticExec("git rev-parse --short HEAD")
 else:
@@ -22,28 +20,11 @@ else:
 # get date using `CompileDate` magic
 const currentDate = CompileDate & " at " & CompileTime
 
+const vsn = "$# built on: $#" % [commitHash, currentDate]
 const docTmpl = """
-Version: $# built on: $#
+Version: $#
+
 The InGrid database management tool.
-
-Usage:
-  databaseTool (--addPeriod=FILE | --add=FOLDER | --calibrate=TYPE | --modify | --delete=CHIPNAME) [options]
-
-Options:
-  --addPeriod=FILE    Adds a new run period to the database to which chips can
-                      be assigned
-  --add=FOLDER        Add the chip contained in the given FOLDER
-                      to the database
-  --calibrate=TYPE    Perform given calibration (TOT / SCurve) and save
-                      fit parameters as attributes. Calibrates all chips
-                      with suitable data.
-  --modify            start a CLI interface to allow viewing the files
-                      content and modify attributes / delete elements
-  --delete=CHIPNAME   Delete contents of CHIPNAME from database
-  -h, --help          Show this help
-  --version           Show the version number
-
-Documentation:
   This tool and library aims to provide two things. Running it as a main
   module, it is a tool to add / manage the InGrid database HDF5 file, which
   stores information like FSR, thresholds, TOT calibration etc. for each chip
@@ -53,9 +34,13 @@ Documentation:
   getTot(chipName)
   to get the ToT values of that chip.
 """
-const doc = docTmpl % [commitHash, currentDate]
+const doc = docTmpl % [vsn]
+import macros
+macro insertDocComment(s: static string): untyped =
+  result = newNimNode(nnkCommentStmt)
+  result.strVal = s
 
-proc calibrateType(tcKind: TypeCalibrate) =
+proc calibrateType(tcKind: TypeCalibrate, runPeriod: string) =
   ## calibrates the given type and stores the fit results as attributes
   ## of each chip with valid data for calibration
   # open H5 file with write access
@@ -69,6 +54,7 @@ proc calibrateType(tcKind: TypeCalibrate) =
     # - perform Fit as in plotCalibration
     # - take `mpfit` result and save fit parameters as attrs
     for runPeriodGrp in h5f.items(start_path = "/", depth = 1):
+      if runPeriod.len > 0 and not runPeriodGrp.name.startsWith(runPeriod.formatName()): continue
       for chipGrp in h5f.items(start_path = runPeriodGrp.name, depth = 1):
         # group name is the chip name
         let chip = chipGrp.name
@@ -334,31 +320,41 @@ runPeriods = ["Run123"]
   # all checks of the file passed, add to database
   addRunPeriod(runPeriods)
 
-proc main() =
-
-  let args = docopt(doc)
-  echo args
-
-  let
-    addStr = $args["--add"]
-    addRunPeriodStr = $args["--addPeriod"]
-    calibrateStr = $args["--calibrate"]
-    modifyStr = $args["--modify"]
-    deleteStr = $args["--delete"]
-
-  if modifyStr != "false":
+proc main(addPeriod = "", # add run periods from given `runPeriod.toml` file
+          add = "", # add the chip described by data in given directory
+          calibrate = "", # calibrate all chips (unless restricted by runPeriod)
+          runPeriod = "", # only calibrate chips in this period
+          modify = false,
+          delete = "", # delete chip with given name from DB
+         ) =
+  insertDocComment(doc)
+  if modify:
     doAssert false, "Modify support is not implmented yet."
-  elif deleteStr != "nil":
+  elif delete.len > 0:
     doAssert false, "Delete support is not implmented yet."
-  elif calibrateStr != "nil":
-    calibrateType calibrateStr.parseCalibrateType
-  elif addStr != "nil":
+  elif calibrate.len > 0:
+    calibrateType calibrate.parseCalibrateType, runPeriod
+  elif add.len > 0:
     # call proc to add data from folder to database
-    addChip(addStr)
-  elif addRunPeriodStr != "nil":
-    addRunPeriod(addRunPeriodStr)
+    addChip(add)
+  elif addPeriod.len > 0:
+    addRunPeriod(addPeriod)
   else:
     echo "Noting to do."
 
 when isMainModule:
-  main()
+  import cligen
+  clCfg.version = vsn
+  dispatch(main, doc = doc, short = {"version" : 'V'}, help = {
+    "addPeriod" : """Adds the run periods stored in the given `runPeriod.toml`
+file to the database to which chips can be assigned""",
+    "add" : "Add the chip contained in the given folder to the database",
+    "calibrate" : """Perform given calibration {TOT, SCurve} and save
+fit parameters as attributes. Calibrates all chips with suitable data.""",
+    "runPeriod" : """Restrict calibration to all chips of the given run period.
+Must match a run period in the database.""",
+     "modify" : """Start a CLI interface to allow viewing the files
+content and modify attributes / delete elements.""",
+    "delete" : "Delete the chip with the given name from the database.",
+    "version" : "Show the version number."
+    })

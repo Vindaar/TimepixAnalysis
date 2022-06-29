@@ -36,8 +36,11 @@ proc parseChipName*(chipName: string): ChipName =
 proc formatChipName(name: string): string = $(name.parseChipName)
 
 proc inRunPeriod(chip: string, grp: H5Group): bool =
-  let chips = grp.attrs[RunPeriodChipsAttr, seq[string]]
-  result = chip.formatChipName in chips
+  if RunPeriodChipsAttr in grp.attrs:
+    let chips = grp.attrs[RunPeriodChipsAttr, seq[string]]
+    result = chip.formatChipName in chips
+  else:
+    result = false # means no chips in this period so far
 
 proc inRunPeriod(run: int, grp: H5Group): bool =
   let runs = grp[RunPeriodRunDset.dset_str][int]

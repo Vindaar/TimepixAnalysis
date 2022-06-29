@@ -255,11 +255,26 @@ proc createFeSpectrum*(h5f: H5File, runNumber, centerChip: int) =
   specEventDset[specEventDset.all] = eventSpectrum
   specIndDset[specIndDset.all] = specIndices
 
-# TODO: also does not work I guess, because this won't be declared in case we import
-# this module
-# Find some way that works!
-# when declaredInScope(ingridDatabase):
-func calibrateCharge*(totValue: float, a, b, c, t: float): float =
+import unchained
+func getCapacitance*(timepix: TimepixVersion): FemtoFarad =
+  ## The values are from the manual of the Timepix1 (and 2) as well as
+  ## from the Timepix3 manual.
+  case timepix
+  of Timepix1: result = 8.fF
+  of Timepix3: result = 3.fF
+
+func charge(C: FemtoFarad, U: MilliVolt): UnitLess =
+  ## Returns the charge on a capacitance of `C` at a voltage
+  ## of `U` in *electrons*
+  let e = 1.602176634e-19.C
+  result = C * U / e
+
+func capacityToFactor*(C: FemtoFarad): UnitLess =
+  ## Returns the number of electrons one `MilliVolt` of voltage corresponds
+  ## to on a capacitor of `C`.
+  result = charge(C, 1.mV)
+
+func calibrateCharge*(totValue: float, C: FemtoFarad, a, b, c, t: float): float =
   ## calculates the charge in electrons from the TOT value, based on the TOT calibration
   ## from MarlinTPC:
   ## measured and fitted is ToT[clock cycles] in dependency of TestPuseHeight [mV]
@@ -275,11 +290,12 @@ func calibrateCharge*(totValue: float, a, b, c, t: float): float =
   ## Charge[electrons] = 50 / (2*a) * (ToT[clock cycles] - (b - a*t) +
   ##                     SQRT( (ToT[clock cycles] - (b - a*t))^2 +
   ##                           4*(a*b*t + a*c - a*t*ToT[clock cycles]) ) )
+  let factor = capacityToFactor(C)
   # 1.sum term
   let p = totValue - (b - a * t)
   # 2. term of sqrt - neither is exactly the p or q from pq formula
   let q = 4 * (a * b * t  +  a * c  -  a * t * totValue)
-  result = (50 / (2 * a)) * (p + sqrt(p * p + q))
+  result = (factor / (2 * a)) * (p + sqrt(p * p + q))
 
 proc applyChargeCalibration*(h5f: H5File, runNumber: int,
                              toDelete: bool = false) =
@@ -291,6 +307,7 @@ proc applyChargeCalibration*(h5f: H5File, runNumber: int,
   var chipBase = recoDataChipBase(runNumber)
   # get the group from file
   info "Applying charge calibration for run: ", runNumber
+  let fileInfo = h5f.getFileInfo() # for timepix version
   for run, chip, grp in chipGroups(h5f):
     if chipBase in grp:
       doAssert run == runNumber
@@ -321,9 +338,10 @@ proc applyChargeCalibration*(h5f: H5File, runNumber: int,
       #mapIt(it.mapIt(calibrateCharge(it.float, a, b, c, t)))
       var charge = newSeqWith(tots.len, newSeq[float]())
       var totalCharge = newSeq[float](sumTots.len)
+      let capacitance = fileInfo.timepix.getCapacitance()
       for i, vec in tots:
         # calculate charge values for individual pixels
-        charge[i] = vec.mapIt((calibrateCharge(it.float, a, b, c, t)))
+        charge[i] = vec.mapIt((calibrateCharge(it.float, capacitance, a, b, c, t)))
         # and for the sum of all in one cluster
         totalCharge[i] = charge[i].sum
       # create dataset for charge values
@@ -667,6 +685,7 @@ proc calcGasGain*(h5f: H5File, runNumber: int,
   ## TODO: make sure to delete all iterGainSlice attributes first? overwriting is super slow!
   # get the group from file
   info "Calulating gas gain for run: ", runNumber
+  let fileInfo = h5f.getFileInfo()
   for run, chip, grp in chipGroups(h5f):
     if chipBase in grp:
       # now can start reading, get the group containing the data for this chip
@@ -678,7 +697,8 @@ proc calcGasGain*(h5f: H5File, runNumber: int,
       let chipName = group.attrs["chipName", string]
       let (a, b, c, t) = getTotCalibParameters(chipName, runNumber)
       # get bin edges by calculating charge values for all TOT values at TOT's bin edges
-      let bin_edges = mapIt(totBins, calibrateCharge(it, a, b, c, t))
+      let capacitance = fileInfo.timepix.getCapacitance()
+      let bin_edges = mapIt(totBins, calibrateCharge(it, capacitance, a, b, c, t))
       # get dataset of hits
       let chargeDset = h5f[(grp / "charge").dset_str]
       chargeDset.deleteAllAttrStartingWith("interval_")

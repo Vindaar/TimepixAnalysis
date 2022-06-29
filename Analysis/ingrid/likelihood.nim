@@ -738,6 +738,11 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
       if energyDset.toDset notin h5f[chipGroup.grp_str]:
         raise newException(IOError, "The input file " & $h5f.name & " does not contain the dataset " &
           energyDset.toDset() & " in the group: " & $chipGroup & ".")
+      if "likelihood" notin h5f[chipGroup.grp_str]:
+        raise newException(IOError, "The input file " & $h5f.name & " does not contain the dataset " &
+          "`likelihood` dataset in group: " & $chipGroup & ". Did you forget to call `likelihood` with " &
+          "the `--computeLogL` option first?")
+
 
       var fadcVetoCount = 0
       var scintiVetoCount = 0

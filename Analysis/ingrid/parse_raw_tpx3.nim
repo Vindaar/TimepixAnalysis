@@ -36,7 +36,7 @@ type
     HitCounter*: uint8
     FTOA*: uint8
     scan_param_id*: uint16
-    chunk_start_time*: cdouble
+    chunkStartTime*: cdouble
     iTOT*: uint16
     TOA_Extension*: uint64
     TOA_Combined*: uint64
@@ -252,13 +252,15 @@ const Gray14Lut = initGray14Lut()
 
 ## XXX: replace `ToAExtension` `Option` by a static boolean. That way don't have
 ## to do runtime check on whether variable isSome
-proc toData(x: uint64, opMode: uint8, vco = false, ToAExtension = none(uint64)): Tpx3Data =
+proc toData(x: uint64, opMode: uint8, vco = false, ToAExtension = none(uint64),
+            chunkStartTime: float): Tpx3Data =
   #echo x
   let pixel = (x shr 28) and 0b111'u64
   let super_pixel = (x shr (28 + 3)) and 0x3f
   let right_col = pixel > 3
   let eoc = (x shr (28 + 9)) and (0x7f)
 
+  result.chunkStartTime = chunkStartTime
   result.data_header = (x shr 47).uint8
   result.header = (x shr 44).uint8
   result.y = ((super_pixel * 4).int + (pixel.int - (if right_col: 1 else: 0) * 4)).uint8
@@ -303,7 +305,7 @@ template hasTimestamp(x: uint32 | uint64): untyped =
   else:
     (x and 0xF000000000000'u64) shr 48 == 0b0101
 
-proc rawDataToDut(data: openArray[uint32], chunkNr: int,
+proc rawDataToDut(data: openArray[uint32], chunkNr: int, chunkStartTime: float,
                   tstamp: var seq[uint64], indices: var seq[int], res: var seq[uint64],
                   idxToKeep: var IntSet, resultSeq: var seq[Tpx3Data]) =
   if data.len < 10: return # TODO: arbitrary
@@ -380,24 +382,25 @@ proc rawDataToDut(data: openArray[uint32], chunkNr: int,
         tstamp = res[idx]
       else:
         # data
-        resultSeq[i] = toData(res[idx], 0b00, ToA_Extension = some(tstamp))
+        resultSeq[i] = toData(res[idx], 0b00, ToA_Extension = some(tstamp),
+                              chunkStartTime = chunkStartTime)
         inc i
     resultSeq.setLen(i) # clip length to length that is actually used
   else:
     # no TOA extension
     for i, val in idxToKeep.toSeq.sorted:
-      resultSeq[i] = toData(res[val], 0b00)
+      resultSeq[i] = toData(res[val], 0b00, chunkStartTime = chunkStartTime)
 
   resultSeq.sort((x, y: Tpx3Data) => system.cmp(x.TOA, y.TOA))
 
-proc rawDataToDut(data: openArray[uint32], chunkNr: int): seq[Tpx3Data] =
+proc rawDataToDut(data: openArray[uint32], chunkNr: int, chunkStartTime: float): seq[Tpx3Data] =
   var tstamp = newSeqOfCap[uint64](data.len div 2 + 1)
   # indices stores the indices at which the timestamps start in the raw data
   var indices = newSeqOfCap[int](data.len div 2 + 1)
   var res = newSeq[uint64](data.len) # div 2 + 1)
   var idxToKeep = initIntSet()
   result = newSeqOfCap[Tpx3Data](data.len)
-  rawDataToDut(data, chunkNr, tstamp, indices, res, idxToKeep, result)
+  rawDataToDut(data, chunkNr, chunkStartTime, tstamp, indices, res, idxToKeep, result)
 
 proc toRunPath(run: int): string = "/interpreted/run_" & $run & "/"
 
@@ -432,7 +435,8 @@ proc processSlice(data: seq[uint32], slice: Tpx3MetaData, oldIdx, loopIdx: int):
   doAssert startIdx < (int64.high).uint64 and stopIdx < (int64.high).uint64, "int64 overflow detected"
   # can't really have `stopIdx > int64.high`, so `int` conversion is fine
   doAssert stopIdx.int - 1 <= data.len, " Stop idx: " & $stopIdx & " data.len " & $data.len
-  result = rawDataToDut(toOpenArray(data, startIdx.int, stopIdx.int - 1), chunkNr = loopIdx)
+  result = rawDataToDut(toOpenArray(data, startIdx.int, stopIdx.int - 1), chunkNr = loopIdx,
+                        chunkStartTime = slice.timestamp_start.float)
 
 proc findSliceIdx(num: int, cumNum: seq[int]): int =
   ## finds the correct index up to where to read given a desired

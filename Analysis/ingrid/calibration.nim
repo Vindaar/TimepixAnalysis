@@ -1016,17 +1016,13 @@ proc performChargeCalibGasGainFit*(h5f: H5File,
     of rfOldTos, rfSrsTos:
       if centerChipName.len == 0:
         centerChipName = centerChipGrp.attrs["chipName", string]
-    of rfNewTos:
+    of rfNewTos, rfUnknown: ## XXX: `rfUnknown` corresponds to Tpx3 now!
       if ("chip_" & $centerChip) notin centerChipGrp.name:
         # skip this chip, since not the center chip
         echo "Skipping group ", centerChipGrp.name
         continue
       else:
         echo "\t taking group ", centerChipGrp.name
-    of rfUnknown:
-      echo "Unknown run folder kind. Skipping charge calibration for run " &
-        centerChipGrp.name & "!"
-      continue
     let runPeriod = findRunPeriodFor(centerChipName, run)
     # read the chip name
     # given correct group, get the `charge` and `FeSpectrumCharge` dsets

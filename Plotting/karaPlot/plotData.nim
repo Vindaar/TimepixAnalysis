@@ -1150,9 +1150,7 @@ proc readEventsSparse*(h5f: H5File, fileInfo: FileInfo, run, chip: int, #idx: in
     ch = h5f.readVlen(fileInfo, run, "ToT", selector,
                       chipNumber = chip,
                       dtype = uint16)
-    ## XXX: currently broken on timepix3! We don't generate event numbers yet
-    ## thus use indices
-    (events, _) = h5f.readFull(run, "eventNumber", selector,
+    (events, _) = h5f.readFull(fileInfo, run, "eventNumber", selector,
                                chipNumber = chip,
                                dtype = int)
   result = newDataFrame()

@@ -50,7 +50,8 @@ const
                  "kurtosisLongitudinal", "kurtosisTransverse", "rotationAngle",
                  "eccentricity", "fractionInTransverseRms", "lengthDivRmsTrans",
                  "rmsLongitudinal", "rmsTransverse", "hits", "energyFromPixel",
-                 "energyFromCharge", "likelihood"]
+                 "energyFromCharge", "likelihood", "centerX", "centerY"]
+  ToADsets = ["toaLength", "toaRms", "toaMean", "toaMin"]
   FadcDsets = ["minvals", "fallTime", "riseTime"]
   AllFadcDsets = ["argMinval", "baseline", "eventNumber", "fallStop", "fallTime",
                   "minvals", "noisy", "riseStart", "riseTime"]
@@ -1198,7 +1199,7 @@ proc readIngridForEventDisplay*(h5f: H5File, fileInfo: FileInfo, run, chip: int,
   ## helper proc to read data for given indices of events `idx` and
   ## builds a tensor of `idx.len` events.
   result = newDataFrame()
-  for dset in InGridDsets:
+  for dset in concat(@InGridDsets, @ToADsets):
     echo "Attpmting to read: ", dset
     try:
       result[dset] = h5f.read(fileInfo, run, dset, selector,
@@ -1870,7 +1871,11 @@ iterator ingridEventIter(h5f: H5File,
       texts.add &"{\" \":>15}Cuts used: "
       for c in pd.selector.cuts:
         texts.add &"{c.dset:>15}: [{c.lower:.2f}, {c.upper:.2f}]"
-    for dset in InGridDsets:
+    if pd.selector.maskRegion.len > 0:
+      texts.add &"{\" \":>15}Masks used: "
+      for m in pd.selector.maskRegion:
+        texts.add &"    [x: ({m.x.min}, {m.x.max}), y: ({m.y.min}, {m.y.max})]"
+    for dset in concat(@InGridDsets, @ToADsets):
       try:
         let val = dfDsets[dset, idx, float]
         let s = &"{dset:>25}: {val:6.4f}"

@@ -2313,7 +2313,7 @@ proc serve(h5f: H5File,
     stopChannel.send(true)
 
 proc eventDisplay(h5file: string,
-                  run: int,
+                  runOpt: Option[int],
                   runType: RunTypeKind,
                   bKind: PlottingBackendKind,
                   config: Config): string =

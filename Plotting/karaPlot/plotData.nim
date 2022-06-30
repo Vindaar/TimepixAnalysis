@@ -2819,15 +2819,12 @@ when isMainModule:
   import cligen/argcvt
   proc argParse(dst: var GenericCut, dfl: GenericCut,
                 a: var ArgcvtParams): bool =
-    echo "Parsing ", a.val
     var vals = a.val.strip(chars = {'(', ')'}).split(',')
     if vals.len != 3: return false
     try:
-      echo "vals: ", vals
       dst = (dset: vals[0].strip(chars = {'"'}),
              lower: parseFloat(vals[1].strip),
              upper: parseFloat(vals[2].strip))
-      echo "Parsed it to ", dst
       result = true
     except:
       result = false
@@ -2837,16 +2834,12 @@ when isMainModule:
 
   proc argParse(dst: var MaskRegion, dfl: MaskRegion,
                 a: var ArgcvtParams): bool =
-    echo "Parsing ", a.val
     proc stripAll(s: string): string = s.strip(chars = {'(', ')', ' '})
     var xy = a.val.stripAll.split(',')
-    echo xy
     if xy.len != 4: return false
     try:
-      echo "vals: ", xy
       dst = (x: (min: ChipCoord(xy[0].stripAll.parseInt), max: ChipCoord(xy[1].stripAll.parseInt)),
              y: (min: ChipCoord(xy[2].stripAll.parseInt), max: ChipCoord(xy[3].stripAll.parseInt)))
-      echo "Parsed it to ", dst
       result = true
     except:
       result = false

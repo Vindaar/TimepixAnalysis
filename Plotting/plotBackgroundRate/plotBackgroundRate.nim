@@ -222,7 +222,8 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
                         hidePoints, hideErrors, fill: bool,
                         useTeX, showPreliminary, genTikZ: bool,
                         showNumClusters, showTotalTime: bool,
-                        topMargin: float) =
+                        topMargin, yMax: float,
+                        logPlot: bool) =
   var df = df.filter(f{c"Energy" < 12.0})
   var titleSuff = if title.len > 0: title
                   elif show2014:
@@ -239,6 +240,9 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
 
   if showNumClusters:
     titleSuff.add &" #clusters={df.len}"
+  if logPlot:
+    # make sure to remove 0 entries if we do a log plot
+    df = df.filter(f{idx(Rcol) > 0.0})
 
   if showTotalTime:
     if numDsets > 1:
@@ -272,8 +276,14 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
                   aes = aes(yMin = "yMin", yMax = "yMax"),
                   errorBarKind = ebLines)
   # force y continuous scales & set limit
-  plt = plt + scale_y_continuous() +
-    xlim(0, 12.0)
+  if not logPlot:
+    plt = plt + scale_y_continuous() +
+      xlim(0, 12.0)
+  else:
+    plt = plt + scale_y_log10()
+
+  if yMax > 0.0:
+    plt = plt + ylim(0.0, yMax)
   if useTeX and showPreliminary:
     plt = plt + annotate("GridPix preliminary",
                          x = 4.3, y = 2.0,
@@ -357,11 +367,13 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
           energyDset = "energyFromCharge",
           centerChip = 3,
           topMargin = 1.0,
+          yMax = -1.0,
           useTeX = false,
           showPreliminary = false,
           showNumClusters = false,
           showTotalTime = false,
-          genTikZ = false
+          genTikZ = false,
+          logPlot = false
          ) =
   discard existsOrCreateDir("plots")
   let logLFiles = readFiles(files, names, region, energyDset, centerChip)
@@ -453,7 +465,8 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
       hidePoints = hidePoints, hideErrors = hideErrors, fill = fill,
       useTeX = useTeX, showPreliminary = showPreliminary, genTikZ = genTikZ,
       showNumClusters = showNumClusters, showTotalTime = showTotalTime,
-      topMargin = topMargin
+      topMargin = topMargin, yMax = yMax,
+      logPlot = logPlot
     )
 
 when isMainModule:

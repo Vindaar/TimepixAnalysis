@@ -183,9 +183,9 @@ proc writeLikelihoodData(h5f: var H5File,
   # TODO: add copy of attributes from energyFromPixel dataset, which contains
   # the calibration factor!
   # read all float datasets, which we want to write to the output file
-  var dsetNames = @(getFloatDsetNames())
+  var dsetNames = concat(@(getFloatDsetNames()), @(getIntDsetNames()))
   # add the final two datasets, which we'd like to write
-  dsetNames.add @["likelihood", energyDset.toDset, "x", "y", "ToT"]
+  dsetNames.add @["likelihood", "energyFromPixel", "energyFromCharge", "x", "y", "ToT"]
   if version == Timepix3:
     dsetNames.add getFloatToANames()
     dsetNames.add @["ToA", "ToACombined", "toaMin"]
@@ -207,15 +207,17 @@ proc writeLikelihoodData(h5f: var H5File,
     chpGrpOut = h5fout.create_group(logLgroup)
   ## walk all datasets and read data, filter to indices and write to output
   for dsetName in dsetNames: # all datasets including vlen
-    let h5dset = h5f[(chpGrpName / dsetName).dset_str]
-    withDset(h5dset): # reads full dataset into injected `dset` variable
-      var data = newSeqOfCap[elementType(dset)](passedInds.card)
-      for idx in passedInds:
-        data.add dset[idx]
-      var outDset = h5fout.create_dataset((logLgroup / dsetName),
-                                          passedInds.len,
-                                          elementType(dset))
-      outDset[outDset.all] = data
+    let path = chpGrpName / dsetName
+    if path in h5f: ## check if it exists so that we can try to write both energy dsets
+      let h5dset = h5f[(path).dset_str]
+      withDset(h5dset): # reads full dataset into injected `dset` variable
+        var data = newSeqOfCap[elementType(dset)](passedInds.card)
+        for idx in passedInds:
+          data.add dset[idx]
+        var outDset = h5fout.create_dataset((logLgroup / dsetName),
+                                            passedInds.len,
+                                            elementType(dset))
+        outDset[outDset.all] = data
 
   # get all event numbers from hash set by using elements as indices for event numbers
   let evNumsPassed = mapIt(passedInds, evNumbers[it]).sorted do (x, y: int64) -> int:

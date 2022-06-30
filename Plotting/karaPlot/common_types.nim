@@ -47,6 +47,8 @@ else:
 
     ## A generic cut on input data using dset & low / high values
     GenericCut* = tuple[dset: string, lower, upper: float]
+    ChipCoord* = range[0 .. 255]
+    MaskRegion* = tuple[x: tuple[min, max: ChipCoord], y: tuple[min, max: ChipCoord]]
 
     Config* = object
       flags*: set[ConfigFlagKind]
@@ -57,6 +59,7 @@ else:
       ingridDsets*: set[IngridDsetKind]
       fadcDsets*: seq[string] # currently don't have an enum for them
       cuts*: seq[GenericCut] ## Used to fill the `DataSelector`
+      maskRegion*: seq[MaskRegion] ##
       region*: ChipRegion    ## From input to preselect a region
       idxs*: seq[int]        ## Indices to read. Negative indices are interpreted as seen from the end of dset
       plotlySaveSvg*: bool
@@ -127,6 +130,7 @@ type
   DataSelector* = object
     region*: ChipRegion ## Region defaults to full chip
     cuts*: seq[GenericCut]
+    maskRegion*: seq[MaskRegion]
     idxs*:  seq[int] ## Optional indices. If given we extract *these* indices from the
                     ## resulting data after cuts are applied. Used to implement `head`, `tail`
     applyAll*: bool ## set to indicate to apply all cuts instead of matching dataset names

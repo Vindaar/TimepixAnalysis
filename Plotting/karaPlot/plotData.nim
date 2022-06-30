@@ -102,6 +102,7 @@ proc initConfig*(chips: set[uint16],
                  runs: set[uint16],
                  flags: set[ConfigFlagKind],
                  cuts: seq[GenericCut],
+                 maskRegion: seq[MaskRegion],
                  tomlConfig: TomlValueRef,
                  ingridDsets: set[IngridDsetKind] = {},
                  fadcDsets: seq[string] = @[],
@@ -135,6 +136,7 @@ proc initConfig*(chips: set[uint16],
                   ingridDsets: ingridDsets,
                   fadcDsets: fadcDsets,
                   cuts: cuts,
+                  maskRegion: maskRegion,
                   idxs: toSeq(0 ..< head),
                   fileType: fileFormat,
                   outputType: combinedFormat,
@@ -148,6 +150,7 @@ proc initSelector(config: Config, cuts: seq[GenericCut] = @[],
                else: cfApplyAllCuts in config.flags
   result = DataSelector(region: chipRegion,
                         cuts: concat(config.cuts, cuts),
+                        maskRegion: config.maskRegion, #concat(config.cuts, maskRegion),
                         idxs: config.idxs,
                         applyAll: appAll)
 
@@ -318,6 +321,29 @@ proc initPlotV(title: string, xlabel: string, ylabel: string, shape = ShapeKind.
                    height: FigHeight)
   else: discard
 
+import sets
+
+proc toIdx(x: float): int = (x / 14.0 * 256.0).round.int
+proc applyMaskRegion(h5f: H5File, selector: DataSelector, group: H5Group, idx: seq[int]): seq[int] =
+  ## applies the masking region in `maskRegion` of `selector`
+  # build set of masked pixels from selector
+  var noisyPixels = newSeq[(int, int)]()
+  for maskRegion in selector.maskRegion:
+    for x in maskRegion.x.min .. maskRegion.x.max:
+      for y in maskRegion.y.min .. maskRegion.y.max:
+        noisyPixels.add (x, y)
+  if noisyPixels.len == 0: return idx
+  let noiseSet = noisyPixels.toHashSet
+  # read data
+  let
+    posX = h5f.readAs(group.name / "centerX", float)
+    posY = h5f.readAs(group.name / "centerY", float)
+  result = newSeqOfCap[int](idx.len)
+  let idxs = if idx.len == 0: toSeq(0 ..< posX.len) else: idx
+  for i in idxs:
+    if (posX[i].toIdx, posY[i].toIdx) notin noiseSet:
+      result.add i
+
 proc applyCuts(h5f: H5File, selector: DataSelector, dset: H5Dataset, idx: seq[int]): seq[int] =
   ## Apply potential cut to this dataset
   result = idx
@@ -346,6 +372,11 @@ proc applyCuts(h5f: H5File, selector: DataSelector, dset: H5Dataset, idx: seq[in
     else:
       echo "result is length 0? ", result, " for ", selector
     # else leave as is
+  # now possibly apply region cut
+  if performedCut and result.len > 0:
+    result = applyMaskRegion(h5f, selector, parentGrp, result)
+  elif not performedCut:
+    result = applyMaskRegion(h5f, selector, parentGrp, @[])
 
 proc readFull*(h5f: H5File,
                fileInfo: FileInfo,
@@ -368,11 +399,12 @@ proc readFull*(h5f: H5File,
   let idx = h5f.applyCuts(selector, dset, idx)
 
   when dtype is SomeNumber:
-    if idx.len == 0:
+    if not selector.hasCuts(dset): # read everything and idx.len == 0:
       result[1] = dset.readAs(dtype)
-    else:
+    elif idx.len > 0:
       # manual conversion required
       result[1] = dset.readAs(idx, dtype)
+    # else nothing to read, will remain empty
   else:
     type subtype = getInnerType(dtype)
     # NOTE: only support 2D seqs
@@ -2748,6 +2780,7 @@ proc plotData*(
 
   let cfg = initConfig(chips, runs, flags,
                        cuts = cuts,
+                       maskRegion = maskRegion,
                        tomlConfig = tomlConfig,
                        head = head,
                        xDset = x,
@@ -2802,6 +2835,26 @@ when isMainModule:
   proc argHelp*(dfl: GenericCut; a: var ArgcvtParams): seq[string] =
     result = @[ a.argKeys, "(dset: string, lower, upper: float)", $dfl ]
 
+  proc argParse(dst: var MaskRegion, dfl: MaskRegion,
+                a: var ArgcvtParams): bool =
+    echo "Parsing ", a.val
+    proc stripAll(s: string): string = s.strip(chars = {'(', ')', ' '})
+    var xy = a.val.stripAll.split(',')
+    echo xy
+    if xy.len != 4: return false
+    try:
+      echo "vals: ", xy
+      dst = (x: (min: ChipCoord(xy[0].stripAll.parseInt), max: ChipCoord(xy[1].stripAll.parseInt)),
+             y: (min: ChipCoord(xy[2].stripAll.parseInt), max: ChipCoord(xy[3].stripAll.parseInt)))
+      echo "Parsed it to ", dst
+      result = true
+    except:
+      result = false
+
+  proc argHelp*(dfl: MaskRegion; a: var ArgcvtParams): seq[string] =
+    result = @[ a.argKeys, "(x: (min, max: int), y: (min, max: int))", $dfl ]
+
+
   dispatch(plotData, help = {
     "h5file" : "The h5 input file to use",
     "runType" : """Select run type (Calib | Back | Xray)
@@ -2843,6 +2896,7 @@ run number is given, will generate events for all runs in the file.""",
 
     "show" : "If given will open each generated plot using inkview (svg) / evince (pdf) / nomacs (png).",
     "cuts" : "Allows to cut data used for event display. Only shows events of data passing these cuts.",
+    "maskRegion" : "Allows to mask a region (in pixel coords). Any pixel in the region will be cut.",
     "applyAllCuts" : "If given will apply all given cuts to all data reads.",
     "head" : "Only process the first this many elements (mainly useful for event display).",
 

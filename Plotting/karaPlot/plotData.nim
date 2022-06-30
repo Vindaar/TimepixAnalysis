@@ -345,6 +345,17 @@ proc applyMaskRegion(h5f: H5File, selector: DataSelector, group: H5Group, idx: s
     if (posX[i].toIdx, posY[i].toIdx) notin noiseSet:
       result.add i
 
+proc hasCuts(selector: DataSelector, dset: H5Dataset): bool =
+  ## returns whether we apply cuts to this (or all) datasets. To differentiate
+  ## between an empty `idx` due to cuts removing everything or not using cuts
+  for cut in selector.cuts:
+    if selector.applyAll or cut.dset == dset.name:
+      result = true
+      break
+  for mask in selector.maskRegion:
+    result = true
+    break
+
 proc applyCuts(h5f: H5File, selector: DataSelector, dset: H5Dataset, idx: seq[int]): seq[int] =
   ## Apply potential cut to this dataset
   result = idx
@@ -413,12 +424,13 @@ proc readFull*(h5f: H5File,
       raise newException(Exception, "Cannot convert N-D sequence to type: " &
         subtype.name)
     else:
-      if idx.len == 0:
+      if not selector.hasCuts(dset): # read everything idx.len == 0:
         # convert to subtype and reshape to dsets shape
         result[1] = dset.readAs(subtype).reshape2D(dset.shape)
-      else:
+      elif idx.len > 0:
         # manual conversion required
         result[1] = dset[idx, subtype].reshape2D(dset.shape)
+      # else nothing to read, will remain empty
   result[0] = idx
 
 proc read*(h5f: H5File,
@@ -446,10 +458,11 @@ proc readVlen(h5f: H5File,
   let vlenDtype = special_type(dtype)
   let dset = h5f[(fileInfo.dataPath(runNumber, chipNumber).string / dsetName).dset_str]
   let idx = h5f.applyCuts(selector, dset, idx)
-  if idx.len > 0:
-    result = dset[vlenDType, dtype, idx]
-  else:
-    result = dset[vlenDtype, dtype]
+  if not selector.hasCuts(dset):
+    result = dset[vlenDType, dtype]
+  elif idx.len > 0:
+    result = dset[vlenDtype, dtype, idx]
+  # else nothing to read, remain empty
 
 template applyFilter(theSet, fileInfo, field: untyped): untyped =
   if theSet.card > 0:

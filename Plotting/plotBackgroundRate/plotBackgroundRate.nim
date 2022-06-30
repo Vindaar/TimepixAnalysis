@@ -238,8 +238,10 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
   var plt: GgPlot
   let numDsets = df.unique("Dataset").len
 
-  if showNumClusters:
-    titleSuff.add &" #clusters={df.len}"
+  ## XXX: fix me, it's wrong because here we already have the binned data!
+  ##if showNumClusters:
+  ##  titleSuff.add &" #clusters={}"
+
   if logPlot:
     # make sure to remove 0 entries if we do a log plot
     df = df.filter(f{idx(Rcol) > 0.0})

@@ -420,8 +420,20 @@ template recoDataChipBase*(runNumber: int): string =
 template tpx3DataChipBase*(runNumber: int): string =
   "/interpreted/run_$#/chip_" % $runNumber # & "$#"
 
+template likelihoodDataChipBase*(runNumber: int): string =
+  "/likelihood/run_$#/chip_" % $runNumber # & "$#"
+
+proc rawPath*(runNumber, chipNumber: int): grp_str {.inline.} =
+  result = (rawDataChipBase(runNumber) & $chipNumber).grp_str
+
 proc recoPath*(runNumber, chipNumber: int): grp_str {.inline.} =
   result = (recoDataChipBase(runNumber) & $chipNumber).grp_str
+
+proc tpx3Path*(runNumber, chipNumber: int): grp_str {.inline.} =
+  result = (tpx3DataChipBase(runNumber) & $chipNumber).grp_str
+
+proc likelihoodPath*(runNumber, chipNumber: int): grp_str {.inline.} =
+  result = (likelihoodDataChipBase(runNumber) & $chipNumber).grp_str
 
 proc getGroupNameRaw*(runNumber: int): string =
   # generates the group name for a given run number

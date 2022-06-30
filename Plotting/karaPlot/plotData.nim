@@ -63,6 +63,24 @@ type
 var fileDir: string
 var fileType: string
 
+proc dataPath*(fileInfo: FileInfo, run, chip: int): grp_str =
+  case fileInfo.tpaFileKind
+  of tpkRawData:    result = rawPath(run, chip)
+  of tpkReco:       result = recoPath(run, chip)
+  of tpkLogL:       result = likelihoodPath(run, chip)
+  of tpkTpx3Interp: result = tpx3Path(run, chip)
+  of tpkTpx3Raw:
+    doAssert false, "Invalid file kind to plot data from! " & $tpkTpx3Raw
+
+proc dataBase*(fileInfo: FileInfo): string =
+  case fileInfo.tpaFileKind
+  of tpkRawData:    result = rawDataBase()
+  of tpkReco:       result = recoBase()
+  of tpkLogL:       result = likelihoodBase()
+  of tpkTpx3Interp: result = tpx3Base()
+  of tpkTpx3Raw:
+    doAssert false, "Invalid file kind to plot data from! " & $tpkTpx3Raw
+
 template buildFilter(key: string, tomlConfig, theSet: untyped): untyped =
   if tomlConfig["General"].hasKey(key):
     let allowed = tomlConfig["General"][key].getElems
@@ -330,6 +348,7 @@ proc applyCuts(h5f: H5File, selector: DataSelector, dset: H5Dataset, idx: seq[in
     # else leave as is
 
 proc readFull*(h5f: H5File,
+               fileInfo: FileInfo,
                runNumber: int,
                dsetName: string,
                selector: DataSelector,
@@ -343,7 +362,7 @@ proc readFull*(h5f: H5File,
   if isFadc:
     dset = h5f[(fadcRecoPath(runNumber) / dsetName).dset_str]
   else:
-    dset = h5f[(recoPath(runNumber, chipNumber).string / dsetName).dset_str]
+    dset = h5f[(fileInfo.dataPath(runNumber, chipNumber).string / dsetName).dset_str]
 
   ## possibly set indices to a subset based on cuts
   let idx = h5f.applyCuts(selector, dset, idx)
@@ -370,6 +389,7 @@ proc readFull*(h5f: H5File,
   result[0] = idx
 
 proc read*(h5f: H5File,
+           fileInfo: FileInfo,
            runNumber: int,
            dsetName: string,
            selector: DataSelector,
@@ -377,10 +397,11 @@ proc read*(h5f: H5File,
            isFadc = false,
            dtype: typedesc = float,
            idx: seq[int] = @[]): seq[dtype] =
-  let (idxs, res) = readFull(h5f, runNumber, dsetName, selector, chipNumber, isFadc, dtype, idx)
+  let (idxs, res) = readFull(h5f, fileInfo, runNumber, dsetName, selector, chipNumber, isFadc, dtype, idx)
   result = res
 
 proc readVlen(h5f: H5File,
+              fileInfo: FileInfo,
               runNumber: int,
               dsetName: string,
               selector: DataSelector,
@@ -390,7 +411,7 @@ proc readVlen(h5f: H5File,
   ## reads variable length data `dsetName` and returns it
   ## In contrast to `read` this proc does *not* convert the data.
   let vlenDtype = special_type(dtype)
-  let dset = h5f[(recoPath(runNumber, chipNumber).string / dsetName).dset_str]
+  let dset = h5f[(fileInfo.dataPath(runNumber, chipNumber).string / dsetName).dset_str]
   let idx = h5f.applyCuts(selector, dset, idx)
   if idx.len > 0:
     result = dset[vlenDType, dtype, idx]
@@ -884,9 +905,9 @@ proc occupancies(h5f: H5File, runType: RunTypeKind,
 #  ## perform the plots of the polya distribution again (including the fits)
 #  ## and return the polya data as to allow a combined plot afterwards
 #  let
-#    polya = h5f.read(runNumber.parseInt, "polya", chipNum,
+#    polya = h5f.read(runNumber.parseInt, fileInfo, "polya", chipNum,
 #                     dtype = seq[float])
-#    polyaFit = h5f.read(runNumber.parseInt, "polyaFit", chipNum,
+#    polyaFit = h5f.read(runNumber.parseInt, fileInfo, "polyaFit", chipNum,
 #                        dtype = seq[float])
 #  let nbins = polya.shape[0] - 1
 #  var
@@ -1104,29 +1125,29 @@ proc buildEvents[T, U](x, y: seq[seq[T]], ch: seq[seq[U]],
 #  ## helper proc to read data for given indices of events `idx` and
 #  ## builds a tensor of `idx.len` events.
 #  let
-#    x = h5f.readVlen(run, "x", pd.
+#    x = h5f.readVlen(fileInfo, run, "x", pd.
 #                     chipNumber = chip,
 #                     dtype = uint8, idx = idx)
-#    y = h5f.readVlen(run, "y", config,
+#    y = h5f.readVlen(fileInfo, run, "y", config,
 #                     chipNumber = chip,
 #                     dtype = uint8, idx = idx)
-#    ch = h5f.readVlen(run, "ToT", config,
+#    ch = h5f.readVlen(fileInfo, run, "ToT", config,
 #                      chipNumber = chip,
 #                      dtype = uint16, idx = idx)
 #  result = buildEvents(x, y, ch, toOrderedSet(@[0]))
 
-proc readEventsSparse*(h5f: H5File, run, chip: int, #idx: int,
+proc readEventsSparse*(h5f: H5File, fileInfo: FileInfo, run, chip: int, #idx: int,
                        selector: DataSelector): DataFrame =
   ## helper proc to read data for given indices of events `idx` and
   ## builds a tensor of `idx.len` events.
   let
-    x = h5f.readVlen(run, "x", selector,
+    x = h5f.readVlen(fileInfo, run, "x", selector,
                      chipNumber = chip,
                      dtype = uint8)
-    y = h5f.readVlen(run, "y", selector,
+    y = h5f.readVlen(fileInfo, run, "y", selector,
                      chipNumber = chip,
                      dtype = uint8)
-    ch = h5f.readVlen(run, "ToT", selector,
+    ch = h5f.readVlen(fileInfo, run, "ToT", selector,
                       chipNumber = chip,
                       dtype = uint16)
     ## XXX: currently broken on timepix3! We don't generate event numbers yet
@@ -1142,7 +1163,7 @@ proc readEventsSparse*(h5f: H5File, run, chip: int, #idx: int,
     echo "Adding df ", dfLoc
     result.add dfLoc
 
-proc readIngridForEventDisplay*(h5f: H5File, run, chip: int, #idx: int,
+proc readIngridForEventDisplay*(h5f: H5File, fileInfo: FileInfo, run, chip: int, #idx: int,
                                 selector: DataSelector): DataFrame =
   ## helper proc to read data for given indices of events `idx` and
   ## builds a tensor of `idx.len` events.
@@ -1150,7 +1171,7 @@ proc readIngridForEventDisplay*(h5f: H5File, run, chip: int, #idx: int,
   for dset in InGridDsets:
     echo "Attpmting to read: ", dset
     try:
-      result[dset] = h5f.read(run, dset, selector,
+      result[dset] = h5f.read(fileInfo, run, dset, selector,
                               chipNumber = chip,
                               dtype = float)
     except KeyError:
@@ -1259,7 +1280,7 @@ proc clampedOccupancy[T](x, y: seq[T], pd: PlotDescriptor): Tensor[float] =
     result = result.clamp(0.0, quant)
   else: discard
 
-proc readPlotFit(h5f: H5File, pd: PlotDescriptor):
+proc readPlotFit(h5f: H5File, fileInfo: FileInfo, pd: PlotDescriptor):
      (seq[float], seq[float], seq[float], seq[float]) =
   ## reads the `plot` and `Fit` datasets for all runs in
   ## `pd`, stacks it and returns bins, counts for both
@@ -1282,9 +1303,9 @@ proc readPlotFit(h5f: H5File, pd: PlotDescriptor):
     if pd.selector.cuts.len > 0:
       echo "WARN: Cutting on fit datasets. This may have unintended consequences!"
     let
-      data = h5f.read(r, pd.name, pd.selector, pd.chip,
+      data = h5f.read(fileInfo, r, pd.name, pd.selector, pd.chip,
                        dtype = seq[float])
-      dataFit = h5f.read(r, pd.name & "Fit", pd.selector, pd.chip,
+      dataFit = h5f.read(fileInfo, r, pd.name & "Fit", pd.selector, pd.chip,
                           dtype = seq[float])
     let nbins = data.shape[0]
     let (bins, counts) = data.split(SplitSeq.Seq2Col)
@@ -1394,7 +1415,7 @@ proc handleInGridDset(h5f: H5File,
                       config: Config): (string, PlotV) =
   var allData: seq[float]
   for r in pd.runs:
-    allData.add h5f.read(r, pd.name, pd.selector, pd.chip, dtype = float)
+    allData.add h5f.read(fileInfo, r, pd.name, pd.selector, pd.chip, dtype = float)
     # perform cut on range
   result[0] = buildOutfile(pd, fileDir, fileType)
   let title = buildTitle(pd)
@@ -1407,13 +1428,13 @@ proc handleFadcDset(h5f: H5File,
   # get the center chip group
   var allData: seq[float]
   for r in pd.runs:
-    let group = h5f[recoPath(r, fileInfo.centerChip)]
-    let inGridSet = h5f.read(r, "eventNumber", pd.selector, fileInfo.centerChip, dtype = int)
+    let group = h5f[fileInfo.dataPath(r, fileInfo.centerChip)]
+    let inGridSet = h5f.read(fileInfo, r, "eventNumber", pd.selector, fileInfo.centerChip, dtype = int)
       .toSet()
-    let evNumFadc = h5f.read(r, "eventNumber", pd.selector,
+    let evNumFadc = h5f.read(fileInfo, r, "eventNumber", pd.selector,
                              isFadc = true, dtype = int) # [group.name / "eventNumber", int]
     let idxFadc = (toSeq(0 .. evNumFadc.high)) --> filter(evNumFadc[it] in inGridSet)
-    let data = h5f.read(r, pd.name, pd.selector, pd.chip, isFadc = true, dtype = float)
+    let data = h5f.read(fileInfo, r, pd.name, pd.selector, pd.chip, isFadc = true, dtype = float)
     allData.add idxFadc --> map(data[it])
   result[0] = buildOutfile(pd, fileDir, fileType)
   let title = buildTitle(pd)
@@ -1428,8 +1449,8 @@ proc handleOccupancy(h5f: H5File,
   var occFull = newTensor[float]([NPix, NPix])
   for r in pd.runs:
     let
-      x = h5f.readVlen(r, "x", pd.selector, pd.chip, dtype = uint8)
-      y = h5f.readVlen(r, "y", pd.selector, pd.chip, dtype = uint8)
+      x = h5f.readVlen(fileInfo, r, "x", pd.selector, pd.chip, dtype = uint8)
+      y = h5f.readVlen(fileInfo, r, "y", pd.selector, pd.chip, dtype = uint8)
     let occ = clampedOccupancy(x, y, pd)
     # stack this run onto the full data tensor
     occFull = occFull .+ occ
@@ -1445,7 +1466,7 @@ proc handleOccCluster(h5f: H5File,
   var occFull = newTensor[float]([NPix, NPix])
   for r in pd.runs:
     let
-      group = h5f[recoPath(r, pd.chip)]
+      group = h5f[fileInfo.dataPath(r, pd.chip)]
       # get centers and rescale to 256 max value
       centerX = h5f[(group.name / "centerX"), float].mapIt(it * NPix.float / TimepixSize)
       centerY = h5f[(group.name / "centerY"), float].mapIt(it * NPix.float / TimepixSize)
@@ -1463,7 +1484,7 @@ proc handleBarScatter(h5f: H5File,
   result[0] = buildOutfile(pd, fileDir, fileType)
   let xlabel = pd.xlabel
   let title = buildTitle(pd)
-  let (bins, counts, binsFit, countsFit) = h5f.readPlotFit(pd)
+  let (bins, counts, binsFit, countsFit) = h5f.readPlotFit(fileInfo, pd)
   result[1] = plotBar(@[bins], @[counts], title, xlabel, @[title], result[0])
   # now add fit to the existing plot
   let nameFit = &"Fit of chip {pd.chip}"
@@ -1485,7 +1506,7 @@ proc handleCombPolya(h5f: H5File,
       var tmp = pd
       tmp.chip = ch
       tmp
-    let (bins, counts, binsFit, countsFit) = h5f.readPlotFit(localPd)
+    let (bins, counts, binsFit, countsFit) = h5f.readPlotFit(fileInfo, localPd)
     binsSeq.add bins
     countsSeq.add counts
     dsets.add "Chip " & $ch
@@ -1517,7 +1538,7 @@ proc handleFeVsTime(h5f: H5File,
   let title = buildTitle(pd)
   result[0] = buildOutfile(pd, fileDir, fileType)
   for r in pd.runs:
-    let group = h5f[(recoBase & $r).grp_str]
+    let group = h5f[(fileInfo.dataBase & $r).grp_str]
     let chpGrpName = group.name / "chip_" & $pd.chip
     if pd.splitBySec == 0:
       pixSeq.add h5f[(chpGrpName / dset).dset_str].attrs[
@@ -1645,7 +1666,7 @@ proc handleFePixDivChVsTime(h5f: H5File,
   let title = buildTitle(pd)
   result[0] = buildOutfile(pd, fileDir, fileType)
   for r in pd.runs:
-    let group = h5f[(recoBase & $r).grp_str]
+    let group = h5f[(fileInfo.dataBase & $r).grp_str]
     let chpGrpName = group.name / "chip_" & $pd.chip
     pixSeq.add h5f[(chpGrpName / "FeSpectrum").dset_str].attrs[
       parPrefix & $kalphaPix, float
@@ -1681,7 +1702,7 @@ proc handleFePhotoDivEscape(h5f: H5File,
   let title = buildTitle(pd)
   result[0] = buildOutfile(pd, fileDir, fileType)
   for r in pd.runs:
-    let group = h5f[(recoBase & $r).grp_str]
+    let group = h5f[(fileInfo.dataBase & $r).grp_str]
     let chpGrpName = group.name / "chip_" & $pd.chip
     let dset = h5f[(chpGrpName / "FeSpectrumCharge").dset_str]
     photoSeq.add dset.attrs[parPrefix & $kalphaCharge, float]
@@ -1713,17 +1734,17 @@ proc handleFePhotoDivEscape(h5f: H5File,
 #  for r in pd.runs:
 #    # cut on `centerChip` for rms and eccentricity
 #    let
-#      grp = h5f[recoPath(r, fileInfo.centerChip)]
+#      grp = h5f[fileInfo.dataPath(r, fileInfo.centerChip)]
 #      idx = cutOnProperties(h5f, grp,
 #                            ("eccentricity", -Inf, eccHigh),
 #                            ("rmsTransverse", -Inf, rmsTransHigh),
 #                            ("energyFromCharge", pd.rangeCenter.low, pd.rangeCenter.high))
-#      evNumCenterAll = h5f.read(r, "eventNumber", pd.selector, fileInfo.centerChip, dtype = int)
+#      evNumCenterAll = h5f.read(fileInfo, r, "eventNumber", pd.selector, fileInfo.centerChip, dtype = int)
 #      evNumCenter = toSet(idx.mapIt(evNumCenterAll[it]))
 #    for c in pd.outerChips:
 #      let
-#        hitsAll = h5f.read(r, "hits", pd.selector, c, dtype = int)
-#        evNumAll = h5f.read(r, "eventNumber", pd.selector, c, dtype = int)
+#        hitsAll = h5f.read(fileInfo, r, "hits", pd.selector, c, dtype = int)
+#        evNumAll = h5f.read(fileInfo, r, "eventNumber", pd.selector, c, dtype = int)
 #      # now add all hits passing
 #      for i, ev in evNumAll:
 #        if ev in evNumCenter and hitsAll[i] > 3:
@@ -1743,7 +1764,7 @@ proc handleToTPerPixel(h5f: H5File,
   let title = buildTitle(pd)
   var tots: seq[uint16]
   for run in pd.runs:
-    tots.add flatten(h5f.readVlen(run, "ToT", pd.selector,
+    tots.add flatten(h5f.readVlen(fileInfo, run, "ToT", pd.selector,
                                   chipNumber = pd.chip,
                                   dtype = uint16))
   # if tots longer than `10_000_000`, compute in batches
@@ -1785,7 +1806,7 @@ iterator ingridEventIter(h5f: H5File,
     var evNums {.global.}: seq[int]
     var evTab {.global.}: Table[int, int]
     if run != lastRun:
-      evNums = h5f.read(run, "eventNumber", pd.selector, dtype = int,
+      evNums = h5f.read(fileInfo, run, "eventNumber", pd.selector, dtype = int,
                         chipNumber = chip)
       evTab = initTable[int, int]()
       for i, ev in evNums:
@@ -1800,8 +1821,8 @@ iterator ingridEventIter(h5f: H5File,
     let ev = readEvent(h5f, run, chip, events, config)
     for i, pd in pds:
       discard
-  let events = readEventsSparse(h5f, run, chip, pd.selector)
-  let dfDsets = readIngridForEventDisplay(h5f, run, chip, pd.selector)
+  let events = readEventsSparse(h5f, fileInfo, run, chip, pd.selector)
+  let dfDsets = readIngridForEventDisplay(h5f, fileInfo, run, chip, pd.selector)
   var idx = 0
   for (tup, subDf) in groups(group_by(events, "Index")):
     let event = tup[0][1].toInt
@@ -1864,7 +1885,7 @@ iterator fadcEventIter(h5f: H5File,
   var evNums {.global.}: seq[int]
   var evTab {.global.}: Table[int, int]
   if run != lastRun:
-    evNums = h5f.read(run, "eventNumber", pds[0].selector, dtype = int,
+    evNums = h5f.read(fileInfo, run, "eventNumber", pds[0].selector, dtype = int,
                       isFadc = true)
     evTab = initTable[int, int]()
     for i, ev in evNums:
@@ -1884,7 +1905,7 @@ iterator fadcEventIter(h5f: H5File,
     var texts: seq[string]
     let event = evTab[pd.event]
     for d in AllFadcDsets:
-      let val = h5f.read(run, d, pd.selector, isFadc = true,
+      let val = h5f.read(fileInfo, run, d, pd.selector, isFadc = true,
                          dtype = float, idx = @[event])[0]
       let s = &"{d:15}: {val:6.4f}"
       texts.add s
@@ -1954,12 +1975,12 @@ proc handleCustomPlot(h5f: H5File,
       var allY: seq[float]
       var allZ: seq[float]
       for r in pd.runs:
-        allX.add h5f.read(r, cPlt.x, pd.selector, dtype = float,
+        allX.add h5f.read(fileInfo, r, cPlt.x, pd.selector, dtype = float,
                          chipNumber = fileInfo.centerChip)
-        allY.add h5f.read(r, cPlt.y, pd.selector, dtype = float,
+        allY.add h5f.read(fileInfo, r, cPlt.y, pd.selector, dtype = float,
                          chipNumber = fileInfo.centerChip)
         if cPlt.color.len > 0:
-          allZ.add h5f.read(r, cPlt.color, pd.selector, dtype = float,
+          allZ.add h5f.read(fileInfo, r, cPlt.color, pd.selector, dtype = float,
                             chipNumber = fileInfo.centerChip)
       let title = buildTitle(pd)
       result[0] = buildOutfile(pd, fileDir, fileType)
@@ -1968,10 +1989,10 @@ proc handleCustomPlot(h5f: H5File,
       var allX: seq[float]
       var allZ: seq[float]
       for r in pd.runs:
-        allX.add h5f.read(r, cPlt.x, pd.selector, dtype = float,
+        allX.add h5f.read(fileInfo, r, cPlt.x, pd.selector, dtype = float,
                          chipNumber = fileInfo.centerChip)
         if cPlt.color.len > 0:
-          allZ.add h5f.read(r, cPlt.color, pd.selector, dtype = float,
+          allZ.add h5f.read(fileInfo, r, cPlt.color, pd.selector, dtype = float,
                             chipNumber = fileInfo.centerChip)
       let title = buildTitle(pd)
       result[0] = buildOutfile(pd, fileDir, fileType)

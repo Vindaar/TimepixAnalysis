@@ -21,7 +21,7 @@ proc moreCustom(fileInfo: FileInfo, config: Config): seq[PlotDescriptor] =
     echo "Reading all TOA"
     for r in pd.runs:
       echo "Reading toa of run ", r
-      let toas = h5f.readVlen(r, "ToA", pd.selector, fileInfo.centerChip, dtype = uint16)
+      let toas = h5f.readVlen(fileInfo, r, "ToA", pd.selector, fileInfo.centerChip, dtype = uint16)
       # shift all ToA values to start at 0 in each cluster
       for toa in toas:
         let toaInt = toa.mapIt(it.int32)

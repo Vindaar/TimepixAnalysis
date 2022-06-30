@@ -2293,7 +2293,13 @@ proc eventDisplay(h5file: string,
   let fInfoConfig = fileInfo.appliedConfig(config)
   let events = toOrderedSet(toSeq(0 .. 50))#initOrderedSet[int]())
   ## XXX: events irrelevant
-  let pds = createEventDisplayPlots(h5f, run, runType, fInfoConfig, config, events)
+  let run = runOpt.get
+  var pds: seq[PlotDescriptor]
+  for r in fileInfo.runs:
+    if run > 0 and r == run:
+      pds.add createEventDisplayPlots(h5f, r, runType, fInfoConfig, config, events)
+    elif run < 0:
+      pds.add createEventDisplayPlots(h5f, r, runType, fInfoConfig, config, events)
 
   if cfProvideServer in config.flags:
     serve(h5f, fileInfo, pds, config)
@@ -2424,7 +2430,7 @@ proc handlePlotTypes(h5file: string,
   ## TODO: what happens for SVG? Need to check too.
   var outfile = ""
   if evDisplayRun.isSome():
-    outfile = eventDisplay(h5file, evDisplayRun.get, runType, BKind, config)
+    outfile = eventDisplay(h5file, evDisplayRun, runType, BKind, config)
   else:
     case runType
     of rtCalibration:
@@ -2688,7 +2694,7 @@ proc plotData*(
   h5file: string,
   runType: RunTypeKind,
   backend: PlottingBackendKind = bGgPlot,
-  eventDisplay: int = -1,
+  eventDisplay: int = int.high,
   h5Compare: seq[string] = @[], # additional files to compare against
   compareRunTypes: seq[RunTypeKind] = @[],
   server = false, fadc = false, ingrid = false, occupancy = false,
@@ -2699,6 +2705,7 @@ proc plotData*(
   runs: set[uint16] = {},
   show = false,
   cuts: seq[GenericCut] = @[],
+  maskRegion: seq[MaskRegion] = @[],
   applyAllCuts = false,
   cutFePeak = false,
   head: int = 0,
@@ -2764,7 +2771,7 @@ proc plotData*(
 
   var evDisplayRun: Option[int] = none[int]()
   BKind = backend
-  if eventDisplay >= 0:
+  if eventDisplay != int.high:
     evDisplayRun = some(eventDisplay)
 
   if h5Compare.len == 0:
@@ -2810,7 +2817,8 @@ when isMainModule:
   Python / Matplotlib: {"python", "py", "matplotlib", "mpl"}
   Nim / Plotly: {"nim", "plotly"}""",
 
-    "eventDisplay" : "If given will show event displays of the given run.",
+    "eventDisplay" : """If given will show event displays of the given run. If a negative
+run number is given, will generate events for all runs in the file.""",
     "h5Compare" : "If any given, all plots will compare with same data from these files.",
     "server" : """If flag given, will launch client and send plots individually,
   instead of creating all plots and dumping them.""",

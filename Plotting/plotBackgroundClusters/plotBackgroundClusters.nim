@@ -49,29 +49,39 @@ proc goldRegionOutline(maxVal: int): Tensor[int] =
         coord[0] in {min .. max}):
       result[coord[0], coord[1]] = maxVal
 
-const noisyPixels = [(64, 109),
-                     (64, 110),
-                     (67, 112),
-                     (65, 108),
-                     (66, 108),
-                     (67, 108),
-                     (65, 109),
-                     (66, 109),
-                     (67, 109),
-                     (68, 109),
-                     (65, 110),
-                     (66, 110),
-                     (67, 110),
-                     (65, 111),
-                     (66, 111),
-                     (67, 111),
-                     (68, 110),
-                     (68, 109),
-                     (68, 111),
-                     (68, 108),
-                     (67, 107),
-                     (66, 111),
-                     (69, 110)]
+when false:
+  const noisyPixels = [(64, 109),
+                       (64, 110),
+                       (67, 112),
+                       (65, 108),
+                       (66, 108),
+                       (67, 108),
+                       (65, 109),
+                       (66, 109),
+                       (67, 109),
+                       (68, 109),
+                       (65, 110),
+                       (66, 110),
+                       (67, 110),
+                       (65, 111),
+                       (66, 111),
+                       (67, 111),
+                       (68, 110),
+                       (68, 109),
+                       (68, 111),
+                       (68, 108),
+                       (67, 107),
+                       (66, 111),
+                       (69, 110)]
+
+var noisyPixels = newSeq[(int, int)]()
+for x in 150 .. 250:
+  for y in 130 .. 162:
+    noisyPixels.add (x, y)
+
+for x in 125 .. 135:
+  for y in 110 .. 120:
+    noisyPixels.add (x, y)
 
 proc readClusters(file: string, cTab: var CountTable[(int, int)],
                   filterNoisyPixels: bool,

@@ -10,6 +10,8 @@ import ingrid / private / likelihood_utils
 import ingridDatabase / [databaseRead, databaseDefinitions]
 import parsetoml except `{}`
 
+#import ../../Tools/NN_playground/predict_event
+
 let doc = """
 InGrid likelihood calculator. This program is run after reconstruction is finished.
 It calculates the likelihood values for each reconstructed cluster of a run and
@@ -617,7 +619,17 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
         let chipClusterCenter = (x: cX, y: cY, ch: 0).determineChip(allowOutsideChip = true)
         if chipClusterCenter == centerChip and # this cluster's center is on center chip
            logL < cutTab[energy]:              # cluster passes logL cut
-             passed = true
+          passed = true
+
+          when false:
+            ## NN veto
+            # if the event seems to pass *everything* we've thrown at it so far, take our final
+            # killer veto
+            echo "Predicting: ", runNumber, " evnt ", septemFrame.centerEvIdx
+            let pred = h5f.predict(runNumber, septemFrame.centerEvIdx)
+            if pred >= 3.257343386744518:
+              passed = true
+
         if not lineVetoRejected and not lineVetoPassed:
           lineVetoRejected = true
       if not passed or lineVetoRejected:

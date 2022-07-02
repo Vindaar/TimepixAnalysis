@@ -56,7 +56,9 @@ proc extractYear(f: string): int =
 
 proc readFiles(files: seq[string], names: seq[string], region: ChipRegion,
                energyDset: string,
-               centerChip: int): seq[LogLFile] =
+               centerChip: int,
+               readToA: bool,
+               toaCutoff: float): seq[LogLFile] =
   ## reads all H5 files given and stacks them to a single
   ## DF. An additional column is added, which corresponds to
   ## the filename. That way one can later differentiate which
@@ -68,6 +70,9 @@ proc readFiles(files: seq[string], names: seq[string], region: ChipRegion,
   for idx, file in files:
     let h5f = H5open(file, "r")
     var df = h5f.readDsets(likelihoodBase(), some((centerChip, DsetNames)))
+    if readToA:
+      df = df.filter(f{`toaLength` < toaCutoff})
+
     doAssert not df.isNil, "Read DF is nil. Likely you gave a non existant chip number. Is " &
       $centerChip & " really the center chip in your input file?"
     df = df
@@ -368,6 +373,8 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
           region: ChipRegion = crAll, # use either all data or cut to given region
           energyDset = "energyFromCharge",
           centerChip = 3,
+          toaCutoff = Inf,
+          readToA = false,
           topMargin = 1.0,
           yMax = -1.0,
           useTeX = false,
@@ -378,7 +385,9 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
           logPlot = false
          ) =
   discard existsOrCreateDir("plots")
-  let logLFiles = readFiles(files, names, region, energyDset, centerChip)
+  if readToA:
+    DsetNames.add "toaLength"
+  let logLFiles = readFiles(files, names, region, energyDset, centerChip, readToA, toaCutoff)
   let fnameSuffix = logLFiles.mapIt($it.year).join("_") & "_show2014_" & $show2014 & "_separate_" & $separateFiles & "_" & suffix.replace(" ", "_")
 
   let factor = if log: 1.0 else: 1e5
@@ -472,4 +481,36 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
     )
 
 when isMainModule:
-  dispatch main
+  dispatch main, help = {
+    "files" : "Input files to plot backround rate from",
+    "log" : "Create a log plot. TODO: merge with logPlot!",
+    "title" : "Set the title of the resulting plot",
+    "show2014" : "If true show the background rate of 2014/15 CAST run",
+    "separateFiles" : "If set will plot background rates for each input file separatetely.",
+    "suffix" : "Suffix will added to title and filename.",
+    "names" : """
+Names are the names associated to each file. If len > 0 use that name instead of something derived from
+filename. Makes for more natural way to separate combine things! Order needs to be same as `files`!
+""",
+    "compareEfficiencies" : """Given multiple input files corresponding to different efficiencies
+of the logL cut, creates a comparison plot.""",
+    "plotMedianBools" : "Plot different datasets that are smaller than the median of that dataset.",
+    "combName" : "Name for combined data (i.e. `separateFiles == false`).",
+    "combYear" : "Year for combined data (i.e. `separateFiles == false`).",
+    "totalTime" : "Total time to use in hours, not supported with `names` or `separateFiles`.",
+    "hidePoints" : "If set do not show points of data (only histogram).",
+    "hideErrors" : "If set disables error bars.",
+    "fill" : "If true, will `fill` with alpha 0.5 for case of multiple datasets. Else will color outline.",
+    "region" : "The chip region to cut to.",
+    "energyDset" : "The energy dataset to base the x axis on, {energyFromCharge, energyFromPixel}.",
+    "centerChip" : "The center chip of the detector stored in the files. 0 for single chip detectors.",
+    "toaCutoff" : "For detectors with ToA data, cut off all clusters with larger ToA lengths than this.",
+    "readToA" : "If set will also read ToA related datasets. Required for `toaCutoff.",
+    "topMargin" : "Margin at the top of the plot for long titles.",
+    "yMax" : "If any given, limit the y axis to this value.",
+    "useTeX" : "Generate a plot using TeX",
+    "showPreliminary" : "If set shows a big 'Preliminary' message in the center.",
+    "showNumClusters" : "If set adds number of input clusters to title.",
+    "showTotalTime" : "If set adds the total time of background data to title.",
+    "genTikZ" : "If set only generate TikZ instead of compiling a TeX file to PDF.",
+    "logPlot" : "Alternate setting to activate log10 plot. TO BE REMOVED"}

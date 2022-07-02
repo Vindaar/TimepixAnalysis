@@ -16,3 +16,24 @@
         dsets = ["minvals", "fallTime", "riseTime"]
 
 [Occupancy]
+
+[Cuts]
+cuts = [1]
+# Example cut
+# [Cuts.1] # name is just 1
+# applyFile = [] # apply this cut to the input files listed in this array
+# applyTo = [] # if any given, apply this cut to all plots of the datasets in this array
+# dset = toaLength # dataset the cut applies to
+# min = 0.0 # minimum allowed value
+# max = 20.0 # maximum allowed value
+
+[MaskRegions]
+# in theory this could also identify itself by chip name & run period, but that's a bit restrictive
+# example mask region
+# regions = [1]
+# [MaskRegions.1]
+# applyFile = ["reco_tpx3_background.h5"]
+# applyDset = []
+# x = [150, 250] # mask x range from <-> to
+# y = [130, 162] # mask y range from <-> to
+

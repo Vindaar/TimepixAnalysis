@@ -44,11 +44,19 @@ else:
       cfCompiledCustom # if given will create the compiled custom plots (i.e. in file `moreCustomPlots`).
                        # A change requires a recompilation!
 
-
     ## A generic cut on input data using dset & low / high values
-    GenericCut* = tuple[dset: string, lower, upper: float]
+    GenericCut* = object
+      applyFile*: seq[string] ## apply this cut to all files in this seq (all if empty)
+      applyDset*: seq[string] ## apply this cut when reading all datasets in this seq (all if empty)
+      dset*: string
+      min*: float
+      max*: float
     ChipCoord* = range[0 .. 255]
-    MaskRegion* = tuple[x: tuple[min, max: ChipCoord], y: tuple[min, max: ChipCoord]]
+    MaskRegion* = object
+      applyFile*: seq[string] ## apply this cut to all files in this seq (all if empty)
+      applyDset*: seq[string] ## apply this cut when reading all datasets in this seq (all if empty)
+      x*: tuple[min, max: ChipCoord]
+      y*: tuple[min, max: ChipCoord]
 
     Config* = object
       flags*: set[ConfigFlagKind]
@@ -59,7 +67,7 @@ else:
       ingridDsets*: set[IngridDsetKind]
       fadcDsets*: seq[string] # currently don't have an enum for them
       cuts*: seq[GenericCut] ## Used to fill the `DataSelector`
-      maskRegion*: seq[MaskRegion] ##
+      maskRegion*: seq[MaskRegion] ## Used to fill the `DataSelector`
       region*: ChipRegion    ## From input to preselect a region
       idxs*: seq[int]        ## Indices to read. Negative indices are interpreted as seen from the end of dset
       plotlySaveSvg*: bool
@@ -201,6 +209,13 @@ type
     else:
       discard
 
+proc `==`*(s1, s2: DataSelector): bool =
+  result = s1.region == s2.region and
+     s1.cuts == s2.cuts and
+     s1.maskRegion == s2.maskRegion and
+     s1.idxs == s2.idxs and
+     s1.applyAll == s2.applyAll
+
 proc `==`*(p1, p2: PlotDescriptor): bool =
   ## `runType` is ignored to allow to compare rtBackground with rtCalibration files!
   #if p1.runType != p2.runType: result = false
@@ -217,6 +232,8 @@ proc `==`*(p1, p2: PlotDescriptor): bool =
     #cmpField(xlabel) # labels irrelevant
     #cmpField(ylabel)
     #cmpField(title) # title irrelevant
+
+    cmpField(selector)
     case p1.plotKind
     of pkInGridDset, pkFadcDset, pkToTPerPixel:
       cmpField(binSize)

@@ -93,11 +93,52 @@ proc contains*(dset: string, cuts: seq[GenericCut]): bool =
     if dset == c.dset:
       return true
 
-proc get*(cuts: seq[GenericCut], dset: string): Option[GenericCut] =
-  for c in cuts:
-    if dset == c.dset:
-      return some(c)
+proc getCuts*(selector: DataSelector, file: string, dset: string): seq[GenericCut] =
+  # only add those cuts where the file is valid & the dset are. Dset can
+  # be overwritten by `applyAll`
+  for c in selector.cuts:
+    if (c.applyFile.len == 0 or file in c.applyFile) and
+       (selector.applyAll or c.applyDset.len == 0 or dset in c.applyDset):
+      result.add c
 
+proc getMasks*(selector: DataSelector, file: string, dset: string): seq[MaskRegion] =
+  # only add those masks where the file is valid & the dset are. Dset can
+  # be overwritten by `applyAll`
+  for m in selector.maskRegion:
+    if (m.applyFile.len == 0 or file in m.applyFile) and
+       (selector.applyAll or m.applyDset.len == 0 or dset in m.applyDset):
+      result.add m
+
+proc parseCut(tab: TomlValueRef): GenericCut =
+  result = GenericCut(applyFile: tab["applyFile"].getElems.mapIt(it.getStr),
+                      applyDset: tab["applyDset"].getElems.mapIt(it.getStr),
+                      dset: tab["dset"].getStr,
+                      min: tab["min"].getFloat,
+                      max: tab["max"].getFloat)
+
+proc parseMaskRegion(tab: TomlValueRef): MaskRegion =
+  let x = tab["x"].getElems
+  let y = tab["y"].getElems
+  result = MaskRegion(applyFile: tab["applyFile"].getElems.mapIt(it.getStr),
+                      applyDset: tab["applyDset"].getElems.mapIt(it.getStr),
+                      x: (min: ChipCoord(x[0].getInt), max: ChipCoord(x[1].getInt)),
+                      y: (min: ChipCoord(y[0].getInt), max: ChipCoord(y[1].getInt)))
+
+proc parseTomlCuts(cfg: TomlValueRef): seq[GenericCut] =
+  doAssert "Cuts" in cfg, "Cuts table not defined in your config.toml. Please add it."
+  let cutTab = cfg["Cuts"]
+  let cuts = cutTab["cuts"]
+  for c in cuts:
+    let cut = cutTab[$(c.getInt)]
+    result.add parseCut(cut)
+
+proc parseTomlMaskRegions(cfg: TomlValueRef): seq[MaskRegion] =
+  doAssert "MaskRegions" in cfg, "Mask region table not defined in your config.toml. Please add it."
+  let regionTab = cfg["MaskRegions"]
+  let regions = regionTab["regions"]
+  for r in regions:
+    let region = regionTab[$(r.getInt)]
+    result.add parseMaskRegion(region)
 
 proc initConfig*(chips: set[uint16],
                  runs: set[uint16],
@@ -116,6 +157,12 @@ proc initConfig*(chips: set[uint16],
   let outputType = tomlConfig["General"]["outputFormat"].getStr
   let combinedFormat = parseEnum[OutputFiletypeKind](outputType)
   let fileFormat = parseEnum[PlotFiletypeKind](fType)
+
+  var cuts = cuts
+  cuts.add parseTomlCuts(tomlConfig)
+
+  var maskRegion = maskRegion
+  maskRegion.add parseTomlMaskRegions(tomlConfig)
 
   ## XXX: remove this, set global
   fileType = fType
@@ -324,12 +371,17 @@ proc initPlotV(title: string, xlabel: string, ylabel: string, shape = ShapeKind.
 
 import sets
 
-proc toIdx(x: float): int = (x / 14.0 * 256.0).round.int
-proc applyMaskRegion(h5f: H5File, selector: DataSelector, group: H5Group, idx: seq[int]): seq[int] =
+proc toIdx(x: float): int = (x / 14.0 * 256.0).round.int.clamp(0, 255)
+proc applyMaskRegion(h5f: H5File, selector: DataSelector, dset: string,
+                     group: H5Group, idx: seq[int]): seq[int] =
   ## applies the masking region in `maskRegion` of `selector`
   # build set of masked pixels from selector
+  let masks = selector.getMasks(h5f.name.extractFilename, dset)
+  if masks.len == 0:
+    return idx # short cut to avoid data reading
+
   var noisyPixels = newSeq[(int, int)]()
-  for maskRegion in selector.maskRegion:
+  for maskRegion in masks:
     for x in maskRegion.x.min .. maskRegion.x.max:
       for y in maskRegion.y.min .. maskRegion.y.max:
         noisyPixels.add (x, y)
@@ -345,33 +397,46 @@ proc applyMaskRegion(h5f: H5File, selector: DataSelector, group: H5Group, idx: s
     if (posX[i].toIdx, posY[i].toIdx) notin noiseSet:
       result.add i
 
-proc hasCuts(selector: DataSelector, dset: H5Dataset): bool =
+proc hasCuts(selector: DataSelector, file: string, dset: H5Dataset): bool =
   ## returns whether we apply cuts to this (or all) datasets. To differentiate
   ## between an empty `idx` due to cuts removing everything or not using cuts
-  for cut in selector.cuts:
-    if selector.applyAll or cut.dset == dset.name:
+  # if the data selector has selected a region, we already have a cut
+  if selector.region != crAll:
+    result = true
+
+  for c in selector.cuts:
+    if (c.applyFile.len == 0 or file in c.applyFile) and
+       (selector.applyAll or c.applyDset.len == 0 or dset.name in c.applyDset):
       result = true
       break
-  for mask in selector.maskRegion:
-    result = true
-    break
+  for m in selector.maskRegion:
+    if (m.applyFile.len == 0 or file in m.applyFile) and
+       (selector.applyAll or m.applyDset.len == 0 or dset.name in m.applyDset):
+      result = true
+      break
+
+proc toTuple(c: GenericCut): tuple[dset: string, lower, upper: float] =
+  (dset: c.dset, lower: c.min, upper: c.max)
+
+proc toTuple(c: seq[GenericCut]): seq[tuple[dset: string, lower, upper: float]] =
+  result = c.mapIt(it.toTuple)
 
 proc applyCuts(h5f: H5File, selector: DataSelector, dset: H5Dataset, idx: seq[int]): seq[int] =
   ## Apply potential cut to this dataset
   result = idx
+
   let parentGrp = h5f[dset.parent.grp_str]
-  #let cuts = config.cuts.mapIt((dset: it.dset, lower: it.lower, upper
   var performedCut = false
   if idx.len == 0: # only apply if no indices already specified
-    if selector.applyAll:
-      result = cutOnProperties(h5f, parentGrp, selector.cuts)
+    let cuts = selector.getCuts(h5f.name.extractFilename, dset.name)
+    # now apply the correct cuts
+    # get the cut indices to only read passing data
+    if cuts.len > 0:
+      result = cutOnProperties(h5f, parentGrp, selector.region, cuts.toTuple)
       performedCut = true
-    else:
-      let cut = selector.cuts.get(dset.name)
-      if cut.isSome:
-        # get the cut indices to only read passing data
-        result = cutOnProperties(h5f, parentGrp, cut.get)
-        performedCut = true
+    elif cuts.len == 0 and selector.region != crAll:
+      result = cutOnProperties(h5f, parentGrp, selector.region)
+      performedCut = true
 
   if selector.idxs.len > 0:
     if result.len == 0 and not performedCut:
@@ -381,14 +446,12 @@ proc applyCuts(h5f: H5File, selector: DataSelector, dset: H5Dataset, idx: seq[in
       let maxIdx = min(selector.idxs.len, result.len)
       let idxs = selector.idxs.filterIt(it < maxIdx)
       result = idxs.mapIt(result[it])
-    else:
-      echo "result is length 0? ", result, " for ", selector
     # else leave as is
   # now possibly apply region cut
   if performedCut and result.len > 0:
-    result = applyMaskRegion(h5f, selector, parentGrp, result)
+    result = applyMaskRegion(h5f, selector, dset.name, parentGrp, result)
   elif not performedCut:
-    result = applyMaskRegion(h5f, selector, parentGrp, @[])
+    result = applyMaskRegion(h5f, selector, dset.name, parentGrp, @[])
 
 proc readFull*(h5f: H5File,
                fileInfo: FileInfo,
@@ -409,9 +472,8 @@ proc readFull*(h5f: H5File,
 
   ## possibly set indices to a subset based on cuts
   let idx = h5f.applyCuts(selector, dset, idx)
-
   when dtype is SomeNumber:
-    if not selector.hasCuts(dset): # read everything and idx.len == 0:
+    if not selector.hasCuts(h5f.name.extractFilename, dset): # read everything and idx.len == 0:
       result[1] = dset.readAs(dtype)
     elif idx.len > 0:
       # manual conversion required
@@ -424,7 +486,7 @@ proc readFull*(h5f: H5File,
       raise newException(Exception, "Cannot convert N-D sequence to type: " &
         subtype.name)
     else:
-      if not selector.hasCuts(dset): # read everything idx.len == 0:
+      if not selector.hasCuts(h5f.name.extractFilename, dset): # read everything idx.len == 0:
         # convert to subtype and reshape to dsets shape
         result[1] = dset.readAs(subtype).reshape2D(dset.shape)
       elif idx.len > 0:
@@ -458,7 +520,7 @@ proc readVlen(h5f: H5File,
   let vlenDtype = special_type(dtype)
   let dset = h5f[(fileInfo.dataPath(runNumber, chipNumber).string / dsetName).dset_str]
   let idx = h5f.applyCuts(selector, dset, idx)
-  if not selector.hasCuts(dset):
+  if not selector.hasCuts(h5f.name.extractFilename, dset):
     result = dset[vlenDType, dtype]
   elif idx.len > 0:
     result = dset[vlenDtype, dtype, idx]
@@ -689,8 +751,9 @@ proc histograms(h5f: H5File, runType: RunTypeKind,
     # - 1 around escape peak
     # - 1 without cut
     if cfCutFePeak in config.flags:
-      let ranges = @[(dset: "energyFromCharge", lower: 5.5, upper: 6.2),
-                     (dset: "energyFromCharge", lower: 2.7, upper: 3.2,)]
+      let Ed = "energyFromCharge"
+      let ranges = @[GenericCut(dset: Ed, applyDset: @[Ed], min: 5.5, max: 6.2),
+                     GenericCut(dset: Ed, applyDset: @[Ed], min: 2.7, max: 3.2)]
       selectors = ranges.mapIt(initSelector(config, @[it], applyAll = some(false)))
       selectors.add initSelector(config)
     else:
@@ -703,7 +766,7 @@ proc histograms(h5f: H5File, runType: RunTypeKind,
   for selector in selectors:
     if cfInGrid in config.flags:
       ## XXX: make region selection CLI argument & config file!
-      for region in [crAll]: #ChipRegion:
+      for region in [crAll, crGold]: #ChipRegion:
         var sel = selector
         sel.region = region
         for ch in fileInfo.chips:
@@ -1883,7 +1946,7 @@ iterator ingridEventIter(h5f: H5File,
     if pd.selector.cuts.len > 0:
       texts.add &"{\" \":>15}Cuts used: "
       for c in pd.selector.cuts:
-        texts.add &"{c.dset:>15}: [{c.lower:.2f}, {c.upper:.2f}]"
+        texts.add &"{c.dset:>15}: [{c.min:.2f}, {c.max:.2f}]"
     if pd.selector.maskRegion.len > 0:
       texts.add &"{\" \":>15}Masks used: "
       for m in pd.selector.maskRegion:
@@ -2437,8 +2500,8 @@ proc genBackgroundPlotPDs(h5f: H5File, runType: RunTypeKind,
   # result.add createCustomPlots(fInfoConfig, config)
   if config.customPlots.len > 0:
     result.add createCustomPlots(fInfoConfig, config)
-  # now deal with custom plots
-  result.add moreCustom(fInfoConfig, config)
+    # now deal with custom compiled plots
+    result.add moreCustom(fInfoConfig, config)
 
 proc createBackgroundPlots(h5file: string,
                            bKind: PlottingBackendKind,
@@ -2840,9 +2903,11 @@ when isMainModule:
     var vals = a.val.strip(chars = {'(', ')'}).split(',')
     if vals.len != 3: return false
     try:
-      dst = (dset: vals[0].strip(chars = {'"'}),
-             lower: parseFloat(vals[1].strip),
-             upper: parseFloat(vals[2].strip))
+      let dset = vals[0].strip(chars = {'"'})
+      dst = GenericCut(dset: dset,
+                       applyDset: @[dset], ## XXX: set this?
+                       min: parseFloat(vals[1].strip),
+                       max: parseFloat(vals[2].strip))
       result = true
     except:
       result = false
@@ -2856,8 +2921,9 @@ when isMainModule:
     var xy = a.val.stripAll.split(',')
     if xy.len != 4: return false
     try:
-      dst = (x: (min: ChipCoord(xy[0].stripAll.parseInt), max: ChipCoord(xy[1].stripAll.parseInt)),
-             y: (min: ChipCoord(xy[2].stripAll.parseInt), max: ChipCoord(xy[3].stripAll.parseInt)))
+      let xR = (min: ChipCoord(xy[0].stripAll.parseInt), max: ChipCoord(xy[1].stripAll.parseInt))
+      let yR = (min: ChipCoord(xy[2].stripAll.parseInt), max: ChipCoord(xy[3].stripAll.parseInt))
+      dst = MaskRegion(x: xR, y: yR)
       result = true
     except:
       result = false

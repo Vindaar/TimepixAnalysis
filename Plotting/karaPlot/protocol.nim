@@ -210,8 +210,8 @@ proc parseDataPacket*(packet: kstring): DataPacket =
 
 func `%`*(c: GenericCut): JsonNode =
   result = %* { kstring"dset": % ($c.dset),
-                kstring"lower": % ($c.lower),
-                kstring"upper": % ($c.upper) }
+                kstring"lower": % ($c.min),
+                kstring"upper": % ($c.max) }
 
 func `%`*(s: DataSelector): JsonNode =
   result = newJObject()
@@ -256,9 +256,9 @@ func `$`*(pd: PlotDescriptor): kstring =
   result = (% pd).pretty
 
 func parseGenericCut*(j: JsonNode): GenericCut =
-  result = (dset: j[kstring"dset"].getStr,
-            lower: j[kstring"lower"].getStr.parseFloat,
-            upper: j[kstring"upper"].getStr.parseFloat)
+  result = GenericCut(dset: j[kstring"dset"].getStr,
+                      min: j[kstring"lower"].getStr.parseFloat,
+                      max: j[kstring"upper"].getStr.parseFloat)
 
 func parseSelector*(j: JsonNode): DataSelector =
   result = DataSelector(region: parseEnum[ChipRegion](j[kstring"region"].getStr, crAll),
@@ -362,7 +362,7 @@ proc getRunsStr*(runs: seq[int]): kstring =
     result = runs.foldl($a & " " & $b, "").strip(chars = {' '})
 
 proc toFilename(s: DataSelector): string =
-  let sCuts = s.cuts.mapIt(&"{it.dset}_{it.lower}_{it.upper}").join("_")
+  let sCuts = s.cuts.mapIt(&"{it.dset}_{it.min}_{it.max}").join("_")
   let numIdxs = if s.idxs.len > 0: &"numIdxs_{s.idxs.len}" else: ""
   let sApplyAll = if s.cuts.len > 0: &"applyAll_{s.applyAll}" else: ""
   let sRegion = &"region_{s.region}"
@@ -373,7 +373,7 @@ proc toFilename(c: CustomPlot): string =
   result = @[kind, c.x, c.y, c.color].filterIt(it.len > 0).join("_")
 
 proc toTitle(s: DataSelector): string =
-  let sCuts = s.cuts.mapIt(&"{it.dset}: [{it.lower:.2f}, {it.upper:.2f}]").join(", ")
+  let sCuts = s.cuts.mapIt(&"{it.dset}: [{it.min:.2f}, {it.max:.2f}]").join(", ")
   let numIdxs = if s.idxs.len > 0: &"numIdxs: {s.idxs.len}" else: ""
   let sApplyAll = if s.cuts.len > 0: &"applyAll: {s.applyAll}" else: ""
   let sRegion = &"region: {s.region}"

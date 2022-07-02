@@ -2147,7 +2147,7 @@ proc createPlot*(h5f: H5File,
   # TODO: think: have createPlot return the `PlotV` object. Then we could
   # call this proc recursively and add other plots to the existing figure
   let test = % pd
-  echo "Test is ", test.pretty
+  info "Generating plot for: ", test.pretty
   # test reverse
   #let test2 = parsePd(test)
   #doAssert test2 == pd
@@ -2458,7 +2458,7 @@ proc genCalibrationPlotPDs(h5f: H5File,
           "version we compiled against! You gave the `--compiledCustom` option, which implies you wish to " &
           "generate these plots. Please recompile this program (`plotData.nim`).")
     else:
-      echo "INFO: Cannot find `moreCustomPlots.nim` source file. Using compiled version!"
+      info "Cannot find `moreCustomPlots.nim` source file. Using compiled version!"
     result.add moreCustom(fInfoConfig, config)
 
 proc createCalibrationPlots(h5file: string,

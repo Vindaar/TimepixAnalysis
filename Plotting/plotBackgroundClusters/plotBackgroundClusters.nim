@@ -122,17 +122,36 @@ proc toDf(cTab: CountTable[(int, int)]): DataFrame =
   result = seqsToDf({"x" : cX, "y" : cY, "count" : cC})
     .arrange("count", order = SortOrder.Ascending)
 
+proc writeNoisyClusters(cTab: CountTable[(int, int)],
+                        threshold: int) =
+  ## Writes a `noisyPixels` array to file with all pixels that have
+  ## more counts than `threshold`.
+  cTab.toDf().writeCsv("/t/data_tab.csv")
+  var f = open("/t/noisy_clusters.txt", fmWrite)
+  f.write("const noisyPixels = [\n")
+  for tup, val in cTab:
+    if val > threshold:
+      f.write($tup & ",\n")
+  f.write("]")
+  f.close()
+
 proc main(
   files: seq[string], suffix = "", title = "",
   names: seq[string] = @[], # can be used to create facet plot. All files with same names will be stacked
   filterNoisyPixels = false,
   filterEnergy = 0.0,
-  useTikZ = false) =
+  useTikZ = false,
+  writeNoisyClusters = false,
+  threshold = 2) =
+
+  let cTab = readClusters(files, filterNoisyPixels, filterEnergy)
+  if writeNoisyClusters:
+    cTab.writeNoisyClusters(threshold)
 
   var df = newDataFrame()
   if names.len == 0 or names.deduplicate.len == 1:
     echo files
-    df = readClusters(files, filterNoisyPixels, filterEnergy).toDf()
+    df = cTab.toDf()
   else:
     doAssert names.len == files.len, "Need same number of names as input files!"
     for i in 0 ..< names.len:

@@ -6,11 +6,11 @@ import strformat
 import nimhdf5
 import ingrid / [tos_helpers, ingrid_types]
 import os, strutils, sequtils, random, algorithm, options, cligen
-import datamancer
+import datamancer, unchained
 
 {.experimental: "views".}
 
-let bsz = 100 # batch size
+let bsz = 8192 # batch size
 
 # We will build the following network:
 # Input --> Linear(out_features = 12) --> relu --> Linear(out_features = 1)
@@ -20,6 +20,7 @@ defModule:
     XorNet* = object of Module
       hidden* = Linear(12, 500)
       #hidden2* = Linear(100, 100)
+      #hidden2* = Linear(5000, 5000)
       classifier* = Linear(500, 2)
       #conv2* = Conv2d(10, 20, 5)
       #conv2_drop* = Dropout2d()
@@ -29,6 +30,7 @@ defModule:
 proc forward(net: XorNet, x: RawTensor): RawTensor =
   #var x = net.hidden2.forward(net.hidden.forward(x).relu()).relu()
   var x = net.hidden.forward(x).relu()
+  #x = net.hidden2.forward(x).relu()
   return net.classifier.forward(x).squeeze(1)
 
 proc readDset(h5f: H5File, grpName: string, igKind: InGridDsetKind): seq[float64] =
@@ -216,7 +218,8 @@ proc plotLikelihoodDist(df: DataFrame) =
     scale_x_continuous() +
     ggsave("/tmp/likelihood.pdf")
 
-proc plotTraining(predictions: seq[float], targets: seq[int]) =
+proc plotTraining(predictions: seq[float], targets: seq[int],
+                  outfile = "/tmp/test.pdf") =
   echo "INPUT ", predictions.len
   echo "TARG ", targets.len
   let dfPlt = seqsToDf(predictions, targets)
@@ -229,8 +232,7 @@ proc plotTraining(predictions: seq[float], targets: seq[int]) =
   ggplot(dfPlt, aes("predictions", fill = "isSignal")) +
     geom_histogram(bins = 100, position = "identity", alpha = some(0.5), hdKind = hdOutline) +
     scale_x_continuous() +
-    ggsave("/tmp/test.pdf")
-
+    ggsave(outfile)
 
 proc determineEff(pred: seq[float], cutVal: float,
                   isBackground = true): float =
@@ -263,11 +265,23 @@ proc calcRocCurve(predictions: seq[float], targets: seq[int]): DataFrame =
   let dfSignal = dfPlt.filter(f{`isSignal` == true})
   let dfBackground = dfPlt.filter(f{`isSignal` == false})
 
-  let sigEffDf = calcSigEffBackRej(dfSignal, bins, isBackground = false)
-    .rename(f{"sigEff" <- "eff"})
-  let backRejDf = calcSigEffBackRej(dfBackground, bins, isBackground = true)
-    .rename(f{"backRej" <- "eff"})
-  result = innerJoin(sigEffDf, backRejDf, by = "cutVals")
+  var
+    sigEffDf = newDataFrame()
+    backRejDf = newDataFrame()
+  if dfSignal.len > 0:
+    sigEffDf = calcSigEffBackRej(dfSignal, bins, isBackground = false)
+      .rename(f{"sigEff" <- "eff"})
+  if dfBackground.len > 0:
+    backRejDf = calcSigEffBackRej(dfBackground, bins, isBackground = true)
+      .rename(f{"backRej" <- "eff"})
+  if sigEffDf.len > 0 and backRejDf.len > 0:
+    result = innerJoin(sigEffDf, backRejDf, by = "cutVals")
+  elif sigEffDf.len > 0:
+    result = sigEffDf
+  elif backRejDf.len > 0:
+    result = backRejDf
+  else:
+    doAssert false, "Both signal and background dataframes are empty!"
 
 proc rocCurve(predictions: seq[float], targets: seq[int],
               suffix = "") =
@@ -292,16 +306,32 @@ proc plotLogLRocCurve(df: DataFrame) =
   let (logl, targets) = logLValues(df)
   rocCurve(logl, targets, "_likelihood")
 
+proc prepareDataframe(fname: string, run: int): DataFrame =
+  let dfCdl = prepareCdl()
+  let dfBack = prepareBackground(fname, run).drop(["centerX", "centerY"])
+  echo dfCdl
+  echo dfBack
+  result = newDataFrame()
+  result.add dfCdl
+  result.add dfBack
+  # create likelihood plot
+  result.plotLikelihoodDist()
+  result.plotLogLRocCurve()
+
+template printTensorInfo(arg: untyped): untyped =
+  echo astToStr(arg), ": ", typeof(arg), " on device ", arg.get_device(), " is cuda ", arg.is_cuda()
+
 proc train(model: XorNet, optimizer: var Optimizer,
            input, target: RawTensor,
            device: Device) =
   let dataset_size = input.size(0)
   echo "Starting size ", dataset_size
   var toPlot = false
-  for epoch in 0 .. 1000:
+  for epoch in 0 .. 100000:
     var correct = 0
-    echo "Epoch is:" & $epoch
-    if epoch mod 25 == 0:
+    if epoch mod 50 == 0:
+      echo "Epoch is:" & $epoch
+    if epoch mod 5000 == 0:
       toPlot = true
     var predictions = newSeqOfCap[float](dataset_size)
     var targets = newSeqOfCap[int](dataset_size)
@@ -313,10 +343,14 @@ proc train(model: XorNet, optimizer: var Optimizer,
       ## TODO: generalize the batching and make sure to take `all` elements! (currently skip last X)
       let offset = batch_id * bsz
       let x = input[offset ..< offset + bsz, _ ]
+
       let target = target[offset ..< offset + bsz]
+      #printTensorInfo(target)
       # Running input through the network
       let output = model.forward(x)
+      #printTensorInfo(output)
       let pred = output.argmax(1)
+      #printTensorInfo(pred)
 
       if toPlot:
         # take 0th column
@@ -337,14 +371,15 @@ proc train(model: XorNet, optimizer: var Optimizer,
 
     ## create output plot
     if toPlot:
-      plotTraining(predictions, targets)
-      let preds = predictions.mapIt(clamp(-it, -50.0, 50.0))
+      plotTraining(predictions, targets, outfile = "/tmp/test_training.pdf")
+      let preds = predictions.mapIt(clamp(it, -50.0, 50.0))
       rocCurve(preds, targets)
       toPlot = false
 
 proc test(model: XorNet,
           input, target: RawTensor,
-          device: Device): (seq[float], seq[int]) =
+          device: Device,
+          plotOutfile = "/tmp/test_validation.pdf"): (seq[float], seq[int]) =
   ## returns the predictions / targets
   let dataset_size = input.size(0)
   var correct = 0
@@ -372,10 +407,10 @@ proc test(model: XorNet,
        &"| Accuracy: {correct.float64() / dataset_size.float64():.3f}"
 
   ## create output plot
-  plotTraining(predictions, targets)
+  plotTraining(predictions, targets, outfile = plotOutfile)
   # will fail probably...
   # doAssert target == targets
-  let preds = predictions.mapIt(clamp(-it, -50.0, 50.0))
+  let preds = predictions.mapIt(clamp(it, -50.0, 50.0))
   result = (preds, targets)
 
 proc predict(model: XorNet,
@@ -435,17 +470,20 @@ proc histogram(df: DataFrame): DataFrame =
                                range = (0.0, 20.0), bins = 100)
   result = seqsToDf({ "energies" : bins, "count" : concat(hist, @[0]) })
 
-proc plotBackground(data: seq[float]) =
+proc plotBackground(data: seq[float], totalTime: Hour) =
   let dfE = seqsToDf({"energies" : data})
     .filter(f{`energies` < 20.0})
+  #dfE.showBrowser()
   var dfH = histogram(dfE)
-  dfH["Rate"] = dfH["count"].scaleDset((2401 * 3600).float, 1e5)
+  let t = if totalTime > 0.0.Hour: totalTime else: 2401.0.Hour
+  dfH["Rate"] = dfH["count"].scaleDset(t.to(Second).float, 1e5)
   echo dfH
   #ggplot(dfE, aes("energies")) +
   #  geom_histogram(bins = 100) +
   #  ggsave("/tmp/simple_background_rate.pdf")
   ggplot(dfH, aes("energies", "Rate")) +
     geom_histogram(stat = "identity", hdKind = hdOutline) +
+    xlab("Energy [keV]") + ylab("Rate [10⁻⁵ keV⁻¹•cm⁻²•s⁻¹]") +
     ggsave("/tmp/simple_background_rate.pdf")
 
 proc targetSpecificRoc(model: XorNet, df: DataFrame, device: Device) =
@@ -471,24 +509,44 @@ proc targetSpecificRoc(model: XorNet, df: DataFrame, device: Device) =
     ylim(0.5, 1.0) +
     ggsave("/tmp/roc_curve_combined_split_by_target.pdf")
 
-proc main(fname: string) =
-
+proc predictBackground(model: XorNet, fname: string, ε: float, totalTime: Hour,
+                       device: Device) =
+  # classify
+  # determine cut value at 80%
   let dfCdl = prepareCdl()
-  let dfBack = prepareBackground(fname, 186).drop(["centerX", "centerY"])
-  echo dfCdl
-  echo dfBack
-  #if true: quit()
-  var df = newDataFrame()
-  df.add dfCdl
-  df.add dfBack
-  # create likelihood plot
-  df.plotLikelihoodDist()
-  let (logL, logLTargets) = df.logLValues()
-  df.plotLogLRocCurve()
-  #df.drop(igLikelihood.toDset(fkTpa))
-  let (trainTup, testTup) = generateTrainTest(df)
-  let (trainIn, trainTarg) = trainTup
-  let (testIn, testTarg) = testTup
+  let (cdlInput, cdlTarget) = dfCdl.toInputTensor()
+  let (cdlPredict, predTargets) = model.test(cdlInput, cdlTarget, device,
+                                             plotOutfile = "/tmp/cdl_prediction.pdf")
+  # Note: `predTargets` & `cdlTarget` contain same data. May not have same order though!
+  let dfMLPRoc = calcRocCurve(cdlPredict, predTargets)
+  dfMlpRoc.showBrowser()
+
+  let dfme = dfMLPRoc.filter(f{`sigEff` >= ε}).head(20) # assumes sorted by sig eff (which it is)
+  let cutVal = dfme["cutVals", float][0]
+  echo "Cut value: ", cutVal
+  dfMLPRoc.filter(f{`sigEff` >= ε}).showBrowser()
+
+  ## XXX: make sure the cut value stuff & the sign of the predictions is correct everywhere! We flipped the
+  ## sign initially to compare with logL!
+  let dfAll = prepareAllBackground(fname)
+  let (allInput, allTarget) = dfAll.toInputTensor()
+  let passedInds = model.predict(allInput, allTarget, device, cutVal)
+  echo "p inds len ", passedInds.len, " compared to all "
+  echo dfAll
+
+  # get all energies of these passing events
+  let energiesAll = dfAll["energyFromCharge", float]
+  var energies = newSeq[float](passedInds.len)
+  for i, idx in passedInds:
+    energies[i] = energiesAll[idx]
+  plotBackground(energies, totalTime)
+
+proc main(fname: string, run = 186, # default background run to use
+          ε = 0.8, # signal efficiency for background rate prediction
+          totalTime = -1.0.Hour, # total background rate time in hours. Normally read from input file
+          predict = false) = # if true, only predict background rate from all data in input file
+
+  # 1. set up the model
   Torch.manual_seed(1)
   var device_type: DeviceKind
   if Torch.cuda_is_available():
@@ -502,50 +560,59 @@ proc main(fname: string) =
   var model = XorNet.init()
   model.to(device)
 
-  # Stochastic Gradient Descent
-  var optimizer = SGD.init(
-    model.parameters(),
-    SGDOptions.init(0.005).momentum(0.2)
-    #learning_rate = 0.005
-  )
+  if not predict: # all data that needs CDL & specific run data (i.e. training & test dataset)
+    var df = prepareDataframe(fname, run)
+    let (logL, logLTargets) = df.logLValues()
+    # get training & test dataset
+    let (trainTup, testTup) = generateTrainTest(df)
+    let (trainIn, trainTarg) = trainTup
+    let (testIn, testTarg) = testTup
 
-  # Learning loop
-  model.train(optimizer, trainIn.to(kFloat32).to(device), trainTarg.to(kFloat32).to(device), device)
-  let (testPredict, testTargets) = model.test(testIn, testTarg, device)
+    # check if model already exists as trained file
+    if not fileExists("/tmp/trained_model.pt"):
+      # Learning loop
+      # Stochastic Gradient Descent
+      var optimizer = SGD.init(
+        model.parameters(),
+        SGDOptions.init(0.005).momentum(0.2)
+        #learning_rate = 0.005
+      )
+      model.train(optimizer, trainIn.to(kFloat32).to(device), trainTarg.to(kFloat32).to(device), device)
+      model.save("/tmp/trained_model.pt")
+    else:
+      # load the model
+      model.load("/tmp/trained_model.pt")
+    # perform validation
+    let (testPredict, testTargets) = model.test(testIn, testTarg, device)
 
-  # combined ROC
-  var dfLogLRoc = calcRocCurve(logL, logLTargets)
-  let dfMLPRoc = calcRocCurve(testPredict, testTargets)
-  let dfRoc = bind_rows([("LogL", dfLogLRoc), ("MLP", dfMLPRoc)],
-                        "Type")
-  ggplot(dfRoc, aes("sigEff", "backRej", color = "Type")) +
-    geom_line() +
-    ggsave("/tmp/roc_curve_combined.pdf")
+    # combined ROC
+    var dfLogLRoc = calcRocCurve(logL, logLTargets)
+    let dfMLPRoc = calcRocCurve(testPredict, testTargets)
+    let dfRoc = bind_rows([("LogL", dfLogLRoc), ("MLP", dfMLPRoc)],
+                          "Type")
+    ggplot(dfRoc, aes("sigEff", "backRej", color = "Type")) +
+      geom_line() +
+      ggsave("/tmp/roc_curve_combined.pdf")
 
-  # target specific roc curves
-  targetSpecificRoc(model, df, device)
+    # target specific roc curves
+    targetSpecificRoc(model, df, device)
+    # now predict background rate
+    model.predictBackground(fname, ε, totalTime, device)
+  else:
+    doAssert fileExists("/tmp/trained_model.pt"), "When using the `--predict` option, the trained model must exist!"
+    # load the model
+    model.load("/tmp/trained_model.pt")
+    model.predictBackground(fname, ε, totalTime, device)
 
-  # classify
-
-  # determine cut value at 80%
-  echo dfMLPRoc
-  let dfme = dfMLPRoc.filter(f{`sigEff` >= 0.8}).head(20) # assumes sorted by sig eff (which it is)
-  let cutVal = dfme["cutVals", float][0]
-  echo "Cut value: ", cutVal
-  echo dfMLPRoc.filter(f{`sigEff` >= 0.8}).tail(20)
-
-  let dfAll = prepareAllBackground(fname)
-  let (allInput, allTarget) = dfAll.toInputTensor()
-  let passedInds = model.predict(allInput, allTarget, device, -cutVal)
-  echo "p inds len ", passedInds.len, " compared to all "
-  echo dfAll
-
-
-  # get all energies of these passing events
-  let energiesAll = dfAll["energyFromCharge", float]
-  var energies = newSeq[float](passedInds.len)
-  for i, idx in passedInds:
-    energies[i] = energiesAll[idx]
-  plotBackground(energies)
 when isMainModule:
+  import cligen/argcvt
+  proc argParse(dst: var Hour, dfl: Hour,
+                a: var ArgcvtParams): bool =
+    var val = a.val
+    doAssert val.endsWith(".Hour"), "Please give total time in the form `<value>.Hour`"
+    val.removeSuffix(".Hour")
+    dst = val.parseFloat.Hour
+    result = true
+  proc argHelp*(dfl: Hour; a: var ArgcvtParams): seq[string] =
+    result = @[ a.argKeys, "<value>.Hour", $dfl ]
   dispatch main

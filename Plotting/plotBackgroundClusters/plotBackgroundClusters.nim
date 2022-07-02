@@ -187,12 +187,14 @@ proc main(
       totalEvs.add &"{tup[0][1]}: {numEvs}"
     let fname = &"/home/basti/org/Figs/statusAndProgress/IAXO_TDR/background_cluster_centers{suffix}.pdf"
     echo "[INFO]: Saving plot to ", fname
+    let ticks = arange(0, 260, 5).mapIt(it.float)
     ggplot(df, aes("x", "y", color = "count")) +
       facet_wrap("Type") +
       geom_point(size = some(1.0)) +
-      xlim(0, 256) + ylim(0, 256) +
+      #xlim(0, 256) + ylim(0, 256) +
       #xlab("x [Pixel]", tickMargin = 2.0) + ylab("y [Pixel]", margin = 2.0, tickMargin = -0.5) + # for TikZ
       xlab("x [Pixel]") + ylab("y [Pixel]") +
+      scale_x_continuous(breaks = ticks) + scale_y_continuous(breaks = ticks) +
       margin(top = 1.75) +
       scale_color_continuous(scale = (low: 0.0, high: 15.0)) +
       ggtitle(r"Total # clusters " & $totalEvs.join(", ")) +

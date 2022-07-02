@@ -1,4 +1,4 @@
-import ggplotnim, seqmath, sequtils, os, sugar, strscans, strformat, strutils, sugar
+import ggplotnim, seqmath, sequtils, os, sugar, strscans, strformat, strutils, sugar, sets
 import ingrid / [tos_helpers, ingrid_types]
 from arraymancer import tensor
 
@@ -25,17 +25,24 @@ for dkKind in InGridDsetKind:
   if dkKind notin {igNumClusters, igFractionInHalfRadius, igRadiusDivRmsTrans,
                     igRadius, igBalance, igLengthDivRadius, igInvalid, igHits, igTotalCharge, igEventNumber}:
     DsetNames.add dkKind.toDset(fkTpa)
-echo DsetNames
 
+var noisyPixels = newSeq[(int, int)]()
+import unchained
+defUnit(cm²)
 proc scaleDset(data: Column, totalTime, factor: float): Column =
   ## scales the data in `data` according to the area of the gold region,
   ## total time and bin width. The data has to be pre binned of course!
   # XXX: make sure we never use wrong area if input data makes use of `--chipRegion` feature!
-  let area = pow(0.95 - 0.45, 2) # area of gold region!
+  var area = pow(0.95 - 0.45, 2).cm² # area of gold region!
+
+  let pixSize = 55.MicroMeter * 55.MicroMeter
+  let removedSize = noisyPixels.len * pixSize
+  area = area - removedSize.to(cm²)
+
   const bin_width = 0.2 # 0.392
   const shutter_open = 1.0 # Does not play any role, because totalDuration takes
                            # this into account already!
-  let scale = factor / (totalTime * shutter_open * area * bin_width) #* 1e5
+  let scale = factor / (totalTime * shutter_open * area.float * bin_width) #* 1e5
   result = toColumn data.toTensor(float).map_inline(x * scale)
 
 proc readTime(h5f: H5FileObj): float =
@@ -54,6 +61,8 @@ proc extractYear(f: string): int =
   if fname.scanf("$*_$i_$*", dummy, result, dummy):
     echo "found a year ", result
 
+proc toIdx(x: float): int = (x / 14.0 * 256.0).round.int.clamp(0, 255)
+
 proc readFiles(files: seq[string], names: seq[string], region: ChipRegion,
                energyDset: string,
                centerChip: int,
@@ -67,9 +76,12 @@ proc readFiles(files: seq[string], names: seq[string], region: ChipRegion,
   ##
   ## After reading we will cut to the given `region`.
   doAssert names.len == 0 or names.len == files.len, "Need one name for each input file!"
+  let noiseSet = noisyPixels.toHashSet
   for idx, file in files:
     let h5f = H5open(file, "r")
     var df = h5f.readDsets(likelihoodBase(), some((centerChip, DsetNames)))
+    df = df
+      .filter(f{float -> bool: (`centerX`.toIdx, `centerY`.toIdx) notin noiseSet })
     if readToA:
       df = df.filter(f{`toaLength` < toaCutoff})
 
@@ -196,6 +208,15 @@ proc computeMedianBools(df: DataFrame): DataFrame =
       computeMedianBool(dset)
 
   result = df.gather(medianNames, key = "Variable", value = "Value")
+
+proc addNoisyPixels() =
+  for x in 150 .. 175:
+    for y in 130 .. 162:
+      noisyPixels.add (x, y)
+
+  for x in 125 .. 135:
+    for y in 110 .. 120:
+      noisyPixels.add (x, y)
 
 proc plotMedianBools(df: DataFrame, fnameSuffix, title: string,
                      suffix: string) =
@@ -382,11 +403,16 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
           showNumClusters = false,
           showTotalTime = false,
           genTikZ = false,
+          filterNoisyPixels = false,
           logPlot = false
          ) =
   discard existsOrCreateDir("plots")
   if readToA:
     DsetNames.add "toaLength"
+
+  if filterNoisyPixels:
+    addNoisyPixels()
+
   let logLFiles = readFiles(files, names, region, energyDset, centerChip, readToA, toaCutoff)
   let fnameSuffix = logLFiles.mapIt($it.year).join("_") & "_show2014_" & $show2014 & "_separate_" & $separateFiles & "_" & suffix.replace(" ", "_")
 
@@ -513,4 +539,5 @@ of the logL cut, creates a comparison plot.""",
     "showNumClusters" : "If set adds number of input clusters to title.",
     "showTotalTime" : "If set adds the total time of background data to title.",
     "genTikZ" : "If set only generate TikZ instead of compiling a TeX file to PDF.",
+    "filterNoisyPixels" : "If set removes the (currently hardcoded) noisy pixels.",
     "logPlot" : "Alternate setting to activate log10 plot. TO BE REMOVED"}

@@ -51,7 +51,7 @@ const
                  "eccentricity", "fractionInTransverseRms", "lengthDivRmsTrans",
                  "rmsLongitudinal", "rmsTransverse", "hits", "energyFromPixel",
                  "energyFromCharge", "likelihood", "centerX", "centerY"]
-  ToADsets = ["toaLength", "toaRms", "toaMean", "toaMin"]
+  ToADsets = ["toaLength", "toaRms", "toaMean", "toaMin", "toaSkewness", "toaKurtosis"]
   FadcDsets = ["minvals", "fallTime", "riseTime"]
   AllFadcDsets = ["argMinval", "baseline", "eventNumber", "fallStop", "fallTime",
                   "minvals", "noisy", "riseStart", "riseTime"]

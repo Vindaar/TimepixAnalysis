@@ -178,10 +178,12 @@ type
   ## An object that stores information that describes the "geometry" of the
   ## ToA data in an object
   ToAGeometry* = object
-    toaLength*: float # length in ToA ## XXX: ideally this would be a small integer type, i.e. int32
-    toaMean*: float   # mean ToA value
-    toaRms* : float   # RMS of ToA values
-    toaMin* : uint16  # the minimal ToA value found before subtraction
+    toaLength*: float   # length in ToA ## XXX: ideally this would be a small integer type, i.e. int32
+    toaMin* : uint16    # the minimal ToA value found before subtraction
+    toaMean*: float     # mean ToA value of the ToA distribution of the cluster
+    toaRms* : float     # RMS of the ToA distribution of the cluster
+    toaSkewness*: float # skewness of the ToA distribution of the cluster
+    toaKurtosis*: float # kurtosis of the ToA distribution of the cluster
 
   # object which stores a single `Cluster` in combination with information
   # about itself, e.g. energy, geometry etc.

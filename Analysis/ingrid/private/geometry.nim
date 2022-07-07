@@ -414,6 +414,8 @@ proc calcToAGeometry*[T: SomePix](cluster: var ClusterObject[T]): ToAGeometry =
   result.toaLength = (maxToA.float - minToA.float)
   result.toaMean = stat.mean()
   result.toaRms = stat.standardDeviation()
+  result.toaSkewness = stat.skewness()
+  result.toaKurtosis = stat.kurtosis()
   result.toaMin = minToA
 
 proc wrapDbscan(p: Tensor[float], eps: float, minSamples: int): seq[int] =

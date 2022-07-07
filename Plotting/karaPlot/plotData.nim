@@ -770,7 +770,7 @@ proc histograms(h5f: H5File, runType: RunTypeKind,
         var sel = selector
         sel.region = region
         for ch in fileInfo.chips:
-          for dset in InGridDsets:
+          for dset in concat(@InGridDsets, @ToADsets):
             let (binSize, binRange) = getBinSizeAndBinRange(dset)
             result.add PlotDescriptor(runType: runType,
                                       name: dset,

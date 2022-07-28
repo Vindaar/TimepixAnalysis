@@ -961,7 +961,7 @@ proc readLikelihoodDsets(h5f: H5File, energyDset: InGridDsetKind): DataFrame =
     energies.add energy
     logLs.add logL
   let bin_back = energies.mapIt(it.toRefDset)
-  result = seqsToDf({ "Bin" : bin_back,
+  result = toDf({ "Bin" : bin_back,
                       "Energy" : energies,
                       "Likelihood" : logLs })
 
@@ -983,7 +983,7 @@ proc readLikelihoodDsetsCdl(cdlFile: string,
     logLs.add logL
     energies.add energy
     bins.add sequtils.repeat(bin, energy.len)
-  result = seqsToDf({ "Bin" : bins,
+  result = toDf({ "Bin" : bins,
                       "Energy" : energies,
                       "Likelihood" : logLs })
   when false:
@@ -1003,7 +1003,7 @@ proc readLikelihoodDsetsCdl(cdlFile: string,
       bins.add repeat(removePref(grp.name, "/" & cdlPrefix("2014")),
                       energy.len)
     let bin_back = energies.mapIt(it.toRefDset)
-    result = seqsToDf({ "energy" : energies,
+    result = toDf({ "energy" : energies,
                         "logL" : logLs,
                         "bin" : bin_back })
 
@@ -1028,7 +1028,7 @@ proc calcSigEffBackRej(df: DataFrame, logLBins: seq[float],
       let eff = determineEff(logL.toRawSeq, l, isBackground = isBackground)
       effs.add eff
     let binConst = toSeq(0 ..< effs.len).mapIt(pair[0][1].toStr)
-    let effDf = seqsToDf({ "eff" : effs,
+    let effDf = toDf({ "eff" : effs,
                            "cutVals" : logLBins,
                            "bin" : binConst })
     result.add effDf

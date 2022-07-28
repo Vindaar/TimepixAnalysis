@@ -787,10 +787,10 @@ proc energyResolution(energyResHits, energyResCharge,
   ## Creates the plot of the energy resolution for both the pixel and charge
   ## spectra
   const energies = @[8.048, 5.899, 4.511, 2.984, 1.487, 0.930, 0.525, 0.277]
-  let dfPix = seqsToDf({ "Energy" : energies, "Resolution" : energyResHits,
-                         "ResErr" : errorHits })
-  let dfCh = seqsToDf({ "Energy" : energies, "Resolution" : energyResCharge,
-                        "ResErr" : errorCharge })
+  let dfPix = toDf({ "Energy" : energies, "Resolution" : energyResHits,
+                     "ResErr" : errorHits })
+  let dfCh = toDf({ "Energy" : energies, "Resolution" : energyResCharge,
+                    "ResErr" : errorCharge })
   let df = bind_rows([("Pixels", dfPix), ("Charge", dfCh)], id = "Type")
   ggplot(df, aes("Energy", "Resolution", color = "Type")) +
     geom_point() +
@@ -803,8 +803,8 @@ proc energyResolution(energyResHits, energyResCharge,
 
 proc peakFit(peakPos: seq[float], name: string, error: seq[float], pathPrefix: string) =
   const energies = @[8.048, 5.899, 4.511, 2.984, 1.487, 0.930, 0.525, 0.277]
-  let df = seqsToDf({ "Energy" : energies, "PeakPos" : peakPos,
-                      "PeakErr" : error })
+  let df = toDf({ "Energy" : energies, "PeakPos" : peakPos,
+                  "PeakErr" : error })
   ggplot(df, aes("Energy", "PeakPos")) +
     geom_point() +
     geom_errorbar(aes(yMin = f{`PeakPos` - `PeakErr`},

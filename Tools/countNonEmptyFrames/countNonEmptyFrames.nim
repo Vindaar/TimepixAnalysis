@@ -14,7 +14,7 @@ proc main(fname: string) =
     let allEvs = h5f[group / "eventNumber", int64]
     let duration = h5f[group / "eventDuration", float64]
     #discard toTab([allEvs, duration])
-    let dfGrp = seqsToDf({"eventNumber" : allEvs, "duration" : duration})
+    let dfGrp = toDf({"eventNumber" : allEvs, "duration" : duration})
     #echo dfGrp["duration"][0 ..< 100].mapIt(it.fnum)
     for grp in items(h5f, group):
       if "fadc" notin grp.name:
@@ -22,7 +22,7 @@ proc main(fname: string) =
         if chipNum == 3:
           let evs = h5f[grp.name / "eventNumber", int64]
           let hits = h5f[grp.name / "hits", int64]
-          let dfChip = seqsToDf({"eventNumber" : evs, "hits" : hits})
+          let dfChip = toDf({"eventNumber" : evs, "hits" : hits})
           let dfJoined = innerJoin(dfGrp, dfChip, by = "eventNumber")
           let maxHits = dfJoined.filter(f{"hits" > 4095})
           totDuration += duration.sum

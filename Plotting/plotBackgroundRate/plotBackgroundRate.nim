@@ -108,7 +108,7 @@ proc histogram(df: DataFrame): DataFrame =
   ## TODO: allow to do this by combining different `File` values
   let (hist, bins) = histogram(df[Ecol].toTensor(float).toRawSeq,
                                range = (0.0, 20.0), bins = 100)
-  result = seqsToDf({ Ecol : bins, Ccol : concat(hist, @[0]) })
+  result = toDf({ Ecol : bins, Ccol : concat(hist, @[0]) })
 
 template sumIt(s: seq[typed], body: untyped): untyped =
   ## why the heck did I write this template?
@@ -487,7 +487,7 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
       var df2014 = toDf(readCsv(Data2014, sep = ' ', header = "#"))
         .rename(f{Rcol <- "Rate[/keV/cm²/s]"}, f{"yMax" <- "dRateUp"},
                 f{"yMin" <- "dRateDown"}, f{Ecol <- "E[keV]"})
-      let lastLine = seqsToDf({ Ecol : @[10.1], Rcol : @[0.0], "yMin" : @[0.0], "yMax" : @[0.0] })
+      let lastLine = toDf({ Ecol : @[10.1], Rcol : @[0.0], "yMin" : @[0.0], "yMax" : @[0.0] })
       df2014.add lastLine
       if not log:
         df2014 = df2014.mutate(f{Rcol ~ 1e5 * `Rate`}, f{"yMin" ~ 1e5 * `yMin`},

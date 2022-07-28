@@ -20,9 +20,9 @@ proc plotGasGain*[T](charge, counts: seq[T],
                      gasGainInterval = none[GasGainIntervalData]()) =
   ## given a seq of traces (polya distributions for gas gain) plot
   ## the data and the fit, save plots as svg.
-  let dfRaw = seqsToDf({ "charge / e-" : charge,
+  let dfRaw = toDf({ "charge / e-" : charge,
                          "counts" : counts })
-  let dfFit = seqsToDf({ "charge / e-" : fitX,
+  let dfFit = toDf({ "charge / e-" : fitX,
                          "counts" : fitY })
   let df = bind_rows([("Polya", dfRaw),
                       ("Fit", dfFit)],
@@ -67,7 +67,7 @@ proc plotFeSpectrum*(feSpec: FeSpecFitData,
                      pathPrefix: string) =
   discard existsOrCreateDir(pathPrefix)
   doAssert feSpec.binning == feSpec.xFit
-  let df = seqsToDf({ "hist" : feSpec.hist,
+  let df = toDf({ "hist" : feSpec.hist,
                       "bins" : feSpec.binning,
                       "fit" : feSpec.yFit })
   var
@@ -101,10 +101,10 @@ proc plotFeEnergyCalib*(ecData: EnergyCalibFitData,
                         isPixel = true,
                         pathPrefix: string) =
   discard existsOrCreateDir(pathPrefix)
-  let dfEnergy = seqsToDf({ "E" : ecData.energies,
+  let dfEnergy = toDf({ "E" : ecData.energies,
                             "H" : ecData.peaks,
                             "H_err" : ecData.peaksErr })
-  let dfEFit = seqsToDf({ "E" : ecData.xFit, "H" : ecData.yFit })
+  let dfEFit = toDf({ "E" : ecData.xFit, "H" : ecData.yFit })
   let dfEC = bind_rows(("Data", dfEnergy), ("Fit", dfEFit), id = "type")
   var
     yLabel: string
@@ -132,13 +132,13 @@ proc plotGasGainVsChargeCalib*(gainVals, calib, calibErr: seq[float],
                                pathPrefix: string) =
   # now that we have all, plot them first
   discard existsOrCreateDir(pathPrefix)
-  let dfData = seqsToDf({ "Gain" : gainVals,
+  let dfData = toDf({ "Gain" : gainVals,
                           "Calib" : calib,
                           "CalibErr" : calibErr })
 
   # TODO: refactor the following by creating a function which takes care of
   # boilerplate in the whole file here
-  let dfFit = seqsToDf({ "Gain" : fitResult.x,
+  let dfFit = toDf({ "Gain" : fitResult.x,
                          "Calib" : fitResult.y })
   let df = bind_rows(("Data", dfData), ("Fit", dfFit), id = "Type")
   # write results to ingrid database
@@ -167,7 +167,7 @@ proc plotFeSpectrumInfoFacet*(pos_x, pos_y, ecc, rms_trans: seq[float],
   ## plots a helper overview of the data going into the Fe spectrum cut. Useful to get a
   ## look at the run
   let hitsf = hits.mapIt(it.float64)
-  let df = seqsToDf(pos_x, pos_y, ecc, rms_trans, hitsf)
+  let df = toDf(pos_x, pos_y, ecc, rms_trans, hitsf)
   #df.write_csv("/tmp/run_305_tpa_data.csv")
   #echo "ELEMENTS ", ecc.len
   #let x_dset = h5f[(group.name / "x").dset_str]
@@ -176,7 +176,7 @@ proc plotFeSpectrumInfoFacet*(pos_x, pos_y, ecc, rms_trans: seq[float],
   #let ydata = y_dset[special_type(uint8), uint8]
   #for i in 0 ..< df.len:
   #  echo "I ", i
-  #  let dfEv = seqsToDf({"x" : xdata[i], "y" : ydata[i]})
+  #  let dfEv = toDf({"x" : xdata[i], "y" : ydata[i]})
   #  ggplot(dfEv, aes("x", "y")) +
   #    geom_point() + ggsave("/tmp/event_" & $i & ".pdf")
   #  copyFile("/tmp/event_" & $i & ".pdf", "/tmp/event.pdf")

@@ -134,7 +134,7 @@ suite "Fadc data":
     for i, val in fdata.data:
       check almostEqual(val, convertedDataArray[i[0]])
 
-    let df = seqsToDf({ "x" : toSeq(0 ..< 2560),
+    let df = toDf({ "x" : toSeq(0 ..< 2560),
                         "data": fdata.data.toRawSeq })
 
     # Comparison has to be done by hand unfortunately
@@ -206,7 +206,7 @@ suite "Fadc data":
     # NOTE: regarding this plot. We could also use a combination of `gather` with
     # `dropNulls = true` and `bind_rows`, but this way it's easier by assigning the
     # individual data frames for the geoms
-    let df = seqsToDf({ "x" : toSeq(0 ..< 2560),
+    let df = toDf({ "x" : toSeq(0 ..< 2560),
                         "baseline": baselineY,
                         "data": fadc,
                         "xminX" : xminlineX,

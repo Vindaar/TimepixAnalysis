@@ -119,7 +119,7 @@ proc toDf(cTab: CountTable[(int, int)]): DataFrame =
     cX.add pos[0]
     cY.add pos[1]
     cC.add count
-  result = seqsToDf({"x" : cX, "y" : cY, "count" : cC})
+  result = toDf({"x" : cX, "y" : cY, "count" : cC})
     .arrange("count", order = SortOrder.Ascending)
 
 proc writeNoisyClusters(cTab: CountTable[(int, int)],

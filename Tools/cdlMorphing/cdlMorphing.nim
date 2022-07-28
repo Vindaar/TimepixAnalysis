@@ -28,7 +28,7 @@ proc readRefDsets(refFile: string,
     let dset_name = xray_ref[idx]
     var data = h5ref[(dset_name / dset).dset_str]
     tab[dset_name] = data.readAs(float64).reshape2D(data.shape).splitSeq(float64)
-    var dfDset = seqsToDf({ "Bins" : tab[dset_name].bins, "Hist" : tab[dset_name].hist })
+    var dfDset = toDf({ "Bins" : tab[dset_name].bins, "Hist" : tab[dset_name].hist })
     dfDset["Dset"] = constantColumn(dset_name, dfDset.len)
 
     dfDset["Energy"] = constantColumn(energies[idx], dfDset.len)
@@ -129,7 +129,7 @@ proc morphKde(df: DataFrame, dset: string): DataFrame =
 
     let kd = kde(energies, weights = hist, bw = 0.3)#, kernel = linKernel, kernelKind = knCustom, cutoff = 3.0) #, bw = 0.3)
     let es = linspace(min(energies), max(energies), 1000)
-    var dfLoc = seqsToDf({"Energy" : es, "Hist" : kd })
+    var dfLoc = toDf({"Energy" : es, "Hist" : kd })
     let bin = subDf["Bins", float][0]
     dfLoc["Bins"] = constantColumn(bin, dfLoc.len)
     dfLoc["Dset"] = constantColumn("Morph", dfLoc.len)
@@ -159,7 +159,7 @@ proc morphSpline(df: DataFrame, exclude: int): DataFrame =
     #echo hist
     let kd = newCubicSpline(energies, hist)
     let es = linspace(min(energies), max(energies), 1000)
-    var dfLoc = seqsToDf({"Energy" : es, "Hist" : es.mapIt(kd.eval(it)) })
+    var dfLoc = toDf({"Energy" : es, "Hist" : es.mapIt(kd.eval(it)) })
     let bin = subDf["Bins", float][0]
     dfLoc["Bins"] = constantColumn(bin, dfLoc.len)
     dfLoc["Dset"] = constantColumn("Morph", dfLoc.len)
@@ -196,7 +196,7 @@ proc morphDf(df: DataFrame, idx: int, energy: float): DataFrame =
   let energies = getEnergyBinning()
   let res = morph(df, energy, offset = 2)
   let bins = df["Bins", float][0 ..< res.size]
-  var dfMorph = seqsToDf({"Bins" : bins, "Hist" : res})
+  var dfMorph = toDf({"Bins" : bins, "Hist" : res})
   dfMorph["Dset"] = constantColumn(xrayRef[idx], dfMorph.len)
   dfMorph["runType"] = constantColumn("Morph", dfMorph.len)
   dfMorph["Energy"] = constantColumn(energy, dfMorph.len)
@@ -225,7 +225,7 @@ proc getInterpolatedDf(df: DataFrame, num = 1000): DataFrame =
     let bins = df["Bins", float][0 ..< res.size]
     if binWidth == 0.0:
       binWidth = bins[1] - bins[0]
-    var dfMorph = seqsToDf({"Bins" : bins, "Hist" : res})
+    var dfMorph = toDf({"Bins" : bins, "Hist" : res})
     dfMorph["runType"] = constantColumn("Morph", dfMorph.len)
     dfMorph["Energy"] = constantColumn(E, dfMorph.len)
     dfMorph["Dset"] = constantColumn("None", dfMorph.len)

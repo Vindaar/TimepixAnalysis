@@ -52,7 +52,7 @@ proc readFePeaks(files: seq[string], feKind: FeFileKind = fePixel): DataFrame =
       dateSeq.add parseTime(group.attrs["dateTime", string],
                             dateStr,
                             utc()).toUnix.float
-  result = seqsToDf({ Peak : peakSeq,
+  result = toDf({ Peak : peakSeq,
                       "Timestamp" : dateSeq })
     .arrange("Timestamp", SortOrder.Ascending)
 
@@ -94,7 +94,7 @@ proc main(calibFiles: seq[string]) =
     peakNorm[idx] = peaks[idx] / (temp + 273.15)
     echo "Temp ", temp, " peak ", peaks[idx], " norm ", peakNorm[idx]
     inc idx
-  var df = seqsToDf({ TempPeak : peakNorm, "Timestamp" : feDates })
+  var df = toDf({ TempPeak : peakNorm, "Timestamp" : feDates })
   ggplot(df, aes(Timestamp, TempPeak)) +
     geom_point() +
     ggsave("/tmp/time_vs_peak_norm_by_temp.pdf")

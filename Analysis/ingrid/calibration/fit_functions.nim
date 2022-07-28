@@ -97,7 +97,7 @@ template chiSquareNoGrad(funcToCall: untyped): untyped {.dirty.} =
   var diff = newSeq[float](x.len)
   result = 0.0
 
-  #let df = seqsToDf({ "x" : x,
+  #let df = toDf({ "x" : x,
   #                    "y" : y,
   #                    "yFit" : fitY })
   #ggplot(df, aes("x", "y")) +
@@ -152,7 +152,7 @@ template mleLnLikelihoodNoGrad(funcToCall: untyped): untyped {.dirty.} =
   let y = fitObj.y
   var fitY = x.mapIt(`funcToCall`(p, it))
 
-  #let df = seqsToDf({ "x" : x,
+  #let df = toDf({ "x" : x,
   #                    "y" : y,
   #                    "yFit" : fitY })
   #ggplot(df, aes("x", "y")) +
@@ -187,7 +187,7 @@ template mleLnLikelihoodGrad(funcToCall: untyped): untyped {.dirty.} =
   proc fnc(x, y, params: seq[float]): float =
     let fitY = x.mapIt(`funcToCall`(params, it))
 
-    #let df = seqsToDf({ "x" : x,
+    #let df = toDf({ "x" : x,
     #                    "y" : y,
     #                    "yFit" : fitY })
     #ggplot(df, aes("x", "y")) +

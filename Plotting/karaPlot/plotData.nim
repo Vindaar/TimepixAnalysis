@@ -573,7 +573,7 @@ proc plotHist[T](xIn: seq[T], title, dset, outfile: string,
                          bins = nbins,
                          range = binRange)
   of bGgPlot:
-    let df = seqsToDf(xs).filter(fn {float: `xs` >= binRange[0] and
+    let df = toDf(xs).filter(fn {float: `xs` >= binRange[0] and
                                             `xs` <= binRange[1]})
     result = initPlotV(title & " # entries: " & $df.len, dset, "#")
     result.pltGg = ggplot(df, aes("xs")) +
@@ -629,7 +629,7 @@ proc plotBar[T](binsIn, countsIn: seq[seq[T]], title: string,
     var df = newDataFrame()
     # stack all data frames
     for i in 0 .. bins.high:
-      let ldf = seqsToDf({ "bins" : binsIn[i],
+      let ldf = toDf({ "bins" : binsIn[i],
                            "counts" : countsIn[i],
                            "dset" : constantColumn(dsets[i], binsIn[i].len) })
       df.add ldf
@@ -843,7 +843,7 @@ proc plotHist2D(data: Tensor[float], title, outfile: string): PlotV =
       y[i] = idx[1]
       z[i] = val
       inc i
-    let df = seqsToDf(x, y, z)
+    let df = toDf(x, y, z)
     if data.max > 0.0:
       result.pltGg = ggplot(df, aes("x", "y", fill = "z")) +
           geom_raster() +
@@ -890,7 +890,7 @@ proc plotScatter(pltV: var PlotV, x, y: seq[float], name, outfile: string,
                          label = name,
                          color = "r")
   of bGgPlot:
-    let df = seqsToDf(x, y)
+    let df = toDf(x, y)
     if not isNew:
       # in this case a plot already exists!
       pltV.pltGg = pltV.pltGg +
@@ -928,13 +928,13 @@ proc plotCustomScatter(x, y: seq[float],
                          color = "r")
   of bGgPlot:
     if z.len > 0:
-      let df = seqsToDf(x, y, z)
+      let df = toDf(x, y, z)
       let pSize = if df.len > 1_000: some(1.5) else: some(3.0)
       result.pltGg = ggplot(df, aes("x", "y", color = "z")) +
         geom_point(size = pSize) +
         result.theme # just add the theme directly
     else:
-      let df = seqsToDf(x, y)
+      let df = toDf(x, y)
       let pSize = if df.len > 1_000: some(1.5) else: some(3.0)
       result.pltGg = ggplot(df, aes("x", "y")) +
         geom_point(size = pSize) +
@@ -1099,7 +1099,7 @@ proc plotDates[T, U](x: seq[U], y: seq[T],
     #let xP = x.mapIt(dtm.datetime.utcfromtimestamp(int(it)))
     #discard result.ax.plot_date(xP, y, label = title)
   of bGgPlot:
-    let df = seqsToDf(x, y)
+    let df = toDf(x, y)
     result.pltGg = ggplot(df, aes("x", "y")) +
         geom_point() +
         result.theme # just add the theme directly
@@ -1265,7 +1265,7 @@ proc readEventsSparse*(h5f: H5File, fileInfo: FileInfo, run, chip: int, #idx: in
   result = newDataFrame()
   doAssert events.len == x.len, "Events are: " & $events.len & " and x.len " & $x.len
   for i in 0 ..< x.len:
-    let dfLoc = seqsToDf({ "x" : x[i], "y" : y[i], "ch" : ch[i],
+    let dfLoc = toDf({ "x" : x[i], "y" : y[i], "ch" : ch[i],
                            "Index" : events[i] })
     echo "Adding df ", dfLoc
     result.add dfLoc
@@ -1472,12 +1472,12 @@ template createFeVsTimeDataFrame(h5f: H5File,
     var path = group.name
     let evNum = h5f[path / "eventNumber", int]
     let tstamp = h5f[path / "timestamp", int]
-    let dfEv = seqsToDf({ "eventNumber" : evNum, "timestamp" : tstamp })
+    let dfEv = toDf({ "eventNumber" : evNum, "timestamp" : tstamp })
     path &= "/chip_" & $pd.chip
     let feSpec = h5f[path / "FeSpectrum", int]
     let feSpecCh = h5f[path / "FeSpectrumCharge", float]
     let feSpecEvNum = h5f[path / "FeSpectrumEvents", int]
-    let dfFeSpec = seqsToDf({ "eventNumber" : feSpecEvNum,
+    let dfFeSpec = toDf({ "eventNumber" : feSpecEvNum,
                               "FeSpectrum" : feSpec,
                               "FeSpectrumCharge" : feSpecCh})
     # return the joined df from template

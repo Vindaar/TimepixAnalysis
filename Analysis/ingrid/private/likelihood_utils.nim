@@ -47,7 +47,7 @@ proc getInterpolatedDf*(df: DataFrame, num = 1000): DataFrame =
   let xrayRef = getXrayRefTable()
   for idx, E in energies:
     let (bins, res) = morph(df, E, offset = 1)
-    var dfMorph = seqsToDf({"Bins" : bins, "Hist" : res})
+    var dfMorph = toDf({"Bins" : bins, "Hist" : res})
     dfMorph["Energy"] = constantColumn(E, dfMorph.len)
     dfMorph["Dset"] = constantColumn("Morph", dfMorph.len)
     result.add dfMorph
@@ -93,7 +93,7 @@ proc readRefDsetsDF(refFile: string,
       let dset_name = xray_ref[idx]
       var data = h5ref[(dset_name / dset).dset_str]
       tab[dset_name] = data.readAs(float64).reshape2D(data.shape).splitSeq(float64)
-      var dfDset = seqsToDf({ "Bins" : tab[dset_name].bins, "Hist" : tab[dset_name].hist })
+      var dfDset = toDf({ "Bins" : tab[dset_name].bins, "Hist" : tab[dset_name].hist })
       dfDset["Dset"] = constantColumn(xray_ref[idx], dfDset.len)
       dfDset["Energy"] = constantColumn(energies[idx], dfDset.len)
       dfDset["Variable"] = constantColumn($dkKind, dfDset.len)
@@ -238,7 +238,7 @@ proc computeLogLDistributions*(cdlFile: string, yearKind: YearKind,
   for idx, dset in xrayRef:
     # compute the histogram of the CDL data
     let hist = buildLogLHist(cdlFile, dset, yearKind, energyDset, region)[0]
-    var df = seqsToDf( {"Bins" : bins[0 .. ^2], "Hist" : histogram(hist, nbins, logLrange)[0] })
+    var df = toDf( {"Bins" : bins[0 .. ^2], "Hist" : histogram(hist, nbins, logLrange)[0] })
     df["Dset"] = constantColumn(dset, df.len)
     df["Energy"] = constantColumn(energies[idx], df.len)
     result.add df
@@ -310,7 +310,7 @@ proc readRefDsets*(refFile: string, yearKind: YearKind): tuple[ecc, ldivRms, fra
     lengthDivRmsTrans_ref[dset_name] = ldivrms.readAs(float64).reshape2D(ldivrms.shape).splitSeq(float64)
     fracRmsTrans_ref[dset_name] = frmst.readAs(float64).reshape2D(frmst.shape).splitSeq(float64)
 
-    var dfDset = seqsToDf({ "Eccentricity" : ecc_ref[dset_name].bins, "Ecc #" : ecc_ref[dset_name].hist,
+    var dfDset = toDf({ "Eccentricity" : ecc_ref[dset_name].bins, "Ecc #" : ecc_ref[dset_name].hist,
                             "L / RMS_trans" : lengthDivRmsTrans_ref[dset_name].bins,
                             "L / RMS_trans #" : lengthDivRmsTrans_ref[dset_name].hist,
                             "fracRmsTrans" : fracRmsTrans_ref[dset_name].bins,

@@ -60,7 +60,7 @@ proc binIt(dfLoc: DataFrame, dset: string): (seq[int], seq[float]) =
 proc binDf(df: DataFrame, dset: string): DataFrame =
   for tup, subDf in groups(df.group_by("Dset")):
     let (hist, bins) = binIt(subDf, dset)
-    var dfToAdd = seqsToDf({ "Bins" : bins[0 ..< ^1],
+    var dfToAdd = toDf({ "Bins" : bins[0 ..< ^1],
                              "Hist" : hist })
     dfToAdd["runType"] = constantColumn(df["runType", 0].toStr, dfToAdd.len)
     dfToAdd["Dset"] = constantColumn(tup[0][1].toStr, dfToAdd.len)
@@ -78,7 +78,7 @@ proc readRefDsets(refFile: string,
   for dset_name in values(xray_ref):
     var data = h5ref[(dset_name / dset).dset_str]
     tab[dset_name] = data.readAs(float64).reshape2D(data.shape).splitSeq(float64)
-    var dfDset = seqsToDf({ "Bins" : tab[dset_name].bins, "Hist" : tab[dset_name].hist })
+    var dfDset = toDf({ "Bins" : tab[dset_name].bins, "Hist" : tab[dset_name].hist })
     dfDset["Dset"] = constantColumn(dset_name, dfDset.len)
     result.add dfDset
   result["runType"] = constantColumn("CDL", result.len)
@@ -131,7 +131,7 @@ proc plotCdlFile(cdlFile, refFile: string) =
                                          year = yr2018,
                                          energyDset = igEnergyFromCharge,
                                          region = crGold)
-    var dfLoc = seqsToDf({"logL" : logL, "Energy" : energies})
+    var dfLoc = toDf({"logL" : logL, "Energy" : energies})
     dfLoc["Dset"] = constantColumn(key, dfLoc.len)
     df.add dfLoc
 

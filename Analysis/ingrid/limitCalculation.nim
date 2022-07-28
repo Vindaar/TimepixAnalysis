@@ -77,7 +77,7 @@ proc drawLimitPlot(flux, energy: Tensor[float], param: float, eff: float,
   const g_agamma = 1e-12
   let fluxPlot = if fIsSB: flux +. backHist.counts else: flux.clone
   let axLab = if fIsSB: "ax. sig+back" else: "axion signal"
-  var df = seqsToDf({ axLab : fluxPlot,
+  var df = toDf({ axLab : fluxPlot,
                       "Energy" : energy,
                       "background" : backHist.counts,
                       "exp. cand." : candHist.counts })
@@ -238,7 +238,7 @@ proc readAxModel(f: string, scale: float, limit2013 = false): DataFrame =
         flux[idx] = flux[idx] * scale * 0.8
   else:
     flux.apply_inline(x * scale)
-  result = seqsToDf({ "Energy" : bins[0 .. ^1],
+  result = toDf({ "Energy" : bins[0 .. ^1],
                       "Flux" : flux })
   echo result
   ggplot(result, aes("Energy", "Flux")) +

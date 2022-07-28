@@ -152,7 +152,7 @@ proc `%`(p: Pix): JsonNode =
 proc bindToDf[T](df: var DataFrame, clusters: seq[ClusterObject[T]]) =
   var dfs = newSeq[DataFrame]()
   for i, cl in clusters:
-    let ldf = seqsToDf({ "x" : cl.data.mapIt(it.x),
+    let ldf = toDf({ "x" : cl.data.mapIt(it.x),
                          "y" : cl.data.mapIt(it.y),
                          "ch" :  cl.data.mapIt(it.ch)})
     dfs.add ldf

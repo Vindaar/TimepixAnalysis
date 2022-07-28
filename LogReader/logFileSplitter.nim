@@ -14,7 +14,7 @@ proc main(files: seq[string]) =
   var df = newDataFrame()
   for f in files:
     let tracking = read_tracking_logfile(f)
-    let dfLoc = seqsToDf({ "timestamp" : tracking.timestamps,
+    let dfLoc = toDf({ "timestamp" : tracking.timestamps,
                            "isMoving" : tracking.isMoving,
                            "isTracking" : tracking.isTracking })
     df.add dfLoc

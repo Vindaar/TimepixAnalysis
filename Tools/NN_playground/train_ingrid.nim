@@ -222,7 +222,7 @@ proc plotTraining(predictions: seq[float], targets: seq[int],
                   outfile = "/tmp/test.pdf") =
   echo "INPUT ", predictions.len
   echo "TARG ", targets.len
-  let dfPlt = seqsToDf(predictions, targets)
+  let dfPlt = toDf(predictions, targets)
     .mutate(f{"isSignal" ~ `targets` == 1})
     .filter(f{`predictions` > -50.0 and `predictions` < 50.0})
   #dfPlt.showBrowser()
@@ -252,13 +252,13 @@ proc calcSigEffBackRej(df: DataFrame, bins: seq[float],
   for l in bins:
     let eff = determineEff(vals.toRawSeq, l, isBackground = isBackground)
     effs.add eff
-  result = seqsToDf({ "eff" : effs,
+  result = toDf({ "eff" : effs,
                       "cutVals" : bins })
 
 proc calcRocCurve(predictions: seq[float], targets: seq[int]): DataFrame =
   # now use both to determine signal and background efficiencies
   # essentially have to generate some binning in `logL` we deem appropriate,
-  let dfPlt = seqsToDf(predictions, targets)
+  let dfPlt = toDf(predictions, targets)
     .mutate(f{"isSignal" ~ `targets` == 1})
   const nBins = 1000
   let bins = linspace(predictions.min, predictions.max, nBins)
@@ -446,7 +446,7 @@ proc predict(model: XorNet,
   echo &"\nPredict set: Average loss: {test_loss:.4f} " &
        &"| Accuracy: {correct.float64() / dataset_size.float64():.3f}"
 
-  let df = seqsToDf(predictions)
+  let df = toDf(predictions)
     .filter(f{`predictions` > -50.0})
   ggplot(df, aes("predictions")) +
     geom_histogram(bins = 100) +
@@ -468,10 +468,10 @@ proc histogram(df: DataFrame): DataFrame =
   ## TODO: allow to do this by combining different `File` values
   let (hist, bins) = histogram(df["energies"].toTensor(float).toRawSeq,
                                range = (0.0, 20.0), bins = 100)
-  result = seqsToDf({ "energies" : bins, "count" : concat(hist, @[0]) })
+  result = toDf({ "energies" : bins, "count" : concat(hist, @[0]) })
 
 proc plotBackground(data: seq[float], totalTime: Hour) =
-  let dfE = seqsToDf({"energies" : data})
+  let dfE = toDf({"energies" : data})
     .filter(f{`energies` < 20.0})
   #dfE.showBrowser()
   var dfH = histogram(dfE)

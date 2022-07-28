@@ -26,7 +26,7 @@ suite "Comparison of Fe spectrum fitting in Nim and Python":
   #  let data = resNim[0].mapIt(feSpectrumFunc(resNim[2], it))
   #  echo data
   #  echo type(data)
-  #  let dfNim = seqsToDf({ "hist" : resNim[1],
+  #  let dfNim = toDf({ "hist" : resNim[1],
   #                         "bins" : resNim[0],
   #                         "fit" : data})
   #  #echo dfNim.pretty(-1)
@@ -49,7 +49,7 @@ suite "Comparison of Fe spectrum fitting in Nim and Python":
   #  let xFit = res[0].x_pl.toNimSeq(float)
   #  let yFit = res[0].y_pl.toNimSeq(float)
   #
-  #  let df = seqsToDf({ "hist" : hist,
+  #  let df = toDf({ "hist" : hist,
   #                      "bins" : bins,
   #                      "xFit" : xFit,
   #                      "yFit" : yFit })
@@ -78,11 +78,11 @@ suite "Comparison of Fe spectrum fitting in Nim and Python":
     let xFit = res[0].x_pl.toNimSeq(float)
     let yFit = res[0].y_pl.toNimSeq(float)
 
-    let dfPython = seqsToDf({ "hist" : hist,
+    let dfPython = toDf({ "hist" : hist,
                               "bins" : bins,
                               "xFit" : xFit,
                               "yFit" : yFit })
-    let dfNim = seqsToDf({ "hist" : resNim.hist,
+    let dfNim = toDf({ "hist" : resNim.hist,
                            "bins" : resNim.binning,
                            "xFit" : resNim.xFit,
                            "yFit" : resNim.yFit})
@@ -143,11 +143,11 @@ suite "Comparison of Fe spectrum fitting in Nim and Python":
     let xFit = res[0].x_pl.toNimSeq(float)
     let yFit = res[0].y_pl.toNimSeq(float)
 
-    let dfPython = seqsToDf({ "hist" : hist,
+    let dfPython = toDf({ "hist" : hist,
                               "bins" : bins,
                               "xFit" : xFit,
                               "yFit" : yFit })
-    let dfNim = seqsToDf({ "hist" : resNim.hist,
+    let dfNim = toDf({ "hist" : resNim.hist,
                            "bins" : resNim.binning,
                            "xFit" : resNim.xFit,
                            "yFit" : resNim.yFit})

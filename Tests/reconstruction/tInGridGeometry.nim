@@ -32,7 +32,7 @@ proc `%`(p: Pix): JsonNode =
 proc bindToDf[T](clusters: seq[ClusterObject[T]]): DataFrame =
   var dfs = newSeq[DataFrame]()
   for i, cl in clusters:
-    let ldf = seqsToDf({ "x" : cl.data.mapIt(it.x),
+    let ldf = toDf({ "x" : cl.data.mapIt(it.x),
                          "y" : cl.data.mapIt(it.y),
                          "ch" :  cl.data.mapIt(it.ch)})
     dfs.add ldf
@@ -282,7 +282,7 @@ suite "InGrid geometry calculations":
         # different number of clusters
         skippedEvents.add f[0]
 
-    let df = seqsToDf({ "eventIndex" : evIdx.mapIt($it),
+    let df = toDf({ "eventIndex" : evIdx.mapIt($it),
                         "eventNumber": evNums,
                         "rotAngDifference" : rotAngDiffs,
                         "meanPropertyDifference" : meanPropDiffs })

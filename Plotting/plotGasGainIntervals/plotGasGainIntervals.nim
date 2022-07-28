@@ -50,7 +50,7 @@ proc plotOccupancySlice(h5f: H5File, run, chip, idx: int, slice: Slice[int], pat
       occ[x, y] += ch
       occCounts[x, y] += 1
     if run == 164 and idx in {57, 58}:
-      let dfEv = seqsToDf(xEv, yEv, chEv)
+      let dfEv = toDf(xEv, yEv, chEv)
       ggplot(dfEv, aes("xEv", "yEv", color = "chEv")) +
         geom_point() +
         xlim(0, 256) + ylim(0, 256) +
@@ -73,7 +73,7 @@ proc plotOccupancySlice(h5f: H5File, run, chip, idx: int, slice: Slice[int], pat
     zT[i] = val
     zCountT[i] = occCounts[x, y]
     inc i
-  let df = seqsToDf(xT, yT, zT, zCountT)
+  let df = toDf(xT, yT, zT, zCountT)
   let perc = zT.percentile(0.99)
   ggplot(df, aes("xT", "yT", fill = "zT")) +
     geom_raster() +
@@ -145,7 +145,7 @@ proc readGasGains(f: string): DataFrame =
       gainsMeanFit.add g.G_fitMean
       times.add g.tStart
       inc sliceNum
-    var df = seqsToDf({ "Gain" : gains, "GainFit" : gainsFit,
+    var df = toDf({ "Gain" : gains, "GainFit" : gainsFit,
                         "GainFitMean" : gainsMeanFit, "timestamp" : times })
     df["Run"] = constantColumn(runNumber, df.len)
     df["SliceIdx"] = toSeq(0 ..< sliceNum)

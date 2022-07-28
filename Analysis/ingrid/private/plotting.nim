@@ -23,7 +23,7 @@ proc plotOccupancy*[T](occ: Tensor[T], path: string, run, chip: int,
     y[i] = idx[1].int
     z[i] = val.float
     inc i
-  let df = seqsToDf(x, y, z)
+  let df = toDf(x, y, z)
   echo df
   if occ.max > T(0):
     ggplot(df, aes("x", "y", fill = "z")) +

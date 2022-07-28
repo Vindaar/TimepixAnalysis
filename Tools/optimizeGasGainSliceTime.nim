@@ -100,7 +100,7 @@ proc computeMedianEnergy(f: string, interval: int): DataFrame =
       energy[i] = subDf["energyFromCharge", float].percentile(0.5)
       t[i] = subDf["timestamp", float].percentile(0.5)
       inc i
-    result.add seqsToDf({"timestamp" : t, "medianEnergy" : energy})
+    result.add toDf({"timestamp" : t, "medianEnergy" : energy})
   result = result.arrange("timestamp")
   discard h5f.close()
 

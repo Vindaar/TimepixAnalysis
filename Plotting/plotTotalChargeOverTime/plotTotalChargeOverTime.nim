@@ -122,7 +122,7 @@ proc readPhotoEscapeDf(h5f: H5File, applyRegionCut: bool): DataFrame =
     dates.add parseTime(group.attrs["dateTime", string],
                         dateStr,
                         utc()).toUnix.float
-  result = seqsToDf({ "timestamp" : dates, "photo" : photoSeq,
+  result = toDf({ "timestamp" : dates, "photo" : photoSeq,
                       "escape" : escapeSeq })
 
 proc readCdl(): DataFrame =
@@ -242,7 +242,7 @@ proc calcMean(df: DataFrame,
     inc numCluster
   let tt = timesToPlot.mapIt(it.int)
   let tstr = tt.mapIt($it.fromUnix)
-  let df = seqsToDf({"time" : tt, "tstr" : tstr, "idx" : toSeq(0 ..< timesToPlot.len)})
+  let df = toDf({"time" : tt, "tstr" : tstr, "idx" : toSeq(0 ..< timesToPlot.len)})
   ggplot(df, aes(idx, time)) + geom_point() + ggsave("/tmp/testtime.pdf")
   df.write_csv("/tmp/testtime.csv")
 
@@ -296,7 +296,7 @@ proc calculateMeanDf(df: DataFrame, interval: float,
   let sums = df.calcMean(tstamps, outLen, "hits", interval)
   let means = df.calcMean(tstamps, outLen, "totalCharge", interval, "hits")
 
-  result = seqsToDf({"timestamp" : tmeanStamps, "sumCharge" : sums,
+  result = toDf({"timestamp" : tmeanStamps, "sumCharge" : sums,
                       "meanCharge" : means, "runPeriods" : runPeriods })
 
   template calcAndAdd(name, dfName: untyped): untyped =

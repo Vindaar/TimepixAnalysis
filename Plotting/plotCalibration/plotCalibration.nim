@@ -125,10 +125,10 @@ proc plotThlCalib*(thlCalib: FitResult, charge, thl, thlErr: seq[float], chip = 
   p.saveImage(filename)
 
 proc plotToTCalib*(totCalib: FitResult, tot: Tot, chip = 0, chipName = "") =
-  let dfData = seqsToDf({ "U / mV" : tot.pulses.mapIt(it.float),
+  let dfData = toDf({ "U / mV" : tot.pulses.mapIt(it.float),
                           "ToT" : tot.mean,
                           "std" : tot.std.mapIt(if classify(it) == fcNaN: 0.0 else: it) })
-  let dfFit = seqsToDf({"U / mV" : totCalib.x, "ToT" : totCalib.y })
+  let dfFit = toDf({"U / mV" : totCalib.x, "ToT" : totCalib.y })
   let df = bind_rows([("ToT", dfData), ("Fit", dfFit)], "by")
   var title = ""
   if chipName.len > 0:
@@ -151,7 +151,7 @@ proc plotToTCalib*(totCalib: FitResult, tot: Tot, chip = 0, chipName = "") =
 proc plotCharge*(a, b, c, t: float, chip: int, chipName = "") =
   let tots = linspace(0.0, 150.0, 1000)
   let charges = tots.mapIt(calibrateCharge(it, a, b, c, t))
-  let df = seqsToDf({ "ToT" : tots,
+  let df = toDf({ "ToT" : tots,
                       "Q" : charges })
   let title = &"Charge calibration of Chip {chipName}"
   ggplot(df, aes("ToT", "Q")) +

@@ -49,7 +49,7 @@ proc main(fname: string) =
 
   echo "found ", clusters.len, " cluster!"
   for i in 0 ..< clusters.len:
-    let df = seqsToDf({ "x" : clusters[i].mapIt(it.x.int),
+    let df = toDf({ "x" : clusters[i].mapIt(it.x.int),
                         "y" : clusters[i].mapIt(it.y.int),
                         "TOT" : clusters[i].mapIt(it.TOT.float) })
     if df.len > 5:

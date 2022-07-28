@@ -315,7 +315,7 @@ proc handleInner(mdat: seq[Pix], eventNumber, run: int, recurse = true): MarlinE
     #echo "RAW EVENT NUMBER ", dat[0]
     #echo "EVENT EVENT NUMBER ", event#.eventNumber
     #scratchTab.fillEvent(dat[0])
-    let dfRaw = seqsToDf({ "x" : mdat.mapIt(it.x + 1),
+    let dfRaw = toDf({ "x" : mdat.mapIt(it.x + 1),
                            "y" : mdat.mapIt(it.y),
                            "ch" : mdat.mapIt(it.ch) })
     var
@@ -364,7 +364,7 @@ proc handleInner(mdat: seq[Pix], eventNumber, run: int, recurse = true): MarlinE
       #for row in dfDiff:
       #  noiseF.write($(row["x"].toInt - 1) & " " & $row["y"].toInt & "\n")
       #noiseF.close()
-      let dfMarlin = seqsToDf({ "x" : xM,
+      let dfMarlin = toDf({ "x" : xM,
                                 "y" : yM,
                                 "ch" : chM })
 
@@ -433,7 +433,7 @@ proc handleInner(mdat: seq[Pix], eventNumber, run: int, recurse = true): MarlinE
     #elif xM.len != dfRaw.len:
     elif result.numMismatches > 0: # and implies result.numMismatches <= 5
       echo "Difference, but only of: ", result.numMismatches
-      let dfMarlin = seqsToDf({ "x" : xM,
+      let dfMarlin = toDf({ "x" : xM,
                                 "y" : yM,
                                 "ch" : chM })
       let df = bind_rows([dfRaw, dfMarlin], id = "from")

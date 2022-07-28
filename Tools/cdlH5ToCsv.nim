@@ -11,7 +11,7 @@ proc main(fname: string) =
   for f, grp in h5f.groups:
     let cdl = h5f[grp.name / "CdlSpectrum", float]
     let cdlCharge = h5f[grp.name / "CdlSpectrumCharge", float]
-    let df = seqsToDf({"Hits" : cdl, "Charge [e⁻]" : cdlCharge})
+    let df = toDf({"Hits" : cdl, "Charge [e⁻]" : cdlCharge})
     let name = f.dup(removePrefix("/"))
     df.writeCsv(&"/tmp/{name}.csv")
 

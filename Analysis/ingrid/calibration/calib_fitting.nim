@@ -395,7 +395,7 @@ proc dumpStartParamsPlot(bins_to_fit, data_to_fit: seq[float],
                          params: seq[float],
                          fn: proc(p_ar: seq[float], x: float): float) =
   ## generates a plot of rhte data and the start parameters
-  let df = seqsToDf({ "x" : bins_to_fit,
+  let df = toDf({ "x" : bins_to_fit,
                       "y" : data_to_fit,
                       "yFit" : bins_to_fit.mapIt(fn(params, it))})
   echo df.pretty(-1)

@@ -16,7 +16,7 @@ proc readCdlDsets(h5f: H5FileObj, fwKind: static FrameworkKind): DataFrame =
       when fwKind == fkMarlin:
         let lenName = igLength.toDset(fwKind)
         let transRmsName = igRmsTransverse.toDset(fwKind)
-        var df = seqsToDf({ "Eccentricity" : h5f[group.name / $eccName, float32],
+        var df = toDf({ "Eccentricity" : h5f[group.name / $eccName, float32],
                             "Length" : h5f[group.name / $lenName, float32],
                             "RmsTrans" : h5f[group.name / $transRmsName, float32],
                             "fracRmsTrans" : h5f[group.name / $frmsName, float32],
@@ -25,7 +25,7 @@ proc readCdlDsets(h5f: H5FileObj, fwKind: static FrameworkKind): DataFrame =
           .select("Eccentricity", "L / RMS_trans", "fracRmsTrans", "totalCharge")
       else:
         let ldivRmsName = igLengthDivRmsTrans.toDset(fwKind)
-        var df = seqsToDf({ "Eccentricity" : h5f[group.name / $eccName, float64],
+        var df = toDf({ "Eccentricity" : h5f[group.name / $eccName, float64],
                             "L / RMS_trans" : h5f[group.name / $ldivRmsName, float64],
                             "fracRmsTrans" : h5f[group.name / $frmsName, float64],
                             "totalCharge" : h5f[group.name / $chName, float64]})

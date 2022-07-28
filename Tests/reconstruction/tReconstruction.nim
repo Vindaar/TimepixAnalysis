@@ -66,9 +66,9 @@ proc plotGasGain(h5f: H5File, grp: H5Group, run: int) =
     let (x, p) = polya.split(SplitSeq.Seq2Col)
     let xFit = linspace(x.min, x.max, 1000)
     let pFit = xFit.mapIt(polyaImpl(@[N, G_fit, theta], it))
-    let dfR = seqsToDf({ "x" : x,
+    let dfR = toDf({ "x" : x,
                         "polya" : p })
-    let dfFit = seqsToDf({ "x" : xFit,
+    let dfFit = toDf({ "x" : xFit,
                            "polya" : pFit })
     let dfAlt = bind_rows([("Polya", dfR), ("Fit", dfFit)],
                           id = "From")

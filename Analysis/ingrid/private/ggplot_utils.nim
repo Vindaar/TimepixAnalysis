@@ -168,7 +168,7 @@ proc getSeptemDataFrame*(h5f: H5File, runNumber: int, allowedChips: seq[int] = @
       evs.add(eventNumbers)
       chips = add(chips, chipNumCol)
       cls.add clusters
-  result = seqsToDf({ "eventNumber" : evs, "x" : xs, "y" : ys, "chipNumber" : chips,
+  result = toDf({ "eventNumber" : evs, "x" : xs, "y" : ys, "chipNumber" : chips,
                       "cluster" : cls })
   if charge:
     result["charge"] = chs
@@ -194,7 +194,7 @@ proc getSeptemEventDF*(h5f: H5File, runNumber: int): DataFrame =
       chips = add(chips, chipNumCol)
       evIdx.add(evIndex)
 
-  result = seqsToDf({"eventIndex" : evIdx, "eventNumber" : evs, "chipNumber" : chips})
+  result = toDf({"eventIndex" : evIdx, "eventNumber" : evs, "chipNumber" : chips})
 
 iterator getSeptemDataFrame*(h5f: H5File): DataFrame =
   for num, group in runs(h5f):
@@ -209,7 +209,7 @@ proc getChipOutline*(maxVal: SomeNumber): DataFrame =
   let xs = concat(zeroes, incVals, maxVals, incVals)
   let ys = concat(incVals, zeroes, incVals, maxvals)
   let ch = constantColumn(maxVal.float, xs.len)
-  result = seqsToDf({"x" : xs, "y" : ys, "charge" : ch})
+  result = toDf({"x" : xs, "y" : ys, "charge" : ch})
 
 proc getSeptemOutlines*(maxVal: SomeNumber): Tensor[float] =
   ## returns the outline of the chips of the SeptemBoard in a
@@ -234,7 +234,7 @@ proc getFullFrame*(maxVal: SomeNumber): DataFrame =
     ch = constantColumn(maxVal.float, 256 * 20)
   doAssert comb.len == ch.len
   let xy = comb.transpose
-  result = seqsToDf({"x" : xy[0], "y": xy[1], "charge" : ch})
+  result = toDf({"x" : xy[0], "y": xy[1], "charge" : ch})
 
 proc addChipToSeptemEvent*(occ: var Tensor[float], df: DataFrame, chipNumber: range[0 .. 6],
                            zDset = "charge") =
@@ -274,7 +274,7 @@ proc dfToSeptemEvent*(df: DataFrame, zDset = "charge"): DataFrame =
         xDf[i] = x0 - xDf[i]
         yDf[i] = y0 - yDf[i]
       else: doAssert false, "Invalid chip number!"
-  result = seqsToDf({"x" : xDf, "y" : yDf, "charge" : zDf})
+  result = toDf({"x" : xDf, "y" : yDf, "charge" : zDf})
 
 proc drawCircle(x, y: int, radius: float): (seq[float], seq[float]) =
   let xP = linspace(0, 2 * Pi, 1000)
@@ -298,7 +298,7 @@ proc plotSeptemEvent*(evData: PixelsInt, run, eventNumber: int,
     yCol[i] = ev.y
     chCol[i] = ev.ch
     doAssert ev.ch < 10, "More than 10 clusters indicates something is wrong here. Event: " & $eventNumber & " run: " & $run
-  let df = seqsToDf({"x" : xCol, "y" : yCol, "cluster ID" : chCol})
+  let df = toDf({"x" : xCol, "y" : yCol, "cluster ID" : chCol})
 
   # create DF for the lines
   proc line(m, b: float, x: float): float =
@@ -308,17 +308,17 @@ proc plotSeptemEvent*(evData: PixelsInt, run, eventNumber: int,
   for l in lines:
     let xs = toSeq(0 .. 767)
     let ys = xs.mapIt(line(l.m, l.b, it.float))
-    dfLines.add seqsToDf({"xs" : xs, "ys" : ys, "cluster ID" : idx})
+    dfLines.add toDf({"xs" : xs, "ys" : ys, "cluster ID" : idx})
     inc idx
 
   var dfCenters = newDataFrame()
   idx = 0
   for c in centers:
-    dfCenters.add seqsToDf({"x" : c.x, "y" : c.y, "cluster ID" : idx})
+    dfCenters.add toDf({"x" : c.x, "y" : c.y, "cluster ID" : idx})
     inc idx
 
   let (xCircle, yCircle) = drawCircle(xCenter, yCenter, radius)
-  let dfCircle = seqsToDf(xCircle, yCircle)
+  let dfCircle = toDf(xCircle, yCircle)
 
   writeCsv(df, &"/tmp/septemEvent_run_{run}_event_{eventNumber}.csv")
 

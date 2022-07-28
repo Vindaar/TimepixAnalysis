@@ -415,7 +415,7 @@ when isMainModule:
   # with this in hand we can now plot the function
   let x = linspace(0, 400, 1000)
   let y = x.mapIt(feSpecFunc(params, it))
-  let df = seqsToDf(x, y)
+  let df = toDf(x, y)
   ggplot(df, aes("x", "y")) +
     geom_line() +
     ggsave("feSpecFuncTest.pdf")

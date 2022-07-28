@@ -828,11 +828,11 @@ proc print_slow_control_logs(logs: seq[SlowControlLog], magnetField = 8.0) =
 
       oldTime = curTime
 
-  let df = seqsToDf({"B" : Bvals})
+  let df = toDf({"B" : Bvals})
   ggplot(df.filter(f{`B` <= magnetField}), aes("B")) + geom_histogram(bins = 100) + ggsave(&"/tmp/B_field_larger_0_smaller_{magnetField}.pdf")
   ggplot(df.filter(f{float -> bool: `B` >= magnetField}), aes("B")) + geom_histogram(bins = 100) + ggsave(&"/tmp/B_field_larger_{magnetField}.pdf")
   ggplot(df, aes("B")) + geom_histogram(bins = 100) + ggsave(&"/tmp/B_field_larger_0.pdf")
-  let dfT = seqsToDf({"Tdiff" : Tdiffs.mapIt(it.float)})
+  let dfT = toDf({"Tdiff" : Tdiffs.mapIt(it.float)})
     .filter(f{`Tdiff` > 0.1 and `Tdiff` < 500.0})
   echo dfT
   ggplot(dfT, aes("Tdiff")) + geom_histogram(bins = 100) +
@@ -879,7 +879,7 @@ proc toDf(sc: SlowControlLog, enforceSameFields = false): DataFrame =
       "times.len = " & $sc.timestamps.len & ", magnet.len = " & $sc.B_magnet.len
   let B = if sc.B_magnet.len == 0: sc.timestamps.mapIt(NaN) # fill with NaN to have floats
           else: sc.B_magnet
-  var df = seqsToDf({ "Time / s" : sc.timestamps,
+  var df = toDf({ "Time / s" : sc.timestamps,
                       "B / T" : B })
   df["Date"] = newTensorWith(df.len, sc.date.toUnix) #constantColumn(sc.date.toUnix, df.len)
   result = df
@@ -990,7 +990,7 @@ proc toDf(tr: TrackingLog, enforceSameFields = false): DataFrame =
       "timestamps.len = " & $tr.timestamps.len & ", magnet.len = " & $tr.magB.len
   let B = if tr.magB.len == 0: tr.timestamps.mapIt(NaN) # fill with NaN to have floats
           else: tr.magB
-  var df = seqsToDf({ "Time / s" : tr.timestamps,
+  var df = toDf({ "Time / s" : tr.timestamps,
                       "B / T" : B })
   df["Date"] = newTensorWith(df.len, tr.date.toUnix)
   #df["Date"] = constantColumn(tr.date.toUnix, df.len)
@@ -1072,7 +1072,7 @@ proc extractCycles[T](df: DataFrame, magnetField: float,
         echo "Start at: ", start, " stop at ", stop
         echo "Relevant df : ", df[start - 5 .. stop + 5]
   # convert cycles to DF
-  result = seqsToDf({ "cumulativeTime / s" : cumTime,
+  result = toDf({ "cumulativeTime / s" : cumTime,
                       "cycleLength / s" : cycleLength,
                       "cycleStart (unix)" : magnetCycleIdxs.mapIt(dates[it[0]]),
                       "cycleStop (unix)" : magnetCycleIdxs.mapIt(dates[it[1]]),

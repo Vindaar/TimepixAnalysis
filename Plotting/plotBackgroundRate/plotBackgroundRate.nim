@@ -219,9 +219,9 @@ proc addNoisyPixels() =
       noisyPixels.add (x, y)
 
 proc plotMedianBools(df: DataFrame, fnameSuffix, title: string,
-                     suffix: string) =
+                     suffix, outpath: string) =
   let transparent = color(0, 0, 0, 0)
-  let fname = &"plots/background_rate_median_bools_{fnameSuffix}.pdf"
+  let fname = &"{outpath}/background_rate_median_bools_{fnameSuffix}.pdf"
   echo "INFO: storing plot in ", fname
   #let df = df.select([Ecol, Rcol, "Variable", "Value"])
   echo df.pretty(-1)
@@ -244,6 +244,7 @@ proc plotMedianBools(df: DataFrame, fnameSuffix, title: string,
     ggsave(fname, width = 1920, height = 1080)
 
 proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
+                        outpath, outfile: string,
                         show2014: bool, suffix: string,
                         hidePoints, hideErrors, fill: bool,
                         useTeX, showPreliminary, genTikZ: bool,
@@ -257,7 +258,8 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
                   else:
                     "Background rate of Run 2 & 3 (2017/18)"
   let transparent = color(0, 0, 0, 0)
-  let fname = &"plots/background_rate_{fnameSuffix}.pdf"
+  let fname = if outfile.len > 0: outpath / outfile
+              else: &"{outpath}/background_rate_{fnameSuffix}.pdf"
   echo "INFO: storing plot in ", fname
   echo df
 
@@ -340,7 +342,7 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
   df = df.drop(["Dataset", "yMin", "yMax"])
   df.writeCsv("/tmp/background_rate_data.csv")
 
-proc plotEfficiencyComparison(files: seq[LogLFile]) =
+proc plotEfficiencyComparison(files: seq[LogLFile], outpath: string) =
   ## creates a plot comparing different logL cut efficiencies. Each filename should contain the
   ## efficiency in the format
   ## `_eff_<eff>.h5`
@@ -365,14 +367,14 @@ proc plotEfficiencyComparison(files: seq[LogLFile]) =
     geom_line(aes = aes(shape = factor("Eff"))) +
     geom_point() +
     ggtitle("Comparison of signal efficiency ε / √Background") +
-    ggsave("plots/signal_efficiency_vs_sqrt_background.pdf",
+    ggsave(&"{outpath}/signal_efficiency_vs_sqrt_background.pdf",
            width = 1280, height = 800)
   ggplot(df.filter(f{`Energy` < 12.0}).arrange("Energy"), aes(ECol, "ε/√B", color = factor("Eff"))) +
     facet_wrap("Eff") +
     geom_line(aes = aes(shape = factor("Eff"))) +
     geom_point() +
     ggtitle("Comparison of signal efficiency ε / √Background") +
-    ggsave("plots/signal_efficiency_vs_sqrt_background_facet.pdf",
+    ggsave(&"{outpath}/signal_efficiency_vs_sqrt_background_facet.pdf",
            width = 1280, height = 800)
 
 
@@ -404,9 +406,11 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
           showTotalTime = false,
           genTikZ = false,
           filterNoisyPixels = false,
-          logPlot = false
+          logPlot = false,
+          outpath = "plots",
+          outfile = ""
          ) =
-  discard existsOrCreateDir("plots")
+  discard existsOrCreateDir(outpath)
   if readToA:
     DsetNames.add "toaLength"
 
@@ -427,10 +431,11 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
     plotMedianBools(computeMedianBools(df).flatScaleMedian(factor = factor,
                                                            totalTime = totalTime),
                     fnameSuffix, title = "Comparison of background rate by different variables: clusters < and > than median",
-                    suffix = suffix)
+                    suffix = suffix,
+                    outpath = outpath)
 
   if compareEfficiencies:
-    plotEfficiencyComparison(logLFiles)
+    plotEfficiencyComparison(logLFiles, outpath)
   else:
     var df = newDataFrame()
     if names.len > 0:
@@ -498,7 +503,9 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
       echo df2014
       df.add df2014
     plotBackgroundRate(
-      df, fnameSuffix, title, show2014, suffix,
+      df, fnameSuffix, title,
+      outpath, outfile,
+      show2014, suffix,
       hidePoints = hidePoints, hideErrors = hideErrors, fill = fill,
       useTeX = useTeX, showPreliminary = showPreliminary, genTikZ = genTikZ,
       showNumClusters = showNumClusters, showTotalTime = showTotalTime,
@@ -540,4 +547,6 @@ of the logL cut, creates a comparison plot.""",
     "showTotalTime" : "If set adds the total time of background data to title.",
     "genTikZ" : "If set only generate TikZ instead of compiling a TeX file to PDF.",
     "filterNoisyPixels" : "If set removes the (currently hardcoded) noisy pixels.",
-    "logPlot" : "Alternate setting to activate log10 plot. TO BE REMOVED"}
+    "logPlot" : "Alternate setting to activate log10 plot. TO BE REMOVED",
+    "outpath" : "The path in which the plot is placed, by default './plots'",
+    "outfile" : "The name of the generated plot, by default constructed from other parameters"}

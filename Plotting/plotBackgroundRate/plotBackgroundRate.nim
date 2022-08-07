@@ -323,11 +323,11 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
   if useTeX:
     plt = plt +
     xlab(r"Energy [\si{keV}]") +
-    ylab(r"Rate [\SI{1e-5}{keV⁻¹ cm⁻² s⁻¹}]", margin = 1.1) +
+    ylab(r"Rate [\SI{1e-5}{keV⁻¹ cm⁻² s⁻¹}]", margin = 1.6) +
     #minorGridLines() +
     ggtitle(titleSuff) +
-    theme_latex() +
-    theme_transparent()
+    theme_latex()
+    #theme_transparent()
     if genTikZ:
       plt + ggsave(fname.replace(".pdf", ".tex"), width = 800, height = 480, useTeX = true, onlyTikZ = true)
     else:

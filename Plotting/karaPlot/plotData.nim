@@ -2500,6 +2500,7 @@ proc genBackgroundPlotPDs(h5f: H5File, runType: RunTypeKind,
   # result.add createCustomPlots(fInfoConfig, config)
   if config.customPlots.len > 0:
     result.add createCustomPlots(fInfoConfig, config)
+  if cfCompiledCustom in config.flags:
     # now deal with custom compiled plots
     result.add moreCustom(fInfoConfig, config)
 

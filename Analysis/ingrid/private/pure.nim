@@ -12,8 +12,6 @@ import streams, parsecsv
 # cus modules
 import helpers/utils
 import ../ingrid_types
-# zero functional is fine, because it's purely Nim
-import zero_functional
 
 const
   # some helper constants
@@ -94,11 +92,15 @@ proc readToTFileTpx1*(filename: string,
     std.delete(0, lastInd)
 
   # filter out elements with std == 0.0
-  let nonZero = zip(std, pulses, mean) --> filter(it[0] > 0.0)
-  # see zips above for indices
-  result[1].pulses = nonZero.mapIt(it[1])
-  result[1].mean = nonZero.mapIt(it[2])
-  result[1].std = nonZero.mapIt(it[0])
+  result[1].std = newSeqOfCap[float](std.len)
+  result[1].pulses = newSeqOfCap[float](std.len)
+  result[1].mean = newSeqOfCap[float](std.len)
+  for i in 0 ..< std.len:
+    if std[i] > 0.0:
+      # see zips above for indices
+      result[1].std.add std[i]
+      result[1].pulses.add pulses[i]
+      result[1].mean.add mean[i]
 
 proc readScurveVoltageFile*(filename: string): SCurve =
   ## reads an SCurve file and returns an SCurve object
@@ -1157,10 +1159,10 @@ proc getSortedListOfFiles*(run_folder: string,
     let evNumFiles = sortedByIt(getListOfEventFiles(run_folder, event_type, rfKind),
                         it[0])
     # no need for the event numbers anymore
-    result = evNumFiles --> map(it[1])
+    result = evNumFiles.mapIt(it[1])
   of inode:
     let evNumFiles = getListOfEventFiles(run_folder, event_type, rfKind)
-    let files = evNumFiles --> map(it[1])
+    let files = evNumFiles.mapIt(it[1])
     result = sortByInode(files)
 
 when compileOption("threads"):

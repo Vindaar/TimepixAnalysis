@@ -26,7 +26,7 @@ import tos_helpers
 import helpers/utils
 import ingrid_types
 import calibration
-import fadc_analysis
+import fadc_analysis, fadc_helpers
 
 type
   RecoFlagKind = enum
@@ -356,6 +356,32 @@ proc writeRecoRunToH5*[T: SomePix](h5f: H5File,
     chip_groups[ch_numb].attrs["chipNumber"] = ch_numb
     chip_groups[ch_numb].attrs["chipName"] = ch_name
 
+proc writeFadcReco*(h5f: H5File, runNumber: int, fadc: ReconstructedFadcRun) =
+  ## Writes the given FADC data that is reconstructed to the output file
+  ##
+  ## NOTE: for now we write all data by resizing to the correct size and just
+  ## writing all. No batching.
+  var
+    dset        = h5f[fadcDataBasename(runNumber).dset_str]
+    eventNumber = h5f[eventNumberBasenameReco(runNumber).dset_str]
+    noisy       = h5f[noiseBasename(runNumber).dset_str]
+    minVals     = h5f[minValsBasename(runNumber).dset_str]
+  # now write the data
+  let t0 = epochTime()
+  let all = RW_ALL
+  let dataSize = fadc.fadcData.size.int
+  let nEvents = fadc.eventNumber.len
+  # resize & write
+  dset.resize((nEvents, ch_len()))
+  dset.unsafeWrite(cast[ptr uint16](fadc.fadcData.unsafe_raw_offset()), dataSize)
+  eventNumber.resize((nEvents,))
+  eventNumber.unsafeWrite(cast[ptr int](fadc.eventNumber[0].unsafeAddr), nEvents)
+  noisy.resize((nEvents,))
+  noisy.unsafeWrite(cast[ptr int](fadc.noisy[0].unsafeAddr), nEvents)
+  minVals.resize((nEvents,))
+  minVals.unsafeWrite(cast[ptr float](fadc.minVals[0].unsafeAddr), nEvents)
+  info "Writing of FADC data took $# seconds" % $(epochTime() - t0)
+
 iterator readDataFromH5*(h5f: H5File, runNumber: int,
                          timepixVersion: TimepixVersion):
     tuple[chip: int,
@@ -397,6 +423,36 @@ iterator readDataFromH5*(h5f: H5File, runNumber: int,
           runPix.add (pixels: rpix, eventNumber: evNumbers[i],
                        toa: raw_toa[i], toaCombined: raw_toa_combined[i])
       yield (chip: chip_number, eventData: run_pix)
+
+proc readFadcFromH5*(h5f: H5File, runNumber: int): seq[FadcFile] =
+  ## proc to read data from the HDF5 file from `group`
+  ## returns the chip number and a sequence containing the pixel data for this
+  ## event and its event number
+  let fadcGroup = fadcRawPath(runNumber)
+  doAssert fadcGroup in h5f
+  let group = h5f[fadcGroup.grp_str]
+  let evNumbers = h5f[group.name / "eventNumber", int]
+  let trigRec = h5f[group.name / "trigger_record", int]
+  let dset = h5f[(group.name / "raw_fadc").dset_str]
+  let fadcData = dset[uint16]
+  # now walk data and insert into `FadcFile`
+  var fFile = FadcFile(isValid: true,
+                       channelMask: group.attrs["channel_mask", int],
+                       frequency: group.attrs["frequency", int],
+                       postTrig: group.attrs["posttrig", int],
+                       preTrig: group.attrs["pretrig", int],
+                       nChannels: group.attrs["n_channels", int],
+                       samplingMode: group.attrs["sampling_mode", int],
+                       pedestalRun: group.attrs["pedestal_run", int] == 1)
+  let fadcSize = dset.shape[1]
+  let nEvs = dset.shape[0]
+  result = newSeq[FadcFile](nEvs)
+  for idx in 0 ..< nEvs:
+    fFile.eventNumber = evNumbers[idx]
+    fFile.trigRec = trigRec[idx]
+    # slice out the correct data
+    fFile.data = fadcData[idx * fadcSize ..< (idx + 1) * fadcSize]
+    result[idx] = fFile
 
 {.experimental.}
 proc reconstructSingleChip*(data: RecoInputData[Pix],
@@ -597,6 +653,35 @@ proc calcTriggerFractions(h5f: H5File, runNumber: int) =
   grp.attrs["nonTrivial_szint1TriggerRatio"] = s1NonTrivial
   grp.attrs["nonTrivial_szint2TriggerRatio"] = s2NonTrivial
 
+proc reconstructFadcData(h5f, h5fout: H5File, runNumber: int) =
+  # read FADC data from input
+  let fadcFiles = h5f.readFadcFromH5(runNumber)
+
+  let
+    fadc_ch0_indices = getCh0Indices()
+    pedestal_run = getPedestalRun()
+    # we demand at least 4 dips, before we can consider an event as noisy
+    n_dips = 4
+    # the percentile considered for the calculation of the minimum
+    min_percentile = 0.95
+
+  doAssert fadcFiles.len > 0, "Input does not contain any FADC data for run " & $runNumber
+  var fData = ReconstructedFadcRun(
+    fadc_data: newTensorUninit[float]([fadcFiles.len, ch_len()]),
+    eventNumber: newSeq[int](fadcFiles.len),
+    noisy: newSeq[int](fadcFiles.len),
+    minVals: newSeq[float](fadcFiles.len)
+  )
+  # TODO: possibly multithread this at some point, if it ends up too slow!
+  for i, file in fadcFiles:
+    let data = file.fadcFileToFadcData(pedestal_run, fadc_ch0_indices).data
+    fData.fadc_data[i, _] = data.reshape([1, ch_len()])
+    fData.noisy[i]        = data.isFadcFileNoisy(n_dips)
+    fData.eventNumber[i]  = fadcFiles[i].eventNumber
+    fData.minVals[i]      = data.calcMinOfPulse(min_percentile)
+  # write the data to the output
+  h5fout.writeFadcReco(runNumber, fData)
+
 template recordIterRuns*(base: string, body: untyped): untyped =
   ## Helper template, which iterates all runs in the file, records the runs iterated
   ## over and injects the current `runNumber` and current `grp` into the calling scope
@@ -647,7 +732,10 @@ proc reconstructRunsInFile(h5f: H5File,
   # read the timepix version from the input file
   let timepixVersion = h5f.timepixVersion()
   var ingridInit = false
+
   recordIterRuns(rawDataBase()):
+
+    let inputHasFadc = fadcRawPath(runNumber) in h5f
     if (recoBase() & $runNumber) in h5fout:
       # check attributes whether this run was actually finished
       let h5grp = h5fout[(recoBase() & $runNumber).grp_str]
@@ -664,7 +752,8 @@ proc reconstructRunsInFile(h5f: H5File,
       # intersection of `flags` with all `"only flags"` has to be empty
       doAssert (flags * {rfOnlyEnergy .. rfOnlyGainFit}).card == 0
       # initialize groups in `h5fout`
-      initRecoFadcInH5(h5f, h5fout, runNumber, batchsize)
+      if inputHasFadc:
+        initRecoFadcInH5(h5f, h5fout, runNumber, batchsize)
       copyOverDataAttrs(h5f, h5fout, runNumber)
 
       writeRecoAttrs(h5fout, runNumber, clusterAlgo, searchRadius, dbscanEpsilon, ingridInit)
@@ -690,13 +779,17 @@ proc reconstructRunsInFile(h5f: H5File,
       info "Reconstruction of run $# took $# seconds" % [$runNumber, $(epochTime() - t1)]
       # finished run, so write run to H5 file
       h5fout.writeRecoRunToH5(h5f, reco_run, runNumber, timepixVersion)
+
+      if inputHasFadc:
+        h5f.reconstructFadcData(h5fout, runNumber)
+
       # now flush both files
       h5fout.flush
       h5f.flush
       # set reco run length back to 0
       reco_run.setLen(0)
       # calculate fractions of FADC / Scinti triggers per run
-      if fadcRawPath(runNumber) in h5f:
+      if inputHasFadc:
         h5fout.calcTriggerFractions(runNumber)
       # now check whether create iron spectrum flag is set
       # or this is a calibration run, then always create it

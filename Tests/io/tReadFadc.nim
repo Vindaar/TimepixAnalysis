@@ -207,12 +207,12 @@ suite "Fadc data":
     # `dropNulls = true` and `bind_rows`, but this way it's easier by assigning the
     # individual data frames for the geoms
     let df = toDf({ "x" : toSeq(0 ..< 2560),
-                        "baseline": baselineY,
-                        "data": fadc,
-                        "xminX" : xminlineX,
-                        "xminY" : xminlineY,
-                        "riseStart" : riseStartX,
-                        "fallStop" : fallStopX})
+                    "baseline": baselineY,
+                    "data": fadc,
+                    "xminX" : xminlineX,
+                    "xminY" : xminlineY,
+                    "riseStart" : riseStartX,
+                    "fallStop" : fallStopX})
     # Comparison has to be done by hand unfortunately
     let path = pwd / "plots/fadc_spectrum_baseline"
     ggplot(df, aes("x", "data")) + geom_line() +

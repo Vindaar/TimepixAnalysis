@@ -362,56 +362,21 @@ proc processRawInGridData(run: Run): ProcessedRun =
   result.hits = hits
   result.occupancies = occ
 
-proc processFadcData(fadcFiles: seq[FadcFile]): ProcessedFadcData {.inline.} =
+proc processFadcData(fadcFiles: seq[FadcFile]): ProcessedFadcRun {.inline.} =
   ## proc which performs all processing needed to be done on the raw FADC
   ## data. Starting from conversion of FadcFiles -> FadcData, but includes
   ## calculation of minimum and check for noisy events
   # sequence to store the indices needed to extract the 0 channel
-  let
-    #fadc_ch0_indices = getCh0Indices()
-    #ch_len = ch_len()
-    #pedestal_run = getPedestalRun()
-    nEvents = fadcFiles.len
-    # we demand at least 4 dips, before we can consider an event as noisy
-    #n_dips = 4
-    # the percentile considered for the calculation of the minimum
-    #min_percentile = 0.95
-
+  let nEvents = fadcFiles.len
   # convert FlowVars of FadcFiles to sequence of FadcFiles
   result.raw_fadc_data = newSeq[seq[uint16]](nEvents)
-  #result.fadc_data = zeros[float]([nEvents, ch_len])
   result.trigRecs = newSeq[int](nEvents)
-  #result.noisy = newSeq[int](nEvents)
-  #result.minVals = newSeq[float](nEvents)
   result.eventNumber = newSeq[int](nEvents)
   let t0 = epochTime()
-  # TODO: parallelize this somehow so that it's faster!
   for i, ev in fadcFiles:
     result.raw_fadc_data[i] = ev.data
     result.trigRecs[i]      = ev.trigRec
     result.eventNumber[i]   = ev.eventNumber
-    #let fadc_dat = ev.fadcFileToFadcData(pedestal_run, fadc_ch0_indices).data
-    #result.fadc_data[i, _]  = fadc_dat.reshape([1, ch_len])
-    #result.noisy[i]         = fadc_dat.isFadcFileNoisy(n_dips)
-    #result.minVals[i]       = fadc_dat.calcMinOfPulse(min_percentile)
-
-  # this parallel solution seems to be slower, instead of faster ?! well, probably
-  # because we only have these two spawns and one of these functions is much slower
-  # than the other
-  # parallel:
-  #   for i, event in fadcFiles:
-  #     let ev = (^event)[]
-  #     if i < result.raw_fadc_data.len:
-  #       result.raw_fadc_data[i] = ev.data
-  #     let fadc_dat = ev.fadcFileToFadcData(pedestal_run, fadc_ch0_indices).data
-  #     if i < result.trigRecs.len:
-  #       result.trigRecs[i]      = ev.trigrec
-  #       result.fadc_data[i, _]  = fadc_dat.reshape([1, ch_len])
-  #     if i < result.noisy.len:
-  #       result.noisy[i]         = spawn fadc_dat.isFadcFileNoisy(n_dips)
-  #     if i < result.minVals.len:
-  #       result.minVals[i]       = spawn fadc_dat.calcMinOfPulse(min_percentile)
-  #     sync()
   info "Calculation of $# events took $# seconds" % [$nEvents, $(epochTime() - t0)]
 
 proc initFadcInH5(h5f: var H5File, runNumber, batchsize: int, filename: string) =
@@ -464,7 +429,7 @@ proc initFadcInH5(h5f: var H5File, runNumber, batchsize: int, filename: string) 
   runGroup.attrs["sampling_mode"] = fadc_for_attrs.sampling_mode
   runGroup.attrs["pedestal_run"] = if fadc_for_attrs.pedestal_run == true: 1 else: 0
 
-proc writeFadcDataToH5(h5f: var H5File, runNumber: int, f_proc: ProcessedFadcData) =
+proc writeFadcDataToH5(h5f: var H5File, runNumber: int, f_proc: ProcessedFadcRun) =
   # proc to write the current FADC data to the H5 file
   # now write the data
   let
@@ -525,7 +490,7 @@ proc readWriteFadcData(run_folder: string, runNumber: int, h5f: var H5File) =
                                               RunFolderKind.rfUnknown)
     raw_fadc_data: seq[FadcFile]
     # variable to store the processed FADC data
-    f_proc: ProcessedFadcData
+    f_proc: ProcessedFadcRun
     # in case of FADC data we cannot afford to read all files into memory before
     # writing some to HDF5, because the memory overhead from storing all files
     # in seq[string] is too large (17000 FADC files -> 10GB needed!)

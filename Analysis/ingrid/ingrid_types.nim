@@ -500,22 +500,24 @@ when not defined(pure) and not defined(js):
       # will be a 2560 element tensor
       data*: Tensor[float]
 
-    ProcessedFadcData* = tuple[
-      # raw fadc data
-      rawFadcData: seq[seq[uint16]],
-      # processed and converted FADC data
-      fadcData: Tensor[float],
+    ProcessedFadcRun* = object
+      # raw fadc data (optional)
+      rawFadcData*: seq[seq[uint16]]
       # trigger record times, stored
-      trigRecs: seq[int],
-      # flag which says whether event was noisy
-      noisy: seq[int],
-      # minimum values of events (voltage of dips)
-      minVals: seq[float],
+      trigRecs*: seq[int]
       # register of minimum value
-      minRegs: seq[int],
-      #eventNumber for FADC
-      eventNumber: seq[int],
-    ]
+      minRegs*: seq[int]
+      # eventNumber for FADC
+      eventNumber*: seq[int]
+
+    ReconstructedFadcRun* = object
+      eventNumber*: seq[int]
+      # processed and converted FADC data
+      fadcData*: Tensor[float]
+      # flag which says whether event was noisy
+      noisy*: seq[int]
+      # minimum values of events (voltage of dips)
+      minVals*: seq[float]
 
     CutValueInterpolator* = object
       case kind*: MorphingKind

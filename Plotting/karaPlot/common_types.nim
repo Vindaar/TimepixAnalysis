@@ -72,6 +72,8 @@ else:
       idxs*: seq[int]        ## Indices to read. Negative indices are interpreted as seen from the end of dset
       plotlySaveSvg*: bool
       customPlots*: seq[CustomPlot]
+      cdlGroup*: string ## The (optional) CDL dataset (group, target/filter kind) from which
+                        ## to read data if an input file is a CDL file (`calibration-cdl*.h5`)
 
     PlottingBackendKind* = enum
       bNone, bMpl, bPlotly, bGgPlot

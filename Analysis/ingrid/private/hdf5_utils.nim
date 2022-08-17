@@ -190,15 +190,18 @@ proc toIngridDset*(dset: string): InGridDsetKind =
   elif dset == "lengthdivbyradius": result = igLengthDivRadius
   else: result = igInvalid
 
-func cdlGroupName*(tfKindStr, year, dset: string): string =
-  let dsetName = dset.extractFilename
+func cdlPath*(tfKindStr: string, year = "2019"): string =
   var myr = ""
   case year
   of "2014", "2015":
     myr = "apr2014"
   of "2018", "2019":
     myr = "feb2019"
-  result = &"calibration-cdl-{myr}-{tfKindStr}/{dsetName}"
+  result = &"calibration-cdl-{myr}"
+
+func cdlGroupName*(tfKindStr, year, dset: string): string =
+  let dsetName = dset.extractFilename
+  result = &"{cdlPath(tfKindStr, year)}-{tfKindStr}/{dsetName}"
 
 func cdlToXrayBinning2014Map(): Table[InGridDsetKind, tuple[bins: int, min, max: float]] =
   ## Maps the names of the `XrayReferenceDataSet.h5` (2014) to the
@@ -742,6 +745,29 @@ proc timepixVersion*(h5f: H5File): TimepixVersion =
   tryGroup(likelihoodGroupGrpStr())
   tryGroup(tpx3InterpGroupGrpStr())
 
+proc dataPath*(fileInfo: FileInfo, run, chip: int): grp_str =
+  ## Returns the path to the data based on the `FileInfo` for a given run
+  ## and chip number.
+  case fileInfo.tpaFileKind
+  of tpkRawData:    result = rawPath(run, chip)
+  of tpkReco:       result = recoPath(run, chip)
+  of tpkLogL:       result = likelihoodPath(run, chip)
+  of tpkTpx3Interp: result = tpx3Path(run, chip)
+  of tpkCDL:        result = fileInfo.cdlGroup.grp_str
+  of tpkTpx3Raw:
+    doAssert false, "Invalid file kind to plot data from! " & $tpkTpx3Raw
+
+proc dataBase*(fileInfo: FileInfo): string =
+  ## Returns the base path to the data based on the `FileInfo`
+  case fileInfo.tpaFileKind
+  of tpkRawData:    result = rawDataBase()
+  of tpkReco:       result = recoBase()
+  of tpkLogL:       result = likelihoodBase()
+  of tpkTpx3Interp: result = tpx3Base()
+  of tpkCDL:        result = fileInfo.cdlGroup
+  of tpkTpx3Raw:
+    doAssert false, "Invalid file kind to plot data from! " & $tpkTpx3Raw
+
 proc getFileInfo*(h5f: H5File): FileInfo =
   ## returns a set of all run numbers in the given file
   # 1. determine the `TpaFileKind` (determines `baseGroup`)
@@ -751,6 +777,7 @@ proc getFileInfo*(h5f: H5File): FileInfo =
     elif "/likelihood" in h5f: tpkLogL
     elif "meta_data" in h5f and "raw_data" in h5f: tpkTpx3Raw
     elif "/interpreted" in h5f: tpkTpx3Interp
+    elif cdlPath("C-EPIC-0.6kV") in h5f: tpkCDL # attempt to read a group from a CDL file
     else:
       raise newException(IOError, "The input file " & $h5f.name & " is not a valid TPA H5 file.")
   let baseGroup = ($result.tpaFileKind).grp_str

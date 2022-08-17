@@ -292,11 +292,11 @@ type
     tpkLogL = "/likelihood"        # output of `likelihood`
     tpkTpx3Raw = ""                # raw Tpx3 data straight from the Tpx3 DAQ. Has no base group
     tpkTpx3Interp = "/interpreted" # interpreted raw data, output of `parse_raw_tpx3`
+    tpkCDL = ""                    # CDL data files (reconstructed by TPA)
 
   # a simple object storing the runs, chips etc. from a given
   # H5 file
   FileInfo* = object
-    tpaFileKind*: TpaFileKind
     runs*: seq[int]
     chips*: seq[int]
     runType*: RunTypeKind
@@ -305,6 +305,13 @@ type
     centerChipName*: kstring
     hasFadc*: bool # reads if FADC group available
     timepix*: TimepixVersion
+    case tpaFileKind*: TpaFileKind
+    of tpkCDL:
+      cdlGroup*: string ## An (optional) selector of a specific CDL group (target / filter type)
+                        ## if the input file corresponds to a CDL file. In that case the data
+                        ## path returned for this file will be from that dataset.
+    else: discard
+
 
   ## Tpx3Data is the compound data type stored in the "interpreted" branch of the
   ## H5 files after running "analyse_data.py" from `tpx3-daq`.

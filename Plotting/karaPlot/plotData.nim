@@ -64,24 +64,6 @@ type
 var fileDir: string
 var fileType: string
 
-proc dataPath*(fileInfo: FileInfo, run, chip: int): grp_str =
-  case fileInfo.tpaFileKind
-  of tpkRawData:    result = rawPath(run, chip)
-  of tpkReco:       result = recoPath(run, chip)
-  of tpkLogL:       result = likelihoodPath(run, chip)
-  of tpkTpx3Interp: result = tpx3Path(run, chip)
-  of tpkTpx3Raw:
-    doAssert false, "Invalid file kind to plot data from! " & $tpkTpx3Raw
-
-proc dataBase*(fileInfo: FileInfo): string =
-  case fileInfo.tpaFileKind
-  of tpkRawData:    result = rawDataBase()
-  of tpkReco:       result = recoBase()
-  of tpkLogL:       result = likelihoodBase()
-  of tpkTpx3Interp: result = tpx3Base()
-  of tpkTpx3Raw:
-    doAssert false, "Invalid file kind to plot data from! " & $tpkTpx3Raw
-
 template buildFilter(key: string, tomlConfig, theSet: untyped): untyped =
   if tomlConfig["General"].hasKey(key):
     let allowed = tomlConfig["General"][key].getElems
@@ -152,6 +134,7 @@ proc initConfig*(chips: set[uint16],
                  xDset: string = "",
                  yDset: string = "",
                  zDset: string = ""
+                 cdlDset: string = ""
                 ): Config =
   let fType = tomlConfig["General"]["filetype"].getStr
   let outputType = tomlConfig["General"]["outputFormat"].getStr
@@ -188,7 +171,8 @@ proc initConfig*(chips: set[uint16],
                   idxs: toSeq(0 ..< head),
                   fileType: fileFormat,
                   outputType: combinedFormat,
-                  customPlots: customPlots)
+                  customPlots: customPlots,
+                  cdlGroup: cdlDset)
 
 proc initSelector(config: Config, cuts: seq[GenericCut] = @[],
                   chipRegion: ChipRegion = crAll,
@@ -540,6 +524,8 @@ proc appliedConfig(fileInfo: FileInfo, config: Config): FileInfo =
   ## returns a copy of the given `FileInfo` with the config.toml applied
   result = fileInfo
   result.applyConfig(config)
+  if fileInfo.tpaFileKind == tpkCDL:
+    result.cdlGroup = config.cdlGroup
 
 proc plotHist[T](xIn: seq[T], title, dset, outfile: string,
                  binS: float, binR: (float, float)): PlotV =
@@ -2823,7 +2809,8 @@ proc plotData*(
   head: int = 0,
   x: string = "",
   y: string = "",
-  z: string = ""
+  z: string = "",
+  cdlDset: float = -1.0
               ) =
   ## the main workhorse of the server end
   if version:
@@ -2867,7 +2854,8 @@ proc plotData*(
                        head = head,
                        xDset = x,
                        yDset = y,
-                       zDset = z
+                       zDset = z,
+                       cdlDset = if cdlDset > 0.0: toRefDset(cdlDset).cdlPath() else: ""
   )
 
   info &"Flags are:\n  {flags}"
@@ -2971,6 +2959,11 @@ run number is given, will generate events for all runs in the file.""",
     "x" : "Generate plot of dataset `x` against `y`.",
     "y" : "Generate plot of dataset `x` against `y`.",
     "z" : "Generate plot of dataset `x` against `y` colored by `z`",
+
+    "cdlDset" : """If any of the input files is a CDL H5 file (`calibration-cdl*.h5`),
+this chooses the dataset to read. Currently this is done by matching the given energy
+in keV to the nearest line. A string matching based on target/filter names may be added
+in the future if needed.""",
 
     "show" : "If given will open each generated plot using inkview (svg) / evince (pdf) / nomacs (png).",
     "cuts" : "Allows to cut data used for event display. Only shows events of data passing these cuts.",

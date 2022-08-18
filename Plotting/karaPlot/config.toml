@@ -27,6 +27,13 @@ cuts = [1]
 # min = 0.0 # minimum allowed value
 # max = 20.0 # maximum allowed value
 
+[Cuts.1]
+applyFile = ["reco_tpx3_background.h5", "lhood_tpx3_background_cast_cdl.h5"]
+applyDset = [] # if any given, apply this cut to all plots of the datasets in this array
+dset = "toaLength" # dataset the cut applies to
+min = 0.0 # minimum allowed value
+max = 20.0 # maximum allowed value
+
 [MaskRegions]
 # in theory this could also identify itself by chip name & run period, but that's a bit restrictive
 # example mask region
@@ -37,3 +44,15 @@ cuts = [1]
 # x = [150, 250] # mask x range from <-> to
 # y = [130, 162] # mask y range from <-> to
 
+regions = [1, 2]
+[MaskRegions.1]
+applyFile = ["reco_tpx3_background.h5", "lhood_tpx3_background_cast_cdl.h5"]
+applyDset = []
+x = [150, 250] # mask x range from <-> to
+y = [130, 162] # mask y range from <-> to
+
+[MaskRegions.2]
+applyFile = ["reco_tpx3_background.h5", "lhood_tpx3_background_cast_cdl.h5"]
+applyDset = []
+x = [125, 135] # mask x range from <-> to
+y = [110, 120] # mask y range from <-> to

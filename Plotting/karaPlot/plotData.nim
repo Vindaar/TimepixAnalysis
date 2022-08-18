@@ -1251,8 +1251,8 @@ proc readEventsSparse*(h5f: H5File, fileInfo: FileInfo, run, chip: int, #idx: in
   result = newDataFrame()
   doAssert events.len == x.len, "Events are: " & $events.len & " and x.len " & $x.len
   for i in 0 ..< x.len:
-    let dfLoc = toDf({ "x" : x[i], "y" : y[i], "ch" : ch[i],
-                           "Index" : events[i] })
+    let dfLoc = toDf({ "x" : x[i].mapIt(it.int), "y" : y[i].mapIt(it.int), "ch" : ch[i].mapIt(it.int),
+                       "Index" : events[i] })
     echo "Adding df ", dfLoc
     result.add dfLoc
 
@@ -2417,7 +2417,6 @@ proc genCalibrationPlotPDs(h5f: H5File,
   var fileInfo = getFileInfo(h5f)
   let fInfoConfig = fileInfo.appliedConfig(config)
   # var imageSet = initOrderedSet[string]()
-
   if cfOccupancy in config.flags:
     result.add occupancies(h5f, runType, fInfoConfig, config) # plus center only
   if cfPolya in config.flags:

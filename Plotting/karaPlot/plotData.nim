@@ -134,7 +134,8 @@ proc initConfig*(chips: set[uint16],
                  xDset: string = "",
                  yDset: string = "",
                  zDset: string = "",
-                 cdlDset: string = ""
+                 cdlDset: string = "",
+                 compareDensity: bool = false
                 ): Config =
   let fType = tomlConfig["General"]["filetype"].getStr
   let outputType = tomlConfig["General"]["outputFormat"].getStr
@@ -172,7 +173,8 @@ proc initConfig*(chips: set[uint16],
                   fileType: fileFormat,
                   outputType: combinedFormat,
                   customPlots: customPlots,
-                  cdlGroup: cdlDset)
+                  cdlGroup: cdlDset,
+                  compareDensity: compareDensity)
 
 proc initSelector(config: Config, cuts: seq[GenericCut] = @[],
                   chipRegion: ChipRegion = crAll,
@@ -2553,7 +2555,7 @@ proc find(pds: seq[PlotDescriptor], toFind: PlotDescriptor): Option[PlotDescript
     if pdc == toFind:
       return some(pdc)
 
-proc add(p: var PlotV, p2: PlotV, f1, f2: string) =
+proc add(p: var PlotV, p2: PlotV, f1, f2: string, compareDensity: bool) =
   ## adds `p2` to `p`, which implies combining the two plots onto one
   ##
   ## `f1` and `f2` are the names of the `From` field used for each DF
@@ -2587,10 +2589,11 @@ proc add(p: var PlotV, p2: PlotV, f1, f2: string) =
       # update geom to include alpha and identity position
       g.userStyle.alpha = some(0.5)
       g.position = pkIdentity
-      case g.kind
-      of gkHistogram:
-        g.density = true # use density plots when comparing multiple histograms
-      else: discard
+      if compareDensity: # else we leave them as counts
+        case g.kind
+        of gkHistogram:
+          g.density = true # use density plots when comparing multiple histograms
+        else: discard
   else:
     raise newException(Exception, "Not implemented to add plots of kind " & $p.kind)
 
@@ -2633,7 +2636,8 @@ proc createComparePlots(h5file: string, h5Compare: seq[string],
         let (_, cPlt) = createPlot(h5fs[i], fInfos[i], pdc.get, config)
         # add to `plt`
         if cPlt.kind != bNone:
-          plt.add(cPlt, h5f.name.extractFilename, h5fs[i].name.extractFilename & "_" & $i)
+          plt.add(cPlt, h5f.name.extractFilename, h5fs[i].name.extractFilename & "_" & $i,
+                  compareDensity = config.compareDensity)
           validCompare = true
     # now generate the plot
     if validCompare:
@@ -2812,7 +2816,8 @@ proc plotData*(
   x: string = "",
   y: string = "",
   z: string = "",
-  cdlDset: float = -1.0
+  cdlDset: float = -1.0,
+  compareDensity: bool = false
               ) =
   ## the main workhorse of the server end
   if version:
@@ -2857,7 +2862,8 @@ proc plotData*(
                        xDset = x,
                        yDset = y,
                        zDset = z,
-                       cdlDset = if cdlDset > 0.0: toRefDset(cdlDset).cdlPath() else: ""
+                       cdlDset = if cdlDset > 0.0: toRefDset(cdlDset).cdlPath() else: "",
+                       compareDensity = compareDenisty
   )
 
   info &"Flags are:\n  {flags}"
@@ -2972,6 +2978,7 @@ in the future if needed.""",
     "maskRegion" : "Allows to mask a region (in pixel coords). Any pixel in the region will be cut.",
     "applyAllCuts" : "If given will apply all given cuts to all data reads.",
     "head" : "Only process the first this many elements (mainly useful for event display).",
+    "compareDensity" : "If true all histograms in comparison plots will be densities and not counts",
 
     "config" : "Path to the TOML config file.",
     "version" : "Show the version number"})

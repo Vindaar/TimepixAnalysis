@@ -74,6 +74,7 @@ else:
       customPlots*: seq[CustomPlot]
       cdlGroup*: string ## The (optional) CDL dataset (group, target/filter kind) from which
                         ## to read data if an input file is a CDL file (`calibration-cdl*.h5`)
+      compareDensity*: bool ## Decides whether comparison plots show density or count histograms
 
     PlottingBackendKind* = enum
       bNone, bMpl, bPlotly, bGgPlot

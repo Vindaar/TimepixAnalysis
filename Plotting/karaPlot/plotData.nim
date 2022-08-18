@@ -2587,6 +2587,10 @@ proc add(p: var PlotV, p2: PlotV, f1, f2: string) =
       # update geom to include alpha and identity position
       g.userStyle.alpha = some(0.5)
       g.position = pkIdentity
+      case g.kind
+      of gkHistogram:
+        g.density = true # use density plots when comparing multiple histograms
+      else: discard
   else:
     raise newException(Exception, "Not implemented to add plots of kind " & $p.kind)
 

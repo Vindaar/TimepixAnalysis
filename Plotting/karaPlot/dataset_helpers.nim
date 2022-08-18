@@ -58,7 +58,7 @@ proc getNumBinsForDset*(dset: string): Option[int] =
   elif dset == "rmsTransverse":
     result = some(100)
   elif dset == "eccentricity":
-    result = some(100)
+    result = some(500)
   elif dset == "ToT":
     result = some(250)
   elif dset == "length_rmsTransverse":

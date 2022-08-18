@@ -1,6 +1,7 @@
 import macros, tables, strutils, os, sequtils, strformat, options
 
 import ggplotnim
+import datamancer
 export ggplotnim
 
 import hdf5_utils
@@ -124,9 +125,15 @@ iterator getDataframes*(h5f: H5File): DataFrame =
         if chipNum == 3:
           yield h5f.readAllDsets(num, chipNum)
 
+
+defColumn(uint8, uint16)
+type
+  SeptemDataTable = DataTable[colType(uint8, uint16)]
+
+
 proc getSeptemDataFrame*(h5f: H5File, runNumber: int, allowedChips: seq[int] = @[],
                          charge = true, ToT = false
-                        ): DataFrame =
+                        ): SeptemDataTable =
   ## Returns a subset data frame of the given `runNumber` and `chipNumber`, which
   ## contains only the zero suppressed event data
   var
@@ -169,13 +176,15 @@ proc getSeptemDataFrame*(h5f: H5File, runNumber: int, allowedChips: seq[int] = @
       chips = add(chips, chipNumCol)
       cls.add clusters
   result = toDf({ "eventNumber" : evs, "x" : xs, "y" : ys, "chipNumber" : chips,
-                      "cluster" : cls })
+                  "cluster" : cls })
+    .to(SeptemDataTable)
+
   if charge:
     result["charge"] = chs
   if ToT:
     result["ToT"] = tots
 
-proc getSeptemEventDF*(h5f: H5File, runNumber: int): DataFrame =
+proc getSeptemEventDF*(h5f: H5File, runNumber: int): DataFrame  =
   ## Returns a DataFrame for the given `runNumber`, which contains two columns
   ## the event number and the chip number. This way we can easily extract
   ## which chips had activity on the same event.
@@ -196,7 +205,7 @@ proc getSeptemEventDF*(h5f: H5File, runNumber: int): DataFrame =
 
   result = toDf({"eventIndex" : evIdx, "eventNumber" : evs, "chipNumber" : chips})
 
-iterator getSeptemDataFrame*(h5f: H5File): DataFrame =
+iterator getSeptemDataFrame*(h5f: H5File): SeptemDataTable =
   for num, group in runs(h5f):
     let df = h5f.getSeptemDataFrame(num)
     yield df

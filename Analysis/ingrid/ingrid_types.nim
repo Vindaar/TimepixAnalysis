@@ -292,11 +292,12 @@ type
     tpkLogL = "/likelihood"        # output of `likelihood`
     tpkTpx3Raw = ""                # raw Tpx3 data straight from the Tpx3 DAQ. Has no base group
     tpkTpx3Interp = "/interpreted" # interpreted raw data, output of `parse_raw_tpx3`
-    tpkCDL = ""                    # CDL data files (reconstructed by TPA)
+    tpkCDL = "CDL"                 # CDL data files (reconstructed by TPA)
 
   # a simple object storing the runs, chips etc. from a given
   # H5 file
   FileInfo* = object
+    name*: string # the name of the file
     runs*: seq[int]
     chips*: seq[int]
     runType*: RunTypeKind

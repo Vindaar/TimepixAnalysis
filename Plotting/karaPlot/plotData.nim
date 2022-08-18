@@ -133,7 +133,7 @@ proc initConfig*(chips: set[uint16],
                  head: int = 0,
                  xDset: string = "",
                  yDset: string = "",
-                 zDset: string = ""
+                 zDset: string = "",
                  cdlDset: string = ""
                 ): Config =
   let fType = tomlConfig["General"]["filetype"].getStr
@@ -2623,7 +2623,7 @@ proc createComparePlots(h5file: string, h5Compare: seq[string],
   for pd in pds:
     var (outfile, plt) = createPlot(h5f, fileInfo, pd, config)
     if outfile.len == 0: continue # apparantly failed to create plot, skipping
-    var validCompare = true
+    var validCompare = false # start at false, to check if we find something ever
     for i in 0 ..< h5Compare.len:
       let pdc = pdComp[i].find(pd)
       if pdc.isSome:
@@ -2631,8 +2631,7 @@ proc createComparePlots(h5file: string, h5Compare: seq[string],
         # add to `plt`
         if cPlt.kind != bNone:
           plt.add(cPlt, h5f.name.extractFilename, h5fs[i].name.extractFilename & "_" & $i)
-        else:
-          validCompare = false
+          validCompare = true
     # now generate the plot
     if validCompare:
       let outf = outfile & "_combined.pdf"

@@ -197,11 +197,11 @@ func cdlPath*(tfKindStr: string, year = "2019"): string =
     myr = "apr2014"
   of "2018", "2019":
     myr = "feb2019"
-  result = &"calibration-cdl-{myr}"
+  result = &"calibration-cdl-{myr}-{tfKindStr}"
 
 func cdlGroupName*(tfKindStr, year, dset: string): string =
   let dsetName = dset.extractFilename
-  result = &"{cdlPath(tfKindStr, year)}-{tfKindStr}/{dsetName}"
+  result = &"{cdlPath(tfKindStr, year)}/{dsetName}"
 
 func cdlToXrayBinning2014Map(): Table[InGridDsetKind, tuple[bins: int, min, max: float]] =
   ## Maps the names of the `XrayReferenceDataSet.h5` (2014) to the
@@ -771,6 +771,7 @@ proc dataBase*(fileInfo: FileInfo): string =
 proc getFileInfo*(h5f: H5File): FileInfo =
   ## returns a set of all run numbers in the given file
   # 1. determine the `TpaFileKind` (determines `baseGroup`)
+  result.name = h5f.name
   result.tpaFileKind =
     if "/runs" in h5f: tpkRawData
     elif "/reconstruction" in h5f: tpkReco
@@ -785,6 +786,12 @@ proc getFileInfo*(h5f: H5File): FileInfo =
   case result.tpaFileKind
   of tpkTpx3Raw:
     result.timepix = Timepix3
+  of tpkCDL:
+    result.timepix = Timepix1
+    result.runType = rtCalibration # of a special kind...
+    result.centerChip = 3
+    result.runs = @[0] # dummy run
+    result.chips = @[3] # dummy chip
   else:
     var readAux = false
     # get reconstruction group

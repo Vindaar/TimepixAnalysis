@@ -380,15 +380,17 @@ proc importPyplot(): PyObject =
   discard mpl.use("TKagg")
   result = pyImport("matplotlib.pyplot")
 
-proc initPlotV(title: string, xlabel: string, ylabel: string, shape = ShapeKind.Rectangle): PlotV =
+proc initPlotV(title: string, xlabel: string, ylabel: string, shape = ShapeKind.Rectangle,
+               width = -1, height = -1): PlotV =
   ## returns the plotly layout of the given shape
-  var width: int
-  case shape
-  of ShapeKind.Rectangle:
-    width = FigWidth.int
-  of ShapeKind.Square:
-    # for square take height as width
-    width = (FigHeight * 1.2).int
+  var width = width
+  if width < 0:
+    case shape
+    of ShapeKind.Rectangle:
+      width = FigWidth.int
+    of ShapeKind.Square:
+      # for square take height as width
+      width = (FigHeight * 1.2).int
   case BKind
   of bPlotly:
     let plLayout = Layout(title: title,
@@ -416,7 +418,7 @@ proc initPlotV(title: string, xlabel: string, ylabel: string, shape = ShapeKind.
                                 xlabel: some(xlabel),
                                 ylabel: some(ylabel)),
                    width: width.float,
-                   height: FigHeight)
+                   height: if height > 0: height.float else: FigHeight)
   else: discard
 
 import sets
@@ -626,7 +628,7 @@ proc plotHist[T](xIn: seq[T], title, dset, outfile: string,
                          range = binRange)
   of bGgPlot:
     let df = toDf(xs).filter(fn {float: `xs` >= binRange[0] and
-                                            `xs` <= binRange[1]})
+                                        `xs` <= binRange[1]})
     result = initPlotV(title & " # entries: " & $df.len, dset, "#")
     result.pltGg = ggplot(df, aes("xs")) +
         geom_histogram(binWidth = binSize, hdKind = hdOutline) +

@@ -75,6 +75,11 @@ else:
       cdlGroup*: string ## The (optional) CDL dataset (group, target/filter kind) from which
                         ## to read data if an input file is a CDL file (`calibration-cdl*.h5`)
       compareDensity*: bool ## Decides whether comparison plots show density or count histograms
+      binningTab*: Table[string, BinInfo] ## Stores the bin ranges and bin sizes for histograms as
+                                          ## configured in `config.toml` (previously `dataset_helpers.nim`)
+
+    BinRange* = tuple[low, high: float]
+    BinInfo* = tuple[binSize: float, binRange: BinRange]
 
     PlottingBackendKind* = enum
       bNone, bMpl, bPlotly, bGgPlot
@@ -167,7 +172,7 @@ type
     of pkInGridDset, pkFadcDset, pkToTPerPixel:
       # optional fields for bin size and range
       binSize*: float
-      binRange*: tuple[low, high: float]
+      binRange*: BinRange
     of pkCustomPlot:
       # read any dataset as X and plot it against Y
       customPlot*: CustomPlot

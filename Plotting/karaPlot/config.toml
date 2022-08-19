@@ -56,3 +56,51 @@ applyFile = ["reco_tpx3_background.h5", "lhood_tpx3_background_cast_cdl.h5"]
 applyDset = []
 x = [125, 135] # mask x range from <-> to
 y = [110, 120] # mask y range from <-> to
+
+
+[Bins]
+# settings for the binning in different histograms
+[Bins.BinRange]
+hits                 = [0.0, 500.0]
+energyFromPixel      = [0.0, 15000.0]
+energyFromCharge     = [0.0, 15.0]
+sumTot               = [0.0, 20000.0]
+kurtosisLongitudinal = [-5.0, 10.0]
+kurtosisTransverse   = [-2.0, 8.0]
+rmsLongitudinal      = [0.0, 6.0]
+rmsTransverse        = [0.0, 6.0]
+eccentricity         = [1.0, 8.0]
+ToT                  = [0.0, 250.0]
+lengthDivRmsTrans    = [2.0, 8.0]
+energyCut            = [0.0, 10000.0]
+length               = [0.0, 14.5]
+minvals              = [-0.6, 0.0]
+riseTime             = [2.0, 502.0]
+fallTime             = [7.0, 707.0]
+totPerPixel          = [-0.5, 300.5]
+
+[Bins.NumBins]
+hits                 = 500
+energyFromPixel      = 100
+energyFromCharge     = 500
+sumTot               = 100
+kurtosisLongitudinal = 100
+kurtosisTransverse   = 100
+rmsLongitudinal      = 100
+rmsTransverse        = 100
+eccentricity         = 500
+ToT                  = 250
+lengthDivRmsTrans    = 100
+energyCut            = 100
+length               = 300
+minvals              = 100
+riseTime             = 100
+fallTime             = 50
+totPerPixel          = 101
+
+[Bins.BinSize]
+riseTime             = 20.0
+fallTime             = 20.0
+FeSpectrum           = 1.0
+FeSpectrumCharge     = 100.0
+totPerPixel          = 1.0

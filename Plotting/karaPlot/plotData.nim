@@ -17,7 +17,6 @@ import cligen
 import chroma
 import parsetoml
 
-import dataset_helpers
 import ingrid/[ingrid_types, tos_helpers, calibration]
 import ingrid / calibration / calib_fitting
 import helpers/utils
@@ -122,6 +121,58 @@ proc parseTomlMaskRegions(cfg: TomlValueRef): seq[MaskRegion] =
     let region = regionTab[$(r.getInt)]
     result.add parseMaskRegion(region)
 
+proc getOrNone(cfg: TomlValueRef, tab, dset: string): Option[TomlValueRef] =
+  if not cfg.isNil:
+    let tab =  cfg["Bins"][tab]
+    if dset in tab:
+      result = some(tab[dset])
+
+proc getBinRange(cfg: TomlValueRef, dset: string): Option[BinRange] =
+  let opt = cfg.getOrNone("BinRange", dset)
+  if opt.isSome:
+    let ar = opt.get.getElems()
+    if ar.len != 2:
+      raise newException(ValueError, "Invalid bin range for dataset `" & $dset & "`. Must be " &
+        "an array of 2 elements for lower and upper bound. But is: " & $ar)
+    result = some((low: ar[0].getFloat, high: ar[1].getFloat))
+
+proc getNumBins(cfg: TomlValueRef, dset: string): Option[int] =
+  let opt = cfg.getOrNone("NumBins", dset)
+  if opt.isSome:
+    result = some(opt.get.getInt())
+
+proc getBinSize(cfg: TomlValueRef, dset: string): Option[float] =
+  let opt = cfg.getOrNone("BinSize", dset)
+  if opt.isSome:
+    result = some(opt.get.getFloat())
+
+proc getBinSizeAndBinRange*(cfg: TomlValueRef, dset: string): BinInfo =
+  ## Returns a `BinInfo` object for `dset` from the `config.toml` file's `[Bins]`
+  ## section.
+  let binRangeO = cfg.getBinRange(dset)
+  let binSizeO = cfg.getBinSize(dset)
+  let binRange = if binRangeO.isSome: get(binRangeO) else: (low: 0.0, high: 0.0)
+  var binSize: float
+  if binSizeO.isSome:
+    # all good
+    binSize = get(binSizeO)
+  else:
+    # else use number of bins for this dataset
+    let nbinsO = cfg.getNumBins(dset)
+    let nBins = if nBinsO.isSome: nBinsO.get else: 100
+    # then calculate bin size
+    if binRange[1] != binRange[0]:
+      binSize = (binRange[1] - binRange[0]) / nBins.float
+  result = (binSize, binRange)
+
+proc getBinSizeAndBinRange*(config: Config, dset: string): BinInfo =
+  ## Returns the binning information from the `binningTable` part of the `Config`
+  let dsetN = dset.normalize
+  if dsetN in config.binningTab:
+    result = config.binningTab[dsetN]
+  else:
+    result = (0.0, (low: 0.0, high: 0.0))
+
 proc initConfig*(chips: set[uint16],
                  runs: set[uint16],
                  flags: set[ConfigFlagKind],
@@ -162,6 +213,18 @@ proc initConfig*(chips: set[uint16],
   var runs = runs
   buildFilter("allowedChips", tomlConfig, chips)
   buildFilter("allowedRuns", tomlConfig, runs)
+
+  ## Parse the `[Bins]` table
+  var binningTab = initTable[string, BinInfo]()
+  let bins = tomlConfig["Bins"]
+  proc fillTab(binnigTab: var Table[string, BinInfo], tab: string) =
+    let binRange = bins[tab].getTable()
+    for dset, v in binRange:
+      if dset notin binningTab:
+        binningTab[dset.normalize] = getBinSizeAndBinRange(tomlConfig, dset)
+  binningTab.fillTab("BinRange")
+  binningTab.fillTab("BinSize")
+  binningTab.fillTab("NumBins")
   result = Config(flags: flags,
                   chips: chips,
                   runs: runs,
@@ -174,7 +237,8 @@ proc initConfig*(chips: set[uint16],
                   outputType: combinedFormat,
                   customPlots: customPlots,
                   cdlGroup: cdlDset,
-                  compareDensity: compareDensity)
+                  compareDensity: compareDensity,
+                  binningTab: binningTab)
 
 proc initSelector(config: Config, cuts: seq[GenericCut] = @[],
                   chipRegion: ChipRegion = crAll,
@@ -696,33 +760,6 @@ proc createCustomPlots(fileInfo: FileInfo, config: Config): seq[PlotDescriptor] 
                                 binSize: 1.0,
                                 binRange: (7.0, 707.0))
 
-proc getBinSizeAndBinRange*(dset: string): (float, (float, float)) =
-  ## accesses the helper procs to unwrap the options from the `dataset_helper`
-  ## procs to return bin size and a bin range
-  let binRangeO = getBinRangeForDset(dset)
-  let binSizeO = getBinSizeForDset(dset)
-  var binRange: tuple[low, high: float]
-  var binSize: float
-  var nbins: int
-  if binRangeO.isSome:
-    binRange = get(binRangeO)
-  else:
-    binRange = (0.0, 0.0)
-  if binSizeO.isSome:
-    # all good
-    binSize = get(binSizeO)
-  else:
-    # else use number of bins for this dataset
-    let nbinsO = getNumBinsForDset(dset)
-    if nBinsO.isSome:
-      nBins = get(nbinsO)
-    else:
-      nBins = 100
-    # then calculate bin size
-    if binRange[1] != binRange[0]:
-      binSize = (binRange[1] - binRange[0]) / nBins.float
-  result = (binSize, binRange)
-
 proc histograms(h5f: H5File, runType: RunTypeKind,
                 fileInfo: FileInfo,
                 config: Config): seq[PlotDescriptor] =
@@ -759,7 +796,7 @@ proc histograms(h5f: H5File, runType: RunTypeKind,
         sel.region = region
         for ch in fileInfo.chips:
           for dset in concat(@InGridDsets, @ToADsets):
-            let (binSize, binRange) = getBinSizeAndBinRange(dset)
+            let (binSize, binRange) = config.getBinSizeAndBinRange(dset)
             result.add PlotDescriptor(runType: runType,
                                       name: dset,
                                       selector: sel,
@@ -771,7 +808,7 @@ proc histograms(h5f: H5File, runType: RunTypeKind,
                                       binRange: binRange)
     if cfFadc in config.flags:
       for dset in FadcDsets:
-        let (binSize, binRange) = getBinSizeAndBinRange(dset)
+        let (binSize, binRange) = config.getBinSizeAndBinRange(dset)
         result.add PlotDescriptor(runType: runType,
                                   name: dset,
                                   selector: selector,
@@ -1056,7 +1093,7 @@ proc totPerPixel(h5f: H5File, runType: RunTypeKind,
   ## creates the plots for the ToT per pixel distribution of the datasets
   ## i.e. the raw ToT histogram (equivalent to polya for raw ToT)
   let selector = initSelector(config)
-  let (binSize, binRange) = getBinSizeAndBinRange("totPerPixel")
+  let (binSize, binRange) = config.getBinSizeAndBinRange("totPerPixel")
   for ch in fileInfo.chips:
     result.add PlotDescriptor(runType: runType,
                               name: "totPerPixel",
@@ -2863,7 +2900,7 @@ proc plotData*(
                        yDset = y,
                        zDset = z,
                        cdlDset = if cdlDset > 0.0: toRefDset(cdlDset).cdlPath() else: "",
-                       compareDensity = compareDenisty
+                       compareDensity = compareDensity
   )
 
   info &"Flags are:\n  {flags}"

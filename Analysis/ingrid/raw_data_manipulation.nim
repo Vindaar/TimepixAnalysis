@@ -132,6 +132,21 @@ proc parseTomlConfig(configFile: string): TomlValueRef =
   info "Reading config file: ", configPath
   result = parseToml.parseFile(configPath)
 
+proc initTotCut(cfg: TomlValueRef): TotCut =
+  ## Initializes a `ToTCut` object from the given config file
+  let low = cfg["RawData"]["rmTotLow"].getInt
+  let high = cfg["RawData"]["rmTotHigh"].getInt
+  template check(val, name: untyped): untyped =
+    if val < 0:
+      raise newException(ValueError, "Invalid configuration field `" & $name & "`. Cannot " &
+        "be a negative value. Given value is: " & $val)
+    if val > uint16.high.int:
+      raise newException(ValueError, "Invalid configuration field `" & $name & "`. Cannot " &
+        "be a larger than `uint16.high = " & $uint16.high & "`. Given value is: " & $val)
+  check(low, "rmTotLow")
+  check(high, "rmTotHigh")
+  result = TotCut(low: low, high: high)
+
 proc specialTypesAndEvKeys(): (DatatypeID, DatatypeID, array[7, string]) =
   let
     # create datatypes for variable length data
@@ -269,8 +284,7 @@ proc sortReadInGridData(rawInGrid: seq[Event],
   let t1 = epochTime()
   info &"...Sorting done, took {$(t1 - t0)} seconds"
 
-
-proc processRawInGridData(run: Run): ProcessedRun =
+proc processRawInGridData(run: Run, totCut: TotCut): ProcessedRun =
   ## procedure to process the raw data read from the event files by readRawInGridData
   ## inputs:
   ##    ch: seq[Event]] = seq of Event objects, which each store raw data of a single event.
@@ -308,6 +322,8 @@ proc processRawInGridData(run: Run): ProcessedRun =
     # initialize the events sequence of result, since we add to this sequence
     # instead of copying ch to it!
     events = newSeq[Event](len(ch))
+    # mutable local copy of `TotCut` to count removed pixels
+    totCut = totCut
   let
     # get the run specific time and shutter mode
     time = parseFloat(runHeader["shutterTime"])
@@ -327,27 +343,18 @@ proc processRawInGridData(run: Run): ProcessedRun =
   # assign the length field of the ref object
     # for the rest, get a copy of the event
     var a: Event = ch[i]
-    # TODO: think about parallelizing here by having proc, which
-    # works processes the single event?
     a.length = calcLength(a, time, mode)
+    for c in mitems(a.chips):
+      let num = c.chip.number
+      # filter out unwanted pixels
+      c.pixels.applyTotCut(totCut)
+      addPixelsToOccupancySeptem(occ, c.pixels, num)
+      # store remaining ToT values & # hits
+      tot_run[num][i] = c.pixels.mapIt(it.ch)
+      hits[num][i] = c.pixels.len.uint16
+
+    ## reassing possibly modified event
     events[i] = a
-    let chips = a.chips
-    for c in chips:
-      let
-        num = c.chip.number
-        pixels = c.pixels
-      addPixelsToOccupancySeptem(occ, pixels, num)
-      let tot_event = pixelsToTOT(pixels)
-      tot_run[num][i] = tot_event
-      let n_pix = len(tot_event).uint16
-      if n_pix > 0'u16:
-        # if the compiler flag (-d:CUT_ON_CENTER) is set, we cut all events, which are
-        # in the center 4.5mm^2 square of the chip
-        when defined(CUT_ON_CENTER):
-          if isNearCenterOfChip(pixels) == true:
-            hits[num][i] = n_pix
-        else:
-          hits[num][i] = n_pix
     echoCount(count, msg = " files processed.")
 
   # use first event of run to fill event header. Fine, because event
@@ -361,6 +368,7 @@ proc processRawInGridData(run: Run): ProcessedRun =
     result.tots[i] = concat tot
   result.hits = hits
   result.occupancies = occ
+  result.totCut = totCut
 
 proc processFadcData(fadcFiles: seq[FadcFile]): ProcessedFadcRun {.inline.} =
   ## proc which performs all processing needed to be done on the raw FADC
@@ -617,6 +625,10 @@ proc writeRawAttrs*(h5f: var H5File,
   rawG.attrs["raw_data_manipulation_compiled_on"] = compileDate
   rawG.attrs["TimepixVersion"] = $run.timepix
 
+  ## ToT cut parameters used
+  rawG.attrs["ToT_cutLow"] = run.totCut.low
+  rawG.attrs["ToT_cutHigh"] = run.totCut.low
+
 proc writeRunGrpAttrs*(h5f: var H5File, group: var H5Group,
                        runType: RunTypeKind,
                        run: ProcessedRun,
@@ -699,6 +711,12 @@ proc writeRunGrpAttrs*(h5f: var H5File, group: var H5Group,
   ## Write global variables of `raw_data_manipulation`
   group.attrs["raw_data_manipulation_version"] = commitHash
   group.attrs["raw_data_manipulation_compiled_on"] = compileDate
+
+  ## ToT cut parameters used
+  group.attrs["ToT_cutLow"] = run.totCut.low
+  group.attrs["ToT_cutHigh"] = run.totCut.high
+  group.attrs["ToT_numRemovedLow"] = run.totCut.rmLow
+  group.attrs["ToT_numRemovedHigh"] = run.totCut.rmHigh
 
 proc writeChipAttrs*(h5f: var H5File,
                      chipGroups: var seq[H5Group],
@@ -1015,6 +1033,7 @@ proc fixOldTosTimestamps(runHeader: Table[string, string],
 
 proc readAndProcessInGrid*(listOfFiles: seq[string],
                            runNumber: int,
+                           totCut: TotCut,
                            rfKind: RunFolderKind): ProcessedRun =
   ## Calls the procs to read InGrid data and hands it to the processing proc
   ## inputs:
@@ -1038,7 +1057,7 @@ proc readAndProcessInGrid*(listOfFiles: seq[string],
     else: discard
     # process the data read into seq of FlowVars, save as result
     let run = createRun(runHeader, runNumber, sortedIngrid, rfKind)
-    result = processRawInGridData(run)
+    result = processRawInGridData(run, totCut)
 
 proc processAndWriteFadc(run_folder: string, runNumber: int, h5f: var H5File) =
   # for the FADC we call a single function here, which works on
@@ -1050,10 +1069,12 @@ proc processAndWriteFadc(run_folder: string, runNumber: int, h5f: var H5File) =
   info "FADC took $# data" % $(getOccupiedMem() - mem1)
 
 proc createProcessedTpx3Run(data: seq[Tpx3Data], startIdx, cutoff, runNumber: int,
+                            totCut: TotCut,
                             runConfig: Tpx3RunConfig): ProcessedRun =
   # add new cluster if diff in time larger than 50 clock cycles
   result = computeTpx3RunParameters(data, startIdx, clusterTimeCutoff = cutoff,
                                     runNumber = runNumber,
+                                    totCut = totCut,
                                     runConfig = runConfig)
 
 proc processAndWriteSingleRun(h5f: var H5File, run_folder: string,
@@ -1070,7 +1091,7 @@ proc processAndWriteSingleRun(h5f: var H5File, run_folder: string,
   # parse config toml file
   let cfgTable = parseTomlConfig(configFile)
   let plotOutPath = cfgTable["RawData"]["plotDirectory"].getStr
-
+  let totCut = initTotCut(cfgTable)
 
   let (_, runNumber, rfKind, _) = isTosRunFolder(runFolder)
   var files = getSortedListOfFiles(run_folder,
@@ -1082,7 +1103,7 @@ proc processAndWriteSingleRun(h5f: var H5File, run_folder: string,
 
   var ingridInit = false
   batchFiles(files, batchsize):
-    let r = readAndProcessInGrid(files[0 .. ind_high], runNumber, rfKind)
+    let r = readAndProcessInGrid(files[0 .. ind_high], runNumber, totCut, rfKind)
     if r.events.len > 0:
       nChips = r.nChips
 
@@ -1123,6 +1144,7 @@ proc processAndWriteSingleRun(h5f: var H5File, run_folder: string,
 proc processAndWriteSingleRunTpx3(h5f: H5File, h5fout: var H5File,
                                   runNumber: int,
                                   clusterCutoff: int,
+                                  totCut: TotCut,
                                   plotDirPrefix: string,
                                   runType: RunTypeKind = rtNone) =
   const tpx3Buf = 50_000_000
@@ -1145,6 +1167,7 @@ proc processAndWriteSingleRunTpx3(h5f: H5File, h5fout: var H5File,
                else: pixNum - oldIdx
     let r = createProcessedTpx3Run(data, oldIdx, cutoff = clusterCutoff,
                                    runNumber = runNumber,
+                                   totCut = totCut,
                                    runConfig = runConfig)
     if r.events.len > 0:
       if not ingridInit:
@@ -1297,13 +1320,15 @@ proc handleTimepix3(h5file: string, runType: RunTypeKind,
   let cfgTable = parseTomlConfig(configFile)
   let plotOutPath = cfgTable["RawData"]["plotDirectory"].getStr
   let clusterCutoff = cfgTable["RawData"]["tpx3ToACutoff"].getInt
+  let totCut = initTotCut(cfgTable)
 
   let plotDirPrefix = h5fout.genPlotDirname(plotOutPath, PlotDirRawPrefixAttr)
 
   var h5f = H5File(h5file, "r")
   let fileInfo = getFileInfo(h5f)
   for runNumber in fileInfo.runs:
-    h5f.processAndWriteSingleRunTpx3(h5fout, runNumber, clusterCutoff, plotOutPath, fileInfo.runType)
+    h5f.processAndWriteSingleRunTpx3(h5fout, runNumber, clusterCutoff, totCut,
+                                     plotOutPath, fileInfo.runType)
   discard h5f.close()
   # finally once we're done, add `rawDataFinished` attribute
   discard h5fout.close()

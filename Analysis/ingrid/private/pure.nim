@@ -1032,15 +1032,21 @@ proc processEventWrapper(data: ProtoFile, rfKind: RunFolderKind): Event =
     raise newException(IOError, "Unknown run folder kind. Unclear what files " &
       "are events!")
 
-proc pixelsToTOT*(pixels: Pixels): seq[uint16] {.inline.} =
-  ## extracts all charge values (ToT values) of a given pixels object (all hits
-  ## of a single chip in a given event, filters the full values of 11810
-  ## inputs:
-  ##    pixels: Pixels: input pixel sequence of tuples containing hits of one event
-  ## output:
-  ##    seq[int]: all ToT values smaller ToT
-  result = filter(map(pixels, (p: tuple[x, y: uint8, ch: uint16]) -> uint16 => p.ch),
-                  (ch: uint16) -> bool => ch < 11810'u16)
+proc applyTotCut*(pixels: var Pixels, totCut: var TotCut) =
+  ## Applies the given `TotCut` to the pixels by removing all pixels in place
+  ## that do not pass the cuts. The `TotCut` variable is mutated and stores
+  ## the number of removed pixels afterward
+  var i = 0
+  while i < pixels.len:
+    let p = pixels[i]
+    if p.ch < totCut.low.uint16:
+      pixels.del(i)
+      inc totCut.rmLow
+    elif p.ch > totCut.high.uint16:
+      pixels.del(i)
+      inc totCut.rmHigh
+    else:
+      inc i
 
 template writeSeqsToFile[T](filename, header, element_header: string, collection: seq[seq[T]]) =
   ## a template to construct different write file procedures with different headers

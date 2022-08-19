@@ -37,28 +37,32 @@ proc tpx3RunHeader(tpx3: Tpx3RunConfig): Table[string, string] =
   result["shutterMode"] = "stream"
 
 proc computeTpx3RunParameters*(data: seq[Tpx3Data], startIdx, clusterTimeCutoff, runNumber: int,
+                               totCut: TotCut,
                                runConfig: Tpx3RunConfig): ProcessedRun =
   ## this procedure walks over the Timepix3 data and returns all data
   ## we can extract from it that fits into the `ProcessedRun`. This means
   ## that `ProcessedRun` is still incomplete after this!
   let (e_header, c_header) = tpx3EventHeader(runConfig)
 
-  var clusters = newSeq[Event]()
-  var lengths = newSeq[float]()
-  var hits = newSeq[uint16]()
-  var tots = newSeq[uint16]()
-  var cluster = ChipEvent(version: Timepix3)
-  var ev = Event(isValid: true, chips: newSeq[ChipEvent](1), nChips: 1,
-                 evHeader: e_header)
-  var lastToa = 0 # int64.high
-  var clusterStart = 0 # start in ToA cycles
-  var startT = 0.0
-  var lastT = 0.0
-
-  var occ = zeros[int64]([1, 256, 256])
-  var eventIdx = 0
+  var
+    clusters = newSeq[Event]()
+    lengths = newSeq[float]()
+    hits = newSeq[uint16]()
+    tots = newSeq[uint16]()
+    cluster = ChipEvent(version: Timepix3)
+    ev = Event(isValid: true, chips: newSeq[ChipEvent](1), nChips: 1,
+               evHeader: e_header)
+    lastToa = 0 # int64.high
+    clusterStart = 0 # start in ToA cycles
+    startT = 0.0
+    lastT = 0.0
+    occ = zeros[int64]([1, 256, 256])
+    eventIdx = 0
+    numOverflows = 0
+    # mutable local copy to assign to output
+    totCut = totCut
   const overflow = 2^14
-  var numOverflows = 0
+
   for i, el in data:
     let toa = el.TOA.int
     ## 3 Cases decide whether we keep accumulating to this cluster
@@ -100,26 +104,33 @@ proc computeTpx3RunParameters*(data: seq[Tpx3Data], startIdx, clusterTimeCutoff,
       clusterStart = toa
       lastToa = 0 #int64.high
       numOverflows = 0
-    cluster.pixels.add (x: el.x, y: el.y, ch: el.TOT)
-    if toa < clusterTimeCutoff and lastToa + clusterTimeCutoff > overflow:
-      inc numOverflows
-      # means we had an overflow. As it's a 14 bit counter, we have plenty of space
-      # to correct the overflows
-      # check `lastToa != int64.high` as we set it such when adding new
-      echo "Overflow detected : ", el.TOA, " and ", lastToa
-      if numOverflows > 3:
-        echo "Current data ", cluster.toa
-        echo "Maximum number of overflows detected! BAD BAD BAD"
-        raise newException(IOError, "Input data has more than 3 overflows in a single cluster! " &
-          "Our current data model cannot handle this.")
-    ## XXX: note: this currently does not account for the fact that in theory maybe one pixel
-    ## is overflowed, but then we receive a pixel that is *not* overflown yet? Order being wrong?
-    cluster.toa.add (el.TOA + (numOverflows * overflow).uint16)
-    cluster.toaCombined.add el.TOA_Combined
-    tots.add el.TOT
-    lastToa = toa
-    lastT = el.chunk_start_time
-    occ[0, el.y.int, el.x.int] += el.TOT.int64
+
+    # now apply ToT cut. Only if pixel passes ToTCut actually use it
+    if el.ToT < totCut.low.uint16:
+      inc totCut.rmLow
+    elif el.ToT > totCut.high.uint16:
+      inc totCut.rmHigh
+    else:
+      cluster.pixels.add (x: el.x, y: el.y, ch: el.TOT)
+      if toa < clusterTimeCutoff and lastToa + clusterTimeCutoff > overflow:
+        inc numOverflows
+        # means we had an overflow. As it's a 14 bit counter, we have plenty of space
+        # to correct the overflows
+        # check `lastToa != int64.high` as we set it such when adding new
+        echo "Overflow detected : ", el.TOA, " and ", lastToa
+        if numOverflows > 3:
+          echo "Current data ", cluster.toa
+          echo "Maximum number of overflows detected! BAD BAD BAD"
+          raise newException(IOError, "Input data has more than 3 overflows in a single cluster! " &
+            "Our current data model cannot handle this.")
+      ## XXX: note: this currently does not account for the fact that in theory maybe one pixel
+      ## is overflowed, but then we receive a pixel that is *not* overflown yet? Order being wrong?
+      cluster.toa.add (el.TOA + (numOverflows * overflow).uint16)
+      cluster.toaCombined.add el.TOA_Combined
+      tots.add el.TOT
+      lastToa = toa
+      lastT = el.chunk_start_time
+      occ[0, el.y.int, el.x.int] += el.TOT.int64
   result.timepix = Timepix3
   result.events = clusters
   result.length = lengths
@@ -127,6 +138,7 @@ proc computeTpx3RunParameters*(data: seq[Tpx3Data], startIdx, clusterTimeCutoff,
   result.hits = @[hits]
   result.occupancies = occ
   result.runHeader = tpx3RunHeader(runConfig)
+  result.totCut = totCut
 
   result.nChips = 1 ## TODO: allow multiple chips, find out where to best read from input file
   result.chips = @[(name: chipNameFromTpx3RunConfig(runConfig), number: 0)]

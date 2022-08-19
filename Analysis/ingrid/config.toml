@@ -29,6 +29,13 @@ gasGainEnergyKind = "Individual"
 [RawData]
 plotDirectory = "out"
 tpx3ToACutoff = 50 # ToA cluster cutoff!
+# ToT related cuts. Removes any pixel below and above the given threshold
+# The range is *inclusive*
+rmTotLow = 0 # this default excludes nothing
+rmTotHigh = 11810
+# for Tpx3 better:
+# rmTotLow = 5
+# rmTotHigh = 250
 
 [Reconstruction]
 # clustering algorithm to use (for reconstruction only! See likelihood for septem veto!)

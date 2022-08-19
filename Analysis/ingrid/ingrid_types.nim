@@ -475,6 +475,12 @@ when not defined(pure) and not defined(js):
     Threshold* = Tensor[int]
     ThresholdMeans* = Tensor[int]
 
+    ToTCut* = object
+      low*: int ## *exclusive* low cut `(x < low) -> remove`
+      high*: int ## *exclusive* high cut `(x > high) -> remove`
+      rmLow*: int ## number of elements removed due to being too low
+      rmHigh*: int ## number of elements removed due to being too high
+
     # process events stores all data for septemboard
     # of a given run
     ProcessedRun* = object
@@ -499,6 +505,8 @@ when not defined(pure) and not defined(js):
       hits*: seq[seq[uint16]]
       # occupancies = occupancies of each chip for run
       occupancies*: Tensor[int64]
+      # number of pixels removed due to ToT cut
+      totCut*: ToTCut
 
     # object to store actual FADC data, which is
     # used (ch0 already extracted)

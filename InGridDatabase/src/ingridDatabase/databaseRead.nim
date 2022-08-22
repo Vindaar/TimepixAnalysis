@@ -117,6 +117,24 @@ proc getTotCalibParameters*(chipName: string, runPeriod: string):
       t = grp.attrs["t", float64]
     result = (a, b, c, t)
 
+proc getTimepixVersion*(chipName, runPeriod: string): TimepixVersion =
+  withDatabase:
+    let groupName = chipNameToGroup(chipName, runPeriod).grp_str
+    let grp = h5f[groupName]
+    if "timepixVersion" in grp.attrs:
+      result = parseEnum[TimepixVersion](grp.attrs["timepixVersion", string])
+    else:
+      result = Timepix1
+
+proc getChipNumber*(chipName, runPeriod: string): int =
+  withDatabase:
+    let groupName = chipNameToGroup(chipName, runPeriod).grp_str
+    let grp = h5f[groupName]
+    if "chipNumber" notin grp.attrs:
+      raise newException(Exception, "Chip number not found in database for chip of name " &
+        $chipName & " in run period " & $runPeriod & ".")
+    result = grp.attrs["chipNumber", string].parseInt
+
 proc getTotCalibParameters*(chipName: string, run: int):
                           (float, float, float, float)
     {.raises: [KeyError, IOError, Exception].} =

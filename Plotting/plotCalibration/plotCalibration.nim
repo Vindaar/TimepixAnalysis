@@ -1,15 +1,11 @@
 import std / [os, strutils, strformat, sequtils, algorithm, math]
-import pkg / [mpfit, zero_functional, seqmath, chroma, docopt, plotly, ggplotnim]
+import pkg / [mpfit, zero_functional, seqmath, chroma, plotly, ggplotnim, unchained]
 import ingrid / [ingrid_types, tos_helpers]
 import ingrid / calibration / calib_fitting
 import ingrid / calibration
 
 import helpers/utils
 import ingridDatabase / [databaseDefinitions, databaseRead]
-
-type
-  # for clarity define a type for the Docopt argument table
-  DocoptTab = Table[string, docopt.Value]
 
 template canImport(x: untyped): bool =
   compiles:
@@ -26,35 +22,8 @@ else:
 
 # get date using `CompileDate` magic
 const currentDate = CompileDate & " at " & CompileTime
-
-## TODO: replace by ggplotnim plots!
-
 const docTmpl = """
 Version: $# built on: $#
-A simple tool to plot SCurves or ToT calibrations.
-
-Usage:
-  plotCalibration (--scurve | --tot | --charge) (--db=chip --runPeriod=period | --file=FILE | --folder=FOLDER) [options]
-
-Options:
-  --scurve              If set, perform SCurve analysis
-  --tot                 If set, perform ToT calibration analysis
-  --charge              If set plot charge calibration (inverse of ToT)
-  --db=chip             If given will read information from InGrid database, if
-                        available. Either chip number or chip name supported.
-                        NOTE: if a chip number is used, it is assumed that it
-                        corresponds to said chip on the Septem H board!
-  --runPeriod=period    Required if a chip name is given. The run period we want
-                        to plot the calibrations for.
-  --file=FILE           If given will read from a single file
-  --folder=FOLDER       If given will read all voltage files from the given folder
-  --chip=NUMBER         The number of this chip
-  --startFit=FIT        Start the TOT fit from this measurement. If differs from
-                        StartToT constant in source code (or the --startTot value),
-                        the other datapoints will still be plotted.
-  --startTot=TOT        Read the ToT file from this pulse height
-  -h, --help            Show this help
-  --version             Show the version number
 """
 const doc = docTmpl % [commitHash, currentDate]
 
@@ -124,7 +93,8 @@ proc plotThlCalib*(thlCalib: FitResult, charge, thl, thlErr: seq[float], chip = 
   let filename = &"out/thl_calib_{chip}.svg"
   p.saveImage(filename)
 
-proc plotToTCalib*(totCalib: FitResult, tot: Tot, chip = 0, chipName = "") =
+proc plotToTCalib*(totCalib: FitResult, tot: Tot, chip = 0, chipName = "",
+                   useTeX = false) =
   let dfData = toDf({ "U / mV" : tot.pulses.mapIt(it.float),
                           "ToT" : tot.mean,
                           "std" : tot.std.mapIt(if classify(it) == fcNaN: 0.0 else: it) })
@@ -146,13 +116,15 @@ proc plotToTCalib*(totCalib: FitResult, tot: Tot, chip = 0, chipName = "") =
     ylab("ToT / clock cycles") +
     ggtitle(title) +
     #theme_latex() +
-    ggsave(&"out/tot_calib_{chip}.pdf") # , useTex = true, standalone = true)
+    ggsave(&"out/tot_calib_{chip}.pdf", useTex = useTeX, standalone = true)
 
-proc plotCharge*(a, b, c, t: float, chip: int, chipName = "") =
+proc plotCharge*(a, b, c, t: float, capacitance: FemtoFarad, chip: int, chipName = "",
+                 useTeX = false) =
   let tots = linspace(0.0, 150.0, 1000)
-  let charges = tots.mapIt(calibrateCharge(it, a, b, c, t))
+
+  let charges = tots.mapIt(calibrateCharge(it, capacitance, a, b, c, t))
   let df = toDf({ "ToT" : tots,
-                      "Q" : charges })
+                  "Q" : charges })
   let title = &"Charge calibration of Chip {chipName}"
   ggplot(df, aes("ToT", "Q")) +
     geom_line() +
@@ -160,32 +132,28 @@ proc plotCharge*(a, b, c, t: float, chip: int, chipName = "") =
     ylab(r"Charge [e⁻]") +
     ggtitle(title) +
     #theme_latex() +
-    ggsave(&"out/charge_calib_{chip}.pdf") #, useTex = true, standalone = true)
+    ggsave(&"out/charge_calib_{chip}.pdf", useTex = true, standalone = true)
 
-iterator sCurves(args: DocoptTab): SCurve =
+iterator sCurves(file, folder, chip, runPeriod: string): SCurve =
   ## yields the traces of the correct argument given to
   ## the program for SCurves
-  let file = $args["--file"]
-  let folder = $args["--folder"]
-  let db = $args["--db"]
-  let runPeriod = $args["--runPeriod"]
-  if db != "nil":
+  if chip.len > 0:
     when declared(ingridDatabase):
-      let chipName = parseDbChipArg(db)
+      let chipName = parseDbChipArg(chip)
       let scurves = getScurveSeq(chipName, runPeriod)
       for curve in scurves.curves:
         yield curve
     else:
       discard
-  elif file != "nil":
+  elif file.len > 0:
     let curve = readScurveVoltageFile(file)
     yield curve
-  elif folder != "nil":
+  elif folder.len > 0:
     for f in walkFiles(folder.expandTilde & "/*.txt"):
       let curve = readScurveVoltageFile(f)
       yield curve
 
-proc sCurve(args: DocoptTab, chip: string) =
+proc sCurve(file, folder, chip, runPeriod: string) =
   ## perform plotting and fitting of SCurves
   var
     voltages: set[int16]
@@ -197,7 +165,7 @@ proc sCurve(args: DocoptTab, chip: string) =
     thlMean: seq[float] = @[]
     thlErr: seq[float] = @[]
 
-  for curve in sCurves(args):
+  for curve in sCurves(file, folder, chip, runPeriod):
     let trace = getTrace(curve.thl.asType(float), curve.hits, $curve.voltage)
     traces.add trace
     voltages.incl int16(curve.voltage)
@@ -237,83 +205,86 @@ proc sCurve(args: DocoptTab, chip: string) =
     let thlCalib = fitThlCalib(chSort, thlSort, thlErrSort)
     plotThlCalib(thlCalib, chSort, thlSort, thlErrSort, chip)
 
-proc parseTotInput(args: DocoptTab, startTot = 0.0): (int, string, Tot) =
-  let file = $args["--file"]
-  let folder = $args["--folder"]
-  let db = $args["--db"]
-  let runPeriod = $args["--runPeriod"]
-
-  var chip = 0
+proc parseTotInput(file, folder, chip, runPeriod: string,
+                   startTot = 0.0): (int, string, Tot) =
   var tot: Tot
   var chipName = ""
-
-  if db != "nil":
+  var chipNum = -1
+  if chip.len > 0:
     when declared(ingridDatabase):
-      chipName = parseDbChipArg(db)
+      chipName = parseDbChipArg(chip)
       tot = getTotCalib(chipName, runPeriod)
-  elif file != "nil":
-    (chip, tot) = readToTFile(file, startTot)
+      chipNum = getChipNumber(chipName, runPeriod)
+  elif file.len > 0:
+    (chipNum, tot) = readToTFile(file, startTot)
   else:
     for f in walkFiles(folder.expandTilde & "/*.txt"):
       # TODO: implement multiple in same plot?
-      (chip, tot) = readToTFile(f, startTot)
+      (chipNum, tot) = readToTFile(f, startTot)
 
-  result = (chip, chipName, tot)
+  result = (chipNum, chipName, tot)
 
-proc totCalib(args: DocoptTab, startFit = 0.0, startTot = 0.0) =
+proc totCalib(file, folder, chip, runPeriod: string, startFit, startTot: float,
+              useTeX: bool) =
   ## perform plotting and analysis of ToT calibration
   var
     bins: seq[float]
     hist: seq[float]
 
-  let (chip, chipName, tot) = parseTotInput(args, startTot)
+  let (chip, chipName, tot) = parseTotInput(file, folder, chip, runPeriod, startTot)
   let totCalib = fitToTCalib(tot, startFit)
-  plotToTCalib(totCalib, tot, chip, chipName)
+  plotToTCalib(totCalib, tot, chip, chipName, useTeX)
 
-proc chargeCalib(args: DocoptTab) =
+proc chargeCalib(chip, runPeriod: string, useTeX: bool) =
   ## perform plotting and analysis of charge calibration (inverse of ToT)
-  let chip = $args["--db"]
-  let runPeriod = $args["--runPeriod"]
-
   var chipName = ""
-  if chip != "nil":
+  if chip.len > 0:
     when declared(ingridDatabase):
       chipName = parseDbChipArg(chip)
   else:
     quit("Need a chip from the database!")
 
   let (a, b, c, t) = getTotCalibParameters(chipName, runPeriod)
-  plotCharge(a, b, c, t, chip.parseInt, chipName)
+  let capacitance = getTimepixVersion(chipName, runPeriod).getCapacitance()
+  plotCharge(a, b, c, t, capacitance, chip.parseInt, chipName, useTeX)
 
-proc main() =
+import cligen / macUt
+proc main(
+  scurve = false, tot = false, charge = false,
+  chip = "", runPeriod = "", file = "", folder = "", startFit = 0.0, startTot = 0.0,
+  version = false,
+  useTeX = false) =
+  docCommentAdd(doc)
+  ## A simple tool to plot SCurves or ToT calibrations.
 
-  let args = docopt(doc)
-  echo args
-  let db = $args["--db"]
-  let chip = $args["--chip"]
-  let startFitStr = $args["--startFit"]
-  let startTotStr = $args["--startTot"]
-
-  if db != "nil":
+  if chip.len > 0:
     when not declared(ingridDatabase):
-      quit("Cannot import InGrid database. --db option not supported.")
+      quit("Cannot import InGrid database. --chip option not supported.")
 
-  let
-    scurve = ($args["--scurve"]).parseBool
-    tot = ($args["--tot"]).parseBool
-    charge = ($args["--charge"]).parseBool
   if scurve:
-    sCurve(args, chip)
+    sCurve(file, folder, chip, runPeriod)
   elif tot:
-    var startFit = 0.0
-    var startTot = 0.0
-    if startFitStr != "nil":
-      startFit = startFitStr.parseFloat
-    if startTotStr != "nil":
-      startTot = startTotStr.parseFloat
-    totCalib(args, startFit, startTot)
+    totCalib(file, folder, chip, runPeriod, startFit, startTot, useTeX)
   elif charge:
-    chargeCalib(args)
+    chargeCalib(chip, runPeriod, useTeX)
 
 when isMainModule:
-  main()
+  import cligen
+  dispatch(main, help = {
+    "scurve" : "If set, perform SCurve analysis",
+    "tot" :    "If set, perform ToT calibration analysis",
+    "charge" : "If set plot charge calibration (inverse of ToT)",
+    "chip" : """If given will read information from InGrid database, if
+  available. Either chip number or chip name supported.
+  NOTE: if a chip number is used, it is assumed that it
+  corresponds to said chip on the Septem H board!""",
+    "runPeriod" : "Required if a chip name is given. The run period we want to plot the calibrations for.",
+    "file" : "If given will read from a single file",
+    "folder" : "If given will read all voltage files from the given folder",
+    "chip" : "The number of this chip",
+    "startFit" : """Start the TOT fit from this measurement. If differs from
+  StartToT constant in source code (or the --startTot value),
+  the other datapoints will still be plotted.""",
+    "startTot" : "Read the ToT file from this pulse height",
+    "useTeX" : "If set will use the TikZ backend of ggplotnim to generate the plot",
+    "version" : "Show the version number"})

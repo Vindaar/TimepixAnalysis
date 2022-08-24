@@ -205,13 +205,15 @@ proc filterEvents(df: DataFrame, energy: float = Inf): DataFrame =
     for (tup, subDf) in groups(df.group_by("Peak")):
       case tup[0][1].toStr
       of "Escapepeak":
-        let dset = 5.9.toRefDset()
-        let xrayCuts = xrayCutsTab[dset]
-        result.add applyFilters(df)
-      of "Photopeak":
         let dset = 2.9.toRefDset()
         let xrayCuts = xrayCutsTab[dset]
-        result.add applyFilters(df)
+        let dfF = applyFilters(subDf)
+        result.add dfF
+      of "Photopeak":
+        let dset = 5.9.toRefDset()
+        let xrayCuts = xrayCutsTab[dset]
+        let dfF = applyFilters(subDf)
+        result.add dfF
       else: doAssert false, "Invalid name"
   else:
     doAssert classify(energy) != fcInf

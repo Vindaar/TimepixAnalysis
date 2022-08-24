@@ -349,18 +349,54 @@ proc plotRefHistos(df: DataFrame, energy: float, cutTab: CutValueInterpolator,
   echo "Effficiency from `determineCutValue? ", bins[cutVal]
 
 proc computeMeans(df: DataFrame, cutTab: CutValueInterpolator) =
+  var shifts = newDataFrame()
   for (tup, subDf) in groups(df.group_by("Peak")):
     var dfR: DataFrame
+    var energy: float
     case tup[0][1].toStr
     of "Escapepeak":
+      energy = 2.9
       dfR = df.readCdlData(2.9, cutTab)
+        .mutate(f{"Peak" <- "Escapepeak"})
     of "Photopeak":
+      energy = 5.9
       dfR = df.readCdlData(5.9, cutTab)
+        .mutate(f{"Peak" <- "Photopeak"})
     else: doAssert false
     echo "------------------------------ Means of ", tup[0][1], " ------------------------------"
-    echo "Mean of eccentricity = ", subDf["eccentricity", float].mean, " vs CDL = ", dfR["eccentricity", float].mean()
-    echo "Mean of lengthDivRmsTrans = ", subDf["lengthDivRmsTrans", float].mean, " vs CDL = ", dfR["lengthDivRmsTrans", float].mean()
-    echo "Mean of fractionInTransverseRms = ", subDf["fractionInTransverseRms", float].mean, " vs CDL = ", dfR["fractionInTransverseRms", float].mean()
+    ggplot(subDf, aes("eccentricity")) +
+      geom_histogram(bins = 100, hdKind = hdOutline, position = "identity") + #, density = true
+      ggtitle("Eccentricity of 55Fe data alone") +
+      ggsave("/t/eccentricity_" & $tup[0][1] & "_55fe_alone.pdf")
+    let dfL = bind_rows([("55Fe", subDf), ("CDL", dfR)], "Type")
+
+    echo "subDf ", subDf.filter(f{`eccentricity` > 1.3})
+    template plotDset(dfIn: DataFrame, dset: typed): untyped =
+      let dM = subDf[dset, float].mean()
+      let cM = dfR[dset, float].mean()
+      shifts.add toDf({ "shift" : @[abs(dM - cM)], "Type" : tup[0][1],
+                        "Dset" : @[dset], "energy" : @[energy]})
+      echo "Mean of ", dset, " = ", dM, " vs CDL = ", cM
+      let yM = 1.5 #(dfIn.len div 100).float
+      let dfLine = toDf({ "x" : [dM, dM, cM, cM], "y" : [0.0, yM, 0.0, yM],
+                          "Type" : ["55Fe", "55Fe", "CDL", "CDL"]})
+      let fname = "/t/" & dset & "_" & $tup[0][1] & "_compare.pdf"
+      echo "Saving plot: ", fname
+      ggplot(dfIn, aes(dset, fill = "Type")) +
+        geom_histogram(bins = 100, hdKind = hdOutline, alpha = 0.5, position = "identity", density = true) +
+        geom_line(data = dfLine, aes = aes(x = "x", y = "y")) +
+        ggtitle("Property: " & dset & ", Energy: " & $tup[0][1]) +
+        ggsave(fname)
+    dfL.plotDset("eccentricity")
+    dfL.plotDset("fractionInTransverseRms")
+    dfL.plotDset("lengthDivRmsTrans")
+
+  ggplot(shifts, aes("energy", "shift", color = "Type")) +
+    facet_wrap("Dset", scales = "free")  +
+    facet_margin(0.5) +
+    geom_point() +
+    ggtitle("Difference between 55Fe and CDL for each dataset at Photo-&Escapepeak") +
+    ggsave("/t/shift_cdl_55fe.pdf")
 
 proc main(files: seq[string], fake = false, real = false, refPlots = false,
           computeMeans = false,

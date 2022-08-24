@@ -101,6 +101,7 @@ proc readDsets*(h5f: H5File, path = recoBase(),
   ## If input for both is given they are read as individual dataframes, which
   ## are then joined using the eventNumber dataset (which thus will always be
   ## read).
+  result = newDataFrame()
   for run, grp in runs(h5f, path):
     let df = h5f.readRunDsets(run = run, chipDsets = chipDsets, commonDsets = commonDsets,
                               basePath = path)

@@ -131,10 +131,12 @@ proc calcLikelihoodDatasetIfNeeded*(h5f: var H5File,
     cdlGroup.attrs["MorphingKind"] = $morphKind
   # else nothing to do
 
-template applyLogLFilterCuts*(cdlFile, dset: string,
-                              year: YearKind, energyDset: InGridDsetKind,
-                              body: untyped): untyped =
-  var grp_name = cdlPrefix($year) & dset
+template withCdlData*(cdlFile, dset: string,
+                      year: YearKind, energyDset: InGridDsetKind,
+                      body: untyped): untyped =
+  ## Sorry for the nested templates with a whole bunch of injected variables
+  ## future reader... :)
+  var grp_name {.inject.} = cdlPrefix($year) & dset
   # create global vars for xray and normal cuts table to avoid having
   # to recreate them each time
   let xrayCutsTab {.global.} = getXrayCleaningCuts()
@@ -145,7 +147,7 @@ template applyLogLFilterCuts*(cdlFile, dset: string,
   of yr2018:
     cutsTab = getEnergyBinMinMaxVals2018()
 
-  var frameworkKind = fkMarlin
+  var frameworkKind {.inject.} = fkMarlin
   echo "Opening file to build LogL from ", cdlFile, " for dset: ", dset
   withH5(cdlFile, "rw"):
     if "FrameworkKind" in h5f.attrs:
@@ -153,35 +155,45 @@ template applyLogLFilterCuts*(cdlFile, dset: string,
     # open h5 file using template
     let
       energyStr = igEnergyFromCharge.toDset(frameworkKind)
-      logLStr = igLikelihood.toDset(frameworkKind)
       centerXStr = igCenterX.toDset(frameworkKind)
       centerYStr = igCenterY.toDset(frameworkKind)
       eccStr = igEccentricity.toDset(frameworkKind)
       lengthStr = igLength.toDset(frameworkKind)
       chargeStr = igTotalCharge.toDset(frameworkKind)
       rmsTransStr = igRmsTransverse.toDset(frameworkKind)
+      ldivStr = igLengthDivRmsTrans.toDset(frameworkKind)
+      fracRmsStr = igFractionInTransverseRms.toDset(frameworkKind)
       npixStr = igHits.toDset(frameworkKind)
+      # read the datasets
+      energy {.inject.} = h5f.readAs(grp_name / energyStr, float64)
+      centerX {.inject.} = h5f.readAs(grp_name / centerXStr, float64)
+      centerY {.inject.} = h5f.readAs(grp_name / centerYStr, float64)
+      ecc {.inject.} = h5f.readAs(grp_name / eccStr, float64)
+      length {.inject.} = h5f.readAs(grp_name / lengthStr, float64)
+      charge {.inject.} = h5f.readAs(grp_name / chargeStr, float64)
+      rmsTrans {.inject.} = h5f.readAs(grp_name / rmsTransStr, float64)
+      ldivRms {.inject.} = h5f.readAs(grp_name / ldivStr, float64)
+      fracRms {.inject.} = h5f.readAs(grp_name / fracRmsStr, float64)
+      npix {.inject.} = h5f.readAs(grp_name / npixStr, float64)
+      # get the cut values for this dataset
+      cuts {.inject.} = cutsTab[dset]
+      xrayCuts {.inject.} = xrayCutsTab[dset]
+    body
 
+template withLogLFilterCuts*(cdlFile, dset: string,
+                              year: YearKind, energyDset: InGridDsetKind,
+                              body: untyped): untyped =
+  ## Note: see the injected variables in the `withCdlData` template!
+  withCdlData(cdlFile, dset, year, energyDset):
     # for likelihood dataset: aside from `resources/calibration-cdl.h5`, every other file
     # may not yet have access to the likelihood dataset. So we have to check for that and
     # if it does not exist yet, it has to be calculated.
+    let logLStr = igLikelihood.toDset(frameworkKind)
     if grp_name / logLStr notin h5f:
       raise newException(ValueError, "Likelihood dataset does not yet exist in cdlFile " & $cdlFile & ".")
       # h5f.calcLikelihoodDatasetIfNeeded(refFile, grp_name, logLStr, year, energyDset)
-    let
-      energy {.inject.} = h5f.readAs(grp_name / energyStr, float64)
-      logL {.inject.} = h5f.readAs(grp_name / logLStr, float64)
-      centerX = h5f.readAs(grp_name / centerXStr, float64)
-      centerY = h5f.readAs(grp_name / centerYStr, float64)
-      ecc = h5f.readAs(grp_name / eccStr, float64)
-      length = h5f.readAs(grp_name / lengthStr, float64)
-      charge = h5f.readAs(grp_name / chargeStr, float64)
-      rmsTrans = h5f.readAs(grp_name / rmsTransStr, float64)
-      npix = h5f.readAs(grp_name / npixStr, float64)
-      # get the cut values for this dataset
-      cuts = cutsTab[dset]
-      xrayCuts = xrayCutsTab[dset]
-    for i {.inject.} in 0 .. energy.high:
+    let logL {.inject.} = h5f.readAs(grp_name / logLStr, float64)
+    for i {.inject.} in 0 ..< energy.len:
       let
         # first apply Xray cuts (see C. Krieger PhD Appendix B & C)
         regionCut  = inRegion(centerX[i], centerY[i], crSilver)
@@ -198,6 +210,56 @@ template applyLogLFilterCuts*(cdlFile, dset: string,
         if logL[i] != Inf:
           body
 
+template withXrayRefCuts*(cdlFile, dset: string,
+                          year: YearKind, energyDset: InGridDsetKind,
+                          body: untyped): untyped =
+  ## Note: see the injected variables in the `withCdlData` template!
+  withCdlData(cdlFile, dset, year, energyDset):
+    for i {.inject.} in 0 ..< energy.len:
+      let
+        # first apply Xray cuts (see C. Krieger PhD Appendix B & C)
+        regionCut  = inRegion(centerX[i], centerY[i], crSilver)
+        # then apply reference cuts
+        chargeCut  = charge[i].float   > cuts.minCharge and charge[i]   < cuts.maxCharge
+        rmsCut     = rmsTrans[i].float > cuts.minRms    and rmsTrans[i] < cuts.maxRms
+        lengthCut  = length[i].float   < cuts.maxLength
+        pixelCut   = npix[i].float     > cuts.minPix
+      # add event to likelihood if all cuts passed
+      if allIt([regionCut, chargeCut, rmsCut, lengthCut, pixelCut], it):
+        body
+
+proc genRefData*(cdlFile, dset: string,
+                 year: YearKind, energyDset: InGridDsetKind):
+                   (seq[seq[float]], seq[seq[float]], seq[seq[float]]) =
+  var eccs = newSeq[float]()
+  var ldiv = newSeq[float]()
+  var frac = newSeq[float]()
+  withXrayRefCuts(cdlFile, dset, year, energyDset):
+    # read filtered data
+    eccs.add ecc[i]
+    ldiv.add ldivRms[i]
+    frac.add fracRms[i]
+  # now compute histograms
+  proc assignRes(x: seq[float], name: string): seq[seq[float]] =
+    var
+      numBins: int
+      minVal: float
+      maxVal: float
+    case year
+    of yr2014:
+      (numBins, minVal, maxVal) = cdlToXrayBinning2014(name)
+    of yr2018:
+      (numBins, minVal, maxVal) = cdlToXrayBinning2018(name)
+    let (hist, bins) = histogram(x,
+                                 numBins,
+                                 range = (minVal, maxVal),
+                                 upperRangeBinRight = false)
+    # combine the hist bins data to a seq2D
+    result = @[bins[0 .. ^2], hist.mapIt(it.float)]
+  result[0] = assignRes(eccs, igEccentricity.toDset(fkTpa))
+  result[1] = assignRes(ldiv, igLengthDivRmsTrans.toDset(fkTpa))
+  result[2] = assignRes(frac, igFractionInTransverseRms.toDset(fkTpa))
+
 proc buildLogLHist*(cdlFile, dset: string,
                     year: YearKind,
                     energyDset: InGridDsetKind,
@@ -212,7 +274,7 @@ proc buildLogLHist*(cdlFile, dset: string,
   # decent size that is O(correct)
   result[0] = newSeqOfCap[float](100_000)
   result[1] = newSeqOfCap[float](100_000)
-  applyLogLFilterCuts(cdlFile, dset, year, energyDset):
+  withLogLFilterCuts(cdlFile, dset, year, energyDset):
     result[0].add logL[i]
     result[1].add energy[i]
   # now create plots of all ref likelihood distributions
@@ -226,7 +288,7 @@ proc computeLogLDistributions*(cdlFile: string, yearKind: YearKind,
   ## data in `buildLogLHist` and binning it according to the number and bin width
   ## that we use for the logL distributions.
   const
-    xray_ref = getXrayRefTable()
+    xrayRef = getXrayRefTable()
     # logL binning range
     nbins = 200 # TODO: Increase number of bins for logL cut value closer to target?
     # range of histogram in logL

@@ -659,6 +659,11 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
                           useTeX = true)
   echo "Passed indices after septem veto ", passedInds.card
 
+proc copyOverAttrs(h5f, h5fout: H5File) =
+  let logGrp = h5fout.create_group(likelihoodGroupGrpStr().string)
+  let recoGrp = h5f[recoGroupGrpStr]
+  logGrp.copy_attributes(recoGrp.attrs)
+
 proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
                           cdlFile, refFile: string,
                           year: YearKind,
@@ -704,6 +709,8 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
     totalEvCount = 0
     totalLogLCount = 0
 
+  # first copy over the attributes part of the `/reconstruction` group
+  h5fout.copyOverAttrs(h5f)
 
   let fileInfo = getFileInfo(h5f)
   for num, group in runs(h5f):

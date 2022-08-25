@@ -76,37 +76,15 @@ proc getInterpolatedWideDf*(df: DataFrame, num = 1000): DataFrame =
     dfLoc["Variable"] = constantColumn(tup[0][1].toStr, dfLoc.len)
     result.add dfLoc
 
-proc readRefDsetsDF(refFile: string,
-                    yearKind: YearKind): DataFrame =
-  ## reads the reference datasets from the `refFile` and returns them.
-  var h5ref = H5open(refFile, "r")
-
-  const xray_ref = getXrayRefTable()
-  for dkKind in [igEccentricity, igLengthDivRmsTrans, igFractionInTransverseRms]:
-    # create a table, which stores the reference datasets from the ref file
-    let dset = dkKind.toDset(fkTpa)
-    var tab = initTable[string, histTuple]()
-    let xrayRef = getXrayRefTable()
-    let energies = getXrayFluorescenceLines()
-    let ranges = getEnergyBinning()
-    for idx in 0 ..< xray_ref.len:
-      let dset_name = xray_ref[idx]
-      var data = h5ref[(dset_name / dset).dset_str]
-      tab[dset_name] = data.readAs(float64).reshape2D(data.shape).splitSeq(float64)
-      var dfDset = toDf({ "Bins" : tab[dset_name].bins, "Hist" : tab[dset_name].hist })
-      dfDset["Dset"] = constantColumn(xray_ref[idx], dfDset.len)
-      dfDset["Energy"] = constantColumn(energies[idx], dfDset.len)
-      dfDset["Variable"] = constantColumn($dkKind, dfDset.len)
-      result.add dfDset
-
 proc readMorphKind(): MorphingKind
-proc calcLikelihoodDataset*(h5f: var H5File, refFile: string,
+proc calcLikelihoodDataset*(h5f: var H5File,
+                            cdlFile: string,
                             groupName: string, year: YearKind,
                             morphKind: MorphingKind,
                             energyDset: InGridDsetKind): seq[float]
 
 proc calcLikelihoodDatasetIfNeeded*(h5f: var H5File,
-                                    refFile: string,
+                                    cdlFile: string,
                                     grp: string,
                                     logLDset: string,
                                     year: YearKind,
@@ -121,7 +99,7 @@ proc calcLikelihoodDatasetIfNeeded*(h5f: var H5File,
                         none[MorphingKind]()
   let morphKind = readMorphKind() # the morph kind that was used, assign it
   if morphKindUsed.isNone or morphKindUsed.get != morphKind:
-    let logLData = h5f.calcLikelihoodDataset(refFile, grp, year, morphKind, energyDset)
+    let logLData = h5f.calcLikelihoodDataset(cdlFile, grp, year, morphKind, energyDset)
     let loglDset = h5f.create_dataset(grp / logLDset,
                                       logLData.len,
                                       float64,
@@ -191,7 +169,7 @@ template withLogLFilterCuts*(cdlFile, dset: string,
     let logLStr = igLikelihood.toDset(frameworkKind)
     if grp_name / logLStr notin h5f:
       raise newException(ValueError, "Likelihood dataset does not yet exist in cdlFile " & $cdlFile & ".")
-      # h5f.calcLikelihoodDatasetIfNeeded(refFile, grp_name, logLStr, year, energyDset)
+
     let logL {.inject.} = h5f.readAs(grp_name / logLStr, float64)
     for i {.inject.} in 0 ..< energy.len:
       let
@@ -260,6 +238,32 @@ proc genRefData*(cdlFile, dset: string,
   result[1] = assignRes(ldiv, igLengthDivRmsTrans.toDset(fkTpa))
   result[2] = assignRes(frac, igFractionInTransverseRms.toDset(fkTpa))
 
+proc readRefDsetsDF(cdlFile: string,
+                    yearKind: YearKind): DataFrame =
+  ## reads the reference datasets from the `refFile` and returns them.
+
+  const xray_ref = getXrayRefTable()
+  var
+    ecc_ref = initTable[string, histTuple]()
+    lengthDivRmsTrans_ref = initTable[string, histTuple]()
+    fracRmsTrans_ref = initTable[string, histTuple]()
+    result = newDataFrame()
+  let energies = getXrayFluorescenceLines()
+  for idx in 0 ..< xray_ref.len:
+    ## read the data from the CDL file and generate the reference data using cuts
+    let dsetName = xray_ref[idx]
+    let E = energies[idx]
+    let (ecc, ldiv, frac) = genRefData(cdlFile, dsetName, yearKind, igEnergyFromCharge)
+    template addDf(h: histTuple, key: string, E: float, dkKind: InGridDsetKind) =
+      var dfDset = toDf({ "Bins" : h.bins, "Hist" : h.hist,
+                          "Dset" : key, "Energy" : E,
+                          "Variable" : dkKind.toDset(fkTpa) })
+      dfDset["Dset"] = dset_name
+      result.add dfDset
+    addDf((bins: ecc[0], hist: ecc[1]), dsetName, E, igEccentricity)
+    addDf((bins: ldiv[0], hist: ldiv[1]), dsetName, E, igLengthDivRmsTrans)
+    addDf((bins: frac[0], hist: frac[1]), dsetName, E, igFractionInTransverseRms)
+
 proc buildLogLHist*(cdlFile, dset: string,
                     year: YearKind,
                     energyDset: InGridDsetKind,
@@ -320,107 +324,50 @@ proc readLogLVariableData*(h5f: var H5File,
     energies = h5f[(groupName / energyDset.toDset), float64]
   result = (ecc, lengthDivRmsTrans, fracRmsTrans, energies)
 
-proc readRefDsets*(refFile: string, yearKind: YearKind): tuple[ecc, ldivRms, fracRms: Table[string, histTuple]] =
-  ## reads the reference datasets from the `refFile` and returns them.
-  var h5ref = H5open(refFile, "r")
+proc readRefDsets*(cdlFile: string, yearKind: YearKind): tuple[ecc, ldivRms, fracRms: Table[string, histTuple]] =
+  ## Reads the data from the CDL file and generates the reference distributions based
+  ## on the cuts defined in `cdl_cuts.nim`
   # create a table, which stores the reference datasets from the ref file
   const xray_ref = getXrayRefTable()
-
-  # check if `FrameworkKind` defined in root of `h5ref` and if it is use the naming
-  # scheme from there, otherwise use fkMarlin
-  var frameworkKind: FrameworkKind = fkMarlin
-  if "FrameworkKind" in h5ref.attrs:
-    frameworkKind = parseEnum[FrameworkKind](h5ref.attrs["FrameworkKind", string])
-
   var
     ecc_ref = initTable[string, histTuple]()
     lengthDivRmsTrans_ref = initTable[string, histTuple]()
     fracRmsTrans_ref = initTable[string, histTuple]()
-
-  var
-    ## TODO: the following uses the `toDset` proc, which does not make sense for the original
-    ## `XrayReferenceFile.h5` file, since that uses notation different from both normal Marlin
-    ## and TPA. Also the `toDset` proc correctly fails for `igLengthDivRmsTrans` field, because
-    ## it does not exist in Marlin. That of course is not the case for the reference file, where
-    ## it is stored as ``lengthdivbyrmsy``.
-    eccStr: string
-    ldivrmsStr: string
-    frmstStr: string
-  case frameworkKind
-  of fkMarlin:
-    eccStr = "excentricity"
-    ldivrmsStr = "lengthdivbyrmsy"
-    frmstStr = "fractionwithinrmsy"
-  of fkTpa:
-    eccStr = igEccentricity.toDset(frameworkKind)
-    ldivrmsStr = igLengthDivRmsTrans.toDset(frameworkKind)
-    frmstStr = igFractionInTransverseRms.toDset(frameworkKind)
-
-  var df: DataFrame
+    df = newDataFrame()
   for dset_name in values(xray_ref):
-    # naming scheme does not depend on the actual data being processed, but only on what was used to
-    # generate the `XrayReferenceFile.h5`
-    var
-      ecc = h5ref[(dset_name / eccStr).dset_str]
-      ldivrms = h5ref[(dset_name / ldivrmsStr).dset_str]
-      frmst = h5ref[(dset_name / frmstStr).dset_str]
-
-    # to get the reference datasets, we read from the H5DataSet, reshape it to
-    # a (N, 2) nested seq and finally split the two columns into two individual
-    # sequences converted to float64
-    ecc_ref[dset_name] = ecc.readAs(float64).reshape2D(ecc.shape).splitSeq(float64)
-    lengthDivRmsTrans_ref[dset_name] = ldivrms.readAs(float64).reshape2D(ldivrms.shape).splitSeq(float64)
-    fracRmsTrans_ref[dset_name] = frmst.readAs(float64).reshape2D(frmst.shape).splitSeq(float64)
-
-    var dfDset = toDf({ "Eccentricity" : ecc_ref[dset_name].bins, "Ecc #" : ecc_ref[dset_name].hist,
-                            "L / RMS_trans" : lengthDivRmsTrans_ref[dset_name].bins,
-                            "L / RMS_trans #" : lengthDivRmsTrans_ref[dset_name].hist,
-                            "fracRmsTrans" : fracRmsTrans_ref[dset_name].bins,
-                            "fracRmsTrans #" : fracRmsTrans_ref[dset_name].hist })
-    dfDset["Dset"] = constantColumn(dset_name, dfDset.len)
+    ## read the data from the CDL file and generate the reference data using cuts
+    let (ecc, ldiv, frac) = genRefData(cdlFile, dsetName, yearKind, igEnergyFromCharge)
+    var dfDset = toDf({ "Eccentricity" : ecc[0],
+                        "Ecc #" : ecc[1],
+                        "L / RMS_trans" : ldiv[0],
+                        "L / RMS_trans #" : ldiv[1],
+                        "fracRmsTrans" : frac[0],
+                        "fracRmsTrans #" : frac[1] })
+    dfDset["Dset"] = dset_name
     df.add dfDset
 
   block RefPlots:
-    ggplot(df, aes("Eccentricity", "Ecc #", fill = "Dset")) +
-      geom_histogram(stat = "identity", position = "identity", alpha = some(0.5)) +
-      ggtitle(&"Eccentricity of reference file, year: {yearKind}") +
-      ggsave(&"out/eccentricity_{refFile.extractFilename}_{yearKind}.pdf",
-              width = 800, height = 480)
-    ggplot(df, aes("L / RMS_trans", "L / RMS_trans #", fill = "Dset")) +
-      geom_histogram(stat = "identity", position = "identity", alpha = some(0.5)) +
-      ggtitle(&"L / RMS_trans of reference file, year: {yearKind}") +
-      ggsave(&"out/lengthDivRmsTrans_{refFile.extractFilename}_{yearKind}.pdf",
-              width = 800, height = 480)
-    ggplot(data = df.filter(f{Value: isNull(df["fracRmsTrans"][idx]) == (%~ false)}),
-           aes("fracRmsTrans", "fracRmsTrans #", fill = "Dset")) +
-      geom_histogram(stat = "identity", position = "identity", alpha = some(0.5)) +
-      ggtitle(&"fracRmsTrans of reference file, year: {yearKind}") +
-      ggsave(&"out/fracRmsTrans_{refFile.extractFilename}_{yearKind}.pdf",
-              width = 800, height = 480)
-
-    let xrayRef = getXrayRefTable()
     var labelOrder = initTable[Value, int]()
     for idx, el in xrayRef:
       labelOrder[%~ el] = idx
-
     ggplot(df, aes("Eccentricity", "Ecc #", fill = "Dset")) +
       ggridges("Dset", overlap = 1.75, labelOrder = labelOrder) +
-      geom_histogram(stat = "identity", position = "identity") +
+      geom_histogram(stat = "identity", position = "identity", alpha = 0.5, hdKind = hdOutline) +
       ggtitle(&"Eccentricity of reference file, year: {yearKind}") +
-      ggsave(&"out/eccentricity_ridgeline_{refFile.extractFilename}_{yearKind}.pdf",
+      ggsave(&"out/eccentricity_ridgeline_{cdlFile.extractFilename}_{yearKind}.pdf",
               width = 800, height = 480)
     ggplot(df, aes("L / RMS_trans", "L / RMS_trans #", fill = "Dset")) +
       ggridges("Dset", overlap = 1.75, labelOrder = labelOrder) +
-      geom_histogram(stat = "identity", position = "identity") +
+      geom_histogram(stat = "identity", position = "identity", alpha = 0.5, hdKind = hdOutline) +
       ggtitle(&"L / RMS_trans of reference file, year: {yearKind}") +
-      ggsave(&"out/lengthDivRmsTrans_ridgeline_{refFile.extractFilename}_{yearKind}.pdf",
+      ggsave(&"out/lengthDivRmsTrans_ridgeline_{cdlFile.extractFilename}_{yearKind}.pdf",
               width = 800, height = 480)
     ggplot(data = df.filter(f{Value: isNull(df["fracRmsTrans"][idx]) == (%~ false)}),
            aes("fracRmsTrans", "fracRmsTrans #", fill = "Dset")) +
       ggridges("Dset", overlap = 1.75, labelOrder = labelOrder) +
-      geom_histogram(stat = "identity", position = "identity") +
+      geom_histogram(stat = "identity", position = "identity", alpha = 0.5, hdKind = hdOutline) +
       ggtitle(&"fracRmsTrans of reference file, year: {yearKind}") +
-      ggsave(&"out/fracRmsTrans_ridgeline_{refFile.extractFilename}_{yearKind}.pdf",
+      ggsave(&"out/fracRmsTrans_ridgeline_{cdlFile.extractFilename}_{yearKind}.pdf",
               width = 800, height = 480)
   result = (ecc: ecc_ref, ldivRms: lengthDivRmsTrans_ref, fracRms: fracRmsTrans_ref)
 
@@ -468,7 +415,7 @@ proc calcMorphedLikelihoodForEvent*(eccentricity, lengthDivRmsTrans, fracRmsTran
   result *= -1.0
 
 proc calcLikelihoodDataset*(h5f: var H5File,
-                            refFile: string,
+                            cdlFile: string,
                             groupName: string,
                             year: YearKind,
                             morphKind: MorphingKind,
@@ -485,13 +432,15 @@ proc calcLikelihoodDataset*(h5f: var H5File,
   var refDf {.global.}: DataFrame
   var refDfEnergy {.global.}: seq[float]
   case morphKind
-  of mkNone: refSetTuple = readRefDsets(refFile, year)
+  of mkNone:
+    once:
+      refSetTuple = cdlFile.readRefDsets(year)
   of mkLinear:
     ## XXX: `refDf` will `only` be defined the first time. However, this is
     ## fine, because it's only used the first time in `calcMorphedLikelihoodForEvent`
     ## as well! However, this *must* be fixed.
     once:
-      refDf = readRefDsetsDF(refFile, year)
+      refDf = cdlFile.readRefDsetsDF(year)
         .getInterpolatedWideDf(num = num)
       let lineEnergies = getXrayFluorescenceLines()
       refDfEnergy = linspace(lineEnergies[0], lineEnergies[^1], num)

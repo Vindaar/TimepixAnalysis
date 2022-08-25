@@ -216,10 +216,11 @@ proc writeLikelihoodData(h5f: var H5File,
         var data = newSeqOfCap[elementType(dset)](passedInds.card)
         for idx in passedInds:
           data.add dset[idx]
-        var outDset = h5fout.create_dataset((logLgroup / dsetName),
-                                            passedInds.len,
-                                            elementType(dset))
-        outDset[outDset.all] = data
+        when not (elementType(dset) is string or elementType(dset) is seq[string]):
+          var outDset = h5fout.create_dataset((logLgroup / dsetName),
+                                              passedInds.len,
+                                              elementType(dset))
+          outDset[outDset.all] = data
 
   # get all event numbers from hash set by using elements as indices for event numbers
   let evNumsPassed = mapIt(passedInds, evNumbers[it]).sorted do (x, y: int64) -> int:

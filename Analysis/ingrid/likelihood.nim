@@ -703,7 +703,7 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
     totalLogLCount = 0
 
   # first copy over the attributes part of the `/reconstruction` group
-  h5fout.copyOverAttrs(h5f)
+  h5f.copyOverAttrs(h5fout)
 
   let fileInfo = getFileInfo(h5f)
   for num, group in runs(h5f):

@@ -1,6 +1,7 @@
 import std / [os, tables, strutils, strformat, algorithm, sets,
               stats, sequtils, typetraits]
-import docopt except Value
+# import docopt except Value
+import cligen / macUt
 import nimhdf5, tos_helpers, seqmath, arraymancer
 import helpers/utils
 import ingrid / [ingrid_types, calibration]
@@ -12,48 +13,13 @@ import parsetoml except `{}`
 
 #import ../../Tools/NN_playground/predict_event
 
-let doc = """
-InGrid likelihood calculator. This program is run after reconstruction is finished.
-It calculates the likelihood values for each reconstructed cluster of a run and
-writes them back to the H5 file
-
-Usage:
-  likelihood <HDF5file> [options]
-  likelihood [options]
-  likelihood <HDF5file> --h5out <outfile> [options]
-  likelihood <HDF5file> --extract=FOLDER --to=OUTFOLDER
-
-Options:
-  --h5out <outfile>      The H5 file in which we store the events passing logL cut
-  --extract=FOLDER       Given a H5 file created by this program under the
-                         h5out argument, we will extract all raw event files,
-                         which are contained in it from the given FOLDER.
-                         Useful to e.g. plot passed events with the event display.
-  --to=FOLDER            Output location of all extracted events. Events will just
-                         be copied there.
-  --region=REGION        The chip region to which we cut.
-  --cdlYear=YEAR         The year from which to use the CDL data (2014, 2018).
-                         Default for now is *2014*!
-  --altCdlFile=CDLFILE   Alternative CDL file to use instead of `calibration-cdl`
-                         in `resources`.
-  --energyDset=NAME      Name of the energy dataset to use. By default `energyFromCharge`.
-  --tracking             If flag is set, we only consider solar trackings (signal like)
-  --scintiveto           If flag is set, we use the scintillators as a veto
-  --fadcveto             If flag is set, we use the FADC as a veto
-  --septemveto           If flag is set, we use the Septemboard as a veto
-  --lineveto             If flag is set, we use an additional septem veto based on eccentric clusters
-  --aggressive           If set, use aggressive veto. DO NOT USE (unless as a *reference*. Requires deep thought
-                         about random coincidences & dead time of detector!)
-  --plotSeptem           If flag is set, plots the SeptemEvents of all center clusters passing logL cut
-  --createRocCurve       If flag is set, we create ROC curves for all energy bins. This
-                         requires the input to already have a `likelihood` dataset!
-  --plotLogL             If flag is set, we only plot the signal logL distributions.
-  --computeLogL          If flag is set, we compute the logL dataset for each run in the
-                         the input file. This is only required once or after changes to the
-                         property datasets (e.g. energy calibration changed).
-  -h --help              Show this help
-  --version              Show version.
-"""
+when defined(linux):
+  const commitHash = staticExec("git rev-parse --short HEAD")
+else:
+  const commitHash = ""
+# get date using `CompileDate` magic
+const compileDate = CompileDate & " at " & CompileTime
+const versionStr = "Version: $# built on: $#" % [commitHash, compileDate]
 
 const h5cdl_file = currentSourcePath() / "../../../resources/calibration-cdl.h5"
 const cdlExists = fileExists(h5cdl_file)
@@ -1172,69 +1138,83 @@ proc plotLogL(cdlFile: string,
 
 # switch to cligen, then do:
 # runs: seq[int] = @[]) = # `runs` allows to overwrite whihc run is logL cut'd
+# switch to cligen (DONE), then do (STILL TODO):
+## runs: seq[int] = @[]) = # `runs` allows to overwrite whihc run is logL cut'd
 ## Also do same for a `--useTeX` argument & flag! for Septem veto plots
-proc main() =
-  # create command line arguments
-  let args = docopt(doc)
-  echo args
-  let
-    h5f_file = $args["<HDF5file>"]
-    extractFrom = $args["--extract"]
+proc main(
+  file: string,
+  h5out: string,
+  Fe55 = "",
+  extract = "",
+  to = "/tmp/",
+  region = "",
+  cdlYear = "yr2014",
+  cdlFile = h5cdl_file,
+  energyDset = "",
+  computeLogL = false,
+  tracking = false,
+  scintiveto = false,
+  fadcveto = false,
+  septemveto = false,
+  lineveto = false,
+  aggressive = false,
+  plotSeptem = false,
+  createRocCurve = false,
+  plotLogL = false,
+  version = false
+     ) =
+  docCommentAdd(versionStr)
+  ## InGrid likelihood calculator. This program is run after reconstruction is finished.
+  ## It calculates the likelihood values for each reconstructed cluster of a run and
+  ## writes them back to the H5 file
 
   var flags: set[FlagKind]
-  if $args["--tracking"] == "true": flags.incl fkTracking
-  if $args["--scintiveto"] == "true": flags.incl fkScinti
-  if $args["--fadcveto"] == "true": flags.incl fkFadc
-  if $args["--septemveto"] == "true": flags.incl fkSeptem
-  if $args["--lineveto"] == "true": flags.incl fkLineVeto
-  if $args["--aggressive"] == "true": flags.incl fkAggressive
-  if $args["--createRocCurve"] == "true": flags.incl fkRocCurve
-  if $args["--computeLogL"] == "true": flags.incl fkComputeLogL
-  if $args["--plotLogL"] == "true": flags.incl fkPlotLogL
-  if $args["--plotSeptem"] == "true": flags.incl fkPlotSeptem
+  if tracking       : flags.incl fkTracking
+  if scintiveto     : flags.incl fkScinti
+  if fadcveto       : flags.incl fkFadc
+  if septemveto     : flags.incl fkSeptem
+  if lineveto       : flags.incl fkLineVeto
+  if aggressive     : flags.incl fkAggressive
+  if createRocCurve : flags.incl fkRocCurve
+  if computeLogL    : flags.incl fkComputeLogL
+  if plotLogL       : flags.incl fkPlotLogL
+  if plotSeptem     : flags.incl fkPlotSeptem
 
-  let cdlFile = if $args["--altCdlFile"] != "nil":
-                  $args["--altCdlFile"]
-                else:
-                  h5cdl_file
-
-  let region = if $args["--region"] != "nil":
-                 parseEnum[ChipRegion]($args["--region"])
+  let region = if region.len > 0:
+                 parseEnum[ChipRegion](region)
                else:
                  crGold
 
-  let year = if $args["--cdlYear"] != "nil":
-                   parseEnum[YearKind]($args["--cdlYear"])
-                 else:
-                   # default to 2014
-                   yr2014
-  let energyDset = if $args["--energyDset"] != "nil":
-                     toIngridDset($args["--energyDset"])# , igEnergyFromCharge)
+  let year = if cdlYear.len > 0:
+               parseEnum[YearKind](cdlYear)
+             else:
+               # default to 2014
+               yr2014
+  let energyDset = if energyDset.len > 0:
+                     toIngridDset(energyDset)
                    else:
                      igEnergyFromCharge
   doAssert energyDset != igInvalid, "Please enter a valid energy dataset. " &
     "Choices: {energyFromCharge, energyFromPixel}"
 
-  var h5foutfile: string = ""
-  if $args["--h5out"] != "nil":
-    h5foutfile = $args["--h5out"]
-
-  var h5f = H5open(h5f_file, "rw")
+  var h5f = H5open(file, "rw")
   h5f.visitFile
   let timepix = h5f.timepixVersion()
+
+  let cfg = initLikelihoodConfig(cdlFile, year, region, energyDset, timepix, Fe55)
 
   if fkRocCurve in flags:
     ## create the ROC curves and likelihood distributios. This requires to
     ## previously run this tool with the default parameters
-    createRocCurves(h5f, cdlFile, year, energyDset, region)
+    createRocCurves(h5f, cfg)
   if fkPlotLogL in flags:
-    plotLogL(cdlFile, year, energyDset, region)
+    plotLogL(cfg)
   if fkComputeLogL in flags:
     # perform likelihood calculation
-    h5f.calcLogLikelihood(cdlFile, year, energyDset)
+    h5f.calcLogLikelihood(cfg)
     h5f.flush() # flush so the data is written already
-  if extractFrom == "nil" and h5foutfile.len > 0:
-    var h5fout = H5open(h5foutfile, "rw", {akTruncate})
+  if extract.len == 0 and h5out.len > 0:
+    var h5fout = H5open(h5out, "rw", {akTruncate})
 
     if fkFadc in flags:
       echo "Using FADC as veto"
@@ -1264,4 +1244,34 @@ proc main() =
 
 
 when isMainModule:
-  main()
+  import cligen
+  dispatch(main, help = {
+    "file"           : "The input file to compute likelihoods for.",
+    "h5out"          : "The H5 file in which we store the events passing logL cut",
+    "Fe55"           : """An optional input file containing 55Fe calibration data for the given
+  detector, which if given is used to extrapolate the correct cut off values for the eccentricity
+  distributions for the CDL data""",
+    "extract"        : """Given a H5 file created by this program under the
+  h5out argument, we will extract all raw event files,
+  which are contained in it from the given FOLDER.
+  Useful to e.g. plot passed events with the event display.""",
+    "to"             : "Output location of all extracted events. Events will just be copied there.",
+    "region"         : "The chip region to which we cut.",
+    "cdlYear"        : "The year from which to use the CDL data (2014, 2018). Default for now is *2014*!",
+    "cdlFile"        : "CDL file to use, default is `calibration-cdl` in `resources`.",
+    "energyDset"     : "Name of the energy dataset to use. By default `energyFromCharge`.",
+    "tracking"       : "If flag is set, we only consider solar trackings (signal like)",
+    "scintiveto"     : "If flag is set, we use the scintillators as a veto",
+    "fadcveto"       : "If flag is set, we use the FADC as a veto",
+    "septemveto"     : "If flag is set, we use the Septemboard as a veto",
+    "lineveto"       : "If flag is set, we use an additional septem veto based on eccentric clusters",
+    "aggressive"     : """If set, use aggressive veto. DO NOT USE (unless as a *reference*. Requires deep thought
+  about random coincidences & dead time of detector!)""",
+    "plotSeptem"     : "If flag is set, plots the SeptemEvents of all center clusters passing logL cut",
+    "createRocCurve" : """If flag is set, we create ROC curves for all energy bins. This
+  requires the input to already have a `likelihood` dataset!""",
+    "plotLogL"       : "If flag is set, we only plot the signal logL distributions.",
+    "computeLogL"    : """If flag is set, we compute the logL dataset for each run in the
+  the input file. This is only required once or after changes to the
+  property datasets (e.g. energy calibration changed).""",
+    "version"        : "Show version."})

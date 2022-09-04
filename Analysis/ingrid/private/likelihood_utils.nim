@@ -274,8 +274,6 @@ proc applyMutation(
     ggplot(df.filter(f{`eccentricity` < 2.0}), aes("eccentricity")) +
       geom_histogram(bins = 100) +
       ggsave("/t/histo_ecc_" & $dset & ".pdf")
-
-  echo "Mutations applied \n\n\n\n\n\n"
   result = (eccs, ldiv, frac)
 
 proc genRefData*(cdlFile, dset: string,
@@ -347,7 +345,7 @@ proc readRefDsetsDF(cfg: LikelihoodConfig): DataFrame =
     ## read the data from the CDL file and generate the reference data using cuts
     let dsetName = xray_ref[idx]
     let E = energies[idx]
-    let (ecc, ldiv, frac) = genRefData(cfg.cdlFile, dsetName, cfg.year, cfg.energyDset)
+    let (ecc, ldiv, frac) = dsetName.genRefData(cfg)
     template addDf(h: HistTuple, key: string, E: float, dkKind: InGridDsetKind) =
       var dfDset = toDf({ "Bins" : h.bins, "Hist" : h.hist,
                           "Dset" : key, "Energy" : E,
@@ -402,7 +400,7 @@ proc computeLogLDistributions*(cfg: LikelihoodConfig): DataFrame =
   const
     xrayRef = getXrayRefTable()
     # logL binning range
-    nbins = 1000 # TODO: Increase number of bins for logL cut value closer to target?
+    nbins = 300 # TODO: Increase number of bins for logL cut value closer to target?
     # range of histogram in logL
     logLrange = (0.0, 30.0)
 
@@ -413,8 +411,8 @@ proc computeLogLDistributions*(cfg: LikelihoodConfig): DataFrame =
     # compute the histogram of the CDL data
     let hist = buildLogLHist(dset, cfg)[0]
     var df = toDf( {"Bins" : bins[0 .. ^2], "Hist" : histogram(hist, nbins, logLrange)[0] })
-    df["Dset"] = constantColumn(dset, df.len)
-    df["Energy"] = constantColumn(energies[idx], df.len)
+    df["Dset"] = dset
+    df["Energy"] = energies[idx]
     result.add df
 
 proc getLogLData*(cfg: LikelihoodConfig): DataFrame =

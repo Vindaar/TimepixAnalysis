@@ -43,6 +43,19 @@ proc getXrayRefTable*(): OrderedTable[int, string] =
              6: "Mn-Cr-12kV",
              7: "Cu-Ni-15kV" }.toOrderedTable()
 
+proc getInverseXrayRefTable*(): OrderedTable[string, int] =
+  ## returns the table mapping the different energy bins to the correct
+  ## datasets in the X-ray reference file
+  # NOTE: we could also simply store this in a seq...
+  result = { "C-EPIC-0.6kV"  : 0,
+             "Cu-EPIC-0.9kV" : 1,
+             "Cu-EPIC-2kV"   : 2,
+             "Al-Al-4kV"     : 3,
+             "Ag-Ag-6kV"     : 4,
+             "Ti-Ti-9kV"     : 5,
+             "Mn-Cr-12kV"    : 6,
+             "Cu-Ni-15kV"    : 7 }.toOrderedTable()
+
 proc getEnergyBinning*(): seq[float] =
   ## returns the binning of the energy (upper range for each bin)
   ## as a sequence of floats

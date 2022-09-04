@@ -304,11 +304,17 @@ proc calcFns(cfg: LikelihoodConfig, energy: float, eccs, ldiv, frac: seq[float])
         dataMax = (lp.maxs.m * energy + lp.maxs.b) * cdlMax
       let dS = dset # local copy due to `f{}` capturing it
 
+      when false:
+        var f = open("/t/data.csv", fmAppend)
+        f.write(&"{cdlMin},{cdlMax},{dataMin},{dataMax},{dset},{energy}\n")
+        f.close()
+        echo "Min ", cdlMin, " to ", cdlMax, " for ", dataMin, " to ", dataMax, " for dset ", dset, " and energy ", energy
+
       if dataMin > cdlMin:
         dataMin = cdlMin
       if dataMax < cdlMax:
         dataMax = cdlMax
-      echo "Min ", cdlMin, " to ", cdlMax, " for ", dataMin, " to ", dataMax, " for dset ", dset, " and energy ", energy
+
       result = f{float: dS ~ (idx(dS) - cdlMin) / (cdlMax - cdlMin) * (dataMax - dataMin) + dataMin}
     result.add toFn("eccentricity", eccs)
     result.add toFn("lengthDivRmsTrans", ldiv)

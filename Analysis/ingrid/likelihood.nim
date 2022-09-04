@@ -75,10 +75,7 @@ proc writeLogLDsetAttributes[T: H5DataSet | H5Group](dset: var T,
   dset.attrs["calibration CDL file"] = cdlFile
 
 proc calcLogLikelihood*(h5f: var H5File,
-                        cdlFile: string,
-                        year: YearKind,
-                        energyDset: InGridDsetKind # pixel / charge energy
-                       ) =
+                        cfg: LikelihoodConfig) =
   ## - read all data of single run
   ## - get energy dataset
   ## - create energy bins
@@ -94,7 +91,6 @@ proc calcLogLikelihood*(h5f: var H5File,
   ##     get number of elements in histogram at the bin for the element for which we get
   ##     the logL
   ##     # elements / # total in histogram = likelihood. Take log
-  let morphKind = readMorphKind()
   for (num, group) in runs(h5f):
     echo &"Start logL calc of run {group}"
     # get number of chips from attributes
@@ -106,7 +102,7 @@ proc calcLogLikelihood*(h5f: var H5File,
     for (_, chipNumber, grp) in chipGroups(h5f, group):
       # iterate over all chips and perform logL calcs
       var attrs = h5f[grp.grp_str].attrs
-      let logL = calcLikelihoodDataset(h5f, cdlFile, grp, year, morphKind, energyDset)
+      let logL = calcLikelihoodDataset(h5f, grp, cfg)
       # after walking over all events for this chip, add to correct
       # index for logL
       logL_chips[chipNumber] = logL
@@ -120,18 +116,15 @@ proc calcLogLikelihood*(h5f: var H5File,
     for tup in zip(logL_dsets, logL_chips):
       var (dset, logL) = tup
       dset[dset.all] = logL
-      dset.writeLogLDsetAttributes(cdlFile, year)
+      dset.writeLogLDsetAttributes(cfg.cdlFile, cfg.year)
 
 proc writeLikelihoodData(h5f: var H5File,
                          h5fout: var H5File,
                          group: var H5Group,
-                         cdlFile: string,
-                         year: YearKind,
                          chipNumber: int,
                          cutTab: CutValueInterpolator,
                          passedInds: OrderedSet[int],
-                         energyDset: InGridDsetKind, # pixel or charge
-                         version: TimepixVersion # determines if we need to write ToA data
+                         cfg: LikelihoodConfig
                         ) =
                          #durations: (float64, float64)) =
   ## writes all relevant cluster data of events corresponding to `passedInds` in
@@ -146,7 +139,7 @@ proc writeLikelihoodData(h5f: var H5File,
   var dsetNames = concat(@(getFloatDsetNames()), @(getIntDsetNames()))
   # add the final two datasets, which we'd like to write
   dsetNames.add @["likelihood", "energyFromPixel", "energyFromCharge", "x", "y", "ToT"]
-  if version == Timepix3:
+  if cfg.timepix == Timepix3:
     dsetNames.add getFloatToANames()
     dsetNames.add @["ToA", "ToACombined", "toaMin"]
 
@@ -210,7 +203,7 @@ proc writeLikelihoodData(h5f: var H5File,
   # copy attributes over from the input file
   runGrp.copy_attributes(group.attrs)
   chpGrpOut.copy_attributes(chpGrpIn.attrs)
-  runGrp.writeLogLDsetAttributes(cdlFile, year)
+  runGrp.writeLogLDsetAttributes(cfg.cdlFile, cfg.year)
 
 func isVetoedByFadc(eventNumber: int, fadcTrigger, fadcEvNum: seq[int64],
                     fadcRise, fadcFall: seq[uint16]): bool =
@@ -329,7 +322,7 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
                      gainVals: seq[float],
                      calibTuple: tuple[b, m: float], ## contains the parameters required to perform energy calibration
                      region: ChipRegion,
-                     refSetTuple: tuple[ecc, ldivRms, fracRms: Table[string, histTuple]],
+                     refSetTuple: tuple[ecc, ldivRms, fracRms: Table[string, HistTuple]],
                      flags: set[FlagKind]
                     ): tuple[logL, energy: float, lineVetoPassed: bool] =
   # total charge for this cluster
@@ -480,14 +473,10 @@ proc buildSeptemEvent(evDf: DataFrame,
   result.pixels = pixels
 
 proc applySeptemVeto(h5f, h5fout: var H5File,
-                     cdlFile: string,
                      runNumber: int,
-                     year: YearKind,
-                     energyDset: InGridDsetKind, # pixel or charge
                      passedInds: var OrderedSet[int],
                      cutTab: CutValueInterpolator,
-                     version: TimepixVersion,
-                     region: ChipRegion,
+                     cfg: LikelihoodConfig,
                      flags: set[FlagKind]) =
   ## Applies the septem board veto to the given `passedInds` in `runNumber` of `h5f`.
   ## Writes the resulting clusters, which pass to the `septem` subgroup (parallel to
@@ -517,9 +506,9 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
   ## Read all the pixel data for all chips
   let allChipData = readAllChipData(h5f, group, numChips)
 
-  let centerData = readCenterChipData(h5f, group, energyDset)
+  let centerData = readCenterChipData(h5f, group, cfg.energyDset)
 
-  let refSetTuple = readRefDsets(cdlFile, year)
+  let refSetTuple = readRefDsets(cfg)
   let chips = toSeq(0 .. 6)
   let gains = chips.mapIt(h5f[(group.name / "chip_" & $it / "gasGainSlices"), GasGainIntervalResult])
   let septemHChips = chips.mapIt(getSeptemHChip(it))
@@ -571,7 +560,7 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
                                                              centerData,
                                                              gainVals,
                                                              calibTuple,
-                                                             region,
+                                                             cfg.region,
                                                              refSetTuple, flags)
         let cX = toXPix(clusterTup[1].centerX)
         let cY = toYPix(clusterTup[1].centerY)
@@ -624,12 +613,8 @@ proc copyOverAttrs(h5f, h5fout: H5File) =
   logGrp.copy_attributes(recoGrp.attrs)
 
 proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
-                          cdlFile: string,
-                          year: YearKind,
-                          energyDset: InGridDsetKind, # pixel or charge
-                          version: TimepixVersion,
-                          flags: set[FlagKind],
-                          region = crGold) =
+                          cfg: LikelihoodConfig,
+                          flags: set[FlagKind]) =
   ## filters all clusters with a likelihood value in the given `h5f` by
   ## the logL cut values returned by `calcCutValueTab`
   ## clusters passing the cuts are stored in `h5fout`
@@ -643,7 +628,7 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
   # TODO: should the argument to calcCutValueTab not be crGold all the time?
   # We want to extract that data from the CDL data that most resembles the X-rays
   # we measured. This is guaranteed by using the gold region.
-  let cutTab = calcCutValueTab(cdlFile, year, energyDset)
+  let cutTab = calcCutValueTab(cfg)
   # get the likelihood and energy datasets
   # get the group from file
   when false:
@@ -715,9 +700,9 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
       scinti2Trigger = h5f[group / "szint2ClockInt", int64]
 
     for (_, chipNumber, chipGroup) in chipGroups(h5f, group):
-      if energyDset.toDset notin h5f[chipGroup.grp_str]:
+      if cfg.energyDset.toDset notin h5f[chipGroup.grp_str]:
         raise newException(IOError, "The input file " & $h5f.name & " does not contain the dataset " &
-          energyDset.toDset() & " in the group: " & $chipGroup & ".")
+          cfg.energyDset.toDset() & " in the group: " & $chipGroup & ".")
       if "likelihood" notin h5f[chipGroup.grp_str]:
         raise newException(IOError, "The input file " & $h5f.name & " does not contain the dataset " &
           "`likelihood` dataset in group: " & $chipGroup & ". Did you forget to call `likelihood` with " &
@@ -745,7 +730,7 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
           totalDurationRunPassed = 0.0
       let
         # get the datasets needed for LogL
-        energy = h5f[(chipGroup / energyDset.toDset), float64]
+        energy = h5f[(chipGroup / cfg.energyDset.toDset), float64]
         logL = h5f[(chipGroup / "likelihood"), float64]
         centerX = h5f[(chipGroup / "centerX"), float64]
         centerY = h5f[(chipGroup / "centerY"), float64]
@@ -791,7 +776,7 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
 
         # given datasest add element to dataset, iff it passes logL, region and
         # cleaning cut
-        let inCutRegion = inRegion(centerX[ind], centerY[ind], region)
+        let inCutRegion = inRegion(centerX[ind], centerY[ind], cfg.region)
         if logL[ind] <= cutTab[energy[ind]] and
            inCutRegion and
            rmsTrans[ind] <= RmsCleaningCut and
@@ -817,25 +802,20 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
         # If there's no events left, then we don't care about
         if fkSeptem in flags and chipNumber == centerChip:
           # read all data for other chips ``iff`` chip == 3 (centerChip):
-          h5f.applySeptemVeto(h5fout, cdlFile, num, year,
-                              energyDset,
+          h5f.applySeptemVeto(h5fout, num,
                               passedInds,
                               cutTab = cutTab,
-                              version = version,
-                              region = region,
+                              cfg = cfg,
                               flags = flags)
 
         if passedInds.card > 0:
           # call function which handles writing the data
           h5f.writeLikelihoodData(h5fout,
                                   mgrp,
-                                  cdlFile,
-                                  year,
                                   chipNumber,
                                   cutTab,
                                   passedInds,
-                                  energyDset,
-                                  version)
+                                  cfg)
 
         if chipNumber == centerChip:
           totalLogLCount += passedInds.card
@@ -870,7 +850,7 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
     ## TODO: add morphing kind to output!
 
   # write year and CDL and reference file used
-  lhGrp.writeLogLDsetAttributes(cdlFile, year)
+  lhGrp.writeLogLDsetAttributes(cfg.cdlFile, cfg.year)
 
 proc extractEvents(h5f: var H5File, extractFrom, outfolder: string) =
   ## extracts all events passing the likelihood cut from the folder
@@ -931,10 +911,7 @@ proc readLikelihoodDsets(h5f: H5File, energyDset: InGridDsetKind): DataFrame =
                       "Energy" : energies,
                       "Likelihood" : logLs })
 
-proc readLikelihoodDsetsCdl(cdlFile: string,
-                            yearKind: YearKind,
-                            energyDset: InGridDsetKind,
-                            region: ChipRegion): DataFrame =
+proc readLikelihoodDsetsCdl(cfg: LikelihoodConfig): DataFrame =
   ## reads a CDL like H5 file and returns a DataFrame of the energies,
   ## likelihood values and categories (of the energy bin)
   # iterate over all groups, read all likelihood and energy dsets
@@ -944,14 +921,13 @@ proc readLikelihoodDsetsCdl(cdlFile: string,
     logLs: seq[float]
     bins: seq[string]
   for bin in values(xray_ref):
-    let (logL, energy) = buildLogLHist(cdlFile, bin, yearKind,
-                                       energyDset, crGold)
+    let (logL, energy) = buildLogLHist(bin, cfg)
     logLs.add logL
     energies.add energy
     bins.add sequtils.repeat(bin, energy.len)
   result = toDf({ "Bin" : bins,
-                      "Energy" : energies,
-                      "Likelihood" : logLs })
+                  "Energy" : energies,
+                  "Likelihood" : logLs })
   when false:
     # code to simply read all data w/o filtering.
     var energies = newSeqOfCap[float32](1_000_000)
@@ -970,8 +946,8 @@ proc readLikelihoodDsetsCdl(cdlFile: string,
                       energy.len)
     let bin_back = energies.mapIt(it.toRefDset)
     result = toDf({ "energy" : energies,
-                        "logL" : logLs,
-                        "bin" : bin_back })
+                    "logL" : logLs,
+                    "bin" : bin_back })
 
 proc determineEff(logLs: seq[float], cutVal: float,
                   isBackground = true): float =
@@ -1011,18 +987,14 @@ proc calcRocCurve(dfSignal, dfBackground: DataFrame): DataFrame =
   result = innerJoin(sigEffDf, backRejDf, by = "cutVals")
 
 proc createRocCurves(h5Back: H5File,
-                     cdlFile: string,
-                     yearKind: YearKind,
-                     energyDset: InGridDsetKind, # pixel or charge
-                     region: ChipRegion
-                    ) =
+                     cfg: LikelihoodConfig) =
   ## generates all ROC curves for the given two H5 files and the
   ## histograms of the likelihood distributions for the CDL data and
   ## the given background file.
   ## By default the file containing signal like events will be
   ## the X-ray reference file.
-  let dfSignal = readLikelihoodDsetsCdl(cdlFile, yearKind, energyDset, region)
-  let dfBack = readLikelihoodDsets(h5Back, energyDset)
+  let dfSignal = readLikelihoodDsetsCdl(cfg)
+  let dfBack = readLikelihoodDsets(h5Back, cfg.energyDset)
     .filter(f{float: `Likelihood` != Inf})
   ggplot(dfBack, aes("Likelihood", fill = "Bin")) +
     geom_histogram(binWidth = 0.2) +
@@ -1084,7 +1056,7 @@ proc createRocCurves(h5Back: H5File,
   ## still is lower than it should be!
   # then determine efficiency in both signal and background
   # for computational efficiency reason only use raw, sorted `seq[float]`
-  let res = calcRocCurve(dfSignal, readLikelihoodDsets(h5Back, energyDset))
+  let res = calcRocCurve(dfSignal, readLikelihoodDsets(h5Back, cfg.energyDset))
   ggplot(res, aes("sigEff", "backRej", color = "bin")) +
     geom_line() +
     #ylim(0.8, 1.0) +
@@ -1094,16 +1066,13 @@ proc createRocCurves(h5Back: H5File,
   #  geom_line() +
   #  ggsave("roc_curve_full_range.pdf")
 
-proc plotLogL(cdlFile: string,
-              yearKind: YearKind,
-              energyDset: InGridDsetKind,
-              region: ChipRegion) =
+proc plotLogL(cfg: LikelihoodConfig) =
   ## generates all ROC curves for the given two H5 files and the
   ## histograms of the likelihood distributions for the CDL data and
   ## the given background file.
   ## By default the file containing signal like events will be
   ## the X-ray reference file.
-  let dfSignal = readLikelihoodDsetsCdl(cdlFile, yearKind, energyDset, region)
+  let dfSignal = readLikelihoodDsetsCdl(cfg)
   ggplot(dfSignal, aes("Likelihood", fill = "Bin")) +
     geom_histogram(binWidth = 0.2) +
     ggtitle("-LnL distributions of cdl calibration data, stacked",
@@ -1136,8 +1105,20 @@ proc plotLogL(cdlFile: string,
     ggsave("signalLogL_ridgeline.pdf",
            height = 600.0)
 
-# switch to cligen, then do:
-# runs: seq[int] = @[]) = # `runs` allows to overwrite whihc run is logL cut'd
+from private/cdl_stretching import initCdlStretch
+
+proc initLikelihoodConfig(cdlFile: string, year: YearKind, region: ChipRegion,
+                          energyDset: InGridDsetKind,
+                          timepix: TimepixVersion,
+                          fe55: string): LikelihoodConfig =
+  result = LikelihoodConfig(cdlFile: cdlFile,
+                            year: year,
+                            region: region,
+                            morph: readMorphKind(),
+                            energyDset: energyDset,
+                            timepix: timepix,
+                            stretch: initCdlStretch(fe55, cdlFile))
+
 # switch to cligen (DONE), then do (STILL TODO):
 ## runs: seq[int] = @[]) = # `runs` allows to overwrite whihc run is logL cut'd
 ## Also do same for a `--useTeX` argument & flag! for Septem veto plots
@@ -1223,17 +1204,15 @@ proc main(
 
     # now perform the cut on the logL values stored in `h5f` and write
     # the results to h5fout
-    h5f.filterClustersByLogL(h5fout,
-                             cdlFile,
-                             year, energyDset, timepix, flags, region)
+    h5f.filterClustersByLogL(h5fout, cfg, flags)
     # given the cut values and the likelihood values for all events
     # based on the X-ray reference distributions, we can now cut away
     # all events not passing the cuts :)
   else:
     # extract all event numbers of the runs from the H5 file, check
     # existing in FOLDER/Run_???_* and copy to `outfolder`
-    let outfolder = $args["--to"]
-    h5f.extractEvents(extractFrom, outfolder)
+    let outfolder = to
+    h5f.extractEvents(extract, outfolder)
 
   echo "Closing H5 file: ", h5f.name
   let err = h5f.close()

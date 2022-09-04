@@ -1,7 +1,7 @@
 # module which contains the used type definitions in the InGrid module
 when not defined(js):
   import times
-import tables, strformat, memfiles
+import tables, strformat, memfiles, options
 import karax / kbase
 
 type
@@ -61,7 +61,7 @@ type
   # alias for SRS events for the Event. Only difference is meta information
   SrsEvent* = Event
 
-  histTuple* = tuple[bins: seq[float64], hist: seq[float64]]
+  HistTuple* = tuple[bins: seq[float64], hist: seq[float64]]
 
   #############################
   # Calibration related types #
@@ -451,6 +451,32 @@ type
     yr2014 = "2014"
     yr2018 = "2018"
 
+
+
+  ## This stupidly named object stores the parameters for the stretching of the
+  ## CDL data to suit the detector's data based on a set of 55Fe data.
+  LineParams* = tuple[m, b: float]
+  CdlStretch* = object
+    fe55*: string ## file name used to fill this object
+    eccEsc*: float ## eccentricity value determined best fit for the escape peak
+    eccPho*: float ## eccentricity value determined best fit for the photo peak
+    ## maps each property to its slope / intercept pair for the minima / maxima of
+    ## that property so that we can compute the correct needed parameters for the
+    ## stretching on the fly for any energy
+    lines*: Table[string, tuple[mins, maxs: LineParams]]
+
+    #fns: seq[FormulaNode]
+    # something something min max of 55fe data?
+
+  ## Helper object to store configuration parameters used during `likelihood.nim`.
+  LikelihoodConfig* = object
+    cdlFile*: string ## the CDL file used
+    year*: YearKind
+    region*: ChipRegion
+    morph*: MorphingKind
+    energyDset*: InGridDsetKind
+    timepix*: TimepixVersion
+    stretch*: Option[CdlStretch]
 
   InGridDsetKind* = enum
     igInvalid, # invalid dataset

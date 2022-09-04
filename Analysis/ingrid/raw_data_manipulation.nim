@@ -1337,6 +1337,7 @@ proc main(path: string, runType: RunTypeKind,
           `out` = "", nofadc = false, ignoreRunList = false,
           config = "", overwrite = false, tpx3 = false,
          ) =
+  docCommentAdd(versionStr)
   var runType: RunTypeKind
   var flags: set[RawFlagKind]
   let outfile = if `out`.len == 0: "run_file.h5" else: `out`

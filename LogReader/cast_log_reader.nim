@@ -218,9 +218,138 @@ proc is_magnet_moving(h_me, v_me: (int, int)): bool {.inline.} =
   ## by checking previous and current motor encoder values
   result = if h_me[0] != h_me[1] and v_me[0] != v_me[1]: true else: false
 
+proc sortTrackingLogs(tr_logs: seq[TrackingLog], order = SortOrder.Ascending): seq[TrackingLog] =
+  ## proc to sort a sequence of tracking logs by date
+  var
+    gt = 0
+    lt = 0
+  # check the sorting order. Depending on case, we define the variables greater and
+  # lesser than to either be 1 or 0
+  case order
+  of Ascending:
+    gt = 1
+    lt = 0
+  of Descending:
+    gt = 0
+    lt = 1
+  result = sorted(tr_logs) do (r, t: TrackingLog) -> int:
+    let c = times.`<`(r.date, t.date)
+    result = if c == true: lt else: gt
+
+proc filterTrackingLogs(logs: seq[TrackingLog], startDate, endDate: Time): seq[TrackingLog] =
+  echo "Filtering tracking logs to date: ", startDate, " and ", endDate
+  result = logs.filterIt(it.kind == rkNoTracking or (it.tracking_start >= startDate and it.tracking_stop < endDate))
+
+proc sortAndFilter(logs: seq[TrackingLog], startTime, endTime: string): seq[TrackingLog] =
+  let startDate = if startTime.len > 0: parseTime(startTime, "YYYY/MM/dd", utc())
+                  else: fromUnix(0)
+  let endDate = if endTime.len > 0: parseTime(endTime, "YYYY/MM/dd", utc())
+                else: fromUnix(int32.high)
+  result = sortTrackingLogs(logs)
+  # filter to stard / end dates
+  result = result.filterTrackingLogs(startDate, endDate)
+
+proc print_tracking_logs(logs: seq[TrackingLog], print_type: TrackingKind,
+                         startTime, endTime = "") =
+  ## proc to pretty print a seq of TrackingLogs using org date format
+  ## inputs:
+  ##    logs: seq[TrackingLog] = seq of (potentially mixed) tracking logs to be
+  ##      printed using org mode date
+  ##    print_type: TrackingKind = the kind of logs to be printed. Either tracking
+  ##      no tracking
+  let s_logs = logs.sortAndFilter(startTime, endTime)
+  for log in s_logs:
+    case log.kind
+    of rkTracking:
+      echo "<$#>    <$#>" % [formatAsOrgDate(log.tracking_start), formatAsOrgDate(log.tracking_stop)]
+    of rkNoTracking:
+      echo "<$#>" % formatAsOrgDate(log.date)
+
+  case print_type
+  of rkTracking:
+    echo &"There are {s_logs.len} solar trackings found in the log file directory"
+    var trackTime: Duration
+    for log in s_logs:
+      if log.kind == rkTracking:
+        doAssert log.tracking_stop > log.tracking_start, "the fuck " & $log
+        trackTime += (log.tracking_stop - log.tracking_start)
+    echo &"The total time of all trackings: {trackTime.inHours()} h (exact: {tracktime})"
+  of rkNoTracking:
+    echo &"There are {s_logs.len} runs without solar tracking found in the log file directory"
+
+  # compute total time magnet was on
+  when true:
+    ## NOTE: this is wrong for modern tracking logs!
+    var sumB: Second
+    for log in s_logs:
+      #echo "log ", log.date, " has Bs: ", log.magB.filterIt(it > 0.0), " in name ", log.name
+      #if log.date.utc().year > 2015: quit()
+      for i in 1 ..< log.timestamps.len:
+        let diff = log.timestamps[i].s - log.timestamps[i-1].s
+        #echo "log.times ", log.timestamps[i], " to ", log.timestamps[i-1], " is ", diff
+        if log.magB[i] > 8.0:
+          sumB = sumB + diff
+    echo &"Total time the magnet was on (> 1 T): {sumB.to(Hour)} h"
+
+proc print_slow_control_logs(logs: seq[SlowControlLog], magnetField = 8.0) =
+  ## proc to pretty print useful information about the Slow Control data
+  ## Mainly related to magnet activity.
+  # compute total time magnet was on, here we do it based on difference between last and this
+  # timestamp. Then add that diff if magnet is on now.
+  var sumB: Second
+  var Bvals = newSeq[float]()
+  var Tdiffs = newSeq[Second]()
+  let sortedLogs = logs.filterIt(it.timestamps.len > 0).sortedByIt(it.date)
+  var oldTime = sortedLogs[0].timestamps[0]
+  for log in sortedLogs:
+    if log.B_magnet.len == 0: continue # no magnet data, nothing to learn
+    for i in 1 ..< log.timestamps.len:
+      let curTime = log.timestamps[i]
+      let diff = (curTime - oldTime).Second
+      Tdiffs.add diff
+      if log.B_magnet[i] > magnetField:
+        sumB = sumB + diff
+      if log.B_magnet[i] > 0.0:
+        Bvals.add log.B_magnet[i]
+      #elif log.B_magnet[i] > 0.0 and log.B_magnet[i] < magnetField:
+
+      oldTime = curTime
+
+  let df = toDf({"B" : Bvals})
+  ggplot(df.filter(f{`B` <= magnetField}), aes("B")) + geom_histogram(bins = 100) + ggsave(&"/tmp/B_field_larger_0_smaller_{magnetField}.pdf")
+  ggplot(df.filter(f{float -> bool: `B` >= magnetField}), aes("B")) + geom_histogram(bins = 100) + ggsave(&"/tmp/B_field_larger_{magnetField}.pdf")
+  ggplot(df, aes("B")) + geom_histogram(bins = 100) + ggsave(&"/tmp/B_field_larger_0.pdf")
+  let dfT = toDf({"Tdiff" : Tdiffs.mapIt(it.float)})
+    .filter(f{`Tdiff` > 0.1 and `Tdiff` < 500.0})
+  echo dfT
+  ggplot(dfT, aes("Tdiff")) + geom_histogram(bins = 100) +
+    scale_y_continuous() + scale_x_continuous() +
+    ggsave("/tmp/T_diffs.pdf")
+  echo &"Total time the magnet was on (> {magnetField} T): {sumB.to(Hour)} h"
 
 when not defined(pure):
-  proc map_log_to_run(logs: seq[TrackingLog], h5file: string): Table[TrackingLog, int] =
+  proc print_mapped_tracking_logs(logs: seq[TrackingLog], map: Table[TrackingLog, int],
+                                  startTime, endTime: string) =
+    let logs = sortAndFilter(logs, startTime, endTime)
+    # 1. first print the *mapped* tracking logs:
+    echo "========== Logs mapped to trackings in the output file: =========="
+    for log in logs.filterIt(it in map): ## filter and get the run to output in sorted order!
+      let run = map[log]
+      doAssert log.kind == rkTracking
+      echo "<$#>    <$#>  for run: $#" % [formatAsOrgDate(log.tracking_start),
+                                          formatAsOrgDate(log.tracking_stop),
+                                          $run]
+    # 2. print those runs *not* mapped to anything:
+    echo "==================================================================\n"
+    echo "========== Logs *not* mapped to a run ============================"
+    for log in logs.filterIt(it notin map):
+      doAssert log.kind == rkTracking
+      echo "<$#>    <$#>" % [formatAsOrgDate(log.tracking_start),
+                             formatAsOrgDate(log.tracking_stop)]
+    echo "=================================================================="
+
+  proc map_log_to_run(logs: seq[TrackingLog], h5file: string,
+                      startTime, endTime: string): Table[TrackingLog, int] =
     ## maps a sequence of tracking logs to run numbers given in a H5 file
     ## inputs:
     ##   logs: seq[TrackingLog] = tracking logs to map
@@ -271,6 +400,11 @@ when not defined(pure):
       else: discard
     discard h5f.close()
 
+    # in addition print the information about all logs we found. Both the
+    # logs that _are_ mapped (and which runs they are mapped to), but also those
+    # that are _not_ mapped, i.e. runs that we missed!
+    print_mapped_tracking_logs(logs, result, startTime, endTime)
+
   proc deleteTrackingAttributes(h5file: string) =
     ## proc to delete all tracking related attributes in a H5 file
     withH5(h5file, "rw"):
@@ -278,30 +412,30 @@ when not defined(pure):
                      elif "/reconstruction" in h5f: recoBase()
                      else: raise newException(IOError, "Invalid input file " &
           $h5file & ". It contains neither `runs` nor `reconstruction` group!")
-      for grp in items(h5f, baseName, depth = 1):
-        if baseName / "run" in grp.name:
-          # get number of tracking related attributes
-          # for now need mutable attributes object to access
-          var attrs = grp.attrs
-          var num_tr = 0
-          var mgrp = grp
-          try:
-            num_tr = attrs["num_trackings", int]
-          except KeyError:
-            # no trackings, continue
-            continue
-          for i in 0 ..< num_tr:
-            var deleted = false
-            let
-              attr_start = "tracking_start_$#" % $i
-              attr_stop  = "tracking_stop_$#" % $i
-              attr_num   = "num_trackings"
-            deleted = mgrp.deleteAttribute(attr_start)
-            deleted = mgrp.deleteAttribute(attr_stop)
-            deleted = mgrp.deleteAttribute(attr_num)
-            if deleted == false:
-              echo "Could not delete one of " &
-                "$#, $# or $# in group $#" % [$attr_start, $attr_stop, $attr_num, $mgrp.name]
+      for (run, grpName) in runs(h5f, baseName):
+        # get number of tracking related attributes
+        # for now need mutable attributes object to access
+        let grp = h5f[grpName.grp_str]
+        var attrs = grp.attrs
+        var num_tr = 0
+        var mgrp = grp
+        try:
+          num_tr = attrs["num_trackings", int]
+        except KeyError:
+          # no trackings, continue
+          continue
+        for i in 0 ..< num_tr:
+          var deleted = false
+          let
+            attr_start = "tracking_start_$#" % $i
+            attr_stop  = "tracking_stop_$#" % $i
+            attr_num   = "num_trackings"
+          deleted = mgrp.deleteAttribute(attr_start)
+          deleted = mgrp.deleteAttribute(attr_stop)
+          deleted = mgrp.deleteAttribute(attr_num)
+          if deleted == false:
+            echo "Could not delete one of " &
+              "$#, $# or $# in group $#" % [$attr_start, $attr_stop, $attr_num, $mgrp.name]
 
   proc write_tracking_h5(trck_tab: Table[TrackingLog, int], h5file: string) =
     ## proc to write the mapping of tracking logs to run numbers to the appropriate
@@ -311,8 +445,6 @@ when not defined(pure):
     ##   h5file: string = h5 file in which to write the information
     ## throws:
     ##   HDF5LibraryError = if a call to the H5 library fails
-
-
     var runTab = initCountTable[int]()
 
     withH5(h5file, "rw"):
@@ -341,24 +473,6 @@ when not defined(pure):
         # add tracking. Trackings will be zero indexed
         runGrp.attrs["tracking_start_$#" % $numIdx] = $log.tracking_start
         runGrp.attrs["tracking_stop_$#" % $numIdx] = $log.tracking_stop
-
-proc sortTrackingLogs(tr_logs: seq[TrackingLog], order = SortOrder.Ascending): seq[TrackingLog] =
-  ## proc to sort a sequence of tracking logs by date
-  var
-    gt = 0
-    lt = 0
-  # check the sorting order. Depending on case, we define the variables greater and
-  # lesser than to either be 1 or 0
-  case order
-  of Ascending:
-    gt = 1
-    lt = 0
-  of Descending:
-    gt = 0
-    lt = 1
-  result = sorted(tr_logs) do (r, t: TrackingLog) -> int:
-    let c = times.`<`(r.date, t.date)
-    result = if c == true: lt else: gt
 
 proc tryParseTime(s: string, formatStrings: openArray[string]): Time =
   ## Attempts to parse the time string `s` using any of the `formatStrings`
@@ -731,11 +845,17 @@ proc parse_tracking_logfile*(content: string, filename: string): TrackingLog =
                          isMoving: result.isMoving,
                          isTracking: result.isTracking,
                          magB: result.magB)
+  elif tracking_start > tracking_stop: # likely file _ends_ while tracking (broken old file)
+    doAssert tracking_stop == fromUnix(0)
+    result.tracking_start = tracking_start
+    result.tracking_stop = result.timestamps[^1].fromUnix
   else:
     result.tracking_start = tracking_start
     result.tracking_stop = tracking_stop
   result.name = filename
   result.badLineCount = badLineCount
+  if result.tracking_stop < parseTime("1975/01/01", "YYYY/MM/dd", utc()):
+    quit()
 
 proc read_tracking_logfile*(filename: string): TrackingLog =
   result = parse_tracking_logfile(readFile(filename), filename)
@@ -757,88 +877,6 @@ proc split_tracking_logs(logs: seq[TrackingLog]): (seq[TrackingLog], seq[Trackin
     case log.kind
     of rkTracking: result[0].add log
     of rkNoTracking: result[1].add log
-
-proc print_tracking_logs(logs: seq[TrackingLog], print_type: TrackingKind, sorted = true) =
-  ## proc to pretty print a seq of TrackingLogs using org date format
-  ## inputs:
-  ##    logs: seq[TrackingLog] = seq of (potentially mixed) tracking logs to be
-  ##      printed using org mode date
-  ##    print_type: TrackingKind = the kind of logs to be printed. Either tracking
-  ##      no tracking
-  ##    sorted: bool = True, assumes `logs` is sorted already, if false sort internally
-  ##      before printing
-
-  var s_logs = logs
-  if sorted == false:
-    s_logs = sortTrackingLogs(s_logs)
-
-  for log in s_logs:
-    case log.kind
-    of rkTracking:
-      echo "<$#>    <$#>" % [formatAsOrgDate(log.tracking_start), formatAsOrgDate(log.tracking_stop)]
-    of rkNoTracking:
-      echo "<$#>" % formatAsOrgDate(log.date)
-
-  case print_type
-  of rkTracking:
-    echo &"There are {s_logs.len} solar trackings found in the log file directory"
-    var trackTime: Duration
-    for log in logs:
-      if log.kind == rkTracking:
-        trackTime += (log.tracking_stop - log.tracking_start)
-    echo &"The total time of all trackings: {trackTime.inHours()} h (exact: {tracktime})"
-  of rkNoTracking:
-    echo &"There are {s_logs.len} runs without solar tracking found in the log file directory"
-
-  # compute total time magnet was on
-  when true:
-    ## NOTE: this is wrong for modern tracking logs!
-    var sumB: Second
-    for log in logs:
-      #echo "log ", log.date, " has Bs: ", log.magB.filterIt(it > 0.0), " in name ", log.name
-      #if log.date.utc().year > 2015: quit()
-      for i in 1 ..< log.timestamps.len:
-        let diff = log.timestamps[i].s - log.timestamps[i-1].s
-        #echo "log.times ", log.timestamps[i], " to ", log.timestamps[i-1], " is ", diff
-        if log.magB[i] > 8.0:
-          sumB = sumB + diff
-    echo &"Total time the magnet was on (> 1 T): {sumB.to(Hour)} h"
-
-proc print_slow_control_logs(logs: seq[SlowControlLog], magnetField = 8.0) =
-  ## proc to pretty print useful information about the Slow Control data
-  ## Mainly related to magnet activity.
-  # compute total time magnet was on, here we do it based on difference between last and this
-  # timestamp. Then add that diff if magnet is on now.
-  var sumB: Second
-  var Bvals = newSeq[float]()
-  var Tdiffs = newSeq[Second]()
-  let sortedLogs = logs.filterIt(it.timestamps.len > 0).sortedByIt(it.date)
-  var oldTime = sortedLogs[0].timestamps[0]
-  for log in sortedLogs:
-    if log.B_magnet.len == 0: continue # no magnet data, nothing to learn
-    for i in 1 ..< log.timestamps.len:
-      let curTime = log.timestamps[i]
-      let diff = (curTime - oldTime).Second
-      Tdiffs.add diff
-      if log.B_magnet[i] > magnetField:
-        sumB = sumB + diff
-      if log.B_magnet[i] > 0.0:
-        Bvals.add log.B_magnet[i]
-      #elif log.B_magnet[i] > 0.0 and log.B_magnet[i] < magnetField:
-
-      oldTime = curTime
-
-  let df = toDf({"B" : Bvals})
-  ggplot(df.filter(f{`B` <= magnetField}), aes("B")) + geom_histogram(bins = 100) + ggsave(&"/tmp/B_field_larger_0_smaller_{magnetField}.pdf")
-  ggplot(df.filter(f{float -> bool: `B` >= magnetField}), aes("B")) + geom_histogram(bins = 100) + ggsave(&"/tmp/B_field_larger_{magnetField}.pdf")
-  ggplot(df, aes("B")) + geom_histogram(bins = 100) + ggsave(&"/tmp/B_field_larger_0.pdf")
-  let dfT = toDf({"Tdiff" : Tdiffs.mapIt(it.float)})
-    .filter(f{`Tdiff` > 0.1 and `Tdiff` < 500.0})
-  echo dfT
-  ggplot(dfT, aes("Tdiff")) + geom_histogram(bins = 100) +
-    scale_y_continuous() + scale_x_continuous() +
-    ggsave("/tmp/T_diffs.pdf")
-  echo &"Total time the magnet was on (> {magnetField} T): {sumB.to(Hour)} h"
 
 proc read_tracking_log_folder(log_folder: string): seq[TrackingLog] =
   ## reads all log files from `log_folder` and returns a tuple of sorted `TrackingLog`
@@ -879,7 +917,9 @@ proc toDf(sc: SlowControlLog, enforceSameFields = false): DataFrame =
       "times.len = " & $sc.timestamps.len & ", magnet.len = " & $sc.B_magnet.len
   let B = if sc.B_magnet.len == 0: sc.timestamps.mapIt(NaN) # fill with NaN to have floats
           else: sc.B_magnet
-  var df = toDf({ "Time / s" : sc.timestamps,
+  ## XXX: even 22/12/2022 cannot use `toDf` here due to overload resolution issue causing it to complain
+  ## due to different data types, wtf
+  var df = seqsToDf({ "Time / s" : sc.timestamps,
                       "B / T" : B })
   df["Date"] = newTensorWith(df.len, sc.date.toUnix) #constantColumn(sc.date.toUnix, df.len)
   result = df
@@ -961,7 +1001,9 @@ proc read_sc_log_folder(log_folder: string,
 proc process_log_folder(folder: string, logKind: LogFileKind,
                         h5file = "",
                         schemaFile: VersionSchemaFile = VersionSchemaFile(),
-                        magnetField = 8.0) =
+                        magnetField = 8.0,
+                        startTime, endTime = "",
+                        dryRun = false) =
   case logKind
   of lkSlowControl:
     read_sc_log_folder(folder, schemaFile = schemaFile, magnetField = magnetField)
@@ -970,19 +1012,20 @@ proc process_log_folder(folder: string, logKind: LogFileKind,
       tracking_logs = read_tracking_log_folder(folder)
       (trk, notrk) = split_tracking_logs(tracking_logs)
     echo "No tracking days : "
-    print_tracking_logs(notrk, rkNoTracking)
+    print_tracking_logs(notrk, rkNoTracking, startTime = startTime, endTime = endTime)
     echo "Tracking days :"
-    print_tracking_logs(trk, rkTracking)
+    print_tracking_logs(trk, rkTracking, startTime = startTime, endTime = endTime)
 
     when not defined(pure):
       if h5file.len > 0:
         # given the H5 file, create a referential table connecting
         # the trackings with run numbers
-        let trackmap = map_log_to_run(trk, h5file)
+        let trackmap = map_log_to_run(trk, h5file, startTime, endTime)
 
         # given mapping of tracking logs to run numbers, finally
         # add tracking information to H5 file
-        write_tracking_h5(trackmap, h5file)
+        if not dryRun:
+          write_tracking_h5(trackmap, h5file)
 
 proc toDf(tr: TrackingLog, enforceSameFields = false): DataFrame =
   if enforceSameFields:
@@ -990,7 +1033,9 @@ proc toDf(tr: TrackingLog, enforceSameFields = false): DataFrame =
       "timestamps.len = " & $tr.timestamps.len & ", magnet.len = " & $tr.magB.len
   let B = if tr.magB.len == 0: tr.timestamps.mapIt(NaN) # fill with NaN to have floats
           else: tr.magB
-  var df = toDf({ "Time / s" : tr.timestamps,
+  ## XXX: even 22/12/2022 cannot use `toDf` here due to overload resolution issue causing it to complain
+  ## due to different data types, wtf
+  var df = seqsToDf({ "Time / s" : tr.timestamps,
                       "B / T" : B })
   df["Date"] = newTensorWith(df.len, tr.date.toUnix)
   #df["Date"] = constantColumn(tr.date.toUnix, df.len)
@@ -1072,7 +1117,7 @@ proc extractCycles[T](df: DataFrame, magnetField: float,
         echo "Start at: ", start, " stop at ", stop
         echo "Relevant df : ", df[start - 5 .. stop + 5]
   # convert cycles to DF
-  result = toDf({ "cumulativeTime / s" : cumTime,
+  result = seqsToDf({ "cumulativeTime / s" : cumTime,
                       "cycleLength / s" : cycleLength,
                       "cycleStart (unix)" : magnetCycleIdxs.mapIt(dates[it[0]]),
                       "cycleStop (unix)" : magnetCycleIdxs.mapIt(dates[it[1]]),
@@ -1125,7 +1170,7 @@ proc handleAllLogs(all_logs_path: string, schemaFile: VersionSchemaFile,
   var df = assignStack(dfs)
   # filter out NaN already for this block of data (files that have missing magnet columns
   # fields are replaced by NaN)
-  df = df.filter(f{float: classify(idx("B / T")) != fcNaN })
+  df = df.filter(f{float -> bool: classify(idx("B / T")) != fcNaN })
 
   var cycleDf = df.extractCycles(magnetField, SlowControlLog)
   df["From"] = newTensorWith(df.len, "SlowControlLogs")
@@ -1255,7 +1300,9 @@ proc sc(path: string, schemas: string, magnetField = 8.0) =
     process_log_folder(path, lkSlowControl,
                        schemaFile = schemaFile, magnetField = magnetField)
 
-proc tracking(path: string, h5out = "") =
+proc tracking(path: string, h5out = "",
+              startTime = "", endTime = "",
+              dryRun = false) =
   # check whether actual log file (extension fits)
   let (dir, fn, ext) = splitFile(path)
   if ext == ".log":
@@ -1266,7 +1313,8 @@ proc tracking(path: string, h5out = "") =
   else:
     doAssert ext.len == 0, "Invalid tracking with extension " & $ext &
       ". Instead we expect .log"
-    process_log_folder(path, lkTracking, h5out)
+    process_log_folder(path, lkTracking, h5out,
+                       startTime = startTime, endTime = endTime, dryRun = dryRun)
 
 proc h5file(file: string) =
   when not defined(pure):
@@ -1286,8 +1334,13 @@ proc main() =
   dispatchMulti([sc, help={"path" : "A path to a single slow control file or folder of SC log files is needed.",
                            "magnetField" : "A given magnetic field is used to filter data to `> magnetField`",
                            "schemas" : "The path to the `Versions.idx` schema file description is needed."}],
-                [tracking, help={"path" : "A path to a single tracking file or folder of tracking log files is needed.",
-                                 "h5out" : "A path to a H5 file is used to add tracking information to the file."}],
+                [tracking, help={ "path" : "A path to a single tracking file or folder of tracking log files is needed.",
+                                  "h5out" : "A path to a H5 file is used to add tracking information to the file.",
+                                  "dryRun" : """Can be used to simulate writing or just get information about all runs that " &
+"fit into the given run file.""",
+                                  "startTime" : "Date in YYYY/MM/dd format from which to print tracking information. This is inclusive.",
+                                  "endTime" : "Date in YYYY/MM/dd format from which to print tracking information. This is exclusive.",
+                }],
                 [allLogs, help={"path" : "A path to the location containing all logs in form of `.tar.gz` files is needed.",
                                 "schemas" : "The path to the `Versions.idx` schema file description is needed.",
                                 "magnetField" : "Optional cut off to determine if the magnet is on.",

@@ -119,7 +119,7 @@ when not defined(js):
     RunTimeInfo* = object
       t_start*: Time
       t_end*: Time
-      t_length*: Duration
+      t_length*: Duration # total duration of the run / tracking, from first to last event!
 
     # an object which stores general information about a run
     RunInfo* = object

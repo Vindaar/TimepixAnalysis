@@ -60,6 +60,11 @@ proc main(fname: string) =
     geom_histogram(bins = 100) +
     ggsave("/tmp/event_duration_data_full.pdf")
 
+  let dfD = df.group_by("runNumber").summarize(f{float: "maxDur" << max(col("eventDuration"))})
+  ggplot(dfD, aes("runNumber", "maxDur")) +
+    geom_point() +
+    ggsave("/tmp/max_durations_by_run.pdf")
+
   ggplot(df.filter(f{`eventDuration` < 2.25 and `eventDuration` > 0.0}), aes("eventDuration")) +
     geom_histogram(bins = 100) +
     ggsave("/tmp/event_duration_data_larger.pdf")

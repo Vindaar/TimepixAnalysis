@@ -89,6 +89,21 @@ proc readRunDsets*(h5f: H5File, run: int, # path to specific run
              dfAll
   result["runNumber"] = run
 
+proc readRunDsetsAllChips*(h5f: H5File, run: int, # path to specific run
+                           chips: seq[int],
+                           dsets: seq[string],
+                           basePath = recoBase()
+                  ): DataFrame =
+  ## reads all desired datasets `dsets` for all chips available in this run.
+  ## The only common dataset read is the `eventNumber`.
+  var dfs = newSeq[DataFrame]()
+  for chip in chips:
+    var dfLoc = readRunDsets(h5f, run, chipDsets = some((chip: chip, dsets: dsets)),
+                             commonDsets = @["eventNumber"])
+    dfLoc["chip"] = chip
+    dfs.add dfLoc
+  result = assignStack(dfs)
+
 proc readDsets*(h5f: H5File, path = recoBase(),
                 chipDsets = none[tuple[chip: int, dsets: seq[string]]](),
                 commonDsets: openArray[string] = @[]): DataFrame =

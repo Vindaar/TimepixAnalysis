@@ -15,8 +15,8 @@ proc main(files: seq[string]) =
   for f in files:
     let tracking = read_tracking_logfile(f)
     let dfLoc = toDf({ "timestamp" : tracking.timestamps,
-                           "isMoving" : tracking.isMoving,
-                           "isTracking" : tracking.isTracking })
+                       "isMoving" : tracking.isMoving,
+                       "isTracking" : tracking.isTracking })
     df.add dfLoc
 
   df.writeCsv("/tmp/tracking_logfile_all_data.csv")

@@ -791,6 +791,8 @@ proc parseTracking(grp: H5Group, idx: int): RunTimeInfo =
     stop = grp.attrs[&"tracking_stop_{idx}", string]
   result = RunTimeInfo(t_start: start.parseTime("yyyy-MM-dd\'T\'HH:mm:sszzz", utc()),
                        t_end: stop.parseTime("yyyy-MM-dd\'T\'HH:mm:sszzz", utc()))
+  # t_end for a tracking does not take into account length of an event, as it is decoupled
+  # from actual events
   result.t_length = result.t_end - result.t_start
 
 proc getExtendedRunInfo*(h5f: H5File, runNumber: int,
@@ -811,7 +813,7 @@ proc getExtendedRunInfo*(h5f: H5File, runNumber: int,
   result.nEvents = nEvents
   result.nFadcEvents = nFadcEvents
   var tInfo = RunTimeInfo(t_start: tstamp[0].fromUnix,
-                          t_end: tstamp[^1].fromUnix)
+                          t_end: (tstamp[^1].float + evDuration[^1]).fromUnixFloat) # end is last tstamp + duration of that event!
   tInfo.t_length = tInfo.t_end - tInfo.t_start
   result.timeInfo = tInfo
 

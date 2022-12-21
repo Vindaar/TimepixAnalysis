@@ -70,11 +70,11 @@ proc main(fname: string) =
 
   let df0 = df.filter(f{`eventDuration` < 1e-5 and `energyFromCharge` < 10.0})
   echo df0["runNumber"].unique
-  ggplot(df0, aes("energyFromCharge", color = "chip", fill = "chip")) +
+  ggplot(df0, aes("energyFromCharge", color = factor("chip"), fill = factor("chip"))) +
     geom_histogram(position = "identity", alpha = some(0.5), hdKind = hdOutline, bins = 100) +
     ggsave("/tmp/histo_energy_no_duration.pdf")
 
-  ggplot(df0, aes("energyFromCharge", color = "chip", fill = "chip")) +
+  ggplot(df0, aes("energyFromCharge", color = factor("chip"), fill = factor("chip"))) +
     facet_wrap("runNumber") +
     geom_histogram(position = "identity", alpha = some(0.5), hdKind = hdOutline, bins = 50) +
     ggsave("/tmp/histo_energy_no_duration_run_facet.pdf", width = 3000, height = 2000)

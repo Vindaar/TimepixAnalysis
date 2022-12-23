@@ -2848,6 +2848,7 @@ proc plotData*(
   runs: set[uint16] = {},
   show = false,
   cuts: seq[GenericCut] = @[],
+  invertedCuts: seq[GenericCut] = @[],
   maskRegion: seq[MaskRegion] = @[],
   applyAllCuts = false,
   cutFePeak = false,
@@ -2894,7 +2895,7 @@ proc plotData*(
     flags.incl cfCompiledCustom
 
   let cfg = initConfig(chips, runs, flags,
-                       cuts = cuts,
+                       cuts = concat(cuts, invertedCuts),
                        maskRegion = maskRegion,
                        tomlConfig = tomlConfig,
                        head = head,
@@ -2936,11 +2937,13 @@ when isMainModule:
   import cligen/argcvt
   proc argParse(dst: var GenericCut, dfl: GenericCut,
                 a: var ArgcvtParams): bool =
+    let inverted = "inverted" in a.key
     var vals = a.val.strip(chars = {'(', ')'}).split(',')
     if vals.len != 3: return false
     try:
       let dset = vals[0].strip(chars = {'"'})
       dst = GenericCut(dset: dset,
+                       inverted: inverted,
                        applyDset: @[dset], ## XXX: set this?
                        min: parseFloat(vals[1].strip),
                        max: parseFloat(vals[2].strip))
@@ -3014,6 +3017,7 @@ in the future if needed.""",
 
     "show" : "If given will open each generated plot using inkview (svg) / evince (pdf) / nomacs (png).",
     "cuts" : "Allows to cut data used for event display. Only shows events of data passing these cuts.",
+    "invertedCuts" : "Sets an inverted cut. Same as `cuts`, but removes everything *inside* the cut.",
     "maskRegion" : "Allows to mask a region (in pixel coords). Any pixel in the region will be cut.",
     "applyAllCuts" : "If given will apply all given cuts to all data reads.",
     "head" : "Only process the first this many elements (mainly useful for event display).",

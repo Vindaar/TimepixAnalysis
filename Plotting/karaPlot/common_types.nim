@@ -57,6 +57,8 @@ else:
       runs*: set[uint16]
       outputType*: OutputFiletypeKind # the file format to use for the file containing all plots
       fileType*: PlotFiletypeKind
+      separateRuns*: bool ## If `separateRuns` is true, histogram plots will be split by their
+                          ## filename. One histogram for each run.
       ingridDsets*: set[IngridDsetKind]
       fadcDsets*: seq[string] # currently don't have an enum for them
       cuts*: seq[GenericCut] ## Used to fill the `DataSelector`

@@ -186,7 +186,8 @@ proc initConfig*(chips: set[uint16],
                  yDset: string = "",
                  zDset: string = "",
                  cdlDset: string = "",
-                 compareDensity: bool = false
+                 compareDensity: bool = false,
+                 separateRuns: bool = false
                 ): Config =
   let fType = tomlConfig["General"]["filetype"].getStr
   let outputType = tomlConfig["General"]["outputFormat"].getStr
@@ -238,6 +239,7 @@ proc initConfig*(chips: set[uint16],
                   customPlots: customPlots,
                   cdlGroup: cdlDset,
                   compareDensity: compareDensity,
+                  separateRuns: separateRuns,
                   binningTab: binningTab)
 
 proc initSelector(config: Config, cuts: seq[GenericCut] = @[],
@@ -437,6 +439,7 @@ proc applyMaskRegion(h5f: H5File, selector: DataSelector, dset: string,
     for x in maskRegion.x.min .. maskRegion.x.max:
       for y in maskRegion.y.min .. maskRegion.y.max:
         noisyPixels.add (x, y)
+
   if noisyPixels.len == 0: return idx
   let noiseSet = noisyPixels.toHashSet
   # read data
@@ -2857,7 +2860,8 @@ proc plotData*(
   y: string = "",
   z: string = "",
   cdlDset: float = -1.0,
-  compareDensity: bool = false
+  compareDensity: bool = false,
+  separateRuns: bool = false
               ) =
   ## the main workhorse of the server end
   if version:
@@ -2903,7 +2907,8 @@ proc plotData*(
                        yDset = y,
                        zDset = z,
                        cdlDset = if cdlDset > 0.0: toRefDset(cdlDset).cdlPath() else: "",
-                       compareDensity = compareDensity
+                       compareDensity = compareDensity,
+                       separateRuns = separateRuns
   )
 
   info &"Flags are:\n  {flags}"
@@ -3022,6 +3027,7 @@ in the future if needed.""",
     "applyAllCuts" : "If given will apply all given cuts to all data reads.",
     "head" : "Only process the first this many elements (mainly useful for event display).",
     "compareDensity" : "If true all histograms in comparison plots will be densities and not counts",
+    "separateRuns" : "If true all histograms will be split by runs",
 
     "config" : "Path to the TOML config file.",
     "version" : "Show the version number"})

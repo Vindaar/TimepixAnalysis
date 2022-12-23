@@ -67,7 +67,7 @@ proc readFiles(files: seq[string], names: seq[string], region: ChipRegion,
                energyDset: string,
                centerChip: int,
                readToA: bool,
-               toaCutoff: float): seq[LogLFile] =
+               toaCutoff: seq[float]): seq[LogLFile] =
   ## reads all H5 files given and stacks them to a single
   ## DF. An additional column is added, which corresponds to
   ## the filename. That way one can later differentiate which
@@ -78,12 +78,16 @@ proc readFiles(files: seq[string], names: seq[string], region: ChipRegion,
   doAssert names.len == 0 or names.len == files.len, "Need one name for each input file!"
   let noiseSet = noisyPixels.toHashSet
   for idx, file in files:
+    echo "Opening file: ", file, " of files : ", files
     let h5f = H5open(file, "r")
     var df = h5f.readDsets(likelihoodBase(), some((centerChip, DsetNames)))
     df = df
       .filter(f{float -> bool: (`centerX`.toIdx, `centerY`.toIdx) notin noiseSet })
     if readToA:
-      df = df.filter(f{`toaLength` < toaCutoff})
+      let toaC = toaCutoff[idx]
+      echo "Cutting toa length to ", toaC, " ", df.len
+      df = df.filter(f{`toaLength` < toaC})
+      echo "df len now ", df.len
 
     doAssert not df.isNil, "Read DF is nil. Likely you gave a non existant chip number. Is " &
       $centerChip & " really the center chip in your input file?"
@@ -396,7 +400,7 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
           region: ChipRegion = crAll, # use either all data or cut to given region
           energyDset = "energyFromCharge",
           centerChip = 3,
-          toaCutoff = Inf,
+          toaCutoff: seq[float] = @[],
           readToA = false,
           topMargin = 1.0,
           yMax = -1.0,

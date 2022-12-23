@@ -593,10 +593,17 @@ proc appliedConfig(fileInfo: FileInfo, config: Config): FileInfo =
     result.cdlGroup = config.cdlGroup
 
 proc plotHist[T](xIn: seq[T], title, dset, outfile: string,
-                 binS: float, binR: (float, float)): PlotV =
+                 binS: float, binR: (float, float),
+                 runs: seq[int] = @[]): PlotV =
   ## plots the data in `x` as a histogram
-  let xs = xIn.mapIt(it.float).filterIt(classify(it) notin {fcInf, fcNegInf, fcNaN})
-
+  var df = newDataFrame()
+  if runs.len == 0:
+    df = toDf({"xs" : xIn.mapIt(it.float)})
+  else:
+    doAssert xIn.len == runs.len, " xs " & $xIn.len & " vs " & $runs.len
+    df = toDf({"xs" : xIn.mapIt(it.float), "runs" : runs})
+  df = df.filter(fn {float: classify(`xs`) notin {fcInf, fcNegInf, fcNaN}})
+  let xs = df["xs", float].toSeq1D
   var binRange = binR
   var binSize = binS
   if binRange[0] == binRange[1]:
@@ -604,6 +611,9 @@ proc plotHist[T](xIn: seq[T], title, dset, outfile: string,
   if binSize == 0.0:
     # use 100 bins as a backup
     binSize = (binRange[1] - binRange[0]) / 100
+  # now filter to bin range
+  df = df.filter(fn {float: `xs` >= binRange[0] and
+                            `xs` <= binRange[1]})
 
   info &"Bin range {binRange} for dset: {dset}"
   case BKind
@@ -624,14 +634,20 @@ proc plotHist[T](xIn: seq[T], title, dset, outfile: string,
                          bins = nbins,
                          range = binRange)
   of bGgPlot:
-    let df = toDf(xs).filter(fn {float: `xs` >= binRange[0] and
-                                        `xs` <= binRange[1]})
     result = initPlotV(title & " # entries: " & $df.len, dset, "#")
-    result.pltGg = ggplot(df, aes("xs")) +
-        geom_histogram(binWidth = binSize, hdKind = hdOutline) +
-        margin(top = 2) +
-        scale_x_continuous() + scale_y_continuous() +
-        result.theme # just add the theme directly
+    if "runs" in df:
+      result.pltGg = ggplot(df, aes("xs", color = factor("runs"))) +
+          geom_histogram(binWidth = binSize, position = "identity",
+                         hdKind = hdOutline, fillColor = color(0,0,0,0)) +
+          margin(top = 2) +
+          scale_x_continuous() + scale_y_continuous() +
+          result.theme # just add the theme directly
+    else:
+      result.pltGg = ggplot(df, aes("xs")) +
+          geom_histogram(binWidth = binSize, hdKind = hdOutline) +
+          margin(top = 2) +
+          scale_x_continuous() + scale_y_continuous() +
+          result.theme # just add the theme directly
   else: discard
 
 proc plotBar[T](binsIn, countsIn: seq[seq[T]], title: string,
@@ -1545,12 +1561,18 @@ proc handleInGridDset(h5f: H5File,
                       pd: PlotDescriptor,
                       config: Config): (string, PlotV) =
   var allData: seq[float]
+  var runs: seq[int]
   for r in pd.runs:
-    allData.add h5f.read(fileInfo, r, pd.name, pd.selector, pd.chip, dtype = float)
+    let data = h5f.read(fileInfo, r, pd.name, pd.selector, pd.chip, dtype = float)
+    allData.add data
+    if config.separateRuns:
+      runs.add(repeat(r, data.len))
     # perform cut on range
   result[0] = buildOutfile(pd, fileDir, fileType)
   let title = buildTitle(pd)
-  result[1] = plotHist(allData, title, pd.name, result[0], pd.binSize, pd.binRange)
+  result[1] = plotHist(allData, title, pd.name, result[0],
+                       pd.binSize, pd.binRange,
+                       runs)
 
 proc handleFadcDset(h5f: H5File,
                     fileInfo: FileInfo,

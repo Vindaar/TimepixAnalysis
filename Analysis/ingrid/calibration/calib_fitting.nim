@@ -404,7 +404,7 @@ proc dumpStartParamsPlot(bins_to_fit, data_to_fit: seq[float],
     geom_line(aes(y = "yFit")) +
     ggsave("/tmp/start_params.pdf")
 
-proc fitFeSpectrumImpl(hist, binning: seq[float]): FeSpecFitData =
+proc fitFeSpectrumImpl*(hist, binning: seq[float]): FeSpecFitData =
   # given our histogram and binning data
   # for fit := (y / x) data
   # fit a double gaussian to the data
@@ -494,6 +494,43 @@ proc fitFeSpectrumChargeImpl(hist, binning: seq[float]): FeSpecFitData =
                           chiSq = chiSq,
                           nDof = nDof)
 
+proc fitFeSpectrumFadcImpl(hist, binning: seq[float]): FeSpecFitData =
+  ## NOTE: we can simply reuse the charge function & bounds
+  ## We only need to restrict the region in which we fit to a different one.
+  # given our histogram and binning data
+  # for fit := (y / x) data
+  # fit a double gaussian to the data
+  let params = getFeSpectrumChargeParams(hist, binning)
+  let bounds = getFeSpectrumChargeBounds(hist, binning)
+  # created the histogram for a binning with width == 1 pixel per hit
+  let idx_tofit = toSeq(0 .. binning.high) # .filterIt(binning[it] < 0.6)
+  let data_tofit = idx_tofit.mapIt(hist[it])
+  let bins_tofit = idx_tofit.mapIt(binning[it])
+  let err = data_tofit.mapIt(if it > 0.0: sqrt(it) else: 1.0)
+  when true:
+    dumpStartParamsPlot(bins_to_fit, data_to_fit, params, feSpectrumChargeFunc)
+
+  let (pRes, res) = fit(feSpectrumChargeFunc,
+                        params,
+                        bins_tofit,
+                        data_tofit,
+                        err)
+  echoResult(pRes, res = res)
+  let chiSq = res.chiSq
+  let nDof = bins_to_fit.len - params.len
+  let yFit = bins_to_fit.mapIt(feSpectrumChargeFunc(pRes, it))
+  result = initFeSpecData(data_to_fit,
+                          bins_to_fit,
+                          idx_kalpha = 4,
+                          idx_sigma = 5,
+                          pRes = pRes,
+                          pErr = res.error,
+                          xFit = bins_to_fit,
+                          yFit = yFit,
+                          chiSq = chiSq,
+                          nDof = nDof)
+
+
 proc fitFeSpectrum*[T: SomeInteger](data: seq[T]): FeSpecFitData =
   const binSize = 1.0
   let low = -0.5
@@ -509,6 +546,12 @@ proc fitFeSpectrumCharge*[T](data: seq[T]): FeSpecFitData =
   let dataPer1000 = data.mapIt(it.float / 1000.0)
   let (hist, bin_edges) = dataPer1000.histogram(bins = 300)
   result = fitFeSpectrumChargeImpl(hist.mapIt(it.float), bin_edges[0 .. ^2])
+
+proc fitFeSpectrumFadc*[T](data: seq[T]): FeSpecFitData =
+  ## Input is all minimal of the FADC in negative V
+  let data = data.mapIt(-it) # invert to get positive
+  let (hist, bin_edges) = data.histogram(bins = 300)
+  result = fitFeSpectrumFadcImpl(hist.mapIt(it.float), bin_edges[0 .. ^2])
 
 proc fitEnergyCalib*(x_ph, x_esc, x_ph_err, x_esc_err: float,
                      energies: array[2, float]): EnergyCalibFitData =

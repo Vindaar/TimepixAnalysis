@@ -55,6 +55,12 @@ proc getTrace[T](thl, hits: seq[T], voltage: string): Trace[float] =
   result.ys = hits.asType(float)
   result.name = &"Voltage {voltage}"
 
+proc scurveToDf(s: SCurve): DataFrame =
+  result = toDf({ "THL" : s.thl.asType(float),
+                  "Counts" : s.hits.asType(float),
+                  "Voltage" : s.voltage,
+                  "Type" : "Data" })
+
 proc plotHist*[T](traces: seq[Trace[T]], voltages: set[int16], chip = "") =
   ## given a seq of traces (SCurves and their fits), plot
   let
@@ -67,38 +73,74 @@ proc plotHist*[T](traces: seq[Trace[T]], voltages: set[int16], chip = "") =
   let filename = &"out/scurves_{chip}.svg"
   p.saveImage(filename)
 
-proc plotThlCalib*(thlCalib: FitResult, charge, thl, thlErr: seq[float], chip = "") =
+proc plotSCurves*(df: DataFrame, annotation: string, runPeriod, chip = "",
+                  legendX = -1.0, legendY = -1.0,
+                  useTeX = true) =
+  let dfData = df.filter(f{`Type` == "Data"})
+  let dfFit = df.filter(f{`Type` == "Fit"})
+  let lX = if legendX > 0.0: legendX else: 250.0
+  let lY = if legendY > 0.0: legendY else: 3900.0
+  ggplot(df, aes("THL", "Counts", color = factor("Voltage"), shape = "Type")) +
+    geom_line(data = dfData) +
+    geom_line(data = dfFit, aes = aes("THL", "Counts"), color = "black", lineType = ltDashed) +
+    ggtitle(&"SCurves for run period '{runPeriod}', chip {chip}") +
+    annotate(annotation, x = lX, y = lY, font = font(10.0, family = "monospace"),
+             backgroundColor = color(0.0, 0.0, 0.0, 0.0)) +
+    #xlab(r"$U_\text{injected} / \si{mV}$") +
+    #ylab("Counts [\#]") +
+    #theme_latex() +
+    ggsave(&"out/s_curves_{chip}.pdf", useTex = useTeX, standalone = true)
+
+import measuremancer
+proc createThlAnnotation*(res: FitResult, charge, thl, thlErr: seq[float]): string =
+  ## Inverts the fit parameters given for the THL calibration. We perform the fit as
+  ## x = Charge, y = THL, yErr = THL_Err
+  ## but plot it as x = THL and y = Charge. Therefore we should invert the fit parameters
+  ## to show on the plot. Otherwise it's confusing.
+  let m = res.pRes[1] ± res.pErr[1]
+  let b = res.pRes[0] ± res.pErr[0]
+  result.add &"m = {m} THL/e⁻\n"
+  result.add &"1/m = {1.0/m} e⁻/THL\n"
+  let fy0 = charge[0] - (thl[0] ± thlErr[0]) * (1.0 / m)
+  result.add &"f(0) = {b} e⁻\n"
+  result.add &"f⁻¹(y=0) = {fy0} THL\n"
+  result.add &"χ²/dof = {res.redChiSq:.2f}"
+
+proc plotThlCalib*(thlCalib: FitResult, charge, thl, thlErr: seq[float], chip = "",
+                   legendX = -1.0, legendY = -1.0,
+                   useTeX = true) =
   let
     data = Trace[float](mode: PlotMode.Markers, `type`: PlotType.Scatter)
     fit = Trace[float](mode: PlotMode.Lines, `type`: PlotType.Scatter)
   # flip the plot, i.e. show THL on x instead of y as done for the fit to
   # include the errors
-  data.ys = charge
-  data.xs = thl
-  data.xs_err = newErrorBar(thlErr, color = Color(r: 0.5, g: 0.5, b: 0.5, a: 1.0))
-  data.name = "THL calibration"
-
-  # flip the plot
-  fit.ys = thlCalib.x
-  fit.xs = thlCalib.y
-  fit.name = "THL calibration fit"
-
-  let
-    layout = Layout(title: &"THL calibration of Chip {chip}",
-                    width: FigWidth.int, height: FigHeight.int,
-                    yaxis: Axis(title: "Charge / e-"),
-                    xaxis: Axis(title: "THL"),
-                    autosize: false)
-    p = Plot[float](layout: layout, traces: @[data, fit])
-  let filename = &"out/thl_calib_{chip}.svg"
-  p.saveImage(filename)
+  let dfData = toDf({"THL" : thl, "Charge [e⁻]": charge, "thlError" : thlErr, "Type" : "Data"})
+  let dfFit = toDf({"THL" : thlCalib.y, "Charge [e⁻]" : thlCalib.x, "thlError" : 0.0, "Type" : "Fit"})
+  var df = newDataFrame()
+  df.add dfData
+  df.add dfFit
+  let lX = if legendX > 0.0: legendX else: 440.0
+  let lY = if legendY > 0.0: legendY else: 3900.0
+  let annot = createThlAnnotation(thlCalib, charge, thl, thlErr)
+  ggplot(dfData, aes("THL", "Charge [e⁻]")) +
+    geom_line(data = dfFit, color = parseHex"FF00FF") +
+    geom_point() +
+    geom_errorbar(aes = aes(
+                    xMin = f{`THL` - `thlError`},
+                    xMax = f{`THL` + `thlError`}
+                  )) +
+    annotate(annot, x = lX, y = lY, font = font(10.0, family = "monospace"),
+             backgroundColor = color(0,0,0,0)) +
+    ggtitle(&"THL calibration of chip {chip}") +
+    ggsave(&"out/thl_calibration_chip_{chip}.pdf",
+            useTeX = useTeX, standalone = true)
 
 proc plotToTCalib*(totCalib: FitResult, tot: Tot, chip = 0, chipName = "",
                    useTeX = false) =
   let dfData = toDf({ "U / mV" : tot.pulses.mapIt(it.float),
-                          "ToT" : tot.mean,
-                          "std" : tot.std.mapIt(if classify(it) == fcNaN: 0.0 else: it) })
-  let dfFit = toDf({"U / mV" : totCalib.x, "ToT" : totCalib.y })
+                      "ToT" : tot.mean,
+                      "std" : tot.std.mapIt(if classify(it) == fcNaN: 0.0 else: it) })
+  let dfFit = toDf({"U / mV" : totCalib.x, "ToT" : totCalib.y})
   let df = bind_rows([("ToT", dfData), ("Fit", dfFit)], "by")
   var title = ""
   if chipName.len > 0:
@@ -153,7 +195,8 @@ iterator sCurves(file, folder, chip, runPeriod: string): SCurve =
       let curve = readScurveVoltageFile(f)
       yield curve
 
-proc sCurve(file, folder, chip, runPeriod: string) =
+proc sCurve(file, folder, chip, runPeriod: string,
+            legendX, legendY: float, useTeX: bool) =
   ## perform plotting and fitting of SCurves
   var
     voltages: set[int16]
@@ -164,29 +207,36 @@ proc sCurve(file, folder, chip, runPeriod: string) =
     charge: seq[float] = @[]
     thlMean: seq[float] = @[]
     thlErr: seq[float] = @[]
+    # annotations
+    annotation = ""
 
+
+  var dfScurve = newDataFrame()
   for curve in sCurves(file, folder, chip, runPeriod):
-    let trace = getTrace(curve.thl.asType(float), curve.hits, $curve.voltage)
-    traces.add trace
+    #traces.add trace
     voltages.incl int16(curve.voltage)
     if curve.voltage > 0:
+      let df = scurveToDf(curve) #getTrace(curve.thl.asType(float), curve.hits, $curve.voltage)
       # now fit the normal cdf to the SCurve and add its data
       let fitRes = fitSCurve(curve)
-      let
-        traceFit = getTrace(fitRes.x,
-                            fitRes.y,
-                            &"fit {curve.voltage} / chiSq {fitRes.redChiSq}")
-      traces.add traceFit
+      let dfFit = toDf({ "THL" : fitRes.x,
+                         "Counts" : fitRes.y,
+                         "Voltage" : curve.voltage,
+                         "Type" : "Fit" })
+      dfScurve.add df
+      dfScurve.add dfFit
+      annotation.add &"fit {pretty(curve.voltage.mV, 3, short = true):>6} χ²/dof {fitRes.redChiSq:.2f}\n"
 
       # given `fitRes`, add fit parameters to calibration seqs
       # multiply by 50 to take into account capacitance of test pulse injection
       # to get number of electrons
-      charge.add (curve.voltage * 50).float
+      ## TODO: replace charge calc by correct calculation using capacitance
+      charge.add (charge(getCapacitance(Timepix1), curve.voltage.mV)).float
       thlMean.add (fitRes.pRes[1])
       thlErr.add (fitRes.pErr[1])
 
-  if traces.len > 0:
-    plotHist(traces, voltages, chip)
+  if dfScurve.len > 0:
+    plotSCurves(dfScurve, annotation, runPeriod, chip, legendX, legendY, useTeX)
 
   # now fit the calibration function
   # however, the voltage data is in a wrong order. need to sort it, before
@@ -200,10 +250,9 @@ proc sCurve(file, folder, chip, runPeriod: string) =
     # increase errors artifically by factor 100... Mostly for visualization,
     # but also as a rough guess for typical deviation visible
     thlErrSort = sortedChThl.mapIt(it[1][1] * 100)
-
   if chSort.len > 0:
     let thlCalib = fitThlCalib(chSort, thlSort, thlErrSort)
-    plotThlCalib(thlCalib, chSort, thlSort, thlErrSort, chip)
+    plotThlCalib(thlCalib, chSort, thlSort, thlErrSort, chip, legendX, legendY, useTeX)
 
 proc parseTotInput(file, folder, chip, runPeriod: string,
                    startTot = 0.0): (int, string, Tot) =
@@ -252,6 +301,7 @@ import cligen / macUt
 proc main(
   scurve = false, tot = false, charge = false,
   chip = "", runPeriod = "", file = "", folder = "", startFit = 0.0, startTot = 0.0,
+  legendX = -1.0, legendY = -1.0,
   version = false,
   useTeX = false) =
   docCommentAdd(doc)
@@ -262,7 +312,7 @@ proc main(
       quit("Cannot import InGrid database. --chip option not supported.")
 
   if scurve:
-    sCurve(file, folder, chip, runPeriod)
+    sCurve(file, folder, chip, runPeriod, legendX, legendY, useTeX)
   elif tot:
     totCalib(file, folder, chip, runPeriod, startFit, startTot, useTeX)
   elif charge:
@@ -287,4 +337,6 @@ when isMainModule:
   the other datapoints will still be plotted.""",
     "startTot" : "Read the ToT file from this pulse height",
     "useTeX" : "If set will use the TikZ backend of ggplotnim to generate the plot",
+    "legendX" : "Used to move the legend left side to X",
+    "legendY" : "Used to move the legend left side to X",
     "version" : "Show the version number"})

@@ -469,7 +469,7 @@ proc main(files: seq[string], log = false, title = "",
       df.add flatScale(logLFiles, factor)
     elif separateFiles:
       df = flatScale(logLFiles, factor)
-    else:
+    elif logLFiles.len > 0:
       # add up all input files
       var logL: LogLFile
       for l in logLFiles:
@@ -490,33 +490,38 @@ proc main(files: seq[string], log = false, title = "",
       if logL.year == 0:
         raise newException(ValueError, "separateFiles == true requires a `combYear`!")
       df = flatScale(@[logL], factor)
+    # else no input files. Only 2014 data to plot
     #if separateFiles:
     #  for logL in logLFiles:
     #    df.add flatScale(@[logL], factor)
     #else:
     #  df = flatScale(logLFiles, factor)
-    ## NOTE: this has to be calculated before we add 2014 data if we do, of course,
-    ## because otherwise we have everything duplicated!
-    proc intBackRate(df: DataFrame, factor: float, energyRange: Slice[float]) =
-      for tup, subDf in groups(df.group_by("Dataset")): # for each `name` argument separately!
-        let f = tup[0][1].toStr
-        let intBackRate = calcIntegratedBackgroundRate(subDf, factor, energyRange)
-        let size = energyRange.b - energyRange.a
-        echo &"Dataset: {f}"
-        echo &"\t Integrated background rate in range: {energyRange}: {intBackRate:.4e} cm⁻² s⁻¹"
-        echo &"\t Integrated background rate/keV in range: {energyRange}: {intBackRate / size:.4e} keV⁻¹ cm⁻² s⁻¹"
-    intBackRate(df, factor, 0.0 .. 12.0)
-    intBackRate(df, factor, 0.5 .. 2.5)
-    intBackRate(df, factor, 0.5 .. 5.0)
-    intBackRate(df, factor, 0.0 .. 2.5)
-    intBackRate(df, factor, 4.0 .. 8.0)
-    intBackRate(df, factor, 0.0 .. 8.0)
-
     if show2014:
       if Ccol in df:
         df.drop(Ccol)
       let df2014 = read2014Data(log)
       df.add df2014
+
+    if df.len == 0 and not show2014:
+      echo "[INFO]: Neither any input files given, nor 2014 data to plot. Please provide either."
+      return
+    elif df.len > 0:
+      proc intBackRate(df: DataFrame, factor: float, energyRange: Slice[float]) =
+        for tup, subDf in groups(df.group_by("Dataset")): # for each `name` argument separately!
+          let f = tup[0][1].toStr
+          let intBackRate = calcIntegratedBackgroundRate(subDf, factor, energyRange)
+          let size = energyRange.b - energyRange.a
+          echo &"Dataset: {f}"
+          echo &"\t Integrated background rate in range: {energyRange}: {intBackRate:.4e} cm⁻² s⁻¹"
+          echo &"\t Integrated background rate/keV in range: {energyRange}: {intBackRate / size:.4e} keV⁻¹·cm⁻²·s⁻¹"
+      intBackRate(df, factor, 0.0 .. 12.0)
+      intBackRate(df, factor, 0.5 .. 2.5)
+      intBackRate(df, factor, 0.5 .. 5.0)
+      intBackRate(df, factor, 0.0 .. 2.5)
+      intBackRate(df, factor, 4.0 .. 8.0)
+      intBackRate(df, factor, 0.0 .. 8.0)
+      intBackRate(df, factor, 2.0 .. 8.0)
+
     plotBackgroundRate(
       df, fnameSuffix, title,
       outpath, outfile,

@@ -263,7 +263,7 @@ func getCapacitance*(timepix: TimepixVersion): FemtoFarad =
   of Timepix1: result = 8.fF
   of Timepix3: result = 3.fF
 
-func charge(C: FemtoFarad, U: MilliVolt): UnitLess =
+func charge*(C: FemtoFarad, U: MilliVolt): UnitLess =
   ## Returns the charge on a capacitance of `C` at a voltage
   ## of `U` in *electrons*
   let e = 1.602176634e-19.C

@@ -850,10 +850,12 @@ proc calcOccupancy[T](x, y: seq[T]): Tensor[float] =
 
       for j in 0 .. xEv.high:
         result[xEv[j].int, yEv[j].int] += 1.0
-    elif T is SomeFloat:
-      let xIdx = min(xEv.round.int, 255)
-      let yIdx = min(yEv.round.int, 255)
+    elif T is SomeNumber:
+      let xIdx = xEv.toIdx()
+      let yIdx = yEv.toIdx()
       result[xIdx, yIdx] += 1.0
+    else:
+      {.error: "Invalid type for `calcOccupancy`: " & $T.}
 
 proc plotHist2D(data: Tensor[float], title, outfile: string): PlotV =
   ## creates a 2D histogram plot (basically an image) of the given 2D
@@ -1307,7 +1309,6 @@ proc readEventsSparse*(h5f: H5File, fileInfo: FileInfo, run, chip: int, #idx: in
   for i in 0 ..< x.len:
     let dfLoc = toDf({ "x" : x[i].mapIt(it.int), "y" : y[i].mapIt(it.int), "ch" : ch[i].mapIt(it.int),
                        "Index" : events[i] })
-    echo "Adding df ", dfLoc
     result.add dfLoc
 
 proc readIngridForEventDisplay*(h5f: H5File, fileInfo: FileInfo, run, chip: int, #idx: int,
@@ -1411,9 +1412,10 @@ proc createInGridFadcEvDisplay(h5f: H5File,
                               domain: @[ingridDomain, fadcDomain])
 
 proc percentile[T](t: Tensor[T], perc: float): float =
-  let dataSorted = t.reshape(t.size.int).sorted
-  let perIdx = min((t.size.float * perc).round.int, t.size - 1)
-  result = dataSorted[perIdx]
+  let dataSorted = t.reshape(t.size.int).sorted.toSeq1D.filterIt(it > 0.0)
+  if dataSorted.len > 0:
+    let perIdx = min((dataSorted.len.float * perc).round.int, dataSorted.high)
+    result = dataSorted[perIdx]
 
 proc clampedOccupancy[T](x, y: seq[T], pd: PlotDescriptor): Tensor[float] =
   ## calculates the occupancy given `x`, `y`, which may be seqs of clusters

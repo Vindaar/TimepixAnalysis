@@ -44,13 +44,6 @@ else:
       cfCompiledCustom # if given will create the compiled custom plots (i.e. in file `moreCustomPlots`).
                        # A change requires a recompilation!
 
-    ## A generic cut on input data using dset & low / high values
-    GenericCut* = object
-      applyFile*: seq[string] ## apply this cut to all files in this seq (all if empty)
-      applyDset*: seq[string] ## apply this cut when reading all datasets in this seq (all if empty)
-      dset*: string
-      min*: float
-      max*: float
     ChipCoord* = range[0 .. 255]
     MaskRegion* = object
       applyFile*: seq[string] ## apply this cut to all files in this seq (all if empty)

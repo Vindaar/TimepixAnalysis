@@ -510,7 +510,14 @@ type
   FrameworkKind* = enum
     fkTpa, fkMarlin
 
-
+  ## A generic cut on input data using dset & low / high values
+  GenericCut* = object
+    applyFile*: seq[string] ## apply this cut to all files in this seq (all if empty)
+    applyDset*: seq[string] ## apply this cut when reading all datasets in this seq (all if empty)
+    dset*: string
+    min*: float
+    max*: float
+    inverted*: bool ## If true the cut is inverted, i.e. we remove everything *in* the cut
 
 const TosDateString* = "yyyy-MM-dd'.'hh:mm:ss"
 

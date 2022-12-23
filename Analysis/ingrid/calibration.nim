@@ -60,11 +60,19 @@ proc cutOnDsets[T](eventNumbers: seq[SomeInteger],
       result[1].add nPix[i]
       result[2].add i.int64
 
+## XXX: replace at some point by handling this manually!
+converter toGenericCut*(x: tuple[dset: string, lower, upper: float]): GenericCut =
+  result = GenericCut(dset: x.dset, min: x.lower, max: x.upper,
+                      inverted: false)
+
+converter toGenericCut*(x: varargs[tuple[dset: string, lower, upper: float]]): seq[GenericCut] =
+  for el in x:
+    result.add el.toGenericCut()
+
 proc cutOnProperties*(h5f: H5File,
                       group: H5Group,
                       region: ChipRegion,
-                      cuts: varargs[tuple[dset: string,
-                                          lower, upper: float]]): seq[int] =
+                      cuts: varargs[GenericCut]): seq[int] =
   ## applies the cuts from `cuts` and returns a sequence of indices, which pass
   ## the cut.
   ## Any datasets given will be converted to float after reading.
@@ -112,9 +120,14 @@ proc cutOnProperties*(h5f: H5File,
         el = cuts[j]
       let
         d = dsets[j][i]
-      if d < el.lower or d > el.upper:
-        skipThis = true
-        break
+      if not el.inverted:
+        if d < el.min or d > el.max:
+          skipThis = true
+          break
+      else: # if inverted, remove everything *inside* the cut
+        if d > el.min and d < el.max:
+          skipThis = true
+          break
     if not skipThis:
       # else add this index
       result.add i
@@ -124,13 +137,13 @@ proc cutOnProperties*(h5f: H5File,
                       cuts: varargs[tuple[dset: string,
                                           lower, upper: float]],): seq[int] {.inline.} =
   ## wrapper around the above for the case of the whole chip as region
-  result = h5f.cutOnProperties(group, crAll, cuts)
+  result = h5f.cutOnProperties(group, crAll, cuts.toGenericCut())
 
 proc cutOnProperties*(h5f: H5File,
                       group: H5Group,
                       cuts: seq[tuple[dset: string,
                                       lower, upper: float]]): seq[int] {.inline.} =
-  result = h5f.cutOnProperties(group, crAll, cuts)
+  result = h5f.cutOnProperties(group, crAll, cuts.toGenericCut())
 
 proc cutFeSpectrum(pos_x, pos_y, ecc, rms_trans: seq[float], eventNum, hits: seq[int64]):
                     (seq[int64], seq[int64], seq[int64]) =

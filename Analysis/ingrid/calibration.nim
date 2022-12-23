@@ -837,9 +837,9 @@ proc writeFeDset(h5f: H5File,
   result[0] = createWriteDset(feBins, feCounts, "FeSpectrum" & $suffix & "Plot")
   result[1] = createWriteDset(feFitX, feFitY, "FeSpectrum" & $suffix & "PlotFit")
 
-proc buildTextForFeSpec(feSpec: FeSpecFitData,
-                        ecData: EnergyCalibFitData,
-                        isPixel = true): seq[string] =
+proc buildTextForFeSpec*(feSpec: FeSpecFitData,
+                         ecData: EnergyCalibFitData,
+                         isPixel = true): seq[string] =
   if isPixel:
     result.add &"μ = {feSpec.k_alpha:.1f} pix"
   else:

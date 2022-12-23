@@ -202,7 +202,7 @@ func getFeSpectrumParams(hist, binning: seq[float]): seq[float] =
       #eb: 1e-5,
       eb: 0.0,
       eN: n_kalpha_esc,
-      emu: mu_Kalpha * 2.9 / 5.75,
+      emu: mu_kalpha_esc,
       es: sigma_kalpha_esc),
     FitFuncArgs(
       name: "Mn-Kbeta-esc",
@@ -222,8 +222,8 @@ func getFeSpectrumParams(hist, binning: seq[float]): seq[float] =
       #eb: 1e-5,
       eb: 0.0,
       eN: n_kalpha,
-      emu: mu_Kalpha, # since we count single electrons, index equals number electrons!
-      es: sigma_Kalpha), # sigma is approxed to 0.8 times the half width
+      emu: mu_kalpha, # since we count single electrons, index equals number electrons!
+      es: sigma_kalpha), # sigma is approxed to 0.8 times the half width
     FitFuncArgs(
       name: "Mn-Kbeta",
       kind: ffExpGauss,
@@ -255,7 +255,7 @@ func getFeSpectrumChargeParams(hist, binning: seq[float]): seq[float] =
       name: "Mn-Kalpha-esc",
       kind: ffGauss,
       gN: n_kalpha_esc,
-      gmu: mu_Kalpha * 2.9 / 5.75,
+      gmu: mu_kalpha_esc,
       gs: sigma_kalpha_esc),
     FitFuncArgs(
       name: "Mn-Kbeta-esc",
@@ -267,8 +267,8 @@ func getFeSpectrumChargeParams(hist, binning: seq[float]): seq[float] =
       name: "Mn-Kalpha",
       kind: ffGauss,
       gN: n_kalpha,
-      gmu: mu_Kalpha, # since we count single electrons, index equals number electrons!
-      gs: sigma_Kalpha), # sigma is approxed to 0.8 times the half width
+      gmu: mu_kalpha, # since we count single electrons, index equals number electrons!
+      gs: sigma_kalpha), # sigma is approxed to 0.8 times the half width
     FitFuncArgs(
       name: "Mn-Kbeta",
       kind: ffGauss,

@@ -24,7 +24,7 @@ import seqmath
 import nimhdf5
 import arraymancer
 import parsetoml
-import cligen
+import cligen / macUt
 
 type
   RawFlagKind = enum
@@ -306,7 +306,6 @@ proc processRawInGridData(run: Run, totCut: TotCut): ProcessedRun =
     runHeader = run.runHeader
   # get number of chips from header
   let nChips = parseInt(runHeader["numChips"])
-
   # variable to count number of processed files
   var
     count = 0
@@ -1361,6 +1360,7 @@ proc main(path: string, runType: RunTypeKind,
   info "Processing all given runs took $# minutes" % $( (epochTime() - t0) / 60'f )
 
 when isMainModule:
+  import cligen
   import cligen/argcvt
   proc argParse(dst: var RunTypeKind, dfl: RunTypeKind,
                 a: var ArgcvtParams): bool =

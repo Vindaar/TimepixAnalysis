@@ -106,6 +106,21 @@ proc readFiles(files: seq[string], names: seq[string], region: ChipRegion,
                         year: extractYear(fname))
     discard h5f.close()
 
+proc read2014Data(log: bool): DataFrame =
+  ## Reads the 2014 data from the CSV file and prepares it to be added to the
+  ## DFs from `readFiles`.
+  result = toDf(readCsv(Data2014, sep = ' ', header = "#"))
+    .rename(f{Rcol <- "Rate[/keV/cm²/s]"}, f{"yMax" <- "dRateUp"},
+            f{"yMin" <- "dRateDown"}, f{Ecol <- "E[keV]"})
+  let lastLine = toDf({ Ecol : @[10.1], Rcol : @[0.0], "yMin" : @[0.0], "yMax" : @[0.0] })
+  result.add lastLine
+  if not log:
+    result = result.mutate(f{Rcol ~ 1e5 * `Rate`}, f{"yMin" ~ 1e5 * `yMin`},
+                           f{"yMax" ~ 1e5 * `yMax`})
+  result = result.mutate(f{"yMin" ~ `Rate` - `yMin`}, f{"yMax" ~ `Rate` + `yMax`},
+                         f{Ecol ~ `Energy` - 0.1})
+  result["Dataset"] = constantColumn("2014/15", result.len)
+
 proc histogram(df: DataFrame): DataFrame =
   ## Calculates the histogam of the energy data in the `df` and returns
   ## a histogram of the binned data
@@ -386,7 +401,8 @@ proc plotEfficiencyComparison(files: seq[LogLFile], outpath: string) =
            width = 1280, height = 800)
 
 
-proc main(files: seq[string], log = false, title = "", show2014 = false,
+proc main(files: seq[string], log = false, title = "",
+          show2014 = false,
           separateFiles = false,
           suffix = "",
           # names are the names associated to each file. If len > 0 use that name instead of something derived from
@@ -497,19 +513,9 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
     intBackRate(df, factor, 0.0 .. 8.0)
 
     if show2014:
-      df.drop(Ccol)
-      var df2014 = toDf(readCsv(Data2014, sep = ' ', header = "#"))
-        .rename(f{Rcol <- "Rate[/keV/cm²/s]"}, f{"yMax" <- "dRateUp"},
-                f{"yMin" <- "dRateDown"}, f{Ecol <- "E[keV]"})
-      let lastLine = toDf({ Ecol : @[10.1], Rcol : @[0.0], "yMin" : @[0.0], "yMax" : @[0.0] })
-      df2014.add lastLine
-      if not log:
-        df2014 = df2014.mutate(f{Rcol ~ 1e5 * `Rate`}, f{"yMin" ~ 1e5 * `yMin`},
-                               f{"yMax" ~ 1e5 * `yMax`})
-      df2014 = df2014.mutate(f{"yMin" ~ `Rate` - `yMin`}, f{"yMax" ~ `Rate` + `yMax`},
-                             f{Ecol ~ `Energy` - 0.1})
-      df2014["Dataset"] = constantColumn("2014/15", df2014.len)
-      echo df2014
+      if Ccol in df:
+        df.drop(Ccol)
+      let df2014 = read2014Data(log)
       df.add df2014
     plotBackgroundRate(
       df, fnameSuffix, title,

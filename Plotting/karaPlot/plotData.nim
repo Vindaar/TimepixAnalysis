@@ -1417,16 +1417,17 @@ proc percentile[T](t: Tensor[T], perc: float): float =
     let perIdx = min((dataSorted.len.float * perc).round.int, dataSorted.high)
     result = dataSorted[perIdx]
 
-proc clampedOccupancy[T](x, y: seq[T], pd: PlotDescriptor): Tensor[float] =
+proc clampedOccupancy(occ: Tensor[float], pd: PlotDescriptor): Tensor[float] =
   ## calculates the occupancy given `x`, `y`, which may be seqs of clusters
   ## or seqs of center positions
-  result = calcOccupancy(x, y)
+  result = occ
   case pd.clampKind
   of ckAbsolute:
-    result = result.clamp(0.0, pd.clampA)
+    result = occ.clamp(0.0, pd.clampA)
   of ckQuantile:
-    let quant = result.percentile(pd.clampQ / 100.0)
-    result = result.clamp(0.0, quant)
+    # only take into account non zero values for quantile!
+    let quant = occ.percentile(pd.clampQ / 100.0)
+    result = occ.clamp(0.0, quant)
   else: discard
 
 proc readPlotFit(h5f: H5File, fileInfo: FileInfo, pd: PlotDescriptor):
@@ -1606,9 +1607,11 @@ proc handleOccupancy(h5f: H5File,
     let
       x = h5f.readVlen(fileInfo, r, "x", pd.selector, pd.chip, dtype = uint8)
       y = h5f.readVlen(fileInfo, r, "y", pd.selector, pd.chip, dtype = uint8)
-    let occ = clampedOccupancy(x, y, pd)
+    let occ = calcOccupancy(x, y)
     # stack this run onto the full data tensor
     occFull = occFull .+ occ
+  # now perform clamping
+  occFull = clampedOccupancy(occFull, pd)
   let title = buildTitle(pd)
   result[0] = buildOutfile(pd, fileDir, fileType)
   result[1] = plotHist2D(occFull, title, result[0])
@@ -1623,11 +1626,15 @@ proc handleOccCluster(h5f: H5File,
     let
       group = h5f[fileInfo.dataPath(r, pd.chip)]
       # get centers and rescale to 256 max value
-      centerX = h5f[(group.name / "centerX"), float].mapIt(it * NPix.float / TimepixSize)
-      centerY = h5f[(group.name / "centerY"), float].mapIt(it * NPix.float / TimepixSize)
-    let occ = clampedOccupancy(centerX, centerY, pd)
+      centerX = h5f.read(fileInfo, r, "centerX", pd.selector, pd.chip, dtype = float)
+      centerY = h5f.read(fileInfo, r, "centerY", pd.selector, pd.chip, dtype = float)
+      #centerX = h5f[(group.name / "centerX"), float].mapIt(it.toIdx())
+      #centerY = h5f[(group.name / "centerY"), float].mapIt(it.toIdx())
+    let occ = calcOccupancy(centerX, centerY)
     # stack this run onto the full data tensor
     occFull = occFull .+ occ
+  # now perform clamping
+  occFull = clampedOccupancy(occFull, pd)
   let title = buildTitle(pd)
   result[0] = buildOutfile(pd, fileDir, fileType)
   result[1] = plotHist2D(occFull, title, result[0])

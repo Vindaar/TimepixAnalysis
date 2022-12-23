@@ -28,25 +28,37 @@ proc main(files: seq[string], parameter = "theta") =
         df.add gainSlicesDf
     discard h5f.close()
   df.showBrowser()
+  df.writeCsv("/t/gas_gain_fit_parameters.csv")
   ggplot(df, aes(parameter, fill = factor("Chip"))) +
     geom_histogram(position = "identity", bins = 60,
                    hdKind = hdOutline, alpha = some(0.5)) +
     ggtitle("Input files: " & $files.mapIt(it.extractFilename).join(", ")) +
     ggsave(&"/tmp/{parameter}_values.pdf", width = 1000, height = 600)
 
-  ggplot(df, aes(parameter, fill = factor("Chip"))) +
-    facet_wrap("File", scales = "free") +
-    geom_histogram(position = "identity", bins = 60,
-                   hdKind = hdOutline, alpha = some(0.5)) +
-    ggtitle("Input files: " & $files.mapIt(it.extractFilename).join(", ")) +
-    ggsave(&"/tmp/{parameter}_values_by_files.pdf", width = 1200, height = 800)
+  if files.len > 1:
+    ggplot(df, aes(parameter, fill = factor("Chip"))) +
+      facet_wrap("File", scales = "free") +
+      geom_histogram(position = "identity", bins = 60,
+                     hdKind = hdOutline, alpha = some(0.5)) +
+      ggtitle("Input files: " & $files.mapIt(it.extractFilename).join(", ")) +
+      ggsave(&"/tmp/{parameter}_values_by_files.pdf", width = 1200, height = 800)
 
+    ggplot(df, aes("theta", "G_fit", fill = factor("Chip"))) +
+      facet_wrap("File", scales = "free") +
+      geom_point(size = some(2.0), alpha = some(0.9)) +
+      ggtitle("Input files: " & $files.mapIt(it.extractFilename).join(", ")) +
+      ggsave(&"/tmp/theta_vs_G_fit_values_by_files.pdf", width = 1200, height = 800)
+  else:
+    ggplot(df, aes(parameter, fill = factor("Chip"))) +
+      geom_histogram(position = "identity", bins = 60,
+                     hdKind = hdOutline, alpha = some(0.5)) +
+      ggtitle("Input files: " & $files.mapIt(it.extractFilename).join(", ")) +
+      ggsave(&"/tmp/{parameter}_values_by_files.pdf", width = 1200, height = 800)
 
-  ggplot(df, aes("theta", "G_fit", fill = factor("Chip"))) +
-    facet_wrap("File", scales = "free") +
-    geom_point(size = some(2.0), alpha = some(0.9)) +
-    ggtitle("Input files: " & $files.mapIt(it.extractFilename).join(", ")) +
-    ggsave(&"/tmp/theta_vs_G_fit_values_by_files.pdf", width = 1200, height = 800)
+    ggplot(df, aes(parameter, "G_fit", fill = factor("Chip"))) +
+      geom_point(size = some(2.0), alpha = some(0.9)) +
+      ggtitle("Input files: " & $files.mapIt(it.extractFilename).join(", ")) +
+      ggsave(&"/tmp/{parameter}_vs_G_fit_values_by_files.pdf", width = 1200, height = 800)
 
 
   #let dfG = df.gather(["N", "G_fit", "theta", "redChiSq"], key = "Parameter", value = "Value")

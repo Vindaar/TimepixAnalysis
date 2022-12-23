@@ -73,6 +73,10 @@ func polyaImpl*(p: seq[float], x: float): float =
   ## G     = p[1]    gas gain
   ## theta = p[2]    parameter, which describes distribution (?! I guess it makes sens
   ##                 since we take its power and it enters gamma)
+  ##
+  ## Description goes back to
+  ## `Statisitcs of electron avalanches and ultimate resolution of proportional counters`
+  ## by Alkhazov, 1970.
   let
     thetaDash = p[2] + 1
     coeff1 = (p[0] / p[1]) * pow((thetaDash), thetaDash) / gamma(thetaDash)

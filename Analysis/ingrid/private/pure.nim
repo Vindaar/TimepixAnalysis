@@ -777,6 +777,11 @@ proc processEventWithScanf*(data: ProtoFile): Event =
   result.nChips = chips.len
   # classify as a valid event
   result.isValid = true
+  # possibly subtract minimum chip number so that we always start at 0.
+  let minChip = result.chips.mapIt(it.chip.number).min
+  if minChip > 0:
+    for c in mitems(result.chips):
+      c.chip.number -= minChip
 
 proc addOldHeaderKeys(e_header, c_header: var Table[string, string],
                       eventNumber, chipNumber, timestamp, pix_counter: int,

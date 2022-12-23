@@ -35,13 +35,13 @@ macro `+`*[N, M: int](a: array[N, string], b: array[M, string]): untyped =
   ## array
   let aImpl = a.symbol.getImpl
   let bImpl = b.symbol.getImpl
+  doAssert aImpl.kind == nnkConstDef
+  doAssert bImpl.kind == nnkConstDef
   var tree = nnkBracket.newTree()
-  for x in aImpl:
-    tree.add quote do:
-      `x`
-  for x in bImpl:
-    tree.add quote do:
-      `x`
+  for x in aImpl[2]:
+    tree.add x
+  for x in bImpl[2]:
+    tree.add x
   result = nnkStmtList.newTree(
     tree
   )

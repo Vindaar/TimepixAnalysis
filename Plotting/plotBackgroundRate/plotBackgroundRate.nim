@@ -253,7 +253,8 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
                         hidePoints, hideErrors, fill: bool,
                         useTeX, showPreliminary, genTikZ: bool,
                         showNumClusters, showTotalTime: bool,
-                        topMargin, yMax: float,
+                        topMargin,
+                        yMax, xMax: float,
                         logPlot: bool) =
   var df = df.filter(f{c"Energy" < 12.0})
   var titleSuff = if title.len > 0: title
@@ -264,9 +265,8 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
   let transparent = color(0, 0, 0, 0)
   let fname = if outfile.len > 0: outpath / outfile
               else: &"{outpath}/background_rate_{fnameSuffix}.pdf"
-  echo "INFO: storing plot in ", fname
   echo df
-
+  echo "INFO: storing plot in ", fname
   var plt: GgPlot
   let numDsets = df.unique("Dataset").len
 
@@ -277,6 +277,9 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
   if logPlot:
     # make sure to remove 0 entries if we do a log plot
     df = df.filter(f{idx(Rcol) > 0.0})
+
+  if xMax > 0.0:
+    df = df.filter(f{idx(Ecol) <= xMax})
 
   if showTotalTime:
     if numDsets > 1:
@@ -311,8 +314,9 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
                   errorBarKind = ebLines)
   # force y continuous scales & set limit
   if not logPlot:
+    let xMax = if xMax > 0.0: xMax else: 12.0
     plt = plt + scale_y_continuous() +
-      xlim(0, 12.0)
+      xlim(0, xMax)
   else:
     plt = plt + scale_y_log10()
 
@@ -404,6 +408,7 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
           readToA = false,
           topMargin = 1.0,
           yMax = -1.0,
+          xMax = -1.0,
           useTeX = false,
           showPreliminary = false,
           showNumClusters = false,
@@ -513,7 +518,7 @@ proc main(files: seq[string], log = false, title = "", show2014 = false,
       hidePoints = hidePoints, hideErrors = hideErrors, fill = fill,
       useTeX = useTeX, showPreliminary = showPreliminary, genTikZ = genTikZ,
       showNumClusters = showNumClusters, showTotalTime = showTotalTime,
-      topMargin = topMargin, yMax = yMax,
+      topMargin = topMargin, yMax = yMax, xMax = xMax,
       logPlot = logPlot
     )
 
@@ -545,6 +550,7 @@ of the logL cut, creates a comparison plot.""",
     "readToA" : "If set will also read ToA related datasets. Required for `toaCutoff.",
     "topMargin" : "Margin at the top of the plot for long titles.",
     "yMax" : "If any given, limit the y axis to this value.",
+    "xMax" : "If any given, limit the x axis to this value.",
     "useTeX" : "Generate a plot using TeX",
     "showPreliminary" : "If set shows a big 'Preliminary' message in the center.",
     "showNumClusters" : "If set adds number of input clusters to title.",

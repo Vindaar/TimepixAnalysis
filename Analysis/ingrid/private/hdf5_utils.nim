@@ -834,6 +834,36 @@ proc getExtendedRunInfo*(h5f: H5File, runNumber: int,
   result.rfKind = rfKind
   result.runType = runType
 
+proc readFadcFromH5*(h5f: H5File, runNumber: int): seq[FadcFile] =
+  ## proc to read data from the HDF5 file from `group`
+  ## returns the chip number and a sequence containing the pixel data for this
+  ## event and its event number
+  let fadcGroup = fadcRawPath(runNumber)
+  doAssert fadcGroup in h5f
+  let group = h5f[fadcGroup.grp_str]
+  let evNumbers = h5f[group.name / "eventNumber", int]
+  let trigRec = h5f[group.name / "trigger_record", int]
+  let dset = h5f[(group.name / "raw_fadc").dset_str]
+  let fadcData = dset[uint16]
+  # now walk data and insert into `FadcFile`
+  var fFile = FadcFile(isValid: true,
+                       channelMask: group.attrs["channel_mask", int],
+                       frequency: group.attrs["frequency", int],
+                       postTrig: group.attrs["posttrig", int],
+                       preTrig: group.attrs["pretrig", int],
+                       nChannels: group.attrs["n_channels", int],
+                       samplingMode: group.attrs["sampling_mode", int],
+                       pedestalRun: group.attrs["pedestal_run", int] == 1)
+  let fadcSize = dset.shape[1]
+  let nEvs = dset.shape[0]
+  result = newSeq[FadcFile](nEvs)
+  for idx in 0 ..< nEvs:
+    fFile.eventNumber = evNumbers[idx]
+    fFile.trigRec = trigRec[idx]
+    # slice out the correct data
+    fFile.data = fadcData[idx * fadcSize ..< (idx + 1) * fadcSize]
+    result[idx] = fFile
+
 proc genPlotDirname*(h5f: H5File, outpath: string, attrName: string): string =
   ## generates a unique name for the directory in which all plots for this H5
   ## file will be created.

@@ -470,12 +470,6 @@ proc hasCuts(selector: DataSelector, file: string, dset: H5Dataset): bool =
       result = true
       break
 
-proc toTuple(c: GenericCut): tuple[dset: string, lower, upper: float] =
-  (dset: c.dset, lower: c.min, upper: c.max)
-
-proc toTuple(c: seq[GenericCut]): seq[tuple[dset: string, lower, upper: float]] =
-  result = c.mapIt(it.toTuple)
-
 proc applyCuts(h5f: H5File, selector: DataSelector, dset: H5Dataset, idx: seq[int]): seq[int] =
   ## Apply potential cut to this dataset
   result = idx
@@ -487,7 +481,7 @@ proc applyCuts(h5f: H5File, selector: DataSelector, dset: H5Dataset, idx: seq[in
     # now apply the correct cuts
     # get the cut indices to only read passing data
     if cuts.len > 0:
-      result = cutOnProperties(h5f, parentGrp, selector.region, cuts.toTuple)
+      result = cutOnProperties(h5f, parentGrp, selector.region, cuts)
       performedCut = true
     elif cuts.len == 0 and selector.region != crAll:
       result = cutOnProperties(h5f, parentGrp, selector.region)

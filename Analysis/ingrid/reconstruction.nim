@@ -8,7 +8,7 @@ import os, sequtils, sugar, math, tables, strutils, strformat, macros, options
 #import threadpool
 when not defined(gcDestructors):
   import threadpool_simple
-elif true:
+elif false:#  true:
   import std / threadpool
 else:
   import weave
@@ -469,7 +469,7 @@ proc reconstructSingleChip*(data: RecoInputData[Pix],
       result[event] = ^(res[event])
       echoCount(count, 100, msg = " cluster FlowVars unpacked")
     p.sync()
-  elif true:
+  elif false:
     {.error: "Compiling with `--gc:arc` is currently unsupported as we don't have a working threadpool " &
       "that can return objects containing seq / string like data that works with arc...".}
     var res = newSeq[FlowVar[RecoEvent[Pix]]](numElems)
@@ -486,17 +486,17 @@ proc reconstructSingleChip*(data: RecoInputData[Pix],
       result[event] = ^(res[event])
       echoCount(count, 5000, msg = " cluster FlowVars unpacked")
   else:
-    {.error: "Compiling with `--gc:arc` is currently unsupported as we don't have a working threadpool " &
-      "that can return objects containing seq / string like data that works with arc...".}
     init(Weave)
     var resBuf = cast[ptr UncheckedArray[RecoEvent[Pix]]](result[0].addr)
     parallelFor event in 0 ..< numElems:
-      captures: {resBuf, data, chip, run, searchRadius, dbscanEpsilon, clusterAlgo}
+      captures: {resBuf, data, chip, run, searchRadius, dbscanEpsilon, clusterAlgo, timepixVersion}
       resBuf[event] = recoEvent(data[event], chip, run, searchRadius,
                                 dbscanEpsilon = dbscanEpsilon,
                                 clusterAlgo = clusterAlgo,
                                 timepixVersion = timepixVersion)
       echoCounted(event, 5000, msg = " clusters reconstructed")
+    syncRoot(Weave)
+    exit(Weave)
 
 proc createAndFitFeSpec(h5f: H5File,
                         runNumber: int,

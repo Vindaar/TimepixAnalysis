@@ -15,34 +15,17 @@ import macros
 import seqmath
 import arraymancer
 
+# helpers for dealing with `Tensor` in generic seq / Tensor code
+proc len[T](t: Tensor[T]): int = t.size.int
+proc high[T](t: Tensor[T]): int = t.len - 1
+
 proc walkRunFolderAndGetFadcFiles*(folder: string): seq[string] =
   # walks a run folder and returns a seq of FADC filename strings
 
   # let lf = system.listFiles(folder)
   result = getListOfFiles(folder, ".*-fadc")
 
-proc convertFadcTicksToVoltage*[T](array: seq[T], bitMode14: bool): seq[T] =
-  ## this function converts the channel arrays from FADC ticks to V, by
-  ## making use of the mode_register written to file.
-  ## Mode register contains (3 bit register, see CAEN manual p.31):
-  ##    bit 0: EN_VME_IRQ interruption tagging of VME bus?!
-  ##    bit 1: 14BIT_MODE if set to 1, output uses 14 bit register, instead of
-  ##           backward compatible 12 bit
-  ##    bit 2: AUTO_RESTART_ACQ if 1, automatic restart of acqusition at end of
-  ##           RAM readout
-  result = @[]
-  var conversion_factor: float = 1'f64
-  if bitMode14 == true:
-    conversion_factor = 1 / 8192'f
-  else:
-    # should be 2048. instead of 4096 (cf. septemClasses.py)
-    conversion_factor = 1 / 2048'f
-
-  # calculate conversion using map and lambda proc macro
-  result = map(array, (x: float) -> float => x * conversion_factor)
-
-proc convertFadcTicksToVoltage*(data: Tensor[float], bitMode14: bool): Tensor[float] =
-  ## equivalent proc to above with Tensor[T] instead of seq[T]
+proc convertFadcTicksToVoltage*[T](array: T, bitMode14: bool): Tensor[float] =
   ## this function converts the channel arrays from FADC ticks to V, by
   ## making use of the mode_register written to file.
   ## Mode register contains (3 bit register, see CAEN manual p.31):
@@ -57,10 +40,9 @@ proc convertFadcTicksToVoltage*(data: Tensor[float], bitMode14: bool): Tensor[fl
   else:
     # should be 2048. instead of 4096 (cf. septemClasses.py)
     conversion_factor = 1 / 2048'f
-
-  # calculate conversion using tensor map, first create mutable copy by assigning
-  # to result
-  result = data.map(x => x * conversion_factor)
+  result = newTensorUninit[float](array.len)
+  for i in 0 ..< result.len:
+    result[i] = array[i] * conversion_factor
 
 proc readFadcFile*(file: seq[string]): FadcFile = #seq[float] =
   ## reads an FADC file. Example header + data line
@@ -306,11 +288,12 @@ proc calcMinOfPulseAlt*(array: Tensor[float], percentile: float): float =
   echo "Min of array is ", `min`
   result = mean(filtered_array)
 
-proc applyFadcPedestalRun*[T](fadc_data, pedestalRun: seq[T]): seq[float] =
+proc applyFadcPedestalRun*[T; U](fadc_data: T, pedestalRun: U): Tensor[float] =
   # applys the pedestal run given in the second argument to the first one
-  # by zipping the two arrays and using map to subtract each element
+  bind `len`
+  bind `high`
   doAssert fadc_data.len == pedestalRun.len
-  result = newSeq[float](fadc_data.len)
+  result = newTensorUninit[float](fadc_data.len)
   for i in 0 .. fadc_data.high:
     result[i] = fadc_data[i].float - pedestalRun[i].float
 
@@ -321,7 +304,7 @@ proc getCh0Indices*(): seq[int] {.inline.} =
   # it often!
   result = arange(3, 4*2560, 4)
 
-proc performTemporalCorrection*[T](data: seq[T], trigRec, postTrig: int): seq[T] =
+proc performTemporalCorrection*[T](data: Tensor[T], trigRec, postTrig: int): seq[T] =
   ## performs the temporal correction of the FADC cyclic register
   ## see CAEN FADC manual p. 15
   ## It is done by rotating the data array according to
@@ -329,19 +312,18 @@ proc performTemporalCorrection*[T](data: seq[T], trigRec, postTrig: int): seq[T]
   ##   nRoll = (trigRec - postTrig) * 20
   let nRoll = (trigRec - postTrig) * 20
   # now simply roll
-  result = rotatedLeft(data, nRoll)
+  result = rotatedLeft(toOpenArray(data.toUnsafeView(), 0, data.size.int), -nRoll)
 
-proc fadcFileToFadcData*[T](fadc_file: FadcFile,
-                            pedestalRun: seq[T],
-                            ch0_indices: seq[int]): FadcData =
+proc fadcFileToFadcData*[T](data: Tensor[uint16],
+                            pedestalRun: T,
+                            trigRec, postTrig: int, bitMode14: bool,
+                            ch0_indices: openArray[int]): FadcData =
   # this function converts an FadcFile object (read from a file) to
   # an FadcData object (extracted Ch0, applied pedestal run, converted
   # to volt)
   result = FadcData()
-
   # first apply the pedestal run
-  # TODO: extend this to apply the closest pedestal run instead?
-  var fadc_data = applyFadcPedestalRun(fadc_file.data, pedestalRun)
+  var fadc_data = applyFadcPedestalRun(data, pedestalRun)
 
   # and cut out channel 3 (the one we take data with)
   var ch0_vals = fadc_data[ch0_indices]
@@ -350,13 +332,17 @@ proc fadcFileToFadcData*[T](fadc_file: FadcFile,
   ch0_vals[1] = 0
 
   # now perform temporal correction
-  let tempCorrected = performTemporalCorrection(ch0_vals, fadc_file.trigRec, fadc_file.postTrig)
-
-  # assign result as tensor
-  result.data = tempCorrected.toTensor.astype(float)
-
+  let tempCorrected = performTemporalCorrection(ch0_vals, trigRec, postTrig)
   # convert to volt
-  result.data = convertFadcTicksToVoltage(result.data, fadc_file.bitMode14)
+  result.data = convertFadcTicksToVoltage(tempCorrected, bitMode14)
+
+proc fadcFileToFadcData*[T](fadc_file: FadcFile,
+                            pedestalRun: T,
+                            ch0_indices: openArray[int]): FadcData =
+  result = fadcFileToFadcData(fadc_file.data.toTensor(), pedestalRun,
+                              fadc_file.trigRec, fadc_file.postTrig,
+                              fadc_file.bitMode14,
+                              ch0_indices)
 
 proc fadcFileToFadcData*[T](fadc_file: FadcFile, pedestalRun: seq[T]): FadcData =
   # proc which wraps above proc by first creating the indices needed for the

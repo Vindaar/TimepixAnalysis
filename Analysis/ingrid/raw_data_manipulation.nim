@@ -375,15 +375,14 @@ proc processFadcData(fadcFiles: seq[FadcFile]): ProcessedFadcRun {.inline.} =
   ## calculation of minimum and check for noisy events
   # sequence to store the indices needed to extract the 0 channel
   let nEvents = fadcFiles.len
-  # convert FlowVars of FadcFiles to sequence of FadcFiles
-  result.raw_fadc_data = newSeq[seq[uint16]](nEvents)
+  result.raw_fadc_data = newTensorUninit[uint16]([nEvents, all_ch_len()])
   result.trigRecs = newSeq[int](nEvents)
   result.eventNumber = newSeq[int](nEvents)
   let t0 = epochTime()
   for i, ev in fadcFiles:
-    result.raw_fadc_data[i] = ev.data
-    result.trigRecs[i]      = ev.trigRec
-    result.eventNumber[i]   = ev.eventNumber
+    result.raw_fadc_data[i, _] = ev.data.toTensor.unsqueeze(axis = 0)
+    result.trigRecs[i]         = ev.trigRec
+    result.eventNumber[i]      = ev.eventNumber
   info "Calculation of $# events took $# seconds" % [$nEvents, $(epochTime() - t0)]
 
 proc initFadcInH5(h5f: var H5File, runNumber, batchsize: int, filename: string) =
@@ -445,7 +444,8 @@ proc writeFadcDataToH5(h5f: var H5File, runNumber: int, f_proc: ProcessedFadcRun
     eventNumber_name = eventNumberBasenameRaw(runNumber)
     ch_len = ch_len()
     all_ch_len = all_ch_len()
-    nEvents = f_proc.raw_fadc_data.len
+    # raw data tensor has N events as rows
+    nEvents = f_proc.raw_fadc_data.shape[0]
   var
     raw_fadc_dset = h5f[raw_name.dset_str]
     trigRec_dset = h5f[trigRec_name.dset_str]
@@ -464,27 +464,12 @@ proc writeFadcDataToH5(h5f: var H5File, runNumber: int, f_proc: ProcessedFadcRun
   # fine, because we need to resize to append. But in case we start this program twice in
   # a row, without deleting the file, we simply extend the dataset further, because we read
   # the current (final!) shape from the file
-  # NOTE: one way to mitigate t his, would be to set oldsize as a {.global.} variable
-  # in which case we simply set it to 0 on the first call and afterwards extend it by
-  # the size we add
   info "Adding to FADC datasets, from $# to $#" % [$oldsize, $newsize]
-  raw_fadc_dset.add f_proc.raw_fadc_data
+  # add raw FADC tensor by handing `ptr T` and `shape`
+  raw_fadc_dset.add(f_proc.raw_fadc_data.toUnsafeView(), @(f_proc.raw_fadc_data.shape))
   trigRec_dset.add f_proc.trigRecs
   eventNumber_dset.add f_proc.eventNumber
-
-  # now write the data
-  let t0 = epochTime()
-  # write using hyperslab
-  #fadc_dset.write_hyperslab(f_proc.fadc_data.toRawSeq,
-  #                          offset = @[oldsize, 0],
-  #                          count = @[nEvents, ch_len])
-  #noisy_dset.write_hyperslab(f_proc.noisy,
-  #                           offset = @[oldsize, 0],
-  #                           count = @[nEvents, 1])
-  #minVals_dset.write_hyperslab(f_proc.minVals,
-  #                             offset = @[oldsize, 0],
-  #                             count = @[nEvents, 1])
-  info "Writing of FADC data took $# seconds" % $(epochTime() - t0)
+  info "Done writing FADC data"
 
 proc readWriteFadcData(run_folder: string, runNumber: int, h5f: var H5File) =
   ## given a run_folder it reads all fadc files (data<number>.txt-fadc),
@@ -522,7 +507,7 @@ proc readWriteFadcData(run_folder: string, runNumber: int, h5f: var H5File) =
 
     # given read files, we now need to append this data to the HDF5 file, before
     # we can process more data, otherwise we might run out of RAM
-    f_proc = raw_fadc_data.processFadcData
+    f_proc = raw_fadc_data.processFadcData()
     info "Number of FADC files in this batch ", raw_fadc_data.len
 
     h5f.writeFadcDataToH5(runNumber, f_proc)

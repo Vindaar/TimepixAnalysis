@@ -212,30 +212,6 @@ type
     event_number*: int
     chip_number*: int
 
-  ##############
-  # FADC types #
-  ##############
-
-  FadcObject* = object of RootObj
-    isValid*: bool
-    postTrig*: int
-    preTrig*: int
-    trigRec*: int
-    bitMode14*: bool
-    nChannels*: int
-    channelMask*: int
-    frequency*: int
-    samplingMode*: int
-    pedestalRun*: bool
-
-
-  # object to save FADC data from file into
-  # inherits from FadcObject, only adds a sequence
-  # to store the data
-  FadcFile* = object of FadcObject
-    data*: seq[uint16]
-    eventNumber*: int
-
   ################################
   #### Analysis related types ####
   ################################
@@ -575,17 +551,45 @@ when not defined(pure) and not defined(js):
       # number of pixels removed due to ToT cut
       totCut*: ToTCut
 
+    ##############
+    # FADC types #
+    ##############
+    FadcSettings* = object of RootObj
+      isValid*: bool
+      postTrig*: int
+      preTrig*: int
+      bitMode14*: bool
+      nChannels*: int
+      channelMask*: int
+      frequency*: int
+      samplingMode*: int
+      pedestalRun*: bool
+
+    # object to save FADC data from file into
+    # inherits from FadcObject, only adds a sequence
+    # to store the data
+    FadcFile* = object of FadcSettings
+      data*: seq[uint16]
+      eventNumber*: int
+      trigRec*: int
+
     # object to store actual FADC data, which is
     # used (ch0 already extracted)
     # instead of a sequence for the data, we store the
     # converted data in an arraymancer tensor
-    FadcData* = object of FadcObject
+    FadcData* = object of FadcSettings
       # will be a 2560 element tensor
       data*: Tensor[float]
+      trigRec*: int
 
+    ## This object stores the FADC data of a (possibly partial) run. That means
+    ## each field contains N (= number of FADC events in a run) or a subset of
+    ## that elements. The raw FADC data tensor is a `[N, 2560 * 4]` sized tensor,
+    ## where each "row" is one FADC event of raw data.
     ProcessedFadcRun* = object
+      settings*: FadcSettings
       # raw fadc data (optional)
-      rawFadcData*: seq[seq[uint16]]
+      rawFadcData*: Tensor[uint16]
       # trigger record times, stored
       trigRecs*: seq[int]
       # register of minimum value

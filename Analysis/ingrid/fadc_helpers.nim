@@ -371,6 +371,47 @@ proc getPedestalRun*(): seq[uint16] =
   let pedestal = readFadcFile(pedestal_file)
   result = pedestal.data
 
+import weave
+proc percIdx(q: float, len: int): int = (len.float * q).round.int
+proc biasedTruncMean*[T](x: Tensor[T], axis: int, qLow, qHigh: float): Tensor[float] =
+  ## Computes the *biased* truncated mean of `x` by removing the quantiles `qLow` on the
+  ## bottom end and `qHigh` on the upper end.
+  ## ends of the data. `q` should be given as a fraction of events to remove on both ends.
+  ## E.g. `qLow = 0.05, qHigh = 0.99` removes anything below the 5-th percentile and above the 99-th.
+  ##
+  ## Note: uses `weave` internally to multithread along the desired axis!
+  doAssert x.rank == 2
+  result = newTensorUninit[float](x.shape[axis])
+  init(Weave)
+  let xBuf = x.toUnsafeView()
+  let resBuf = result.toUnsafeView()
+  let notAxis = if axis == 0: 1 else: 0
+  let numH = x.shape[notAxis] # assuming row column major, 0 is # rows, 1 is # cols
+  let numW = x.shape[axis]
+  parallelFor i in 0 ..< numW:
+    captures: {xBuf, resBuf, numH, numW, axis, qLow, qHigh}
+    let xT = xBuf.fromBuffer(numH, numW)
+    # get a sorted slice for index `i`
+    let subSorted = xT.atAxisIndex(axis, i).squeeze.sorted
+    let plow = percIdx(qLow, numH)
+    let phih = percIdx(qHigh, numH)
+
+    var resT = resBuf.fromBuffer(numW)
+    ## compute the biased truncated mean by slicing sorted data to lower and upper
+    ## percentile index
+    var red = 0.0
+    for j in max(0, plow) ..< min(numH, phih): # loop manually as data is `uint16` to convert
+      red += subSorted[j].float
+    resT[i] = red / (phih - plow).float
+  syncRoot(Weave)
+  exit(Weave)
+
+proc getPedestalRun*(files: ProcessedFadcRun): Tensor[float] =
+  ## Computes pedestals given an input `ProcessedFadcRun`, i.e.
+  ## the raw FADC data using a biased truncated mean approach.
+  result = biasedTruncMean(files.rawFadcData, axis = 1,
+                           qLow = 0.2, qHigh = 0.98)
+
 proc build_filename_from_event_number(number: string): string =
   # function receives event number as string and builds filename from it
 

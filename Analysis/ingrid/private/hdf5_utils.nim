@@ -2,7 +2,7 @@ import ../ingrid_types
 import helpers/utils
 import os except FileInfo
 import strutils, times, strformat, sequtils, tables, re, algorithm, sets, strscans
-import nimhdf5
+import nimhdf5, arraymancer
 import macros
 import pure
 
@@ -479,6 +479,9 @@ template noiseBasename*(runNumber: int): string =
 template minvalsBasename*(runNumber: int): string =
   fadcRecoPath(runNumber) / "minvals"
 
+template pedestalBasename*(runNumber: int): string =
+  fadcRecoPath(runNumber) / "pedestalRun"
+
 template fadcDataBasename*(runNumber: int): string =
   fadcRecoPath(runNumber) / "fadc_data"
 
@@ -834,7 +837,7 @@ proc getExtendedRunInfo*(h5f: H5File, runNumber: int,
   result.rfKind = rfKind
   result.runType = runType
 
-proc readFadcFromH5*(h5f: H5File, runNumber: int): seq[FadcFile] =
+proc readFadcFromH5*(h5f: H5File, runNumber: int): ProcessedFadcRun =
   ## proc to read data from the HDF5 file from `group`
   ## returns the chip number and a sequence containing the pixel data for this
   ## event and its event number
@@ -844,25 +847,22 @@ proc readFadcFromH5*(h5f: H5File, runNumber: int): seq[FadcFile] =
   let evNumbers = h5f[group.name / "eventNumber", int]
   let trigRec = h5f[group.name / "trigger_record", int]
   let dset = h5f[(group.name / "raw_fadc").dset_str]
-  let fadcData = dset[uint16]
-  # now walk data and insert into `FadcFile`
-  var fFile = FadcFile(isValid: true,
-                       channelMask: group.attrs["channel_mask", int],
-                       frequency: group.attrs["frequency", int],
-                       postTrig: group.attrs["posttrig", int],
-                       preTrig: group.attrs["pretrig", int],
-                       nChannels: group.attrs["n_channels", int],
-                       samplingMode: group.attrs["sampling_mode", int],
-                       pedestalRun: group.attrs["pedestal_run", int] == 1)
-  let fadcSize = dset.shape[1]
-  let nEvs = dset.shape[0]
-  result = newSeq[FadcFile](nEvs)
-  for idx in 0 ..< nEvs:
-    fFile.eventNumber = evNumbers[idx]
-    fFile.trigRec = trigRec[idx]
-    # slice out the correct data
-    fFile.data = fadcData[idx * fadcSize ..< (idx + 1) * fadcSize]
-    result[idx] = fFile
+  var fadcData = newTensorUninit[uint16](dset.shape)
+  dset.read(fadcData.toUnsafeView())
+  let settings = FadcSettings(isValid: true,
+                              channelMask: group.attrs["channel_mask", int],
+                              frequency: group.attrs["frequency", int],
+                              postTrig: group.attrs["posttrig", int],
+                              preTrig: group.attrs["pretrig", int],
+                              nChannels: group.attrs["n_channels", int],
+                              samplingMode: group.attrs["sampling_mode", int],
+                              pedestalRun: group.attrs["pedestal_run", int] == 1)
+  result = ProcessedFadcRun(
+    settings: settings,
+    rawFadcData: fadcData,
+    trigRecs: trigRec,
+    eventNumber: evNumbers
+  )
 
 proc genPlotDirname*(h5f: H5File, outpath: string, attrName: string): string =
   ## generates a unique name for the directory in which all plots for this H5

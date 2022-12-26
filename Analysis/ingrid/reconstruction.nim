@@ -129,7 +129,8 @@ macro setTabFields(tab: Table[string, seq[seq[typed]]],
   ## fields of the object `obj` of the same names as the names in the table
   result = newStmtList()
   let namesImpl = names.getImpl
-  for name in namesImpl:
+  doAssert namesImpl.kind == nnkConstDef
+  for name in namesImpl[2]:
     let field = parseExpr(name.strVal)
     result.add quote do:
       `tab`[`name`][`chip`].add `obj`.`field`

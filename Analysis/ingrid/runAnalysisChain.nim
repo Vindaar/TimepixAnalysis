@@ -1,5 +1,6 @@
 import shell
-import std / [strutils, strformat, os, options, algorithm, sequtils, math]
+import std / [strutils, strformat, options, algorithm, sequtils, math]
+import std / os except FileInfo, getFileInfo
 from sequtils import toSeq
 import helpers / utils
 import logging
@@ -20,7 +21,8 @@ Options:
   --version    Show the version number
 """
 
-from ingrid / ingrid_types import RunTypeKind
+import ingrid / [ingrid_types]
+import ingrid / private / [hdf5_utils, pure]
 from reconstruction import RecoFlags, RecoConfig, initRecoConfig
 
 const subPaths = ["2014_15", "2017", "2018_2"]
@@ -42,6 +44,10 @@ type
     ikDataFolder # refers to a folder containing directories required for 2017/2018
                  # CAST data analysis (sub dirs for 2017, 2018_2 with each calibration & background)
 
+  StepKind = enum
+    skRaw  # run folder / data folder (but data folder is _not_ equivalent. can contain finished H5 files!)
+    skReco # ikFileH5 as input
+
   DataYear = enum
     dy2014 = 2014
     dy2017 = 2017
@@ -51,7 +57,9 @@ type
   Config = object ## Configuration for the analysis
     input: string # the input file / directory
     path: string  # the path of the input. If input is a file `path` is the parent dir. Else it's `input`
-    inputKind: InputKind
+    case inputKind: InputKind
+    of ikFileH5: fileInfo: FileInfo
+    else: discard
     anaFlags: set[AnaFlags] = {}
     runNumber: Option[int]
     recoCfg: RecoConfig
@@ -90,7 +98,7 @@ proc toStr(rt: RunTypeKind): string =
   of rtXrayFinger: "xray"
 
 proc toRunStr(cfg: Config): string =
-  result = if cfg.runNumber.isSome: "Run_" & $cfg.runNumber.get
+  result = if cfg.runNumber.isSome: "Run_" & $cfg.runNumber.get & "_"
            else: "Runs"
 
 ## XXX: fix me: use run type or use `afCalib/afBack`? Differentiate CAST & else
@@ -107,15 +115,30 @@ proc initConfig(input: string,
                 outpath: string,
                 inputKind: InputKind,
                 recoCfg: RecoConfig,
-                runType: RunTypeKind): Config =
+                runType: RunTypeKind,
+                anaFlags: set[AnaFlags]): Config =
   let path = if inputKind == ikFileH5: input.parentDir()
              else: input
   let outpath = if outpath.len == 0: path
                 else: outpath
-  result = Config(input: input, path: path, inputKind: inputKind,
+  result = Config(input: input, path: path,
+                  inputKind: inputKind,
                   outpath: outpath,
                   recoCfg: recoCfg, runType: runType,
-                  runNumber: recoCfg.runNumber)
+                  runNumber: recoCfg.runNumber,
+                  anaFlags: anaFlags)
+  case inputKind
+  of ikFileH5:
+    result.fileInfo = getFileInfo(input)
+    # if only single run in file, set that as run number to get correct naming
+    if result.runNumber.isNone and result.fileInfo.runs.len == 1:
+      result.runNumber = some(result.fileInfo.runs[0])
+  of ikRunFolder:
+    let (is_rf, runNumber, _, _) = isTosRunFolder(input)
+    doAssert is_rf, "Input is not a run folder! Input: " & $input
+    result.runNumber = some(runNumber)
+  else:
+    discard
 
 proc toDataPath(year: DataYear): string =
   case year
@@ -128,26 +151,27 @@ proc rawDataManipulation(path, runType, outName: string): bool =
   let outStr = &"--out={outName}"
   info "Running raw_data_manipulation on " & $path & $runTypeStr & $outStr
   let res = shellVerbose:
-    ./raw_data_manipulation ($path) ($runTypeStr) ($outStr)
+    raw_data_manipulation -p ($path) ($runTypeStr) ($outStr)
   #info "Last commands output: " & $res[0]
   info "Last commands exit code: " & $res[1]
   result = res[1] == 0
 
 proc toStr(opt: set[RecoFlags]): string = opt.toSeq.join(" ")
 
-proc reconstruction(rawName: string, recoName: string, options: set[RecoFlags],
-                    cfg: Config): bool =
+proc reconstruction(input: string, options: set[RecoFlags],
+                    cfg: Config,
+                    output: string = ""): bool =
   let option = options.toStr()
   let runNumber = if cfg.recoCfg.runNumber.isSome: "--runNumber " & $cfg.recoCfg.runNumber.get
                   else: ""
-  info "Running reconstruction on " & $rawName & $option
+  info "Running reconstruction on " & $input & $option
   var res: (string, int)
   if option.len > 0: # has any options, implying not raw->reco step
     res = shellVerbose:
-      ./reconstruction ($recoName) ($runNumber) ($option)
-  else:
+      reconstruction -i ($input) ($runNumber) ($option)
+  elif output.len > 0:
     res = shellVerbose:
-      ./reconstruction ($rawName) "--out" ($recoName) ($runNumber)
+      reconstruction -i ($input) "--out" ($output) ($runNumber)
   #info "Last commands output: " & $res[0]
   info "Last commands exit code: " & $res[1]
   result = res[1] == 0
@@ -161,7 +185,7 @@ template tc(cmd: untyped): untyped {.dirty.} =
 
 proc runCastChain(dYear: DataYear, cfg: Config): bool =
   ## performs the whole chain of the given dataset
-  let dataPath = path / (yearKind.toDataPath())
+  let dataPath = cfg.path / (dYear.toDataPath())
   let outpath = if cfg.outpath.len > 0: cfg.outpath
                 else: dataPath
   var toContinue = true
@@ -186,34 +210,58 @@ proc runCastChain(dYear: DataYear, cfg: Config): bool =
   for opt in recoOptions:
     if afCalib in cfg.anaFlags and afReco in cfg.anaFlags:
       tc(reconstruction(calibOut,
-                        recoCalibOut,
-                        opt, cfg))
+                        opt, cfg,
+                        output = recoCalibOut
+      ))
     if rfOnlyGainFit notin opt and afBack in cfg.anaFlags and afReco in cfg.anaFlags:
       tc(reconstruction(backOut,
-                        recoBackOut,
-                        opt, cfg))
+                        opt, cfg,
+                        output = recoBackOut))
+
   result = toContinue
 
 proc runChain(cfg: Config) =
   ## Performs analysis on the given input. Either a directory (possibly with subs)
   var toContinue = true
 
+
+  ## XXX: Ok so:
+  ## We should restrict the operations we perform partially based on what the input even allows. At least
+  ## among `raw` and `reco` there is only one step that is _possible_ given a certain input.
   ##
-  if afRaw in cfg.anaFlags:
-    tc(rawDataManipulation(
-      cfg.path, $cfg.runType,
-      cfg.outpath / cfg.toOutfile(cfg.runType, afRaw, "")) # no explicit year
-    )
+  ## This means:
+  ##
+  ## Based on input kind we can assert where to start! And thus what the input file name is!
+  if cfg.inputKind == ikRunFolder and afRaw notin cfg.anaFlags:
+    raise newException(Exception, "Input does not do anything. Input is a run folder, but `--raw` " &
+      "flag not provided. Cannot continue after.")
 
-  # if any reco flags given, use only those instead of our predefined set
-  let recoOptions = if cfg.recoCfg.flags.card > 0: cfg.recoCfg.flags.toSeq.sorted.mapIt({it})
-                    else: recoOptions.filterIt(rfOnlyGainFit notin it) # gain fit does not make sense in single input case
+  var input = cfg.input
 
-  if afReco in cfg.anaFlags:
-    tc(reconstruction(cfg.path / cfg.toOutfile(cfg.runType, afRaw, ""), # no explicit year
-                      cfg.path / cfg.toOutfile(cfg.runType, afReco, ""),
-                      {},
-                      cfg))
+  ## dispatch to a generic procedure? This same thing here with different args? or whatever
+  if cfg.inputKind == ikRunFolder: # skip if H5 input
+    let output = cfg.outpath / cfg.toOutfile(cfg.runType, afRaw, "") # no explicit year
+    if afRaw in cfg.anaFlags:
+      tc(rawDataManipulation(
+        input, $cfg.runType, output)
+      )
+    input = output
+
+  if cfg.inputKind in {ikRunFolder, ikFileH5}:
+    # if any reco flags given, use only those instead of our predefined set
+    let recoOptions = if cfg.recoCfg.flags.card > 0: cfg.recoCfg.flags.toSeq.sorted.mapIt({it})
+                      else: recoOptions.filterIt(rfOnlyGainFit notin it and rfNone notin it) # gain fit does not make sense in single input case
+
+    let output = cfg.outpath / cfg.toOutfile(cfg.runType, afReco, "")
+    if afReco in cfg.anaFlags:
+      tc(reconstruction(input, # no explicit year
+                        {},
+                        cfg,
+                        output = output))
+      input = output
+    # else apply reco options
+    for opt in recoOptions:
+      tc(reconstruction(input, opt, cfg)) # no output
 
 proc main(
   path: string,
@@ -258,9 +306,9 @@ proc main(
       recoFlags: set[RecoFlags]
       calibFactor = NaN
       runNumberArg: Option[int]
-    if runNumber < 0:
-      recoFlags.incl rfReadAllRuns
-    else:
+    #if runNumber < 0:
+    #  recoFlags.incl rfReadAllRuns
+    if runNumber >= 0: # else:
       runNumberArg = some(runNumber)
     if classify(only_energy) != fcNaN:
       recoFlags.incl rfOnlyEnergy
@@ -282,7 +330,7 @@ proc main(
     initRecoConfig(recoFlags, runNumberArg, calibFactor)
 
   let inputKind = if path.endsWith(".h5"): ikFileH5 else: inputKind
-  var cfg = initConfig(path, outpath, inputKind, recoCfg, runType)
+  var cfg = initConfig(path, outpath, inputKind, recoCfg, runType, anaFlags)
 
 
   ## XXX: if the input is a H5 file open it and determine what type of
@@ -300,8 +348,8 @@ proc main(
   of ikDataFolder:
     for year in years:
       doAssert year.uint16 in {2014, 2017, 2018}, "Years supported are 2014, 2017, 2018."
-      let yearKind = DataYear(year)
-      tc(runCastChain(yearKind, cfg))
+      let dYear = DataYear(year)
+      tc(runCastChain(dYear, cfg))
   else:
     doAssert cfg.runType != rtNone, "For individual runs a `runType` is required."
     runChain(cfg)

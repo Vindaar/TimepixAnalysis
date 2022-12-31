@@ -788,6 +788,15 @@ proc getFileInfo*(h5f: H5File): FileInfo =
     # sort the run numbers
     result.runs.sort
 
+proc getFileInfo*(fname: string): FileInfo =
+  ## Returns the `FileInfo` for an input file if it is a valid TPA H5 file.
+  ## Raises an `IOError` if the input file is not a H5 file.
+  if not fname.endsWith(".h5"):
+    raise newException(IOError, "Input file `" & $fname & "` is not an HDF5 file. Cannot " &
+      "return the `FileInfo`.")
+  withH5(fname, "r"):
+    result = getFileInfo(h5f)
+
 proc parseTracking(grp: H5Group, idx: int): RunTimeInfo =
   let
     start = grp.attrs[&"tracking_start_{idx}", string]

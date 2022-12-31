@@ -34,7 +34,7 @@ type
     rfOnlyGainFit         = "--only_gain_fit"
     rfOnlyEnergy          = "--only_energy"
     rfOnlyEnergyElectrons = "--only_energy_from_e"
-    rfReadAllRuns         = ""
+    rfReadAllRuns         = "rfReadAllRuns"
 
   RecoConfig* = object
     flags*: set[RecoFlags] = {}

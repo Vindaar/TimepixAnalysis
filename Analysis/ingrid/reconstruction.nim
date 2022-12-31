@@ -59,8 +59,8 @@ const versionStr = "Version: $# built on: $#" % [commitHash, compileDate]
 # the filter we use globally in this file
 let filter = H5Filter(kind: fkZlib, zlibLevel: 4)
 #let filter = H5Filter(kind: fkNone)
-const Chunksize = 10000
-
+## XXX: make runtime changeable using config.toml!
+const Chunksize {.intdefine.} = 10000
 
 ################################################################################
 

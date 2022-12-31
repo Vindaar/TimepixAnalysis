@@ -30,7 +30,8 @@ type
   RawFlagKind = enum
     rfIgnoreRunList, rfOverwrite, rfNoFadc, rfTpx3
 
-const FILE_BUFSIZE = 75_000
+## XXX: make runtime changeable using config.toml!
+const FILE_BUFSIZE {.intdefine.} = 5_000
 
 ##############################
 # create globals for 2014/15 run list

@@ -339,6 +339,8 @@ proc writeFadcReco*(h5f: H5File, runNumber: int, fadc: ReconstructedFadcRun,
   let dataSize = fadc.fadcData.size.int
   let nEvents = fadc.eventNumber.len
   # resize & write
+  ## XXX: do not resize, but delete & recreate
+
   dset.resize((nEvents, ch_len()))
   dset.unsafeWrite(cast[ptr uint16](fadc.fadcData.unsafe_raw_offset()), dataSize)
   eventNumber.resize((nEvents,))
@@ -347,6 +349,8 @@ proc writeFadcReco*(h5f: H5File, runNumber: int, fadc: ReconstructedFadcRun,
   noisy.unsafeWrite(cast[ptr int](fadc.noisy[0].unsafeAddr), nEvents)
   minVals.resize((nEvents,))
   minVals.unsafeWrite(cast[ptr float](fadc.minVals[0].unsafeAddr), nEvents)
+
+  ## XXX: pedestal is fixed size, not `nEvents`!
   pedestal.resize((nEvents,))
   pedestal.unsafeWrite(pedestalRun.toUnsafeView(), nEvents)
   info "Writing of FADC data took $# seconds" % $(epochTime() - t0)

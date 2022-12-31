@@ -4,7 +4,8 @@
 #   - calculating properties of Events
 
 # nim stdlib
-import os, sequtils, sugar, math, tables, strutils, strformat, macros, options
+import std / [os, sequtils, sugar, math, tables, strutils, strformat,
+              macros, options, logging, sets, times]
 #import threadpool
 when not defined(gcDestructors):
   import threadpool_simple
@@ -12,32 +13,40 @@ elif false:#  true:
   import std / threadpool
 else:
   import weave
-import logging
-import docopt
-import times
-import sets
 
 # external modules
-import nimhdf5
-import parsetoml
-
-# custom modules
-import tos_helpers
+import pkg / [nimhdf5, parsetoml]
+import cligen / macUt # for `docCommentAdd`
+# external TPA modules
 import helpers/utils
-import ingrid_types
-import calibration
-import fadc_analysis, fadc_helpers
+
+# local modules
+import ingrid_types, tos_helpers, calibration, fadc_analysis, fadc_helpers
 
 type
-  RecoFlagKind = enum
-    rfNone, rfCreateFe, rfOnlyEnergy, rfOnlyEnergyElectrons,
-    rfOnlyCharge, rfOnlyFeSpec, rfOnlyFadc, rfOnlyGasGain, rfOnlyGainFit,
-    rfReadAllRuns
+  RecoFlags* = enum
+    rfNone                = ""
+    rfCreateFe            = "--create_fe"
+    rfOnlyFeSpec          = "--only_fe_spec"
+    rfOnlyFadc            = "--only_fadc"
+    rfOnlyCharge          = "--only_charge"
+    rfOnlyGasGain         = "--only_gas_gain"
+    rfOnlyGainFit         = "--only_gain_fit"
+    rfOnlyEnergy          = "--only_energy"
+    rfOnlyEnergyElectrons = "--only_energy_from_e"
+    rfReadAllRuns         = ""
+
+  RecoConfig* = object
+    flags*: set[RecoFlags] = {}
+    runNumber*: Option[int] # possibly restrict to individual run number
+    calibFactor*: float # if `only_energy` in `flags` use this factor
+    searchRadius* = 50
+    dbscanEpsilon* = 60
+    clusterAlgo* = caDefault
+    # ???
 
   ConfigFlagKind = enum
     cfNone, cfShowPlots
-
-  DocoptTab = Table[string, docopt.Value]
 
 when defined(linux):
   const commitHash = staticExec("git rev-parse --short HEAD")
@@ -45,55 +54,7 @@ else:
   const commitHash = ""
 # get date using `CompileDate` magic
 const compileDate = CompileDate & " at " & CompileTime
-
-const docTmpl = """
-Version: $# built on: $#
-InGrid reconstruction and energy calibration.
-
-NOTE: When calling `reconstruction` without any of the `--only_*` flags, the input file
-has to be a H5 file resulting from `raw_data_manipulation`. In the other cases the input is
-simply a file resulting from a prior `reconstruction` call!
-
-The `--only_*` flags below are given roughly in the order in which the full analysis chain
-requires them to be run. If unsure on the order, check the runAnalysisChain.nim file.
-
-Usage:
-  reconstruction <HDF5file> --out <name> [options]
-  reconstruction <HDF5file> --out <name> [--runNumber <number>] [--create_fe_spec] [options]
-  reconstruction <HDF5file> [--runNumber <number>] --only_fadc [options]
-  reconstruction <HDF5file> [--runNumber <number>] --only_fe_spec [options]
-  reconstruction <HDF5file> [--runNumber <number>] --only_charge [options]
-  reconstruction <HDF5file> [--runNumber <number>] --only_gas_gain [options]
-  reconstruction <HDF5file> [--runNumber <number>] --only_gain_fit [options]
-  reconstruction <HDF5file> [--runNumber <number>] --only_energy_from_e [options]
-  reconstruction <HDF5file> [--runNumber <number>] --only_energy <factor> [options]
-  reconstruction -h | --help
-  reconstruction --version
-
-
-Options:
-  --out <name>            Filename and path of output file
-  --runNumber <number>    Only work on this run
-  --create_fe_spec        Toggle to create Fe calibration spectrum based on cuts
-                          Takes precedence over --calib_energy if set!
-  --only_energy <factor>  Toggle to /only/ perform energy calibration using the given factor.
-                          Takes precedence over --create_fe_spec if set.
-                          If no runNumber is given, performs energy calibration on all runs
-                          in the HDF5 file.
-  --only_energy_from_e    Toggle to /only/ calculate the energy for each cluster based on
-                          the Fe charge spectrum vs gas gain calibration
-  --only_fe_spec          Toggle to /only/ create the Fe spectrum for this run and perform the
-                          fit of it. Will try to perform a charge calibration, if possible.
-  --only_charge           Toggle to /only/ calculate the charge for each TOT value based on
-                          the TOT calibration. The `ingridDatabase.h5` needs to be present.
-  --only_fadc             If this flag is set, the reconstructed FADC data is used to calculate
-                          FADC values such as rise and fall times among others, which are written
-                          to the H5 file.
-  --config <path>         Path to the configuration file to use.
-  -h --help               Show this help
-  --version               Show version.
-"""
-const doc = docTmpl % [commitHash, compileDate]
+const versionStr = "Version: $# built on: $#" % [commitHash, compileDate]
 
 # the filter we use globally in this file
 let filter = H5Filter(kind: fkZlib, zlibLevel: 4)
@@ -113,6 +74,10 @@ when isMainModule:
   addHandler(fL)
 
 ################################################################################
+
+proc initRecoConfig*(flags: set[RecoFlags], runNumber: Option[int],
+                     calibFactor: float): RecoConfig =
+  RecoConfig(flags: flags, runNumber: runNumber, calibFactor: calibFactor)
 
 template ch_len(): int = 2560
 template all_ch_len(): int = ch_len() * 4
@@ -136,8 +101,8 @@ macro setTabFields(tab: Table[string, seq[seq[typed]]],
       `tab`[`name`][`chip`].add `obj`.`field`
 
 proc initDataTab[T; N: int](tab: var Table[string, seq[seq[T]]],
-                                           nchips: int,
-                                           names: array[N, string]) =
+                            nchips: int,
+                            names: array[N, string]) =
   ## convenienve proc to initialize the seqs inside a table `tab` storing the
   ## data for all `nchips` of the `names`
   for dset in names:
@@ -428,7 +393,6 @@ iterator readDataFromH5*(h5f: H5File, runNumber: int,
                        toa: raw_toa[i], toaCombined: raw_toa_combined[i])
       yield (chip: chip_number, eventData: run_pix)
 
-{.experimental.}
 proc reconstructSingleChip*(data: RecoInputData[Pix],
                             run, chip, searchRadius: int,
                             dbscanEpsilon: float,
@@ -710,7 +674,7 @@ template recordIterRuns*(base: string, body: untyped): untyped =
 
 proc reconstructRunsInFile(h5f: H5File,
                            h5fout: H5File,
-                           flags: set[RecoFlagKind],
+                           flags: set[RecoFlags],
                            cfgFlags: set[ConfigFlagKind],
                            searchRadius: int,
                            dbscanEpsilon: float,
@@ -800,7 +764,7 @@ proc reconstructRunsInFile(h5f: H5File,
       h5grp.attrs["RawTransferFinished"] = "true"
 
 proc applyCalibrationSteps(h5f: H5File,
-                           flags: set[RecoFlagKind],
+                           flags: set[RecoFlags],
                            cfgFlags: set[ConfigFlagKind],
                            cfgTable: TomlValueRef,
                            runNumberArg = none[int](),
@@ -873,21 +837,7 @@ proc parseTomlConfig(configFile: string): (TomlValueRef, set[ConfigFlagKind]) =
     flags.incl cfShowPlots
   result = (config, flags)
 
-proc parseOnlyFlags(args: DocoptTab): set[RecoFlagKind] =
-  if $args["--only_charge"] == "true":
-    result.incl rfOnlyCharge
-  if $args["--only_fadc"] == "true":
-    result.incl rfOnlyFadc
-  if $args["--only_fe_spec"] == "true":
-    result.incl rfOnlyFeSpec
-  if $args["--only_gas_gain"] == "true":
-    result.incl rfOnlyGasGain
-  if $args["--only_gain_fit"] == "true":
-    result.incl rfOnlyGainFit
-  if $args["--only_energy_from_e"] == "true":
-    result.incl rfOnlyEnergyElectrons
-
-proc flagsValid(h5f: H5File, flags: set[RecoFlagKind]): bool =
+proc flagsValid(h5f: H5File, flags: set[RecoFlags]): bool =
   ## Checks whether the flags are actually valid for the given file
   let grp = h5f[recoGroupGrpStr()]
   result = true
@@ -898,42 +848,60 @@ proc flagsValid(h5f: H5File, flags: set[RecoFlagKind]): bool =
         "calibration runs!"
       return false
 
-proc main() =
-
+proc main(h5file: string,
+          outfile = "",
+          runNumber = -1,
+          create_fe_spec = false,
+          only_fadc = false,
+          only_fe_spec = false,
+          only_charge = false,
+          only_gas_gain = false,
+          only_gain_fit = false,
+          only_energy_from_e = false,
+          only_energy = NaN,
+          config = ""
+          ) =
+  ## InGrid reconstruction and energy calibration.
+  ## NOTE: When calling `reconstruction` without any of the `--only_*` flags, the input file
+  ## has to be a H5 file resulting from `raw_data_manipulation`. In the other cases the input is
+  ## simply a file resulting from a prior `reconstruction` call!
+  ## The optional flags are given roughly in the order in which the full analysis chain
+  ## requires them to be run. If unsure on the order, check the runAnalysisChain.nim file.
+  docCommentAdd(versionStr)
   # create command line arguments using docopt
-  let args = docopt(doc)
-  echo args
-
   let
-    h5f_name = $args["<HDF5file>"]
-    create_fe_arg = $args["--create_fe_spec"]
-    configFile = if $args["--config"] != "nil": $args["--config"]
-                 else: ""
+    h5f_name = h5file
   var
-    flags: set[RecoFlagKind]
-    runNumberArg = $args["--runNumber"]
-    runNumber: Option[int]
-    calibFactorStr = $args["--only_energy"]
+    flags: set[RecoFlags]
     calibFactor: Option[float]
-    outfile = $args["--out"]
-  if runNumberArg == "nil":
+    runNumberArg: Option[int]
+  if runNumber < 0:
     flags.incl rfReadAllRuns
   else:
-    runNumber = some(parseInt(runNumberArg))
-  if outfile != "nil":
-    outfile = $args["--out"]
+    runNumberArg = some(runNumber)
+  if outfile.len > 0:
     info &"Set outfile to {outfile}"
-  if create_fe_arg == "true":
-    flags.incl rfCreateFe
-  if calibFactorStr != "nil":
+  # fill `flags`
+  if classify(only_energy) != fcNaN:
     flags.incl rfOnlyEnergy
-    calibFactor = some(parseFloat(calibFactorStr))
-
-  # parse the explicit `--only_...` flags
-  flags = flags + parseOnlyFlags(args)
+    calibFactor = some(only_energy)
+  if create_fe_spec:
+    flags.incl rfCreateFe
+  if onlyCharge:
+    flags.incl rfOnlyCharge
+  if onlyFadc:
+    flags.incl rfOnlyFadc
+  if onlyFeSpec:
+    flags.incl rfOnlyFeSpec
+  if onlyGasGain:
+    flags.incl rfOnlyGasGain
+  if onlyGainFit:
+    flags.incl rfOnlyGainFit
+  if onlyEnergyFromE:
+    flags.incl rfOnlyEnergyElectrons
 
   # parse config toml file
-  let (cfgTable, cfgFlags) = parseTomlConfig(configFile)
+  let (cfgTable, cfgFlags) = parseTomlConfig(config)
 
   let plotOutPath = cfgTable["Calibration"]["plotDirectory"].getStr
   var h5f = H5open(h5f_name, "rw")
@@ -941,6 +909,9 @@ proc main() =
   let searchRadius = cfgTable["Reconstruction"]["searchRadius"].getInt
   let dbscanEpsilon = cfgTable["Reconstruction"]["epsilon"].getFloat
   let clusterAlgo = parseEnum[ClusteringAlgorithm](cfgTable["Reconstruction"]["clusterAlgo"].getStr)
+
+  ## XXX: use `RecoConfig` here!!
+
 
   if (flags * {rfOnlyEnergy .. rfOnlyGainFit}).card == 0:
     # `reconstruction` call w/o `--only-*` flag
@@ -956,7 +927,7 @@ proc main() =
                             searchRadius = searchRadius,
                             dbscanEpsilon = dbscanEpsilon,
                             clusterAlgo = clusterAlgo,
-                            runNumberArg = runNumber)
+                            runNumberArg = runNumberArg)
 
     var err = h5f.close()
     if err != 0:
@@ -968,11 +939,36 @@ proc main() =
     var h5f = H5open(h5f_name, "rw")
     if flagsValid(h5f, flags):
       applyCalibrationSteps(h5f, flags, cfgFlags, cfgTable,
-                            runNumberArg = runNumber,
+                            runNumberArg = runNumberArg,
                             calibFactor = calibFactor)
     else:
       logging.warn &"Invalid flags given for file {h5f_name}: {flags}"
 
-
 when isMainModule:
-  main()
+  import cligen
+  dispatch(main, help = {
+    "outfile"            : "Filename and path of output file",
+    "runNumber"          : "Only work on this run",
+    "create_fe_spec"     : """Toggle to create Fe calibration spectrum based on cuts
+Takes precedence over --calib_energy if set!""",
+    "only_fadc"          : """If this flag is set, the reconstructed FADC data is used to calculate
+FADC values such as rise and fall times among others, which are written
+to the H5 file.""",
+    "only_fe_spec"       : """Toggle to /only/ create the Fe spectrum for this run and perform the
+fit of it. Will try to perform a charge calibration, if possible.""",
+    "only_charge"        : """Toggle to /only/ calculate the charge for each TOT value based on
+the TOT calibration. The `ingridDatabase.h5` needs to be present.""",
+    "only_gas_gain"      : """Toggle to /only/ calculate the gas gain for the runs in the input file based on
+the polya fits to time slices defined by `gasGainInterval`. `ingridDatabase.h5` needs to be present.""",
+    "only_gain_fit"      : """Toggle to /only/ calculate the fit mapping the energy calibration
+factors of the 55Fe runs to the gas gain values for each time slice. Required to calculate the
+energy in any run using `only_energy_from_e`.""",
+    "only_energy_from_e" : """Toggle to /only/ calculate the energy for each cluster based on
+the Fe charge spectrum vs gas gain calibration""",
+    "only_energy"        : """Toggle to /only/ perform energy calibration using the given factor.
+Takes precedence over --create_fe_spec if set.
+If no runNumber is given, performs energy calibration on all runs
+in the HDF5 file.""",
+    "config"             : "Path to the configuration file to use.",
+    "version"            : "Show version."
+  })

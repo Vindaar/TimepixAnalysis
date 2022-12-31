@@ -717,7 +717,7 @@ proc reconstructRunsInFile(h5f: H5File,
     if (runNumberArg.isSome and runNumber == runNumberArg.get) or
        rfReadAllRuns in flags:
       # intersection of `flags` with all `"only flags"` has to be empty
-      doAssert (flags * {rfOnlyEnergy .. rfOnlyGainFit}).card == 0
+      doAssert (flags * {rfOnlyFeSpec .. rfOnlyEnergyElectrons}).card == 0
       # initialize groups in `h5fout`
       if inputHasFadc:
         initRecoFadcInH5(h5f, h5fout, runNumber, batchsize)
@@ -801,7 +801,7 @@ proc applyCalibrationSteps(h5f: H5File,
     if (runNumberArg.isSome and runNumber == runNumberArg.get) or
        rfReadAllRuns in flags:
       # intersection of `flags` with all `"only flags"` must not be empty
-      doAssert (flags * {rfOnlyEnergy .. rfOnlyGainFit}).card > 0
+      doAssert (flags * {rfOnlyFeSpec .. rfOnlyEnergyElectrons}).card > 0
       # only perform energy calibration of the reconstructed runs in file
       # check if reconstructed run exists
       if hasKey(h5f.groups, (recoBase & $runNumber)) == true:
@@ -852,7 +852,7 @@ proc flagsValid(h5f: H5File, flags: set[RecoFlags]): bool =
         "calibration runs!"
       return false
 
-proc main(h5file: string,
+proc main(input: string,
           outfile = "",
           runNumber = -1,
           create_fe_spec = false,
@@ -874,7 +874,7 @@ proc main(h5file: string,
   docCommentAdd(versionStr)
   # create command line arguments using docopt
   let
-    h5f_name = h5file
+    h5f_name = input
   var
     flags: set[RecoFlags]
     calibFactor: Option[float]
@@ -916,8 +916,7 @@ proc main(h5file: string,
 
   ## XXX: use `RecoConfig` here!!
 
-
-  if (flags * {rfOnlyEnergy .. rfOnlyGainFit}).card == 0:
+  if (flags * {rfOnlyFeSpec .. rfOnlyEnergyElectrons}).card == 0:
     # `reconstruction` call w/o `--only-*` flag
     # visit the whole file to read which groups exist
     h5f.visitFile

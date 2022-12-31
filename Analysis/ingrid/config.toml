@@ -1,6 +1,22 @@
 # this TOML document is used to configure the raw data manipulation, reconstruction and likelihood
 # tools
 
+[General]
+outpath = "" # the output path in which the generated H5 files will be placed
+# prefixes for the different resulting files
+tpx3Prefix = "tpx3_" # the prefix of the output file after `readTpx3`
+# the following
+rawStep = "raw" # the prefix of the output file after `raw_data_manipulation`
+recoStep = "reco" # the prefix of the output file after `reconstruction`
+# the type of data
+calibType = "calibration"
+backType = "data"
+# whether multiple or single run
+singleRun = "run"
+mulitpleRun = "runs"
+# template to use for files with multiple runs
+nameTmpl = "$type$runs$year_$step.h5"
+
 [Calibration]
 showPlots = false
 plotDirectory = "out"

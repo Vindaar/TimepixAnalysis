@@ -310,7 +310,7 @@ proc performTemporalCorrection*[T](data: Tensor[T], trigRec, postTrig: int): seq
   ##   nRoll = (trigRec - postTrig) * 20
   let nRoll = (trigRec - postTrig) * 20
   # now simply roll
-  result = rotatedLeft(toOpenArray(data.toUnsafeView(), 0, data.size.int), -nRoll)
+  result = rotatedLeft(toOpenArray(data.toUnsafeView(), 0, data.size.int - 1), -nRoll)
 
 proc fadcFileToFadcData*[T](data: Tensor[uint16],
                             pedestalRun: T,

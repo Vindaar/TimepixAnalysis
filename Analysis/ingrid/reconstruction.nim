@@ -235,7 +235,6 @@ proc writeRecoRunToH5*[T: SomePix](h5f: H5File,
 
   # now that we have the data and now how many elements each type has
   # we can create the datasets
-  info "Now creating datasets"
   # define type for variable length pixel data
   let ev_type_xy = special_type(uint8)
   let ev_type_ch = special_type(uint16)
@@ -339,8 +338,6 @@ proc writeFadcReco*(h5f: H5File, runNumber: int, fadc: ReconstructedFadcRun,
   let dataSize = fadc.fadcData.size.int
   let nEvents = fadc.eventNumber.len
   # resize & write
-  ## XXX: do not resize, but delete & recreate
-
   dset.resize((nEvents, ch_len()))
   dset.unsafeWrite(cast[ptr uint16](fadc.fadcData.unsafe_raw_offset()), dataSize)
   eventNumber.resize((nEvents,))

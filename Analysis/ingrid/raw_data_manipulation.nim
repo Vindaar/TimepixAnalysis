@@ -452,12 +452,6 @@ proc writeFadcDataToH5(h5f: var H5File, runNumber: int, f_proc: ProcessedFadcRun
     trigRec_dset = h5f[trigRec_name.dset_str]
     eventNumber_dset = h5f[eventNumber_name.dset_str]
 
-  info raw_fadc_dset.shape
-  info raw_fadc_dset.maxshape
-  info trigRec_dset.shape
-  info trigRec_dset.maxshape
-  info eventNumber_dset.shape
-  info eventNumber_dset.maxshape
   # first need to extend the dataset, as we start with a size of 0.
   let oldsize = raw_fadc_dset.shape[0]
   let newsize = oldsize + nEvents
@@ -1051,7 +1045,7 @@ proc processAndWriteFadc(run_folder: string, runNumber: int, h5f: var H5File) =
   let mem1 = getOccupiedMem()
   info "occupied memory before fadc $# \n\n" % [$mem1]
   readWriteFadcData(run_folder, runNumber, h5f)
-  info "FADC took $# data" % $(getOccupiedMem() - mem1)
+  info "FADC took $# data" % $(abs(getOccupiedMem() - mem1))
 
 proc createProcessedTpx3Run(data: seq[Tpx3Data], startIdx, cutoff, runNumber: int,
                             totCut: TotCut,

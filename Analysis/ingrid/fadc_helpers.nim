@@ -274,7 +274,6 @@ proc calcMinOfPulseAlt*(array: Tensor[float], percentile: float): float =
   # given resulting array, calculate percentile
   let n_elements = filtered_array.len
   sort(filtered_array, system.cmp[float])
-  echo "Filtered array 0 ", filtered_array[^10..^1]
 
   #echo filtered_array[0], filtered_array[filtered_array.high]
   #echo filtered_array[0..30]
@@ -285,7 +284,6 @@ proc calcMinOfPulseAlt*(array: Tensor[float], percentile: float): float =
   #filtered_array = filter(array, (x: T) -> bool => x < threshold)
   filtered_array = filterIt(array.toRawSeq, it < threshold)
   #echo "Filtered array ", filtered_array
-  echo "Min of array is ", `min`
   result = mean(filtered_array)
 
 proc applyFadcPedestalRun*[T; U](fadc_data: T, pedestalRun: U): Tensor[float] =

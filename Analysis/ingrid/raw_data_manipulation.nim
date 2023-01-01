@@ -1058,7 +1058,7 @@ proc createProcessedTpx3Run(data: seq[Tpx3Data], startIdx, cutoff, runNumber: in
 
 proc processAndWriteSingleRun(h5f: var H5File, run_folder: string,
                               flags: set[RawFlagKind],
-                              runType: RunTypeKind = rtNone,
+                              runType: RunTypeKind,
                               configFile: string) =
   ## proc to process and write a single run
   ## inputs:
@@ -1317,7 +1317,6 @@ proc main(path: string, runType: RunTypeKind,
           config = "", overwrite = false, tpx3 = false,
          ) =
   docCommentAdd(versionStr)
-  var runType: RunTypeKind
   var flags: set[RawFlagKind]
   let outfile = if `out`.len == 0: "run_file.h5" else: `out`
   if nofadc:

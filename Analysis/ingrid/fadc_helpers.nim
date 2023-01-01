@@ -441,6 +441,7 @@ proc buildListOfXrayFiles*(file: string): seq[string] =
   return event_list
 
 when compileOption("threads"):
+  # import taskpools # for taskpools obviously
   proc readListOfFadcFiles*(list_of_files: seq[string]): seq[FadcFile] =
     ## this procedure receives a list of files, reads them into memory (as a buffer)
     ## and processes the content into a seq of ref FadcFile

@@ -350,9 +350,8 @@ proc writeFadcReco*(h5f: H5File, runNumber: int, fadc: ReconstructedFadcRun,
   minVals.resize((nEvents,))
   minVals.unsafeWrite(cast[ptr float](fadc.minVals[0].unsafeAddr), nEvents)
 
-  ## XXX: pedestal is fixed size, not `nEvents`!
-  pedestal.resize((nEvents,))
-  pedestal.unsafeWrite(pedestalRun.toUnsafeView(), nEvents)
+  # no need to resize pedestal. Pre set to 2560·4
+  pedestal.unsafeWrite(pedestalRun.toUnsafeView(), all_ch_len())
   info "Writing of FADC data took $# seconds" % $(epochTime() - t0)
 
 iterator readDataFromH5*(h5f: H5File, runNumber: int,
@@ -397,6 +396,7 @@ iterator readDataFromH5*(h5f: H5File, runNumber: int,
                        toa: raw_toa[i], toaCombined: raw_toa_combined[i])
       yield (chip: chip_number, eventData: run_pix)
 
+import std / cpuinfo
 proc reconstructSingleChip*(data: RecoInputData[Pix],
                             run, chip, searchRadius: int,
                             dbscanEpsilon: float,
@@ -455,17 +455,26 @@ proc reconstructSingleChip*(data: RecoInputData[Pix],
       result[event] = ^(res[event])
       echoCount(count, 5000, msg = " cluster FlowVars unpacked")
   else:
-    init(Weave)
     var resBuf = cast[ptr UncheckedArray[RecoEvent[Pix]]](result[0].addr)
+    var dataBuf = cast[ptr UncheckedArray[RecoInputEvent[Pix]]](data[0].addr)
+    let num = result.len
+    ## XXX: I think this cannot work as `RecoEvent` contains a `seq[ClusterObject]`. Once we return
+    ## from this scope they will be freed as they were created on a different thread.
+    ## Update: or rather the issue is that a seq / tensor of `RecoEvent` is not a flat memory structure.
+    ## Therefore it's not memcopyable and we cannot get a ptr to it in a sane way?
+    ## Update 2: above 21 threads the code results in a segfault. This _seems_ reproducible.
+    putEnv("WEAVE_NUM_THREADS", $min(countProcessors(), 20))
+    init(Weave)
     parallelFor event in 0 ..< numElems:
-      captures: {resBuf, data, chip, run, searchRadius, dbscanEpsilon, clusterAlgo, timepixVersion}
-      resBuf[event] = recoEvent(data[event], chip, run, searchRadius,
+      captures: {resBuf, dataBuf, chip, run, searchRadius, dbscanEpsilon, clusterAlgo, timepixVersion}
+      resBuf[event] = recoEvent(dataBuf[event], chip, run, searchRadius,
                                 dbscanEpsilon = dbscanEpsilon,
                                 clusterAlgo = clusterAlgo,
                                 timepixVersion = timepixVersion)
       echoCounted(event, 5000, msg = " clusters reconstructed")
     syncRoot(Weave)
     exit(Weave)
+    delEnv("WEAVE_NUM_THREADS")
 
 proc createAndFitFeSpec(h5f: H5File,
                         runNumber: int,
@@ -630,17 +639,18 @@ proc reconstructFadcData(h5f, h5fout: H5File, runNumber: int) =
   init(Weave)
   ## XXX: going by `Weave` usage in `recoEvent` above it may be fine to
   ## hand full seqs if only for read only!
+  ## -> or maybe not, because above still crashes randomly
   parallelFor i in 0 ..< numFiles:
     captures: {numFiles, noisyBuf, minValsBuf, dataBuf, pedestalBuf, outBuf,
                 n_dips, min_percentile, trigRecBuf, postTrig, bitMode14, idxBuf}
-    let dataT = dataBuf.fromBuffer([numFiles, 2560 * 4])
+    let dataT = dataBuf.fromBuffer([numFiles, all_ch_len()])
     let data = fadcFileToFadcData(
       dataT[i, _].squeeze,
-      pedestalBuf.fromBuffer(2560 * 4),
+      pedestalBuf.fromBuffer(all_ch_len()),
       trigRecBuf[i], postTrig, bitMode14,
-      toOpenArray(idxBuf, 0, 2560)
+      toOpenArray(idxBuf, 0, ch_len() - 1)
     ).data
-    var fadcData = outBuf.fromBuffer([numFiles, 2560])
+    var fadcData = outBuf.fromBuffer([numFiles, ch_len()])
     fadcData[i, _] = data.unsqueeze(axis = 0)
     noisyBuf[i]    = data.isFadcFileNoisy(n_dips)
     minValsBuf[i]  = data.calcMinOfPulse(min_percentile)

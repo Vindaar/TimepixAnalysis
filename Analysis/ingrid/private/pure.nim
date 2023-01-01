@@ -4,6 +4,8 @@ import re, tables, memfiles, sequtils, sugar
 when compileOption("threads"):
   when not defined(gcDestructors):
     import threadpool_simple
+  elif false:
+    import taskpools
   else:
     import weave
 import math
@@ -1184,14 +1186,14 @@ when compileOption("threads"):
       when not defined(gcDestructors):
         let ev = ^flow[i]
       else:
-        let ev = sync flow[i]
+        let ev = sync flow[i] # taskpools
       if ev.isValid:
         x = ev
         inc validCount
     if validCount < res.len:
       res.setLen(validCount)
 
-
+  import std / cpuinfo
   proc readListOfFiles*[T](list_of_files: seq[string],
                            rfKind: RunFolderKind = rfUnknown):
                              seq[T] = #{.inline.} =
@@ -1232,7 +1234,35 @@ when compileOption("threads"):
       # finally await flowvars and assign to result
       unwrapAndRemoveInvalid(result, res)
       echo "Done syncing and unwrapping"
+    elif false: # taskpools
+      var res = newSeq[FlowVar[T]](nfiles)
+      var f_count = 0
+      var p = Taskpool.new(countProcessors())
+      when T is Event or not fadcMemFiles:
+        let protoFiles = readMemFilesIntoBuffer(list_of_files)
+        echo "...done reading"
+        for i, s in protoFiles:
+          # loop over each file and call work on data function
+          when T is Event:
+            res[i] = p.spawn processEventWrapper(s, rfKind)
+          elif T is FadcFile:
+            res[i] = p.spawn readFadcFile(s)
+          echoCount(f_count)
+      elif T is FadcFile and fadcMemFiles:
+        # should be faster than not using memory mapping
+        for i, f in list_of_files:
+          # loop over each file and call work on data function
+          res[i] = p.spawn readFadcFileMem(f)
+          echoCount(f_count)
+      echo "Now sync and unwrap"
+      # finally await flowvars and assign to result
+      unwrapAndRemoveInvalid(result, res)
+      p.syncAll()
+      p.shutdown()
+      echo "Done syncing and unwrapping"
     else:
+      ## Above 21 threads, bad things happen with weave. No idea why
+      putEnv("WEAVE_NUM_THREADS", $min(countProcessors(), 20))
       init(Weave)
       var resBuf = cast[ptr UncheckedArray[T]](result[0].addr)
       when T is Event:
@@ -1253,7 +1283,9 @@ when compileOption("threads"):
           captures: {resBuf, inputBuf, rfKind}
           resBuf[i] = readFadcFileMem(inputBuf[i])
           echoCounted(i)
+      syncRoot(Weave)
       exit(Weave)
+      delEnv("WEAVE_NUM_THREADS")
       echo "Exit Weave!"
 
   proc readListOfInGridFiles*(list_of_files: seq[string], rfKind: RunFolderKind):

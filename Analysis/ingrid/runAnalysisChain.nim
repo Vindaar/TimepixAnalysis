@@ -79,7 +79,7 @@ type
     singleRun = "run"
     mulitpleRun = "runs"
     # template to use for files with multiple runs
-    nameTmpl = "$type$runs$year_$step.h5"
+    nameTmpl = r"$type$runs$year_$step.h5"
 
 # set up the logger
 var L = newConsoleLogger()
@@ -108,7 +108,7 @@ proc toOutfile(cfg: Config, runType: RunTypeKind, flag: AnaFlags, year: string):
              else: "reco"
   result = cfg.nameTmpl % ["type", runType.toStr.capitalizeAscii,
                            "runs", cfg.toRunStr,
-                           "year", year,
+                           "year", year & "_", ## XXX: the `_` is dropped for some reason
                            "step", step.capitalizeAscii]
 
 proc initConfig(input: string,
@@ -133,6 +133,7 @@ proc initConfig(input: string,
     # if only single run in file, set that as run number to get correct naming
     if result.runNumber.isNone and result.fileInfo.runs.len == 1:
       result.runNumber = some(result.fileInfo.runs[0])
+    result.runType = result.fileInfo.runType
   of ikRunFolder:
     let (is_rf, runNumber, _, _) = isTosRunFolder(input)
     doAssert is_rf, "Input is not a run folder! Input: " & $input
@@ -146,7 +147,7 @@ proc toDataPath(year: DataYear): string =
   of dy2017: result = "2017"
   of dy2018: result = "2018_2"
 
-proc rawDataManipulation(path, runType, outName: string): bool =
+proc rawDataManipulation(path, outName: string, runType: RunTypeKind): bool =
   let runTypeStr = &"--runType={runType}"
   let outStr = &"--out={outName}"
   info "Running raw_data_manipulation on " & $path & $runTypeStr & $outStr
@@ -183,40 +184,56 @@ template tc(cmd: untyped): untyped {.dirty.} =
   if toContinue:
     toContinue = cmd
 
-proc runCastChain(dYear: DataYear, cfg: Config): bool =
-  ## performs the whole chain of the given dataset
+type
+  Files = object
+    rawPath: string # path to all runs of this kind
+    raw: string     # path to the `_raw.h5` file
+    reco: string    # path to the `_reco.h5` file
+
+  DataFiles = object
+    background: Files
+    calibration: Files
+
+proc fillFiles(cfg: Config, path, outpath: string, runType: RunTypeKind, dYear: DataYear): Files =
+  let rawPath = if runType == rtBackground: path / "DataRuns"
+                else: path / "CalibrationRuns"
+  result = Files(rawPath: path,
+                 raw: outpath / cfg.toOutfile(runType, afRaw, $(ord(dYear))),
+                 reco: outpath / cfg.toOutfile(runType, afReco, $(ord(dYear))))
+
+proc fillDataFiles(cfg: Config, dYear: DataYear): DataFiles =
   let dataPath = cfg.path / (dYear.toDataPath())
   let outpath = if cfg.outpath.len > 0: cfg.outpath
                 else: dataPath
+  result = DataFiles(background: cfg.fillFiles(dataPath, outpath, rtBackground, dYear),
+                     calibration: cfg.fillFiles(dataPath, outpath, rtCalibration, dYear))
+
+proc runCastChain(cfg: Config, data: DataFiles, dYear: DataYear): bool =
+  ## performs the whole chain of the given dataset
   var toContinue = true
 
-  ## XXX: Make use of file name template!
   # raw data for calibration
-  let calibOut = outPath / cfg.toOutfile(rtCalibration, afRaw, $dYear)
   if afCalib in cfg.anaFlags and afRaw in cfg.anaFlags:
-    tc(rawDataManipulation(dataPath / "CalibrationRuns", "calib",
-                           calibOut))
+    tc(rawDataManipulation(data.calibration.rawPath, data.calibration.raw, rtCalibration))
   # raw data for background
-  let backOut = outPath / cfg.toOutfile(rtBackground, afRaw, $dYear)
   if afBack in cfg.anaFlags and afRaw in cfg.anaFlags:
-    tc(rawDataManipulation(dataPath / "DataRuns", "back",
-                           backOut))
+    tc(rawDataManipulation(data.background.rawPath, data.background.raw, rtBackground))
 
   # if any reco flags given, use only those instead of our predefined set
   let recoOptions = if cfg.recoCfg.flags.card > 0: cfg.recoCfg.flags.toSeq.sorted.mapIt({it})
                     else: recoOptions
-  let recoCalibOut = cfg.path / cfg.toOutfile(rtCalibration, afReco, $dYear)
-  let recoBackOut = cfg.path / cfg.toOutfile(rtBackground, afReco, $dYear)
   for opt in recoOptions:
+    echo "OPT : ", opt
     if afCalib in cfg.anaFlags and afReco in cfg.anaFlags:
-      tc(reconstruction(calibOut,
+      tc(reconstruction(data.calibration.raw,
                         opt, cfg,
-                        output = recoCalibOut
+                        output = data.calibration.reco
       ))
     if rfOnlyGainFit notin opt and afBack in cfg.anaFlags and afReco in cfg.anaFlags:
-      tc(reconstruction(backOut,
+      tc(reconstruction(data.background.raw,
                         opt, cfg,
-                        output = recoBackOut))
+                        output = data.background.reco
+      ))
 
   result = toContinue
 
@@ -224,14 +241,6 @@ proc runChain(cfg: Config) =
   ## Performs analysis on the given input. Either a directory (possibly with subs)
   var toContinue = true
 
-
-  ## XXX: Ok so:
-  ## We should restrict the operations we perform partially based on what the input even allows. At least
-  ## among `raw` and `reco` there is only one step that is _possible_ given a certain input.
-  ##
-  ## This means:
-  ##
-  ## Based on input kind we can assert where to start! And thus what the input file name is!
   if cfg.inputKind == ikRunFolder and afRaw notin cfg.anaFlags:
     raise newException(Exception, "Input does not do anything. Input is a run folder, but `--raw` " &
       "flag not provided. Cannot continue after.")
@@ -243,7 +252,7 @@ proc runChain(cfg: Config) =
     let output = cfg.outpath / cfg.toOutfile(cfg.runType, afRaw, "") # no explicit year
     if afRaw in cfg.anaFlags:
       tc(rawDataManipulation(
-        input, $cfg.runType, output)
+        input, output, cfg.runType)
       )
     input = output
 
@@ -253,18 +262,28 @@ proc runChain(cfg: Config) =
                       else: recoOptions.filterIt(rfOnlyGainFit notin it and rfNone notin it) # gain fit does not make sense in single input case
 
     let output = cfg.outpath / cfg.toOutfile(cfg.runType, afReco, "")
-    if afReco in cfg.anaFlags:
+    if afReco in cfg.anaFlags and
+      (cfg.inputKind == ikRunFolder or
+       (cfg.inputKind == ikFileH5 and cfg.fileInfo.tpaFileKind == tpkRawData)):
       tc(reconstruction(input, # no explicit year
                         {},
                         cfg,
                         output = output))
       input = output
+    elif afReco in cfg.anaFlags and
+       cfg.inputKind == ikFileH5 and cfg.fileInfo.tpaFileKind != tpkRawData:
+      echo "WARNING: Gave `--reco` flag, but input: ", cfg.input, " is ", cfg.fileInfo.tpaFileKind
+      echo "\tReconstruction step will be ignored."
     # else apply reco options
-    for opt in recoOptions:
-      tc(reconstruction(input, opt, cfg)) # no output
+    # if `raw` in flags but reco not we don't want to run options! Means input was a folder or
+    # raw data file, but we didn't reconstruct it.
+    ## XXX: check using tpa file kind
+    if afReco in cfg.anaFlags or (afReco notin cfg.anaFlags and afRaw notin cfg.anaFlags):
+      for opt in recoOptions:
+        tc(reconstruction(input, opt, cfg)) # no output
 
 proc main(
-  path: string,
+  input: string,
   outpath = "",
   years: seq[int] = @[],
   inputKind: InputKind = ikDataFolder,
@@ -283,7 +302,7 @@ proc main(
   only_gain_fit = false,
   only_energy_from_e = false,
   only_energy = NaN,
-  config = ""
+  config = "" # XXX: not yet implemented!
      ) =
   var toContinue = true
 
@@ -329,8 +348,11 @@ proc main(
       recoFlags.incl rfOnlyEnergyElectrons
     initRecoConfig(recoFlags, runNumberArg, calibFactor)
 
-  let inputKind = if path.endsWith(".h5"): ikFileH5 else: inputKind
-  var cfg = initConfig(path, outpath, inputKind, recoCfg, runType, anaFlags)
+  let (is_rf, _, _, _) = isTosRunFolder(input)
+  let inputKind = if is_rf: ikRunFolder
+                  elif input.endsWith(".h5"): ikFileH5
+                  else: inputKind
+  var cfg = initConfig(input, outpath, inputKind, recoCfg, runType, anaFlags)
 
 
   ## XXX: if the input is a H5 file open it and determine what type of
@@ -343,13 +365,14 @@ proc main(
   ## 2. continuation of a "full run" setup based on a H5 file
   ## 3. reconstruction from a _single_ run folder
   ## 4. continuation of a single run file
-
   case cfg.inputKind
   of ikDataFolder:
     for year in years:
       doAssert year.uint16 in {2014, 2017, 2018}, "Years supported are 2014, 2017, 2018."
       let dYear = DataYear(year)
-      tc(runCastChain(dYear, cfg))
+
+      let dataFiles = fillDataFiles(cfg, dYear)
+      tc(cfg.runCastChain(dataFiles, dYear))
   else:
     doAssert cfg.runType != rtNone, "For individual runs a `runType` is required."
     runChain(cfg)
@@ -358,7 +381,7 @@ when isMainModule:
   import cligen
   # we could do `multiDispatch`, but the majority of arguments apply to all
   dispatch(main, help = {
-    "path"           : "The path containing the data to be processed.",
+    "input"          : "The path containing the data to be processed.",
     "inputKind"      : """Type of input given. If not given assumes full CAST data, but overwritten
 to ikFileH5 if explicit H5 file given. For a single run handing this is required.""",
     "years"          : "If input is full CAST data (ikDataFolder) the datasets to reconstruct.",

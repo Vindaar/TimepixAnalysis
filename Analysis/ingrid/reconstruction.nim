@@ -526,7 +526,8 @@ proc initRecoFadcInH5(h5f, h5fout: H5File, runNumber, batchsize: int) =
     noisy_dset       = h5fout.datasetCreation(noiseBasename(runNumber), 0, int)
     # dataset stores minima of each FADC event, dip voltage
     minVals_dset     = h5fout.datasetCreation(minValsBasename(runNumber), 0, float)
-    pedestal_dset    = h5fout.datasetCreation(pedestalBasename(runNumber), 0, float)
+    # pedestal dataset is simply 2560 * 4 elements large
+    pedestal_dset    = h5fout.datasetCreation(pedestalBasename(runNumber), all_ch_len, float)
 
   # write attributes to FADC groups
   let fadcRaw = h5f[fadcRawPath(runNumber).grp_str]

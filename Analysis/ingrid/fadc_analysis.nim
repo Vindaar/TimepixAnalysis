@@ -2,7 +2,6 @@
 # FADC data stored in a H5 file
 
 import strutils, sequtils, strformat
-import docopt
 import ospaths
 import nimhdf5
 import tables
@@ -15,7 +14,7 @@ import seqmath
 import tos_helpers
 import helpers/utils
 
-let doc = """
+const doc = """
 InGrid FADC analysis tool
 
 Usage:
@@ -317,23 +316,18 @@ proc calcRiseAndFallTimes*(h5f: H5File, run_number: int) =
   rise_t_dset[all] = riseTime
   fall_t_dset[all] = fallTime
 
-proc main() =
-  let args = docopt(doc)
-  echo args
-
-  let
-    h5file = $args["<HDF5file>"]
-    run_number = $args["--run_number"]
-
-
+proc main(h5file: string, runNumber: int = -1,
+          noise_analysis = false,
+          outfile = "") =
   var h5f = H5open(h5file, "rw")
-  if run_number != "nil":
-    calcRiseAndFallTimes(h5f, parseInt(run_number))
-  elif $args["--noise_analysis"] != "nil":
-    let outfile = $args["--noise_analysis"]
+  if runNumber > 0:
+    calcRiseAndFallTimes(h5f, run_number)
+  elif noise_analysis:
     let t_tup = noiseAnalysis(h5f)
-    writeNoiseData(t_tup, outfile)
+    if outfile.len > 0:
+      writeNoiseData(t_tup, outfile)
   echo "H5 library closed with ", h5f.close()
 
 when isMainModule:
-  main()
+  import cligen
+  dispatch main

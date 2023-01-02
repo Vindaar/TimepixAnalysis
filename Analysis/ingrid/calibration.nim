@@ -1072,7 +1072,7 @@ proc performChargeCalibGasGainFit*(h5f: H5File,
 
   # increase smallest errors to lower 10 percentile errors
   let perc10 = calibErr.percentile(1)
-  doAssert perc10 < mean(calibErr)
+  doAssert perc10 < mean(calibErr), "perc10 = " & $perc10 & " vs mean = " & $(mean(calibErr))
   for x in mitems(calibErr):
     if x < perc10:
       x = perc10

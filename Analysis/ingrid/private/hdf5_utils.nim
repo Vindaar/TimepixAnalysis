@@ -684,7 +684,6 @@ iterator dsets*(h5f: H5File,
       # found a matching dataset, yield the run number as well as the actual
       # data
       var mdset = h5f[dsetPath.dset_str]
-      echo mdset.name
       yield (runNumber[0].parseInt, mdset[dtype])
 
 proc getRunInfo*(path: string): RunInfo =
@@ -871,6 +870,39 @@ proc readFadcFromH5*(h5f: H5File, runNumber: int): ProcessedFadcRun =
     rawFadcData: fadcData,
     trigRecs: trigRec,
     eventNumber: evNumbers
+  )
+
+proc read[T](h5f: H5File, path: string, _: typedesc[T]): Tensor[T] =
+  let dset = h5f[path.dset_str]
+  result = newTensorUninit[T](dset.shape)
+  dset.read(result.toUnsafeView())
+
+proc readRecoFadc*(h5f: H5File, runNumber: int): RecoFadc =
+  ## Returns the `RecoFadc` data, i.e. all 1D data computed in `calcRiseAndFallTime`
+  ## for a given run.
+  let fadcGroup = fadcRecoPath(runNumber)
+  doAssert fadcGroup in h5f
+  let group = h5f[fadcGroup.grp_str]
+  result = RecoFadc(
+    baseline: h5f.read(fadcBaselineBasename(runNumber), float),
+    xmin: h5f.read(argMinvalBasename(runNumber), uint16),
+    riseStart: h5f.read(riseStartBasename(runNumber), uint16),
+    fallStop: h5f.read(fallStopBasename(runNumber), uint16),
+    riseTime: h5f.read(riseTimeBasename(runNumber), uint16),
+    fallTime: h5f.read(fallTimeBasename(runNumber), uint16),
+  )
+
+proc readRecoFadcRun*(h5f: H5File, runNumber: int): ReconstructedFadcRun =
+  ## Returns the `RecoFadc` data, i.e. all 1D data computed in `calcRiseAndFallTime`
+  ## for a given run.
+  let fadcGroup = fadcRecoPath(runNumber)
+  doAssert fadcGroup in h5f
+  let group = h5f[fadcGroup.grp_str]
+  result = ReconstructedFadcRun(
+    eventNumber: h5f[group.name / "eventNumber", int],
+    fadcData: h5f.read(fadcDataBasename(runNumber), float),
+    noisy: h5f[noiseBasename(runNumber), int],
+    minVals: h5f[minvalsBasename(runNumber), float]
   )
 
 proc genPlotDirname*(h5f: H5File, outpath: string, attrName: string): string =

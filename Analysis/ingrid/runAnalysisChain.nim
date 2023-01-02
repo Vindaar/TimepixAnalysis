@@ -26,8 +26,7 @@ import ingrid / private / [hdf5_utils, pure]
 from reconstruction import RecoFlags, RecoConfig, initRecoConfig
 
 const subPaths = ["2014_15", "2017", "2018_2"]
-const recoOptions = @[{rfNone},
-                      {rfOnlyFadc},
+const recoOptions = @[{rfOnlyFadc},
                       {rfOnlyCharge},
                       {rfOnlyGasGain},
                       {rfOnlyGainFit},
@@ -222,18 +221,26 @@ proc runCastChain(cfg: Config, data: DataFiles, dYear: DataYear): bool =
   # if any reco flags given, use only those instead of our predefined set
   let recoOptions = if cfg.recoCfg.flags.card > 0: cfg.recoCfg.flags.toSeq.sorted.mapIt({it})
                     else: recoOptions
-  for opt in recoOptions:
-    echo "OPT : ", opt
-    if afCalib in cfg.anaFlags and afReco in cfg.anaFlags:
-      tc(reconstruction(data.calibration.raw,
-                        opt, cfg,
-                        output = data.calibration.reco
-      ))
-    if rfOnlyGainFit notin opt and afBack in cfg.anaFlags and afReco in cfg.anaFlags:
-      tc(reconstruction(data.background.raw,
-                        opt, cfg,
-                        output = data.background.reco
-      ))
+  if afCalib in cfg.anaFlags and afReco in cfg.anaFlags:
+    tc(reconstruction(data.calibration.raw,
+                      {}, cfg,
+                      output = data.calibration.reco
+    ))
+  if afBack in cfg.anaFlags and afReco in cfg.anaFlags:
+    tc(reconstruction(data.background.raw,
+                      {}, cfg,
+                      output = data.background.reco
+    ))
+  # else apply reco options
+  # if `raw` in flags but reco not we don't want to run options! Means input was a folder or
+  # raw data file, but we didn't reconstruct it.
+  ## XXX: check using tpa file kind
+  if afReco in cfg.anaFlags or (afReco notin cfg.anaFlags and afRaw notin cfg.anaFlags):
+    for opt in recoOptions:
+      if afCalib in cfg.anaFlags:
+        tc(reconstruction(data.calibration.reco, opt, cfg))
+      if afBack in cfg.anaFlags:
+        tc(reconstruction(data.background.reco, opt, cfg))
 
   result = toContinue
 
@@ -259,7 +266,7 @@ proc runChain(cfg: Config) =
   if cfg.inputKind in {ikRunFolder, ikFileH5}:
     # if any reco flags given, use only those instead of our predefined set
     let recoOptions = if cfg.recoCfg.flags.card > 0: cfg.recoCfg.flags.toSeq.sorted.mapIt({it})
-                      else: recoOptions.filterIt(rfOnlyGainFit notin it and rfNone notin it) # gain fit does not make sense in single input case
+                      else: recoOptions.filterIt(rfOnlyGainFit notin it) # gain fit does not make sense in single input case
 
     let output = cfg.outpath / cfg.toOutfile(cfg.runType, afReco, "")
     if afReco in cfg.anaFlags and

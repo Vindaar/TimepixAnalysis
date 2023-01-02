@@ -11,7 +11,7 @@ import future
 import arraymancer
 import seqmath
 
-import tos_helpers
+import tos_helpers, ingrid_types
 import helpers/utils
 
 const doc = """
@@ -142,7 +142,15 @@ proc writeNoiseData(tab_tup: tuple[f50, f100: Table[string, float64]], outfile: 
   for k, v in t100:
     outf.write(&"{k} \t {v}\n")
 
-proc findThresholdValue*[T](data: seq[T], x_min: int, threshold: T, left = true, positive = false): int =
+proc high[T](t: Tensor[T]): int =
+  assert t.rank == 1
+  result = t.size.int - 1
+
+proc len[T](t: Tensor[T]): int =
+  assert t.rank == 1
+  result = t.size.int
+
+proc findThresholdValue*[T: seq | Tensor; U](data: T, x_min: int, threshold: U, left = true, positive = false): int =
   ## left determines whether we start search left or right
   ## positive sets the range of the data. postiive == false means we consider
   ## dips instead of peaks
@@ -189,19 +197,21 @@ proc diffUnderModulo*[T](a, b: T, modulo: int): T {.inline.} =
     d2 = abs(modulo - abs(a - b))
   result = min(d1, d2)
 
-proc calcRiseAndFallTime*(fadc: seq[float]): tuple[baseline: float,
-                                                   xmin,
-                                                   riseStart,
-                                                   fallStop,
-                                                   riseTime,
-                                                   fallTime: uint16] =
+proc calcRiseAndFallTime*[T: seq | Tensor](fadc: T): tuple[baseline: float,
+                                             xmin,
+                                             riseStart,
+                                             fallStop,
+                                             riseTime,
+                                             fallTime: uint16] =
   ## Calculates the baseline, minimum location, start of pulse rise, end of pulse fall,
   ## rise time and fall time for a single FADC spectrum
+  when T is seq:
+    let fadc = fadc.toTensor
   # get location of minimum
-  let xMin = argmin(fadc.toTensor)
+  let xMin = argmin(fadc)
 
   # now determine baseline + 10 % of its maximum value
-  let baseline = fadc.percentile(p = 50) + system.max(fadc) * 0.1
+  let baseline = fadc.percentile(p = 50) + max(fadc) * 0.1
   # now determine rise and fall times
   let
     riseStart = findThresholdValue(fadc, xMin, baseline)
@@ -216,13 +226,8 @@ proc calcRiseAndFallTime*(fadc: seq[float]): tuple[baseline: float,
   result = (baseline: baseline, xMin: xMin.uint16, riseStart: riseStart.uint16, fallStop: fallStop.uint16,
             riseTime: riseTime.uint16, fallTime: fallTime.uint16)
 
-proc calcRiseAndFallTime*(fadc: seq[seq[float]],
-                          seqBased: static bool): tuple[baseline: seq[float],
-                                                        xmin,
-                                                        riseStart,
-                                                        fallStop,
-                                                        riseTime,
-                                                        fallTime: seq[uint16]] =
+proc calcRiseAndFallTime*(fadc: Tensor[float],
+                          seqBased: static bool): RecoFadc =
   ## Calculates the baseline, minimum location, start of pulse rise, end of pulse fall,
   ## rise time and fall time for all given FADC spectra
   when seqBased:
@@ -255,23 +260,25 @@ proc calcRiseAndFallTime*(fadc: seq[seq[float]],
   else:
     let nSpectra = fadc.len
     var
-      baseline = newSeq[float](nSpectra)
-      xMin = newSeq[uint16](nSpectra)
-      riseStart = newSeq[uint16](nSpectra)
-      fallStop = newSeq[uint16](nSpectra)
-      riseTime = newSeq[uint16](nSpectra)
-      fallTime = newSeq[uint16](nSpectra)
+      baseline = newTensorUninit[float](nSpectra)
+      xMin = newTensorUninit[uint16](nSpectra)
+      riseStart = newTensorUninit[uint16](nSpectra)
+      fallStop = newTensorUninit[uint16](nSpectra)
+      riseTime = newTensorUninit[uint16](nSpectra)
+      fallTime = newTensorUninit[uint16](nSpectra)
     # for i in `||`(0, fadc.high, ""):
     for i in 0 .. fadc.high:
-      let tup = calcRiseAndFallTime(fadc[i])
+      let tup = calcRiseAndFallTime(fadc[i, _].squeeze)
       baseline[i] = tup[0]
       xMin[i] = tup[1]
       riseStart[i] = tup[2]
       fallStop[i] = tup[3]
       riseTime[i] = tup[4]
       fallTime[i] = tup[5]
-    result = (baseline: baseline, xMin: xMin, riseStart: riseStart, fallStop: fallStop,
-              riseTime: riseTime, fallTime: fallTime)
+    result = RecoFadc(baseline: baseline,
+                      xMin: xMin,
+                      riseStart: riseStart, fallStop: fallStop,
+                      riseTime: riseTime,   fallTime: fallTime)
 
 proc calcRiseAndFallTimes*(h5f: H5File, run_number: int) =
   ## proc which reads the FADC data from the given file
@@ -288,15 +295,16 @@ proc calcRiseAndFallTimes*(h5f: H5File, run_number: int) =
     fadc = h5f[fadc_group.dset_str]
 
   let fadcShape = fadc.shape
+  var f_data = newTensorUninit[float](fadcShape)
+  # use unsafe `read` to avoid seq->Tensor copy
+  fadc.read(f_data.toUnsafeView())
   let nEvents = fadcShape[0]
-  var f_data = fadc[float64].reshape2D(fadcShape)
 
   # given the reshaped array, we can now compute the
   # fall and rise times
   let t0 = epochTime()
   echo "Start fadc calc"
-  let (baseline, xMin, riseStart, fallStop, riseTime, fallTime) = calcRiseAndFallTime(f_data,
-                                                                                      false)
+  let recoFadc = calcRiseAndFallTime(f_data, false)
   echo "FADC minima calculations took: ", (epochTime() - t0)
   # now write data back to h5file
   var
@@ -308,13 +316,12 @@ proc calcRiseAndFallTimes*(h5f: H5File, run_number: int) =
     fall_t_dset = h5f.create_dataset(fallTimeBasename(run_number), nEvents, uint16)
 
   # write the data
-  let all = base_dset.all
-  base_dset[all] = baseline
-  x_min_dset[all] = xMin
-  rise_s_dset[all] = riseStart
-  fall_s_dset[all] = fallStop
-  rise_t_dset[all] = riseTime
-  fall_t_dset[all] = fallTime
+  base_dset.unsafeWrite(recoFadc.baseline.toUnsafeView(), nEvents)
+  x_min_dset.unsafeWrite(recoFadc.xMin.toUnsafeView(), nEvents)
+  rise_s_dset.unsafeWrite(recoFadc.riseStart.toUnsafeView(), nEvents)
+  fall_s_dset.unsafeWrite(recoFadc.fallStop.toUnsafeView(), nEvents)
+  rise_t_dset.unsafeWrite(recoFadc.riseTime.toUnsafeView(), nEvents)
+  fall_t_dset.unsafeWrite(recoFadc.fallTime.toUnsafeView(), nEvents)
 
 proc main(h5file: string, runNumber: int = -1,
           noise_analysis = false,

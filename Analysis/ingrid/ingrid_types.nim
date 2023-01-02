@@ -582,6 +582,17 @@ when not defined(pure) and not defined(js):
       data*: Tensor[float]
       trigRec*: int
 
+    ## Stores all the 1D information of the FADC data in a single
+    ## run, i.e. everything that is computed related to the fall
+    ## and rise time.
+    RecoFadc* = object
+      baseline*: Tensor[float] # all tensors 1D, 1 element per FADC event
+      xmin*: Tensor[uint16]
+      riseStart*: Tensor[uint16]
+      fallStop*: Tensor[uint16]
+      riseTime*: Tensor[uint16]
+      fallTime*: Tensor[uint16]
+
     ## This object stores the FADC data of a (possibly partial) run. That means
     ## each field contains N (= number of FADC events in a run) or a subset of
     ## that elements. The raw FADC data tensor is a `[N, 2560 * 4]` sized tensor,

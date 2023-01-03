@@ -5,10 +5,9 @@ import nimhdf5, cligen
 
 import ingrid / [tos_helpers, ingrid_types]
 
-
 type
   FeFileKind = enum
-    fePixel, feCharge
+    fePixel, feCharge, feFadc
 
 const TempFile = "../resources/cast_2017_2018_temperatures.csv"
 const OrgFormat = "'<'yyyy-MM-dd ddd H:mm'>'"
@@ -16,7 +15,8 @@ var dfTemp = toDf(readCsv(TempFile))
   .filter(f{c"Temp / °" != "-"})
 dfTemp["Timestamp"] = dfTemp["Date"].toTensor(string).map_inline(parseTime(x, OrgFormat, utc()).toUnix)
 
-const Peak = "μ/μ_max"
+const Peak = "μ"
+const PeakNorm = "μ/μ_max"
 const TempPeak = "(μ/T) / max"
 
 proc readFePeaks(files: seq[string], feKind: FeFileKind = fePixel): DataFrame =
@@ -33,6 +33,9 @@ proc readFePeaks(files: seq[string], feKind: FeFileKind = fePixel): DataFrame =
   of feCharge:
     kalphaIdx = kalphaCharge
     dset = "FeSpectrumCharge"
+  of feFadc:
+    kalphaIdx = kalphaCharge
+    dset = "FeSpectrumFadcPlot" # raw dataset is `minvals` instead of `FeSpectrumFadc`
 
   var h5files = files.mapIt(H5open(it, "r"))
   var fileInfos = newSeq[FileInfo]()
@@ -45,7 +48,8 @@ proc readFePeaks(files: seq[string], feKind: FeFileKind = fePixel): DataFrame =
   for (h5f, fi) in zip(h5files, fileInfos):
     for r in fi.runs:
       let group = h5f[(recoBase() & $r).grp_str]
-      let chpGrpName = group.name / "chip_3"
+      let chpGrpName = if feKind in {fePixel, feCharge}: group.name / "chip_3"
+                       else: group.name / "fadc"
       peakSeq.add h5f[(chpGrpName / dset).dset_str].attrs[
         parPrefix & $kalphaIdx, float
       ]
@@ -53,8 +57,10 @@ proc readFePeaks(files: seq[string], feKind: FeFileKind = fePixel): DataFrame =
                             dateStr,
                             utc()).toUnix.float
   result = toDf({ Peak : peakSeq,
-                      "Timestamp" : dateSeq })
+                  "Timestamp" : dateSeq })
     .arrange("Timestamp", SortOrder.Ascending)
+    .mutate(f{float: PeakNorm ~ idx(Peak) / max(col(Peak))},
+            f{"Type" <- $feKind})
 
 proc findTemp(d: int, dates: seq[int], temps: Tensor[float]): float =
   let idx = dates.lowerBound(d)
@@ -74,12 +80,18 @@ proc findTemp(d: int, dates: seq[int], temps: Tensor[float]): float =
               t1 * abs(totDiff - idxMoreDiff).float) /
       totDiff.float
 
-proc main(calibFiles: seq[string]) =
-
-  var dfPeaks = readFePeaks(calibFiles)
-  ggplot(dfPeaks, aes("Timestamp", "Normed")) +
-    geom_point() +
-    ggsave("/tmp/time_vs_peak_pos.pdf")
+proc main(calibFiles: seq[string], inputs: set[FeFileKind]) =
+  var dfPeaks = newDataFrame()
+  for input in inputs:
+    var df = readFePeaks(calibFiles, input)
+    ggplot(df, aes("Timestamp", Peak)) +
+      geom_point() +
+      ggsave("/tmp/time_vs_peak_pos_$#.pdf" % $input)
+    dfPeaks.add df
+  if inputs.card > 1:
+    ggplot(dfPeaks, aes("Timestamp", PeakNorm, color = "Type")) +
+      geom_point() +
+      ggsave("/tmp/time_vs_peak_pos.pdf")
 
   let runs = dfTemp["Run number"].toTensor(int)
   let temps = dfTemp["Temp / °"].toTensor(float)

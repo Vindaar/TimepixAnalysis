@@ -416,51 +416,6 @@ proc getGroupNameReco*(runNumber: int): string =
   # generates the reconstrution group name for a given run number
   result = recoBase() & $runNumber
 
-proc hasDset*(h5f: H5File, runNumber, chipNumber: int, dset: string): bool =
-  ## returns `true` if the given run and chip has the given `dset`
-  let path = recoDataChipBase(runNumber) & $chipNumber / dset
-  result = if path in h5f: true else: false
-
-proc hasTotalChargeDset*(h5f: H5File, runNumber, chipNumber: int):
-                           bool {.inline.} =
-  ## returns `true` if the given run and chip has the
-  ## `totalCharge`
-  ## dataset
-  result = h5f.hasDset(runNumber, chipNumber, "totalCharge")
-
-proc hasRawRun*(h5f: H5File, runNumber: int): bool =
-  ## checks for the existence of the given run in the file
-  let path = rawDataBase & $runNumber
-  # this will be the implementation once we reran the whole analysis...
-  if path in h5f:
-    # check if attribute `done` on run
-    var grp = h5f[path.grp_str]
-    if "rawDataFinished" in grp.attrs:
-      let isDone = grp.attrs["rawDataFinished", string]
-      if isDone == "true":
-        result = true
-      else:
-        result = false
-    else:
-      result = false
-  else:
-    result = false
-  when false:
-    # old implementation
-    result = if path in h5f: true else: false
-
-proc runFinished*(h5f: H5File, runNumber: int) =
-  ## writes the `rawDataFinished` attribute to the run with
-  ## `runNumber`
-  let path = rawDataBase() & $runNumber
-  var grp = h5f[path.grp_str]
-  grp.attrs["rawDataFinished"] = "true"
-
-proc getCenterChip*(h5f: H5File, runNumber: int): int =
-  ## reads the `centerChip` attribute from the run group corresponding to
-  ## `runNumber`
-  result = h5f[recoRunGrpStr(runNumber)].attrs["centerChip", int]
-
 proc fadcRawPath*(runNumber: int): string {.inline.} =
   result = getGroupNameRaw(runNumber) / "fadc"
 
@@ -509,6 +464,54 @@ template eventNumberBasenameReco*(runNumber: int): string =
 template eventNumberBasenameRaw*(runNumber: int): string =
   fadcRawPath(runNumber) / "eventNumber"
 
+proc hasDset*(h5f: H5File, runNumber, chipNumber: int, dset: string): bool =
+  ## returns `true` if the given run and chip has the given `dset`
+  let path = recoDataChipBase(runNumber) & $chipNumber / dset
+  result = if path in h5f: true else: false
+
+proc hasTotalChargeDset*(h5f: H5File, runNumber, chipNumber: int):
+                           bool {.inline.} =
+  ## returns `true` if the given run and chip has the
+  ## `totalCharge`
+  ## dataset
+  result = h5f.hasDset(runNumber, chipNumber, "totalCharge")
+
+proc hasFadc*(h5f: H5File, runNumber: int): bool =
+  ## Returns `true` if the given H5 file has the `fadc` group in the given run number
+  result = fadcRecoPath(runNumber) in h5f
+
+proc hasRawRun*(h5f: H5File, runNumber: int): bool =
+  ## checks for the existence of the given run in the file
+  let path = rawDataBase & $runNumber
+  # this will be the implementation once we reran the whole analysis...
+  if path in h5f:
+    # check if attribute `done` on run
+    var grp = h5f[path.grp_str]
+    if "rawDataFinished" in grp.attrs:
+      let isDone = grp.attrs["rawDataFinished", string]
+      if isDone == "true":
+        result = true
+      else:
+        result = false
+    else:
+      result = false
+  else:
+    result = false
+  when false:
+    # old implementation
+    result = if path in h5f: true else: false
+
+proc runFinished*(h5f: H5File, runNumber: int) =
+  ## writes the `rawDataFinished` attribute to the run with
+  ## `runNumber`
+  let path = rawDataBase() & $runNumber
+  var grp = h5f[path.grp_str]
+  grp.attrs["rawDataFinished"] = "true"
+
+proc getCenterChip*(h5f: H5File, runNumber: int): int =
+  ## reads the `centerChip` attribute from the run group corresponding to
+  ## `runNumber`
+  result = h5f[recoRunGrpStr(runNumber)].attrs["centerChip", int]
 
 
 ################################################################################

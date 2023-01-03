@@ -64,19 +64,26 @@ proc plotFeSpectrum*(feSpec: FeSpecFitData,
                      runNumber: int, chipNumber: int,
                      texts: seq[string],
                      isPixel = true,
+                     isFadc = false,
                      pathPrefix: string) =
   discard existsOrCreateDir(pathPrefix)
   doAssert feSpec.binning == feSpec.xFit
   let df = toDf({ "hist" : feSpec.hist,
-                      "bins" : feSpec.binning,
-                      "fit" : feSpec.yFit })
+                  "bins" : feSpec.binning,
+                  "fit" : feSpec.yFit })
   var
     xLabel: string
     yLabel: string
     suffix: string
+    titleSuffix: string
   if isPixel:
     xLabel = "# of pixels"
     yLabel = "counts"
+  elif isFadc:
+    xLabel = "FADC signal U [V]"
+    yLabel = "counts"
+    suffix = "_fadc"
+    titleSuffix = " for FADC data"
   else:
     xLabel = "charge / 10^3 e¯"
     yLabel = "counts"
@@ -92,13 +99,14 @@ proc plotFeSpectrum*(feSpec: FeSpecFitData,
     annotate(texts.join("\n"),
              left = 0.02,
              bottom = 0.175) +
-    ggtitle(&"Fe spectrum for run: {runNumber}") +
+    ggtitle(&"Fe spectrum for run: {runNumber}{titleSuffix}") +
     ggsave(&"{pathPrefix}/fe_spec_run_{runNumber}_chip_{chipNumber}{suffix}.pdf",
            width = 800, height = 480)
 
 proc plotFeEnergyCalib*(ecData: EnergyCalibFitData,
                         runNumber: int,
                         isPixel = true,
+                        isFadc = false,
                         pathPrefix: string) =
   discard existsOrCreateDir(pathPrefix)
   let dfEnergy = toDf({ "E" : ecData.energies,
@@ -109,8 +117,13 @@ proc plotFeEnergyCalib*(ecData: EnergyCalibFitData,
   var
     yLabel: string
     suffix: string
+    titlePrefix: string = "Detector"
   if isPixel:
     yLabel = "# of primary electrons"
+  elif isFadc:
+    yLabel = "FADC signal U [V]"
+    suffix = "_fadc"
+    titlePrefix = "FADC"
   else:
     yLabel = "Total charge / 10^3 e-"
     suffix = "_charge"
@@ -123,7 +136,7 @@ proc plotFeEnergyCalib*(ecData: EnergyCalibFitData,
      scale_y_continuous() +
      xlab("E / keV") +
      ylab(yLabel) +
-     ggtitle(&"Detector response to X-rays of energies `E` for run: {runNumber}") +
+     ggtitle(&"{titlePrefix} response to X-rays of energies `E` for run: {runNumber}") +
      ggsave(&"{pathPrefix}/energy_calib_run_{runNumber}{suffix}.pdf",
              width = 800, height = 480)
 

@@ -852,12 +852,17 @@ proc writeFeDset(h5f: H5File,
 
 proc buildTextForFeSpec*(feSpec: FeSpecFitData,
                          ecData: EnergyCalibFitData,
-                         isPixel = true): seq[string] =
+                         isPixel = true,
+                         isFadc = false): seq[string] =
   if isPixel:
     result.add &"μ = {feSpec.k_alpha:.1f} pix"
+    result.add &"{ecData.aInv:.1f} eV / pix"
+  elif isFadc:
+    result.add &"μ = {feSpec.k_alpha:.1f} V"
+    result.add &"{ecData.aInv:.1f} eV / V"
   else:
     result.add &"μ = {feSpec.k_alpha:.1f}e3 e^-"
-  result.add &"{ecData.aInv:.1f} ev / pix"
+    result.add &"{ecData.aInv:.1f} eV / 1000 e^-"
   result.add &"σ = {feSpec.sigma_kalpha / feSpec.k_alpha * 100.0:.2f} %"
   result.add &"χ²/dof = {feSpec.chiSq / feSpec.nDof.float:.2f}"
 

@@ -14,7 +14,7 @@ import geometry, arraymancer_utils
 macro echoType(x: typed): untyped =
   echo x.treeRepr
 
-type SupportedRead = SomeFloat | SomeInteger | string | bool | Value
+type SupportedRead = float | int | string | bool | Value
 
 proc getDf*(h5f: H5File, path: string, keys: varargs[string]): DataFrame =
   ## read the datasets form `path` in the `h5f` file and combine them to a single
@@ -40,6 +40,10 @@ proc readDsets*(h5f: H5FileObj, df: var DataFrame, names: seq[string], baseName:
       withDset(dsetH5):
         when type(dset) is seq[SupportedRead]:
           df[name] = dset
+        elif type(dset) is seq[SomeInteger]:
+          df[name] = dset.asType(int)
+        elif type(dset) is seq[SomeFloat]:
+          df[name] = dset.asType(float)
         else:
           doAssert false, "Invalid datatype for DataFrame! Dtype is " & $(type(dset))
     else:

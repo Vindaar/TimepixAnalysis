@@ -960,6 +960,33 @@ proc fitToFeSpectrum*(h5f: H5File, runNumber, chipNumber: int,
     echo "Warning: `totalCharge` dataset does not exist in file. No fit to " &
       "charge Fe spectrum will be performed!"
 
+  if h5f.hasFadc(runNumber):
+    ## Also fit the 55Fe spectrum in the FADC data
+    ## XXX: in the future `minvals` may be replaced by a "charge" equivalent based on
+    ## an integral of the signal!
+    var minValsDset = h5f[minvalsBasename(runNumber).dset_str]
+    let minVals = minvalsDset[float64]
+    info "Fit FADC spectrum of run: " & $runNumber
+    let feSpecFadc = fitFeSpectrumFadc(minVals)
+    info "Fit FADC energy calibration of run: " & $runNumber
+    let ecDataFadc = fitEnergyCalib(feSpecFadc, isPixel = false)
+    let textsFadc = buildTextForFeSpec(feSpecFadc, ecDataFadc, isPixel = false, isFadc = true)
+    info "Plot FADC spectrum of run: " & $runNumber
+    plotFeSpectrum(feSpecFadc, runNumber, 3, texts = textsFadc,
+                   isPixel = false, isFadc = true, pathPrefix = plotPath)
+    info "Plot FADC energy calibration of run: " & $runNumber
+    ## XXX: maybe fit with an offset in this case, due to high activation threshold?
+    plotFeEnergyCalib(ecDataFadc, runNumber, isPixel = false, isFadc = true,
+                      pathPrefix = plotPath)
+    if writeToFile:
+      h5f.extractAndWriteAttrs(minvalsDset,
+                               1e3, ## XXX: fix this number!
+                               feSpecFadc,
+                               ecDataFadc,
+                               textsFadc,
+                               "keV_per_V",
+                               "Fadc")
+
 proc fitSpectraBySlices(h5f: H5File,
                         chipGrp: H5Group, chip: int,
                         calib, calibErr, gainVals: var seq[float],

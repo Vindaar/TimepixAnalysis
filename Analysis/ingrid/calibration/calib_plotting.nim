@@ -146,15 +146,22 @@ proc plotGasGainVsChargeCalib*(gainVals, calib, calibErr: seq[float],
   # now that we have all, plot them first
   discard existsOrCreateDir(pathPrefix)
   let dfData = toDf({ "Gain" : gainVals,
-                          "Calib" : calib,
-                          "CalibErr" : calibErr })
+                      "Calib" : calib,
+                      "CalibErr" : calibErr })
 
   # TODO: refactor the following by creating a function which takes care of
   # boilerplate in the whole file here
   let dfFit = toDf({ "Gain" : fitResult.x,
-                         "Calib" : fitResult.y })
+                     "Calib" : fitResult.y })
   let df = bind_rows(("Data", dfData), ("Fit", dfFit), id = "Type")
   # write results to ingrid database
+
+  proc buildAnnotate(): seq[string] =
+    result.add "f(x) = m·x + b"
+    result.add &"m = {fitResult.pRes[1]:.2e} ± {fitResult.pErr[1]:.2e}"
+    result.add &"b = {fitResult.pRes[0]:.2f} ± {fitResult.pErr[0]:.2f}"
+    result.add &"χ²/dof = {fitResult.redChiSq:.2f}"
+  let annotation = buildAnnotate()
 
   # use the data to which we fit to create a hash value. That way we only overwrite the file
   # in case we plot the same data
@@ -165,7 +172,7 @@ proc plotGasGainVsChargeCalib*(gainVals, calib, calibErr: seq[float],
                   aes = aes(yMin = f{`Calib` - `CalibErr`},
                             yMax = f{`Calib` + `CalibErr`})) +
     geom_line(data = dfFit, color = some(parseHex("FF00FF"))) +
-    annotate(&"χ²/dof = {fitResult.redChiSq:.2f}", left = 0.75, bottom = 0.1) +
+    annotate(annotation.join("\n"), left = 0.65, bottom = 0.2, font = font(family = "monospace")) +
     xlab("Gas gain G") +
     ylab("Calibration factor a⁻¹ [10⁻⁶ keV / e]") +
     ggtitle("Energy calibration factors vs gas gain") +

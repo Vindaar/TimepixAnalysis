@@ -96,7 +96,7 @@ proc readTstampDf(h5f: H5File, applyRegionCut: bool): DataFrame =
       dfEv["sliceNum"] = sliceNum
 
     readIt(allNames, grp, dfAll)
-    var dfJoined = inner_join(dfEv, dfAll, "eventNumber")
+    var dfJoined = innerJoin(dfEv, dfAll, "eventNumber")
     dfJoined["runNumber"] = constantColumn(run, dfJoined.len)
 
     result.add dfJoined
@@ -214,6 +214,7 @@ proc calcMean(df: DataFrame,
     tStart = tstamps[0]
     numCluster = 0
     j = 0
+    tStartIdx = 0
   var timesToPlot = newSeq[float]()
   when useMedian:
     var vec = newSeq[float]()
@@ -232,6 +233,7 @@ proc calcMean(df: DataFrame,
       numCluster = 0
       current = 0.0
       tStart = tstamps[i]
+      tStartIdx = i
       timesToPlot.add tStart
       inc j
     when toNorm:
@@ -283,7 +285,8 @@ proc computeStats(df: DataFrame): DataFrame =
   inc num
 
 proc calculateMeanDf(df: DataFrame, interval: float,
-                     periodTab: OrderedTable[int, string] = initOrderedTable[int, string]()): DataFrame =
+                     periodTab: OrderedTable[int, string] = initOrderedTable[int, string](),
+                     useMedian = false): DataFrame =
   ## interval: time in minutes
   # we're going to do a rather crude approach. Given that we have to bin
   # a continuous variable, we're not well equipped using ggplotnim's dataframe
@@ -294,10 +297,14 @@ proc calculateMeanDf(df: DataFrame, interval: float,
 
   let outLen = tmeanstamps.len
   let sums = df.calcMean(tstamps, outLen, "hits", interval)
-  let means = df.calcMean(tstamps, outLen, "totalCharge", interval, "hits")
+  var means: seq[float]
+  if useMedian:
+    means = df.calcMean(tstamps, outLen, "totalCharge", interval, useMedian = true)
+  else:
+    means = df.calcMean(tstamps, outLen, "totalCharge", interval, normBy = "hits")
 
   result = toDf({"timestamp" : tmeanStamps, "sumCharge" : sums,
-                      "meanCharge" : means, "runPeriods" : runPeriods })
+                 "meanCharge" : means, "runPeriods" : runPeriods })
 
   template calcAndAdd(name, dfName: untyped): untyped =
     let tmp = df.calcMean(tstamps, outLen, name, interval, useMedian = true)
@@ -317,35 +324,63 @@ proc calculateMeanDf(df: DataFrame, interval: float,
   df2.writeCsv(&"/tmp/nov2017_mean_{num2}.csv")
   inc num2
 
-proc plotDf(df: DataFrame, interval: float, titleSuff: string,
-            useLog = true,
-            applyRegionCut = false,
-            outpath = "out") =
+proc plotOverTime(df: DataFrame, interval: float, titleSuff: string,
+                  useLog = true,
+                  applyRegionCut = false,
+                  useMedian = false,
+                  normalizeMedian = true,
+                  outpath = "out") =
   let interval = interval / 60.0 # convert back to minutes for title
   createDir(outpath)
   var nameSuff = if titleSuff == "all data": "all" else: "filtered"
   if applyRegionCut:
     nameSuff.add "_crSilver"
-  when false:
-    var pltSum = ggplot(df, aes("timestamp", "sumCharge", color = "runType")) +
-      facet_wrap("runPeriods", scales = "free") +
-      geom_point(alpha = some(0.5)) +
-      scale_x_continuous(labels = toPeriod) +
-      xlab(rotate = -45, alignTo = "right") +
-      ggtitle(&"Sum of total charge within {interval:.1f} min, {titleSuff}")
-    var pltMean = ggplot(df, aes("timestamp", "meanCharge", color = "runType")) +
-      facet_wrap("runPeriods", scales = "free") +
-      scale_x_continuous(labels = toPeriod) +
-      xlab(rotate = -45, alignTo = "right") +
-      geom_point(alpha = some(0.5)) +
-      ggtitle(&"Mean of total charge within {interval:.1f} min, {titleSuff}")
-    if useLog:
-      pltSum = pltSum + scale_y_log10()
-      pltMean = pltMean + scale_y_log10()
-    pltSum + ggsave(&"{outpath}/background_sum_charge_binned_{interval:.1f}_min_{nameSuff}.pdf",
-                     width = 1920, height = 1080)
-    pltMean + ggsave(&"{outpath}/background_mean_charge_binned_{interval:.1f}_min_{nameSuff}.pdf",
-                      width = 1920, height = 1080)
+  let meanPrefix = if useMedian: "Median" else: "Mean"
+  let normSuffix = if useMedian and normalizeMedian: " each run type normalized to 1"
+                   else: ""
+  let title = &"{meanPrefix} of total charge within {interval:.1f} min{normSuffix}, {titleSuff}"
+
+
+  var pltSum = ggplot(df, aes("timestamp", "sumCharge", color = "runType")) +
+    facet_wrap("runPeriods", scales = "free") +
+    geom_point(alpha = some(0.75)) +
+    scale_x_continuous(labels = toPeriod) +
+    margin(bottom = 1.5, right = 3) +
+    legendPosition(0.92, 0.0) +
+    xlab(rotate = -45, alignTo = "right", margin = 0.0) +
+    ggtitle(&"Sum of total charge within {interval:.1f} min, {titleSuff}")
+  let yScale = if useMedian and normalizeMedian:
+                 f{float: `meanCharge` / max(col("meanCharge"))}
+               else:
+                 f{"meanCharge"}
+  var pltMean = ggplot(df, aes("timestamp",
+                               yScale,
+                               color = "runType")) +
+    facet_wrap("runPeriods", scales = "free") +
+    scale_x_continuous(labels = toPeriod) +
+    facetMargin(1.0, ukCentimeter) +
+    margin(bottom = 1.5, right = 3) +
+    legendPosition(0.92, 0.0) +
+    xlab(rotate = -45, alignTo = "right", margin = 0.0) +
+    geom_point(alpha = some(0.75)) +
+    ggtitle(title)
+  if useLog:
+    pltSum = pltSum + scale_y_log10()
+    pltMean = pltMean + scale_y_log10()
+  pltSum + ggsave(&"{outpath}/background_sum_charge_binned_{interval:.1f}_min_{nameSuff}.pdf",
+                   width = 1920, height = 1080)
+  pltMean + ggsave(&"{outpath}/background_{meanPrefix.toLowerAscii()}_charge_binned_{interval:.1f}_min_{nameSuff}.pdf",
+                    width = 1920, height = 1080)
+
+proc plotHistos(df: DataFrame, interval: float, titleSuff: string,
+                useLog = true,
+                applyRegionCut = false,
+                outpath = "out") =
+  let interval = interval / 60.0 # convert back to minutes for title
+  createDir(outpath)
+  var nameSuff = if titleSuff == "all data": "all" else: "filtered"
+  if applyRegionCut:
+    nameSuff.add "_crSilver"
 
   for key in readKeys:
     if key == "timestamp": continue
@@ -429,14 +464,14 @@ proc plotFeSpectra(df: DataFrame,
       ggsave(&"out/spectra_{suff}.pdf",
              width = 2000, height = 1500)
   proc pltCharge(dfHalf: DataFrame, suff: string) =
-    ggplot(dfHalf, aes("totalCharge"), numXTicks = 6) +
+    ggplot(dfHalf, aes("totalCharge")) +
       facet_wrap("runNumber", scales = "free") +
       geom_histogram(breaks = arange(0.0, 1.5e6, 3e3).toRawSeq) +
       ggsave(&"out/spectra_charge_{suff}.pdf",
              width = 2000, height = 1500)
 
-  let df2017 = df.filter(f{`runNumber` <= 187 or `runNumber` == 0})
-  let df2018 = df.filter(f{`runNumber` > 187 or `runNumber` == 0})
+  let df2017 = df.filter(f{int: `runNumber` <= 187 or `runNumber` == 0})
+  let df2018 = df.filter(f{int: `runNumber` > 187 or `runNumber` == 0})
   echo df2017.unique("runNumber").len
   echo df2018.unique("runNumber").len
   plt(df2017, "2017_to_run_187")
@@ -471,28 +506,31 @@ proc main(files: seq[string],
           createSpectra: bool = false,
           timeSeries: bool = false,
           photoDivEscape: bool = false,
-          applyRegionCut = false) =
+          applyRegionCut = false,
+          useLog = false,
+          useMedian = false,
+          normalizeMedian = false) =
   ## Input should be both H5 `DataRuns*_reco.h5` data files
   ## `interval` is the time to average per bin in minutes
   ## `cutoffCharge` is a filter on an amount of charge each cluster must
   ## have to take part
   let interval = interval * 60.0 # convert to seconds
   let dfBack = readFiles(files, "background", applyRegionCut = applyRegionCut)
-  let dfCalib = readFiles(calibFiles, "acalibration", applyRegionCut = applyRegionCut)
+  let dfCalib = readFiles(calibFiles, "calibration", applyRegionCut = applyRegionCut)
   ## check if there are additional files in the toml file
 
   if timeSeries:
     template all(arg1, arg2: DataFrame): untyped =
       #let all1 = arg1.splitDf.computeStats()
       #let all2 = arg2.splitDf(all1.uniquePeriods).computeStats()
-      let all1 = calculateMeanDf(arg1, interval)
-      let all2 = calculateMeanDf(arg2, interval, all1.getPeriods)
+      let all1 = calculateMeanDf(arg1, interval, useMedian = useMedian)
+      let all2 = calculateMeanDf(arg2, interval, all1.getPeriods, useMedian = useMedian)
       #if true: quit()
       concat(all1, all2)
-    template filt(arg: DataFrame): untyped =
+    proc filt(arg: DataFrame): DataFrame =
       arg.filter(f{float -> bool: `totalCharge` > cutoffCharge},
                  f{float -> bool: `hits` < cutoffHits})
-    template filtConc(arg1, arg2: DataFrame): untyped =
+    proc filtConc(arg1, arg2: DataFrame): DataFrame =
       let all1 = filt(arg1).splitDf().computeStats()
       let all2 = filt(arg2).splitDf(all1.uniquePeriods).computeStats()
       #let all1 = filt(arg1).calculateMeanDf(interval)
@@ -507,13 +545,17 @@ proc main(files: seq[string],
     #echo dfFilter
     let regionCut = if applyRegionCut: " cut to crSilver, 0.1 < rmsTrans < 1.5 "
                     else: ""
-    #plotDf(dfAll, interval, titleSuff = &"all data{regionCut}",
-    #       applyRegionCut = applyRegionCut)
+    plotOverTime(dfAll, interval,
+                 titleSuff = &"{regionCut}charge > {cutoffCharge}, hits < {cutoffHits:.0f} filtered out",
+                 applyRegionCut = applyRegionCut,
+                 useLog = useLog,
+                 useMedian = useMedian,
+                 normalizeMedian = normalizeMedian)
 
-    plotDf(dfFilter, interval,
-           titleSuff = &"{regionCut}charge > {cutoffCharge}, hits < {cutoffHits:.0f} filtered out",
-           applyRegionCut = applyRegionCut,
-           useLog = false)
+    plotHistos(dfFilter, interval,
+               titleSuff = &"{regionCut}charge > {cutoffCharge}, hits < {cutoffHits:.0f} filtered out",
+               applyRegionCut = applyRegionCut,
+               useLog = false)
 
   if photoDivEscape:
     let dfBackMean = calculateMeanDf(dfBack, interval)

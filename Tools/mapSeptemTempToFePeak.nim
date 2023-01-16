@@ -1,4 +1,3 @@
-import mclimit
 import os except FileInfo
 import ggplotnim, seqmath, sequtils, tables, options, times
 import nimhdf5, cligen

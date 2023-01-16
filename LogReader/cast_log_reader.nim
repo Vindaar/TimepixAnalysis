@@ -34,8 +34,6 @@ when not defined(pure):
 
 import ingrid/tos_helpers
 
-{.deadCodeElim: on.}
-
 type
   TrackingKind* = enum
     rkTracking, # if tracking took place in this log
@@ -927,15 +925,16 @@ proc toDf(sc: SlowControlLog, enforceSameFields = false): DataFrame =
 proc plotTemperatures(scLogs: seq[SlowControlLog]) =
   ## Plots the different temperatures recorded in the CAST hall in the given time range
   let df = seqstoDf({ "Time" : scLogs.mapIt(it.timestamps).flatten,
-                  "T_amb" : scLogs.mapIt(it.temps.mapIt(it.amb)).flatten,
-                  "T_iron" : scLogs.mapIt(it.temps.mapIt(it.iron)).flatten,
-                  "T_mrb" : scLogs.mapIt(it.temps.mapIt(it.mrb)).flatten,
-                  "T_mfb" : scLogs.mapIt(it.temps.mapIt(it.mfb)).flatten,
-                  "T_ext" : scLogs.mapIt(it.temps.mapIt(it.ext)).flatten,
-                  "T_vent" : scLogs.mapIt(it.temps.mapIt(it.vent)).flatten,
-                  "Humidity" : scLogs.mapIt(it.humidity).flatten })
+                      "T_amb" : scLogs.mapIt(it.temps.mapIt(it.amb)).flatten,
+                      "T_iron" : scLogs.mapIt(it.temps.mapIt(it.iron)).flatten,
+                      "T_mrb" : scLogs.mapIt(it.temps.mapIt(it.mrb)).flatten,
+                      "T_mfb" : scLogs.mapIt(it.temps.mapIt(it.mfb)).flatten,
+                      "T_ext" : scLogs.mapIt(it.temps.mapIt(it.ext)).flatten,
+                      "T_vent" : scLogs.mapIt(it.temps.mapIt(it.vent)).flatten,
+                      "Humidity" : scLogs.mapIt(it.humidity).flatten })
     .gather(["T_amb", "T_iron", "T_mrb", "T_mfb", "T_ext", "T_vent"], key = "Temperature", value = "TempVal")
     .arrange("Time")
+  df.writeCsv("/tmp/temperatures_cast.csv")
   ggplot(df, aes("Time", "TempVal", color = "Temperature")) +
     geom_line() +
     scale_x_date(name = "Date", isTimestamp = true,

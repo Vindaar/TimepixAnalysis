@@ -89,6 +89,12 @@ proc readTstampDf(h5f: H5File, applyRegionCut: bool): DataFrame =
 
       ## For event, read gas gain slices
       var sliceNum = newSeq[int](dfEv.len)
+      # Note: we only read the slice data to match the input *binning*. If the data
+      # was *not* binned (full run gas gain), but we want to plot against 90 min bins,
+      # using the gas gain time slice 90 min bins is _still a good idea_ as it gives us
+      # the same data points as in the 90 min case, just with energies that are worse
+      # calibrated.
+      ## XXX: do not try to read `90`, but rather try to read the version of the input time!
       let gsname = if grp / "chip_3" / "gasGainSlices90" in h5f: "gasGainSlices90"
                    else: "gasGainSlices"
       for (idx, slice) in iterGainSlicesIdx(h5f, grp / "chip_3", gsname):
@@ -418,6 +424,9 @@ proc plotHistos(df: DataFrame, interval: float, titleSuff: string,
                             width = 1920, height = 1080)
       echo "created ", adn.normalize, " ", name
                             #width = 800, height = 480)
+
+  # write the DF to the output path (convert timestamp to int to get full accuracy w/ default precision)
+  df.mutate(f{float -> int: "timestamp" ~ `timestamp`.int}).writeCsv(&"{outpath}/data_{interval:.1f}_min_{nameSuff}.csv")
 
   when false:
     ggplot(df, aes("meanCharge", color = "runType")) +

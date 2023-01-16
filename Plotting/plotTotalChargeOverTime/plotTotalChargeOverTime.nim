@@ -396,11 +396,13 @@ proc plotHistos(df: DataFrame, interval: float, titleSuff: string,
       #let df = df.mutate(f{float -> float: "energy" ~ `energy` * 1e6})
       var pltTmp = ggplot(df, aes("timestamp", name, color = "runType")) +
         facet_wrap("runPeriods", scales = "free") +
+        facetMargin(1.0, ukCentimeter) +
         scale_x_continuous(labels = toPeriod) +
-        xlab("timestamp", margin = 2.5, rotate = -45, alignTo = "right") +
         geom_point(alpha = some(0.5)) +
         ylim(2, 6.5) +
-        margin(top = 1.75, bottom = 3) +
+        margin(bottom = 1.5, right = 3) +
+        legendPosition(0.92, 0.0) +
+        xlab("timestamp", rotate = -45, alignTo = "right", margin = 0.0) +
         ggtitle(&"{adn} of cluster {key} within {interval:.1f} min, {titleSuff}")
       var pltTmpHisto = ggplot(df, aes(name, fill = "runType")) +
         facet_wrap("runPeriods", scales = "free") +

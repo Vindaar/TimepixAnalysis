@@ -2641,9 +2641,9 @@ proc add(p: var PlotV, p2: PlotV, f1, f2: string, compareDensity: bool) =
     p.pltGg.data = dfP
     # now update `aes` to use new `From` column
     if not hasRaster:
-      p.pltGg.aes.color = some(Scale(scKind: scColor, col: f{"From"}, hasDiscreteness: true,
+      p.pltGg.aes.color = some(ggplotnim.Scale(scKind: scColor, col: f{"From"}, hasDiscreteness: true,
                                      ids: p.pltGg.aes.x.get.ids))
-      p.pltGg.aes.fill = some(Scale(scKind: scFillColor, col: f{"From"}, hasDiscreteness: true,
+      p.pltGg.aes.fill = some(ggplotnim.Scale(scKind: scFillColor, col: f{"From"}, hasDiscreteness: true,
                                      ids: p.pltGg.aes.x.get.ids))
     else:
       p.pltGg.facet = some(Facet(columns: @["From"]))

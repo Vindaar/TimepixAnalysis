@@ -219,7 +219,7 @@ proc `==`*(s1, s2: DataSelector): bool =
      s1.idxs == s2.idxs and
      s1.applyAll == s2.applyAll
 
-proc `==`*(p1, p2: PlotDescriptor): bool =
+func `==`*(p1, p2: PlotDescriptor): bool =
   ## `runType` is ignored to allow to compare rtBackground with rtCalibration files!
   #if p1.runType != p2.runType: result = false
   if p1.plotKind != p2.plotKind: result = false

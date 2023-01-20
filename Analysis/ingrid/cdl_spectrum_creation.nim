@@ -941,6 +941,7 @@ proc fitAndPlot[T: SomeNumber](h5f: var H5FileObj, fitParamsFname: string,
   var ploterror: seq[float]
   var rawseq: seq[T]
   var cutseq: seq[T]
+  var runNumbers: seq[int]
   var binsizeplot: float
   var binrangeplot: float
   var xtitle: string
@@ -971,13 +972,27 @@ proc fitAndPlot[T: SomeNumber](h5f: var H5FileObj, fitParamsFname: string,
       let Cdlseq = h5f[grp.name / "CdlSpectrum", T]
       rawseq.add(RawDataseq)
       cutseq.add(Cdlseq)
+      runNumbers.add repeat(run, Cdlseq.len)
     of Dcharge:
       let RawDataSeq = h5f[grp.name / "totalCharge", T]
       let Cdlseq = h5f[grp.name / "CdlSpectrumCharge", T]
       rawseq.add(RawDataseq)
       cutseq.add(Cdlseq)
+      runNumbers.add repeat(run, Cdlseq.len)
 
   let (histdata, bins) = histoCdl(cutseq, binsizeplot, dKind)
+
+  let dfP = toDf(cutseq, runNumbers)
+  ggplot(dfP, aes("cutseq", fill = "runNumbers")) +
+    geom_histogram(binWidth = binsizeplot,
+                   hdKind = hdOutline,
+                   position = "identity",
+                   alpha = 0.5) +
+    ggtitle($dKind & " " & $tfKind) +
+    ggsave("/tmp/" & $tfkind & "_" & $dKind & ".pdf")
+
+
+  ## XXX: we fit the mpfit version inside `fitCdlImpl` again!!!
   let (pStart, pRes, fitBins, fitHist, errorsres) = fitCdlImpl(histdata, bins, tfKind, dKind)
   let fitresults = calcfit(cutseq, fitfunc, binsizeplot, tfKind, dKind)
   echo "fitresults nlopt", fitresults[1]

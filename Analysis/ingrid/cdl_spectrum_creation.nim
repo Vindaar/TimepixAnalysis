@@ -450,7 +450,7 @@ func getboundsCharge(tfKind:TargetFilterKind): seq[tuple[l, u:float]] =
                (l: 5.0, u:Inf),
                (l: 5.0, u:Inf)]
   of tfAgAg6:
-    result = @[(l: 390.0, u:450.0),
+    result = @[(l: 390.0, u:Inf),
                (l: 1.0, u:Inf),
                (l: 1.0, u:110.0e3)]
   of tfAlAl4:

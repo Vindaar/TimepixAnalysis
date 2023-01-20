@@ -675,7 +675,7 @@ proc fitCdlImpl(hist, binedges: seq[float], tfKind: TargetFilterKind, dKind: Dat
   let passIdx = toSeq(0 .. passhist.high).filterIt(passhist[it] > 0)
   let fitBins = passIdx.mapIt(passbin[it])
   let fitHist = passIdx.mapIt(passhist[it])
-  let err = fitHist.mapIt(1.0)# / sqrt(it))
+  let err = fitHist.mapIt(sqrt(it)) #1.0)# / sqrt(it))
 
   let (pRes, res) = fit(fitfunc,
                         params,

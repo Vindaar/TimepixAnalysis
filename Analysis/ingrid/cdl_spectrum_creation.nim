@@ -194,7 +194,7 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
     result.add FitFuncArgs(name: "Cu-Lbeta",
                           kind: ffGauss,
                           gN: n_main / 10.0,
-                          gmu: mu_main,
+                          gmu: mu_main * 1.03,
                           gs: sigma_main)
   of tfCuEpic0_9:
     result.add FitFuncArgs(name: "O-Kalpha",
@@ -395,12 +395,12 @@ func getLinesCharge(hist, binning: seq[float], tfKind: TargetFilterKind): seq[Fi
                           kind: ffGauss,
                           gN: n_main / 2.0,# / 20.0,
                           gmu: mu_main, #* 0.5e3,
-                          gs: sigma_main)
+                          gs: sigma_main / 4.0)
     result.add FitFuncArgs(name: "Cu-Lbeta",
                           kind: ffGauss,
                           gN: n_main / 2.0,# / 50.0,
-                          gmu: mu_main,
-                          gs: sigma_main)
+                          gmu: mu_main / 3.0,
+                          gs: sigma_main / 4.0)
   of tfCuEpic0_9:
     result.add FitFuncArgs(name: "O-Kalpha",
                           kind: ffGauss,

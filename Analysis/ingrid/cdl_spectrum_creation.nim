@@ -883,7 +883,7 @@ proc calcFit[T: SomeNumber](dataseq: seq[T],
                             tfKind: TargetFilterKind,
                             dKind: DataKind): (seq[float], seq[float], float, float) =
   let (histdata, bins) = histoCdl(dataseq, binSize, dKind)
-  let (pStart, pRes, fitBins, fitHist, errorres) = fitCdlImpl(histdata, bins, tfKind, dKind)
+  let (pStartInit, pRes, fitBins, fitHist, errorres) = fitCdlImpl(histdata, bins, tfKind, dKind)
   var bounds: seq[tuple[l, u:float]]
   case dKind
   of Dhits:
@@ -898,23 +898,24 @@ proc calcFit[T: SomeNumber](dataseq: seq[T],
     pStart[i] = clamp(pStart[i], bounds[i].l, bounds[i].u)
   #var opt = newNloptOpt(LD_TNEWTON_PRECOND, pStart.len, bounds)
   fitForNlopt(convertNlopt, cdlFitFunc,
-              nfKind = nfMle,
+              nfKind = nfChiSqGrad,
               toExport = false)
   # have to mixin the `convertNlopt` name, since generic symbol resolution
   # happens before macro call (so `convertNlopt` isn't known yet)
   mixin convertNlopt
-  var fitObj = FitObject(x: fitBins, y: fitHist) #, yErr: fitHist.mapIt(sqrt(it)))
+  var fitObj = FitObject(x: fitBins, y: fitHist, yErr: fitHist.mapIt(sqrt(it)))
   var vstruct = newVarStruct(convertNlopt, fitObj)
 
   #var opt = newNloptOpt[type(fitObj)](LD_MMA, pStart.len, bounds)
-  var opt = newNloptOpt[type(fitObj)](LN_COBYLA, pStart.len, bounds)
+  var opt = newNloptOpt[type(fitObj)](LD_MMA, pStart.len, bounds)
+  #var opt = newNloptOpt[type(fitObj)](LN_COBYLA, pStart.len, bounds)
   opt.setFunction(vstruct)
   opt.xtol_rel = 1e-10
   opt.ftol_rel = 1e-10
   #opt.xtol_abs = 1e-14
   #opt.ftol_abs = 1e-14
-  opt.maxtime  = 20.0
-  #opt.maxEval  = 2000
+  opt.maxtime  = 5.0
+  opt.maxEval  = 2000
   #opt.initialStep = 1
   let (paramsN, minN) = opt.optimize(pStart)
   if opt.status == NLOPT_INVALID_ARGS:

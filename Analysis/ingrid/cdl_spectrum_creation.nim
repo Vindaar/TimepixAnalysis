@@ -5,9 +5,9 @@ import ingrid / [ingrid_types, tos_helpers]
 import ingrid / calibration
 import ingrid / calibration / [fit_functions, calib_fitting]
 import cdlFitting / cdlFitMacro
-import docopt
 import helpers / utils
 import chroma
+import cligen / macUt
 
 const docStr = """
 Usage:
@@ -34,7 +34,15 @@ Options:
   --outfile=NAME  Name of the output file. Optional.
   --year=YEAR     Year to add to output filenames.
 """
-const doc = withDocopt(docStr)
+
+when defined(linux):
+  const commitHash = staticExec("git rev-parse --short HEAD")
+else:
+  const commitHash = ""
+# get date using `CompileDate` magic
+const compileDate = CompileDate & " at " & CompileTime
+const versionStr = "Version: $# built on: $#" % [commitHash, compileDate]
+
 
 ##some constants depending on the run
 import projectDefs
@@ -49,18 +57,6 @@ const XrayRefGenerateNamingScheme = fkTpa
 # this global can be changed to create the calibration-cdl.h5 using the
 # 2014 naming scheme (default TPA naming)
 const CdlGenerateNamingScheme = fkTpa
-
-
-## some different color definitions
-const Color1 = color(1.0, 0.0, 102.0 / 256.0)
-const Color2 = color(0.0, 153.0 / 256.0, 204 / 256.0)
-const black = color(0.0, 0.0, 0.0)
-const ColorTGelb = parseHex("FFC107")
-const ColorTBlau = parseHex("0288D1")
-const ColorTDBlau = parseHex("0288D1")
-const ColorTBGrau = parseHex("BDBDBD")
-const ColorTGrau = parseHex("757575")
-const ColorTHGrau = color(0.92, 0.92, 0.92)
 
 type
   TargetKind = enum
@@ -1287,35 +1283,28 @@ proc generateXrayReferenceFile(h5file: string, year: YearKind,
   discard h5fout.close()
   discard h5f.close()
 
-proc main =
-  let args = docopt(doc)
-  echo "ARGS", args
-
-  let h5file = $args["<h5file>"]
-  let reco_order = args["--cutcdl"].toBool
-  let genRefFile = args["--genRefFile"].toBool
-  let genCdlFile = args["--genCdlFile"].toBool
-  let genOutfile = if $args["--outfile"] != "nil":
-                     $args["--outfile"]
-                   else:
-                     ""
-  let dumpAccurate = if args["--dumpAccurate"].toBool:
-                       true
-                     else:
-                       false
+proc main(input: string,
+          cutcdl = false,
+          dumpAccurate = false,
+          genCdlFile = false,
+          genRefFile = false,
+          showStartParams = false,
+          outfile = "",
+          year: YearKind = yr2018) =
+  ##
+  docCommentAdd(versionStr)
 
   template callGenFunc(fn: untyped): untyped =
-    let year = parseEnum[YearKind]($args["--year"])
-    if genOutFile.len > 0:
-      fn(h5file, year, genOutFile)
+    if outfile.len > 0:
+      fn(input, year, outfile)
     else:
-      fn(h5file, year)
+      fn(input, year)
   if genRefFile:
     callGenFunc(generateXrayReferenceFile)
   if genCdlFIle:
     callGenFunc(generateCdlCalibrationFile)
-  if reco_order:
-    cutAndWrite(h5file)
+  if cutcdl:
+    cutAndWrite(input)
 
   if not genRefFile and not genCdlFile:
     # only perform CDL fits if neither CDL calibration file nor
@@ -1335,17 +1324,21 @@ proc main =
     var peakChargeErr: seq[float]
     var energyResCharge: seq[float]
     var energyChargeErr: seq[float]
-    #let a = fitAndPlot[int64](h5file, tfCuEpic0_9, Dhits)
-    #let b = fitAndPlot[float64](h5file, tfCuEpic0_9, Dcharge)
-    var h5f = H5open(h5file, "rw")
+    #let a = fitAndPlot[int64](input, tfCuEpic0_9, Dhits)
+    #let b = fitAndPlot[float64](input, tfCuEpic0_9, Dcharge)
+    var h5f = H5open(input, "rw")
     for tfkind in TargetFilterKind:
-      let energyHits = fitAndPlot[int64](h5f, fitParamsFname, tfkind, Dhits)
+      echo "Working on : ", tfKind
+      let energyHits = fitAndPlot[int64](h5f, fitParamsFname, tfkind, Dhits,
+                                         showStartParams = showStartParams)
       peakposHits.add(energyHits[0])
       energyResHits.add(energyHits[1])
       peakHitsErr.add(energyHits[2])
       energyHitsErr.add(energyHits[3])
       #echo "energyres ", energyResHit
-      let energyCharge = fitAndPlot[float64](h5f, fitParamsFname, tfkind, Dcharge)
+      echo "and now charge:"
+      let energyCharge = fitAndPlot[float64](h5f, fitParamsFname, tfkind, Dcharge,
+                                             showStartParams = showStartParams)
       peakposCharge.add(energyCharge[0])
       energyResCharge.add(energyCharge[1])
       peakChargeErr.add(energyCharge[2])
@@ -1357,4 +1350,5 @@ proc main =
     peakFit(peakposCharge, "Charge", peakChargeErr, plotPath)
 
 when isMainModule:
-  main()
+  import cligen
+  dispatch main

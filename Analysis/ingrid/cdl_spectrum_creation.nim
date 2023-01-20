@@ -890,7 +890,12 @@ proc calcFit[T: SomeNumber](dataseq: seq[T],
     bounds = getbounds(tfKind)
   of Dcharge:
     bounds = getboundsCharge(tfKind)
-  doassert pStart.len == bounds.len
+
+  # now make sure all start parameters are within bounds, else clamp
+  var pStart = pStartInit
+  doAssert pStart.len == bounds.len
+  for i in 0 ..< pStart.len:
+    pStart[i] = clamp(pStart[i], bounds[i].l, bounds[i].u)
   #var opt = newNloptOpt(LD_TNEWTON_PRECOND, pStart.len, bounds)
   fitForNlopt(convertNlopt, cdlFitFunc,
               nfKind = nfMle,
@@ -912,6 +917,14 @@ proc calcFit[T: SomeNumber](dataseq: seq[T],
   #opt.maxEval  = 2000
   #opt.initialStep = 1
   let (paramsN, minN) = opt.optimize(pStart)
+  if opt.status == NLOPT_INVALID_ARGS:
+    echo "NLOPT Fit failed. Likely cause: satrt parameter outside bounds:"
+    for i in 0 ..< pStart.len:
+      echo "pStart[", i, "] =", pStart[i], " with bound: ", bounds[i], " and pRes = ", pRes[i]
+    quit()
+  elif opt.status < NLOPT_SUCCESS:
+    echo "NLOPT fit failed with code ", opt.status
+    quit()
   nlopt_destroy(opt.optimizer)
   let minbin = fitBins.min
   let maxbin = fitBins.max

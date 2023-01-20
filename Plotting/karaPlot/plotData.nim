@@ -1301,14 +1301,16 @@ proc readEventsSparse*(h5f: H5File, fileInfo: FileInfo, run, chip: int, #idx: in
     ch = h5f.readVlen(fileInfo, run, "ToT", selector,
                       chipNumber = chip,
                       dtype = uint16)
-    (events, _) = h5f.readFull(fileInfo, run, "eventNumber", selector,
-                               chipNumber = chip,
-                               dtype = int)
+    (eventIdxs, events) = h5f.readFull(fileInfo, run, "eventNumber", selector,
+                                       chipNumber = chip,
+                                       dtype = int)
   result = newDataFrame()
-  doAssert events.len == x.len, "Events are: " & $events.len & " and x.len " & $x.len
+  doAssert events.len == x.len, "Event indices are: " & $eventIdxs.len & " and x.len " & $x.len
+  # eventIdxs can be empty if we read _all_ events in a run!
   for i in 0 ..< x.len:
+    let evIdx = if eventIdxs.len > 0: eventIdxs[i] else: i
     let dfLoc = toDf({ "x" : x[i].mapIt(it.int), "y" : y[i].mapIt(it.int), "ch" : ch[i].mapIt(it.int),
-                       "Index" : events[i] })
+                       "Index" : evIdx })
     result.add dfLoc
 
 proc readIngridForEventDisplay*(h5f: H5File, fileInfo: FileInfo, run, chip: int, #idx: int,

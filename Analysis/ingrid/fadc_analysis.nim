@@ -258,7 +258,7 @@ proc calcRiseAndFallTime*(fadc: Tensor[float],
     result = (baseline: baseline, xMin: x_min_u, riseStart: rise_start_u, fallStop: fall_stop_u,
               riseTime: rise_times_u, fallTime: fall_times_u)
   else:
-    let nSpectra = fadc.len
+    let nSpectra = fadc.shape[0]
     var
       baseline = newTensorUninit[float](nSpectra)
       xMin = newTensorUninit[uint16](nSpectra)
@@ -267,7 +267,7 @@ proc calcRiseAndFallTime*(fadc: Tensor[float],
       riseTime = newTensorUninit[uint16](nSpectra)
       fallTime = newTensorUninit[uint16](nSpectra)
     # for i in `||`(0, fadc.high, ""):
-    for i in 0 .. fadc.high:
+    for i in 0 ..< nSpectra:
       let tup = calcRiseAndFallTime(fadc[i, _].squeeze)
       baseline[i] = tup[0]
       xMin[i] = tup[1]

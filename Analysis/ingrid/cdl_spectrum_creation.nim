@@ -279,10 +279,10 @@ func getbounds(tfKind:TargetFilterKind): seq[tuple[l, u:float]] =
   of tfCuEpic2:
     result = @[(l: 1.0, u:Inf),
                (l: 1.0, u:Inf),
+               (l: 1.0, u:10.0),
                (l: 1.0, u:Inf),
                (l: 1.0, u:Inf),
-               (l: 1.0, u:Inf),
-               (l: 1.0, u:Inf)]
+               (l: 1.0, u:10.0)]
   of tfCuEpic0_9:
     result = @[(l: 1.0, u:Inf),
                (l: 1.0, u:23.0),

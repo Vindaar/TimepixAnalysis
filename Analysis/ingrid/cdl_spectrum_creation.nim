@@ -717,7 +717,7 @@ proc readRuns(fname: string): seq[CdlRun] =
 proc totfkind(run: CdlRun): TargetFilterKind =
   result = parseEnum[TargetFilterKind](&"{toCutStr(run)}")
 
-iterator tfRuns(h5f: var H5FileObj, tfKind: TargetFilterKind): H5Group =
+iterator tfRuns(h5f: var H5FileObj, tfKind: TargetFilterKind): (int, H5Group) =
   ## Yields the center chip group of all runs from `filename`,
   ## which match `tfKind`
   let runs = readRuns(filename)
@@ -729,7 +729,7 @@ iterator tfRuns(h5f: var H5FileObj, tfKind: TargetFilterKind): H5Group =
         let runGrp = h5f[recoRunGrpStr(r.number)]
         let centerChip = runGrp.attrs["centerChip", int]
         let chpGrp = h5f[(runGrp.name / "chip_" & $centerChip).grp_str]
-        yield chpGrp
+        yield (r.number, chpGrp)
     else:
       # nothing to yield if not an "XrayFinger" (read CDL) run
       discard
@@ -918,7 +918,8 @@ proc calcFit[T: SomeNumber](dataseq: seq[T],
   result = (pRes, paramsN, minbin, maxbin)
 
 proc fitAndPlot[T: SomeNumber](h5f: var H5FileObj, fitParamsFname: string,
-                               tfKind: TargetFilterKind, dKind: DataKind):
+                               tfKind: TargetFilterKind, dKind: DataKind,
+                               showStartParams: bool):
                (seq[float], seq[float], seq[float], seq[float]) =
   let runs = readRuns(filename)
   let plotPath = h5f.attrs[PlotDirPrefixAttr, string]
@@ -949,7 +950,7 @@ proc fitAndPlot[T: SomeNumber](h5f: var H5FileObj, fitParamsFname: string,
     outname = &"{tfKind}Charge"
     lines = getLinesCharge(dummy, dummy, tfKind)
 
-  for grp in tfRuns(h5f, tfKind):
+  for (run, grp) in tfRuns(h5f, tfKind):
     case dKind
     of Dhits:
       let RawDataSeq = h5f[grp.name / "hits", T]
@@ -1027,13 +1028,15 @@ proc fitAndPlot[T: SomeNumber](h5f: var H5FileObj, fitParamsFname: string,
   let mpfitres = calcfitcurve(fitresults[2], fitresults[3], fitfunc, fitresults[0])
   let nloptres = calcfitcurve(fitresults[2], fitresults[3], fitfunc, fitresults[1])
   let startval = calcfitcurve(fitresults[2], fitresults[3], fitfunc, pStart)
-  let df = bind_rows([("MPFIT", toTab({ "Energy" : mpfitres[0],
+  var df = bind_rows([("MPFIT", toTab({ "Energy" : mpfitres[0],
                                        "Counts" : mpfitres[1] })),
                       ("NLopt", toTab({ "Energy" : nloptres[0],
                                        "Counts" : nloptres[1] })),
                       ("Start", toTab({ "Energy" : startval[0],
                                        "Counts" : startval[1] }))],
                      id = "Type")
+  if not showStartParams:
+    df = df.filter(f{string: `Type` != "Start"})
 
   ##plot of hits and charge
   # modify bin range if necessary
@@ -1134,7 +1137,7 @@ proc generateCdlCalibrationFile(h5file: string, year: YearKind,
   var h5fout = H5open(&"{outfile}-{year}.h5", "rw")
   let runs = readRuns(filename)
   for tfKind in TargetFilterKind:
-    for grp in tfRuns(h5f, tfKind):
+    for (run, grp) in tfRuns(h5f, tfKind):
       # will not iterate the datasets and write to the outfile
       # via hyperslabs, potentially appending to the existing
       # dataset

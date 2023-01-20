@@ -977,7 +977,7 @@ proc fitAndPlot[T: SomeNumber](h5f: var H5FileObj, fitParamsFname: string,
     highIdx = quotient.lowerBound(0.98)
     passbin = bins[lowIdx .. highIdx]
     passhist = histdata[lowIdx .. highIdx]
-    passIdx = toSeq(0 .. passhist.high).filterIt(passhist[it] > 0)
+    passIdx = toSeq(0 .. passhist.high).filterIt(passhist[it].float > 0.0)
     fitBinserr = passIdx.mapIt(passbin[it])
     fitHisterr = passIdx.mapIt(passhist[it])
     err = fitHist.mapIt(1.0)# / sqrt(it))
@@ -1046,13 +1046,17 @@ proc fitAndPlot[T: SomeNumber](h5f: var H5FileObj, fitParamsFname: string,
                          ("CutData", toTab({ "Counts" : cutSeq }))],
                          id = "Cut")
   let fname = &"{plotPath}/{outname}-{outdate}.pdf"
-  ggplot(df, aes("Energy", "Counts")) +
+
+
+
+  ggplot(df, aes("Energy")) +
     geom_histogram(data = dfRaw.filter(f{float: `Counts` < binRangePlot}),
                    aes = aes("Counts", fill = "Cut"),
                    position = "identity",
                    alpha = some(0.5),
+                   hdKind = hdOutline,
                    binWidth = binSizePlot) +
-    geom_line(aes(color = "Type")) +
+    geom_line(aes(y = "Counts", color = "Type")) +
     xlab(xtitle) +
     #xlim(0.0, binrangeplot) +
     ylab("Counts") +
@@ -1214,7 +1218,7 @@ proc generateXrayReferenceFile(h5file: string, year: YearKind,
     date: string
     tfKindStr: string
   const xrayRefTab = getXrayRefTable()
-  var xrayRefCuts: Table[string, Cuts]
+  var xrayRefCuts: OrderedTable[string, Cuts]
   case year
   of yr2014:
     xrayRefCuts = getEnergyBinMinMaxVals2014() #XraySpectrumCutVals()

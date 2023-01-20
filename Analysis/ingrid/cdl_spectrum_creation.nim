@@ -152,7 +152,7 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
     result.add FitFuncArgs(name: "Ti-esc-alpha",
                           kind: ffGauss,
                           gN: n_main / 20.0,
-                          gmu: mu_main / 2.0,
+                          gmu: mu_main / 3.0,
                           gs: sigma_main)
     result.add FitFuncArgs(name: "Ti-esc-beta",
                           kind: ffGauss,

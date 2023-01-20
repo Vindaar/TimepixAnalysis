@@ -684,7 +684,7 @@ proc fitCdlImpl(hist, binedges: seq[float], tfKind: TargetFilterKind, dKind: Dat
                         err)
 
   echoResult(pRes, res=res)
-  echo "error futcdlimpl ", res.error
+  echo "error fitcdlimpl ", res.error
   result = (params, pRes, fitBins, fitHist, res.error)
 
 proc toCutStr(run: CdlRun): string =
@@ -792,8 +792,8 @@ proc energyResolution(energyResHits, energyResCharge,
     geom_point() +
     geom_errorbar(aes(yMin = f{`Resolution` - `ResErr`},
                       yMax = f{`Resolution` + `ResErr`})) +
-    xlab("Energy / keV") +
-    ylab("Energy resolution / %") +
+    xlab("Energy [keV]") +
+    ylab("Energy resolution [%]") +
     ggtitle("Energy resolution plot") +
     ggsave(&"{pathPrefix}/energyresoplot-{outdate}.pdf", width = 800, height = 480)
 
@@ -805,7 +805,7 @@ proc peakFit(peakPos: seq[float], name: string, error: seq[float], pathPrefix: s
     geom_point() +
     geom_errorbar(aes(yMin = f{`PeakPos` - `PeakErr`},
                       yMax = f{`PeakPos` + `PeakErr`})) +
-    xlab("Energy / keV") +
+    xlab("Energy [keV]") +
     ylab(&"Peak position for {name}") +
     ggtitle("Peak position of all targets") +
     ggsave(&"{pathPrefix}/{name}.pdf", width = 800, height = 480)

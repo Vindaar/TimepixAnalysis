@@ -1,3 +1,22 @@
+#[ WARNING:
+ Compiling this file requires a compiler patch! Without it you'll be greeted by a "generic instantiation
+ too nested" error.
+
+diff --git a/compiler/seminst.nim b/compiler/seminst.nim
+index bd5eb1ec3..170061aaf 100644
+--- a/compiler/seminst.nim
++++ b/compiler/seminst.nim
+@@ -321,7 +321,7 @@ proc generateInstance(c: PContext, fn: PSym, pt: TIdTable,
+   # no need to instantiate generic templates/macros:
+   internalAssert c.config, fn.kind notin {skMacro, skTemplate}
+   # generates an instantiated proc
+-  if c.instCounter > 50:
++  if c.instCounter > 1000:
+     globalError(c.config, info, "generic instantiation too nested")
+   inc(c.instCounter)
+   # careful! we copy the whole AST including the possibly nil body!
+]#
+
 import parsecsv, os, streams, strutils, strformat, tables, sequtils, macros, fenv
 import seqmath, algorithm, times, strscans, typeinfo
 import mpfit, nlopt, nimhdf5

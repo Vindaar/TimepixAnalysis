@@ -112,6 +112,7 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
   ## i.e. it returns a seq of parts, which need to be combined to the complete
   ## function at runtime
   let (mu_main, sigma_main, n_main, _, _, _) = getLines(hist, binning)
+  # Note: It is important that the *first* line is the *main peak* we fit!
   case tfKind
   of tfCuNi15:
     result.add FitFuncArgs(name: "Cu-Kalpha",
@@ -131,18 +132,18 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
   of tfMnCr12:
     result.add FitFuncArgs(name: "Mn-Kalpha",
                           kind: ffExpGauss,
-                          ea: n_main * 1e-10,
-                          eb: n_main * 1e-12,
+                          ea: -5.0,
+                          eb: 0.049,#1e-3,
                           eN: n_main,# / 10.0, #30.0
                           emu: mu_main, #200.0
-                          es: sigma_main) # 13.0
+                          es: 15.0) #sigma_main / 2.0) # 13.0
     result.add FitFuncArgs(name: "Mn-esc",
-                          kind: ffExpGauss,
-                          ea: n_main  * 1e-10,
-                          eb: n_main  * 1e-12,
-                          eN: n_main / 10.0, #120
-                          emu: mu_main / 2.0, #100.0
-                          es: sigma_main) #16.0
+                          kind: ffGauss,
+                          #ea: 5.0,
+                          #eb: 1e-3,
+                          gN: n_main / 10.0, #120
+                          gmu: mu_main / 2.0, #100.0
+                          gs: 10.0) # sigma_main / 2.0) #16.0
   of tfTiTi9:
     result.add FitFuncArgs(name: "Ti-Kalpha",
                           kind: ffExpGauss,
@@ -195,9 +196,14 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
                           gs: sigma_main)# / 10.0)
     result.add FitFuncArgs(name: "Cu-Lbeta",
                           kind: ffGauss,
-                          gN: n_main / 10.0,
-                          gmu: mu_main * 1.03,
-                          gs: sigma_main)
+                          gN: fixed, # n_main / 10.0,# / 50.0,
+                          gmu: fixed,
+                          gs: fixed)
+    result.add FitFuncArgs(name: "O-Kalpha",
+                          kind: ffGauss,
+                          gN: fixed,
+                          gmu: fixed,
+                          gs: fixed)
   of tfCuEpic0_9:
     result.add FitFuncArgs(name: "O-Kalpha",
                           kind: ffGauss,
@@ -248,13 +254,13 @@ func getbounds(tfKind:TargetFilterKind): seq[tuple[l, u:float]] =
     result = @[(l: -Inf, u:Inf),
                (l: -Inf, u:Inf),
                (l: 80.0, u:Inf),
-               (l: 190.0, u:Inf),
+               (l: 175.0, u:Inf),
                (l: 1.5, u:20.0),
-               (l: -Inf, u:Inf),
-               (l: -Inf, u:Inf),
-               (l: 5.0, u:Inf),
-               (l: 80.0, u:110.0),
-               (l: 1.0, u:15.0)]
+               #(l: 0.0, u:Inf), # force a, b for escape to > 0, as otherwise it "takes over" and breaks the fit
+               #(l: 0.0, u:Inf),
+               (l: 5.0, u:50),
+               (l: 50.0, u:120.0),
+               (l: 5.0, u:15.0)]
   of tfTiTi9:
     result = @[(l: -Inf, u:Inf),
                (l: -Inf, u:Inf),
@@ -281,10 +287,10 @@ func getbounds(tfKind:TargetFilterKind): seq[tuple[l, u:float]] =
   of tfCuEpic2:
     result = @[(l: 1.0, u:Inf),
                (l: 1.0, u:Inf),
-               (l: 1.0, u:10.0),
-               (l: 1.0, u:Inf),
-               (l: 1.0, u:Inf),
-               (l: 1.0, u:10.0)]
+               (l: 1.0, u:20.0)]
+               #(l: 1.0, u:Inf),
+               #(l: 1.0, u:Inf)]
+               #(l: 1.0, u:10.0)]
   of tfCuEpic0_9:
     result = @[(l: 1.0, u:Inf),
                (l: 1.0, u:23.0),
@@ -304,6 +310,7 @@ func getLinesCharge(hist, binning: seq[float], tfKind: TargetFilterKind): seq[Fi
   ## i.e. it returns a seq of parts, which need to be combined to the complete
   ## function at runtime
   let (mu_main, sigma_main, n_main, _, _, _) = getLines(hist, binning)
+  # Note: It is important that the *first* line is the *main peak* we fit!
   case tfKind
   of tfCuNi15:
     result.add FitFuncArgs(name: "Cu-Kalpha",
@@ -344,9 +351,9 @@ func getLinesCharge(hist, binning: seq[float], tfKind: TargetFilterKind): seq[Fi
                           gs: sigma_main)
     result.add FitFuncArgs(name: "Ti-esc-alpha",
                           kind: ffGauss,
-                          gN: n_main / 20.0,
+                          gN: n_main / 8.0,
                           gmu: mu_main / 3.0, #400.0e3,
-                          gs: sigma_main)
+                          gs: sigma_main / 3.0)
     result.add FitFuncArgs(name: "Ti-esc-beta",
                           kind: ffGauss,
                           gN: n_main / 30.0,
@@ -395,25 +402,32 @@ func getLinesCharge(hist, binning: seq[float], tfKind: TargetFilterKind): seq[Fi
   of tfCuEpic2:
     result.add FitFuncArgs(name: "Cu-Lalpha",
                           kind: ffGauss,
-                          gN: n_main / 2.0,# / 20.0,
+                          gN: n_main,# / 20.0,
                           gmu: mu_main, #* 0.5e3,
                           gs: sigma_main / 4.0)
     result.add FitFuncArgs(name: "Cu-Lbeta",
                           kind: ffGauss,
-                          gN: n_main / 2.0,# / 50.0,
-                          gmu: mu_main / 3.0,
-                          gs: sigma_main / 4.0)
+                          gN: fixed, # n_main / 10.0,# / 50.0,
+                          gmu: fixed,
+                          gs: fixed)
+                          #gmu: mu_main / 3.0,
+                          #gs: sigma_main / 4.0)
+    #result.add FitFuncArgs(name: "O-Kalpha",
+    #                      kind: ffGauss,
+    #                      gN: fixed,
+    #                      gmu: fixed,
+    #                      gs: fixed)
   of tfCuEpic0_9:
     result.add FitFuncArgs(name: "O-Kalpha",
                           kind: ffGauss,
-                          gN: n_main / 2.0,# / 4.0,
+                          gN: n_main,# / 4.0,
                           gmu: mu_main,
                           gs: sigma_main)
     result.add FitFuncArgs(name: "C-Kalpha",
                           kind: ffGauss,
-                          gN: n_main / 2.0,# / 4.0,
-                          gmu: mu_main,
-                          gs: sigma_main)
+                          gN: fixed, #n_main / 10.0,# / 4.0,
+                          gmu: fixed,
+                          gs: fixed)
   of tfCEpic0_6:
     result.add FitFuncArgs(name: "C-Kalpha",
                           kind: ffGauss,
@@ -443,14 +457,14 @@ func getboundsCharge(tfKind:TargetFilterKind): seq[tuple[l, u:float]] =
                (l: 1.0, u:Inf),
                (l: 1.0, u:Inf)]
   of tfTiTi9:
-    result = @[(l: 260.0, u:Inf),
+    result = @[(l: 500.0, u:Inf),
                (l: 1.0, u:Inf),
                (l: 1.0, u:Inf),
-               (l: 1.0, u:100.0),
-               (l: 1.0, u:450.0e3),
+               (l: 50.0, u:100.0),
+               (l: 1.0, u:3e5),
                (l: 1.0, u:Inf),
-               (l: 5.0, u:Inf),
-               (l: 5.0, u:Inf)]
+               (l: 5.0, u:50.0),
+               (l: 5.0, u:50.0)]
   of tfAgAg6:
     result = @[(l: 390.0, u:Inf),
                (l: 1.0, u:Inf),
@@ -462,17 +476,18 @@ func getboundsCharge(tfKind:TargetFilterKind): seq[tuple[l, u:float]] =
   of tfCuEpic2:
     result = @[(l: 1.0, u:Inf),
                (l: 1.0, u:Inf),
-               (l: 1.0, u:Inf),
-               (l: 1.0, u:Inf),
-               (l: 1.0, u:Inf),
                (l: 1.0, u:Inf)]
+               #(l: 1.0, u:Inf)]
+               #(l: 1.0, u:Inf),
+               #(l: 1.0, u:Inf)]
+               #(l: 1.0, u:Inf)]
   of tfCuEpic0_9:
     result = @[(l: 1.0, u:Inf),
                (l: 1.0, u:Inf),
-               (l: 1.0, u:Inf),
-               (l: 1.0, u:Inf),
-               (l: 1.0, u:Inf),
                (l: 1.0, u:Inf)]
+               #(l: 1.0, u:Inf)]
+               #(l: 1.0, u:Inf),
+               #(l: 1.0, u:Inf)]
   of tfCEpic0_6:
     result = @[(l: 1.0, u:Inf),
                (l: 1.0, u:Inf),
@@ -480,6 +495,7 @@ func getboundsCharge(tfKind:TargetFilterKind): seq[tuple[l, u:float]] =
                (l: 1.0, u:Inf)]
 
 ## Declaration of all fit functions
+# Note: It is important that the *first* line is the *main peak* we fit!
 declareFitFunc(cuNi15):
   ffExpGauss: "Cu-Kalpha"
   ffExpGauss: "Cu-esc"
@@ -488,7 +504,7 @@ declareFitFunc(cuNi15Charge):
   ffGauss: "Cu-esc"
 declareFitFunc(mnCr12):
   ffExpGauss: "Mn-Kalpha"
-  ffExpGauss: "Mn-esc"
+  ffGauss: "Mn-esc"
 declareFitFunc(mnCr12Charge):
   ffGauss: "Mn-Kalpha"
   ffGauss: "Mn-esc"
@@ -544,10 +560,29 @@ declareFitFunc(alAl4Charge):
   #ffPol2: "p2"
 declareFitFunc(cuEpic2):
   ffGauss: "Cu-Lalpha"
-  ffGauss: "Cu-Lbeta"
+  #ffGauss: "Cu-Lbeta"
+  ffGauss:
+    name = "Cu-Lbeta"
+    gN = gN("Cu-Lalpha") / 5.0
+    gmu = gmu("Cu-Lalpha") * 0.9498 / 0.9297 # energies in keV of the lines
+    gs = gs("Cu-Lalpha")
+  ffGauss:
+    name = "O-Kalpha"
+    gN = gN("Cu-Lalpha") / 3.5
+    gmu = gmu("Cu-Lalpha") * 0.5249 / 0.9297
+    gs = gs("Cu-Lalpha") / 2.0
 declareFitFunc(cuEpic2Charge):
-  ffGauss: "Cu-Lalpha"
-  ffGauss: "Cu-Lbeta"
+  ffGauss: "Cu-Lalpha" ## XXX: replace two lines by mix of one, adjust energy to relative importance
+  ffGauss:
+    name = "Cu-Lbeta"
+    gN = gN("Cu-Lalpha") / 5.0
+    gmu = gmu("Cu-Lalpha") * 0.9498 / 0.9297 # energies in keV of the lines
+    gs = gs("Cu-Lalpha")
+  #ffGauss:
+  #  name = "O-Kalpha"
+  #  gN = gN("Cu-Lalpha") / 4.0
+  #  gmu = gmu("Cu-Lalpha") * 0.5249 / 0.9297
+  #  gs = gs("Cu-Lalpha") / 2.0
 declareFitFunc(cuEpic0_9):
   ffGauss: "O-Kalpha"
   #ffGauss: #"C-Kalpha"
@@ -564,7 +599,11 @@ declareFitFunc(cuEpic0_9):
   #  gs = gs("O-Kalpha")
 declareFitFunc(cuEpic0_9Charge):
   ffGauss: "O-Kalpha"
-  ffGauss: "C-Kalpha"
+  ffGauss:
+    name = "C-Kalpha"
+    gN = gN("O-Kalpha") / 10.0
+    gmu = gmu("O-Kalpha") * 277.0 / 524.9
+    gs = gs("O-Kalpha")
 declareFitFunc(cEpic0_6):
   ffGauss: "C-Kalpha"
   ffGauss: #"O-Kalpha"

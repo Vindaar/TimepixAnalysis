@@ -97,7 +97,6 @@ template chiSquareNoGrad(funcToCall: untyped): untyped {.dirty.} =
   let x = fitObj.x
   let y = fitObj.y
   let yErr = fitObj.yErr
-  var fitY = x.mapIt(`funcToCall`(p, it))
   var diff = newSeq[float](x.len)
   result = 0.0
 
@@ -110,7 +109,8 @@ template chiSquareNoGrad(funcToCall: untyped): untyped {.dirty.} =
   #  ggsave("/tmp/fit_progress.pdf")
 
   for i in 0 .. x.high:
-    diff[i] = (y[i] - fitY[i]) / yErr[i]
+    let fitY = funcToCall(p, x[i])
+    diff[i] = (y[i] - fitY) / yErr[i]
     result += pow(diff[i], 2.0)
   # return `Chi^2` (and not reduced `Chi^2`!
   result = result
@@ -127,14 +127,14 @@ template chiSquareGrad(funcToCall: untyped): untyped {.dirty.} =
   var h: float
 
   proc fnc(x, y, params: seq[float]): float =
-    let fitY = x.mapIt(`funcToCall`(params, it))
     var diff: float
     for i in 0 ..< x.len:
-      diff = (y[i] - fitY[i]) / yErr[i]
-      result += pow(diff, 2.0)
+      let fitY = funcToCall(params, x[i])
+      diff = (y[i] - fitY) / yErr[i]
+      result += diff*diff
   res = fnc(xD, yD, p)
   for i in 0 ..< gradRes.len:
-    h = if p[i] != 0.0: p[i] * sqrt(epsilon(float64)) else: sqrt(epsilon(float64))
+    h = if p[i] != 0.0: p[i] * 1e-12 else: 1e-12 # sqrt(epsilon(float64)) else: sqrt(epsilon(float64))
     var
       modParsUp = p
       modParsDown = p
@@ -154,7 +154,6 @@ template mleLnLikelihoodNoGrad(funcToCall: untyped): untyped {.dirty.} =
   ## derived from likelihood ratio test theorem
   let x = fitObj.x
   let y = fitObj.y
-  var fitY = x.mapIt(`funcToCall`(p, it))
 
   #let df = toDf({ "x" : x,
   #                    "y" : y,
@@ -167,10 +166,11 @@ template mleLnLikelihoodNoGrad(funcToCall: untyped): untyped {.dirty.} =
 
   result = 0.0
   for i in 0 ..< x.len:
-    if fitY[i].float > 0.0 and y[i].float > 0.0:
-      result = result + (fitY[i] - y[i] + y[i] * ln(y[i] / fitY[i]))
+    let fitY = funcToCall(p, x[i])
+    if fitY.float > 0.0 and y[i].float > 0.0:
+      result = result + (fitY - y[i] + y[i] * ln(y[i] / fitY))
     else:
-      result = result + (fitY[i] - y[i])
+      result = result + (fitY - y[i])
     # ignore empty data and model points
   result = 2 * result
 
@@ -189,8 +189,6 @@ template mleLnLikelihoodGrad(funcToCall: untyped): untyped {.dirty.} =
   var h: float
 
   proc fnc(x, y, params: seq[float]): float =
-    let fitY = x.mapIt(`funcToCall`(params, it))
-
     #let df = toDf({ "x" : x,
     #                    "y" : y,
     #                    "yFit" : fitY })
@@ -200,10 +198,11 @@ template mleLnLikelihoodGrad(funcToCall: untyped): untyped {.dirty.} =
     #  ggsave("/tmp/fit_progress_mle_grad.pdf")
     #sleep(50)
     for i in 0 ..< x.len:
-      if fitY[i].float > 0.0 and y[i].float > 0.0:
-        result = result + (fitY[i] - y[i] + y[i] * ln(y[i] / fitY[i]))
+      let fitY = funcToCall(params, x[i])
+      if fitY.float > 0.0 and y[i].float > 0.0:
+        result = result + (fitY - y[i] + y[i] * ln(y[i] / fitY))
       else:
-        result = result + (fitY[i] - y[i])
+        result = result + (fitY - y[i])
   res = 2 * fnc(xD, yD, p)
   for i in 0 ..< gradRes.len:
     h = p[i] * sqrt(epsilon(float64))

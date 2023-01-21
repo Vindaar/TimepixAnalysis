@@ -9,6 +9,8 @@ import helpers / utils
 import chroma
 import cligen / macUt
 
+import measuremancer
+
 const docStr = """
 Usage:
   cdl_spectrum_creation <h5file> [options]
@@ -649,43 +651,77 @@ proc histoCdl(data: seq[SomeNumber], binSize: float = 3.0, dKind: DataKind): (se
   #echo "Bin edges len ", bin_edges.len
   #echo "Result len ", result[1].len
 
+type
+  FitResult = object
+    pStart: seq[float]
+    pRes: seq[float]
+    pErr: seq[float]
+    χ²dof: float
 
-proc fitCdlImpl(hist, binedges: seq[float], tfKind: TargetFilterKind, dKind: DataKind):
-               (seq[float], seq[float], seq[float], seq[float], seq[float]) =
-  ##generates the fit paramter
-  var lines: seq[FitFuncArgs]
-  var fitfunc: CdlFitFunc
-  case dKind
-  of Dhits:
-    lines = getLines(hist, binedges, tfKind)
-    fitfunc = getCdlFitFunc(tfKind)
-  of Dcharge:
-    lines = getLinesCharge(hist, binedges, tfKind)
-    fitfunc = getCdlFitFuncCharge(tfKind)
+  FitData = object
+    bins: seq[float]
+    hist: seq[float]
+    errs: seq[float]
 
-  let params = lines.serialize
+proc getFitData(hist, bins: seq[float]): FitData =
+  ## Returns the `FitData` (i.e. the real bins, counts and errors we fit to)
+  ## based on the cut CDL data. This mainly implies removing any outliers still left.
+  ##
+  ## Note that this returns the data such that the bins correspond to bin *centers*!
+  ## That's because that is what we actually fit to.
+  ## XXX: can't we simplify this?
   let cumu = cumsum(hist)
   let sum = sum(hist)
   let quotient = cumu.mapIt(it/sum)
-  let lowIdx = quotient.lowerBound(0.0005)
+  let lowIdx = quotient.lowerBound(0.002) # 0005)
   let highIdx = quotient.lowerBound(0.98)
-  let passbin = binedges[lowIdx .. highIdx]
-  let passhist = hist[lowIdx .. highIdx]
+  result = FitData(bins: newSeqOfCap[float](hist.len),
+                   hist: newSeqOfCap[float](hist.len),
+                   errs: newSeqOfCap[float](hist.len))
+  doAssert bins.len > 0
+  # we know all bin widths are the same, so this is fine:
+  let binWidth = bins[1] - bins[0]
+  for idx in lowIdx .. highIdx:
+    if hist[idx] > 0.0:
+      result.bins.add bins[idx] + (binWidth / 2.0) # add half bin width, as bins are left edges
+      result.hist.add hist[idx]
+      result.errs.add sqrt(hist[idx])
 
-  let passIdx = toSeq(0 .. passhist.high).filterIt(passhist[it] > 0)
-  let fitBins = passIdx.mapIt(passbin[it])
-  let fitHist = passIdx.mapIt(passhist[it])
-  let err = fitHist.mapIt(sqrt(it)) #1.0)# / sqrt(it))
+proc getFuncAndStartParams(fitData: FitData,
+                           tfKind: TargetFilterKind, dKind: DataKind): (seq[float], CdlFitFunc) =
+  ## Returns the start parameters for the desired fit and data as well as the `CdlFitFunc`
+  ## (the function we actually fit)
+  case dKind
+  of Dhits:
+    let lines = getLines(fitData.hist, fitData.bins, tfKind)
+    result = (lines.serialize, getCdlFitFunc(tfKind))
+  of Dcharge:
+    let lines = getLinesCharge(fitData.hist, fitData.bins, tfKind)
+    result = (lines.serialize, getCdlFitFuncCharge(tfKind))
 
-  let (pRes, res) = fit(fitfunc,
+proc fitCdlMpfit(fitData: FitData, tfKind: TargetFilterKind, dKind: DataKind): FitResult =
+  ## Performs the fit using `mpfit`.
+  let (params, fitFunc) = getFuncAndStartParams(fitData, tfKind, dKind)
+  var bounds: seq[tuple[l, u:float]]
+  case dKind
+  of Dhits:
+    bounds = getbounds(tfKind)
+  of Dcharge:
+    bounds = getboundsCharge(tfKind)
+
+  ## XXX: in principle we need to add half a bin edge to the fit...
+  let (pRes, res) = fit(fitFunc,
                         params,
-                        fitBins,
-                        fitHist,
-                        err)
+                        fitData.bins,
+                        fitData.hist,
+                        fitData.errs)
 
   echoResult(pRes, res=res)
   echo "error fitcdlimpl ", res.error
-  result = (params, pRes, fitBins, fitHist, res.error)
+  result = FitResult(pStart: params,
+                     pRes: pRes,
+                     pErr: res.error,
+                     χ²dof: res.reducedChiSq)
 
 proc toCutStr(run: CdlRun): string =
   let hv = block:
@@ -777,16 +813,15 @@ proc cutAndWrite(h5file: string) =
     else:
       discard
 
-proc energyResolution(energyResHits, energyResCharge,
-                      errorHits, errorCharge: seq[float],
+proc energyResolution(energyResHits, energyResCharge: seq[Measurement[float]],
                       pathPrefix: string) =
   ## Creates the plot of the energy resolution for both the pixel and charge
   ## spectra
   const energies = @[8.048, 5.899, 4.511, 2.984, 1.487, 0.930, 0.525, 0.277]
-  let dfPix = toDf({ "Energy" : energies, "Resolution" : energyResHits,
-                     "ResErr" : errorHits })
-  let dfCh = toDf({ "Energy" : energies, "Resolution" : energyResCharge,
-                    "ResErr" : errorCharge })
+  let dfPix = toDf({ "Energy" : energies, "Resolution" : energyResHits.mapIt(it.value),
+                     "ResErr" : energyResHits.mapIt(it.error) })
+  let dfCh = toDf({ "Energy" : energies, "Resolution" : energyResCharge.mapIt(it.value),
+                    "ResErr" : energyResCharge.mapIt(it.error) })
   let df = bind_rows([("Pixels", dfPix), ("Charge", dfCh)], id = "Type")
   ggplot(df, aes("Energy", "Resolution", color = "Type")) +
     geom_point() +
@@ -797,10 +832,9 @@ proc energyResolution(energyResHits, energyResCharge,
     ggtitle("Energy resolution plot") +
     ggsave(&"{pathPrefix}/energyresoplot-{outdate}.pdf", width = 800, height = 480)
 
-proc peakFit(peakPos: seq[float], name: string, error: seq[float], pathPrefix: string) =
+proc peakFit(peakPos: seq[Measurement[float]], name: string, pathPrefix: string) =
   const energies = @[8.048, 5.899, 4.511, 2.984, 1.487, 0.930, 0.525, 0.277]
-  let df = toDf({ "Energy" : energies, "PeakPos" : peakPos,
-                  "PeakErr" : error })
+  let df = toDf({ "Energy" : energies, "PeakPos" : peakPos.mapIt(it.value), "PeakErr" : peakPos.mapIt(it.error) })
   ggplot(df, aes("Energy", "PeakPos")) +
     geom_point() +
     geom_errorbar(aes(yMin = f{`PeakPos` - `PeakErr`},
@@ -867,23 +901,35 @@ proc dumpFitParameters(outfile, svgFname: string,
           inc i
   outf.close()
 
-proc calcfitcurve(minbin: float, maxbin: float,
+proc calcFitCurve(minbin: float, maxbin: float,
                   cdlFitFunc: CdlFitFunc,
-                  fitparams: seq[float]): (seq[float], seq[float]) =
+                  params: seq[float]): DataFrame =
+  ## Computes the line of the fit parameters for the given function and returns it
+  ## as a DataFrame.
   let
     minvalue = minbin
     maxvalue = maxbin
     range = linspace(minvalue.float, maxvalue.float, 1500)
-    yvals = range.mapIt(cdlFitFunc(fitparams, it))
-  result = (range, yvals)
+    yvals = range.mapIt(cdlFitFunc(params, it))
+  result = toDf({"Energy" : range, "Counts" : yvals})
 
-proc calcFit[T: SomeNumber](dataseq: seq[T],
-                            cdlFitFunc: CdlFitFunc,
-                            binSize: float,
-                            tfKind: TargetFilterKind,
-                            dKind: DataKind): (seq[float], seq[float], float, float) =
-  let (histdata, bins) = histoCdl(dataseq, binSize, dKind)
-  let (pStartInit, pRes, fitBins, fitHist, errorres) = fitCdlImpl(histdata, bins, tfKind, dKind)
+proc calcFitCurve(fitData: FitData,
+                  fitRes: FitResult,
+                  cdlFitFunc: CdlFitFunc): DataFrame =
+  ## Wrapper around above.
+  result = calcFitCurve(fitData.bins.min, fitData.bins.max, cdlFitFunc, fitRes.pRes)
+
+proc chiSq(fitData: FitData, pRes: seq[float], fitFunc: CdlFitFunc): float =
+  let dof = fitData.hist.len - pRes.len
+  for i in 0 ..< fitData.hist.len:
+    result += ( (fitData.hist[i] - fitFunc(pRes, fitData.bins[i])) / fitData.errs[i] )^2
+  result /= dof.float
+
+proc fitCdlNlopt(fitData: FitData,
+                 tfKind: TargetFilterKind,
+                 dKind: DataKind): FitResult =
+  ## Performs the fit using `Nlopt`
+  let (params, fitFunc) = getFuncAndStartParams(fitData, tfKind, dKind)
   var bounds: seq[tuple[l, u:float]]
   case dKind
   of Dhits:
@@ -892,55 +938,74 @@ proc calcFit[T: SomeNumber](dataseq: seq[T],
     bounds = getboundsCharge(tfKind)
 
   # now make sure all start parameters are within bounds, else clamp
-  var pStart = pStartInit
+  var pStart = params
   doAssert pStart.len == bounds.len
   for i in 0 ..< pStart.len:
     pStart[i] = clamp(pStart[i], bounds[i].l, bounds[i].u)
   #var opt = newNloptOpt(LD_TNEWTON_PRECOND, pStart.len, bounds)
-  fitForNlopt(convertNlopt, cdlFitFunc,
+  fitForNlopt(convertNlopt, fitFunc,
               nfKind = nfChiSqGrad,
               toExport = false)
   # have to mixin the `convertNlopt` name, since generic symbol resolution
   # happens before macro call (so `convertNlopt` isn't known yet)
   mixin convertNlopt
-  var fitObj = FitObject(x: fitBins, y: fitHist, yErr: fitHist.mapIt(sqrt(it)))
+  var fitObj = FitObject(x: fitData.bins, y: fitData.hist, yErr: fitData.errs)
   var vstruct = newVarStruct(convertNlopt, fitObj)
 
-  #var opt = newNloptOpt[type(fitObj)](LD_MMA, pStart.len, bounds)
   var opt = newNloptOpt[type(fitObj)](LD_MMA, pStart.len, bounds)
   #var opt = newNloptOpt[type(fitObj)](LN_COBYLA, pStart.len, bounds)
+  #var opt = newNloptOpt[type(fitObj)](LN_BOBYQA, pStart.len, bounds)
   opt.setFunction(vstruct)
   opt.xtol_rel = 1e-10
   opt.ftol_rel = 1e-10
-  #opt.xtol_abs = 1e-14
-  #opt.ftol_abs = 1e-14
+  opt.xtol_abs = 1e-14
+  opt.ftol_abs = 1e-14
   opt.maxtime  = 5.0
-  opt.maxEval  = 2000
-  #opt.initialStep = 1
+  opt.maxEval  = 20000
+  #opt.initialStep = 1.0
   let (paramsN, minN) = opt.optimize(pStart)
   if opt.status == NLOPT_INVALID_ARGS:
     echo "NLOPT Fit failed. Likely cause: satrt parameter outside bounds:"
     for i in 0 ..< pStart.len:
-      echo "pStart[", i, "] =", pStart[i], " with bound: ", bounds[i], " and pRes = ", pRes[i]
+      echo "pStart[", i, "] =", pStart[i], " with bound: ", bounds[i]
     quit()
   elif opt.status < NLOPT_SUCCESS:
     echo "NLOPT fit failed with code ", opt.status
     quit()
-  nlopt_destroy(opt.optimizer)
-  let minbin = fitBins.min
-  let maxbin = fitBins.max
-  result = (pRes, paramsN, minbin, maxbin)
+  echo "=============== NLOPT parameters ==============="
+  for i in 0 ..< pStart.len:
+    echo "p[", i, "] = ", paramsN[i]
+  let χ²dof = chiSq(fitData, paramsN, fitFunc)
+  echo "χ²dof = ", χ²dof
+  echo "===============       end        ==============="
 
-proc fitAndPlot[T: SomeNumber](h5f: var H5FileObj, fitParamsFname: string,
-                               tfKind: TargetFilterKind, dKind: DataKind,
-                               showStartParams: bool):
-               (seq[float], seq[float], seq[float], seq[float]) =
+  nlopt_destroy(opt.optimizer)
+  result = FitResult(pStart: pStart,
+                     pRes: paramsN,
+                     pErr: newSeq[float](), ## Do not have classical errors. Could compute manually though.
+                     χ²dof: χ²dof)
+
+proc getMuSigma(lines: seq[FitFuncArgs],
+                fitResult: FitResult
+               ): (Measurement[float], Measurement[float]) =
+  ##get the interesting fit params
+  case lines[0].kind
+  of ffGauss: # in a gaussian, parameters are `[0]: N, [1]: μ, [2]: σ`
+    result = (fitResult.pRes[1] ± fitResult.pErr[1],
+              fitResult.pRes[2] ± fitResult.pErr[2])
+  of ffExpGauss: # in an exp gaussian, parameters are `[0]: a, [1]: b, [2]: N, [3]: μ, [4]: σ`
+    result = (fitResult.pRes[3] ± fitResult.pErr[3],
+              fitResult.pRes[4] ± fitResult.pErr[4])
+  else:
+    discard
+
+proc fitAndPlot(h5f: var H5FileObj, fitParamsFname: string,
+                tfKind: TargetFilterKind, dKind: DataKind,
+                showStartParams: bool):
+                  (Measurement[float], Measurement[float]) =
   let runs = readRuns(filename)
   let plotPath = h5f.attrs[PlotDirPrefixAttr, string]
 
-  var ploterror: seq[float]
-  var rawseq: seq[T]
-  var cutseq: seq[T]
   var runNumbers: seq[int]
   var binsizeplot: float
   var binrangeplot: float
@@ -948,13 +1013,15 @@ proc fitAndPlot[T: SomeNumber](h5f: var H5FileObj, fitParamsFname: string,
   var outname: string
   var fitfunc: CdlFitFunc
   var lines: seq[FitFuncArgs]
-  var dummy = @[1.0, 2.0]
+  let dummy = @[1.0, 2.0]
+  # DataFrame for the unbinned data
+  var dfU = newDataFrame()
   case dKind
   of Dhits:
     fitfunc = getCdlFitFunc(tfKind)
     binsizeplot = 1.0
     binrangeplot = 400.0
-    xtitle = "Number of pixles"
+    xtitle = "Number of pixels"
     outname = &"{tfKind}"
     lines = getLines(dummy, dummy, tfKind)
   of Dcharge:
@@ -968,122 +1035,67 @@ proc fitAndPlot[T: SomeNumber](h5f: var H5FileObj, fitParamsFname: string,
   for (run, grp) in tfRuns(h5f, tfKind):
     case dKind
     of Dhits:
-      let RawDataSeq = h5f[grp.name / "hits", T]
-      let Cdlseq = h5f[grp.name / "CdlSpectrum", T]
-      rawseq.add(RawDataseq)
-      cutseq.add(Cdlseq)
-      runNumbers.add repeat(run, Cdlseq.len)
+      let RawDataSeq = h5f[grp.name / "hits", int64]
+      let Cdlseq = h5f[grp.name / "CdlSpectrum", int64]
+      var dfLoc = bind_rows([("Raw", toDf({"Counts": RawDataSeq})),
+                             ("Cut", toDf({"Counts": Cdlseq}))],
+                             id = "Cut?")
+      dfLoc["runNumber"] = run
+      dfU.add dfLoc
     of Dcharge:
-      let RawDataSeq = h5f[grp.name / "totalCharge", T]
-      let Cdlseq = h5f[grp.name / "CdlSpectrumCharge", T]
-      rawseq.add(RawDataseq)
-      cutseq.add(Cdlseq)
-      runNumbers.add repeat(run, Cdlseq.len)
+      let RawDataSeq = h5f[grp.name / "totalCharge", float]
+      let Cdlseq = h5f[grp.name / "CdlSpectrumCharge", float]
+      var dfLoc = bind_rows([("Raw", toDf({"Counts": RawDataSeq})),
+                             ("Cut", toDf({"Counts": Cdlseq}))],
+                             id = "Cut?")
+      dfLoc["runNumber"] = run
+      dfU.add dfLoc
+  let (histdata, bins) = histoCdl(dfU.filter(f{idx("Cut?") == "Cut"})["Counts", float].toSeq1D, binsizeplot, dKind)
+  let fitData = getFitData(histdata, bins)
 
-  let (histdata, bins) = histoCdl(cutseq, binsizeplot, dKind)
+  let fitResultMpfit = fitCdlMpfit(fitData, tfKind, dKind)
+  let fitResultNlopt = fitCdlNlopt(fitData, tfKind, dKind)
 
-  let dfP = toDf(cutseq, runNumbers)
-  ggplot(dfP, aes("cutseq", fill = "runNumbers")) +
-    geom_histogram(binWidth = binsizeplot,
-                   hdKind = hdOutline,
-                   position = "identity",
-                   alpha = 0.5) +
-    ggtitle($dKind & " " & $tfKind) +
-    ggsave("/tmp/" & $tfkind & "_" & $dKind & ".pdf")
+  ## Extract μ and σ parameters incl errors. Need mpfit for errors at the moment
+  let (fit_μ, fit_σ) = getMuSigma(lines, fitResultMpfit)
+  # calculate energy resolution. Error propagated automatically.
+  echo "FIT σ ", fit_σ, " and fit μ ", fit_μ, " / ", fit_σ / fit_μ
+  let energyRes = fit_σ / fit_μ
+  result = (fit_μ, energyRes)
 
-
-  ## XXX: we fit the mpfit version inside `fitCdlImpl` again!!!
-  let (pStart, pRes, fitBins, fitHist, errorsres) = fitCdlImpl(histdata, bins, tfKind, dKind)
-  let fitresults = calcfit(cutseq, fitfunc, binsizeplot, tfKind, dKind)
-  echo "fitresults nlopt", fitresults[1]
-  ##get the interesting fit params
-
-  ## TODO: FIX ME!
-  let
-    cumu = cumsum(histdata)
-    sum = sum(histdata)
-    quotient = cumu.mapIt(it/sum)
-    lowIdx = quotient.lowerBound(0.0005)
-    highIdx = quotient.lowerBound(0.98)
-    passbin = bins[lowIdx .. highIdx]
-    passhist = histdata[lowIdx .. highIdx]
-    passIdx = toSeq(0 .. passhist.high).filterIt(passhist[it].float > 0.0)
-    fitBinserr = passIdx.mapIt(passbin[it])
-    fitHisterr = passIdx.mapIt(passhist[it])
-    err = fitHist.mapIt(1.0)# / sqrt(it))
-
-  let (FitError, mpfitError) = fit(fitfunc, fitresults[1], fitBinserr, fitHisterr, err)
-  echo "fit errors: ", mpfitError.error
-  ploterror = mpfitError.error
-
-  ## TODO: FIX ME!
-  var
-    fitmu: float
-    fitsig: float
-    fitmuerr: float
-    fitsigerr: float
-    energyres: float
-    museq: seq[float]
-    sigseq: seq[float]
-    energyseq: seq[float]
-    energyreserr: float
-    energyseqerr: seq[float]
-
-  case lines[0].kind
-  of ffGauss:
-    fitmu = FitError[1] #fitresults[1][1]
-    fitsig = FitError[2] #fitresults[1][2]
-    fitmuerr = ploterror[1]
-    fitsigerr = ploterror[2]
-    museq.add(fitmu)
-  of ffExpGauss:
-    fitmu = FitError[3] #fitresults[1][3]
-    fitsig = FitError[4] #fitresults[1][4]
-    fitmuerr = ploterror[3]
-    fitsigerr = ploterror[4]
-    museq.add(fitmu)
-  else:
-    discard
-  energyres = fitsig / fitmu
-  energyreserr = sqrt(pow((fitsigerr / fitmu), 2) + pow((fitsig * fitmuerr / pow(fitmu,2)),2) )
-  energyseqerr.add(energyreserr)
-  energyseq.add(energyres)
-
-  result[0].add(fitmu)
-  result[1].add(energyres)
-  result[2].add(fitmuerr)
-  result[3].add(energyreserr)
-
-  let mpfitres = calcfitcurve(fitresults[2], fitresults[3], fitfunc, fitresults[0])
-  let nloptres = calcfitcurve(fitresults[2], fitresults[3], fitfunc, fitresults[1])
-  let startval = calcfitcurve(fitresults[2], fitresults[3], fitfunc, pStart)
-  var df = bind_rows([("MPFIT", toTab({ "Energy" : mpfitres[0],
-                                       "Counts" : mpfitres[1] })),
-                      ("NLopt", toTab({ "Energy" : nloptres[0],
-                                       "Counts" : nloptres[1] })),
-                      ("Start", toTab({ "Energy" : startval[0],
-                                       "Counts" : startval[1] }))],
+  let mpfitres = calcFitCurve(fitData, fitResultMpfit, fitfunc)
+  let nloptres = calcFitCurve(fitData, fitResultNlopt, fitfunc)
+  let startval = calcFitCurve(fitData.bins.min, fitData.bins.max, fitfunc, fitResultMpfit.pStart)
+  var df = bind_rows([("MPFIT", mpfitres),
+                      ("NLopt", nloptres),
+                      ("Start", startval)],
                      id = "Type")
   if not showStartParams:
     df = df.filter(f{string: `Type` != "Start"})
 
   ##plot of hits and charge
   # modify bin range if necessary
-  if fitmu < binrangeplot / 3.0:
-    binrangeplot = binrangeplot / 1.5
-  elif fitmu > binrangeplot / 2.0:
+  if fit_μ < binrangeplot / 3.0:
+    binrangeplot = binrangeplot / 1.5 #4.0
+  elif fit_μ > binrangeplot / 2.0:
     binrangeplot = binrangeplot * 1.5
 
-  let dfRaw = bind_rows([("RawData", toTab({ "Counts" : rawSeq })),
-                         ("CutData", toTab({ "Counts" : cutSeq }))],
-                         id = "Cut")
+  # first plot of only cut data by
+  let fnameByRun = &"{plotPath}/{outname}-{outdate}_by_run.pdf"
+  let dfUCut = dfU.filter(f{idx("Cut?") == "Cut"})
+  ggplot(dfUCut, aes("Counts", fill = factor("runNumber"))) +
+    geom_histogram(binWidth = binsizeplot,
+                   hdKind = hdOutline,
+                   position = "identity",
+                   alpha = 0.5) +
+    ggtitle("Cleaned data of & " & $dKind & " " & $tfKind & " split by run") +
+    ggsave(fnameByRun, width = 800, height = 480)
+
   let fname = &"{plotPath}/{outname}-{outdate}.pdf"
-
-
-
+  # gather unbinned data for plot
   ggplot(df, aes("Energy")) +
-    geom_histogram(data = dfRaw.filter(f{float: `Counts` < binRangePlot}),
-                   aes = aes("Counts", fill = "Cut"),
+    geom_histogram(data = dfU.filter(f{float: `Counts` < binRangePlot}),
+                   aes = aes("Counts", fill = "Cut?"),
                    position = "identity",
                    alpha = some(0.5),
                    hdKind = hdOutline,
@@ -1094,9 +1106,10 @@ proc fitAndPlot[T: SomeNumber](h5f: var H5FileObj, fitParamsFname: string,
     ylab("Counts") +
     ggtitle(&"target: {tfKind}") +
     ggsave(fname, width = 800, height = 480)
+
   # now dump the fit results, SVG filename and correct parameter names to a file
   ## TODO: add fit parameters as annotation to plot!!
-  dumpFitParameters(fitParamsFname, fname, FitError, ploterror, tfKind, dKind)
+  dumpFitParameters(fitParamsFname, fname, fitResultMpfit.pRes, fitResultMpfit.pErr, tfKind, dKind)
 
 proc cdlToXrayTransform(h5fout: var H5FileObj,
                         passedData: seq[float],
@@ -1319,6 +1332,42 @@ proc generateXrayReferenceFile(h5file: string, year: YearKind,
   discard h5fout.close()
   discard h5f.close()
 
+proc plotsAndEnergyResolution(input: string,
+                              dumpAccurate, showStartParams: bool) =
+  var fitParamsFname = ""
+  if dumpAccurate:
+    fitParamsFname = "fitparams_accurate_" & $(epochTime().round.int) & ".txt"
+  else:
+    fitParamsFname = "fitparams_" & $(epochTime().round.int) & ".txt"
+
+  var peakposHits: seq[Measurement[float]]
+  var energyResHits: seq[Measurement[float]]
+  var peakposCharge: seq[Measurement[float]]
+  var energyResCharge: seq[Measurement[float]]
+  #let a = fitAndPlot[int64](input, tfCuEpic0_9, Dhits)
+  #let b = fitAndPlot[float64](input, tfCuEpic0_9, Dcharge)
+  var h5f = H5open(input, "rw")
+  for tfkind in TargetFilterKind:
+    echo "Working on : ", tfKind
+    let energyHits = fitAndPlot(h5f, fitParamsFname, tfkind, Dhits,
+                                showStartParams = showStartParams)
+    peakposHits.add(energyHits[0])
+    energyResHits.add(energyHits[1])
+    echo "energyres ", energyResHits
+    echo "and now charge:"
+    let energyCharge = fitAndPlot(h5f, fitParamsFname, tfkind, Dcharge,
+                                  showStartParams = showStartParams)
+    peakposCharge.add(energyCharge[0])
+    energyResCharge.add(energyCharge[1])
+    #if tfKind == tfTiTi9:
+    #  quit()
+
+  let plotPath = h5f.attrs[PlotDirPrefixAttr, string]
+  discard h5f.close()
+  energyResolution(energyResHits, energyResCharge, plotPath)
+  peakFit(peakposHits, "Hits", plotPath)
+  peakFit(peakposCharge, "Charge", plotPath)
+
 proc main(input: string,
           cutcdl = false,
           dumpAccurate = false,
@@ -1326,9 +1375,10 @@ proc main(input: string,
           genRefFile = false,
           showStartParams = false,
           outfile = "",
-          year: YearKind = yr2018) =
+          year: string = "2018") =
   ##
   docCommentAdd(versionStr)
+  let year = parseEnum[YearKind](year)
 
   template callGenFunc(fn: untyped): untyped =
     if outfile.len > 0:
@@ -1345,45 +1395,7 @@ proc main(input: string,
   if not genRefFile and not genCdlFile:
     # only perform CDL fits if neither CDL calibration file nor
     # reference file created
-    var fitParamsFname = ""
-    if dumpAccurate:
-      fitParamsFname = "fitparams_accurate_" & $(epochTime().round.int) & ".txt"
-    else:
-      fitParamsFname = "fitparams_" & $(epochTime().round.int) & ".txt"
-
-
-    var peakposHits: seq[float]
-    var peakHitsErr: seq[float]
-    var energyResHits: seq[float]
-    var energyHitsErr: seq[float]
-    var peakposCharge: seq[float]
-    var peakChargeErr: seq[float]
-    var energyResCharge: seq[float]
-    var energyChargeErr: seq[float]
-    #let a = fitAndPlot[int64](input, tfCuEpic0_9, Dhits)
-    #let b = fitAndPlot[float64](input, tfCuEpic0_9, Dcharge)
-    var h5f = H5open(input, "rw")
-    for tfkind in TargetFilterKind:
-      echo "Working on : ", tfKind
-      let energyHits = fitAndPlot[int64](h5f, fitParamsFname, tfkind, Dhits,
-                                         showStartParams = showStartParams)
-      peakposHits.add(energyHits[0])
-      energyResHits.add(energyHits[1])
-      peakHitsErr.add(energyHits[2])
-      energyHitsErr.add(energyHits[3])
-      #echo "energyres ", energyResHit
-      echo "and now charge:"
-      let energyCharge = fitAndPlot[float64](h5f, fitParamsFname, tfkind, Dcharge,
-                                             showStartParams = showStartParams)
-      peakposCharge.add(energyCharge[0])
-      energyResCharge.add(energyCharge[1])
-      peakChargeErr.add(energyCharge[2])
-      energyChargeErr.add(energyCharge[3])
-    let plotPath = h5f.attrs[PlotDirPrefixAttr, string]
-    discard h5f.close()
-    energyResolution(energyResHits, energyResCharge, energyHitsErr, energyChargeErr, plotPath)
-    peakFit(peakposHits, "Hits", peakHitsErr, plotPath)
-    peakFit(peakposCharge, "Charge", peakChargeErr, plotPath)
+    plotsAndEnergyResolution(input, dumpAccurate, showStartParams)
 
 when isMainModule:
   import cligen

@@ -236,6 +236,7 @@ proc plot(path: string) =
     ggsave("/tmp/medianEnergy_intervals.pdf", width = 1200, height = 800)
 
   # and finally using a KDE approach
+  ## XXX: replace by new `geom_density` in ggplotnim!
   var dfK = newDataFrame()
   let samples = linspace(2.0, 4.0, 1000).toTensor
   for (tup, subDf) in groups(df.group_by(["Interval", "RunPeriod"])):

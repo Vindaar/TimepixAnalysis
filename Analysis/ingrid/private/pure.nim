@@ -27,18 +27,42 @@ const
   oldVirtexRunRegex = r".*Run(\d{6})_(\d{2})-(\d{2})-(\d{2}).*"
   srsRunRegex       = r".*Run_(\d{6})_\d{6}_\d{2}-\d{2}-\d{2}.*"
 
-  OldVirtexEventScanf = r"$*data$*_$*_" # needs: dummy, evNumber, chipNumber
-  SrsEventScanf = r"$*run_$*_data_$*_${parseSrsTosDate}" # needs: dummy, runNumber, evNumber, date
-  OldVirtexEventScanfNoPath = r"data$*_$*_$i." # needs: dummy, evNumber, chipNumber, timestamp
-  NewVirtexEventScanfNoPath* = r"data$*.txt$." # needs: evNumber
-  FadcEventScanfNoPath = r"data$*.txt-fadc" # needs: evNumber
-  SrsEventScanfNoPath = r"run_$*_data_$*_${parseSrsTosDate}" # needs: dummy, runNumber, evNumber, date
+  OldVirtexEventScanf = r"$*data${parseFnameNum}_$*_" # needs: dummy, evNumber, chipNumber
+  SrsEventScanf = r"$*run_${parseFnameNum}_data_${parseFnameNum}_${parseSrsTosDate}" # needs: dummy, runNumber, evNumber, date
+  OldVirtexEventScanfNoPath = r"data${parseFnameNum}_${parseFnameNum}_$i." # needs: evNumber, chipNumber, timestamp
+  NewVirtexEventScanfNoPath* = r"data$i.txt$." # needs: evNumber
+  FadcEventScanfNoPath = r"data$i.txt-fadc" # needs: evNumber
+  SrsEventScanfNoPath = r"run_${parseFnameNum}_data_${parseFnameNum}_${parseSrsTosDate}" # needs: runNumber, evNumber, date
+
+  TempLogFilename = "temp_log.txt"
 
   # default chip names, shutter modes and shutter times
   OldShutterMode = "verylong"
   OldShutterTime = "13"
   OldChipName* = "D3 W63"
   OldTosRunDescriptorPrefix* = r".*\/(\d{1,3})-"
+
+
+proc parseSrsTosDate(input: string, date: var Time, start: int): int =
+  ## proc for `scanf` macro to parse an SRS TOS date string from a filename
+  ## example filename:
+  ## run_004001_data_079135_181009_23-19-28.txt
+  ## we parse from:         ^ here         ^ to here (excl.)
+  # length of parsing range is 15
+  result = 15 # 6 from year / month / day, 6 from hour / min / sec, 3 '_','-'
+  var stop = start + result
+  let dateStr = input[start ..< stop]
+  const SrsTosDateSyntax = "yyMMdd'_'HH-mm-ss"
+  date = dateStr.parse(SrsTosDateSyntax).toTime
+  assert input[stop] == '.', "Assertion failed. Token was: " & $input[stop]
+
+proc parseFnameNum(input: string, intVal: var int, start: int): int =
+  ## Parses the given input containing an event or run number starting at `start`
+  ## from a TOS file name. Done by parsing until the next `_`. Cannot use `$i` in `scanf`
+  ## as that uses `parseInt`, which allows for `_`.
+  var numStr: string
+  result = parseUntil(input, numStr, until = '_', start = start)
+  intVal = parseInt(numStr) # now parse the string into an integer
 
 proc readToTFileTpx1*(filename: string,
                       startRead = 0.0,
@@ -398,9 +422,11 @@ proc parseSrsRunInfo*(path: string): Table[string, string] =
 
 # forward declaration
 proc getListOfEventFiles*(folder: string, eventType: EventType,
-                          rfKind: RunFolderKind): seq[(int, string)]
+                          rfKind: RunFolderKind,
+                          sortType: EventSortType = EventSortType.fname
+                         ): DataFiles
 
-proc estimateRunTime(files: seq[(int, string)],
+proc estimateRunTime(dataFiles: DataFiles,
                      runStart: DateTime): (DateTime, int64) =
   ## estimates the total run time of the given run by walking over all files
   ## (to make sure we do not miss a whole day) and returns the stop time of
@@ -408,13 +434,10 @@ proc estimateRunTime(files: seq[(int, string)],
   ## NOTE: the list of files needs to be sorted!
   var
     days = 0
-    lastEvNum = -1
     lastHour = -1
-    dummy: string
+    dummy: int
     timestamp: int
-  for tup in files:
-    let (evNum, evName) = tup
-    doAssert lastEvNum < evNum, " List of files MUST be sorted!"
+  for evName in dataFiles.files:
     let (_, tail) = evName.splitPath
     discard scanf(tail, OldVirtexEventScanfNoPath, dummy, dummy, timestamp)
     let tstamp = ($timestamp).align(9, padding = '0')
@@ -422,7 +445,6 @@ proc estimateRunTime(files: seq[(int, string)],
     if lastHour == 23 and hour == 0:
       inc days
     lastHour = hour
-    lastEvNum = evNum
   # timestamp still points to last event of
   let tstamp = ($timestamp)
     .align(9, padding = '0')
@@ -461,11 +483,10 @@ proc getOldRunInformation*(folder: string, runNumber: int, rfKind: RunFolderKind
     except IOError:
       # `*.dat` file does not exist for current run. Instead derive some rough
       # guesses
-      let files = sortedByIt(getListOfEventFiles(folder, EventType.InGridType, rfOldTos),
-                             it[0])
-      let numEvents = files.len
+      let dataFiles = getListOfEventFiles(folder, EventType.InGridType, rfOldTos)
+      let numEvents = dataFiles.files.len
       # get upper limit of number of events based on last event number
-      let totalEvents = files[^1][0]
+      let totalEvents = dataFiles.eventNumbers[^1]
       let oldTosRunDescriptor = re(oldTosRunDescriptorPrefix & oldVirtexRunRegex)
       var runStart = fromUnix(0).inZone(utc())
       if folder =~ oldTosRunDescriptor:
@@ -473,7 +494,7 @@ proc getOldRunInformation*(folder: string, runNumber: int, rfKind: RunFolderKind
         runStart.hour = matches[2].parseInt
         runStart.minute = matches[3].parseInt
         runStart.second = matches[3].parseInt
-      let (runStop, runTime) = estimateRunTime(files, runStart)
+      let (runStop, runTime) = estimateRunTime(dataFiles, runStart)
       result = (totalEvents, numEvents,
                 runStart.toTime.toUnix,
                 runStop.toTime.toUnix,
@@ -864,16 +885,16 @@ proc processOldEventScanf*(data: ProtoFile): OldEvent =
   # in that case we're reading an ``old event files (!)``. Get the event number
   # from the filename
   var
-    evNumber: string
-    chipNumber: string
+    evNumber: int
+    chipNumber: int
     timestamp: int # timestamp as integer, although it actually is a
                    # time in 24h format!
   let fname = filepath.extractFilename
   if scanf(fname, OldVirtexEventScanfNoPath, evNumber, chipNumber, timestamp):
     addOldHeaderKeys(e_header,
                      c_header,
-                     evNumber.parseInt,
-                     chipNumber.parseInt,
+                     evNumber,
+                     chipNumber,
                      timestamp,
                      lineCnt,
                      filepath)
@@ -890,19 +911,6 @@ proc processOldEventScanf*(data: ProtoFile): OldEvent =
   result.nChips = chips.len
   # classify as a valid event file
   result.isValid = true
-
-proc parseSrsTosDate(input: string, date: var Time, start: int): int =
-  ## proc for `scanf` macro to parse an SRS TOS date string from a filename
-  ## example filename:
-  ## run_004001_data_079135_181009_23-19-28.txt
-  ## we parse from:         ^ here         ^ to here (excl.)
-  # length of parsing range is 15
-  result = 15 # 6 from year / month / day, 6 from hour / min / sec, 3 '_','-'
-  var stop = start + result
-  let dateStr = input[start ..< stop]
-  const SrsTosDateSyntax = "yyMMdd'_'HH-mm-ss"
-  date = dateStr.parse(SrsTosDateSyntax).toTime
-  assert input[stop] == '.', "Assertion failed. Token was: " & $input[stop]
 
 proc processSrsEventScanf*(data: ProtoFile): SrsEvent =
   ## Reads an SRS TOS zero suppressed data file using the strscans.scanf
@@ -990,8 +998,8 @@ proc processSrsEventScanf*(data: ProtoFile): SrsEvent =
   # in that case we're reading an ``old event files (!)``. Get the event number
   # from the filename
   var
-    evNumber: string
-    runNumber: string
+    evNumber: int
+    runNumber: int
   # need to use `$*` to parse, because if we use $i for integers, we end up
   # parsing the `_` tokens as well, making scanf fail
 
@@ -1004,8 +1012,8 @@ proc processSrsEventScanf*(data: ProtoFile): SrsEvent =
   if scanf(fname, SrsEventScanfNoPath, runNumber, evNumber, date):
     e_header["dateTime"] = $date
     e_header["timestamp"] = $(date.toUnix)
-    e_header["eventNumber"] = evNumber.strip(trailing = false, chars = {'0'})
-    e_header["runNumber"] = runNumber.strip(trailing = false, chars = {'0'})
+    e_header["eventNumber"] = $evNumber
+    e_header["runNumber"] = $runNumber
     e_header["numChips"] = $result.nChips
     let (head, _) = filepath.splitPath
     e_header["pathName"] = head
@@ -1122,13 +1130,21 @@ proc sortByInode*(listOfFiles: seq[string]): seq[string] =
   )
 
 proc getListOfEventFiles*(folder: string, eventType: EventType,
-                          rfKind: RunFolderKind): seq[(int, string)] =
-  if existsDir(folder) == false:
-    return result
+                          rfKind: RunFolderKind,
+                          sortType: EventSortType = EventSortType.fname
+                         ): DataFiles =
+  ## Reads all event files contained in a given directory and returns the list
+  ## including an optional temperature log if available as a `DataFiles` object.
+  ## The file names are sorted by default by their filename (according to event
+  ## number) or by inode.
+  result = DataFiles(kind: eventType, rfKind: rfKind)
+  if not existsDir(folder): return # return early if input does not exist
   var
     dummy: string
     dummyInt: int
-    evNumber: string
+    evNumber: int
+    names = newSeqOfCap[string](100_000) # good start amount, enough for most runs
+    numbers = newSeqOfCap[int](100_000)
   for file in walkDirRec(folder):
     let fname = file.extractFilename
     case event_type:
@@ -1136,20 +1152,34 @@ proc getListOfEventFiles*(folder: string, eventType: EventType,
       case rfKind
       of rfNewTos:
         if scanf(fname, NewVirtexEventScanfNoPath, evNumber, dummy):
-          result.add (evNumber.parseInt, file)
+          names.add file
+          numbers.add evNumber
       of rfOldTos:
-        if scanf(fname, OldVirtexEventScanfNoPath, evNumber, dummy, dummyInt):
-          result.add (evNumber.parseInt, file)
+        if scanf(fname, OldVirtexEventScanfNoPath, evNumber, dummyInt, dummyInt):
+          names.add file
+          numbers.add evNumber
       of rfSrsTos:
         var t: Time
-        if scanf(fname, SrsEventScanfNoPath, dummy, evNumber, t):
-          result.add (evNumber.parseInt, file)
+        if scanf(fname, SrsEventScanfNoPath, dummyInt, evNumber, t):
+          names.add file
+          numbers.add evNumber
       else:
         raise newException(IOError, "Unknown run folder kind. Unclear what files " &
           "are events!")
     of EventType.FadcType:
       if scanf(fname, FadcEventScanfNoPath, evNumber, dummy, dummy):
-        result.add (evNumber.parseInt, file)
+        names.add file
+        numbers.add evNumber
+  # finally sort the file names according to `sortType`
+  case sort_type
+  of fname:
+    # sort by parsed event number from the above proc
+    let evNumFiles = sortedByIt(zip(numbers, names), it[0])
+    # no need for the event numbers anymore
+    result.files = names
+  of inode:
+    result.files = sortByInode(names)
+  result.eventNumbers = numbers
 
 proc getSortedListOfFiles*(run_folder: string,
                            sort_type: EventSortType,
@@ -1165,18 +1195,8 @@ proc getSortedListOfFiles*(run_folder: string,
   ## outputs:
   ##    seq[string] = sequence containing event filnames, index 0 corresponds
   ##                  to event data000000.txt
-  # get the list of files from this run folder and sort it
-  case sort_type
-  of fname:
-    # sort by parsed event number from the above proc
-    let evNumFiles = sortedByIt(getListOfEventFiles(run_folder, event_type, rfKind),
-                        it[0])
-    # no need for the event numbers anymore
-    result = evNumFiles.mapIt(it[1])
-  of inode:
-    let evNumFiles = getListOfEventFiles(run_folder, event_type, rfKind)
-    let files = evNumFiles.mapIt(it[1])
-    result = sortByInode(files)
+  # XXX: this is almost a no-op now, as `getListOfEventFiles` already sorts.
+  result = getListOfEventFiles(run_folder, event_type, rfKind, sort_type).files
 
 when compileOption("threads"):
   proc unwrapAndRemoveInvalid[T](res: var seq[T], flow: seq[FlowVar[T]]) =
@@ -1438,15 +1458,15 @@ proc getRunInfo*(path: string): RunInfo =
   let regex = r"^/([\w-_]+/)*data\d{6,9}\.txt$"
   let fadcRegex = r"^/([\w-_]+/)*data\d{6,9}\.txt-fadc$"
   let (_, runNumber, rfKind, _) = isTosRunFolder(path)
-  let files = getListOfFiles(path, regex)
+  let dataFiles = getListOfFiles(path, regex)
   let fadcFiles = getListOfFiles(path, fadcRegex)
-  if files.len > 0:
-    result.timeInfo = getRunTimeInfo(files)
+  if dataFiles.len > 0:
+    result.timeInfo = getRunTimeInfo(dataFiles)
   result.runNumber = runNumber
   result.rfKind = rfKind
   result.runType = rtNone
   result.path = path
-  result.nEvents = files.len
+  result.nEvents = dataFiles.len
   result.nFadcEvents = fadcFiles.len
 
 proc extractRunNumber*(runFolder: string): int =

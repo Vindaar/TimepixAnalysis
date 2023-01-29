@@ -471,10 +471,10 @@ proc readWriteFadcData(run_folder: string, runNumber: int, h5f: var H5File) =
   ## processes it (FadcFile -> FadcRaw) and writes it to the HDF5 file
   # get a sorted list of files, sorted by inode
   var
-    files: seq[string] = getSortedListOfFiles(run_folder,
-                                              EventSortType.fname,
-                                              EventType.FadcType,
-                                              RunFolderKind.rfUnknown)
+    dataFiles = getListOfEventFiles(run_folder,
+                                           EventType.FadcType,
+                                           RunFolderKind.rfUnknown,
+                                           EventSortType.fname)
     raw_fadc_data: seq[FadcFile]
     # variable to store the processed FADC data
     f_proc: ProcessedFadcRun
@@ -483,11 +483,12 @@ proc readWriteFadcData(run_folder: string, runNumber: int, h5f: var H5File) =
     # in seq[string] is too large (17000 FADC files -> 10GB needed!)
     # thus already perform batching here
     files_read: seq[string]
-  if files.len == 0:
+  if dataFiles.files.len == 0:
     # in case there are no FADC files, return from this proc
     return
   const batchsize = 2500
   # before we start iterating over the files, initialize the H5 file
+  var files = dataFiles.files
   h5f.initFadcInH5(runNumber, batchsize, files[0])
   batchFiles(files, batchsize):
     # batch in 1000 file pieces
@@ -1073,14 +1074,15 @@ proc processAndWriteSingleRun(h5f: var H5File, run_folder: string,
   let totCut = initTotCut(cfgTable)
 
   let (_, runNumber, rfKind, _) = isTosRunFolder(runFolder)
-  var files = getSortedListOfFiles(run_folder,
-                                   EventSortType.fname,
-                                   EventType.InGridType,
-                                   rfKind)
+  var dataFiles = getListOfEventFiles(run_folder,
+                                  EventType.InGridType,
+                                  rfKind,
+                                  EventSortType.fname)
   let plotDirPrefix = h5f.genPlotDirname(plotOutPath, PlotDirRawPrefixAttr)
   var batchNum = 0
 
   var ingridInit = false
+  var files = dataFiles.files
   batchFiles(files, batchsize):
     let r = readAndProcessInGrid(files[0 .. ind_high], runNumber, totCut, rfKind)
     if r.events.len > 0:

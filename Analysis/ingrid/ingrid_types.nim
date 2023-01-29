@@ -113,6 +113,12 @@ type
     caDefault = "default" ## our default dumb r pix radius algorithm
     caDBSCAN = "dbscan"   ## DBSCAN as the clustering algo
 
+  ## Type that stores the data files (the file names!) of a single run
+  DataFiles* = object
+    files*: seq[string] ## path to the file including filename
+    eventNumbers*: seq[int] ## evnet numbers of all the files
+    kind*: EventType ## Type of event (might be a temperature
+    rfKind*: RunFolderKind
 when not defined(js):
   type
     # an object, which stores information about a run's start, end and length

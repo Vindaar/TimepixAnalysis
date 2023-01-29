@@ -1066,7 +1066,6 @@ proc fitAndPlot(h5f: var H5FileObj, fitParamsFname: string,
 
   var runNumbers: seq[int]
   var binsizeplot: float
-  var binrangeplot: float
   var xtitle: string
   var outname: string
   var fitfunc: CdlFitFunc
@@ -1078,14 +1077,12 @@ proc fitAndPlot(h5f: var H5FileObj, fitParamsFname: string,
   of Dhits:
     fitfunc = getCdlFitFunc(tfKind)
     binsizeplot = 1.0
-    binrangeplot = 400.0
     xtitle = "Number of pixels"
     outname = &"{tfKind}"
     lines = getLines(dummy, dummy, tfKind)
   of Dcharge:
     fitfunc = getCdlFitFuncCharge(tfKind)
     binsizeplot = if ord(tfKind) >= ord(tfAlAl4): 5000.0 else: 10000.0
-    binrangeplot = 3500000.0
     xtitle = "Charge [e⁻]"
     outname = &"{tfKind}Charge"
     lines = getLinesCharge(dummy, dummy, tfKind)
@@ -1134,12 +1131,8 @@ proc fitAndPlot(h5f: var H5FileObj, fitParamsFname: string,
     df = df.filter(f{string: `Type` != "NLopt"})
 
 
-  ##plot of hits and charge
-  # modify bin range if necessary
-  if fit_μ < binrangeplot / 3.0:
-    binrangeplot = binrangeplot / 1.5 #4.0
-  elif fit_μ > binrangeplot / 2.0:
-    binrangeplot = binrangeplot * 1.5
+  # define range of plots using mean of main peak
+  let binRangePlot = fit_μ.value * 3.0
 
   # first plot of only cut data by
   let fnameByRun = &"{plotPath}/{outname}-{outdate}_by_run.pdf"

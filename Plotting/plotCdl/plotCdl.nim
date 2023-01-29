@@ -123,14 +123,17 @@ proc normalize(df: DataFrame, grp = "Dset", values = "Hist"): DataFrame =
   result = result.group_by("Dset")
     .mutate(f{float -> float: "Hist" ~ `Hist` / sum(df["Hist"])})
 
-proc plotCdlFile(cdlFile, refFile: string) =
-  let xrayTab = getXrayRefTable()
+proc plotCdlFile(cdlFile: string) =
   var df = newDataFrame()
+  let cfg = initLikelihoodConfig(cdlFile,
+                                 year = yr2018,
+                                 energyDset = igEnergyFromCharge,
+                                 region = crGold,
+                                 timepix = Timepix1,
+                                 morphKind = mkNone) # morphing irrelevant here
+  let xrayTab = getXrayRefTable()
   for idx, key in xrayTab:
-    let (logL, energies) = buildLogLHist(cdlFile, refFile, key,
-                                         year = yr2018,
-                                         energyDset = igEnergyFromCharge,
-                                         region = crGold)
+    let (logL, energies) = buildLogLHist(key, cfg)
     var dfLoc = toDf({"logL" : logL, "Energy" : energies})
     dfLoc["Dset"] = constantColumn(key, dfLoc.len)
     df.add dfLoc
@@ -167,7 +170,7 @@ proc main(files: seq[string] = @[],
           fkKind: FrameworkKind = fkTpa) =
 
   if files.len == 0:
-    plotCdlFile(cdlFile, refFile)
+    plotCdlFile(cdlFile)
   else:
     let dfBack = readFiles(files,
                            "background",
@@ -176,6 +179,7 @@ proc main(files: seq[string] = @[],
                                                   "lengthDivRmsTrans"]))
     const dkKinds = [igEccentricity, igLengthDivRmsTrans, igFractionInTransverseRms]
     for dkKind in dkKinds:
+      ## XXX: instead of reading ref use CDL data and cut
       let dfRef = readRefDsets(refFile, dkKind, yr2018)
       #echo dfRef.pretty(-1)
 

@@ -119,6 +119,17 @@ type
     eventNumbers*: seq[int] ## evnet numbers of all the files
     kind*: EventType ## Type of event (might be a temperature
     rfKind*: RunFolderKind
+    temperatureLog*: string ## Optional temperature log file, if available.
+
+  ## Entry of a temperature log. It's a simple object like this to write it to H5
+  ## as a compound dataset
+  TemperatureLogEntry* = object
+    imb*: float
+    septem*: float
+    timestamp*: int64
+
+  TemperatureLog* = seq[TemperatureLogEntry]
+
 when not defined(js):
   type
     # an object, which stores information about a run's start, end and length

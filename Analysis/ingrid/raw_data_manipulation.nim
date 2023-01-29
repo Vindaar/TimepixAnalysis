@@ -1057,6 +1057,16 @@ proc createProcessedTpx3Run(data: seq[Tpx3Data], startIdx, cutoff, runNumber: in
                                     totCut = totCut,
                                     runConfig = runConfig)
 
+proc parseAndWriteTempLog(h5f: H5File, dataFiles: DataFiles, runNumber: int) =
+  ## Parses the existing `temp_log.txt` file and stores the data in the `temperatures`
+  ## dataset within the run group of `runNumber`.
+  doAssert dataFiles.temperatureLog.len > 0, "Temperature log file does not exist!"
+  let data = parseTemperatureFile(dataFiles.temperatureLog)
+  let dset = h5f.create_dataset(rawDataBase() & $runNumber / "temperatures",
+                                data.len,
+                                TemperatureLogEntry)
+  dset[dset.all] = data
+
 proc processAndWriteSingleRun(h5f: var H5File, run_folder: string,
                               flags: set[RawFlagKind],
                               runType: RunTypeKind,
@@ -1106,6 +1116,10 @@ proc processAndWriteSingleRun(h5f: var H5File, run_folder: string,
     else:
       warn "Skipped writing to file, since ProcessedRun contains no events!"
 
+  # parse and write temperature data if any
+  if dataFiles.temperatureLog.len > 0:
+    h5f.parseAndWriteTempLog(dataFiles, runNumber)
+
   ####################
   # Create Hardlinks #
   ####################
@@ -1113,6 +1127,8 @@ proc processAndWriteSingleRun(h5f: var H5File, run_folder: string,
 
   # dump sequences to file
   #dumpToTandHits(folder, runType, r.tots, r.hits)
+
+
 
   if rfNoFadc notin flags:
     processAndWriteFadc(runFolder, runNumber, h5f)

@@ -1047,6 +1047,21 @@ proc processEventWrapper(data: ProtoFile, rfKind: RunFolderKind): Event =
     raise newException(IOError, "Unknown run folder kind. Unclear what files " &
       "are events!")
 
+proc parseTemperatureFile*(file: string): TemperatureLog =
+  ## Parses the temperature log file into a `TemperatureLog` object.
+  ##
+  ## Note, other approaches that are more performant for parsing could be
+  ## used, but there is little temperature log data, so it doesn't really matter.
+  result = newSeqOfCap[TemperatureLogEntry](10_000)
+  var idx = 0
+  var entry: TemperatureLogEntry
+  var dateStr: string
+  for line in lines(file):
+    if unlikely(line[0] == '#'): continue
+    if line.scanf("$f\t$f\t$*", entry.imb, entry.septem, dateStr):
+      entry.timestamp = parseTime(dateStr, "yyyy-MM-dd'.'HH:mm:ss", local()).toUnix
+      result.add entry
+
 proc applyTotCut*(pixels: var Pixels, totCut: var TotCut) =
   ## Applies the given `TotCut` to the pixels by removing all pixels in place
   ## that do not pass the cuts. The `TotCut` variable is mutated and stores
@@ -1154,15 +1169,19 @@ proc getListOfEventFiles*(folder: string, eventType: EventType,
         if scanf(fname, NewVirtexEventScanfNoPath, evNumber, dummy):
           names.add file
           numbers.add evNumber
+        elif fname == TempLogFilename:  # of course the filename is the same, but setting it implies
+          result.temperatureLog = file # the file exists in the first place!
       of rfOldTos:
         if scanf(fname, OldVirtexEventScanfNoPath, evNumber, dummyInt, dummyInt):
           names.add file
           numbers.add evNumber
+        # no temperature log files can exist here...
       of rfSrsTos:
         var t: Time
         if scanf(fname, SrsEventScanfNoPath, dummyInt, evNumber, t):
           names.add file
           numbers.add evNumber
+        # ...or here
       else:
         raise newException(IOError, "Unknown run folder kind. Unclear what files " &
           "are events!")

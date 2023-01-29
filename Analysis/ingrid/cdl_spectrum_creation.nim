@@ -1247,7 +1247,7 @@ proc generateCdlCalibrationFile(h5file: string, year: YearKind,
       # dataset
       var mgrp = grp
       for dset in mgrp:
-        if dset.shape.len == 1 or dset.shape[1] > 1:
+        if dset.shape.len > 1:
           # skip all datasets in the input, which are 2 dimensional. That includes
           # {polya, polyaFit, FeSpectrum, CDL...}
           # dset.shape == 1 is for `FeSpectrumCharge`, since it's the only dataset
@@ -1272,9 +1272,12 @@ proc generateCdlCalibrationFile(h5file: string, year: YearKind,
               createAndWrite(h5f, h5fout, float64, dset, outname)
             else:
               raise newException(Exception, "??? " & $dset)
-          else:
+          of dkInt .. dkUint64: # includes all float
             let outDset = h5fout.datasetCreation(outname, dset.shape, float)
             outDset[outDset.all] = h5f.readAs(dset.name, float)
+          else:
+            echo "Skipping dataset: ", dset.name
+            continue
         else:
           # append to dataset
           var outDset = h5fout[outname.dset_str]
@@ -1290,8 +1293,10 @@ proc generateCdlCalibrationFile(h5file: string, year: YearKind,
               getAndAdd(h5f, h5fout, dset, float64, outDset)
             else:
               raise newException(Exception, "??? " & $dset)
-          else:
+          of dkInt .. dkUint64:
             outDset.add h5f.readAs(dset.name, float)
+          else:
+            continue
 
   h5fout.attrs["FrameworkKind"] = $CdlGenerateNamingScheme
   discard h5f.close()

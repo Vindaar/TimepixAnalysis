@@ -930,14 +930,10 @@ proc peakFit(peakPos: seq[Measurement[float]], name: string, pathPrefix: string)
     ggtitle("Peak position of all targets") +
     ggsave(&"{pathPrefix}/{name}.pdf", width = 800, height = 480)
 
-proc dumpFitParameters(outfile, svgFname: string,
-                       params: seq[float], errors: seq[float],
-                       tfKind: TargetFilterKind, dKind: DataKind) =
-  ## dumps the fit paramters and their names, plus the filename of the corresponding SVG
-  ## to a txt file
-  var outf = open(outfile, fmAppend)
-  outf.write(&"svg: {svgFname}\n")
-  outf.write(&"tfKind: {tfKind}\n")
+proc serializeFitParameters(fitResult: FitResult,
+                            tfKind: TargetFilterKind, dKind: DataKind,
+                            dumpAccurate: bool): string =
+  result.add &"tfKind: {tfKind}\n"
   # now get the correct names for the fit parameters via a call to getLines
   var fitLines: seq[FitFuncArgs]
   case dKind
@@ -952,12 +948,12 @@ proc dumpFitParameters(outfile, svgFname: string,
   # determine max length of params and errors fields as a string
   func toString(f: float): string =
     if f >= 1e5:
-      if "accurate" in outfile:
+      if dumpAccurate:
         result = &"{f:.2e}"
       else:
         result = &"{f:.1e}"
     else:
-      if "accurate" in outfile:
+      if dumpAccurate:
         result = &"{f:.4f}"
       else:
         result = &"{f:.2f}"
@@ -970,21 +966,37 @@ proc dumpFitParameters(outfile, svgFname: string,
     for i in 0 ..< result.len:
       result[i] = result[i].align(maxW)
 
-  let pStrs = params.paddedStrs
-  let eStrs = errors.paddedStrs
+  let pStrs = fitResult.pRes.paddedStrs
+  let eStrs = fitResult.pErr.paddedStrs
   # iterate the lines and then unroll the FitFuncArgs object
   var i = 0
   var lineName: string
   for line in fitLines:
+    var allNaN = true
     for field, val in fieldPairs(line):
       when type(val) is string:
         lineName = val
-        outf.write(&"{lineName}:\n")
+        result.add &"{lineName}:"
       elif type(val) is float:
         let fstr = $field
         if classify(val) != fcNaN:
-          outf.write(&"{fstr:<3} = {pStrs[i]} \\pm {eStrs[i]}\n")
+          result.add &"\n{fstr:<3} = {pStrs[i]} ± {eStrs[i]}"
           inc i
+          allNaN = false
+    if allNaN:
+      result.add " fixed\n"
+    else:
+      result.add "\n"
+  result.add &"χ²/dof = {fitResult.χ²dof:.2f}"
+
+proc dumpFitParameters(outfile, svgFname: string,
+                       fitResult: FitResult,
+                       tfKind: TargetFilterKind, dKind: DataKind) =
+  ## dumps the fit paramters and their names, plus the filename of the corresponding SVG
+  ## to a txt file
+  var outf = open(outfile, fmAppend)
+  outf.write &"svg: {svgFname}\n"
+  outf.write(serializeFitParameters(fitResult, tfKind, dKind, "accurate" in outfile))
   outf.close()
 
 proc calcFitCurve(minbin: float, maxbin: float,
@@ -1184,15 +1196,19 @@ proc fitAndPlot(h5f: var H5FileObj, fitParamsFname: string,
                    hdKind = hdOutline,
                    binWidth = binSizePlot) +
     geom_line(aes(y = "Counts", color = "Type")) +
+    annotate(serializeFitParameters(fitResultMpfit, tfKind, dKind, true),
+             0.6, 0.6,
+             font = font(12.0, family = "monospace")) +
     xlab(xtitle) +
-    #xlim(0.0, binrangeplot) +
+    xlim(0.0, binRangePlot) +
     ylab("Counts") +
     ggtitle(&"target: {tfKind}") +
     ggsave(fname, width = 800, height = 480)
 
   # now dump the fit results, SVG filename and correct parameter names to a file
   ## TODO: add fit parameters as annotation to plot!!
-  dumpFitParameters(fitParamsFname, fname, fitResultMpfit.pRes, fitResultMpfit.pErr, tfKind, dKind)
+  dumpFitParameters(fitParamsFname, fname, fitResultMpfit, tfKind, dKind)
+
 
 proc cdlToXrayTransform(h5fout: var H5FileObj,
                         passedData: seq[float],

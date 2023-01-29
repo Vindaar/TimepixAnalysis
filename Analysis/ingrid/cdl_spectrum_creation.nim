@@ -1130,6 +1130,9 @@ proc fitAndPlot(h5f: var H5FileObj, fitParamsFname: string,
                      id = "Type")
   if not showStartParams:
     df = df.filter(f{string: `Type` != "Start"})
+  if hideNloptFit:
+    df = df.filter(f{string: `Type` != "NLopt"})
+
 
   ##plot of hits and charge
   # modify bin range if necessary
@@ -1391,7 +1394,7 @@ proc generateXrayReferenceFile(h5file: string, year: YearKind,
   discard h5f.close()
 
 proc plotsAndEnergyResolution(input: string,
-                              dumpAccurate, showStartParams: bool) =
+                              dumpAccurate, showStartParams, hideNloptFit: bool) =
   var fitParamsFname = ""
   if dumpAccurate:
     fitParamsFname = "fitparams_accurate_" & $(epochTime().round.int) & ".txt"
@@ -1432,6 +1435,7 @@ proc main(input: string,
           genCdlFile = false,
           genRefFile = false,
           showStartParams = false,
+          hideNloptFit = false,
           outfile = "",
           year: string = "2018") =
   ##
@@ -1453,7 +1457,7 @@ proc main(input: string,
   if not genRefFile and not genCdlFile:
     # only perform CDL fits if neither CDL calibration file nor
     # reference file created
-    plotsAndEnergyResolution(input, dumpAccurate, showStartParams)
+    plotsAndEnergyResolution(input, dumpAccurate, showStartParams, hideNloptFit)
 
 when isMainModule:
   import cligen

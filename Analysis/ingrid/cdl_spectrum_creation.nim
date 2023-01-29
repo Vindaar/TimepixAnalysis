@@ -856,25 +856,40 @@ iterator tfRuns(h5f: H5File, tfKind: TargetFilterKind): (int, H5Group) =
       # nothing to yield if not an "XrayFinger" (read CDL) run
       discard
 
+proc getCdlCutIdxs(h5f: H5File, runNumber: int, tfKind: TargetFilterKind): seq[int] =
+  let cutTab = getXrayCleaningCuts()
+  let grp = h5f[(recoDataChipBase(runNumber) & chipnumber).grp_str]
+  let cut = cutTab[$tfKind]
+  result = cutOnProperties(h5f,
+                           grp,
+                           cut.cutTo,
+                           ("rmsTransverse", cut.minRms, cut.maxRms),
+                           ("length", 0.0, cut.maxLength),
+                           ("hits", cut.minPix, Inf),
+                           ("eccentricity", 0.0, cut.maxEccentricity))
+
+proc readCutCDL[T](h5f: H5File, runNumber: int, dset: string,
+                   tfKind: TargetFilterKind, _: typedesc[T]): seq[T] =
+  let passIdx = h5f.getCdlCutIdxs(runNumber, tfKind)
+  let data = h5f.readAs(recoDataChipBase(runNumber) & $chipnumber / dset, T)
+  result = passIdx.mapIt(data[it])
+
+proc readCutCDL[T](h5f: H5File, runNumber: int, dset: string,
+                   tfKind: TargetFilterKind, passIdx: seq[int], _: typedesc[T]): seq[T] =
+  let data = h5f.readAs(recoDataChipBase(runNumber) & $chipnumber / dset, T)
+  result = passIdx.mapIt(data[it])
+
 proc cutAndWrite(h5file: string) =
   let runs = readRuns(filename)
   var h5f = H5open(h5file, "rw")
   defer: discard h5f.close()
-  let cutTab = getXrayCleaningCuts()
   for r in runs:
     #if r.number != 315:
       #continue
     case r.runType
     of rtXrayFinger:
       let grp = h5f[(recoDataChipBase(r.number) & chipnumber).grp_str]
-      let cut = cutTab[r.toCutStr]
-      let passIdx = cutOnProperties(h5f,
-                                   grp,
-                                   cut.cutTo,
-                                   ("rmsTransverse", cut.minRms, cut.maxRms),
-                                   ("length", 0.0, cut.maxLength),
-                                   ("hits", cut.minPix, Inf),
-                                   ("eccentricity", 0.0, cut.maxEccentricity))
+      let passIdx = h5f.getCdlCutIdxs(r.number, r.toTfKind())
       let nevents = passIdx.len
 
       proc writeDset(r: CDLRun, dsetWrite, dsetRead: string, datatype: typedesc) =
@@ -1099,10 +1114,10 @@ proc getMuSigma(lines: seq[FitFuncArgs],
 
 proc fitAndPlot(h5f: var H5FileObj, fitParamsFname: string,
                 tfKind: TargetFilterKind, dKind: DataKind,
-                showStartParams: bool):
-                  (Measurement[float], Measurement[float]) =
+                showStartParams, hideNloptFit: bool,
+                plotPath: string):
+                  (DataFrame, Measurement[float], Measurement[float]) =
   let runs = readRuns(filename)
-  let plotPath = h5f.attrs[PlotDirPrefixAttr, string]
 
   var runNumbers: seq[int]
   var binsizeplot: float
@@ -1131,7 +1146,7 @@ proc fitAndPlot(h5f: var H5FileObj, fitParamsFname: string,
     case dKind
     of Dhits:
       let RawDataSeq = h5f[grp.name / "hits", int64]
-      let Cdlseq = h5f[grp.name / "CdlSpectrum", int64]
+      let Cdlseq = h5f.readCutCDL(run, "hits", tfKind, int64)
       var dfLoc = bind_rows([("Raw", toDf({"Counts": RawDataSeq})),
                              ("Cut", toDf({"Counts": Cdlseq}))],
                              id = "Cut?")
@@ -1139,7 +1154,7 @@ proc fitAndPlot(h5f: var H5FileObj, fitParamsFname: string,
       dfU.add dfLoc
     of Dcharge:
       let RawDataSeq = h5f[grp.name / "totalCharge", float]
-      let Cdlseq = h5f[grp.name / "CdlSpectrumCharge", float]
+      let Cdlseq = h5f.readCutCDL(run, "totalCharge", tfKind, float)
       var dfLoc = bind_rows([("Raw", toDf({"Counts": RawDataSeq})),
                              ("Cut", toDf({"Counts": Cdlseq}))],
                              id = "Cut?")

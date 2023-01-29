@@ -126,6 +126,17 @@ type
     yr2014 = "2014"
     yr2018 = "2018"
 
+  FitResult = object
+    pStart: seq[float]
+    pRes: seq[float]
+    pErr: seq[float]
+    χ²dof: float
+
+  FitData = object
+    bins: seq[float]
+    hist: seq[float]
+    errs: seq[float]
+
 func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncArgs] =
   ## this is a runtime generator for the correct fitting function prototype,
   ## i.e. it returns a seq of parts, which need to be combined to the complete
@@ -223,6 +234,11 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
                           gN: fixed,
                           gmu: fixed,
                           gs: fixed)
+    result.add FitFuncArgs(name: "unknown",
+                           kind: ffGauss,
+                           gN: n_main / 3.0,
+                           gmu: mu_main * 1.75,
+                           gs: sigma_main)
   of tfCuEpic0_9:
     result.add FitFuncArgs(name: "O-Kalpha",
                           kind: ffGauss,
@@ -244,6 +260,11 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
     #                      gN: n_main / 10.0,
     #                      gmu: fixed, #mu_main,
     #                      gs: fixed) #n_main )
+    result.add FitFuncArgs(name: "unknown",
+                           kind: ffGauss,
+                           gN: n_main / 3.0,
+                           gmu: mu_main * 1.75,
+                           gs: sigma_main)
   of tfCEpic0_6:
     result.add FitFuncArgs(name: "C-Kalpha",
                           kind: ffGauss,
@@ -294,7 +315,7 @@ func getBounds(tfKind:TargetFilterKind): seq[tuple[l, u:float]] =
   of tfAgAg6:
     result = @[(l: -Inf, u:Inf),
                (l: -Inf, u:Inf),
-               (l: 310.0, u:380.0),
+               (l: 100.0, u:400.0),
                (l: 50.0, u:116.0),
                (l: 10.0, u:13.5)]
   of tfAlAl4:
@@ -306,17 +327,17 @@ func getBounds(tfKind:TargetFilterKind): seq[tuple[l, u:float]] =
   of tfCuEpic2:
     result = @[(l: 1.0, u:Inf),
                (l: 1.0, u:Inf),
+               (l: 1.0, u:20.0),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
                (l: 1.0, u:20.0)]
-               #(l: 1.0, u:Inf),
-               #(l: 1.0, u:Inf)]
-               #(l: 1.0, u:10.0)]
   of tfCuEpic0_9:
     result = @[(l: 1.0, u:Inf),
                (l: 1.0, u:23.0),
-               (l: 1.0, u:7.0)]
-               #(l: 1.0, u:60.0)]
-               #(l: 5.0, u:60.0),
-               #(l: 5.0, u:110.0)]
+               (l: 1.0, u:7.0),
+               (l: 1.0, u:Inf),
+               (l: 5.0, u:60.0),
+               (l: 5.0, u:110.0)]
   of tfCEpic0_6:
     result = @[(l: 600.0, u:Inf),
                (l: 1.0, u:Inf),
@@ -431,11 +452,16 @@ func getLinesCharge(hist, binning: seq[float], tfKind: TargetFilterKind): seq[Fi
                           gs: fixed)
                           #gmu: mu_main / 3.0,
                           #gs: sigma_main / 4.0)
-    #result.add FitFuncArgs(name: "O-Kalpha",
-    #                      kind: ffGauss,
-    #                      gN: fixed,
-    #                      gmu: fixed,
-    #                      gs: fixed)
+    result.add FitFuncArgs(name: "O-Kalpha",
+                          kind: ffGauss,
+                          gN: fixed,
+                          gmu: fixed,
+                          gs: fixed)
+    result.add FitFuncArgs(name: "unknown",
+                          kind: ffGauss,
+                          gN: n_main / 2.0,# / 4.0,
+                          gmu: mu_main * 2.0,
+                          gs: sigma_main)
   of tfCuEpic0_9:
     result.add FitFuncArgs(name: "O-Kalpha",
                           kind: ffGauss,
@@ -447,6 +473,11 @@ func getLinesCharge(hist, binning: seq[float], tfKind: TargetFilterKind): seq[Fi
                           gN: fixed, #n_main / 10.0,# / 4.0,
                           gmu: fixed,
                           gs: fixed)
+    result.add FitFuncArgs(name: "unknown",
+                          kind: ffGauss,
+                          gN: n_main / 2.0,# / 4.0,
+                          gmu: mu_main * 2.0,
+                          gs: sigma_main)
   of tfCEpic0_6:
     result.add FitFuncArgs(name: "C-Kalpha",
                           kind: ffGauss,
@@ -495,18 +526,18 @@ func getBoundsCharge(tfKind:TargetFilterKind): seq[tuple[l, u:float]] =
   of tfCuEpic2:
     result = @[(l: 1.0, u:Inf),
                (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
                (l: 1.0, u:Inf)]
-               #(l: 1.0, u:Inf)]
-               #(l: 1.0, u:Inf),
-               #(l: 1.0, u:Inf)]
                #(l: 1.0, u:Inf)]
   of tfCuEpic0_9:
     result = @[(l: 1.0, u:Inf),
                (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
+               (l: 1.0, u:Inf),
                (l: 1.0, u:Inf)]
-               #(l: 1.0, u:Inf)]
-               #(l: 1.0, u:Inf),
-               #(l: 1.0, u:Inf)]
   of tfCEpic0_6:
     result = @[(l: 1.0, u:Inf),
                (l: 1.0, u:Inf),
@@ -557,14 +588,14 @@ declareFitFunc(agAg6):
   ffExpGauss: "Ag-Lalpha"
   ffGauss: #"Ag-Lbeta"
     name = "Ag-Lbeta"
-    gN = eN("Ag-Lalpha") * 0.1
+    gN = eN("Ag-Lalpha") * 0.56
     gmu = emu("Ag-Lalpha") * (3.151/2.984)
     gs = es("Ag-Lalpha")
 declareFitFunc(agAg6Charge):
   ffGauss: "Ag-Lalpha"
   ffGauss: #"Ag-Lbeta"
     name = "Ag-Lbeta"
-    gN = gN("Ag-Lalpha") * 0.1
+    gN = gN("Ag-Lalpha") * 0.56
     gmu = gmu("Ag-Lalpha") * (3.151/2.984)
     gs = gs("Ag-Lalpha")
   #ffConst: "p0"
@@ -582,21 +613,28 @@ declareFitFunc(cuEpic2):
   #ffGauss: "Cu-Lbeta"
   ffGauss:
     name = "Cu-Lbeta"
-    gN = gN("Cu-Lalpha") / 5.0
+    gN = gN("Cu-Lalpha") * 0.65 / 1.11
     gmu = gmu("Cu-Lalpha") * 0.9498 / 0.9297 # energies in keV of the lines
     gs = gs("Cu-Lalpha")
   ffGauss:
     name = "O-Kalpha"
-    gN = gN("Cu-Lalpha") / 3.5
+    gN = gN("Cu-Lalpha") / 3.5 ## this has no physical motivation!
     gmu = gmu("Cu-Lalpha") * 0.5249 / 0.9297
     gs = gs("Cu-Lalpha") / 2.0
+  ffGauss: "unknown"
 declareFitFunc(cuEpic2Charge):
   ffGauss: "Cu-Lalpha" ## XXX: replace two lines by mix of one, adjust energy to relative importance
   ffGauss:
     name = "Cu-Lbeta"
-    gN = gN("Cu-Lalpha") / 5.0
+    gN = gN("Cu-Lalpha") * 0.65 / 1.11 #/ 5.0
     gmu = gmu("Cu-Lalpha") * 0.9498 / 0.9297 # energies in keV of the lines
     gs = gs("Cu-Lalpha")
+  ffGauss:
+    name = "O-Kalpha"
+    gN = gN("Cu-Lalpha") / 3.5 ## this has no physical motivation!
+    gmu = gmu("Cu-Lalpha") * 0.5249 / 0.9297
+    gs = gs("Cu-Lalpha") / 2.0
+  ffGauss: "unknown"
   #ffGauss:
   #  name = "O-Kalpha"
   #  gN = gN("Cu-Lalpha") / 4.0
@@ -604,6 +642,7 @@ declareFitFunc(cuEpic2Charge):
   #  gs = gs("Cu-Lalpha") / 2.0
 declareFitFunc(cuEpic0_9):
   ffGauss: "O-Kalpha"
+  ffGauss: "unknown"
   #ffGauss: #"C-Kalpha"
   #  name = "C-Kalpha"
   #  gmu = gmu("O-Kalpha") * (0.277/0.525)
@@ -620,9 +659,10 @@ declareFitFunc(cuEpic0_9Charge):
   ffGauss: "O-Kalpha"
   ffGauss:
     name = "C-Kalpha"
-    gN = gN("O-Kalpha") / 10.0
+    gN = gN("O-Kalpha") / 10.0 ## this has no physical motivation!
     gmu = gmu("O-Kalpha") * 277.0 / 524.9
     gs = gs("O-Kalpha")
+  ffGauss: "unknown"
 declareFitFunc(cEpic0_6):
   ffGauss: "C-Kalpha"
   ffGauss: #"O-Kalpha"
@@ -708,18 +748,6 @@ proc histoCdl(data: seq[SomeNumber], binSize: float = 3.0, dKind: DataKind): (se
     result[1] = bin_edges[0 .. ^2]
   #echo "Bin edges len ", bin_edges.len
   #echo "Result len ", result[1].len
-
-type
-  FitResult = object
-    pStart: seq[float]
-    pRes: seq[float]
-    pErr: seq[float]
-    χ²dof: float
-
-  FitData = object
-    bins: seq[float]
-    hist: seq[float]
-    errs: seq[float]
 
 proc getFitData(hist, bins: seq[float]): FitData =
   ## Returns the `FitData` (i.e. the real bins, counts and errors we fit to)

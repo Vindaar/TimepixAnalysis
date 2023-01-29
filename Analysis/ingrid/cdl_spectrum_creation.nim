@@ -256,7 +256,7 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
                           gmu: fixed, #mu_main,
                           gs: fixed) #n_main)
 
-func getbounds(tfKind:TargetFilterKind): seq[tuple[l, u:float]] =
+func getBounds(tfKind:TargetFilterKind): seq[tuple[l, u:float]] =
   case tfKind
   of tfCuNi15:
     result = @[(l: -Inf, u:Inf),
@@ -459,7 +459,7 @@ func getLinesCharge(hist, binning: seq[float], tfKind: TargetFilterKind): seq[Fi
                           gmu: fixed, #mu_main, #* 1e3,
                           gs: fixed) #sigma_main  * 1e3)
 
-func getboundsCharge(tfKind:TargetFilterKind): seq[tuple[l, u:float]] =
+func getBoundsCharge(tfKind:TargetFilterKind): seq[tuple[l, u:float]] =
   case tfKind
   of tfCuNi15:
     result = @[(l: 1.0, u:Inf),
@@ -731,7 +731,7 @@ proc getFitData(hist, bins: seq[float]): FitData =
   let cumu = cumsum(hist)
   let sum = sum(hist)
   let quotient = cumu.mapIt(it/sum)
-  let lowIdx = quotient.lowerBound(0.002) # 0005)
+  let lowIdx = quotient.lowerBound(0.002)
   let highIdx = quotient.lowerBound(0.98)
   result = FitData(bins: newSeqOfCap[float](hist.len),
                    hist: newSeqOfCap[float](hist.len),
@@ -763,9 +763,9 @@ proc fitCdlMpfit(fitData: FitData, tfKind: TargetFilterKind, dKind: DataKind): F
   var bounds: seq[tuple[l, u:float]]
   case dKind
   of Dhits:
-    bounds = getbounds(tfKind)
+    bounds = getBounds(tfKind)
   of Dcharge:
-    bounds = getboundsCharge(tfKind)
+    bounds = getBoundsCharge(tfKind)
 
   ## XXX: in principle we need to add half a bin edge to the fit...
   let (pRes, res) = fit(fitFunc,
@@ -808,17 +808,17 @@ proc readRuns(fname: string): seq[CdlRun] =
                        hv: if row[6].strip.len > 0: row[6].strip.parseFloat else: 0.0)
       result.add run
 
-proc totfkind(run: CdlRun): TargetFilterKind =
+proc toTfKind(run: CdlRun): TargetFilterKind =
   result = parseEnum[TargetFilterKind](&"{toCutStr(run)}")
 
-iterator tfRuns(h5f: var H5FileObj, tfKind: TargetFilterKind): (int, H5Group) =
+iterator tfRuns(h5f: H5File, tfKind: TargetFilterKind): (int, H5Group) =
   ## Yields the center chip group of all runs from `filename`,
   ## which match `tfKind`
   let runs = readRuns(filename)
   for r in runs:
     case r.runType
     of rtXrayFinger:
-      let tfk = r.totfkind
+      let tfk = r.toTfKind
       if tfk == tfKind:
         let runGrp = h5f[recoRunGrpStr(r.number)]
         let centerChip = runGrp.attrs["centerChip", int]
@@ -887,7 +887,7 @@ proc energyResolution(energyResHits, energyResCharge: seq[Measurement[float]],
                       yMax = f{`Resolution` + `ResErr`})) +
     xlab("Energy [keV]") +
     ylab("Energy resolution [%]") +
-    ggtitle("Energy resolution plot") +
+    ggtitle("Energy resolution depending on energy") +
     ggsave(&"{pathPrefix}/energyresoplot-{outdate}.pdf", width = 800, height = 480)
 
 proc peakFit(peakPos: seq[Measurement[float]], name: string, pathPrefix: string) =
@@ -991,9 +991,9 @@ proc fitCdlNlopt(fitData: FitData,
   var bounds: seq[tuple[l, u:float]]
   case dKind
   of Dhits:
-    bounds = getbounds(tfKind)
+    bounds = getBounds(tfKind)
   of Dcharge:
-    bounds = getboundsCharge(tfKind)
+    bounds = getBoundsCharge(tfKind)
 
   # now make sure all start parameters are within bounds, else clamp
   var pStart = params
@@ -1084,9 +1084,9 @@ proc fitAndPlot(h5f: var H5FileObj, fitParamsFname: string,
     lines = getLines(dummy, dummy, tfKind)
   of Dcharge:
     fitfunc = getCdlFitFuncCharge(tfKind)
-    binsizeplot = 10000.0
+    binsizeplot = if ord(tfKind) >= ord(tfAlAl4): 5000.0 else: 10000.0
     binrangeplot = 3500000.0
-    xtitle = "Charge"
+    xtitle = "Charge [e⁻]"
     outname = &"{tfKind}Charge"
     lines = getLinesCharge(dummy, dummy, tfKind)
 
@@ -1150,6 +1150,7 @@ proc fitAndPlot(h5f: var H5FileObj, fitParamsFname: string,
                    position = "identity",
                    alpha = 0.5) +
     ggtitle("Cleaned data of & " & $dKind & " " & $tfKind & " split by run") +
+    xlab(xtitle) +
     ggsave(fnameByRun, width = 800, height = 480)
 
   let fname = &"{plotPath}/{outname}-{outdate}.pdf"

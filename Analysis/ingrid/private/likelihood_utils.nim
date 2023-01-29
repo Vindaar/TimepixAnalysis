@@ -60,7 +60,6 @@ proc getInterpolatedWideDf*(df: DataFrame, num = 1000): DataFrame =
   let xrayRef = getXrayRefTable()
   result = newDataFrame()
   for tup, subDf in groups(group_by(df, "Variable")):
-    # echo subDf
     var dfLoc = newDataFrame()
     var lastBins = zeros[float](0)
     for idx, E in energies:
@@ -79,12 +78,12 @@ proc getInterpolatedWideDf*(df: DataFrame, num = 1000): DataFrame =
 proc readMorphKind(): MorphingKind
 proc calcLikelihoodDataset*(h5f: var H5File,
                             groupName: string,
-                            cfg: LikelihoodConfig): seq[float]
+                            ctx: LikelihoodContext): seq[float]
 
 when false:
   proc calcLikelihoodDatasetIfNeeded*(h5f: var H5File,
                                       grp: string,
-                                      cfg: LikelihoodConfig) =
+                                      ctx: LikelihoodContext) =
     ## Recomputes the likelihood dataset, either if it doesn't exist yet or
     ## if it was computed using a different morphing technique.
     # get the group of this dataset
@@ -95,7 +94,7 @@ when false:
                           none[MorphingKind]()
     let morphKind = readMorphKind() # the morph kind that was used, assign it
     if morphKindUsed.isNone or morphKindUsed.get != morphKind:
-      let logLData = h5f.calcLikelihoodDataset(grp, cfg)
+      let logLData = h5f.calcLikelihoodDataset(grp, ctx)
       let loglDset = h5f.create_dataset(grp / logLDset,
                                         logLData.len,
                                         float64,
@@ -159,14 +158,6 @@ template withLogLFilterCuts*(cdlFile, dset: string,
                              body: untyped): untyped =
   ## Note: see the injected variables in the `withCdlData` template!
   withCdlData(cdlFile, dset, year, energyDset):
-    # for likelihood dataset: aside from `resources/calibration-cdl.h5`, every other file
-    # may not yet have access to the likelihood dataset. So we have to check for that and
-    # if it does not exist yet, it has to be calculated.
-    let logLStr = igLikelihood.toDset(frameworkKind)
-    if grp_name / logLStr notin h5f:
-      raise newException(ValueError, "Likelihood dataset does not yet exist in cdlFile " & $cdlFile & ".")
-
-    let logL {.inject.} = h5f.readAs(grp_name / logLStr, float64)
     for i {.inject.} in 0 ..< energy.len:
       let
         # first apply Xray cuts (see C. Krieger PhD Appendix B & C)
@@ -181,7 +172,6 @@ template withLogLFilterCuts*(cdlFile, dset: string,
         pixelCut   = npix[i].float     > cuts.minPix
       # add event to likelihood if all cuts passed
       if allIt([regionCut, xRmsCut, xLengthCut, xEccCut, chargeCut, rmsCut, lengthCut, pixelCut], it):
-        #if logL[i] != Inf:
         body
 
 template withXrayRefCuts*(cdlFile, dset: string,
@@ -286,11 +276,11 @@ proc genRefData*(cdlFile, dset: string,
     (eccs, ldiv, frac) = fns.applyMutation(eccs, ldiv, frac)
   result = year.buildRefHistos(eccs, ldiv, frac)
 
-proc calcFns(cfg: LikelihoodConfig, energy: float, eccs, ldiv, frac: seq[float]): seq[FormulaNode] =
+proc calcFns(ctx: LikelihoodContext, energy: float, eccs, ldiv, frac: seq[float]): seq[FormulaNode] =
   ## Computes the formulas used to modifiy the CDL data based on the possible
   ## `CDLStretcher`
-  if cfg.stretch.isSome:
-    let st = cfg.stretch.get
+  if ctx.stretch.isSome:
+    let st = ctx.stretch.get
     proc toFn(dset: string, cdl: seq[float]): FormulaNode =
       # compute interpolated data min / max
       let
@@ -318,34 +308,34 @@ proc calcFns(cfg: LikelihoodConfig, energy: float, eccs, ldiv, frac: seq[float])
     result.add toFn("lengthDivRmsTrans", ldiv)
     result.add toFn("fractionInTransverseRms", frac)
 
-proc genRefData*(dset: string, cfg: LikelihoodConfig): tuple[ecc, ldivRms, fracRms: HistTuple] =
+proc genRefData*(dset: string, ctx: LikelihoodContext): tuple[ecc, ldivRms, fracRms: HistTuple] =
   const xrayEnergies = getXrayFluorescenceLines()
   const invXrayTab = getInverseXrayRefTable()
   # now compute histograms
-  var (eccsR, ldivR, fracR) = readRawRefData(cfg.cdlFile, dset, cfg.year, cfg.energyDset)
+  var (eccsR, ldivR, fracR) = readRawRefData(ctx.cdlFile, dset, ctx.year, ctx.energyDset)
   # compute the correct functions for the reference data if needed
   let dsetEnergy = xrayEnergies[invXrayTab[dset]]
-  let fns = calcFns(cfg, dsetEnergy, eccsR, ldivR, fracR)
+  let fns = calcFns(ctx, dsetEnergy, eccsR, ldivR, fracR)
   (eccsR, ldivR, fracR) = fns.applyMutation(eccsR, ldivR, fracR)
-  result = cfg.year.buildRefHistos(eccsR, ldivR, fracR)
+  result = ctx.year.buildRefHistos(eccsR, ldivR, fracR)
 
-proc readRefDsetsDF(cfg: LikelihoodConfig): DataFrame =
+proc readRefDsetsDF(ctx: LikelihoodContext): DataFrame =
   ## reads the reference datasets from the `refFile` and returns them.
 
   ## TODO: implement proper handling of 55Fe distribution matching by replacing
-  ## `genRefData` with the version taking `cfg`
+  ## `genRefData` with the version taking `ctx`
   const xray_ref = getXrayRefTable()
   var
     ecc_ref = initTable[string, HistTuple]()
     lengthDivRmsTrans_ref = initTable[string, HistTuple]()
     fracRmsTrans_ref = initTable[string, HistTuple]()
-    result = newDataFrame()
+  result = newDataFrame()
   let energies = getXrayFluorescenceLines()
   for idx in 0 ..< xray_ref.len:
     ## read the data from the CDL file and generate the reference data using cuts
     let dsetName = xray_ref[idx]
     let E = energies[idx]
-    let (ecc, ldiv, frac) = dsetName.genRefData(cfg)
+    let (ecc, ldiv, frac) = dsetName.genRefData(ctx)
     template addDf(h: HistTuple, key: string, E: float, dkKind: InGridDsetKind) =
       var dfDset = toDf({ "Bins" : h.bins, "Hist" : h.hist,
                           "Dset" : key, "Energy" : E,
@@ -355,7 +345,6 @@ proc readRefDsetsDF(cfg: LikelihoodConfig): DataFrame =
     addDf(ecc, dsetName, E, igEccentricity)
     addDf(ldiv, dsetName, E, igLengthDivRmsTrans)
     addDf(frac, dsetName, E, igFractionInTransverseRms)
-
 
 proc calcLogL*(e, l, f: float, eccs, ldiv, frac: HistTuple): float =
   ## Computes the log likelihood value for the given eccentricity, ldivT and fT
@@ -368,7 +357,7 @@ proc calcLogL*(e, l, f: float, eccs, ldiv, frac: HistTuple): float =
   result += logLikelihood(frac[1], f, frac[0])
   result *= -1.0
 
-proc buildLogLHist*(dset: string, cfg: LikelihoodConfig): tuple[logL, energy: seq[float]] =
+proc buildLogLHist*(dset: string, ctx: LikelihoodContext): tuple[logL, energy: seq[float]] =
   ## given a file `h5file` containing a CDL calibration dataset
   ## `dset` apply the cuts on all events and build the logL distribution
   ## for the energy range.
@@ -380,19 +369,19 @@ proc buildLogLHist*(dset: string, cfg: LikelihoodConfig): tuple[logL, energy: se
   result[0] = newSeqOfCap[float](100_000)
   result[1] = newSeqOfCap[float](100_000)
   when false:
-    withLogLFilterCuts(cfg.cdlFile, dset, cfg.year, cfg.energyDset):
+    withLogLFilterCuts(ctx.cdlFile, dset, ctx.year, ctx.energyDset):
       result[0].add logL[i]
       result[1].add energy[i]
     # now create plots of all ref likelihood distributions
     echo "max is inf ? ", min(result[0]), " ", max(result[0])
   else:
-    let (eccs, ldiv, frac) = genRefData(dset, cfg) # , fns)
-    let (eccsR, ldivR, fracR, energy) = readRawLogLFilteredData(cfg.cdlFile, dset, cfg.year, cfg.energyDset)
+    let (eccs, ldiv, frac) = genRefData(dset, ctx) # , fns)
+    let (eccsR, ldivR, fracR, energy) = readRawLogLFilteredData(ctx.cdlFile, dset, ctx.year, ctx.energyDset)
     for i in 0 ..< eccsR.len:
       result[0].add calcLogL(eccsR[i], ldivR[i], fracR[i], eccs, ldiv, frac)
       result[1].add energy[i]
 
-proc computeLogLDistributions*(cfg: LikelihoodConfig): DataFrame =
+proc computeLogLDistributions*(ctx: LikelihoodContext): DataFrame =
   ## Computes the LogL distributions from thc CDL data file (`cdlFile`) by applying
   ## both sets of cuts (`getXraySpetrcumCuts` and `getEnergyBinMinMaxVals201*`) to the
   ## data in `buildLogLHist` and binning it according to the number and bin width
@@ -409,18 +398,18 @@ proc computeLogLDistributions*(cfg: LikelihoodConfig): DataFrame =
   let energies = getXrayFluorescenceLines()
   for idx, dset in xrayRef:
     # compute the histogram of the CDL data
-    let hist = buildLogLHist(dset, cfg)[0]
+    let hist = buildLogLHist(dset, ctx)[0]
     var df = toDf( {"Bins" : bins[0 .. ^2], "Hist" : histogram(hist, nbins, logLrange)[0] })
     df["Dset"] = dset
     df["Energy"] = energies[idx]
     result.add df
 
-proc getLogLData*(cfg: LikelihoodConfig): DataFrame =
+proc getLogLData*(ctx: LikelihoodContext): DataFrame =
   ## Returns the raw logL data for all target/filter datasets
   const xrayRef = getXrayRefTable()
   let energies = getXrayFluorescenceLines()
   for idx, dset in xrayRef:
-    let (logL, energy) = buildLogLHist(dset, cfg)
+    let (logL, energy) = buildLogLHist(dset, ctx)
     let df = toDf({"logL" : logL, "Energies" : energy, "Energy" : energies[idx], "Dset" : dset})
     result.add df
 
@@ -439,7 +428,7 @@ proc readLogLVariableData*(h5f: var H5File,
     energies = h5f[(groupName / energyDset.toDset), float64]
   result = (ecc, lengthDivRmsTrans, fracRmsTrans, energies)
 
-proc readRefDsets*(cfg: LikelihoodConfig): tuple[ecc, ldivRms, fracRms: Table[string, HistTuple]] =
+proc readRefDsets*(ctx: LikelihoodContext): tuple[ecc, ldivRms, fracRms: Table[string, HistTuple]] =
   ## Reads the data from the CDL file and generates the reference distributions based
   ## on the cuts defined in `cdl_cuts.nim`
   # create a table, which stores the reference datasets from the ref file
@@ -456,7 +445,7 @@ proc readRefDsets*(cfg: LikelihoodConfig): tuple[ecc, ldivRms, fracRms: Table[st
 
   for idx, dsetName in xrayRef:
     ## read the data from the CDL file and generate the reference data using cuts
-    let (eccs, ldiv, frac) = dsetName.genRefData(cfg)
+    let (eccs, ldiv, frac) = dsetName.genRefData(ctx)
     var dfDset = toDf({ "Eccentricity" : eccs[0],
                         "Ecc #" : eccs[1],
                         "L / RMS_trans" : ldiv[0],
@@ -477,21 +466,21 @@ proc readRefDsets*(cfg: LikelihoodConfig): tuple[ecc, ldivRms, fracRms: Table[st
     ggplot(df, aes("Eccentricity", "Ecc #", fill = "Dset")) +
       ggridges("Dset", overlap = 1.75, labelOrder = labelOrder) +
       geom_histogram(stat = "identity", position = "identity", alpha = 0.5, hdKind = hdOutline) +
-      ggtitle(&"Eccentricity of reference file, year: {cfg.year}") +
-      ggsave(&"out/eccentricity_ridgeline_{cfg.cdlFile.extractFilename}_{cfg.year}.pdf",
+      ggtitle(&"Eccentricity of reference file, year: {ctx.year}") +
+      ggsave(&"out/eccentricity_ridgeline_{ctx.cdlFile.extractFilename}_{ctx.year}.pdf",
               width = 800, height = 480)
     ggplot(df, aes("L / RMS_trans", "L / RMS_trans #", fill = "Dset")) +
       ggridges("Dset", overlap = 1.75, labelOrder = labelOrder) +
       geom_histogram(stat = "identity", position = "identity", alpha = 0.5, hdKind = hdOutline) +
-      ggtitle(&"L / RMS_trans of reference file, year: {cfg.year}") +
-      ggsave(&"out/lengthDivRmsTrans_ridgeline_{cfg.cdlFile.extractFilename}_{cfg.year}.pdf",
+      ggtitle(&"L / RMS_trans of reference file, year: {ctx.year}") +
+      ggsave(&"out/lengthDivRmsTrans_ridgeline_{ctx.cdlFile.extractFilename}_{ctx.year}.pdf",
               width = 800, height = 480)
     ggplot(data = df.filter(f{Value: isNull(df["fracRmsTrans"][idx]) == (%~ false)}),
            aes("fracRmsTrans", "fracRmsTrans #", fill = "Dset")) +
       ggridges("Dset", overlap = 1.75, labelOrder = labelOrder) +
       geom_histogram(stat = "identity", position = "identity", alpha = 0.5, hdKind = hdOutline) +
-      ggtitle(&"fracRmsTrans of reference file, year: {cfg.year}") +
-      ggsave(&"out/fracRmsTrans_ridgeline_{cfg.cdlFile.extractFilename}_{cfg.year}.pdf",
+      ggtitle(&"fracRmsTrans of reference file, year: {ctx.year}") +
+      ggsave(&"out/fracRmsTrans_ridgeline_{ctx.cdlFile.extractFilename}_{ctx.year}.pdf",
               width = 800, height = 480)
   result = (ecc: ecc_ref, ldivRms: lengthDivRmsTrans_ref, fracRms: fracRmsTrans_ref)
 
@@ -514,12 +503,14 @@ func calcLikelihoodForEvent*(energy, eccentricity, lengthDivRmsTrans, fracRmsTra
 proc calcMorphedLikelihoodForEvent*(eccentricity, lengthDivRmsTrans, fracRmsTrans: float,
                                     refDf: DataFrame, idx: int): float =
   # try simple logL calc
+
+  ## XXX: replace usages of `{.global.}` here!
   var
     eccDf {.global.}, ldivDf {.global.}, fracDf {.global.}: DataFrame
   once:
-    eccDf = refDf.filter(f{string -> bool: `Variable` == "igEccentricity"})
-    ldivDf = refDf.filter(f{string -> bool: `Variable` == "igLengthDivRmsTrans"})
-    fracDf = refDf.filter(f{string -> bool: `Variable` == "igFractionInTransverseRms"})
+    eccDf = refDf.filter(f{string -> bool: `Variable` == "eccentricity"})
+    ldivDf = refDf.filter(f{string -> bool: `Variable` == "lengthDivRmsTrans"})
+    fracDf = refDf.filter(f{string -> bool: `Variable` == "fractionInTransverseRms"})
   proc addLog(arg: InGridDsetKind, val: float, res: var float, df: DataFrame) =
     let bins = df["Bins", float].toRawSeq
     let hist = df["Hist_" & $idx, float].toRawSeq
@@ -532,41 +523,35 @@ proc calcMorphedLikelihoodForEvent*(eccentricity, lengthDivRmsTrans, fracRmsTran
   addLog(igFractionInTransverseRms, fracRmsTrans, result, fracDf)
   result *= -1.0
 
-proc calcLikelihoodDataset*(h5f: var H5File, groupName: string, cfg: LikelihoodConfig): seq[float] =
-  const num = 1000
+proc calcLikelihoodForEvent*(ctx: LikelihoodContext,
+                             energy, ecc, lengthDivRmsTrans, fracRmsTrans: float): float =
+  case ctx.morph
+  of mkNone:
+    result = calcLikelihoodForEvent(energy, ecc, lengthDivRmsTrans, fracRmsTrans,
+                                    ctx.refSetTuple)
+  of mkLinear:
+    let idx = min(ctx.refDfEnergy.lowerBound(energy), ctx.numMorphedEnergies - 1)
+    result = calcMorphedLikelihoodForEvent(ecc, lengthDivRmsTrans, fracRmsTrans,
+                                           ctx.refDf, idx)
+  echo "result ? ", result, " based on ", ecc, " ", lengthDivRmsTrans, " ", fracRmsTrans
+
+proc calcLikelihoodDataset*(h5f: var H5File, groupName: string, ctx: LikelihoodContext): seq[float] =
   let (ecc,
        lengthDivRmsTrans,
        fracRmsTrans,
-       energies) = h5f.readLogLVariableData(groupName, cfg.energyDset)
-
-  var refSetTuple {.global.}: tuple[ecc, ldivRms, fracRms: Table[string, HistTuple]]
-  var refDf {.global.}: DataFrame
-  var refDfEnergy {.global.}: seq[float]
-  case cfg.morph
-  of mkNone:
-    once:
-      refSetTuple = readRefDsets(cfg)
-  of mkLinear:
-    ## XXX: `refDf` will `only` be defined the first time. However, this is
-    ## fine, because it's only used the first time in `calcMorphedLikelihoodForEvent`
-    ## as well! However, this *must* be fixed.
-    once:
-      refDf = readRefDsetsDF(cfg)
-        .getInterpolatedWideDf(num = num)
-      let lineEnergies = getXrayFluorescenceLines()
-      refDfEnergy = linspace(lineEnergies[0], lineEnergies[^1], num)
+       energies) = h5f.readLogLVariableData(groupName, ctx.energyDset)
 
   # create seq to store data logL data for this chip
   ## create a crazy man's plot
   proc crazyPlot(name: string) =
-    let dfFiltered = refDf.filter(f{string: `Variable` == name})
+    let dfFiltered = ctx.refDf.filter(f{string: `Variable` == name})
     let histKeysName = dfFiltered.getKeys.filterIt("Hist" in it)
     var df = dfFiltered
       .gather(histKeysName, key = "Idx", value = "Hist")
     var labelOrder = initTable[Value, int]()
-    for i in 0 ..< num:
+    for i in 0 ..< ctx.numMorphedEnergies:
       labelOrder[%~ ("Hist_" & $i)] = i
-    echo df
+    #echo df
     ggplot(df, aes("Bins", "Hist", fill = "Idx")) +
       facet_wrap("Idx") +
       geom_histogram(stat = "identity", position = "identity", hdKind = hdOutline) +
@@ -581,20 +566,9 @@ proc calcLikelihoodDataset*(h5f: var H5File, groupName: string, cfg: LikelihoodC
   #crazyPlot("igLengthDivRmsTrans")
   #crazyPlot("igFractionInTransverseRms")
   result = newSeq[float64](ecc.len)
-  echo "[INFO]: Performing likelihood compute using morph kind: ", cfg.morph, " for chip: ", groupName
+  echo "[INFO]: Performing likelihood compute using morph kind: ", ctx.morph, " for chip: ", groupName
   for i in 0 .. ecc.high:
-    case cfg.morph
-    of mkNone:
-      let logL = calcLikelihoodForEvent(energies[i], ecc[i], lengthDivRmsTrans[i], fracRmsTrans[i],
-                                        refSetTuple)
-      # add logL to the sequence. May be Inf though
-      result[i] = logL
-    of mkLinear:
-      let idx = min(refDfEnergy.lowerBound(energies[i]), num - 1)
-      let logL = calcMorphedLikelihoodForEvent(ecc[i], lengthDivRmsTrans[i], fracRmsTrans[i],
-                                               refDf, idx)
-      # add logL to the sequence. May be Inf though
-      result[i] = logL
+    result[i] = ctx.calcLikelihoodForEvent(energies[i], ecc[i], lengthDivRmsTrans[i], fracRmsTrans[i])
 
 import parsetoml
 template withConfig(body: untyped): untyped =
@@ -626,12 +600,13 @@ proc determineCutValue*[T: seq | Tensor](hist: T, eff: float): int =
     cur_eff = curSum / hist_sum
     inc result
   echo "Efficiency is at ", cur_eff, " and last Eff was ", last_eff
+  echo "Total elements are: ", histSum, " relative are ", hist[0 .. result].sum
 
 proc determineCutValueData*[T: seq | Tensor](data: T, eff: float): int =
   ## Determine the cut value simply based on the quantile for the given `eff`
   result = (data.len.float * eff).round.int
 
-proc calcCutValueTab*(cfg: LikelihoodConfig): CutValueInterpolator =
+proc calcCutValueTab*(ctx: LikelihoodContext): CutValueInterpolator =
   ## returns a table mapping the different CDL datasets to the correct cut values
   ## based on the chip center region
   # read signal efficiency (default 80%) from TOML file
@@ -643,7 +618,7 @@ proc calcCutValueTab*(cfg: LikelihoodConfig): CutValueInterpolator =
   let xray_ref = getXrayRefTable()
   case morphKind
   of mkNone:
-    let logLData = getLogLData(cfg)
+    let logLData = getLogLData(ctx)
     # get the cut value for a software efficiency of 80%
     result = initCutValueInterpolator(morphKind)
     for tup, subDf in groups(logLData.group_by("Dset")):
@@ -660,7 +635,7 @@ proc calcCutValueTab*(cfg: LikelihoodConfig): CutValueInterpolator =
     #
     ## XXX: Can we update this to also do better than the current binned approach?
     result = initCutValueInterpolator(morphKind)
-    let logHists = computeLogLDistributions(cfg)
+    let logHists = computeLogLDistributions(ctx)
     let dfInterp = logHists.getInterpolatedDf()
       .filter(f{string: `Dset` == "Morph"})
     var
@@ -689,3 +664,26 @@ proc calcCutValueTab*(cfg: LikelihoodConfig): CutValueInterpolator =
     echo "Cut values are ", result
     #echo mapIt(logHists, it.sum)
     #echo "Corresponding to logL values of ", result
+
+proc initLikelihoodContext*(cdlFile: string, year: YearKind, region: ChipRegion,
+                            energyDset: InGridDsetKind,
+                            timepix: TimepixVersion,
+                            morphKind: MorphingKind,
+                            stretch = none[CdlStretch](),
+                            numMorphedEnergies = 1000): LikelihoodContext =
+  result = LikelihoodContext(cdlFile: cdlFile,
+                            year: year,
+                            region: region,
+                            morph: morphKind,
+                            energyDset: energyDset,
+                            timepix: timepix,
+                            stretch: stretch,
+                            numMorphedEnergies: numMorphedEnergies)
+  case result.morph
+  of mkNone:
+    result.refSetTuple = result.readRefDsets()
+  of mkLinear:
+    result.refDf = result.readRefDsetsDF()
+      .getInterpolatedWideDf(num = result.numMorphedEnergies)
+    let lineEnergies = getXrayFluorescenceLines()
+    result.refDfEnergy = linspace(lineEnergies[0], lineEnergies[^1], result.numMorphedEnergies)

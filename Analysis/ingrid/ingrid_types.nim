@@ -444,16 +444,6 @@ type
     #fns: seq[FormulaNode]
     # something something min max of 55fe data?
 
-  ## Helper object to store configuration parameters used during `likelihood.nim`.
-  LikelihoodConfig* = object
-    cdlFile*: string ## the CDL file used
-    year*: YearKind
-    region*: ChipRegion
-    morph*: MorphingKind
-    energyDset*: InGridDsetKind
-    timepix*: TimepixVersion
-    stretch*: Option[CdlStretch]
-
   InGridDsetKind* = enum
     igInvalid, # invalid dataset
     igCenterX,
@@ -513,7 +503,7 @@ const SrsDefaultChipName* = "SRS Chip"
 # to allow importing the rest of the types, without a `arraymancer`
 # dependency
 when not defined(pure) and not defined(js):
-  import arraymancer
+  import arraymancer, datamancer
   type
     Threshold* = Tensor[int]
     ThresholdMeans* = Tensor[int]
@@ -629,6 +619,21 @@ when not defined(pure) and not defined(js):
         ## `cutEnergies[idx]` is given as `cutValue[idx]`.
         cutEnergies*: seq[float] # is a `seq` to use `lowerBound`
         cutValues*: Tensor[float]
+
+    ## Helper object to store configuration parameters and relevant data pieces
+    ## that are used recurringly in `likelihood.nim`.
+    LikelihoodContext* = object
+      cdlFile*: string ## the CDL file used
+      year*: YearKind
+      region*: ChipRegion
+      morph*: MorphingKind
+      energyDset*: InGridDsetKind
+      timepix*: TimepixVersion
+      stretch*: Option[CdlStretch]
+      refSetTuple*: tuple[ecc, ldivRms, fracRms: Table[string, HistTuple]]
+      numMorphedEnergies*: int = 1000
+      refDf*: DataFrame
+      refDfEnergy*: seq[float]
 
 proc initFeSpecData*(hist: seq[float],
                      binning: seq[float],

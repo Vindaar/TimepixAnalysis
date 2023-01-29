@@ -1442,6 +1442,16 @@ proc generateXrayReferenceFile(h5file: string, year: YearKind,
   discard h5fout.close()
   discard h5f.close()
 
+proc readGasGain(h5f: H5File, tfKind: TargetFilterKind): DataFrame =
+  result = newDataFrame()
+  for (run, grp) in tfRuns(h5f, tfKind):
+    var gains = newSeq[float]()
+    for gainSlice in iterGainSlicesFromDset(h5f, grp):
+      gains.add gainSlice.G
+    result.add toDf({ "Gain" : gains,
+                      "Target" : $tfKind,
+                      "runNumber" : run })
+
 proc energyHistograms(df: DataFrame, plotPath: string) =
   let dfC = df.filter(f{`Type` == "charge" and idx("Cut?") == "Cut" and `Energy` < 10.0})
   let fname = "calibrated_cdl_energy"
@@ -1457,6 +1467,11 @@ proc energyHistograms(df: DataFrame, plotPath: string) =
     ggtitle("Normalized KDE of energy calibrated CDL data by target / filter") +
     xlab("Energy [keV]") +
     ggsave(&"{plotPath}/{fname}_kde.pdf", width = 800, height = 480)
+
+proc plotRunGains(df: DataFrame, plotPath: string) =
+  ggplot(df, aes("runNumber", "Gain", color = factor("Target"))) +
+    geom_point() +
+    ggsave(&"{plotPath}/gas_gain_by_run_and_tfkind.pdf")
 
 proc plotsAndEnergyResolution(input: string,
                               dumpAccurate, showStartParams, hideNloptFit: bool) =
@@ -1492,6 +1507,12 @@ proc plotsAndEnergyResolution(input: string,
     df.add dfC
     #if tfKind == tfCuEpic2:
     #  quit()
+
+    gainDf.add readGasGain(h5f, tfKind)
+
+  # plot the gas gain of all data
+  plotRunGains(gainDf, plotPath)
+
 
   discard h5f.close()
   energyResolution(energyResHits, energyResCharge, plotPath)

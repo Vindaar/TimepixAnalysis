@@ -1488,6 +1488,27 @@ proc plotRunGains(df: DataFrame, plotPath: string) =
     geom_point() +
     ggsave(&"{plotPath}/gas_gain_by_run_and_tfkind.pdf")
 
+proc plotIngridProperties(h5f: H5File, tfKind: TargetFilterKind, plotPath: string) =
+  for dset in InGridDsetKind:
+    if dset in {igInvalid, igEnergyFromCharge, igEnergyFromPixel, igLikelihood, igNumClusters,
+                igFractionInHalfRadius, igRadiusDivRmsTrans, igRadius, igBalance, igLengthDivRadius}:
+      continue
+    var df = newDataFrame()
+    let dsetStr = dset.toDset()
+    for (run, grp) in tfRuns(h5f, tfKind):
+      df.add toDf({ dsetStr : h5f.readCutCDL(run, dsetStr, tfKind, float), "run" : run })
+    echo df
+    ggplot(df, aes(dsetStr, fill = factor("run"))) +
+      geom_histogram(bins = 100, hdKind = hdOutline, alpha = 0.5, position = "identity", density = true) +
+      ggtitle("Dataset " & $dsetStr & " for " & $tfKind) +
+      ggsave(&"{plotPath}/{$tfKind}_{dsetStr}_histogram_by_run.pdf")
+    when false:
+      ggplot(df, aes(dsetStr, fill = factor("run"))) +
+        geom_density(normalize = true) +
+        ggtitle("Dataset " & $dsetStr & " for " & $tfKind) +
+        ggsave(&"{plotPath}/{$tfKind}_{dsetStr}_kde_by_run.pdf")
+
+
 proc plotsAndEnergyResolution(input: string,
                               dumpAccurate, showStartParams, hideNloptFit: bool) =
   var fitParamsFname = ""
@@ -1524,6 +1545,10 @@ proc plotsAndEnergyResolution(input: string,
     #  quit()
 
     gainDf.add readGasGain(h5f, tfKind)
+
+    # plot the ingrid properties by run
+    h5f.plotIngridProperties(tfKind, plotPath)
+
 
   # plot the gas gain of all data
   plotRunGains(gainDf, plotPath)

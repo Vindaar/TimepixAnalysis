@@ -1442,6 +1442,22 @@ proc generateXrayReferenceFile(h5file: string, year: YearKind,
   discard h5fout.close()
   discard h5f.close()
 
+proc energyHistograms(df: DataFrame, plotPath: string) =
+  let dfC = df.filter(f{`Type` == "charge" and idx("Cut?") == "Cut" and `Energy` < 10.0})
+  let fname = "calibrated_cdl_energy"
+
+  ggplot(dfC, aes("Energy", fill = "Target")) +
+    geom_histogram(bins = 100, hdKind = hdOutline, density = true, position = "identity", alpha = 0.6, color = "black", lineWidth = 1.0) +
+    ggtitle("Normalized histograms of energy calibrated CDL data by target / filter") +
+    xlab("Energy [keV]") +
+    ggsave(&"{plotPath}/{fname}_histos.pdf", width = 800, height = 480)
+
+  ggplot(dfC, aes("Energy", fill = "Target")) +
+    geom_density(alpha = 0.6, color = "black", size = 1.0, normalize = true) +
+    ggtitle("Normalized KDE of energy calibrated CDL data by target / filter") +
+    xlab("Energy [keV]") +
+    ggsave(&"{plotPath}/{fname}_kde.pdf", width = 800, height = 480)
+
 proc plotsAndEnergyResolution(input: string,
                               dumpAccurate, showStartParams, hideNloptFit: bool) =
   var fitParamsFname = ""
@@ -1481,6 +1497,10 @@ proc plotsAndEnergyResolution(input: string,
   energyResolution(energyResHits, energyResCharge, plotPath)
   peakFit(peakposHits, "Hits", plotPath)
   peakFit(peakposCharge, "Charge", plotPath)
+
+  # finally make a histogram of all data containing the energies of the (raw/cut) clusters
+  # 'calibrated' by the charge of the known main peak energy.
+  energyHistograms(df, plotPath)
 
 proc main(input: string,
           cutcdl = false,

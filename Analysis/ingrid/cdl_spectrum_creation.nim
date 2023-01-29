@@ -1151,13 +1151,6 @@ proc fitAndPlot(h5f: var H5FileObj, fitParamsFname: string,
   let fitResultMpfit = fitCdlMpfit(fitData, tfKind, dKind)
   let fitResultNlopt = fitCdlNlopt(fitData, tfKind, dKind)
 
-  ## Extract μ and σ parameters incl errors. Need mpfit for errors at the moment
-  let (fit_μ, fit_σ) = getMuSigma(lines, fitResultMpfit)
-  # calculate energy resolution. Error propagated automatically.
-  echo "FIT σ ", fit_σ, " and fit μ ", fit_μ, " / ", fit_σ / fit_μ
-  let energyRes = fit_σ / fit_μ
-  result = (fit_μ, energyRes)
-
   let mpfitres = calcFitCurve(fitData, fitResultMpfit, fitfunc)
   let nloptres = calcFitCurve(fitData, fitResultNlopt, fitfunc)
   let startval = calcFitCurve(fitData.bins.min, fitData.bins.max, fitfunc, fitResultMpfit.pStart)
@@ -1170,6 +1163,10 @@ proc fitAndPlot(h5f: var H5FileObj, fitParamsFname: string,
   if hideNloptFit:
     df = df.filter(f{string: `Type` != "NLopt"})
 
+  ## Extract μ and σ parameters incl errors. Need mpfit for errors at the moment
+  let (fit_μ, fit_σ) = getMuSigma(lines, fitResultMpfit)
+  # calculate energy resolution. Error propagated automatically.
+  echo "FIT σ ", fit_σ, " and fit μ ", fit_μ, " / ", fit_σ / fit_μ
 
   # define range of plots using mean of main peak
   let binRangePlot = fit_μ.value * 3.0
@@ -1209,6 +1206,15 @@ proc fitAndPlot(h5f: var H5FileObj, fitParamsFname: string,
   ## TODO: add fit parameters as annotation to plot!!
   dumpFitParameters(fitParamsFname, fname, fitResultMpfit, tfKind, dKind)
 
+  # compute energy resolution & finish data frame of hits / charge values
+  let energyRes = fit_σ / fit_μ
+  dfU["Type"] = $dKind
+  dfU["Target"] = $tfKind
+  let invTab = getInverseXrayRefTable()
+  let energies = getXrayFluorescenceLines()
+  let lineEnergy = energies[invTab[$tfKind]]
+  dfU = dfU.mutate(f{float: "Energy" ~ `Counts` / fit_μ.value * lineEnergy})
+  result = (dfU, fit_μ, energyRes)
 
 proc cdlToXrayTransform(h5fout: var H5FileObj,
                         passedData: seq[float],
@@ -1451,22 +1457,26 @@ proc plotsAndEnergyResolution(input: string,
   #let a = fitAndPlot[int64](input, tfCuEpic0_9, Dhits)
   #let b = fitAndPlot[float64](input, tfCuEpic0_9, Dcharge)
   var h5f = H5open(input, "rw")
+  var df = newDataFrame()
+  let plotPath = h5f.attrs[PlotDirPrefixAttr, string]
+  var gainDf = newDataFrame()
   for tfkind in TargetFilterKind:
-    echo "Working on : ", tfKind
-    let energyHits = fitAndPlot(h5f, fitParamsFname, tfkind, Dhits,
-                                showStartParams = showStartParams)
-    peakposHits.add(energyHits[0])
-    energyResHits.add(energyHits[1])
+    echo "\n\n------------------------------ Working on : ", tfKind, " ----------------------------------------"
+    let (dfH, peakH, energyH) = fitAndPlot(h5f, fitParamsFname, tfkind, Dhits,
+                                           showStartParams, hideNloptFit, plotPath)
+    df.add dfH
+    peakposHits.add(peakH)
+    energyResHits.add(energyH)
     echo "energyres ", energyResHits
     echo "and now charge:"
-    let energyCharge = fitAndPlot(h5f, fitParamsFname, tfkind, Dcharge,
-                                  showStartParams = showStartParams)
-    peakposCharge.add(energyCharge[0])
-    energyResCharge.add(energyCharge[1])
-    #if tfKind == tfTiTi9:
+    let (dfC, peakC, energyC) = fitAndPlot(h5f, fitParamsFname, tfkind, Dcharge,
+                                           showStartParams, hideNloptFit, plotPath)
+    peakposCharge.add(peakC)
+    energyResCharge.add(energyC)
+    df.add dfC
+    #if tfKind == tfCuEpic2:
     #  quit()
 
-  let plotPath = h5f.attrs[PlotDirPrefixAttr, string]
   discard h5f.close()
   energyResolution(energyResHits, energyResCharge, plotPath)
   peakFit(peakposHits, "Hits", plotPath)

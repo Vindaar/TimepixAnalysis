@@ -1352,7 +1352,13 @@ template getAndAdd(h5read, h5write, dset, `type`, outDset: untyped): untyped =
   let vlenType = special_type(`type`)
   outDset.add h5read[dset.name, vlenType, `type`]
 
-proc generateCdlCalibrationFile(h5file: string, year: YearKind,
+proc getFitParamsFname(dumpAccurate: bool): string =
+  if dumpAccurate:
+    result = "fitparams_accurate_" & $(epochTime().round.int) & ".txt"
+  else:
+    result = "fitparams_" & $(epochTime().round.int) & ".txt"
+
+proc generateCdlCalibrationFile(h5file: string, year: YearKind, fitByRun: bool,
                                 outfile = "calibration-cdl") =
   ## generates the CDL calibration data file from a HDF5 file containing
   ## all CDL runs. Supports either 2014 CDL data or 2019 CDL data.
@@ -1573,13 +1579,7 @@ proc plotIngridProperties(h5f: H5File, tfKind: TargetFilterKind, plotPath: strin
 
 
 proc plotsAndEnergyResolution(input: string,
-                              dumpAccurate, showStartParams, hideNloptFit: bool) =
-  var fitParamsFname = ""
-  if dumpAccurate:
-    fitParamsFname = "fitparams_accurate_" & $(epochTime().round.int) & ".txt"
-  else:
-    fitParamsFname = "fitparams_" & $(epochTime().round.int) & ".txt"
-
+                              dumpAccurate, showStartParams, hideNloptFit, fitByRun: bool) =
   let fitParamsFname = getFitParamsFname(dumpAccurate)
   var peaksHits: seq[MainPeak]
   var peaksCharge: seq[MainPeak]

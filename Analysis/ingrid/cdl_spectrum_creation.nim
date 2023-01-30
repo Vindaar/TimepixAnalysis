@@ -17,18 +17,15 @@ index bd5eb1ec3..170061aaf 100644
    # careful! we copy the whole AST including the possibly nil body!
 ]#
 
-import parsecsv, os, streams, strutils, strformat, tables, sequtils, macros, fenv
-import seqmath, algorithm, times, strscans, typeinfo
-import mpfit, nlopt, nimhdf5
+import std / [parsecsv, os, streams, strutils, strformat, tables, sequtils,
+              macros, fenv, algorithm, times, strscans, typeinfo]
 import ingrid / [ingrid_types, tos_helpers]
 import ingrid / calibration
 import ingrid / calibration / [fit_functions, calib_fitting]
 import cdlFitting / cdlFitMacro
 import helpers / utils
-import chroma
 import cligen / macUt
-
-import measuremancer
+import pkg / [mpfit, nlopt, nimhdf5, parsetoml, seqmath, measuremancer]
 
 const docStr = """
 Usage:

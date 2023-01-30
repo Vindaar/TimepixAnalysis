@@ -1429,7 +1429,7 @@ proc generateCdlCalibrationFile(h5file: string, year: YearKind, fitByRun: bool,
   discard h5f.close()
   discard h5fout.close()
 
-proc generateXrayReferenceFile(h5file: string, year: YearKind,
+proc generateXrayReferenceFile(h5file: string, year: YearKind, fitByRun: bool,
                                outfile = "XrayReferenceFile") =
   ## generates the X-ray reference data file
   # this is achieved by taking the raw TargetFilterKind runs, combining them
@@ -1447,7 +1447,7 @@ proc generateXrayReferenceFile(h5file: string, year: YearKind,
     # is a raw file, first create the CDL calibration file
     discard h5f.close()
     let cdlOut = "auto_calibration-cdl_" & $year
-    generateCdlCalibrationFile(h5file, year, cdlOut)
+    generateCdlCalibrationFile(h5file, year, fitByRun, cdlOut)
     h5f = H5open(cdlOut, "r")
 
   # now walk all groups in root of h5f, read the datasets required for
@@ -1637,12 +1637,12 @@ proc main(input: string,
 
   template callGenFunc(fn: untyped): untyped =
     if outfile.len > 0:
-      fn(input, year, outfile)
+      fn(input, year, fitByRun, outfile)
     else:
-      fn(input, year)
+      fn(input, year, fitByRun)
   if genRefFile:
     callGenFunc(generateXrayReferenceFile)
-  if genCdlFIle:
+  if genCdlFile:
     callGenFunc(generateCdlCalibrationFile)
   if cutcdl:
     cutAndWrite(input)
@@ -1650,7 +1650,7 @@ proc main(input: string,
   if not genRefFile and not genCdlFile:
     # only perform CDL fits if neither CDL calibration file nor
     # reference file created
-    plotsAndEnergyResolution(input, dumpAccurate, showStartParams, hideNloptFit)
+    plotsAndEnergyResolution(input, dumpAccurate, showStartParams, hideNloptFit, fitByRun)
 
 when isMainModule:
   import cligen

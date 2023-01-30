@@ -1358,17 +1358,45 @@ proc getFitParamsFname(dumpAccurate: bool): string =
   else:
     result = "fitparams_" & $(epochTime().round.int) & ".txt"
 
+proc writeChargeCutBounds(h5f: H5File, peak: MainPeak,
+                          tfKind: TargetFilterKind, year: YearKind, fitByRun: bool, runNumber: int) =
+  let grpName = cdlGroupName($tfKind, $year, "", fitByRun, runNumber)
+  let grp = h5f.getOrCreateGroup(grpName) # create or get
+  ## Define the cut ranges around the main peak of ±3σ
+  grp.attrs["ChargeLow"]  = (peak.fit_μ - (3 * peak.fit_σ)).value
+  grp.attrs["ChargeHigh"] = (peak.fit_μ + (3 * peak.fit_σ)).value
+
 proc generateCdlCalibrationFile(h5file: string, year: YearKind, fitByRun: bool,
                                 outfile = "calibration-cdl") =
   ## generates the CDL calibration data file from a HDF5 file containing
   ## all CDL runs. Supports either 2014 CDL data or 2019 CDL data.
+
   # walk all runs corresponding to a single `TargetFilterKind` and
   # combine the datasets into the output files
   var h5f = H5open(h5file, "r")
   var h5fout = H5open(&"{outfile}-{year}.h5", "rw")
   let runs = readRuns(filename)
+  let plotPath = h5f.attrs[PlotDirPrefixAttr, string]
+  let fitParamsFname = getFitParamsFname(true)
   for tfKind in TargetFilterKind:
+    var df = newDataFrame()
+    var peak: MainPeak
     for (run, grp) in tfRuns(h5f, tfKind):
+      # first get data for the CDL fit
+      if fitByRun:
+        df = h5f.readCdlRunTfKind(grp, run, tfKind, Dcharge)
+        # fit directly, in case of `fitByRun = false` we fit _after_ this loop!
+        peak = h5f.fitAndPlotImpl(df, run, fitParamsFname,
+                                  tfKind, Dcharge, showStartParams = false, hideNloptFit = true,
+                                  plotPath)
+        # calibrate energy using `fit_μ` for unbinned data `df`
+        ## XXX: write energy to output
+        df = calcEnergyFromFits(df, peak)
+        # write cuts for the charge based on fit
+        h5fout.writeChargeCutBounds(peak, tfKind, year, fitByRun, run)
+      else:
+        df.add h5f.readCdlRunTfKind(grp, run, tfKind, Dcharge)
+
       # will not iterate the datasets and write to the outfile
       # via hyperslabs, potentially appending to the existing
       # dataset
@@ -1383,7 +1411,7 @@ proc generateCdlCalibrationFile(h5file: string, year: YearKind, fitByRun: bool,
         # TODO: add appropriate conversion of TPA naming to Marlin naming for
         # 2014 raw input or allow `genRefFile` option to deal with TPA naming
         # even for 2014 input!
-        let outname = cdlGroupName($tfKind, $year, dset.name)
+        let outname = cdlGroupName($tfKind, $year, dset.name, fitByRun, run)
         if outname notin h5fout:
           # create dataset first
           case dset.dtypeAnyKind
@@ -1424,8 +1452,19 @@ proc generateCdlCalibrationFile(h5file: string, year: YearKind, fitByRun: bool,
             outDset.add h5f.readAs(dset.name, float)
           else:
             continue
+    if not fitByRun: ## If not fitting by run, then use the built DF to fit everything now
+      peak = h5f.fitAndPlotImpl(df, runNumber = 0, fitParamsFname,
+                                tfKind, Dcharge, showStartParams = false, hideNloptFit = true,
+                                plotPath)
+      # calibrate energy using `fit_μ` for unbinned data `dfLoc`
+      ## XXX: write energy to output
+      df = calcEnergyFromFits(df, peak)
+      # write cuts for the charge based on fit
+      h5fout.writeChargeCutBounds(peak, tfKind, year, fitByRun, 0)
+
 
   h5fout.attrs["FrameworkKind"] = $CdlGenerateNamingScheme
+  h5fout.attrs["fitByRun"] = $fitByRun
   discard h5f.close()
   discard h5fout.close()
 

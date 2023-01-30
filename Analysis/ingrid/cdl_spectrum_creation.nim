@@ -134,6 +134,14 @@ type
     hist: seq[float]
     errs: seq[float]
 
+  MainPeak = object
+    tfKind: TargetFilterKind
+    runNumber: int # If any, if `fitByRun` is false, this remains 0
+    dKind: DataKind
+    fit_μ: Measurement[float]
+    fit_σ: Measurement[float]
+    energyRes: Measurement[float]
+
 proc readFitByRun(config: string): bool =
   ## Reads the `fitByRun` field from the configuration file, deciding whether to
   ## perform our fits by run or by target/filter kind only.
@@ -922,15 +930,22 @@ proc cutAndWrite(h5file: string) =
     else:
       discard
 
-proc energyResolution(energyResHits, energyResCharge: seq[Measurement[float]],
+proc energyResolution(peaksHits, peaksCharge: seq[MainPeak],
                       pathPrefix: string) =
   ## Creates the plot of the energy resolution for both the pixel and charge
   ## spectra
-  const energies = @[8.048, 5.899, 4.511, 2.984, 1.487, 0.930, 0.525, 0.277]
-  let dfPix = toDf({ "Energy" : energies, "Resolution" : energyResHits.mapIt(it.value),
-                     "ResErr" : energyResHits.mapIt(it.error) })
-  let dfCh = toDf({ "Energy" : energies, "Resolution" : energyResCharge.mapIt(it.value),
-                    "ResErr" : energyResCharge.mapIt(it.error) })
+  ## XXX: implement splits by `run` if `fitByRun`
+  const peakEnergies = getXrayFluorescenceLines().reversed
+  # hits & charge peaks in same order, so energies then same
+  let energies = peaksHits.mapIt(peakEnergies[ord(it.tfKind)])
+  let eH = peaksHits.mapIt(it.energyRes.value)
+  let eHErr = peaksHits.mapIt(it.energyRes.error)
+  let dfPix = toDf({ "Energy" : energies, "Resolution" : eH,
+                     "ResErr" : eHErr })
+  let eC = peaksCharge.mapIt(it.energyRes.value)
+  let eCErr = peaksCharge.mapIt(it.energyRes.error)
+  let dfCh = toDf({ "Energy" : energies, "Resolution" : eC,
+                    "ResErr" : eCErr })
   let df = bind_rows([("Pixels", dfPix), ("Charge", dfCh)], id = "Type")
   ggplot(df, aes("Energy", "Resolution", color = "Type")) +
     geom_point() +
@@ -941,9 +956,13 @@ proc energyResolution(energyResHits, energyResCharge: seq[Measurement[float]],
     ggtitle("Energy resolution depending on energy") +
     ggsave(&"{pathPrefix}/energyresoplot-{outdate}.pdf", width = 800, height = 480)
 
-proc peakFit(peakPos: seq[Measurement[float]], name: string, pathPrefix: string) =
-  const energies = @[8.048, 5.899, 4.511, 2.984, 1.487, 0.930, 0.525, 0.277]
-  let df = toDf({ "Energy" : energies, "PeakPos" : peakPos.mapIt(it.value), "PeakErr" : peakPos.mapIt(it.error) })
+proc peakFit(mainPeaks: seq[MainPeak], name: string, pathPrefix: string) =
+  ## XXX: implement splits by `run` if `fitByRun`
+  const peakEnergies = getXrayFluorescenceLines().reversed
+  let peaks = mainPeaks.mapIt(it.fit_μ.value)
+  let pErr = mainPeaks.mapIt(it.fit_μ.error)
+  let energies = mainPeaks.mapIt(peakEnergies[ord(it.tfKind)])
+  let df = toDf({ "Energy" : energies, "PeakPos" : peaks, "PeakErr" : pErr })
   ggplot(df, aes("Energy", "PeakPos")) +
     geom_point() +
     geom_errorbar(aes(yMin = f{`PeakPos` - `PeakErr`},
@@ -1120,60 +1139,42 @@ proc getMuSigma(lines: seq[FitFuncArgs],
   else:
     discard
 
-proc fitAndPlot(h5f: var H5FileObj, fitParamsFname: string,
-                tfKind: TargetFilterKind, dKind: DataKind,
-                showStartParams, hideNloptFit: bool,
-                plotPath: string):
-                  (DataFrame, Measurement[float], Measurement[float]) =
-  let runs = readRuns(filename)
 
-  var runNumbers: seq[int]
-  var binsizeplot: float
+proc getFitFuncLinesAndInfo(tfKind: TargetFilterKind, dKind: DataKind): (CdlFitFunc, seq[FitFuncArgs], float, string, string) =
+  var binSize: float
   var xtitle: string
   var outname: string
-  var fitfunc: CdlFitFunc
+  var fitFunc: CdlFitFunc
   var lines: seq[FitFuncArgs]
   let dummy = @[1.0, 2.0]
-  # DataFrame for the unbinned data
-  var dfU = newDataFrame()
   case dKind
   of Dhits:
-    fitfunc = getCdlFitFunc(tfKind)
-    binsizeplot = 1.0
+    fitFunc = getCdlFitFunc(tfKind)
+    binSize = 1.0
     xtitle = "Number of pixels"
     outname = &"{tfKind}"
     lines = getLines(dummy, dummy, tfKind)
   of Dcharge:
-    fitfunc = getCdlFitFuncCharge(tfKind)
-    binsizeplot = if ord(tfKind) >= ord(tfAlAl4): 5000.0 else: 10000.0
+    fitFunc = getCdlFitFuncCharge(tfKind)
+    binSize = if ord(tfKind) >= ord(tfAlAl4): 5000.0 else: 10000.0
     xtitle = "Charge [e⁻]"
     outname = &"{tfKind}Charge"
     lines = getLinesCharge(dummy, dummy, tfKind)
+  result = (fitFunc, lines, binSize, xtitle, outname)
 
-  for (run, grp) in tfRuns(h5f, tfKind):
-    case dKind
-    of Dhits:
-      let RawDataSeq = h5f[grp.name / "hits", int64]
-      let Cdlseq = h5f.readCutCDL(run, "hits", tfKind, int64)
-      var dfLoc = bind_rows([("Raw", toDf({"Counts": RawDataSeq})),
-                             ("Cut", toDf({"Counts": Cdlseq}))],
-                             id = "Cut?")
-      dfLoc["runNumber"] = run
-      dfU.add dfLoc
-    of Dcharge:
-      let RawDataSeq = h5f[grp.name / "totalCharge", float]
-      let Cdlseq = h5f.readCutCDL(run, "totalCharge", tfKind, float)
-      var dfLoc = bind_rows([("Raw", toDf({"Counts": RawDataSeq})),
-                             ("Cut", toDf({"Counts": Cdlseq}))],
-                             id = "Cut?")
-      dfLoc["runNumber"] = run
-      dfU.add dfLoc
-  let (histdata, bins) = histoCdl(dfU.filter(f{idx("Cut?") == "Cut"})["Counts", float].toSeq1D, binsizeplot, dKind)
+proc fitAndPlotImpl(h5f: H5File, dfU: DataFrame, runNumber: int, fitParamsFname: string,
+                    tfKind: TargetFilterKind, dKind: DataKind,
+                    showStartParams, hideNloptFit: bool,
+                    plotPath: string): MainPeak =
+  # get the correct fit function, lines & plot settings
+  let (fitFunc, lines, binSize, xtitle, outname) = getFitFuncLinesAndInfo(tfKind, dKind)
+  # histogram of the CDL data to have data to fit to
+  let (histdata, bins) = histoCdl(dfU.filter(f{idx("Cut?") == "Cut"})["Counts", float].toSeq1D, binSize, dKind)
   let fitData = getFitData(histdata, bins)
-
+  # perform fits
   let fitResultMpfit = fitCdlMpfit(fitData, tfKind, dKind)
   let fitResultNlopt = fitCdlNlopt(fitData, tfKind, dKind)
-
+  # and compute smooth fit curves
   let mpfitres = calcFitCurve(fitData, fitResultMpfit, fitfunc)
   let nloptres = calcFitCurve(fitData, fitResultNlopt, fitfunc)
   let startval = calcFitCurve(fitData.bins.min, fitData.bins.max, fitfunc, fitResultMpfit.pStart)
@@ -1190,23 +1191,15 @@ proc fitAndPlot(h5f: var H5FileObj, fitParamsFname: string,
   let (fit_μ, fit_σ) = getMuSigma(lines, fitResultMpfit)
   # calculate energy resolution. Error propagated automatically.
   echo "FIT σ ", fit_σ, " and fit μ ", fit_μ, " / ", fit_σ / fit_μ
+  # compute energy resolution & assign result
+  let energyRes = fit_σ / fit_μ
+  result = MainPeak(tfKind: tfKind, dKind: dKind, runNumber: runNumber,
+                    fit_μ: fit_μ, fit_σ: fit_σ, energyRes: energyRes)
 
   # define range of plots using mean of main peak
   let binRangePlot = fit_μ.value * 3.0
 
-  # first plot of only cut data by
-  let fnameByRun = &"{plotPath}/{outname}-{outdate}_by_run.pdf"
-  let dfUCut = dfU.filter(f{idx("Cut?") == "Cut"})
-  ggplot(dfUCut, aes("Counts", fill = factor("runNumber"))) +
-    geom_histogram(binWidth = binsizeplot,
-                   hdKind = hdOutline,
-                   position = "identity",
-                   alpha = 0.5) +
-    ggtitle("Cleaned data of & " & $dKind & " " & $tfKind & " split by run") +
-    xlab(xtitle) +
-    ggsave(fnameByRun, width = 800, height = 480)
-
-  let fname = &"{plotPath}/{outname}-{outdate}.pdf"
+  let fname = &"{plotPath}/{outname}-{outdate}_run_{runNumber}.pdf"
   # gather unbinned data for plot
   ggplot(df, aes("Energy")) +
     geom_histogram(data = dfU.filter(f{float: `Counts` < binRangePlot}),
@@ -1222,22 +1215,84 @@ proc fitAndPlot(h5f: var H5FileObj, fitParamsFname: string,
     xlab(xtitle) +
     xlim(0.0, binRangePlot) +
     ylab("Counts") +
-    ggtitle(&"target: {tfKind}") +
+    ggtitle(&"target: {tfKind}, run: {runNumber}") +
     ggsave(fname, width = 800, height = 480)
 
   # now dump the fit results, SVG filename and correct parameter names to a file
-  ## TODO: add fit parameters as annotation to plot!!
   dumpFitParameters(fitParamsFname, fname, fitResultMpfit, tfKind, dKind)
 
-  # compute energy resolution & finish data frame of hits / charge values
-  let energyRes = fit_σ / fit_μ
-  dfU["Type"] = $dKind
-  dfU["Target"] = $tfKind
+proc calcEnergyFromFits(df: DataFrame, mainPeak: MainPeak): DataFrame =
+  ## Given the fit result of this data type & target/filter combination compute the energy
+  ## of each cluster by using the mean position of the main peak and its known energy
+  result = df
+  result["Type"] = $(mainPeak.dKind)
+  result["Target"] = $(mainPeak.tfKind)
   let invTab = getInverseXrayRefTable()
   let energies = getXrayFluorescenceLines()
-  let lineEnergy = energies[invTab[$tfKind]]
-  dfU = dfU.mutate(f{float: "Energy" ~ `Counts` / fit_μ.value * lineEnergy})
-  result = (dfU, fit_μ, energyRes)
+  let lineEnergy = energies[invTab[$(mainPeak.tfKind)]]
+  result = result.mutate(f{float: "Energy" ~ `Counts` / mainPeak.fit_μ.value * lineEnergy})
+
+proc readCdlRunTfKind(h5f: H5File, grp: H5Group, run: int, tfKind: TargetFilterKind,
+                      dKind: DataKind): DataFrame =
+  case dKind
+  of Dhits:
+    let RawDataSeq = h5f[grp.name / "hits", int64]
+    let Cdlseq = h5f.readCutCDL(run, "hits", tfKind, int64)
+    result = bind_rows([("Raw", toDf({"Counts": RawDataSeq})),
+                        ("Cut", toDf({"Counts": Cdlseq}))],
+                       id = "Cut?")
+    result["runNumber"] = run
+  of Dcharge:
+    let RawDataSeq = h5f[grp.name / "totalCharge", float]
+    let Cdlseq = h5f.readCutCDL(run, "totalCharge", tfKind, float)
+    result = bind_rows([("Raw", toDf({"Counts": RawDataSeq})),
+                        ("Cut", toDf({"Counts": Cdlseq}))],
+                       id = "Cut?")
+    result["runNumber"] = run
+
+iterator getCdlData(h5f: H5File, tfKind: TargetFilterKind, dKind: DataKind, fitByRun: bool): (int, DataFrame) =
+  ## Yields the run number (if `fitByRun`) and the corresponding data frame. If `fitByRun` is
+  ## `false` just yields `0` for run number.
+  if fitByRun:
+    var df = newDataFrame()
+    for (run, grp) in tfRuns(h5f, tfKind):
+      yield (run, h5f.readCdlRunTfKind(grp, run, tfKind, dKind))
+  else:
+    var df = newDataFrame()
+    for (run, grp) in tfRuns(h5f, tfKind):
+      df.add h5f.readCdlRunTfKind(grp, run, tfKind, dKind)
+    yield (0, df)
+
+proc fitAndPlot(h5f: H5File, fitParamsFname: string,
+                tfKind: TargetFilterKind, dKind: DataKind,
+                showStartParams, hideNloptFit, fitByRun: bool,
+                plotPath: string):
+                  (DataFrame, seq[MainPeak]) =
+  # DataFrame for the unbinned data
+  var dfU = newDataFrame()
+  var mainPeaks = newSeq[MainPeak]()
+  for (runNumber, dfLoc) in getCdlData(h5f, tfKind, dKind, fitByRun):
+    let peak = h5f.fitAndPlotImpl(dfLoc, runNumber, fitParamsFname,
+                                  tfKind, dKind, showStartParams, hideNloptFit,
+                                  plotPath)
+    # calibrate energy using `fit_μ` for unbinned data `dfLoc`
+    dfU.add calcEnergyFromFits(dfLoc, peak)
+    mainPeaks.add peak
+
+  # first plot of only cut data by
+  let (_, _, binSize, xtitle, outname) = getFitFuncLinesAndInfo(tfKind, dKind)
+  let fnameByRun = &"{plotPath}/{outname}-{outdate}_by_run.pdf"
+  let dfUCut = dfU.filter(f{idx("Cut?") == "Cut"})
+  ggplot(dfUCut, aes("Counts", fill = factor("runNumber"))) +
+    geom_histogram(binWidth = binSize,
+                   hdKind = hdOutline,
+                   position = "identity",
+                   alpha = 0.5) +
+    ggtitle("Cleaned data of & " & $dKind & " " & $tfKind & " split by run") +
+    xlab(xtitle) +
+    ggsave(fnameByRun, width = 800, height = 480)
+
+  result = (dfU, mainPeaks)
 
 proc cdlToXrayTransform(h5fout: var H5FileObj,
                         passedData: seq[float],
@@ -1525,29 +1580,23 @@ proc plotsAndEnergyResolution(input: string,
   else:
     fitParamsFname = "fitparams_" & $(epochTime().round.int) & ".txt"
 
-  var peakposHits: seq[Measurement[float]]
-  var energyResHits: seq[Measurement[float]]
-  var peakposCharge: seq[Measurement[float]]
-  var energyResCharge: seq[Measurement[float]]
-  #let a = fitAndPlot[int64](input, tfCuEpic0_9, Dhits)
-  #let b = fitAndPlot[float64](input, tfCuEpic0_9, Dcharge)
+  let fitParamsFname = getFitParamsFname(dumpAccurate)
+  var peaksHits: seq[MainPeak]
+  var peaksCharge: seq[MainPeak]
   var h5f = H5open(input, "rw")
   var df = newDataFrame()
   let plotPath = h5f.attrs[PlotDirPrefixAttr, string]
   var gainDf = newDataFrame()
   for tfkind in TargetFilterKind:
     echo "\n\n------------------------------ Working on : ", tfKind, " ----------------------------------------"
-    let (dfH, peakH, energyH) = fitAndPlot(h5f, fitParamsFname, tfkind, Dhits,
-                                           showStartParams, hideNloptFit, plotPath)
+    let (dfH, pHits) = fitAndPlot(h5f, fitParamsFname, tfkind, Dhits,
+                                  showStartParams, hideNloptFit, fitByRun, plotPath)
     df.add dfH
-    peakposHits.add(peakH)
-    energyResHits.add(energyH)
-    echo "energyres ", energyResHits
+    peaksHits.add pHits
     echo "and now charge:"
-    let (dfC, peakC, energyC) = fitAndPlot(h5f, fitParamsFname, tfkind, Dcharge,
-                                           showStartParams, hideNloptFit, plotPath)
-    peakposCharge.add(peakC)
-    energyResCharge.add(energyC)
+    let (dfC, pCharge) = fitAndPlot(h5f, fitParamsFname, tfkind, Dcharge,
+                                    showStartParams, hideNloptFit, fitByRun, plotPath)
+    peaksCharge.add pCharge
     df.add dfC
     #if tfKind == tfCuEpic2:
     #  quit()
@@ -1563,9 +1612,9 @@ proc plotsAndEnergyResolution(input: string,
 
 
   discard h5f.close()
-  energyResolution(energyResHits, energyResCharge, plotPath)
-  peakFit(peakposHits, "Hits", plotPath)
-  peakFit(peakposCharge, "Charge", plotPath)
+  energyResolution(peaksHits, peaksCharge, plotPath)
+  peakFit(peaksHits, "Hits", plotPath)
+  peakFit(peaksCharge, "Charge", plotPath)
 
   # finally make a histogram of all data containing the energies of the (raw/cut) clusters
   # 'calibrated' by the charge of the known main peak energy.

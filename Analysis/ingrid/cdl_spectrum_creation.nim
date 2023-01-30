@@ -1207,7 +1207,7 @@ proc fitAndPlotImpl(h5f: H5File, dfU: DataFrame, runNumber: int, fitParamsFname:
                    position = "identity",
                    alpha = some(0.5),
                    hdKind = hdOutline,
-                   binWidth = binSizePlot) +
+                   binWidth = binSize) +
     geom_line(aes(y = "Counts", color = "Type")) +
     annotate(serializeFitParameters(fitResultMpfit, tfKind, dKind, true),
              0.6, 0.6,

@@ -811,7 +811,6 @@ proc fitCdlMpfit(fitData: FitData, tfKind: TargetFilterKind, dKind: DataKind): F
   of Dcharge:
     bounds = getBoundsCharge(tfKind)
 
-  ## XXX: in principle we need to add half a bin edge to the fit...
   let (pRes, res) = fit(fitFunc,
                         params,
                         fitData.bins,
@@ -896,6 +895,8 @@ proc readCutCDL[T](h5f: H5File, runNumber: int, dset: string,
   result = passIdx.mapIt(data[it])
 
 proc cutAndWrite(h5file: string) =
+  ## XXX: this is imo not really very useful. Instead we should make sure to always cut the data
+  ## on the fly. The cuts are cheap after all!
   let runs = readRuns(filename)
   var h5f = H5open(h5file, "rw")
   defer: discard h5f.close()

@@ -1621,15 +1621,21 @@ proc plotRunGains(df: DataFrame, plotPath: string) =
     ggsave(&"{plotPath}/gas_gain_by_run_and_tfkind.pdf")
 
 proc plotIngridProperties(h5f: H5File, tfKind: TargetFilterKind, plotPath: string) =
+  var dfAll = newDataFrame()
+  var dsets = newSeq[string]()
   for dset in InGridDsetKind:
     if dset in {igInvalid, igEnergyFromCharge, igEnergyFromPixel, igLikelihood, igNumClusters,
-                igFractionInHalfRadius, igRadiusDivRmsTrans, igRadius, igBalance, igLengthDivRadius}:
+                igFractionInHalfRadius, igRadiusDivRmsTrans, igRadius, igBalance, igLengthDivRadius, igEventNumber}:
       continue
     var df = newDataFrame()
     let dsetStr = dset.toDset()
     for (run, grp) in tfRuns(h5f, tfKind):
       df.add toDf({ dsetStr : h5f.readCutCDL(run, dsetStr, tfKind, float), "run" : run })
     echo df
+    let maxVal = df[dsetStr, float].max
+    dfAll[dsetStr] = df[dsetStr, float].map_inline(x / maxVal)
+    dfAll["run"] = df["run", int]
+    dsets.add dsetStr
     ggplot(df, aes(dsetStr, fill = factor("run"))) +
       geom_histogram(bins = 100, hdKind = hdOutline, alpha = 0.5, position = "identity", density = true) +
       ggtitle("Dataset " & $dsetStr & " for " & $tfKind) +
@@ -1639,7 +1645,13 @@ proc plotIngridProperties(h5f: H5File, tfKind: TargetFilterKind, plotPath: strin
         geom_density(normalize = true) +
         ggtitle("Dataset " & $dsetStr & " for " & $tfKind) +
         ggsave(&"{plotPath}/{$tfKind}_{dsetStr}_kde_by_run.pdf")
-
+  dfAll = dfAll.gather(dsets, "Dset", "Value")
+  ggplot(dfAll, aes("Value", fill = factor("run"))) +
+    ggridges("Dset", overlap = 4.0) +
+    geom_density(normalize = true, alpha = 0.6, color = "black", size = 0.5) +
+    ggtitle("Ridgeline plot of " & $tfKind & " for all InGrid properties in arbitrary units: x/max(x)") +
+    margin(left = 4) +
+    ggsave(&"{plotPath}/{$tfKind}_ridgeline_kde_by_run.pdf", width = 900, height = 600)
 
 proc plotsAndEnergyResolution(input: string,
                               dumpAccurate, showStartParams, hideNloptFit, fitByRun: bool) =

@@ -134,6 +134,17 @@ type
     hist: seq[float]
     errs: seq[float]
 
+proc readFitByRun(config: string): bool =
+  ## Reads the `fitByRun` field from the configuration file, deciding whether to
+  ## perform our fits by run or by target/filter kind only.
+  let configPath = if config.len == 0:
+                     const sourceDir = currentSourcePath().parentDir
+                     sourceDir / "config.toml"
+                   else:
+                     config
+  let config = parseToml.parseFile(configPath)
+  result = config["CDL"]["fitByRun"].getBool
+
 func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncArgs] =
   ## this is a runtime generator for the correct fitting function prototype,
   ## i.e. it returns a seq of parts, which need to be combined to the complete
@@ -1568,10 +1579,12 @@ proc main(input: string,
           showStartParams = false,
           hideNloptFit = false,
           outfile = "",
-          year: string = "2018") =
+          year: string = "2018",
+          config = "") =
   ##
   docCommentAdd(versionStr)
   let year = parseEnum[YearKind](year)
+  let fitByRun = readFitByRun(config)
 
   template callGenFunc(fn: untyped): untyped =
     if outfile.len > 0:

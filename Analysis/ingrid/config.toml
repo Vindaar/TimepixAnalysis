@@ -72,3 +72,9 @@ clusterAlgo = "dbscan" # choose from {"default", "dbscan"}
 # the search radius for the cluster finding algorithm in pixel
 searchRadius = 50 # for default clustering algorithm
 epsilon = 65 # for DBSCAN algorithm
+
+[CDL]
+# whether to fit the CDL spectra by run or by target/filter combination.
+# If `true` the resulting `calibration-cdl*.h5` file will contain sub groups
+# for each run in each target/filter combination group!
+fitByRun = true

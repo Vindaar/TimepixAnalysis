@@ -1140,6 +1140,16 @@ proc getMuSigma(lines: seq[FitFuncArgs],
   else:
     discard
 
+proc getAmplitude(lines: seq[FitFuncArgs],
+                  fitResult: FitResult
+                 ): Measurement[float] =
+  case lines[0].kind
+  of ffGauss: # in a gaussian, parameters are `[0]: N, [1]: μ, [2]: σ`
+    result = fitResult.pRes[0] ± fitResult.pErr[0]
+  of ffExpGauss: # in an exp gaussian, parameters are `[0]: a, [1]: b, [2]: N, [3]: μ, [4]: σ`
+    result = fitResult.pRes[2] ± fitResult.pErr[2]
+  else:
+    discard
 
 proc getFitFuncLinesAndInfo(tfKind: TargetFilterKind, dKind: DataKind): (CdlFitFunc, seq[FitFuncArgs], float, string, string) =
   var binSize: float
@@ -1202,6 +1212,11 @@ proc fitAndPlotImpl(h5f: H5File, dfU: DataFrame, runNumber: int, fitParamsFname:
 
   let fname = &"{plotPath}/{outname}-{outdate}_run_{runNumber}.pdf"
   # gather unbinned data for plot
+  let cLow  = (fit_μ - (3 * fit_σ))
+  let cHigh = (fit_μ + (3 * fit_σ))
+  let cN = getAmplitude(lines, fitResultMpfit)
+  let cLV = cLow.value; let cHV = cHigh.value; let cNV = cN.value
+  let cLE = cLow.error; let cHE = cHigh.error
   ggplot(df, aes("Energy")) +
     geom_histogram(data = dfU.filter(f{float: `Counts` < binRangePlot}),
                    aes = aes("Counts", fill = "Cut?"),
@@ -1210,6 +1225,14 @@ proc fitAndPlotImpl(h5f: H5File, dfU: DataFrame, runNumber: int, fitParamsFname:
                    hdKind = hdOutline,
                    binWidth = binSize) +
     geom_line(aes(y = "Counts", color = "Type")) +
+    # add error bar bands
+    geom_tile(aes = aes(x = cLV - cLE/2.0, y = 0.0, width = cLE, height = cNV),
+              alpha = 0.2, fillColor = "grey") +
+    geom_tile(aes = aes(x = cHV - cHE/2.0, y = 0.0, width = cHE, height = cNV),
+              alpha = 0.2, fillColor = "grey") +
+    # add lines of the lower / upper cut
+    geom_linerange(aes = aes(x = cLV, y = cNV / 2.0, yMin = 0.0, yMax = cNV)) +
+    geom_linerange(aes = aes(x = cHV, y = cNV / 2.0, yMin = 0.0, yMax = cNV)) +
     annotate(serializeFitParameters(fitResultMpfit, tfKind, dKind, true),
              0.6, 0.6,
              font = font(12.0, family = "monospace")) +

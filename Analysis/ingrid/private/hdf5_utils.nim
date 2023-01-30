@@ -166,9 +166,13 @@ func cdlPath*(tfKindStr: string, year = "2019"): string =
     myr = "feb2019"
   result = &"calibration-cdl-{myr}-{tfKindStr}"
 
-func cdlGroupName*(tfKindStr, year, dset: string): string =
+func cdlGroupName*(tfKindStr, year, dset: string, fitByRun = false, runNumber = 0): string =
   let dsetName = dset.extractFilename
-  result = &"{cdlPath(tfKindStr, year)}/{dsetName}"
+  if fitByRun:
+    doAssert runNumber > 0, "If CDL data fit by run, we need a run number!"
+    result = &"{cdlPath(tfKindStr, year)}/run_{runNumber}/{dsetName}"
+  else:
+    result = &"{cdlPath(tfKindStr, year)}/{dsetName}"
 
 func cdlToXrayBinning2014Map(): Table[InGridDsetKind, tuple[bins: int, min, max: float]] =
   ## Maps the names of the `XrayReferenceDataSet.h5` (2014) to the

@@ -109,6 +109,10 @@ template withCdlData*(cdlFile, dset: string,
                       body: untyped): untyped =
   ## Sorry for the nested templates with a whole bunch of injected variables
   ## future reader... :)
+  ##
+  ## `withCdlData` should ``not`` be used on its own ``unless`` your are fine with
+  ## the fact that it pre-applies the charge cuts to the CDL data around the main
+  ## fitted peak of each target/filter dataset (by run)!
   var grp_name {.inject.} = cdlPrefix($year) & dset
   # create global vars for xray and normal cuts table to avoid having
   # to recreate them each time
@@ -121,11 +125,15 @@ template withCdlData*(cdlFile, dset: string,
     cutsTab = getEnergyBinMinMaxVals2018()
 
   var frameworkKind {.inject.} = fkMarlin
+  var fitByRun = false
   echo "Opening file to build LogL from ", cdlFile, " for dset: ", dset
   withH5(cdlFile, "rw"):
     if "FrameworkKind" in h5f.attrs:
       frameworkKind = parseEnum[FrameworkKind](h5f.attrs["FrameworkKind", string])
+    if "fitByRun" in h5f.attrs:
+      fitByRun = parseBool(h5f.attrs["fitByRun", string])
     # open h5 file using template
+    ## XXX: if `fitByRun` instead read by each run!
     let
       energyStr = igEnergyFromCharge.toDset(frameworkKind)
       centerXStr = igCenterX.toDset(frameworkKind)
@@ -137,20 +145,80 @@ template withCdlData*(cdlFile, dset: string,
       ldivStr = igLengthDivRmsTrans.toDset(frameworkKind)
       fracRmsStr = igFractionInTransverseRms.toDset(frameworkKind)
       npixStr = igHits.toDset(frameworkKind)
-      # read the datasets
-      energy {.inject.} = h5f.readAs(grp_name / energyStr, float64)
-      centerX {.inject.} = h5f.readAs(grp_name / centerXStr, float64)
-      centerY {.inject.} = h5f.readAs(grp_name / centerYStr, float64)
-      ecc {.inject.} = h5f.readAs(grp_name / eccStr, float64)
-      length {.inject.} = h5f.readAs(grp_name / lengthStr, float64)
-      charge {.inject.} = h5f.readAs(grp_name / chargeStr, float64)
-      rmsTrans {.inject.} = h5f.readAs(grp_name / rmsTransStr, float64)
-      ldivRms {.inject.} = h5f.readAs(grp_name / ldivStr, float64)
-      fracRms {.inject.} = h5f.readAs(grp_name / fracRmsStr, float64)
-      npix {.inject.} = h5f.readAs(grp_name / npixStr, float64)
-      # get the cut values for this dataset
+    # read the datasets
+    var
+      energy {.inject.} = newSeqOfCap[float](50_000)
+      centerX {.inject.} = newSeqOfCap[float](50_000)
+      centerY {.inject.} = newSeqOfCap[float](50_000)
+      ecc {.inject.} = newSeqOfCap[float](50_000)
+      length {.inject.} = newSeqOfCap[float](50_000)
+      charge {.inject.} = newSeqOfCap[float](50_000)
+      rmsTrans {.inject.} = newSeqOfCap[float](50_000)
+      ldivRms {.inject.} = newSeqOfCap[float](50_000)
+      fracRms {.inject.} = newSeqOfCap[float](50_000)
+      npix {.inject.} = newSeqOfCap[float](50_000)
+      # get the cut values for this dataset. As `var` as we need to assign the charge
+      # cut values for `cuts`
       cuts {.inject.} = cutsTab[dset]
+    let
       xrayCuts {.inject.} = xrayCutsTab[dset]
+    if fitByRun:
+      ## In cas of fitByRun we need to read data from all runs and stack the data into the
+      ## variables
+      ## for run
+      for runGrp in items(h5f, start_path = grp_name, depth = 1):
+        let chargeFull = h5f.readAs(runGrp.name / chargeStr, float64)
+        # read charge cut values, then read rest and filter to charge
+        if "ChargeLow" notin runGrp.attrs or "ChargeHigh" notin runGrp.attrs:
+          raise newException(KeyError, "The group " & $runGrp.name & " does not contain the charge " &
+            "cut bounds. This is likely because you use an old `calibration-cdl*.h5` file.")
+        cuts.minCharge  = runGrp.attrs["ChargeLow", float]
+        cuts.maxCharge = runGrp.attrs["ChargeHigh", float]
+        var
+          energyFull = h5f.readAs(runGrp.name / energyStr, float64)
+          cX = h5f.readAs(runGrp.name / centerXStr, float64)
+          cY = h5f.readAs(runGrp.name / centerYStr, float64)
+          eccFull = h5f.readAs(runGrp.name / eccStr, float64)
+          lengthFull = h5f.readAs(runGrp.name / lengthStr, float64)
+          rmsTransFull = h5f.readAs(runGrp.name / rmsTransStr, float64)
+          ldivRmsFull = h5f.readAs(runGrp.name / ldivStr, float64)
+          fracRmsFull = h5f.readAs(runGrp.name / fracRmsStr, float64)
+          npixFull = h5f.readAs(runGrp.name / npixStr, float64)
+        for i, c in chargeFull:
+          # now add all data that passes the charge cut. All other cuts will be used later
+          ## IMPORTANT: This here implies that we _cannot_ get the CDL data _without_ cuts to
+          ## the charge. However, we don't *do* that anywhere anyway, unless the user calls
+          ## `withCdlData` manually.
+          if c >= cuts.minCharge and c <= cuts.maxCharge:
+            charge.add chargeFull[i]
+            energy.add energyFull[i]
+            centerX.add cX[i]
+            centerY.add cY[i]
+            ecc.add eccFull[i]
+            length.add lengthFull[i]
+            rmsTrans.add rmsTransFull[i]
+            ldivRms.add ldivRmsFull[i]
+            fracRms.add fracRmsFull[i]
+            npix.add npixFull[i]
+    else:
+      let grp = h5f[grp_name.grp_str]
+      if "ChargeLow" notin grp.attrs or "ChargeHigh" notin grp.attrs:
+        raise newException(KeyError, "The group " & $grp.name & " does not contain the charge " &
+          "cut bounds. This is likely because you use an old `calibration-cdl*.h5` file.")
+      cuts.minCharge  = grp.attrs["ChargeLow", float]
+      cuts.maxCharge = grp.attrs["ChargeHigh", float]
+      # the charge cuts will be applied in the regular `minCharge`/`maxCharge` filter
+      # now read all data
+      energy = h5f.readAs(grp_name / energyStr, float64)
+      centerX = h5f.readAs(grp_name / centerXStr, float64)
+      centerY = h5f.readAs(grp_name / centerYStr, float64)
+      ecc = h5f.readAs(grp_name / eccStr, float64)
+      length = h5f.readAs(grp_name / lengthStr, float64)
+      charge = h5f.readAs(grp_name / chargeStr, float64)
+      rmsTrans = h5f.readAs(grp_name / rmsTransStr, float64)
+      ldivRms = h5f.readAs(grp_name / ldivStr, float64)
+      fracRms = h5f.readAs(grp_name / fracRmsStr, float64)
+      npix = h5f.readAs(grp_name / npixStr, float64)
     body
 
 template withLogLFilterCuts*(cdlFile, dset: string,

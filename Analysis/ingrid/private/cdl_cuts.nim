@@ -162,39 +162,20 @@ func getEnergyBinMinMaxVals2018*(): OrderedTable[string, Cuts] =
                      minPix: 3,
                      minCharge: -Inf,
                      maxCharge: Inf)
-  func calcMinCharge(mean, sigma: float): float =
-    result = mean - 3 * sigma
-  func calcMaxCharge(mean, sigma: float): float =
-    result = mean + 3 * sigma
-
+  # the charges are assigned _after_ by reading from the correct group
+  # of the CDL data with the charge low / high attributes!
   let range0 = replace(baseCut):
-    minCharge = 0.0
-    maxCharge = calcMaxCharge(3.52e4, 1.31e4)
     minRms = -Inf
     maxRms = Inf
     maxLength = 6.0
   let range1 = replace(baseCut):
-    minCharge = calcMinCharge(4.17e4, 1.42e4)
-    maxCharge = calcMaxCharge(4.17e4, 1.42e4)
     maxLength = 6.0
-  let range2 = replace(baseCut):
-    minCharge = calcMinCharge(7.76e4, 2.87e4)
-    maxCharge = calcMaxCharge(7.76e4, 2.87e4)
-  let range3 = replace(baseCut):
-    minCharge = calcMinCharge(1.34e5, 2.33e4)
-    maxCharge = calcMaxCharge(1.34e5, 2.33e4)
-  let range4 = replace(baseCut):
-    minCharge = calcMinCharge(2.90e5, 4.65e4)
-    maxCharge = calcMaxCharge(2.90e5, 4.65e4)
-  let range5 = replace(baseCut):
-    minCharge = calcMinCharge(4.38e5, 6.26e4)
-    maxCharge = calcMaxCharge(4.38e5, 6.26e4)
-  let range6 = replace(baseCut):
-    minCharge = calcMinCharge(4.92e5, 5.96e4)
-    maxCharge = calcMaxCharge(4.92e5, 5.96e4)
-  let range7 = replace(baseCut):
-    minCharge = calcMinCharge(6.63e5, 7.12e4)
-    maxCharge = calcMaxCharge(6.63e5, 7.12e4)
+  let range2 = baseCut
+  let range3 = baseCut
+  let range4 = baseCut
+  let range5 = baseCut
+  let range6 = baseCut
+  let range7 = baseCut
   let
     ranges = [range0, range1, range2, range3, range4, range5, range6, range7]
     xray_ref = getXrayRefTable()

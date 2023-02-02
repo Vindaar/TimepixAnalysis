@@ -26,6 +26,9 @@ type
       emu*: float
       es*: float
 
+
+import macrocache
+const FuncsTeX = CacheTable"TeXFunctions"
 const fixed* = NaN
 
 proc expGauss*(p: seq[float], x: float): float =
@@ -220,6 +223,125 @@ proc fillParamsTable(tab: var OrderedTable[string, NimNode],
     incAndFill(tab, idx, "emu", lineName)
     incAndFill(tab, idx, "es", lineName)
 
+
+proc serialize(n: NimNode): string
+
+proc toElement(s: string): string =
+  result = r"\ce{" & s & r"}"
+
+proc toLine(s: string): string =
+  ## Argument must be of the type `Kalpha`, `Lbeta` etc.
+  result = $s[0]
+  case s[1 .. ^1]
+  of "alpha": result.add r"α"
+  of "beta": result.add r"β"
+  of "gamma": result.add r"γ"
+  else:
+    raise newException(ValueError, "Unknown line: " & $s)
+
+proc toSubscript(s: string): string =
+  result = r"_{" & s & r"}"
+
+proc toEsc(s: string): string =
+  case s
+  of "esc": result = r"\text{esc}"
+  else: doAssert false, "Invalid: " & $s
+
+proc toSuperscript(s: string): string =
+  result = r"^{" & s & r"}"
+
+proc toLineName(s: string, attachTo = ""): string =
+  if "-" notin s:
+    result = r"_{\text{unknown}}"
+  else:
+    let parts = s.split("-")
+    let element = toElement(parts[0])
+    #if attachTo.len > 0:
+    #  result = toSuperscript(parts[0]) #& attachTo # place element into a `^` then add
+    #else:
+    #  result = toSuperscript(parts[0])
+    if parts.len == 2: # of type Cu-Kalpha
+      let line = toLine(parts[1])
+      if line == "esc":
+        raise newException(ValueError, "Given line name is not valid. Missing the line (Kα, Lβ, ...) for argument: " & $s)
+      result = toSuperscript(element) & toSubscript(line)
+    elif parts.len == 3: # of type Cu-Kalpha-esc
+      let line = toLine(parts[1])
+      let esc = toEsc(parts[2])
+      result = toSuperscript(element & ", " & esc) & toSubscript(line)
+
+proc toFuncName(s: string): string =
+  case s
+  of "ffGauss": result = "G"
+  of "ffExpGauss": result = "EG"
+
+proc paramToTeX(s: string): string =
+  case s
+  of "a": result = "a"
+  of "b": result = "b"
+  of "mu": result = "μ"
+  of "s": result = "σ"
+  of "N": result = "N"
+
+proc callToTex(n: NimNode): string =
+  doAssert n[0].kind in {nnkSym, nnkIdent}
+  let field = n[0].strVal
+  let fn = field[0] # g or e
+  doAssert fn in {'g', 'e'}
+  var param = ""
+  if fn == 'e': param = "e"
+  param.add paramToTex(field[1 .. ^1])
+  doAssert n[1].kind == nnkStrLit
+  result = param & n[1].strVal.toLineName()
+
+proc infixToTex(n: NimNode): string =
+  doAssert n.kind == nnkInfix and n[0].kind in {nnkSym, nnkIdent} and n[0].strVal in ["/", "*"]
+  case n[0].strVal
+  of "/": result = r"\frac{" & n[1].serialize() & r"}{" & n[2].serialize() & r"}"
+  of "*": result = n[1].serialize() & r"·" & n[2].serialize()
+  else:
+    doAssert false, "Unsupported infix kind: " & $n.repr
+
+proc serialize(n: NimNode): string =
+  case n.kind
+  of nnkExprColonExpr:
+    doAssert n[0].kind in {nnkSym, nnkIdent}
+    case n[0].strVal
+    of "name": result = n[1].strVal.toLineName() # name of the line
+    of "kind": result = n[1].strVal.toFuncName() # which type of function it is
+    else:
+      result = n[1].serialize()
+  of nnkInfix: result = n.infixToTex()
+  of nnkCall: result = n.callToTex() # call must be a fake call, `gmu`, `gN`, `eN`, etc, reference to another line
+  of nnkFloatLit: result = n.repr # repr is good here
+  of nnkStrLit: doAssert false, "nnkStrLit should not appear on its own, only in `nnkCall`"
+  of nnkSym, nnkIdent: doAssert false, "nnkIdent should not appear on its own"
+  of nnkBracketExpr: result = n.repr # fine for this, should be `p_ar[i]`
+  of nnkPar: result = r"(" & n[0].serialize() & r")"
+  else: doAssert false, "Unsupported node kind: " & $n.kind & " in: " & $n.treerepr
+
+proc toTex(p: NimNode): string =
+  doAssert p.kind == nnkObjConstr and p[0].kind in {nnkIdent, nnkSym} and p[0].strVal == "FitFuncArgs", "No, was: " & $p.treerepr
+  let lineName = p[1].serialize()
+  let fnName = p[2].serialize()
+  result = fnName & lineName
+  if p.len > 3:
+    result.add r"\left( "
+  for i in 3 ..< p.len:
+    result.add p[i].serialize()
+    if i != p.len - 1:
+      result.add ", "
+  if p.len > 3:
+    result.add r" \right)"
+
+proc fnToTex(parts: NimNode): string =
+  result = r"$"
+  for i in 0 ..< parts.len:
+    result.add parts[i].toTex()
+    if i < parts.len - 1:
+      result.add " + "
+  result.add r"$"
+
 proc buildFitFunc(name, parts: NimNode): NimNode =
   ## builds a CDL fit function based on the function described by
   ## the `seq[FitFuncArgs]` at compile time. Using the `FitFuncKind` of
@@ -268,6 +390,9 @@ proc buildFitFunc(name, parts: NimNode): NimNode =
                    body = procBody,
                    procType = nnkFuncDef)
 
+
+  FuncsTeX[name.strVal] = newLit(parts.fnToTex())
+
 macro declareFitFunc*(name, stmts: untyped): untyped =
   ## DSL to declare the fit functions without having to go the
   ## const of `seq[FitFuncArgs]` + buildFitFunc macro route.
@@ -289,6 +414,9 @@ macro declareFitFunc*(name, stmts: untyped): untyped =
   for s in stmts:
     expectKind(s, nnkCall)
     #echo s.treeRepr
+    ## NOTE: while we could in principle use `FitFuncArgs` as a regular object at CT, we'd have
+    ## to deal with the symbolic expressions for the fixed parameters somehow. That would make
+    ## such a solution similarly complex to the AST one we currently use.
     let fkind = s[0]
     case s[1].len
     of 1:
@@ -296,7 +424,6 @@ macro declareFitFunc*(name, stmts: untyped): untyped =
       ffSeq.add quote do:
         FitFuncArgs(name: `ffName`, kind: `fKind`)
     else:
-      var ffName = ""
       var ffArg = nnkObjConstr.newTree(ident"FitFuncArgs")
       for x in s[1]:
         expectKind(x, nnkAsgn)
@@ -308,7 +435,7 @@ macro declareFitFunc*(name, stmts: untyped): untyped =
       ffSeq.add ffArg
 
   result = buildFitFunc(funcId, ffSeq)
-  # echo result.repr
+  #echo result.repr
 
 func filterNaN(s: openArray[float]): seq[float] =
   result = newSeqOfCap[float](s.len)
@@ -329,6 +456,9 @@ proc serialize*(parts: seq[FitFuncArgs]): seq[float] =
       result.add filterNaN([p.gN, p.gmu, p.gs])
     of ffExpGauss:
       result.add filterNaN([p.ea, p.eb, p.eN, p.emu, p.es])
+
+proc toStr*(parts: seq[FitFuncArgs]): string =
+  ## Generates a string
 
 when isMainModule:
   import ingrid / calibration

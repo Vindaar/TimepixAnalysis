@@ -142,6 +142,17 @@ type
     fit_σ: Measurement[float]
     energyRes: Measurement[float]
 
+proc removeSuffix(s, suff: string): string =
+  result = s
+  result.removeSuffix(suff)
+
+# helper converters to get targets, filters and kV values from a `TargetFilterKind`
+proc toTarget(tfKind: TargetFilterKind): TargetKind = ($tfKind).split("-")[0].parseEnum[:TargetKind]()
+proc toFilter(tfKind: TargetFilterKind): FilterKind = ($tfKind).split("-")[1].parseEnum[:FilterKind]()
+proc toHV(tfKind: TargetFilterKind, withSuffix = true): string =
+  if withSuffix: ($tfKind).split("-")[2]
+  else: ($tfKind).split("-")[2].removeSuffix("kV")
+
 proc readFitByRun(config: string): bool =
   ## Reads the `fitByRun` field from the configuration file, deciding whether to
   ## perform our fits by run or by target/filter kind only.
@@ -1695,7 +1706,47 @@ proc plotsAndEnergyResolution(input: string,
   # 'calibrated' by the charge of the known main peak energy.
   energyHistograms(df, plotPath)
 
-proc main(input: string,
+import std / [parseutils, macrocache]
+const FuncsTeX = CacheTable"TeXFunctions"
+proc getStr(n: NimNode): string = n.strVal
+proc upcaseWord(s: string): string =
+  result = s
+  result[0] = s[0].toUpperAscii()
+
+proc fnNameToTfKind(fn: string): TargetFilterKind =
+  # not the prettiest parsing, but gets the job done without too much
+  # specifics of the details...
+  var tmp = fn.replace("_", ".").removeSuffix("Func").removeSuffix("Charge")
+  var target = ""
+  var filter = ""
+  var idx = tmp.parseUntil(target, until = {'A' .. 'Z'}, start = 0) # skip first char!
+  target = target.upcaseWord()
+  idx += tmp.parseUntil(filter, until = {'0' .. '9'}, start = idx)
+  let kV = tmp[idx .. ^1] & "kV"
+  let tfKindStr = @[target, filter, kV].join("-")
+  result = parseEnum[TargetFilterKind](tfKindStr)
+
+proc getFuncs(charge = true): string =
+  var arr: array[TargetFilterKind, string]
+  for k, v in FuncsTeX:
+    try:
+      let tfKind = k.fnNameToTfKind()
+      if charge and "Charge" in k:
+        arr[tfKind] = v.getStr()
+      elif not charge and "Charge" notin k:
+        arr[tfKind] = v.getStr()
+    except ValueError:
+      echo "Cannot parse " & $k & " into a TargetFilterKind. Skipping it."
+      # expect this for any other defined func not for CDL, e.g. feSpectrum(Charge)
+  result = "| Target | Filter | HV [kV] | Fit functions |\n"
+  for k, x in arr:
+    result.add "| " & [$k.toTarget(), $k.toFilter(), $k.toHV(false), x].join("|") & "|\n"
+
+proc raiseNoInput(input: string) =
+  if input.len == 0:
+    raise newException(OSError, "In order to process data we need an input, but none given.")
+
+proc main(input = "",
           cutcdl = false,
           dumpAccurate = false,
           genCdlFile = false,
@@ -1704,13 +1755,16 @@ proc main(input: string,
           hideNloptFit = false,
           outfile = "",
           year: string = "2018",
-          config = "") =
+          config = "",
+          printFunctions = false
+         ) =
   ##
   docCommentAdd(versionStr)
   let year = parseEnum[YearKind](year)
   let fitByRun = readFitByRun(config)
 
   template callGenFunc(fn: untyped): untyped =
+    raiseNoInput(input)
     if outfile.len > 0:
       fn(input, year, fitByRun, outfile)
     else:
@@ -1720,12 +1774,23 @@ proc main(input: string,
   if genCdlFile:
     callGenFunc(generateCdlCalibrationFile)
   if cutcdl:
+    raiseNoInput(input)
     cutAndWrite(input)
 
-  if not genRefFile and not genCdlFile:
+  if not genRefFile and not genCdlFile and not printFunctions:
     # only perform CDL fits if neither CDL calibration file nor
     # reference file created
+    raiseNoInput(input)
     plotsAndEnergyResolution(input, dumpAccurate, showStartParams, hideNloptFit, fitByRun)
+
+  if printFunctions:
+    echo "Charge functions:"
+    const chargeFns = getFuncs()
+    const pixelFns = getFuncs(charge = false)
+    echo chargeFns
+    echo "Pixel functions:"
+    echo pixelFns
+
 
 when isMainModule:
   import cligen

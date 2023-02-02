@@ -1034,7 +1034,7 @@ proc serializeFitParameters(fitResult: FitResult,
       elif type(val) is float:
         let fstr = $field
         if classify(val) != fcNaN:
-          result.add &"\n{fstr:<3} = {pStrs[i]} ± {eStrs[i]}"
+          result.add &"\n  {fstr:<3} = {pStrs[i]} ± {eStrs[i]}"
           inc i
           allNaN = false
     if allNaN:
@@ -1221,6 +1221,7 @@ proc fitAndPlotImpl(h5f: H5File, dfU: DataFrame, runNumber: int, fitParamsFname:
   # define range of plots using mean of main peak
   let binRangePlot = fit_μ.value * 3.0
 
+  let transparent = color(0.0, 0.0, 0.0, 0.0)
   let fname = &"{plotPath}/{outname}-{outdate}_run_{runNumber}.pdf"
   # gather unbinned data for plot
   let cLow  = (fit_μ - (3 * fit_σ))
@@ -1228,24 +1229,29 @@ proc fitAndPlotImpl(h5f: H5File, dfU: DataFrame, runNumber: int, fitParamsFname:
   let cN = getAmplitude(lines, fitResultMpfit)
   let cLV = cLow.value; let cHV = cHigh.value; let cNV = cN.value
   let cLE = cLow.error; let cHE = cHigh.error
-  ggplot(df, aes("Energy")) +
+  var plt = ggplot(df, aes("Energy")) +
     geom_histogram(data = dfU.filter(f{float: `Counts` < binRangePlot}),
                    aes = aes("Counts", fill = "Cut?"),
                    position = "identity",
                    alpha = some(0.5),
                    hdKind = hdOutline,
                    binWidth = binSize) +
-    geom_line(aes(y = "Counts", color = "Type")) +
     # add error bar bands
     geom_tile(aes = aes(x = cLV - cLE/2.0, y = 0.0, width = cLE, height = cNV),
-              alpha = 0.2, fillColor = "grey") +
+              alpha = 0.1, fillColor = "grey", color = transparent) +
     geom_tile(aes = aes(x = cHV - cHE/2.0, y = 0.0, width = cHE, height = cNV),
-              alpha = 0.2, fillColor = "grey") +
+              alpha = 0.1, fillColor = "grey", color = transparent)
+  if not showStartParams and hideNloptFit: # if only MPFIT, just draw black
+    plt = plt + geom_line(aes(y = "Counts"))
+  else:
+    plt = plt + geom_line(aes(y = "Counts", color = "Type"))
+  # continue rest of plot
+  plt +
     # add lines of the lower / upper cut
     geom_linerange(aes = aes(x = cLV, y = cNV / 2.0, yMin = 0.0, yMax = cNV)) +
     geom_linerange(aes = aes(x = cHV, y = cNV / 2.0, yMin = 0.0, yMax = cNV)) +
     annotate(serializeFitParameters(fitResultMpfit, tfKind, dKind, true),
-             0.6, 0.6,
+             0.55, 0.6,
              font = font(12.0, family = "monospace")) +
     xlab(xtitle) +
     xlim(0.0, binRangePlot) +

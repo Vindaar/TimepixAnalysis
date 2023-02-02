@@ -1606,15 +1606,25 @@ proc generateXrayReferenceFile(h5file: string, year: YearKind, fitByRun: bool,
   discard h5fout.close()
   discard h5f.close()
 
-proc readGasGain(h5f: H5File, tfKind: TargetFilterKind): DataFrame =
-  result = newDataFrame()
+proc readGasGain(h5f: H5File, tfKind: TargetFilterKind): (DataFrame, DataFrame) =
+  var gainDf = newDataFrame()
+  var tempDf = newDataFrame()
   for (run, grp) in tfRuns(h5f, tfKind):
     var gains = newSeq[float]()
     for gainSlice in iterGainSlicesFromDset(h5f, grp):
       gains.add gainSlice.G
-    result.add toDf({ "Gain" : gains,
+    gainDf.add toDf({ "Gain" : gains,
                       "Target" : $tfKind,
                       "runNumber" : run })
+    # check if this run has temperature data, if so read it too
+    if grp.name.parentDir / "temperatures" in grp:
+      let temps = h5f[grp.name.parentDir / "temperatures", TemperatureLogEntry]
+      tempDf.add(toDf({ "Timestamp" : temps.mapIt(it.timestamp),
+                        "IMB" : temps.mapIt(it.imb),
+                        "runNumber" : run,
+                        "Septem" : temps.mapIt(it.septem) })
+        .mutate(f{"Time since run start" ~ `Timestamp` - min(col("Timestamp"))}))
+  result = (gainDf, tempDf)
 
 proc energyHistograms(df: DataFrame, plotPath: string) =
   let dfC = df.filter(f{`Type` == "charge" and idx("Cut?") == "Cut" and `Energy` < 10.0})
@@ -1632,10 +1642,57 @@ proc energyHistograms(df: DataFrame, plotPath: string) =
     xlab("Energy [keV]") +
     ggsave(&"{plotPath}/{fname}_kde.pdf", width = 800, height = 480)
 
-proc plotRunGains(df: DataFrame, plotPath: string) =
-  ggplot(df, aes("runNumber", "Gain", color = factor("Target"))) +
+proc plotRunGains(gainDf, tempDf: DataFrame, plotPath: string) =
+  ggplot(gainDf, aes("runNumber", "Gain", color = factor("Target"))) +
     geom_point() +
-    ggsave(&"{plotPath}/gas_gain_by_run_and_tfkind.pdf")
+    ggsave(&"{plotPath}/gas_gain_by_run_and_tfkind.pdf", width = 800, height = 480)
+
+  let minGain = gainDf["Gain", float].min
+  let maxGain = gainDf["Gain", float].max
+  let tempMean = tempDf.group_by("runNumber").summarize(f{float: "Temp" << mean(`Septem`)})
+    .mutate(f{"TempNorm" ~ `Temp` / max(col("Temp")) * maxGain}) # (maxGain - minGain) *
+  let maxTemp = tempMean["Temp", float].max
+
+  ggplot(gainDf, aes("runNumber", "Gain", color = factor("Target"))) +
+    geom_point() +
+    geom_point(data = tempMean, aes = aes("runNumber", "TempNorm"), marker = mkCross) +
+    scale_y_continuous(secAxis = secAxis(name = "Temp [°C]", trans = f{maxTemp / maxGain})) +
+    margin(right = 7) +
+    legendPosition(0.8, 0.0) +
+    ggsave(&"{plotPath}/gas_gain_by_run_and_tfkind_with_cdl_temp.pdf", width = 800, height = 480)
+
+  ggplot(tempDf, aes("Timestamp", "Septem", color = factor("runNumber"))) +
+    geom_point(size = 0.5) +
+    ggsave(&"{plotPath}/septem_temperature_cdl.pdf")
+
+  let title = "Temperatures of CDL runs which contain temperature data"
+  ggplot(tempDf, aes("Time since run start", "Septem", color = factor("runNumber"))) +
+    facet_wrap("runNumber", scales = "free") +
+    facetMargin(1.0) +
+    geom_point(size = 0.5) +
+    xlab(rotate = -45, alignTo = "right") +
+    ggtitle(title) +
+    ggsave(&"{plotPath}/septem_temperature_facet_cdl_time_since_start.pdf", width = 1200, height = 1000)
+
+  proc toDate(v: float): string =
+    result = v.int.fromUnix.format("dd-MM HH:mm")
+  ggplot(tempDf, aes("Timestamp", "Septem", color = factor("runNumber"))) +
+    facet_wrap("runNumber", scales = "free") +
+    facetMargin(1.0) +
+    geom_point(size = 0.5) +
+    xlab(rotate = -45, alignTo = "right") +
+    scale_x_continuous(labels = toDate) +
+    ggtitle(title) +
+    ggsave(&"{plotPath}/septem_temperature_facet_cdl.pdf", width = 1200, height = 1000)
+
+  ggplot(tempDf.gather(["Septem", "IMB"], "Type", "Temp"), aes("Timestamp", "Temp", color = factor("Type"))) +
+    facet_wrap("runNumber", scales = "free") +
+    facetMargin(1.0) +
+    geom_point(size = 0.5) +
+    xlab(rotate = -45, alignTo = "right") +
+    scale_x_continuous(labels = toDate) +
+    ggtitle(title) +
+    ggsave(&"{plotPath}/septem_imb_temperature_facet_cdl.pdf", width = 1200, height = 1000)
 
 proc plotIngridProperties(h5f: H5File, tfKind: TargetFilterKind, plotPath: string) =
   var dfAll = newDataFrame()
@@ -1679,6 +1736,7 @@ proc plotsAndEnergyResolution(input: string,
   var df = newDataFrame()
   let plotPath = h5f.attrs[PlotDirPrefixAttr, string]
   var gainDf = newDataFrame()
+  var tempDf = newDataFrame()
   for tfkind in TargetFilterKind:
     echo "\n\n------------------------------ Working on : ", tfKind, " ----------------------------------------"
     let (dfH, pHits) = fitAndPlot(h5f, fitParamsFname, tfkind, Dhits,
@@ -1693,15 +1751,16 @@ proc plotsAndEnergyResolution(input: string,
     #if tfKind == tfCuEpic2:
     #  quit()
 
-    gainDf.add readGasGain(h5f, tfKind)
+    let (gDf, tDf) = readGasGain(h5f, tfKind)
+    gainDf.add gDf
+    tempDf.add tDf
 
     # plot the ingrid properties by run
     h5f.plotIngridProperties(tfKind, plotPath)
 
 
   # plot the gas gain of all data
-  plotRunGains(gainDf, plotPath)
-
+  plotRunGains(gainDf, tempDf, plotPath)
 
   discard h5f.close()
   energyResolution(peaksHits, peaksCharge, plotPath)

@@ -1727,6 +1727,26 @@ proc plotIngridProperties(h5f: H5File, tfKind: TargetFilterKind, plotPath: strin
     margin(left = 4) +
     ggsave(&"{plotPath}/{$tfKind}_ridgeline_kde_by_run.pdf", width = 900, height = 600)
 
+proc writeCdlInfoTable(peaksHits, peaksCharge: seq[MainPeak]) =
+  ## Generate an Org table based on the information stored in `MainPeak`
+  var df = newDataFrame()
+  doAssert peaksHits.len == peaksCharge.len
+  for i in 0 ..< peaksHits.len:
+    proc toStr(m: Measurement[float]): string = r"$\num{" & $(pretty(m, precision = 2)) & r"}$"
+    proc mpToDf(mp: MainPeak): DataFrame =
+      result = toDf({ "runNumber" : mp.runNumber,
+                      "Target" : $($mp.tfKind.toTarget()),
+                      "Filter" : $(mp.tfKind.toFilter()),
+                      "HV [kV]" : (mp.tfKind.toHV().removeSuffix("kV")),
+                      "dKind" : $mp.dKind,
+                      "μ" : mp.fit_μ.toStr(), # write measurements as strings to get nice printing
+                      "σ" : mp.fit_σ.toStr(),
+                      "σ/μ" : mp.energyRes.toStr() })
+    df.add peaksHits[i].mpToDf()
+    df.add peaksCharge[i].mpToDf()
+  echo df.filter(f{`dKind` == "charge"}).drop("dKind").toOrgTable(emphStrNumber = false)
+  echo df.filter(f{`dKind` == "hits"}).drop("dKind").toOrgTable(emphStrNumber = false)
+
 proc plotsAndEnergyResolution(input: string,
                               dumpAccurate, showStartParams, hideNloptFit, fitByRun: bool) =
   let fitParamsFname = getFitParamsFname(dumpAccurate)
@@ -1766,6 +1786,10 @@ proc plotsAndEnergyResolution(input: string,
   energyResolution(peaksHits, peaksCharge, plotPath)
   peakFit(peaksHits, "Hits", plotPath)
   peakFit(peaksCharge, "Charge", plotPath)
+
+  # now write a table of the target / filter kinds, the run number energy, mean position of the fit
+  # and width
+  writeCdlInfoTable(peaksHits, peaksCharge)
 
   # finally make a histogram of all data containing the energies of the (raw/cut) clusters
   # 'calibrated' by the charge of the known main peak energy.

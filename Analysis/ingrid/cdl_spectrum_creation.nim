@@ -786,7 +786,7 @@ proc getFitData(hist, bins: seq[float]): FitData =
   let cumu = cumsum(hist)
   let sum = sum(hist)
   let quotient = cumu.mapIt(it/sum)
-  let lowIdx = quotient.lowerBound(0.002)
+  let lowIdx = quotient.lowerBound(0.001)
   let highIdx = quotient.lowerBound(0.98)
   result = FitData(bins: newSeqOfCap[float](hist.len),
                    hist: newSeqOfCap[float](hist.len),

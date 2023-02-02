@@ -559,6 +559,9 @@ proc copyOverDataAttrs(h5f, h5fout: H5File, runNumber: int) =
       copyOver($runNumber / dset.name.extractFilename, int64)
     of dkFloat64:
       copyOver($runNumber / dset.name.extractFilename, float64)
+    of dkObject:
+      doAssert dset.name.extractFilename == "temperatures", "Unexpected dataset of dkObject kind : " & $dset
+      copyOver($runNumber / dset.name.extractFilename, TemperatureLogEntry)
     else:
       doAssert false, "Unexpected dataset " & $dset & " with base type " & $dset.dtypeAnyKind
 

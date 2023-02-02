@@ -1,8 +1,9 @@
  | Run # | Type         | FADC? | Target | Filter | HV / kV |
- |-------+--------------+-------+--------+--------+---------|
+ |-------+--------------+-------+--------+--------+---------+
  |   312 | rtBackground | y     |        |        |         |
  |   313 | rtBackground | y     | Cu     | EPIC   |     8.0 |
  |   314 | rtBackground | y     |        |        |         |
+ |   315 | rtXrayFinger | y     | Mn     | Cr     |    12.0 |
  |   319 | rtXrayFinger | y     | Cu     | Ni     |    15.0 |
  |   320 | rtXrayFinger | n     | Cu     | Ni     |    15.0 |
  |   321 | rtBackground | y     | -      | -      |     0.0 |

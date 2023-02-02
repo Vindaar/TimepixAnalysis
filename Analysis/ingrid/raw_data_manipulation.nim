@@ -1276,8 +1276,8 @@ proc handleTimepix1(folder: string, runType: RunTypeKind, outfile: string,
             discard h5f.close()
 
           let program = getAppFilename()
-          var command = program & " " & path
-          for i in 2 .. paramCount():
+          var command = program & " -p " & path
+          for i in 3 .. paramCount():
             let c = paramStr(i)
             command = command & " " & c
           info "Calling command ", command

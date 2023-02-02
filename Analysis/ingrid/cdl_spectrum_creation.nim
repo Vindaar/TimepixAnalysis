@@ -179,7 +179,7 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
                           eN: n_main / 1.5,
                           emu: mu_main, #200.0
                           es: sigma_main) #13.0
-    result.add FitFuncArgs(name: "Cu-esc",
+    result.add FitFuncArgs(name: "Cu-Kalpha-esc",
                           kind: ffExpGauss,
                           ea: n_main *  1e-10,
                           eb: n_main * 1e-12,
@@ -194,7 +194,7 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
                           eN: n_main,# / 10.0, #30.0
                           emu: mu_main, #200.0
                           es: 15.0) #sigma_main / 2.0) # 13.0
-    result.add FitFuncArgs(name: "Mn-esc",
+    result.add FitFuncArgs(name: "Mn-Kalpha-esc",
                           kind: ffGauss,
                           #ea: 5.0,
                           #eb: 1e-3,
@@ -209,19 +209,19 @@ func getLines(hist, binning: seq[float], tfKind: TargetFilterKind): seq[FitFuncA
                           eN: n_main / 2.0,
                           emu: mu_main,
                           es: sigma_main)
-    result.add FitFuncArgs(name: "Ti-esc-alpha",
+    result.add FitFuncArgs(name: "Ti-Kalpha-esc",
                           kind: ffGauss,
                           gN: n_main / 20.0,
                           gmu: mu_main / 3.0,
                           gs: sigma_main)
-    result.add FitFuncArgs(name: "Ti-esc-beta",
-                          kind: ffGauss,
-                          gN: n_main / 20.0,# / 20.0,
-                          gmu: fixed, #mu_main,
-                          gs: fixed) #n_main / 15.0)
     result.add FitFuncArgs(name: "Ti-Kbeta",
                           kind: ffGauss,
                           gN: n_main / 2.0,# / 10.0,
+                          gmu: fixed, #mu_main,
+                          gs: fixed) #n_main / 15.0)
+    result.add FitFuncArgs(name: "Ti-Kbeta-esc",
+                          kind: ffGauss,
+                          gN: n_main / 20.0,# / 20.0,
                           gmu: fixed, #mu_main,
                           gs: fixed) #n_main / 15.0)
   of tfAgAg6:
@@ -385,7 +385,7 @@ func getLinesCharge(hist, binning: seq[float], tfKind: TargetFilterKind): seq[Fi
                           gN: n_main,
                           gmu: mu_main,
                           gs: sigma_main)
-    result.add FitFuncArgs(name: "Cu-esc",
+    result.add FitFuncArgs(name: "Cu-Kalpha-esc",
                           kind: ffGauss,
                           gN: n_main / 5.0,
                           gmu: mu_main / 1.5,
@@ -396,7 +396,7 @@ func getLinesCharge(hist, binning: seq[float], tfKind: TargetFilterKind): seq[Fi
                           gN: n_main,
                           gmu: mu_main,
                           gs: sigma_main)
-    result.add FitFuncArgs(name: "Mn-esc",
+    result.add FitFuncArgs(name: "Mn-Kalpha-esc",
                           kind: ffGauss,
                           gN: n_main / 10.0,
                           gmu: mu_main / 2.0,
@@ -416,20 +416,20 @@ func getLinesCharge(hist, binning: seq[float], tfKind: TargetFilterKind): seq[Fi
                           gN: n_main,# / 10.0,
                           gmu: mu_main , #1140.0e3,
                           gs: sigma_main)
-    result.add FitFuncArgs(name: "Ti-esc-alpha",
+    result.add FitFuncArgs(name: "Ti-Kalpha-esc",
                           kind: ffGauss,
                           gN: n_main / 8.0,
                           gmu: mu_main / 3.0, #400.0e3,
                           gs: sigma_main / 3.0)
-    result.add FitFuncArgs(name: "Ti-esc-beta",
-                          kind: ffGauss,
-                          gN: n_main / 30.0,
-                          gmu: fixed, #mu_main ,
-                          gs: fixed) #n_main * 1e3)
     result.add FitFuncArgs(name: "Ti-Kbeta",
                           kind: ffGauss,
                           gN: n_main / 30.0,
                           gmu: fixed, #mu_main, #* 1e5,
+                          gs: fixed) #n_main * 1e3)
+    result.add FitFuncArgs(name: "Ti-Kbeta-esc",
+                          kind: ffGauss,
+                          gN: n_main / 30.0,
+                          gmu: fixed, #mu_main ,
                           gs: fixed) #n_main * 1e3)
   of tfAgAg6:
     result.add FitFuncArgs(name: "Ag-Lalpha",
@@ -575,42 +575,42 @@ func getBoundsCharge(tfKind:TargetFilterKind): seq[tuple[l, u:float]] =
 # Note: It is important that the *first* line is the *main peak* we fit!
 declareFitFunc(cuNi15):
   ffExpGauss: "Cu-Kalpha"
-  ffExpGauss: "Cu-esc"
+  ffExpGauss: "Cu-Kalpha-esc"
 declareFitFunc(cuNi15Charge):
   ffGauss: "Cu-Kalpha"
-  ffGauss: "Cu-esc"
+  ffGauss: "Cu-Kalpha-esc"
 declareFitFunc(mnCr12):
   ffExpGauss: "Mn-Kalpha"
-  ffGauss: "Mn-esc"
+  ffGauss: "Mn-Kalpha-esc"
 declareFitFunc(mnCr12Charge):
   ffGauss: "Mn-Kalpha"
-  ffGauss: "Mn-esc"
+  ffGauss: "Mn-Kalpha-esc"
 declareFitFunc(tiTi9):
   ffExpGauss: "Ti-Kalpha"
-  ffGauss: "Ti-esc-alpha"
+  ffGauss: "Ti-Kalpha-esc"
     #name = "Ti-esc-alpha"
     #gmu = emu("Ti-Kalpha") * (1.537/4.511)
-  ffGauss: #"Ti-esc-beta"
-    name = "Ti-esc-beta"
-    gmu = emu("Ti-Kalpha") * (1.959/4.511)
-    gs = gs("Ti-esc-alpha")
   ffGauss: #"Ti-Kbeta"
     name = "Ti-Kbeta"
     gmu = emu("Ti-Kalpha") * (4.932/4.511)
     gs = es("Ti-Kalpha")
+  ffGauss: #"Ti-esc-beta"
+    name = "Ti-Kbeta-esc"
+    gmu = emu("Ti-Kalpha") * (1.959/4.511)
+    gs = gs("Ti-Kalpha-esc")
 declareFitFunc(tiTi9Charge):
   ffGauss: "Ti-Kalpha"
-  ffGauss: "Ti-esc-alpha"
+  ffGauss: "Ti-Kalpha-esc"
     #name = "Ti-esc-alpha"
     #gmu = emu("Ti-Kalpha") * (1.537/4.511)
-  ffGauss: #"Ti-esc-beta"
-    name = "Ti-esc-beta"
-    gmu = gmu("Ti-Kalpha") * (1.959/4.511)
-    gs = gs("Ti-esc-alpha")
   ffGauss: #"Ti-Kbeta"
     name = "Ti-Kbeta"
     gmu = gmu("Ti-Kalpha") * (4.932/4.511)
     gs = gs("Ti-Kalpha")
+  ffGauss: #"Ti-esc-beta"
+    name = "Ti-Kbeta-esc"
+    gmu = gmu("Ti-Kalpha") * (1.959/4.511)
+    gs = gs("Ti-Kalpha-esc")
 declareFitFunc(agAg6):
   ffExpGauss: "Ag-Lalpha"
   ffGauss: #"Ag-Lbeta"
@@ -640,26 +640,26 @@ declareFitFunc(cuEpic2):
   #ffGauss: "Cu-Lbeta"
   ffGauss:
     name = "Cu-Lbeta"
-    gN = gN("Cu-Lalpha") * 0.65 / 1.11
-    gmu = gmu("Cu-Lalpha") * 0.9498 / 0.9297 # energies in keV of the lines
+    gN = gN("Cu-Lalpha") * (0.65 / 1.11)
+    gmu = gmu("Cu-Lalpha") * (0.9498 / 0.9297) # energies in keV of the lines
     gs = gs("Cu-Lalpha")
   ffGauss:
     name = "O-Kalpha"
     gN = gN("Cu-Lalpha") / 3.5 ## this has no physical motivation!
-    gmu = gmu("Cu-Lalpha") * 0.5249 / 0.9297
+    gmu = gmu("Cu-Lalpha") * (0.5249 / 0.9297)
     gs = gs("Cu-Lalpha") / 2.0
   ffGauss: "unknown"
 declareFitFunc(cuEpic2Charge):
   ffGauss: "Cu-Lalpha" ## XXX: replace two lines by mix of one, adjust energy to relative importance
   ffGauss:
     name = "Cu-Lbeta"
-    gN = gN("Cu-Lalpha") * 0.65 / 1.11 #/ 5.0
-    gmu = gmu("Cu-Lalpha") * 0.9498 / 0.9297 # energies in keV of the lines
+    gN = gN("Cu-Lalpha") * (0.65 / 1.11) #/ 5.0
+    gmu = gmu("Cu-Lalpha") * (0.9498 / 0.9297) # energies in keV of the lines
     gs = gs("Cu-Lalpha")
   ffGauss:
     name = "O-Kalpha"
     gN = gN("Cu-Lalpha") / 3.5 ## this has no physical motivation!
-    gmu = gmu("Cu-Lalpha") * 0.5249 / 0.9297
+    gmu = gmu("Cu-Lalpha") * (0.5249 / 0.9297)
     gs = gs("Cu-Lalpha") / 2.0
   ffGauss: "unknown"
   #ffGauss:
@@ -687,7 +687,7 @@ declareFitFunc(cuEpic0_9Charge):
   ffGauss:
     name = "C-Kalpha"
     gN = gN("O-Kalpha") / 10.0 ## this has no physical motivation!
-    gmu = gmu("O-Kalpha") * 277.0 / 524.9
+    gmu = gmu("O-Kalpha") * (277.0 / 524.9)
     gs = gs("O-Kalpha")
   ffGauss: "unknown"
 declareFitFunc(cEpic0_6):

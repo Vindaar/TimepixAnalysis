@@ -1108,7 +1108,7 @@ proc plotLogL(ctx: LikelihoodContext) =
 from private/cdl_stretching import initCdlStretch
 proc main(
   file: string,
-  h5out: string,
+  h5out = "",
   Fe55 = "",
   extract = "",
   to = "/tmp/",

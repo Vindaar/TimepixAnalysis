@@ -531,22 +531,34 @@ proc readRefDsets*(ctx: LikelihoodContext): tuple[ecc, ldivRms, fracRms: Table[s
     var labelOrder = initTable[Value, int]()
     for idx, el in xrayRef:
       labelOrder[%~ el] = idx
-    ggplot(df, aes("Eccentricity", "Ecc #", fill = "Dset")) +
+    ggplot(df.filter(f{`Eccentricity` < 5.0}), aes("Eccentricity", "Ecc #", fill = "Dset")) +
       ggridges("Dset", overlap = 1.75, labelOrder = labelOrder) +
-      geom_histogram(stat = "identity", position = "identity", alpha = 0.5, hdKind = hdOutline) +
+      geom_histogram(
+        stat = "identity", position = "identity", hdKind = hdOutline,
+        color = "black", lineWidth = 1.0
+        #alpha = 0.5,
+      ) +
       ggtitle(&"Eccentricity of reference file, year: {ctx.year}") +
       ggsave(&"out/eccentricity_ridgeline_{ctx.cdlFile.extractFilename}_{ctx.year}.pdf",
               width = 800, height = 480)
     ggplot(df, aes("L / RMS_trans", "L / RMS_trans #", fill = "Dset")) +
       ggridges("Dset", overlap = 1.75, labelOrder = labelOrder) +
-      geom_histogram(stat = "identity", position = "identity", alpha = 0.5, hdKind = hdOutline) +
+      geom_histogram(
+        stat = "identity", position = "identity", hdKind = hdOutline,
+        color = "black", lineWidth = 1.0
+        #alpha = 0.5,
+      ) +
       ggtitle(&"L / RMS_trans of reference file, year: {ctx.year}") +
       ggsave(&"out/lengthDivRmsTrans_ridgeline_{ctx.cdlFile.extractFilename}_{ctx.year}.pdf",
               width = 800, height = 480)
     ggplot(data = df.filter(f{Value: isNull(df["fracRmsTrans"][idx]) == (%~ false)}),
            aes("fracRmsTrans", "fracRmsTrans #", fill = "Dset")) +
       ggridges("Dset", overlap = 1.75, labelOrder = labelOrder) +
-      geom_histogram(stat = "identity", position = "identity", alpha = 0.5, hdKind = hdOutline) +
+      geom_histogram(
+        stat = "identity", position = "identity", hdKind = hdOutline,
+        color = "black", lineWidth = 1.0
+        #alpha = 0.5,
+      ) +
       ggtitle(&"fracRmsTrans of reference file, year: {ctx.year}") +
       ggsave(&"out/fracRmsTrans_ridgeline_{ctx.cdlFile.extractFilename}_{ctx.year}.pdf",
               width = 800, height = 480)
@@ -740,13 +752,13 @@ proc initLikelihoodContext*(cdlFile: string, year: YearKind, region: ChipRegion,
                             stretch = none[CdlStretch](),
                             numMorphedEnergies = 1000): LikelihoodContext =
   result = LikelihoodContext(cdlFile: cdlFile,
-                            year: year,
-                            region: region,
-                            morph: morphKind,
-                            energyDset: energyDset,
-                            timepix: timepix,
-                            stretch: stretch,
-                            numMorphedEnergies: numMorphedEnergies)
+                             year: year,
+                             region: region,
+                             morph: morphKind,
+                             energyDset: energyDset,
+                             timepix: timepix,
+                             stretch: stretch,
+                             numMorphedEnergies: numMorphedEnergies)
   case result.morph
   of mkNone:
     result.refSetTuple = result.readRefDsets()

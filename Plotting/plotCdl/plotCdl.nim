@@ -4,6 +4,8 @@ import helpers / utils
 
 import cligen
 
+import ginger
+
 type
   HistTuple = tuple[bins: seq[float64], hist: seq[float64]]
 
@@ -103,7 +105,6 @@ proc plotRef(df: DataFrame,
   #    ggtitle(&"fracRmsTrans of reference file, year: {yearKind}") +
   #    ggsave(&"out/fracRmsTrans_{refFile.extractFilename}_{yearKind}.pdf",
   #            width = 800, height = 480)
-
   let xrayRef = getXrayRefTable()
   var labelOrder = initTable[Value, int]()
   for idx, el in xrayRef:
@@ -125,30 +126,93 @@ proc normalize(df: DataFrame, grp = "Dset", values = "Hist"): DataFrame =
 
 proc plotCdlFile(cdlFile: string) =
   var df = newDataFrame()
-  let cfg = initLikelihoodConfig(cdlFile,
-                                 year = yr2018,
-                                 energyDset = igEnergyFromCharge,
-                                 region = crGold,
-                                 timepix = Timepix1,
-                                 morphKind = mkNone) # morphing irrelevant here
+  let ctx = initLikelihoodContext(cdlFile,
+                                  year = yr2018,
+                                  energyDset = igEnergyFromCharge,
+                                  region = crGold,
+                                  timepix = Timepix1,
+                                  morphKind = mkLinear) # morphing to plot interpolation
   let xrayTab = getXrayRefTable()
+
+  var refDf = newDataFrame()
   for idx, key in xrayTab:
-    let (logL, energies) = buildLogLHist(key, cfg)
+    let (logL, energies) = buildLogLHist(key, ctx)
     var dfLoc = toDf({"logL" : logL, "Energy" : energies})
     dfLoc["Dset"] = constantColumn(key, dfLoc.len)
     df.add dfLoc
+
+    ## read the data from the CDL file and generate the reference data using cuts
+    let (eccs, ldiv, frac) = key.genRefData(ctx)
+
+    proc dsetToDf(dset: HistTuple, property: string): DataFrame =
+      result = toDf({ "Bins" : dset[0],
+                      "Counts" : dset[1],
+                      "Dset" : property })
+    var propDf = newDataFrame()
+    propDf.add dsetToDf(eccs, "eccentricity")
+    propDf.add dsetToDf(ldiv, "lengthDivRmsTrans")
+    propDf.add dsetToDf(frac, "fractionInTransverseRms")
+
+    propDf["tfKind"] = key
+    refDf.add propDf
 
   let xrayRef = getXrayRefTable()
   var labelOrder = initTable[Value, int]()
   for idx, el in xrayRef:
     labelOrder[%~ el] = idx
 
+  var img = initViewport(wImg = 1200, hImg = 600, backend = bkCairo)
+  img.layout(3, rows = 1)
+  var idx = 0
+  let title = "Overview of all reference distributions for each of the three cluster properties"
+  for (tup, subDf) in refDf.group_by("Dset").groups:
+    let dset = tup[0][1].toStr
+    proc filterDset(df: DataFrame, dset: string): DataFrame =
+      case dset
+      of "eccentricity":            result = df.filter(f{`Bins` <= 4.0 and `Bins` >= 0.0})
+      of "lengthDivRmsTrans":       result = df.filter(f{`Bins` <= 15.0 and `Bins` >= 0.0})
+      of "fractionInTransverseRms": result = df#.filter(f{`Bins` <= 15.0 and `Bins` >= 0.0})
+      else: doAssert false, "Dset: " & $dset
+    let dfF = filterDset(subDf, dset)
+    var plt = ggplot(dfF, aes("Bins", "Counts", fill = "tfKind"), backend = bkCairo) +
+      ggridges("tfKind", overlap = 1.5, labelOrder = labelOrder) +
+      geom_histogram(position = "identity", stat = "identity", hdKind = hdOutline, color = "black", lineWidth = 1.0) +
+      xlab(dset, tickMargin = 1.5) +
+      margin(left = 4.0, right = 1, top = 1.5) +
+      hideLegend()
+    img.embedAsRelative(idx, ggcreate(plt).view)
+    inc idx
+
+    ggplot(dfF, aes("Bins", "Counts", fill = "tfKind")) +
+      facet_wrap("tfKind", scales = "free") +
+      geom_histogram(stat = "identity", position = "identity") +
+      ggtitle(&"{dset} of reference file") +
+      xlab(dset) +
+      ggsave(&"out/{dset}_facet_{cdlFile.extractFilename}.pdf",
+              width = 1200, height = 1000)
+
+  var area = img.addViewport()
+  let text = area.initText(c(0.5, 0.05, ukRelative), title, goText, taCenter, font = some(font(16.0)))
+  area.addObj text
+  img.children.add area
+  img.draw("out/ridgeline_all_properties_side_by_side.pdf")
+
+  ggplot(refDf.filter(f{`Bins` <= 10.0 and `Bins` >= 0.0}), aes("Bins", "Counts", fill = "Dset")) +
+    ggridges("tfKind", overlap = 1.5, labelOrder = labelOrder) +
+    geom_histogram(position = "identity", stat = "identity", hdKind = hdOutline, color = "black", lineWidth = 1.0) +
+    xlim(0, 10) +
+    ggsave("/t/test.pdf", width = 1000, height = 600)
+
+
   let breaks = linspace(0, 30.0, 201)
   ggplot(df, aes("logL", fill = "Dset")) +
     ggridges("Dset", overlap = 1.5, labelOrder = labelOrder) +
     geom_histogram(breaks = breaks, position = "identity",
                    hdKind = hdOutline,
+                   color = "black", lineWidth = 1.0,
                    density = true) +
+    xlab("-ln L") +
+    ggtitle("-ln L distributions for each target/filter combination") +
     ggsave(&"out/logL_ridgeline.pdf")
 
   ggplot(df, aes("logL", color = "Dset")) +
@@ -158,11 +222,24 @@ proc plotCdlFile(cdlFile: string) =
     ggtitle("LogL distributions from CDL data") +
     ggsave(&"out/logL_outline.pdf")
 
+  ## XXX: replace this by the version that we generate in `cdl_spectrum_creation`? We'd need to
+  ## write the energies we calculate there to the output file though! Anyhow this plot is also
+  ## useful to have.
   ggplot(df, aes("Energy", fill = "Dset")) +
     geom_histogram(position = "identity", alpha = 0.5, bins = 300, hdKind = hdOutline) +
     xlab("Energy [keV]") + ylab("#") +
     ggtitle("Energy spectra of all GridPix Feb 2019 X-ray tube data") +
     ggsave(&"out/cdl_energies.pdf")
+
+  # XXX: Well, it doesn't work in the way I thought, because obviously we cannot just compute
+  # the likelihood distributions directly! We can compute *a* likelihood value for a cluster
+  # at an arbitrary energy, but to get a likelihood distribution we'd need actual X-ray data
+  # at all energies! The closest we have to that is the general CDL data (not just the main
+  # peak & using correct energies for each cluster)
+  # XXX 2: Not quite true. We *DO* compute the interpolated likelihood *DISTRIBUTIONS* already,
+  # namely to define the cut values!
+  # ## And now a heatmap of the interpolated *likelihood* distributions including the cut values
+  # let cutVs = ctx.calcCutValueTab()
 
 proc main(files: seq[string] = @[],
           refFile: string = "/home/basti/CastData/data/CDL_2019/XrayReferenceFile2018.h5",

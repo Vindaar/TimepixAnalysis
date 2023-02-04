@@ -444,7 +444,43 @@ type
     yr2014 = "2014"
     yr2018 = "2018"
 
+  ## Types used in the `cdl_spectrum_creation`
 
+  TargetKind* = enum
+    tEmpty = ""
+    tCu = "Cu"
+    tMn = "Mn"
+    tTi = "Ti"
+    tAg = "Ag"
+    tAl = "Al"
+    tC = "C"
+
+  FilterKind* = enum
+    fEmpty = ""
+    fEpic = "EPIC"
+    fCr = "Cr"
+    fNi = "Ni"
+    fAg = "Ag"
+    fAl = "Al"
+    fTi = "Ti"
+
+  TargetFilterKind* = enum
+    tfCuNi15 = "Cu-Ni-15kV"
+    tfMnCr12 = "Mn-Cr-12kV"
+    tfTiTi9 = "Ti-Ti-9kV"
+    tfAgAg6 = "Ag-Ag-6kV"
+    tfAlAl4 = "Al-Al-4kV"
+    tfCuEpic2 = "Cu-EPIC-2kV"
+    tfCuEpic0_9 = "Cu-EPIC-0.9kV"
+    tfCEpic0_6 =  "C-EPIC-0.6kV"
+
+  CdlRun* = object
+    number*: int
+    runType*: RunTypeKind
+    hasFadc*: bool
+    target*: TargetKind
+    filter*: FilterKind
+    hv*: float
 
   ## This stupidly named object stores the parameters for the stretching of the
   ## CDL data to suit the detector's data based on a set of 55Fe data.

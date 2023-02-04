@@ -17,7 +17,7 @@ index bd5eb1ec3..170061aaf 100644
    # careful! we copy the whole AST including the possibly nil body!
 ]#
 
-import std / [parsecsv, os, streams, strutils, strformat, tables, sequtils,
+import std / [os, streams, strutils, strformat, tables, sequtils,
               macros, fenv, algorithm, times, strscans, typeinfo]
 import ingrid / [ingrid_types, tos_helpers]
 import ingrid / calibration
@@ -68,7 +68,6 @@ const filename = TpxDir / "resources/cdl_runs_2019.org"
 #const cutparams = "../../resources/cutparams.org"
 #actually cutparams isn't necessary since cuts are choosen in tos helpers
 const outdate = &"2019"
-const chipnumber = "3"
 # this global can be changed to create the XrayReferenceFile.h5 using the
 # 2014 naming scheme (default TPA naming)
 const XrayRefGenerateNamingScheme = fkTpa
@@ -77,51 +76,11 @@ const XrayRefGenerateNamingScheme = fkTpa
 const CdlGenerateNamingScheme = fkTpa
 
 type
-  TargetKind = enum
-    tEmpty = ""
-    tCu = "Cu"
-    tMn = "Mn"
-    tTi = "Ti"
-    tAg = "Ag"
-    tAl = "Al"
-    tC = "C"
-
-  FilterKind = enum
-    fEmpty = ""
-    fEpic = "EPIC"
-    fCr = "Cr"
-    fNi = "Ni"
-    fAg = "Ag"
-    fAl = "Al"
-    fTi = "Ti"
-
-  TargetFilterKind* = enum
-    tfCuNi15 = "Cu-Ni-15kV"
-    tfMnCr12 = "Mn-Cr-12kV"
-    tfTiTi9 = "Ti-Ti-9kV"
-    tfAgAg6 = "Ag-Ag-6kV"
-    tfAlAl4 = "Al-Al-4kV"
-    tfCuEpic2 = "Cu-EPIC-2kV"
-    tfCuEpic0_9 = "Cu-EPIC-0.9kV"
-    tfCEpic0_6 =  "C-EPIC-0.6kV"
-
-  CdlRun = object
-    number: int
-    runType: RunTypeKind
-    hasFadc: bool
-    target: TargetKind
-    filter: FilterKind
-    hv: float
-
   CdlFitFunc = proc(p_ar: seq[float], x: float): float
 
   DataKind = enum
     Dhits = "hits"
     Dcharge = "charge"
-
-  YearKind = enum
-    yr2014 = "2014"
-    yr2018 = "2018"
 
   FitResult = object
     pStart: seq[float]
@@ -141,17 +100,6 @@ type
     fit_μ: Measurement[float]
     fit_σ: Measurement[float]
     energyRes: Measurement[float]
-
-proc removeSuffix(s, suff: string): string =
-  result = s
-  result.removeSuffix(suff)
-
-# helper converters to get targets, filters and kV values from a `TargetFilterKind`
-proc toTarget(tfKind: TargetFilterKind): TargetKind = ($tfKind).split("-")[0].parseEnum[:TargetKind]()
-proc toFilter(tfKind: TargetFilterKind): FilterKind = ($tfKind).split("-")[1].parseEnum[:FilterKind]()
-proc toHV(tfKind: TargetFilterKind, withSuffix = true): string =
-  if withSuffix: ($tfKind).split("-")[2]
-  else: ($tfKind).split("-")[2].removeSuffix("kV")
 
 proc readFitByRun(config: string): bool =
   ## Reads the `fitByRun` field from the configuration file, deciding whether to
@@ -835,89 +783,24 @@ proc fitCdlMpfit(fitData: FitData, tfKind: TargetFilterKind, dKind: DataKind): F
                      pErr: res.error,
                      χ²dof: res.reducedChiSq)
 
-proc toCutStr(run: CdlRun): string =
-  let hv = block:
-    if run.hv > 1.0 and run.hv < 10.0:
-      &"{run.hv:1}"
-    elif run.hv > 10.0:
-      &"{run.hv:2}"
-    else:
-      &"{run.hv:1.1f}"
-  result = &"{run.target}-{run.filter}-{hv}kV"
-
-proc readRuns(fname: string): seq[CdlRun] =
-  var s = newFileStream(fname, fmRead)
-  var parser: CsvParser
-  if not s.isNil:
-    parser.open(s, fname, separator = '|')
-    parser.readHeaderRow()
-    discard parser.readRow()
-    while parser.readRow:
-      let row = parser.row
-      let run = CdlRun(number: row[1].strip.parseInt,
-                       runType: parseEnum[RunTypeKind](row[2].strip, rtNone),
-                       hasFadc: row[3].strip.parseBool,
-                       target: parseEnum[TargetKind](row[4].strip, tEmpty),
-                       filter: parseEnum[FilterKind](row[5].strip, fEmpty),
-                       hv: if row[6].strip.len > 0: row[6].strip.parseFloat else: 0.0)
-      result.add run
-
-proc toTfKind(run: CdlRun): TargetFilterKind =
-  result = parseEnum[TargetFilterKind](&"{toCutStr(run)}")
-
-iterator tfRuns(h5f: H5File, tfKind: TargetFilterKind): (int, H5Group) =
-  ## Yields the center chip group of all runs from `filename`,
-  ## which match `tfKind`
-  let runs = readRuns(filename)
-  for r in runs:
-    case r.runType
-    of rtXrayFinger:
-      let tfk = r.toTfKind
-      if tfk == tfKind:
-        let runGrp = h5f[recoRunGrpStr(r.number)]
-        let centerChip = runGrp.attrs["centerChip", int]
-        let chpGrp = h5f[(runGrp.name / "chip_" & $centerChip).grp_str]
-        yield (r.number, chpGrp)
-    else:
-      # nothing to yield if not an "XrayFinger" (read CDL) run
-      discard
-
-proc getCdlCutIdxs(h5f: H5File, runNumber: int, tfKind: TargetFilterKind): seq[int] =
-  let cutTab = getXrayCleaningCuts()
-  let grp = h5f[(recoDataChipBase(runNumber) & chipnumber).grp_str]
-  let cut = cutTab[$tfKind]
-  result = cutOnProperties(h5f,
-                           grp,
-                           cut.cutTo,
-                           ("rmsTransverse", cut.minRms, cut.maxRms),
-                           ("length", 0.0, cut.maxLength),
-                           ("hits", cut.minPix, Inf),
-                           ("eccentricity", 0.0, cut.maxEccentricity))
-
-proc readCutCDL[T](h5f: H5File, runNumber: int, dset: string,
-                   tfKind: TargetFilterKind, _: typedesc[T]): seq[T] =
-  let passIdx = h5f.getCdlCutIdxs(runNumber, tfKind)
-  let data = h5f.readAs(recoDataChipBase(runNumber) & $chipnumber / dset, T)
-  result = passIdx.mapIt(data[it])
-
-proc readCutCDL[T](h5f: H5File, runNumber: int, dset: string,
-                   tfKind: TargetFilterKind, passIdx: seq[int], _: typedesc[T]): seq[T] =
-  let data = h5f.readAs(recoDataChipBase(runNumber) & $chipnumber / dset, T)
-  result = passIdx.mapIt(data[it])
+proc getCenterChip(h5f: H5File): int =
+  let recoGrp = h5f["reconstruction".grp_str]
+  result = recoGrp.attrs["centerChip", int]
 
 proc cutAndWrite(h5file: string) =
   ## XXX: this is imo not really very useful. Instead we should make sure to always cut the data
   ## on the fly. The cuts are cheap after all!
   let runs = readRuns(filename)
   var h5f = H5open(h5file, "rw")
+  let centerChip = h5f.getCenterChip()
   defer: discard h5f.close()
   for r in runs:
     #if r.number != 315:
       #continue
     case r.runType
     of rtXrayFinger:
-      let grp = h5f[(recoDataChipBase(r.number) & chipnumber).grp_str]
-      let passIdx = h5f.getCdlCutIdxs(r.number, r.toTfKind())
+      let grp = h5f[(recoDataChipBase(r.number) & $centerChip).grp_str]
+      let passIdx = h5f.getCdlCutIdxs(r.number, centerChip, r.toTfKind())
       let nevents = passIdx.len
 
       proc writeDset(r: CDLRun, dsetWrite, dsetRead: string, datatype: typedesc) =
@@ -1273,19 +1156,19 @@ proc calcEnergyFromFits(df: DataFrame, mainPeak: MainPeak): DataFrame =
   let lineEnergy = energies[invTab[$(mainPeak.tfKind)]]
   result = result.mutate(f{float: "Energy" ~ `Counts` / mainPeak.fit_μ.value * lineEnergy})
 
-proc readCdlRunTfKind(h5f: H5File, grp: H5Group, run: int, tfKind: TargetFilterKind,
+proc readCdlRunTfKind(h5f: H5File, grp: H5Group, run, chip: int, tfKind: TargetFilterKind,
                       dKind: DataKind): DataFrame =
   case dKind
   of Dhits:
     let RawDataSeq = h5f[grp.name / "hits", int64]
-    let Cdlseq = h5f.readCutCDL(run, "hits", tfKind, int64)
+    let Cdlseq = h5f.readCutCDL(run, chip, "hits", tfKind, int64)
     result = bind_rows([("Raw", toDf({"Counts": RawDataSeq})),
                         ("Cut", toDf({"Counts": Cdlseq}))],
                        id = "Cut?")
     result["runNumber"] = run
   of Dcharge:
     let RawDataSeq = h5f[grp.name / "totalCharge", float]
-    let Cdlseq = h5f.readCutCDL(run, "totalCharge", tfKind, float)
+    let Cdlseq = h5f.readCutCDL(run, chip, "totalCharge", tfKind, float)
     result = bind_rows([("Raw", toDf({"Counts": RawDataSeq})),
                         ("Cut", toDf({"Counts": Cdlseq}))],
                        id = "Cut?")
@@ -1294,14 +1177,15 @@ proc readCdlRunTfKind(h5f: H5File, grp: H5Group, run: int, tfKind: TargetFilterK
 iterator getCdlData(h5f: H5File, tfKind: TargetFilterKind, dKind: DataKind, fitByRun: bool): (int, DataFrame) =
   ## Yields the run number (if `fitByRun`) and the corresponding data frame. If `fitByRun` is
   ## `false` just yields `0` for run number.
+  let centerChip = h5f.getCenterChip()
   if fitByRun:
     var df = newDataFrame()
-    for (run, grp) in tfRuns(h5f, tfKind):
-      yield (run, h5f.readCdlRunTfKind(grp, run, tfKind, dKind))
+    for (run, grp) in tfRuns(h5f, tfKind, filename):
+      yield (run, h5f.readCdlRunTfKind(grp, run, centerChip, tfKind, dKind))
   else:
     var df = newDataFrame()
-    for (run, grp) in tfRuns(h5f, tfKind):
-      df.add h5f.readCdlRunTfKind(grp, run, tfKind, dKind)
+    for (run, grp) in tfRuns(h5f, tfKind, filename):
+      df.add h5f.readCdlRunTfKind(grp, run, centerChip, tfKind, dKind)
     yield (0, df)
 
 proc fitAndPlot(h5f: H5File, fitParamsFname: string,
@@ -1419,13 +1303,14 @@ proc generateCdlCalibrationFile(h5file: string, year: YearKind, fitByRun: bool,
   let runs = readRuns(filename)
   let plotPath = h5f.attrs[PlotDirPrefixAttr, string]
   let fitParamsFname = getFitParamsFname(true)
+  let centerChip = h5f.getCenterChip()
   for tfKind in TargetFilterKind:
     var df = newDataFrame()
     var peak: MainPeak
-    for (run, grp) in tfRuns(h5f, tfKind):
+    for (run, grp) in tfRuns(h5f, tfKind, filename):
       # first get data for the CDL fit
       if fitByRun:
-        df = h5f.readCdlRunTfKind(grp, run, tfKind, Dcharge)
+        df = h5f.readCdlRunTfKind(grp, run, centerChip, tfKind, Dcharge)
         # fit directly, in case of `fitByRun = false` we fit _after_ this loop!
         peak = h5f.fitAndPlotImpl(df, run, fitParamsFname,
                                   tfKind, Dcharge, showStartParams = false, hideNloptFit = true,
@@ -1436,7 +1321,7 @@ proc generateCdlCalibrationFile(h5file: string, year: YearKind, fitByRun: bool,
         # write cuts for the charge based on fit
         h5fout.writeChargeCutBounds(peak, tfKind, year, fitByRun, run)
       else:
-        df.add h5f.readCdlRunTfKind(grp, run, tfKind, Dcharge)
+        df.add h5f.readCdlRunTfKind(grp, run, centerChip, tfKind, Dcharge)
 
       # will not iterate the datasets and write to the outfile
       # via hyperslabs, potentially appending to the existing
@@ -1609,7 +1494,7 @@ proc generateXrayReferenceFile(h5file: string, year: YearKind, fitByRun: bool,
 proc readGasGain(h5f: H5File, tfKind: TargetFilterKind): (DataFrame, DataFrame) =
   var gainDf = newDataFrame()
   var tempDf = newDataFrame()
-  for (run, grp) in tfRuns(h5f, tfKind):
+  for (run, grp) in tfRuns(h5f, tfKind, filename):
     var gains = newSeq[float]()
     for gainSlice in iterGainSlicesFromDset(h5f, grp):
       gains.add gainSlice.G
@@ -1697,14 +1582,15 @@ proc plotRunGains(gainDf, tempDf: DataFrame, plotPath: string) =
 proc plotIngridProperties(h5f: H5File, tfKind: TargetFilterKind, plotPath: string) =
   var dfAll = newDataFrame()
   var dsets = newSeq[string]()
+  let centerChip = h5f.getCenterChip()
   for dset in InGridDsetKind:
     if dset in {igInvalid, igEnergyFromCharge, igEnergyFromPixel, igLikelihood, igNumClusters,
                 igFractionInHalfRadius, igRadiusDivRmsTrans, igRadius, igBalance, igLengthDivRadius, igEventNumber}:
       continue
     var df = newDataFrame()
     let dsetStr = dset.toDset()
-    for (run, grp) in tfRuns(h5f, tfKind):
-      df.add toDf({ dsetStr : h5f.readCutCDL(run, dsetStr, tfKind, float), "run" : run })
+    for (run, grp) in tfRuns(h5f, tfKind, filename):
+      df.add toDf({ dsetStr : h5f.readCutCDL(run, centerChip, dsetStr, tfKind, float), "run" : run })
     echo df
     let maxVal = df[dsetStr, float].max
     dfAll[dsetStr] = df[dsetStr, float].map_inline(x / maxVal)

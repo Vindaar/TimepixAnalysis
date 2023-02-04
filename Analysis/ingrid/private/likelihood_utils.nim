@@ -613,7 +613,7 @@ proc calcLikelihoodForEvent*(ctx: LikelihoodContext,
     let idx = min(ctx.refDfEnergy.lowerBound(energy), ctx.numMorphedEnergies - 1)
     result = calcMorphedLikelihoodForEvent(ecc, lengthDivRmsTrans, fracRmsTrans,
                                            ctx.refDf, idx)
-  echo "result ? ", result, " based on ", ecc, " ", lengthDivRmsTrans, " ", fracRmsTrans
+  #echo "result ? ", result, " based on ", ecc, " ", lengthDivRmsTrans, " ", fracRmsTrans
 
 proc calcLikelihoodDataset*(h5f: var H5File, groupName: string, ctx: LikelihoodContext): seq[float] =
   let (ecc,

@@ -692,9 +692,8 @@ proc calcCutValueTab*(ctx: LikelihoodContext): CutValueInterpolator =
   # read signal efficiency (default 80%) from TOML file
 
   ## TODO: finish implementation of 55Fe for morphed data!
-
   let efficiency = readSignalEff()
-  let morphKind = readMorphKind()
+  let morphKind = ctx.morph
   let xray_ref = getXrayRefTable()
   case morphKind
   of mkNone:

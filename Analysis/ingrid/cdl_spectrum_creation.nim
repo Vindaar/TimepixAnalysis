@@ -1188,6 +1188,23 @@ iterator getCdlData(h5f: H5File, tfKind: TargetFilterKind, dKind: DataKind, fitB
       df.add h5f.readCdlRunTfKind(grp, run, centerChip, tfKind, dKind)
     yield (0, df)
 
+proc writeChargeCutBounds(h5f: H5File, peak: MainPeak,
+                          tfKind: TargetFilterKind, year: YearKind, fitByRun: bool, runNumber: int,
+                          fileIsCdl: bool) =
+  let grpName = if fileIsCdl: cdlGroupName($tfKind, $year, "", fitByRun, runNumber)
+                else:
+                  recoDataChipBase(runNumber) & $(h5f.getCenterChip())
+  let grp = h5f.getOrCreateGroup(grpName) # create or get
+  ## Define the cut ranges around the main peak of ±3σ
+  grp.attrs["fit_μ"] = peak.fit_μ.value
+  grp.attrs["fit_μ_err"] = peak.fit_μ.error
+  grp.attrs["fit_σ"] = peak.fit_σ.value
+  grp.attrs["fit_σ_err"] = peak.fit_σ.error
+  grp.attrs["energyRes"] = peak.energyRes.value
+  grp.attrs["energyRes_err"] = peak.energyRes.error
+  grp.attrs["ChargeLow"]  = (peak.fit_μ - (3 * peak.fit_σ)).value
+  grp.attrs["ChargeHigh"] = (peak.fit_μ + (3 * peak.fit_σ)).value
+
 proc fitAndPlot(h5f: H5File, fitParamsFname: string,
                 tfKind: TargetFilterKind, dKind: DataKind,
                 showStartParams, hideNloptFit, fitByRun: bool,
@@ -1202,6 +1219,8 @@ proc fitAndPlot(h5f: H5File, fitParamsFname: string,
                                   plotPath)
     # calibrate energy using `fit_μ` for unbinned data `dfLoc`
     dfU.add calcEnergyFromFits(dfLoc, peak)
+    # write cuts for the charge based on fit
+    h5f.writeChargeCutBounds(peak, tfKind, yr2018, fitByRun, runNumber, fileIsCdl = false)
     mainPeaks.add peak
 
   # first plot of only cut data by
@@ -1283,14 +1302,6 @@ proc getFitParamsFname(dumpAccurate: bool): string =
   else:
     result = "fitparams_" & $(epochTime().round.int) & ".txt"
 
-proc writeChargeCutBounds(h5f: H5File, peak: MainPeak,
-                          tfKind: TargetFilterKind, year: YearKind, fitByRun: bool, runNumber: int) =
-  let grpName = cdlGroupName($tfKind, $year, "", fitByRun, runNumber)
-  let grp = h5f.getOrCreateGroup(grpName) # create or get
-  ## Define the cut ranges around the main peak of ±3σ
-  grp.attrs["ChargeLow"]  = (peak.fit_μ - (3 * peak.fit_σ)).value
-  grp.attrs["ChargeHigh"] = (peak.fit_μ + (3 * peak.fit_σ)).value
-
 proc generateCdlCalibrationFile(h5file: string, year: YearKind, fitByRun: bool,
                                 outfile = "calibration-cdl") =
   ## generates the CDL calibration data file from a HDF5 file containing
@@ -1319,7 +1330,7 @@ proc generateCdlCalibrationFile(h5file: string, year: YearKind, fitByRun: bool,
         ## XXX: write energy to output
         df = calcEnergyFromFits(df, peak)
         # write cuts for the charge based on fit
-        h5fout.writeChargeCutBounds(peak, tfKind, year, fitByRun, run)
+        h5fout.writeChargeCutBounds(peak, tfKind, year, fitByRun, run, fileIsCdl = true)
       else:
         df.add h5f.readCdlRunTfKind(grp, run, centerChip, tfKind, Dcharge)
 
@@ -1386,7 +1397,7 @@ proc generateCdlCalibrationFile(h5file: string, year: YearKind, fitByRun: bool,
       ## XXX: write energy to output
       df = calcEnergyFromFits(df, peak)
       # write cuts for the charge based on fit
-      h5fout.writeChargeCutBounds(peak, tfKind, year, fitByRun, 0)
+      h5fout.writeChargeCutBounds(peak, tfKind, year, fitByRun, 0, fileIsCdl = true)
 
 
   h5fout.attrs["FrameworkKind"] = $CdlGenerateNamingScheme

@@ -7,58 +7,59 @@
 
 import ingrid / tos_helpers
 import sequtils, seqmath, nimhdf5, strutils, tables
-import os, sugar
+import os
 
 import ggplotnim
-import helpers / utils
 
-proc getScintiFadcDataFrame(h5f: var H5FileObj, runNumber: int): DataFrame =
+proc getScintiFadcDataFrame(h5f: H5File, runNumber: int): DataFrame =
   ## creates a dataframe for run number `runNumber` with the following columns
   ## - fadc triggered
   ## - scinti 1 counts
   ## - scinti 2 counts
   ## - eventDuration
-  var grp = h5f[(recoBase() & $runNumber).grp_str]
   const names = ["eventDuration", "fadcReadout", "szint1ClockInt", "szint2ClockInt"]
   result = DataFrame()
-  for n in names:
-    let data = h5f.readAs(grp.name / n, float)
-    result[n.replace("ClockInt", "")] = toVector(%~ data)
-    result.len = data.len
+  let fileInfo = h5f.getFileInfo()
+  for run in fileInfo.runs:
+    if runNumber >= 0 and run != runNumber: continue
+    var grp = h5f[(recoBase() & $run).grp_str]
+    var df = newDataFrame()
+    for n in names:
+      let data = h5f.readAs(grp.name / n, float)
+      df[n.replace("ClockInt", "")] = data
+    df["runNumber"] = run
+    result.add df
 
-proc sumEv(s: seq[float]): float =
-  result = s.foldl(a + b, 0.0)
-liftVectorFloatProc(sumEv)
-
-proc calcScinti(df: DataFrame, scinti: string, runNumber: int): float =
+proc calcScinti(df: DataFrame, scinti: string, runNumber: int,
+                plotPath: string): float =
   ##  returns the rate of triggers from this scinti for random events
-  ggplot(df.filter(f{scinti < 4095}),
+  ggplot(df.filter(f{idx(scinti) < 4095}),
          aes(x = scinti)) +
-    geom_histogram() +
-    ggsave(scinti & "_full_run" & $runNumber & ".pdf")
+    geom_histogram(bins = 50) +
+    ggsave(plotPath / scinti & "_full_run" & $runNumber & ".pdf")
 
-  let nonTrivial = df.filter(f{scinti > 0 and
-                               scinti < 4095})
-  let nonMain = df.filter(f{scinti >= 300 and
-                            scinti < 4095})
+  let nonTrivial = df.filter(f{float: idx(scinti) > 0 and
+                               idx(scinti) < 4095})
+  let nonMain = df.filter(f{float: idx(scinti) >= 300 and
+                            idx(scinti) < 4095})
   echo nonTrivial
   echo nonMain
   echo "non trivial ", scinti, ":", nonTrivial.len
   echo "outside of main peak ", scinti, ":", nonMain.len
   echo "time of non trivial ", scinti, ":",
-    nonTrivial.summarize(f{"time" ~ sumEv("eventDuration")})
+    nonTrivial["eventDuration", float].sum
   echo "time of non trivial non main ", scinti, ":",
-    nonMain.summarize(f{"time" ~ sumEv("eventDuration")})
+    nonMain["eventDuration", float].sum
   ggplot(nonMain, aes(x = scinti)) +
     geom_histogram() +
-    ggsave(scinti & "_nonMain_run" & $runNumber & ".pdf")
+    ggsave(plotPath / scinti & "_nonMain_run" & $runNumber & ".pdf")
 
-  ggplot(df.filter(f{scinti > 0 and scinti < 300}), aes(scinti)) +
-    geom_histogram() +
-    ggsave(scinti & "_main_run" & $runNumber & ".pdf")
+  ggplot(df.filter(f{float: idx(scinti) > 0 and idx(scinti) < 300}), aes(scinti, fill = factor("runNumber"))) +
+    geom_histogram(binWidth = 1.0) +
+    ggsave(plotPath / scinti & "_main_run" & $runNumber & ".pdf")
 
   let nonMainTriggers = nonMain.len
-  let mainTriggers = df.filter(f{scinti > 0 and scinti < 300}).len
+  let mainTriggers = df.filter(f{float: idx(scinti) > 0 and idx(scinti) < 300}).len
   echo "Main triggers: ", mainTriggers
   let fTriggers = df.len
   echo "FADC triggers ", fTriggers
@@ -73,7 +74,8 @@ proc calcScinti(df: DataFrame, scinti: string, runNumber: int): float =
   echo "Open shutter time in s: ", deltaT
   result = nonMainTriggers.float / deltaT
 
-proc main(fname: string, runNumber: int) =
+proc main(fname: string, runNumber: int = -1) =
+
   var h5f = H5open(fname, "r")
   defer: discard h5f.close()
 
@@ -81,25 +83,24 @@ proc main(fname: string, runNumber: int) =
   echo df
 
   # first calculate total time of run
-  let runTime = df.summarize(f{"runTime" ~ sumEv("eventDuration")})["runTime"][0].toFloat
+  let runTime = df["eventDuration", float].sum
   echo "Open shutter time in hours: ", runTime / 3600.0
 
-  let dfTriggered = df.filter(f{"fadcReadout" > 0})
-  let runTimeFadcDf = dfTriggered.summarize(f{"runTimeFADC" ~ sumEv("eventDuration")})
+  let dfTriggered = df.filter(f{float: `fadcReadout` > 0})
+  let runTimeFadc = dfTriggered["eventDuration", float].sum
   echo "Number of FADC triggers: ", dfTriggered.len
-  let runTimeFadc = runTimeFadcDf["runTimeFADC"][0].toFloat
   echo "Open shutter time w/ FADC trigger in hours: ", runTimeFadc / 3600.0
   echo dfTriggered
 
-  let rate1 = calcScinti(dfTriggered, "szint1", runNumber)
-  let rate2 = calcScinti(dfTriggered, "szint2", runNumber)
+  let plotPath = h5f.attrs[PlotDirPrefixAttr, string]
+  let rate1 = calcScinti(dfTriggered, "szint1", runNumber, plotPath)
+  let rate2 = calcScinti(dfTriggered, "szint2", runNumber, plotPath)
 
   echo "Scinti1 rate: ", rate1, " s^-1"
   echo "Scinti2 rate: ", rate2, " s^-1"
 
 
 when isMainModule:
-  if paramCount() == 2:
-    main(paramStr(1), paramStr(2).parseInt)
-  else:
-    echo "Please hand a filename and a run number!"
+  import cligen
+  dispatch(main, help = { "fname" : "Input H5 file name of file containing scintillator triggers",
+                          "runNumber" : "Optional run number to restrict to this run number" })

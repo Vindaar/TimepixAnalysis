@@ -6,7 +6,7 @@
 ## - total run time of events with FADC trigger?
 
 import ingrid / tos_helpers
-import sequtils, seqmath, nimhdf5, strutils, tables
+import seqmath, nimhdf5, strutils, tables
 import os
 
 import ggplotnim
@@ -57,6 +57,21 @@ proc calcScinti(df: DataFrame, scinti: string, runNumber: int,
   ggplot(df.filter(f{float: idx(scinti) > 0 and idx(scinti) < 300}), aes(scinti, fill = factor("runNumber"))) +
     geom_histogram(binWidth = 1.0) +
     ggsave(plotPath / scinti & "_main_run" & $runNumber & ".pdf")
+
+  # finally a facet plot of both together
+  let dfG = df.rename(f{"SiPM" <- "szint1"}, f{"Paddle" <- "szint2"})
+    .gather(["SiPM", "Paddle"], "Scintillator", "Clocks")
+    .filter(f{float: idx("Clocks") > 0 and idx("Clocks") < 300})
+  ggplot(dfG, aes("Clocks", fill = "Scintillator")) +  #, fill = factor("Number"))) +
+    facet_wrap("Scintillator", scales = "free") +
+    facetMargin(0.5) +
+    margin(right = 3.5, bottom = 1) +
+    geom_histogram(binWidth = 1.0, position = "identity") +
+    xlab("Clock cycles", margin = 0.25) +
+    legendPosition(0.83, 0.0) +
+    ggtitle("Clock cycles at which scintillators triggered in 2018 data") +
+    ggsave(plotPath / "scintillators_facet_main_run" & $runNumber & ".pdf", width = 800, height = 480)
+
 
   let nonMainTriggers = nonMain.len
   let mainTriggers = df.filter(f{float: idx(scinti) > 0 and idx(scinti) < 300}).len

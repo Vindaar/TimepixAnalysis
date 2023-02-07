@@ -1,5 +1,5 @@
 import std / [os, tables, strutils, strformat, algorithm, sets,
-              stats, sequtils, typetraits]
+              stats, sequtils, typetraits, random]
 # import docopt except Value
 import cligen / macUt
 import nimhdf5, tos_helpers, seqmath, arraymancer
@@ -10,6 +10,8 @@ from ingrid / private / geometry import recoEvent
 import ingrid / private / likelihood_utils
 import ingridDatabase / [databaseRead, databaseDefinitions]
 import parsetoml except `{}`
+
+from std / envvars import getEnv # for some additional config, plotSeptem cutoff ...
 
 #import ../../Tools/NN_playground/predict_event
 
@@ -34,7 +36,10 @@ const RmsCleaningCut = 1.5
 
 type
   FlagKind = enum
-    fkTracking, fkFadc, fkScinti, fkSeptem, fkLineVeto, fkAggressive, fkRocCurve, fkComputeLogL, fkPlotLogL, fkPlotSeptem
+    fkTracking, fkFadc, fkScinti, fkSeptem, fkLineVeto, fkAggressive,
+    fkRocCurve, fkComputeLogL, fkPlotLogL, fkPlotSeptem,
+    fkEstRandomCoinc, # used to estimate the random coincidence of the septem & line veto
+    fkEstRandomFixedEvent # use a fixed center cluster and only vary around the outer ring
 
 template withConfig(body: untyped): untyped =
   const sourceDir = currentSourcePath().parentDir
@@ -470,6 +475,81 @@ proc buildSeptemEvent(evDf: DataFrame,
   result.charge = chargeTensor
   result.pixels = pixels
 
+proc buildEventIdxMap(septemDf: DataFrame): Table[int, seq[(int, int)]] =
+  ## Creates a table which maps event numbers to a sequence of pairs (chip, eventIndex)
+  ## such that we can later look up the indices given an event number.
+  result = initTable[int, seq[(int, int)]]()
+  for (tup, subDf) in groups(septemDf.group_by("eventNumber")):
+    let evNum = tup[0][1].toInt
+    result[evNum] = newSeq[(int, int)]()
+    let chips = subDf["chipNumber", int]
+    let idxs = subDf["eventIndex", int]
+    for i in 0 ..< chips.len:
+      result[evNum].add (chips[i], idxs[i]) # add chip number & event index for this event number
+
+proc bootstrapFakeEvents(septemDf, centerDf: DataFrame,
+                         passedEvs: var OrderedSet[int],
+                         passedInds: var OrderedSet[int],
+                         fixedCluster: bool): DataFrame =
+  ## Bootstrap fake events to estimate the random coincidence of the septem and line veto
+  ## by rewriting the `septemDf`, which is an index of indices in each chip group to the
+  ## corresponding event number.
+  ##
+  ## We rewrite it by randomly drawing from center clusters and then picking a different
+  ## event from which to assign the outer ring.
+  ##
+  ## Environment variables `NUM_SEPTEM_FAKE` and `SEPTEM_FAKE_FIXED_CLUSTER` can be used to
+  ## adjust the number of bootstrapped events and the cluster index in case we run in
+  ## "fixed center cluster" mode.
+  let numBootstrap = getEnv("NUM_SEPTEM_FAKE", "2000").parseInt
+  let fixedClusterIdx = getEnv("SEPTEM_FAKE_FIXED_CLUSTER", "5").parseInt
+  let idxs = passedInds.toSeq
+  #let events = passedEvs.toSeq
+  # from the list of passed indices, we now need to rebuild the `septemDf`.
+  # We can't just draw a random sample of indices as we have to take care of
+  # the following things:
+  # - do not mix the outer chips. All events of these must remain together
+  # - do not accidentally combine correct events
+
+  # how do we get a) the indices for our new `idx`?
+  # best if we turn the `septemDf` into a `Table[int, seq[int]]` of sorts where the key
+  # is the event number and the argument corresponds to the *indices* of that event.
+  let evIdxMap = buildEventIdxMap(septemDf)
+  let validEvs = toSeq(keys(evIdxMap))
+  # We _can_ start by drawing a `numBootstrap` elements from the *passed indices*
+  # These then define the *center clusters* that we will use as a basis.
+  # Then: draw an outer ring that is *not* the same event number.
+  var evOuter = -1
+  # `i` will just be the new eventNumber for the fake events
+  result = newDataFrame()
+  passedInds.clear()
+  for i in 0 ..< numBootstrap:
+    # draw an event from which to build a fake event
+    let idxCenter = idxs[rand(0 .. idxs.high)]
+    # get event number for this index
+    let evCenter = centerDf["eventNumber", int][idxCenter]
+
+    # So: draw another event number, which is the outer ring we want to map to this
+    evOuter = validEvs[rand(0 ..< evIdxMap.len)]
+    while evOuter == evCenter: # if same, draw again until different
+      evOuter = validEvs[rand(0 ..< evIdxMap.len)]
+
+    # get indices for outer chips from map
+    let outerIdxs = evIdxMap[evOuter]
+    # now add this to the resulting DF
+    var indices = if fixedCluster: @[ idxs[fixedClusterIdx] ]
+                  else: @[ idxCenter ]
+    var chips = @[3] ## XXX: replace by using center number
+    for (chip, index) in outerIdxs:
+      if chip == 3: continue # do not add center chip
+      indices.add index
+      chips.add chip
+    result.add toDf({"eventNumber" : i, "eventIndex" : indices, "chipNumber" : chips })
+
+  # finally reset the `passedEvs` to all events we just faked
+  passedEvs = toSeq(0 ..< numBootstrap).toOrderedSet
+
+
 proc applySeptemVeto(h5f, h5fout: var H5File,
                      runNumber: int,
                      passedInds: var OrderedSet[int],
@@ -481,20 +561,30 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
   ## the `chip_*` groups into `h5fout`.
   ## If an event does not pass the septem veto cut, it is excluded from the `passedInds`
   ## set.
-  const PlotCutEnergy = 5.0
+  ##
+  ## The environment variable `PLOT_SEPTEM_E_CUTOFF` can be used to adjust the energy
+  ## cutoff for which events to plot when running with `--plotSeptem`. In addition the
+  ## variable `USE_TEX` can be adjusted to generate TikZ TeX plots.
+  let useTeX = getEnv("USE_TEX", "false").parseBool
+  let PlotCutEnergy = getEnv("PLOT_SEPTEM_E_CUTOFF", "5.0").parseFloat
   echo "Passed indices before septem veto ", passedInds.card
   let group = h5f[(recoBase() & $runNumber).grp_str]
   var septemDf = h5f.getSeptemEventDF(runNumber)
 
   # now filter events for `centerChip` from and compare with `passedInds`
   let centerDf = septemDf.filter(f{int: `chipNumber` == ctx.centerChip})
-  #echo "Center df ", centerDf
-  ## TODO: this is super slow!!
-  let passedEvs = passedInds.mapIt(centerDf["eventNumber", it]).sorted.toOrderedSet
+  # The `passedEvs` simply maps the *indices* to the *event numbers* that pass *on the
+  # center chip*.
+  var passedEvs = passedInds.mapIt(centerDf["eventNumber", int][it]).sorted.toOrderedSet
 
   ## Read all the pixel data for all chips
   let allChipData = readAllChipData(h5f, group, ctx.numChips)
   let centerData = readCenterChipData(h5f, group, ctx.energyDset)
+  if fkEstRandomCoinc in flags:
+    septemDf = bootstrapFakeEvents(septemDf, centerDf, passedEvs, passedInds, fkEstRandomFixedEvent in flags)
+    #echo septemDf.pretty(1000)
+  var fout = open("/tmp/septem_fake_veto.txt", fmAppend)
+  fout.write("Septem events before: " & $passedEvs.len & "\n")
 
 
   let chips = toSeq(0 ..< ctx.numChips)
@@ -542,6 +632,7 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
         # if there's more than 1 cluster, remove
         if recoEv.cluster.len > 1:
           passedInds.excl septemFrame.centerEvIdx
+          passedEvs.excl evNum
           continue # skip to next iteration
       for clusterTup in pairs(recoEv.cluster):
         let (logL, energy, lineVetoPassed) = evaluateCluster(clusterTup, rs, septemFrame, septemGeometry,
@@ -573,6 +664,7 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
         ## the original cluster which *did* pass logL is part of the septem event, the conclusion is that
         ## it was now part of a bigger cluster that did *not* pass anymore.
         passedInds.excl septemFrame.centerEvIdx
+        passedEvs.excl evNum
 
       if fkPlotSeptem in flags:
         if septemFrame.centerEvIdx < 0:
@@ -592,8 +684,10 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
                           yCenter = septemGeometry.yCenter,
                           radius = septemGeometry.centerRadius,
                           energyCenter = centerData.energies[septemFrame.centerEvIdx],
-                          useTeX = true)
-  echo "Passed indices after septem veto ", passedInds.card
+                          useTeX = useTeX)
+  echo "Passed indices after septem veto ", passedEvs.card
+  fout.write("Septem events after fake cut: " & $passedEvs.len & "\n")
+  fout.close()
 
 proc copyOverAttrs(h5f, h5fout: H5File) =
   let logGrp = h5fout.create_group(likelihoodGroupGrpStr().string)
@@ -1113,6 +1207,8 @@ proc main(
   septemveto = false,
   lineveto = false,
   aggressive = false,
+  estimateRandomCoinc = false,
+  estFixedEvent = false,
   plotSeptem = false,
   createRocCurve = false,
   plotLogL = false,
@@ -1124,16 +1220,18 @@ proc main(
   ## writes them back to the H5 file
 
   var flags: set[FlagKind]
-  if tracking       : flags.incl fkTracking
-  if scintiveto     : flags.incl fkScinti
-  if fadcveto       : flags.incl fkFadc
-  if septemveto     : flags.incl fkSeptem
-  if lineveto       : flags.incl fkLineVeto
-  if aggressive     : flags.incl fkAggressive
-  if createRocCurve : flags.incl fkRocCurve
-  if computeLogL    : flags.incl fkComputeLogL
-  if plotLogL       : flags.incl fkPlotLogL
-  if plotSeptem     : flags.incl fkPlotSeptem
+  if tracking            : flags.incl fkTracking
+  if scintiveto          : flags.incl fkScinti
+  if fadcveto            : flags.incl fkFadc
+  if septemveto          : flags.incl fkSeptem
+  if lineveto            : flags.incl fkLineVeto
+  if aggressive          : flags.incl fkAggressive
+  if createRocCurve      : flags.incl fkRocCurve
+  if computeLogL         : flags.incl fkComputeLogL
+  if plotLogL            : flags.incl fkPlotLogL
+  if plotSeptem          : flags.incl fkPlotSeptem
+  if estimateRandomCoinc : flags.incl fkEstRandomCoinc
+  if estFixedEvent       : flags.incl fkEstRandomFixedEvent
 
   let region = if region.len > 0:
                  parseEnum[ChipRegion](region)
@@ -1235,6 +1333,10 @@ when isMainModule:
     "lineveto"       : "If flag is set, we use an additional septem veto based on eccentric clusters",
     "aggressive"     : """If set, use aggressive veto. DO NOT USE (unless as a *reference*. Requires deep thought
   about random coincidences & dead time of detector!)""",
+    "estimateRandomCoinc" : """If flag is set, instead of applying the real septem & line veto the code
+  attempts to estimate the random coincidence & dead time of the septem and line veto""",
+    "estFixedEvent"  : """If flag is set uses a fixed center cluster for a whole run to estimate the
+  septem & line veto random coincidences. Useful to verify the estimation is working.""",
     "plotSeptem"     : "If flag is set, plots the SeptemEvents of all center clusters passing logL cut",
     "createRocCurve" : """If flag is set, we create ROC curves for all energy bins. This
   requires the input to already have a `likelihood` dataset!""",

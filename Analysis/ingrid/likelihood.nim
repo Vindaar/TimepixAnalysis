@@ -95,9 +95,8 @@ proc calcLogLikelihood*(h5f: var H5File,
     echo &"Start logL calc of run {group}"
     # get number of chips from attributes
     var run_attrs = h5f[group.grp_str].attrs
-    let nChips = run_attrs["numChips", int]
 
-    var logL_chips = newSeq[seq[float64]](nChips)
+    var logL_chips = newSeq[seq[float64]](ctx.numChips)
 
     for (_, chipNumber, grp) in chipGroups(h5f, group):
       # iterate over all chips and perform logL calcs
@@ -107,10 +106,11 @@ proc calcLogLikelihood*(h5f: var H5File,
       # index for logL
       logL_chips[chipNumber] = logL
     # after we added all logL data to the seqs, write it to the file
-    var logL_dsets = mapIt(toSeq(0..<nChips), h5f.create_dataset((group / &"chip_{it}/likelihood"),
-                                                                 logL_chips[it].len,
-                                                                 float64,
-                                                                 overwrite = true))
+    var logL_dsets = mapIt(toSeq(0 ..< ctx.numChips),
+                           h5f.create_dataset((group / &"chip_{it}/likelihood"),
+                                              logL_chips[it].len,
+                                              float64,
+                                              overwrite = true))
     # write the data to the file
     echo &"Writing data of run {group} to file {h5f.name}"
     for tup in zip(logL_dsets, logL_chips):
@@ -484,43 +484,34 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
   const PlotCutEnergy = 5.0
   echo "Passed indices before septem veto ", passedInds.card
   let group = h5f[(recoBase() & $runNumber).grp_str]
-  let centerChip = group.attrs["centerChip", int]
-  let numChips = group.attrs["numChips", int]
-  let septemDf = h5f.getSeptemEventDF(runNumber)
-
-  # read clustering configuration
-  let clusterAlgo = readClusterAlgo()
-  # search radius for regular algo
-  let searchRadius = readSearchRadius()
-  # epsilon fro DBSCAN
-  let epsilon = readDbscanEpsilon()
+  var septemDf = h5f.getSeptemEventDF(runNumber)
 
   # now filter events for `centerChip` from and compare with `passedInds`
-  let centerDf = septemDf.filter(f{int: `chipNumber` == centerChip})
+  let centerDf = septemDf.filter(f{int: `chipNumber` == ctx.centerChip})
   #echo "Center df ", centerDf
   ## TODO: this is super slow!!
   let passedEvs = passedInds.mapIt(centerDf["eventNumber", it]).sorted.toOrderedSet
 
   ## Read all the pixel data for all chips
-  let allChipData = readAllChipData(h5f, group, numChips)
-
+  let allChipData = readAllChipData(h5f, group, ctx.numChips)
   let centerData = readCenterChipData(h5f, group, ctx.energyDset)
 
-  let chips = toSeq(0 .. 6)
+
+  let chips = toSeq(0 ..< ctx.numChips)
   let gains = chips.mapIt(h5f[(group.name / "chip_" & $it / "gasGainSlices"), GasGainIntervalResult])
   let septemHChips = chips.mapIt(getSeptemHChip(it))
   let toTCalibParams = septemHChips.mapIt(getTotCalibParameters(it, runNumber))
-  let calibTuple = getCalibVsGasGainFactors(septemHChips[centerChip], runNumber)
+  let calibTuple = getCalibVsGasGainFactors(septemHChips[ctx.centerChip], runNumber)
   var rs: RunningStat
 
   # for the `passedEvs` we have to read all data from all chips
   let septemGrouped = septemDf.group_by("eventNumber")
   for (pair, evGroup) in groups(septemGrouped):
-    let evNum = pair[0][1]
+    let evNum = pair[0][1].toInt
     if evNum in passedEvs:
       # then grab all chips for this event
       var septemFrame = buildSeptemEvent(evGroup, centerData.lhoodCenter, centerData.energies,
-                                         cutTab, allChipData, centerChip)
+                                         cutTab, allChipData, ctx.centerChip)
       if septemFrame.centerEvIdx == -1:
         echo "Broken event! ", evGroup.pretty(-1)
         quit(1)
@@ -528,19 +519,19 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
       # here we give chip number as -1, indicating "Septem"
       ## XXX: for full ToA support in Timepix3, need to also read the `toa` data and insert
       ## it here!
-      let inp = (pixels: septemFrame.pixels, eventNumber: evNum.toInt.int,
+      let inp = (pixels: septemFrame.pixels, eventNumber: evNum.int,
                  toa: newSeq[uint16](), toaCombined: newSeq[uint64]())
       let recoEv = recoEvent(inp, -1,
-                             runNumber, searchRadius = searchRadius,
-                             dbscanEpsilon = epsilon,
-                             clusterAlgo = clusterAlgo)
+                             runNumber, searchRadius = ctx.searchRadius,
+                             dbscanEpsilon = ctx.dbscanEpsilon,
+                             clusterAlgo = ctx.clusterAlgo)
 
       # extract the correct gas gain slices for this event
       var gainVals: seq[float]
-      for chp in 0 ..< numChips:
+      for chp in 0 ..< ctx.numChips:
         let gainSlices = gains[chp]
         let gainEvs = gainSlices.mapIt(it.sliceStartEvNum)
-        let sliceIdx = gainEvs.lowerBound(evNum.toInt)
+        let sliceIdx = gainEvs.lowerBound(evNum)
         gainVals.add gainSlices[min(gainSlices.high, sliceIdx)].G # add the correct gas gain
 
       # calculate log likelihood of all reconstructed clusters
@@ -562,7 +553,7 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
         let cX = toXPix(clusterTup[1].centerX)
         let cY = toYPix(clusterTup[1].centerY)
         let chipClusterCenter = (x: cX, y: cY, ch: 0).determineChip(allowOutsideChip = true)
-        if chipClusterCenter == centerChip and # this cluster's center is on center chip
+        if chipClusterCenter == ctx.centerChip and # this cluster's center is on center chip
            logL < cutTab[energy]:              # cluster passes logL cut
           passed = true
 
@@ -592,7 +583,7 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
           septemFrame.pixels.setLen(septemFrame.numRecoPixels)
           if fkLineVeto notin flags: # if no line veto, don't draw lines
             septemGeometry.lines = newSeq[tuple[m, b: float]]()
-          plotSeptemEvent(septemFrame.pixels, runNumber, evNum.toInt,
+          plotSeptemEvent(septemFrame.pixels, runNumber, evNum,
                           lines = septemGeometry.lines,
                           centers = septemGeometry.centers,
                           passed = passed,
@@ -661,7 +652,6 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
     # get number of chips from attributes
     var mgrp = h5f[group.grp_str]
     var run_attrs = mgrp.attrs
-    let nChips = run_attrs["numChips", int]
     let centerChip = run_attrs["centerChip", int]
     # get timestamp for run
     let tstamp = h5f[(group / "timestamp"), int64]
@@ -1166,8 +1156,22 @@ proc main(
   h5f.visitFile
   let timepix = h5f.timepixVersion()
 
+  # get data to read info to store in context
   let cdlStretch = initCdlStretch(Fe55, cdlFile)
-  let ctx = initLikelihoodContext(cdlFile, year, region, energyDset, timepix, readMorphKind(), cdlStretch)
+  let rootGrp = h5f[recoGroupGrpStr()]
+  let centerChip = rootGrp.attrs["centerChip", int]
+
+  ## XXX: add `numChips` to root group!
+  #let numChips = rootGrp.attrs["numChips", int]
+
+  let ctx = initLikelihoodContext(cdlFile, year, region, energyDset, timepix,
+                                  readMorphKind(),
+                                  cdlStretch,
+                                  centerChip = centerChip,
+                                  #numChips = numChips,
+                                  clusterAlgo = readClusterAlgo(),
+                                  searchRadius = readSearchRadius(),
+                                  dbscanEpsilon = readDbscanEpsilon())
 
   if fkRocCurve in flags:
     ## create the ROC curves and likelihood distributios. This requires to

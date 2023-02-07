@@ -696,6 +696,12 @@ when not defined(pure) and not defined(js):
       numMorphedEnergies*: int = 1000
       refDf*: DataFrame
       refDfEnergy*: seq[float]
+      # Septem & line veto related
+      clusterAlgo*: ClusteringAlgorithm = caDBSCAN
+      searchRadius*: int = 50 # for caDefault the search radius in septem events
+      dbscanEpsilon*: float = 65.0 # for caDBSCAN the epsilon
+      centerChip*: int = 3 # center chip on the detector
+      numChips*: int = 7 # number of chips on the detector
 
 proc initFeSpecData*(hist: seq[float],
                      binning: seq[float],

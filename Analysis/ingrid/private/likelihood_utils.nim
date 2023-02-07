@@ -749,7 +749,13 @@ proc initLikelihoodContext*(cdlFile: string, year: YearKind, region: ChipRegion,
                             timepix: TimepixVersion,
                             morphKind: MorphingKind,
                             stretch = none[CdlStretch](),
-                            numMorphedEnergies = 1000): LikelihoodContext =
+                            numMorphedEnergies = 1000,
+                            centerChip = 3,
+                            numChips = 7,
+                            clusterAlgo: ClusteringAlgorithm = caDBSCAN,
+                            searchRadius: int = 50,
+                            dbscanEpsilon: float = 65.0
+                           ): LikelihoodContext =
   result = LikelihoodContext(cdlFile: cdlFile,
                              year: year,
                              region: region,
@@ -757,7 +763,13 @@ proc initLikelihoodContext*(cdlFile: string, year: YearKind, region: ChipRegion,
                              energyDset: energyDset,
                              timepix: timepix,
                              stretch: stretch,
-                             numMorphedEnergies: numMorphedEnergies)
+                             numMorphedEnergies: numMorphedEnergies,
+                             # septem veto related
+                             centerChip: centerChip,
+                             numChips: numChips,
+                             clusterAlgo: clusterAlgo,
+                             searchRadius: searchRadius,
+                             dbscanEpsilon: dbscanEpsilon)
   case result.morph
   of mkNone:
     result.refSetTuple = result.readRefDsets()

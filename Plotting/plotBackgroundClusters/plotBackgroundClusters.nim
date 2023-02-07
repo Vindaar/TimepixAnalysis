@@ -1,9 +1,7 @@
 import nimhdf5, arraymancer, seqmath, chroma, cligen
-import std / [strformat, sequtils, strutils, os, json, sets]
+import std / [strformat, sequtils, strutils, os, sets]
 import helpers / utils
 import ingrid / tos_helpers
-#import plotly
-#import plotly / color
 import ggplotnim
 import ggplotnim / [ggplot_vegatex]
 
@@ -13,25 +11,30 @@ creates a heatmap of the cluster centers that still remain visible on the plot.
 In addition it highligths the gold region on the plot.
 """
 
-iterator extractClusters(h5f: var H5FileObj): (seq[float], seq[float], seq[float]) =
+iterator extractClusters(h5f: var H5File, chip: int): (int, seq[float], seq[float], seq[float]) =
+  const attrName = "Total number of cluster"
   for num, grp in runs(h5f, likelihoodBase()):
     var mgrp = h5f[grp.grp_str]
-    var centerChip: int
-    try:
-      centerChip = mgrp.attrs["centerChip", int]
-    except KeyError:
-      echo "WARNING: could not find `centerChip` attribute. Will assume 3!"
-      centerChip = 3
+    var targetChip: int
+    if chip >= 0: # use given chip if any (default -1)
+      targetChip = chip
+    else: # try to determine the center chip
+      try: #
+        targetChip = mgrp.attrs["centerChip", int]
+      except KeyError: # else use 3
+        echo "WARNING: could not find `centerChip` attribute. Will assume 3!"
+        targetChip = 3
     var chipGrp: H5Group
     try:
-      chipGrp = h5f[(grp / "chip_" & $centerChip).grp_str]
+      chipGrp = h5f[(grp / "chip_" & $targetChip).grp_str]
     except KeyError:
-      echo "INFO: no events left in run number " & $num & " for chip " & $centerChip
+      echo "INFO: no events left in run number " & $num & " for chip " & $targetChip
       continue
     let cX = h5f[chipGrp.name / "centerX", float]
     let cY = h5f[chipGrp.name / "centerY", float]
     let cE = h5f[chipGrp.name / "energyFromCharge", float]
-    yield (cX, cY, cE)
+    let totalClusters = chipGrp.attrs[attrName, int]
+    yield (totalClusters, cX, cY, cE)
 
 proc goldRegionOutline(maxVal: int): Tensor[int] =
   ## returns the outline of the gold region
@@ -85,10 +88,14 @@ for x in 125 .. 135:
 
 proc readClusters(file: string, cTab: var CountTable[(int, int)],
                   filterNoisyPixels: bool,
-                  filterEnergy: float) =
+                  filterEnergy: float,
+                  chip: int): int =
+  ## Fills the `cTab` of those pixels that are hit and also returns the total number of
+  ## clusters on the target chip.
   var h5f = H5open(file, "r")
-  func toPixel(s: float): int = (256.0 * s / 14.0).round.int
-  for centerX, centerY, energy in extractClusters(h5f):
+  func toPixel(s: float): int = min((255.0 * s / 14.0).round.int, 255)
+  for totalNum, centerX, centerY, energy in extractClusters(h5f, chip):
+    result += totalNum # count total number of events
     for (cX, cY, cE) in zipEm(centerX, centerY, energy):
       # drop clusters with energy too large
       if filterEnergy > 0.0 and cE > filterEnergy: continue
@@ -102,25 +109,33 @@ proc readClusters(file: string, cTab: var CountTable[(int, int)],
   doAssert h5f.close() >= 0
 
 proc readClusters(file: string, filterNoisyPixels: bool,
-                  filterEnergy: float): CountTable[(int, int)] =
-  result = initCountTable[(int, int)]()
-  file.readClusters(result, filterNoisyPixels, filterEnergy)
+                  filterEnergy: float, chip: int): (int, CountTable[(int, int)]) =
+  var cTab = initCountTable[(int, int)]()
+  let totalNum = file.readClusters(cTab, filterNoisyPixels, filterEnergy, chip)
+  result = (totalNum, cTab)
 
 proc readClusters(files: seq[string], filterNoisyPixels: bool,
-                  filterEnergy: float): CountTable[(int, int)] =
-  result = initCountTable[(int, int)]()
+                  filterEnergy: float, chip: int): (int, CountTable[(int, int)]) =
+  var cTab = initCountTable[(int, int)]()
+  var totalNum = 0
   for f in files:
-    f.readClusters(result, filterNoisyPixels, filterEnergy)
+    totalNum += f.readClusters(cTab, filterNoisyPixels, filterEnergy, chip)
+  result = (totalNum, cTab)
 
-proc toDf(cTab: CountTable[(int, int)]): DataFrame =
+proc toDf(cTabTup: (int, CountTable[(int, int)])): DataFrame =
+  let (totalNum, cTab) = cTabTup
   var
     cX, cY, cC: seq[int]
   for (pos, count) in pairs(cTab):
     cX.add pos[0]
     cY.add pos[1]
     cC.add count
-  result = toDf({"x" : cX, "y" : cY, "count" : cC})
+  ## XXX: `toDf` is broken here due to proc of same name!!!
+  result = seqsToDf({"x" : cX, "y" : cY, "count" : cC, "TotalNumber" : totalNum})
     .arrange("count", order = SortOrder.Ascending)
+
+proc toDf(cTab: CountTable[(int, int)]): DataFrame =
+  result = (-1, cTab).toDf()
 
 proc writeNoisyClusters(cTab: CountTable[(int, int)],
                         threshold: int) =
@@ -135,32 +150,8 @@ proc writeNoisyClusters(cTab: CountTable[(int, int)],
   f.write("]")
   f.close()
 
-proc main(
-  files: seq[string], suffix = "", title = "",
-  names: seq[string] = @[], # can be used to create facet plot. All files with same names will be stacked
-  filterNoisyPixels = false,
-  filterEnergy = 0.0,
-  useTikZ = false,
-  writeNoisyClusters = false,
-  threshold = 2) =
-
-  let cTab = readClusters(files, filterNoisyPixels, filterEnergy)
-  if writeNoisyClusters:
-    cTab.writeNoisyClusters(threshold)
-
-  var df = newDataFrame()
-  if names.len == 0 or names.deduplicate.len == 1:
-    echo files
-    df = cTab.toDf()
-  else:
-    doAssert names.len == files.len, "Need same number of names as input files!"
-    for i in 0 ..< names.len:
-      var dfLoc = readClusters(@[files[i]], filterNoisyPixels, filterEnergy).toDf()
-      dfLoc["Type"] = names[i]
-      df.add dfLoc
-    # now sort all again
-    df = df.arrange("count", order = SortOrder.Ascending)
-
+proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
+                  suffix, title: string) =
   createDir("plots")
   if names.len == 0 or names.deduplicate.len == 1:
     let totalEvs = df["count", int].sum()
@@ -169,7 +160,7 @@ proc main(
       xlim(0, 256) + ylim(0, 256) +
       xlab("x [Pixel]") + ylab("y [Pixel]") +
       margin(top = 1.75) +
-      scale_color_continuous(scale = (low: 0.0, high: 5.0))
+      scale_color_continuous(scale = (low: 0.0, high: zMax))
     if not useTikZ:
       let fname = &"plots/background_cluster_centers{suffix}.pdf"
       echo "[INFO]: Saving plot to ", fname
@@ -201,6 +192,84 @@ proc main(
       ggsave(fname,
              width = 900, height = 480)
              #useTeX = true, standalone = true) # onlyTikZ = true)
+
+proc plotSuppression(df: DataFrame, cTab: CountTable[(int, int)], tiles: int) =
+  ## Plots a tilemap of background suppressions. It uses `tiles` elements in each axis.
+  proc toTensor(cTab: CountTable[(int, int)]): Tensor[int] =
+    result = zeros[int]([256, 256])
+    for tup, val in cTab:
+      let
+        x = tup[0]
+        y = tup[1]
+      result[x, y] = val
+  let countT = cTab.toTensor()
+  let totalNum = df["TotalNumber"].unique.toTensor(int)[0]
+  let numPerTile = totalNum / (tiles * tiles) ## Note: This assumes the original background is homogeneous!
+  let step = 256.0 / tiles.float
+  var
+    xI = newSeq[int]()
+    yI = newSeq[int]()
+    cI = newSeq[int]()
+    sI = newSeq[float]()
+  for i in 0 ..< tiles:
+    let xStart = (i.float * step).floor.int
+    let xStop = ((i+1).float * step).floor.int
+    for j in 0 ..< tiles:
+      let yStart = (j.float * step).floor.int
+      let yStop = ((j+1).float * step).floor.int
+      var counts = 0
+      for x in xStart ..< xStop:
+        for y in yStart ..< yStop:
+          counts += countT[x, y]
+      xI.add((i.float * step).floor.int)
+      yI.add((j.float * step).floor.int)
+      cI.add counts
+      sI.add (numPerTile.float / counts.float)
+
+  let dfTile = seqsToDf(xI, yI, cI, sI)
+  echo dfTile
+
+  let size = step.ceil
+  ggplot(dfTile, aes("xI", "yI", fill = "sI", width = size, height = size)) +
+    geom_tile() +
+    geom_text(aes = aes(x = f{`xI` + size / 2.0}, y = f{`yI` + size / 2.0}, text = "sI"), color = "white") +
+    xlim(0, 256) + ylim(0, 256) +
+    xlab("x [Pixel]") + ylab("y [Pixel]") +
+    margin(top = 1.75) +
+    ggtitle("Local background suppression compared to 1.5·10⁶ raw clusters") +
+    ggsave("plots/background_suppression_tile_map.pdf")
+
+proc main(
+  files: seq[string], suffix = "", title = "",
+  names: seq[string] = @[], # can be used to create facet plot. All files with same names will be stacked
+  filterNoisyPixels = false,
+  filterEnergy = 0.0,
+  useTikZ = false,
+  writeNoisyClusters = false,
+  zMax = 5.0,
+  threshold = 2,
+  chip = -1, # chip can be used to overwrite center chip reading
+  tiles = 7) =
+
+  let (totalNum, cTab) = readClusters(files, filterNoisyPixels, filterEnergy, chip)
+  if writeNoisyClusters:
+    cTab.writeNoisyClusters(threshold)
+
+  var df = newDataFrame()
+  if names.len == 0 or names.deduplicate.len == 1:
+    echo files
+    df = cTab.toDf()
+    df["TotalNumber"] = totalNum
+  else:
+    doAssert names.len == files.len, "Need same number of names as input files!"
+    for i in 0 ..< names.len:
+      var dfLoc = readClusters(@[files[i]], filterNoisyPixels, filterEnergy, chip).toDf()
+      dfLoc["Type"] = names[i]
+      df.add dfLoc
+    # now sort all again
+    df = df.arrange("count", order = SortOrder.Ascending)
+
+  plotSuppression(df, cTab, tiles)
 
   when false:
     # convert center positions to a 256x256 map

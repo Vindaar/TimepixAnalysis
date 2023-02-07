@@ -552,6 +552,15 @@ const SrsNoChipId* = "ChipIDMissing"
 const SrsNoChipIdMsg* = "The chip IDs are missing from the run.txt. Old format!"
 const SrsDefaultChipName* = "SRS Chip"
 
+const TpaIngridDsetKinds* = block:
+  var dsets = newSeq[IngridDsetKind]()
+  for dset in IngridDsetKind:
+    if dset notin { igInvalid, igNumClusters, igLikelihood,
+                    igFractionInHalfRadius, igRadiusDivRmsTrans, igRadius, igBalance, igLengthDivRadius }:
+      dsets.add dset
+  dsets
+
+
 # the following will not be available, if the `-d:pure` flag is set,
 # to allow importing the rest of the types, without a `arraymancer`
 # dependency

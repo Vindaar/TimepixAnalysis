@@ -504,7 +504,6 @@ proc bootstrapFakeEvents(septemDf, centerDf: DataFrame,
   let numBootstrap = getEnv("NUM_SEPTEM_FAKE", "2000").parseInt
   let fixedClusterIdx = getEnv("SEPTEM_FAKE_FIXED_CLUSTER", "5").parseInt
   let idxs = passedInds.toSeq
-  #let events = passedEvs.toSeq
   # from the list of passed indices, we now need to rebuild the `septemDf`.
   # We can't just draw a random sample of indices as we have to take care of
   # the following things:
@@ -515,6 +514,7 @@ proc bootstrapFakeEvents(septemDf, centerDf: DataFrame,
   # best if we turn the `septemDf` into a `Table[int, seq[int]]` of sorts where the key
   # is the event number and the argument corresponds to the *indices* of that event.
   let evIdxMap = buildEventIdxMap(septemDf)
+  let maxEvent = septemDf["eventNumber", int].max # get max event to know up to where to draw
   let validEvs = toSeq(keys(evIdxMap))
   # We _can_ start by drawing a `numBootstrap` elements from the *passed indices*
   # These then define the *center clusters* that we will use as a basis.
@@ -530,12 +530,13 @@ proc bootstrapFakeEvents(septemDf, centerDf: DataFrame,
     let evCenter = centerDf["eventNumber", int][idxCenter]
 
     # So: draw another event number, which is the outer ring we want to map to this
-    evOuter = validEvs[rand(0 ..< evIdxMap.len)]
+    evOuter = rand(0 ..< maxEvent)
     while evOuter == evCenter: # if same, draw again until different
-      evOuter = validEvs[rand(0 ..< evIdxMap.len)]
+      evOuter = rand(0 ..< maxEvent)
 
     # get indices for outer chips from map
-    let outerIdxs = evIdxMap[evOuter]
+    let outerIdxs = if evOuter in evIdxMap: evIdxMap[evOuter]
+                    else: newSeq[(int, int)]()
     # now add this to the resulting DF
     var indices = if fixedCluster: @[ idxs[fixedClusterIdx] ]
                   else: @[ idxCenter ]
@@ -548,7 +549,6 @@ proc bootstrapFakeEvents(septemDf, centerDf: DataFrame,
 
   # finally reset the `passedEvs` to all events we just faked
   passedEvs = toSeq(0 ..< numBootstrap).toOrderedSet
-
 
 proc applySeptemVeto(h5f, h5fout: var H5File,
                      runNumber: int,

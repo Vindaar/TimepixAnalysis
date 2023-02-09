@@ -586,6 +586,8 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
   var fout = open("/tmp/septem_fake_veto.txt", fmAppend)
   fout.write("Septem events before: " & $passedEvs.len & "\n")
 
+  let useLineVeto = fkLineVeto in flags
+  let useSeptemVeto = fkSeptem in flags
 
   let chips = toSeq(0 ..< ctx.numChips)
   let gains = chips.mapIt(h5f[(group.name / "chip_" & $it / "gasGainSlices"), GasGainIntervalResult])
@@ -625,7 +627,9 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
         gainVals.add gainSlices[min(gainSlices.high, sliceIdx)].G # add the correct gas gain
 
       # calculate log likelihood of all reconstructed clusters
-      var passed = false
+      # Note: `septem` and `line` vetoes are "inverse" in their logic. Only a *single* line needed
+      # to veto center cluster, but *any* cluster passing septem (hence passed vs rejected)
+      var septemVetoPassed = false
       var lineVetoRejected = false
       var septemGeometry: SeptemEventGeometry # no need for constructor. `default` is fine
       if fkAggressive in flags:
@@ -646,7 +650,7 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
         let chipClusterCenter = (x: cX, y: cY, ch: 0).determineChip(allowOutsideChip = true)
         if chipClusterCenter == ctx.centerChip and # this cluster's center is on center chip
            logL < cutTab[energy]:              # cluster passes logL cut
-          passed = true
+          septemVetoPassed = true
 
           when false:
             ## NN veto
@@ -659,7 +663,7 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
 
         if not lineVetoRejected and not lineVetoPassed:
           lineVetoRejected = true
-      if not passed or lineVetoRejected:
+      if (useSeptemVeto and not septemVetoPassed) or (useLineVeto and lineVetoRejected):
         ## If `passed` is still false, it means *no* reconstructed cluster passed the logL now. Given that
         ## the original cluster which *did* pass logL is part of the septem event, the conclusion is that
         ## it was now part of a bigger cluster that did *not* pass anymore.
@@ -673,12 +677,12 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
           # shorten to actual number of stored pixels. Otherwise elements with ToT / charge values will remain
           # in the `septemFrame`
           septemFrame.pixels.setLen(septemFrame.numRecoPixels)
-          if fkLineVeto notin flags: # if no line veto, don't draw lines
+          if not useLineVeto: # if no line veto, don't draw lines
             septemGeometry.lines = newSeq[tuple[m, b: float]]()
           plotSeptemEvent(septemFrame.pixels, runNumber, evNum,
                           lines = septemGeometry.lines,
                           centers = septemGeometry.centers,
-                          passed = passed,
+                          passed = septemVetoPassed,
                           lineVetoRejected = lineVetoRejected,
                           xCenter = septemGeometry.xCenter,
                           yCenter = septemGeometry.yCenter,
@@ -881,7 +885,7 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
       if passedInds.card > 0:
         # now in a second pass perform a septem veto if desired
         # If there's no events left, then we don't care about
-        if fkSeptem in flags and chipNumber == centerChip:
+        if (fkSeptem in flags or fkLineVeto in flags) and chipNumber == centerChip:
           # read all data for other chips ``iff`` chip == 3 (centerChip):
           h5f.applySeptemVeto(h5fout, num,
                               passedInds,

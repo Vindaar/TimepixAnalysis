@@ -853,9 +853,7 @@ proc getExtendedRunInfo*(h5f: H5File, runNumber: int,
   result.runType = runType
 
 proc readFadcFromH5*(h5f: H5File, runNumber: int): ProcessedFadcRun =
-  ## proc to read data from the HDF5 file from `group`
-  ## returns the chip number and a sequence containing the pixel data for this
-  ## event and its event number
+  ## Reads all FADC data as a `ProcessedFadcRun` from run `runNumber`.
   let fadcGroup = fadcRawPath(runNumber)
   doAssert fadcGroup in h5f
   let group = h5f[fadcGroup.grp_str]
@@ -900,8 +898,8 @@ proc readRecoFadc*(h5f: H5File, runNumber: int): RecoFadc =
   )
 
 proc readRecoFadcRun*(h5f: H5File, runNumber: int): ReconstructedFadcRun =
-  ## Returns the `RecoFadc` data, i.e. all 1D data computed in `calcRiseAndFallTime`
-  ## for a given run.
+  ## Returns the `RecoFadc` data, i.e. all 1D data computed in `calcRiseAndFallTime` and
+  ## the reconstructed and sorted spectrum for a given run.
   let fadcGroup = fadcRecoPath(runNumber)
   doAssert fadcGroup in h5f
   let group = h5f[fadcGroup.grp_str]

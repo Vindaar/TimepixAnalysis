@@ -52,6 +52,7 @@ proc readDsets*(h5f: H5FileObj, df: var DataFrame, names: seq[string], baseName:
 proc readRunDsets*(h5f: H5File, run: int, # path to specific run
                    chipDsets = none[tuple[chip: int, dsets: seq[string]]](),
                    commonDsets: openArray[string] = @[],
+                   fadcDsets: openArray[string] = @[],
                    basePath = recoBase()
                   ): DataFrame =
   ## reads all desired datasets `chipDsets, commonDsets` in the given `h5f`
@@ -59,7 +60,8 @@ proc readRunDsets*(h5f: H5File, run: int, # path to specific run
   ## `DataFrame`.
   ##
   ## `chipDsets` are datasets from the chip groups, whereas `commonDsets` are
-  ## those from the run group (timestamp, FADC datasets etc)
+  ## those from the run group (timestamp, event number, fadcReadout etc). Finally,
+  ## `fadcDsets` are those from the FADC.
   ## If input for both is given they are read as individual dataframes, which
   ## are then joined using the eventNumber dataset (which thus will always be
   ## read).
@@ -72,25 +74,39 @@ proc readRunDsets*(h5f: H5File, run: int, # path to specific run
     chipDsetNames: seq[string]
     chip: int
     commonDsets = @commonDsets
-    evNumDset = "eventNumber"
+    fadcDsets = @fadcDsets
+    evNumDset = igEventNumber.toDset()
   if readChip:
     chipDsetNames = chipDsets.get.dsets
     if evNumDset notin chipDsetNames and commonDsets.len > 0:
       chipDsetNames.add evNumDset
     if commonDsets.len > 0 and evNumDset notin commonDsets:
       commonDsets.add evNumDset
+    if fadcDsets.len > 0 and evNumDset notin fadcDsets:
+      fadcDsets.add evNumDset
     chip = chipDsets.get.chip
   var dfChip = newDataFrame()
   var dfAll = newDataFrame()
+  var dfFadc = newDataFrame()
   if readChip:
     h5f.readDsets(dfChip, chipDsetNames, path / "chip_" & $chip)
   h5f.readDsets(dfAll, commonDsets, path)
-  result = if dfChip.len > 0 and dfAll.len > 0:
-             innerJoin(dfChip, dfAll, evNumDset)
-           elif dfChip.len > 0:
-             dfChip
-           else: #elif dfAll.len > 0:
-             dfAll
+  h5f.readDsets(dfFadc, fadcDsets, path / "fadc")
+  proc getFilled(args: varargs[DataFrame]): seq[DataFrame] =
+    result = (@args).filterIt(it.len > 0)
+  proc numFilled(args: varargs[DataFrame]): int =
+    result = getFilled(args).len
+  if numFilled(dfChip, dfAll, dfFadc) == 3:
+    # all filled
+    result = innerJoin(dfChip, dfAll, evNumDset)
+    result = innerJoin(result, dfFadc, evNumDset)
+  elif numFilled(dfChip, dfAll, dfFadc) == 2:
+    let filled = getFilled(dfChip, dfAll, dfFadc)
+    result = innerJoin(filled[0], filled[1], evNumDset)
+  else:
+    let filled = getFilled(dfChip, dfAll, dfFadc)
+    doAssert filled.len == 1
+    result = filled[0]
   result["runNumber"] = run
 
 proc readRunDsetsAllChips*(h5f: H5File, run: int, # path to specific run

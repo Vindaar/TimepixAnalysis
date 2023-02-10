@@ -281,10 +281,11 @@ proc toYPix(y: float): int =
 
 type
   SeptemFrame = object
-    pixels: PixelsInt     ## pure pixel data of all pixels in the septem frame (zero suppressed)
-    charge: Tensor[float] ## charge values of all pixels in a [768,768] tensor
-    centerEvIdx: int      ## index of the center event
-    numRecoPixels: int    ## number of pixels ``after`` reconstruction. To truncate `pixels` after recoEvent
+    pixels: PixelsInt        ## pure pixel data of all pixels in the septem frame (zero suppressed)
+    centerCluster: PixelsInt ## pure pixel data of the original center cluster that passes lnL
+    charge: Tensor[float]    ## charge values of all pixels in a [768,768] tensor
+    centerEvIdx: int         ## index of the center event
+    numRecoPixels: int       ## number of pixels ``after`` reconstruction. To truncate `pixels` after recoEvent
 
   AllChipData = object
     x: seq[seq[seq[uint8]]]
@@ -302,6 +303,17 @@ type
     rmsTCenter: seq[float]
     rmsLCenter: seq[float]
 
+  ## Equivalent of the above, but for a single event.
+  CenterClusterData = object
+    lhood: float
+    energy: float
+    energyCenter: float
+    cX: float
+    cY: float
+    hits: int
+    rmsT: float
+    rmsL: float
+
   ## The name might not be the most descriptive: This object stores information about different
   ## geometric properties of the separate clusters found in the septem event. This includes
   ## information about the original "center" event (the one that passed the logL cut on the center
@@ -316,17 +328,85 @@ type
 
   DataView[T] = distinct ptr UncheckedArray[T]
 
+  ## Explanation of the 3 different line veto kinds. Terminology used here:
+  ## 'OC': original cluster. This is the cluster that was identified to pass the
+  ##    lnL cut on the center chip.
+  ## 'HLC': Hypothetical Larger Cluster, a cluster found using the full Septemboard
+  ##    event, which ``includes`` the OC in it.
+  ## 1. 'regular' line veto. *Every* cluster checks the line to the center
+  ##    cluster. Without septem veto this includes HLC checking OC.
+  ## 2. 'regular without HLC' line veto: Lines check the OC, but the HLC is
+  ##    explicitly *not* considered.
+  ## 3. 'checking the HLC' line veto: In this case *all* clusters check the
+  ##    center of the HLC.
+  ## (From experience I would argue 3 in particular is bad and 1 is essentially a
+  ## bad version of the septem veto + the line veto. Best to just use 2)
+  LineVetoKind = enum
+    lvRegular,
+    lvRegularNoHLC,
+    lvCheckHLC
+
 func `[]`[T](dv: DataView[T], idx: int): T = cast[ptr UncheckedArray[T]](dv)[idx]
 #proc `=copy`[T](dv1, dv2: DataView[T]) {.error: "Copying a data view is forbidden!".}
 func toDataView[T](p: ptr seq[T]): DataView[T] = DataView[T](cast[ptr UncheckedArray[T]](p[0].addr))
 
+proc getCenterClusterData(centerData: CenterChipData, idx: int): CenterClusterData =
+  ## Returns the data of the center cluster from the `centerData` and the event index.
+  result = CenterClusterData(
+    lhood: centerData.lhoodCenter[idx],
+    energy: centerData.energies[idx],
+    energyCenter: centerData.energyCenter[idx],
+    cX: centerData.cXCenter[idx] + 14.0, # assign X, Y but convert to global septem coordinates
+    cY: centerData.cYCenter[idx] + 14.0,
+    hits: centerData.hitsCenter[idx],
+    rmsT: centerData.rmsTCenter[idx],
+    rmsL: centerData.rmsLCenter[idx]
+  )
+
+proc containsOriginal(cl: ClusterObject[PixInt], septemFrame: SeptemFrame): bool =
+  ## Checks whether the original cluster (OC) passing lnL is contained in the
+  ## given cluster `cl`, making this a "Hypothetical Larger Cluster" (HLC).
+  let testPix = septemFrame.centerCluster[septemFrame.centerCluster.high div 2] # we can take any pixel as we don't drop pixels
+  result = testPix in cl.data
+
+proc getCenterClusterData(septemFrame: SeptemFrame,
+                          centerData: CenterChipData,
+                          recoEv: RecoEvent[PixInt],
+                          lineVetoKind: LineVetoKind
+                         ): CenterClusterData =
+  ## Returns the data of the correct cluster depending on the LineVetoKind
+  case lineVetoKind
+  of lvRegular, lvRegularNoHLC: result = getCenterClusterData(centerData, septemFrame.centerEvIdx)
+  of lvCheckHLC:
+    ## In this case we have to identify the HLC from _all_ clusters that were
+    ## identified in the Septemevent. This means checking if _any_ pixel from the
+    ## original cluster is found in a cluster. If any is found, this is the HLC.
+    # done by walking all `recoEv` cluster and checking in any if _a_ pixel from
+    # orignial center cluster is contained
+    for cl in recoEv.cluster:
+      if cl.containsOriginal(septemFrame):
+        # found it, fill result
+        result = CenterClusterData(
+          lhood: Inf,        # irrelevant and not used!
+          energy: Inf,       # irrelevant and not used!
+          energyCenter: Inf, # irrelevant and not used!
+          cX: cl.centerX,
+          cY: cl.centerY,
+          hits: cl.data.len,
+          rmsT: cl.geometry.rmsTransverse,
+          rmsL: cl.geometry.rmsLongitudinal
+        )
+        return result # can return early here.
+    doAssert false, "We cannot be here. This implies we *DID NOT FIND* the original cluster in the reconstructed data!"
+
 proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
                      rs: var RunningStat, septemFrame: var SeptemFrame,
                      septemGeometry: var SeptemEventGeometry,
-                     centerData: CenterChipData,
+                     centerData: CenterClusterData,
                      gainVals: seq[float],
                      calibTuple: tuple[b, m: float], ## contains the parameters required to perform energy calibration
                      ctx: LikelihoodContext,
+                     lineVetoKind: LineVetoKind,
                      flags: set[FlagKind]
                     ): tuple[logL, energy: float, lineVetoPassed: bool] =
   # total charge for this cluster
@@ -378,10 +458,14 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
   let inRegionOfInterest = inRegion(cl.centerX - TimepixSize, cl.centerY - TimepixSize, ctx.region)
 
   var lineVetoPassed = true #
-  if fkLineVeto in flags and not inRegionOfInterest: ## perform the line cut
+
+  ## As long as this cluster does not contain the original cluster data (depending on the line veto kind!)
+  ## we perform the line veto
+  let ofInterest = not (lineVetoKind in {lvRegularNoHLC, lvCheckHLC} and clTup[1].containsOriginal(septemFrame))
+  if fkLineVeto in flags and ofInterest and
+     cl.geometry.eccentricity > EccentricityLineVetoCut:
     # if this is not in region of interest, check its eccentricity and compute if line points to original
     # center cluster
-    let centerEvIdx = septemFrame.centerEvIdx
     # compute line orthogonal to this cluster's line
     let orthSlope = -1.0 / slope
     ## TODO: XXX: eccentricity check. Using a line of a cluster that is not very eccentric makes no sense!
@@ -398,8 +482,8 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
     # compute distance between two points
     let dist = sqrt( (septemGeometry.xCenter.float - xCut)^2 + (septemGeometry.yCenter.float - yCut)^2 )
     # if distance is smaller than radius
-    septemGeometry.centerRadius = ((centerData.rmsTCenter[centerEvIdx] +
-                                    centerData.rmsLCenter[centerEvIdx]) /
+    septemGeometry.centerRadius = ((centerData.rmsT +
+                                    centerData.rmsL) /
                                    2.0 * 3.0) /
                                    TimepixSize * 256.0
     if dist < septemGeometry.centerRadius:
@@ -574,6 +658,10 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
   ## variable `USE_TEX` can be adjusted to generate TikZ TeX plots.
   let useTeX = getEnv("USE_TEX", "false").parseBool
   let PlotCutEnergy = getEnv("PLOT_SEPTEM_E_CUTOFF", "5.0").parseFloat
+  ## Make this a command line argument / config.toml file feature instead of just env variable
+  let lineVetoKind = parseEnum[LineVetoKind](getEnv("LINE_VETO_KIND", "lvRegular"))
+
+
   echo "Passed indices before septem veto ", passedInds.card
   let group = h5f[(recoBase() & $runNumber).grp_str]
   var septemDf = h5f.getSeptemEventDF(runNumber)
@@ -625,6 +713,8 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
                              dbscanEpsilon = ctx.dbscanEpsilon,
                              clusterAlgo = ctx.clusterAlgo)
 
+      let centerClusterData = getCenterClusterData(septemFrame, centerData, recoEv, lineVetoKind)
+
       # extract the correct gas gain slices for this event
       var gainVals: seq[float]
       for chp in 0 ..< ctx.numChips:
@@ -647,10 +737,11 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
           continue # skip to next iteration
       for clusterTup in pairs(recoEv.cluster):
         let (logL, energy, lineVetoPassed) = evaluateCluster(clusterTup, rs, septemFrame, septemGeometry,
-                                                             centerData,
+                                                             centerClusterData,
                                                              gainVals,
                                                              calibTuple,
                                                              ctx,
+                                                             lineVetoKind,
                                                              flags)
         let cX = toXPix(clusterTup[1].centerX)
         let cY = toYPix(clusterTup[1].centerY)

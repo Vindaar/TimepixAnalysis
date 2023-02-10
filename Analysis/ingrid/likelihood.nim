@@ -579,15 +579,15 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
 
   ## Read all the pixel data for all chips
   let allChipData = readAllChipData(h5f, group, ctx.numChips)
-  let centerData = readCenterChipData(h5f, group, ctx.energyDset)
-  if fkEstRandomCoinc in flags:
+  var centerData = readCenterChipData(h5f, group, ctx.energyDset)
+  let estimateRandomCoinc = fkEstRandomCoinc in flags
+  if estimateRandomCoinc:
     septemDf = bootstrapFakeEvents(septemDf, centerDf, passedEvs, passedInds, fkEstRandomFixedEvent in flags)
     #echo septemDf.pretty(1000)
-  var fout = open("/tmp/septem_fake_veto.txt", fmAppend)
-  fout.write("Septem events before: " & $passedEvs.len & "\n")
-
+  var fout = open("/tmp/septem_veto_before_after.txt", fmAppend)
   let useLineVeto = fkLineVeto in flags
   let useSeptemVeto = fkSeptem in flags
+  fout.write(&"Septem events before: {passedEvs.len} (S,L,F) = ({$useSeptemVeto}, {$useLineVeto}, {estimateRandomCoinc})\n")
 
   let chips = toSeq(0 ..< ctx.numChips)
   let gains = chips.mapIt(h5f[(group.name / "chip_" & $it / "gasGainSlices"), GasGainIntervalResult])

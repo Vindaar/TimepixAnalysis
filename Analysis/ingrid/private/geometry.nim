@@ -367,16 +367,25 @@ proc calcGeometry*[T: SomePix](cluster: Cluster[T],
   stat_y.push(yRot)
 
   # now we have all data to calculate the geometric properties
-  result.length               = max(xRot) - min(xRot)
-  result.width                = max(yRot) - min(yRot)
-  result.rmsTransverse        = stat_y.standardDeviation()
-  result.rmsLongitudinal      = stat_x.standardDeviation()
-  result.skewnessTransverse   = stat_y.skewness()
-  result.skewnessLongitudinal = stat_x.skewness()
-  result.kurtosisTransverse   = stat_y.kurtosis()
-  result.kurtosisLongitudinal = stat_x.kurtosis()
+  let xLong = max(xRot) - min(xRot)     # helpers are there because in septem board data
+  let yLong = max(yRot) - min(yRot)     # using real layout, the axes are sometimes switched.
+  let xRms = stat_x.standardDeviation() # this way we simply take the longer axis, as a mirroring
+  let yRms = stat_y.standardDeviation() # does not matter
+  let xSkew = stat_x.skewness()
+  let ySkew = stat_y.skewness()
+  let xKurt = stat_x.kurtosis()
+  let yKurt = stat_y.kurtosis()
+  result.length               = max(xLong, yLong)
+  result.width                = min(xLong, yLong)
+  result.rmsLongitudinal      = max(xRms, yRms)
+  result.rmsTransverse        = min(xRms, yRms)
+  result.skewnessLongitudinal = min(xSkew, ySkew)
+  result.skewnessTransverse   = max(xSkew, ySkew)
+  result.kurtosisLongitudinal = min(xKurt, yKurt)
+  result.kurtosisTransverse   = max(xKurt, yKurt)
   result.rotationAngle        = rot_angle
   result.eccentricity         = result.rmsLongitudinal / result.rmsTransverse
+
   # get fraction of all pixels within the transverse RMS, by filtering all elements
   # within the transverse RMS radius and dividing by total pix
   # when not defined(release):

@@ -436,6 +436,21 @@ proc readCenterChipData(h5f: H5File, group: H5Group, energyDset: InGridDsetKind)
   result.rmsTCenter = h5f[group.name / "chip_3" / "rmsTransverse", float]
   result.rmsLCenter = h5f[group.name / "chip_3" / "rmsLongitudinal", float]
 
+proc getPixels(allChipData: AllChipData, chip, idx: int, chargeTensor: var Tensor[float]): PixelsInt =
+  ## Use `idx` of this cluster & event to look up all x, y, ToT and charge data of the cluster
+  let
+    chX = allChipData.x[chip][idx].unsafeAddr.toDataView()
+    chY = allChipData.y[chip][idx].unsafeAddr.toDataView()
+    chToT = allChipData.ToT[chip][idx].unsafeAddr.toDataView()
+    chCh = allChipData.charge[chip][idx].unsafeAddr.toDataView()
+  let numPix = allChipData.x[chip][idx].len # data view has no length knowlegde!
+  result = newSeq[PixInt](numPix)
+  for j in 0 ..< numPix:
+    let pix = (x: chX[j], y: chY[j], ch: chToT[j]).chpPixToSeptemPix(chip)
+    # add current charge into full septem tensor
+    chargeTensor[pix.y, pix.x] += chCh[j]
+    result[j] = pix
+
 proc buildSeptemEvent(evDf: DataFrame,
                       lhoodCenter, energies: seq[float],
                       cutTab: CutValueInterpolator,
@@ -453,25 +468,17 @@ proc buildSeptemEvent(evDf: DataFrame,
     # onto the "SeptemFrame"
     let chip = chipData[i]
     let idx = idxData[i]
+
+    # convert to septem coordinate and add to frame
+    let pixData = getPixels(allChipData, chip, idx, chargeTensor)
+    pixels.add pixData
+
     if chip == centerChip and lhoodCenter[idx.int] < cutTab[energies[idx.int]]:
       # assign center event index if this is the cluster that passes logL cut
       result.centerEvIdx = idx.int
+      # in this case assign `pixData` to the result as a reference for data of original cluster
+      result.centerCluster = pixData
 
-    ## Use `idx` of this cluster & event to look up all x, y, ToT and charge data of the cluster
-    let
-      chX = allChipData.x[chip][idx].unsafeAddr.toDataView()
-      chY = allChipData.y[chip][idx].unsafeAddr.toDataView()
-      chToT = allChipData.ToT[chip][idx].unsafeAddr.toDataView()
-      chCh = allChipData.charge[chip][idx].unsafeAddr.toDataView()
-    let numPix = allChipData.x[chip][idx].len # data view has no length knowlegde!
-    var chpPix = newSeq[PixInt](numPix)
-    for j in 0 ..< numPix:
-      let pix = (x: chX[j], y: chY[j], ch: chToT[j]).chpPixToSeptemPix(chip)
-      # add current charge into full septem tensor
-      chargeTensor[pix.y, pix.x] += chCh[j]
-      chpPix[j] = pix
-    # convert to septem coordinate and add to frame
-    pixels.add chpPix
   result.charge = chargeTensor
   result.pixels = pixels
 

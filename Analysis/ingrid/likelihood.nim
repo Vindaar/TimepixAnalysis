@@ -271,14 +271,6 @@ proc writeVetoInfos(grp: H5Group, fadcVetoCount, scintiVetoCount: int,
   mgrp.attrs["# removed by FADC veto"] = fadcVetoCount
   mgrp.attrs["# removed by scinti veto"] = scintiVetoCount
 
-# subtract from 768 as we do the same in `applyPitchConversion` (why?)
-# normalize by full width (14 mm * 3 chips) and scale to all pixels
-proc toXPix(x: float): int =
-  clamp((768 - (x / (TimepixSize * 3.0)) * 768.0).int, 0, 767)
-
-proc toYPix(y: float): int =
-  clamp(((y / (TimepixSize * 3.0)) * 768.0).int, 0, 767)
-
 type
   SeptemFrame = object
     pixels: PixelsInt        ## pure pixel data of all pixels in the septem frame (zero suppressed)

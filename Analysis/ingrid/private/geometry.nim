@@ -1,4 +1,4 @@
-import math, stats
+import std / [math, stats, strutils, envvars]
 import ingrid / ingrid_types
 import helpers / utils
 import logging
@@ -114,11 +114,105 @@ template withSeptemXY*(chipNumber: int, actions: untyped): untyped =
   else: doAssert false, "Invalid chip number encountered in `withSeptemXY`"
   actions
 
-func determineChip*[T:  SomePix](p: T, allowOutsideChip = false): int =
+const
+  ## All the sizes are given in MilliMeter
+  Width* = 14.1
+  Height* = 14.1
+  BondHeight* = 2.0
+  FullHeight* = Height + BondHeight
+  # helper distances
+  YRow1Row2* = 0.38 # distance between row 1 and 2
+  YRow2Row3* = 3.1 # distance between row 2 and 3
+  # distances in X between chips on this row
+  Row1XDist* = 0.85
+  Row2XDist* = 0.35
+  Row3XDist* = 0.35
+  XSize* = 3 * Width + (3 - 1) * Row2XDist # 43mm
+  YSize* = FullHeight + 2 * Height + YRow1Row2 + YRow2Row3 #3 * FullHeight + YRow1Row2 + YRow2Row3
+  # offsets of the x positions of each row
+  Row1XOffset* = 6.95
+  Row2XOffset* = 0.0
+  Row3XOffset* = 7.22
+  # sizes in pixel of the full layout
+  #           v--- size of tight layout in pixel
+  #                       v--- size of chips in mm ('real size' of tight layout)
+  #                                   v--- size in mm of the real layout
+  XSizePix* = ((256 * 3) / (14.1 * 3) * XSize).ceil.int
+  YSizePix* = ((256 * 3) / (14.1 * 3) * YSize).ceil.int
+
+# subtract from 768 as we do the same in `applyPitchConversion` (why?)
+# normalize by full width (14 mm * 3 chips) and scale to all pixels
+proc toRealXPix*(x: float): int =
+  clamp(((x / XSize) * XSizePix.float).round.int, 0, XSizePix-1)
+
+proc toRealYPix*(y: float): int =
+  clamp(((y / YSize) * YSizePix.float).round.int, 0, YSizePix-1)
+
+proc toRealXPos*(x: int|float): float =
+  (float(x) + 0.5) * (XSize / XSizePix.float)
+
+proc toRealYPos*(y: int|float): float =
+  (float(y) + 0.5) * (YSize / YSizePix.float)
+
+# subtract from 768 as we do the same in `applyPitchConversion` (why?)
+# normalize by full width (14 mm * 3 chips) and scale to all pixels
+proc toXPix*(x: float): int =
+  clamp((768 - (x / (TimepixSize * 3.0)) * 768.0).int, 0, 767)
+
+proc toXPixNormal*(x: float): int =
+  clamp(((x / (TimepixSize * 3.0)) * 768.0).int, 0, 767)
+
+proc toYPix*(y: float): int =
+  clamp(((y / (TimepixSize * 3.0)) * 768.0).int, 0, 767)
+
+template withRealSeptemXY*(chipNumber: int, actions: untyped): untyped =
+  ## injects the x0, y0 coordinates of the given chip number embedded into
+  ## the septem frame using the real distances between the chips (converted into
+  ## single pixels though).
+  var
+    x0 {.inject.}: float
+    y0 {.inject.}: float
+  case chipNumber
+  of 0:
+    # chip bottom left of board
+    y0 = 0.0 # top end of bottom row
+    x0 = Row3XOffset # shifted by half a chip to the right
+  of 1:
+    # chip bottom right
+    y0 = 0.0
+    x0 = (Row3XOffset + Width + Row3XDist)
+  of 2:
+    # middle left
+    y0 = (FullHeight + YRow2Row3)
+    x0 = Row2XOffset
+  of 3:
+    # middle middle
+    y0 = (FullHeight + YRow2Row3)
+    x0 = (Row2XOffset + Width + Row2XDist)
+  of 4:
+    # middle right
+    y0 = (FullHeight + YRow2Row3)
+    x0 = (Row2XOffset + 2 * Width + 2 * Row2XDist)
+  of 5:
+    # top right chip (- 1 as we start at top/right, which would be out of bounds if x/y == 0
+    #                 for other chips x/y == 0 leads to first idx on next chip)
+    y0 = (FullHeight + 2 * Height + YRow1Row2 + YRow2Row3)
+    x0 = (Row1XOffset + 2 * Width + Row1XDist) # why one more chip, i.e. starting from right?
+  of 6:
+    # top left chip
+    y0 = (FullHeight + 2 * Height + YRow1Row2 + YRow2Row3)
+    x0 = (Row1XOffset + Width) # why one more chip, i.e. starting from right?
+  else: doAssert false, "Invalid chip number encountered in `withRealSeptemXY`"
+  actions
+
+func determineChip*[T:  SomePix](p: T, allowOutsideChip = false, useRealLayout = false): int =
   ## determines which chip the given septem pixel coordinate corresponds to
   ##
   ## If `allowOutsideChip` is true, we return `-1` for any position that is not in the
   ## valid chip pixels. This can happen for e.g. cluster centers on SeptemEvents
+  ##
+  ## Note: this function assumes the layout between the chips is 'tight', i.e. no spacing
+  ## at all!
   if p.y in 0 .. 255 and p.x in 128 .. 128 + 255:
     # bottom left
     result = 0
@@ -169,25 +263,132 @@ func septemPixToChpPix*[T: SomePix](p: T, chipNumber: range[0 .. 6]): T =
     result.x = result.x - 512
   of 5:
     # top right chip
-    result.y = -(result.y - 3 * 256)
-    result.x = -(result.x - (2 * 256 + 128))
+    result.y = -(result.y - (3 * 256 - 1))
+    result.x = -(result.x - (2 * 256 + 127))
   of 6:
     # top left chip
-    result.y = -(result.y - 3 * 256)
-    result.x = -(result.x - (128 + 256))
+    result.y = -(result.y - (3 * 256 - 1))
+    result.x = -(result.x - (127 + 256))
 
-func chpPixToSeptemPix*(p: Pix, chipNumber: range[0 .. 6]): PixInt =
+func septemToChp*(p: tuple[x, y: float], chipNumber: range[0 .. 6]): tuple[x, y: float] =
+  ## Converts global coordinates of the regular septemboard layout (tight, i.e. no spacing)
+  ## into a chip local coordinate.
+  result = p
+  case chipNumber
+  of 0:
+    # chip bottom left of board
+    result.x = result.x - 7.0 # shifted by half a chip to the right
+  of 1:
+    # chip bottom right
+    result.x = result.x - (7.0 + 14.0)
+  of 2:
+    # middle left
+    result.y = result.y - 14.0
+  of 3:
+    # middle middle
+    result.y = result.y - 14.0
+    result.x = result.x - 14.0
+  of 4:
+    # middle right
+    result.y = result.y - 14.0
+    result.x = result.x - 14.0*2.0
+  of 5:
+    # top right chip
+    result.y = -(result.y - 3 * 14.0)
+    result.x = -(result.x - (2 * 14.0 + 7.0))
+  of 6:
+    # top left chip
+    result.y = -(result.y - 3 * 14.0)
+    result.x = -(result.x - (7.0 * 14.0))
+
+
+func chpPixToSeptemPix*[T: SomePix](p: T, chipNumber: range[0 .. 6], realLayout = false): PixInt =
   ## converts the given local chip pixel to the full septem frame coordinate system
-  withSeptemXY(chipNumber):
-    var xIdx, yIdx: int
+  if realLayout:
+    withRealSeptemXY(chipNumber):
+      var xIdx, yIdx: int
+      case chipNumber
+      of 0, 1, 2, 3, 4:
+        xIdx = x0.toRealXPix() + p.x.int
+        yIdx = y0.toRealYPix() + p.y.int
+      of 5, 6:
+        xIdx = x0.toRealXPix() - p.x.int
+        yIdx = y0.toRealYPix() - p.y.int
+      result = (x: min(xIdx, XSizePix), y: min(yIdx, YSizePix), ch: p.ch.int)
+  else:
+    withSeptemXY(chipNumber):
+      var xIdx, yIdx: int
+      case chipNumber
+      of 0, 1, 2, 3, 4:
+        xIdx = x0 + p.x.int
+        yIdx = y0 + p.y.int
+      of 5, 6:
+        xIdx = x0 - p.x.int
+        yIdx = y0 - p.y.int
+      result = (x: min(xIdx, 767), y: min(yIdx, 767), ch: p.ch.int)
+
+proc septemPixToRealPix*(p: PixInt): PixInt =
+  let chip = p.determineChip(allowOutsideChip = false)
+  result = septemPixToChpPix(p, chip).chpPixToSeptemPix(chip, realLayout = true)
+
+proc tightToReal*(c: tuple[x, y: float]): tuple[x, y: float] =
+  ## Converts a given set of x, y coordinates for the given chip number into
+  ## coordinates on the real septemboard layout.
+  let chipNumber = determineChip((x: c.x.toXPixNormal(), y: c.y.toYPix(), ch: 0))
+  let p = septemToChp(c, chipNumber)
+  withRealSeptemXY(chipNumber):
     case chipNumber
     of 0, 1, 2, 3, 4:
-      xIdx = x0 + p.x.int
-      yIdx = y0 + p.y.int
+      result.x = (XSize - (x0 + p.x)) # invert position here
+      result.y = y0 + p.y
     of 5, 6:
-      xIdx = x0 - p.x.int
-      yIdx = y0 - p.y.int
-    result = (x: min(xIdx, 767), y: min(yIdx, 767), ch: p.ch.int)
+      result.x = (XSize - (x0 - p.x))
+      result.y = y0 - p.y
+    else:
+      doAssert false, "Invalid chip: " & $chipNumber
+
+proc chpPixToRealPix*(a: int, isX: bool, chipNumber: range[0 .. 6]): int =
+  ## Note: This is not particularly efficient... But doing it better requires
+  ## a rewrite of the templates above.
+  let pix = if isX: (x: a, y: 0, ch: 0)
+            else: (x: 129, y: a, ch: 0) # 129 is a dummy that corresponds to a point that is
+                                        # for sure on a chip, independent of the septem row (indep. of y)
+  let sepCoord = pix.chpPixToSeptemPix(chipNumber, realLayout = true)
+  result = if isX: sepCoord.x
+           else: sepCoord.y
+
+proc chpPixToSeptemPix*(a: int, isX: bool, chipNumber: range[0 .. 6]): int =
+  ## Note: This is not particularly efficient... But doing it better requires
+  ## a rewrite of the templates above.
+  let pix = if isX: (x: a, y: 0, ch: 0)
+            else: (x: 129, y: a, ch: 0) # 129 is a dummy that corresponds to a point that is
+                                        # for sure on a chip, independent of the septem row (indep. of y)
+  let sepCoord = pix.chpPixToSeptemPix(chipNumber, realLayout = false)
+  result = if isX: sepCoord.x
+           else: sepCoord.y
+
+proc determineRealChip*(p: PixInt): int =
+  ## Determines the chip for an input pixel on the real layout.
+  ## XXX: why cannot be `let`?
+  ## XXX2: can merge this with `determineChip`, no?
+  let chipEdges = block:
+    var res = newSeq[tuple[left, bottom, right, top: int]]()
+    for chip in 0 ..< 7:
+      let # replae by `chpPixToSeptemPix` to do regular layout!
+        left = chpPixToRealPix(0, isX = true, chip)
+        bottom = chpPixToRealPix(0, isX = false, chip)
+        right = chpPixToRealPix(255, isX = true, chip)
+        top =  chpPixToRealPix(255, isX = false, chip)
+      if chip in [5, 6]: # top two chips are inverted in X
+        res.add (right, top, left, bottom)
+      else:
+        res.add (left, bottom, right, top)
+    res
+  for chip, bounds in chipEdges:
+    if p.x >= bounds.left and p.x <= bounds.right and
+       p.y >= bounds.bottom and p.y <= bounds.top:
+      return chip
+  doAssert false, "The pixel : " & $p & " does not belong to a chip!"
 
 func chpPixToSeptemPix*(pix: Pixels, chipNumber: range[0 .. 6]): PixelsInt =
   ## converts the given local chip pixels to the full septem frame coordinate system
@@ -262,7 +463,8 @@ template distance*(x, y: float): float = sqrt(x * x + y * y)
 # const PITCH = 0.0055 (see ingrid_types)
 func applyPitchConversion*[T: (float | SomeInteger)](x, y: T, npix: int): (float, float) =
   ## template which returns the converted positions on a Timepix
-  ## pixel position --> position from center in mm
+  ## pixel position --> absolute position from pixel center in mm.
+  ## Note that the x axis is 'inverted'!
   ((float(npix) - float(x) + 0.5) * PITCH, (float(y) + 0.5) * PITCH)
 
 func inRegion*(centerX, centerY: float, region: ChipRegion): bool {.inline.} =

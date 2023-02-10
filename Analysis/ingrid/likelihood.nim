@@ -409,6 +409,7 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
                      lineVetoKind: LineVetoKind,
                      flags: set[FlagKind]
                     ): tuple[logL, energy: float, lineVetoPassed: bool] =
+  let EccentricityLineVetoCut = parseFloat(getEnv("ECC_LINE_VETO_CUT", "1.3"))
   # total charge for this cluster
   let clusterId = clTup[0]
   let cl = clTup[1]

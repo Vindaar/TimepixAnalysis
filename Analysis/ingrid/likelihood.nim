@@ -401,7 +401,9 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
                      lineVetoKind: LineVetoKind,
                      flags: set[FlagKind]
                     ): tuple[logL, energy: float, lineVetoPassed: bool] =
+  ## XXX: add these to config.toml and as a cmdline argument in addition
   let EccentricityLineVetoCut = parseFloat(getEnv("ECC_LINE_VETO_CUT", "1.3"))
+  let UseRealLayout = parseBool(getEnv("USE_REAL_LAYOUT", "true"))
   # total charge for this cluster
   let clusterId = clTup[0]
   let cl = clTup[1]
@@ -413,7 +415,8 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
   for pix in clData:
     # take each pixel tuple and reconvert it to chip based coordinates
     # first determine chip it corresponds to
-    let pixChip = determineChip(pix)
+    let pixChip = if UseRealLayout: determineRealChip(pix)
+                  else: determineChip(pix)
 
     # for this pixel and chip get the correct gas gain and push it to the `RunningStat`
     rs.push gainVals[pixChip]
@@ -428,8 +431,8 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
   # determine parameters of the lines through the cluster centers
   # invert the slope
   let slope = tan(Pi - cl.geometry.rotationAngle)
-  let cX = toXPix(cl.centerX)
-  let cY = toYPix(cl.centerY)
+  let cX = if UseRealLayout: toRealXPix(cl.centerX) else: toXPix(cl.centerX)
+  let cY = if UseRealLayout: toRealYPix(cl.centerY) else: toYPix(cl.centerY)
   let intercept = cY.float - slope * cX.float
   septemGeometry.centers.add (x: cX.float, y: cY.float)
   septemGeometry.lines.add (m: slope, b: intercept)
@@ -461,10 +464,14 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
     # center cluster
     # compute line orthogonal to this cluster's line
     let orthSlope = -1.0 / slope
-    ## TODO: XXX: eccentricity check. Using a line of a cluster that is not very eccentric makes no sense!
     # determine y axis intersection
-    septemGeometry.xCenter = clamp(256 - (centerData.cXCenter[centerEvIdx] / TimepixSize * 256.0).int, 0, 255) + 256
-    septemGeometry.yCenter = clamp((centerData.cYCenter[centerEvIdx] / TimepixSize * 256).int, 0, 256) + 256
+    ## Center data must be converted as it doesn't go through reco!
+    let centerNew = if UseRealLayout: tightToReal((x: centerData.cX, y: centerData.cY))
+                    else: (x: centerData.cX, y: centerData.cY)
+    septemGeometry.xCenter = if UseRealLayout: toRealXPix(centerNew.x)
+                             else: toXPix(centerNew.x)
+    septemGeometry.yCenter = if UseRealLayout: toRealYPix(centerNew.y)
+                             else: toYPix(centerNew.y)
 
     let centerInter = septemGeometry.yCenter.float - orthSlope * septemGeometry.xCenter.float
 
@@ -536,7 +543,7 @@ proc buildSeptemEvent(evDf: DataFrame,
   ## Given a
   result = SeptemFrame(centerEvIdx: -1, numRecoPixels: 0)
   # assign later to avoid indirection for each pixel
-  var chargeTensor = zeros[float]([768, 768])
+  var chargeTensor = zeros[float]([YSizePix, XSizePix])
   var pixels: PixelsInt = newSeqOfCap[PixInt](5000) # 5000 = 5k * 26eV = 130keV. Plenty to avoid reallocations
   let chipData = evDf["chipNumber", int] # get data as tensors and access to avoid `Value` wrapping
   let idxData = evDf["eventIndex", int]

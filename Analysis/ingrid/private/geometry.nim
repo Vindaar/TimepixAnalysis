@@ -531,13 +531,13 @@ proc eccentricity[T: SomePix](p: seq[float], func_data: FitObject[T]): float =
   result = -exc
 
 proc calcGeometry*[T: SomePix](cluster: Cluster[T],
-                               pos_x, pos_y, rot_angle: float): ClusterGeometry =
+                               pos_x, pos_y, rot_angle: float,
+                               useRealLayout = false): ClusterGeometry =
   ## given a cluster and the rotation angle of it, calculate the different
   ## statistical moments, i.e. RMS, skewness and kurtosis in longitudinal and
   ## transverse direction
   ## done by rotating the cluster by the angle to define the two directions
   let npix = cluster.len
-
   var
     xRot = newSeq[float](npix)
     yRot = newSeq[float](npix)
@@ -547,9 +547,13 @@ proc calcGeometry*[T: SomePix](cluster: Cluster[T],
     i = 0
   for p in cluster:
     when T is Pix or T is PixTpx3:
-      let (x, y) = applyPitchConversion(p.x, p.y, NPIX)
+      let (x, y) = applyPitchConversion(p.x, p.y, NPIX) # `useRealLayout` has no point here
     elif T is PixInt or T is PixIntTpx3:
-      let (x, y) = applyPitchConversion(p.x, p.y, NPIX * 3)
+      var x, y: float
+      if useRealLayout:
+        (x, y) = (toRealXPos(p.x), toRealYPos(p.y))
+      else:
+        (x, y) = applyPitchConversion(p.x, p.y, NPIX * 3)
     else:
       error("Invalid type: " & $T)
     xRot[i] = cos(-rot_angle) * (x - pos_x) - sin(-rot_angle) * (y - pos_y)
@@ -697,13 +701,16 @@ proc fitRotAngle*[T: SomePix](cl_obj: ClusterObject[T],
 #proc recoCluster*(c: Cluster[Pix]): ClusterObject[Pix] {.gcsafe.} =
 proc recoCluster*[T: SomePix; U: SomePix](c: Cluster[T],
                                           timepix: TimepixVersion = Timepix1,
-                                          _: typedesc[U]): ClusterObject[U] {.gcsafe, hijackMe.} =
+                                          _: typedesc[U],
+                                          useRealLayout = false
+                                         ): ClusterObject[U] {.gcsafe, hijackMe.} =
   result = newClusterObject[U](timepix)
 
   let clustersize: int = len(c)
   ##
   const NeedConvert = T is PixTpx3 and U is Pix or
                       T is PixIntTpx3 and U is PixInt
+
   var cl = newSeq[U](clustersize)
   var
     sum_x, sum_x2: int
@@ -747,7 +754,10 @@ proc recoCluster*[T: SomePix; U: SomePix](c: Cluster[T],
   when T is Pix or T is PixTpx3:
     (result.centerX, result.centerY) = applyPitchConversion(pos_x, pos_y, NPIX)
   elif T is PixInt or T is PixIntTpx3:
-    (result.centerX, result.centerY) = applyPitchConversion(pos_x, pos_y, NPIX * 3)
+    if useRealLayout:
+      (result.centerX, result.centerY) = (toRealXPos(pos_x), toRealYPos(pos_y))
+    else:
+      (result.centerX, result.centerY) = applyPitchConversion(pos_x, pos_y, NPIX * 3)
   else:
     error("Invalid type: " & $T)
   # prepare rot angle fit
@@ -768,14 +778,24 @@ proc recoCluster*[T: SomePix; U: SomePix](c: Cluster[T],
 
   # now we still need to use the rotation angle to calculate the different geometric
   # properties, i.e. RMS, skewness and kurtosis along the long axis of the cluster
-  result.geometry = calcGeometry(c, result.centerX, result.centerY, rot_angle)
+  result.geometry = calcGeometry(c, result.centerX, result.centerY, rot_angle, useRealLayout)
   when T is PixTpx3:
     result.toaGeometry = calcToAGeometry(result)
 
 
-proc getPixels[T; U](dat: RecoInputEvent[U], _: typedesc[T]): seq[T] =
+proc getPixels[T; U](dat: RecoInputEvent[U], _: typedesc[T],
+                     useRealLayout = false): seq[T] =
+  ## Returns the pixel data of the input event taking into account a
+  ## possible conversion from Tpx1 -> Tpx3 data or transformation to the
+  ## real Septemboard layout including spacing.
   when T is U:
-    result = dat.pixels
+    if useRealLayout and T is PixInt:
+      result = newSeq[PixInt](dat.pixels.len)
+      for i in 0 ..< dat.pixels.len:
+        ## XXX: use `tightToReal`?
+        result[i] = septemPixToRealPix(dat.pixels[i])
+    else:
+      result = dat.pixels
   elif T is PixTpx3:
     doAssert dat.pixels.len == dat.toa.len
     result = newSeq[PixTpx3](dat.pixels.len)
@@ -802,6 +822,10 @@ proc recoEvent*[T: SomePix](dat: RecoInputEvent[T],
   ## cluster?
   ## I remember trying *some* kind of set based approach before which turned out
   ## slower, so gotta be careful.
+
+  ## XXX: add this also to the config.toml file and make it a cmdline arg!
+  let UseRealLayout = parseBool(getEnv("USE_REAL_LAYOUT", "true"))
+
   template recoClusterTmpl(typ, pixels: untyped): untyped {.dirty.} =
     var cluster: seq[Cluster[typ]]
     case clusterAlgo
@@ -809,21 +833,21 @@ proc recoEvent*[T: SomePix](dat: RecoInputEvent[T],
     of caDBSCAN:  cluster = findClusterDBSCAN(pixels, dbscanEpsilon)
     result.cluster = newSeq[ClusterObject[T]](cluster.len)
     for i, cl in cluster:
-      result.cluster[i] = recoCluster(cl, timepixVersion, T)
+      result.cluster[i] = recoCluster(cl, timepixVersion, T, UseRealLayout)
 
   if dat[0].len > 0:
     case timepixVersion
     of Timepix1:
       when T is PixInt or T is PixIntTpx3:
-        let pixels = getPixels(dat, PixInt)
+        let pixels = getPixels(dat, PixInt, UseRealLayout)
         recoClusterTmpl(PixInt, pixels)
       else:
-        let pixels = getPixels(dat, Pix)
+        let pixels = getPixels(dat, Pix, UseRealLayout)
         recoClusterTmpl(Pix, pixels)
     of Timepix3:
       when T is PixIntTpx3 or T is PixInt:
-        let pixels = getPixels(dat, PixIntTpx3)
+        let pixels = getPixels(dat, PixIntTpx3, UseRealLayout)
         recoClusterTmpl(PixIntTpx3, pixels)
       else:
-        let pixels = getPixels(dat, PixTpx3)
+        let pixels = getPixels(dat, PixTpx3, UseRealLayout)
         recoClusterTmpl(PixTpx3, pixels)

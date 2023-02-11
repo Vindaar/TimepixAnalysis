@@ -232,9 +232,13 @@ proc calcRiseAndFallTime*[T: seq | Tensor](fadc: T): tuple[baseline: float,
   # determine baseline based on truncated mean. Remove good chunk of lower data to make sure we 'cut out'
   # the typical signal. 2560/0.3 = 768 channels is a reasonable width that covers most signals.
   let baseline = fadc.biasedTruncMean1D(0.30, 0.95)
+  # now determine rise and fall times. The thresholds are defined as the point 5% below the
+  # baseline (due to fluctuations)
+  const OffsetToBaseline = 0.025 # 2.5 % below baseline seems reasonable
+  let offset = abs(OffsetToBaseline * (fadc[xMin] - baseline)) # relative to the 'amplitude'
   let
-    riseStart = findThresholdValue(fadc, xMin, baseline)
-    fallStop = findThresholdValue(fadc, xMin, baseline, left = false)
+    riseStart = findThresholdValue(fadc, xMin, baseline - offset)
+    fallStop = findThresholdValue(fadc, xMin, baseline - offset, left = false)
 
   # given this data, we could now in principle already calculate the fall and rise
   # times in nano seconds, but we're going to stick to registers for now

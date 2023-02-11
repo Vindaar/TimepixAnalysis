@@ -1,12 +1,8 @@
 # this file contains procs, which deal with the analysis of the
 # FADC data stored in a H5 file
 
-import strutils, sequtils, strformat
-import ospaths
+import std / [strutils, sequtils, strformat, heapqueue, os, tables, times]
 import nimhdf5
-import tables
-import times
-import future
 
 import arraymancer
 import seqmath
@@ -150,16 +146,65 @@ proc len[T](t: Tensor[T]): int =
   assert t.rank == 1
   result = t.size.int
 
+# for moving average statistics
+import adix / stat
+
+type
+  ## Helper data types to be aware of the current data in the MovingStat window.
+  ## We use a queue to pop the correct values once they go out of the window.
+  FifoElement = tuple[idx: int, val: float]
+  FIFO = object
+    idx: int # incrementing counter used for next element as the index
+    windowSize: int
+    data: HeapQueue[FifoElement]
+
+proc `<`(a, b: FifoElement): bool = a.idx < b.idx
+proc initFifo(windowSize: int): FIFO =
+  result = FIFO(idx: 0,
+                windowSize: windowSize,
+                data: initHeapQueue[FifoElement]())
+
+proc push(fifo: var FIFO, x: float) =
+  fifo.data.push (fifo.idx, x)
+  inc fifo.idx
+
+proc pop(fifo: var FIFO): float =
+  let removed = fifo.data.pop()
+  result = removed.val
+
+proc popIdx(fifo: var FIFO): int =
+  let removed = fifo.data.pop()
+  result = removed.idx
+
+proc meanIdx(fifo: var FIFO): int =
+  doAssert fifo.data.len > 0, "FIFO is empty! Cannot calculate a mean"
+  var res = 0.0
+  let num = fifo.data.len
+  while fifo.data.len > 0:
+    let idx = fifo.popIdx()
+    res += idx.float
+  result = (res / num.float).round.int
+
 proc findThresholdValue*[T: seq | Tensor; U](data: T, x_min: int, threshold: U, left = true, positive = false): int =
   ## left determines whether we start search left or right
   ## positive sets the range of the data. postiive == false means we consider
   ## dips instead of peaks
+  ##
+  ## The current implementation is problematic as it is falling for outliers in the data.
+  ## We will replace it by a version that calculates a truncated running mean.
+  const WindowSize = 5
+
   let thr = threshold
   var x = xMin
   var count = 0
-  while data[x] < thr and count < 2560:
-    # positive == true would mean data[x] > thr
-    if left == true:
+
+  var removeQueue = initFifo(WindowSize)
+  var stat = initMovingStat[float, int]()
+  stat.push data[x]        # start with position of minimum
+  removeQueue.push data[x] # in both
+
+  while stat.mean() < thr and count < 2560:
+    if left:
       dec x
       if x <= 0:
         x = data.high
@@ -168,14 +213,29 @@ proc findThresholdValue*[T: seq | Tensor; U](data: T, x_min: int, threshold: U, 
       if x >= data.high:
         x = 0
     inc count
+    # push current datapoint
+    stat.push data[x]
+    removeQueue.push data[x]
+    if stat.n > WindowSize: # if window is full, time to pop elements
+      let toRemove = removeQueue.pop()
+      stat.pop toRemove
+
   # once we're out, we found our threshold in the data
   if count >= 2560:
     # set the threshold value to the start value, indicating, that
     # it could not be found
     result = x_min
   else:
-    # in case of a good result..
-    result = x
+    # register is the mean index of the queue (we start index from 0,
+    # increase for each add) add to the start index mod 2560
+    var resIdx: int
+    if left:
+      resIdx = xMin - removeQueue.meanIdx()
+      if resIdx < 0:
+        resIdx = 2560 - resIdx
+    else:
+      resIdx = removeQueue.meanIdx() + xMin
+    result = resIdx mod 2560
 
 proc findThresholdValue[T](data: seq[seq[T]],
                            x_min: seq[int],

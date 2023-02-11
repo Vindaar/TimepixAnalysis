@@ -789,11 +789,14 @@ proc getPixels[T; U](dat: RecoInputEvent[U], _: typedesc[T],
   ## possible conversion from Tpx1 -> Tpx3 data or transformation to the
   ## real Septemboard layout including spacing.
   when T is U:
-    if useRealLayout and T is PixInt:
-      result = newSeq[PixInt](dat.pixels.len)
-      for i in 0 ..< dat.pixels.len:
-        ## XXX: use `tightToReal`?
-        result[i] = septemPixToRealPix(dat.pixels[i])
+    when T is PixInt:
+      if useRealLayout and T is PixInt:
+        result = newSeq[PixInt](dat.pixels.len)
+        for i in 0 ..< dat.pixels.len:
+          ## XXX: use `tightToReal`?
+          result[i] = septemPixToRealPix(dat.pixels[i])
+      else:
+        result = dat.pixels
     else:
       result = dat.pixels
   elif T is PixTpx3:

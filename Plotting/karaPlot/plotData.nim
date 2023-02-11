@@ -177,6 +177,7 @@ proc initConfig*(chips: set[uint16],
                  runs: set[uint16],
                  flags: set[ConfigFlagKind],
                  cuts: seq[GenericCut],
+                 region: ChipRegion,
                  maskRegion: seq[MaskRegion],
                  tomlConfig: TomlValueRef,
                  ingridDsets: set[IngridDsetKind] = {},
@@ -232,6 +233,7 @@ proc initConfig*(chips: set[uint16],
                   ingridDsets: ingridDsets,
                   fadcDsets: fadcDsets,
                   cuts: cuts,
+                  region: region,
                   maskRegion: maskRegion,
                   idxs: toSeq(0 ..< head),
                   fileType: fileFormat,
@@ -243,12 +245,11 @@ proc initConfig*(chips: set[uint16],
                   binningTab: binningTab)
 
 proc initSelector(config: Config, cuts: seq[GenericCut] = @[],
-                  chipRegion: ChipRegion = crAll,
                   applyAll: Option[bool] = none[bool]()
                  ): DataSelector =
   let appAll = if applyAll.isSome: applyAll.get
                else: cfApplyAllCuts in config.flags
-  result = DataSelector(region: chipRegion,
+  result = DataSelector(region: config.region,
                         cuts: concat(config.cuts, cuts),
                         maskRegion: config.maskRegion, #concat(config.cuts, maskRegion),
                         idxs: config.idxs,
@@ -805,22 +806,18 @@ proc histograms(h5f: H5File, runType: RunTypeKind,
   ## TODO: make datasets and chip regions selectable!
   for selector in selectors:
     if cfInGrid in config.flags:
-      ## XXX: make region selection CLI argument & config file!
-      for region in [crAll, crGold]: #ChipRegion:
-        var sel = selector
-        sel.region = region
-        for ch in fileInfo.chips:
-          for dset in concat(@InGridDsets, @ToADsets):
-            let (binSize, binRange) = config.getBinSizeAndBinRange(dset)
-            result.add PlotDescriptor(runType: runType,
-                                      name: dset,
-                                      selector: sel,
-                                      runs: fileInfo.runs,
-                                      plotKind: pkInGridDset,
-                                      chip: ch,
-                                      isCenterChip: fileInfo.centerChip == ch,
-                                      binSize: binSize,
-                                      binRange: binRange)
+      for ch in fileInfo.chips:
+        for dset in concat(@InGridDsets, @ToADsets):
+          let (binSize, binRange) = config.getBinSizeAndBinRange(dset)
+          result.add PlotDescriptor(runType: runType,
+                                    name: dset,
+                                    selector: selector,
+                                    runs: fileInfo.runs,
+                                    plotKind: pkInGridDset,
+                                    chip: ch,
+                                    isCenterChip: fileInfo.centerChip == ch,
+                                    binSize: binSize,
+                                    binRange: binRange)
     if cfFadc in config.flags:
       for dset in FadcDsets:
         let (binSize, binRange) = config.getBinSizeAndBinRange(dset)
@@ -2878,6 +2875,7 @@ proc plotData*(
   runs: set[uint16] = {},
   show = false,
   cuts: seq[GenericCut] = @[],
+  region: ChipRegion = crAll,
   invertedCuts: seq[GenericCut] = @[],
   maskRegion: seq[MaskRegion] = @[],
   applyAllCuts = false,
@@ -2928,6 +2926,7 @@ proc plotData*(
   let cfg = initConfig(chips, runs, flags,
                        cuts = concat(cuts, invertedCuts),
                        maskRegion = maskRegion,
+                       region = region,
                        tomlConfig = tomlConfig,
                        head = head,
                        xDset = x,
@@ -3049,6 +3048,7 @@ in the future if needed.""",
 
     "show" : "If given will open each generated plot using inkview (svg) / evince (pdf) / nomacs (png).",
     "cuts" : "Allows to cut data used for event display. Only shows events of data passing these cuts.",
+    "region" : "Only generate plots from data in this chip region (crAll, crBronze, crSilver, crGold)",
     "invertedCuts" : "Sets an inverted cut. Same as `cuts`, but removes everything *inside* the cut.",
     "maskRegion" : "Allows to mask a region (in pixel coords). Any pixel in the region will be cut.",
     "applyAllCuts" : "If given will apply all given cuts to all data reads.",

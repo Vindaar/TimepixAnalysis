@@ -332,6 +332,30 @@ proc isInside(c: tuple[x, y: float],
   ## Returns whether the given cluster is inside the circle with given radius.
   result = sqrt( (c.x - xCenter.float)^2 + (c.y - yCenter.float)^2 ) <= radius
 
+proc addSeptemboardOutline*(plt: var GgPlot, useRealLayout: bool) =
+  const chipOutlineX = @[
+    (x: 0,   yMin: 0, yMax: 255),
+    (x: 255, yMin: 0, yMax: 255)
+  ]
+  const chipOutlineY = @[
+    (y: 0  , xMin: 0, xMax: 255),
+    (y: 255, xMin: 0, xMax: 255)
+  ]
+
+  proc toLayout(x: int, isX: bool, chip: int): int =
+    result = if useRealLayout: x.chpPixToRealPix(isX, chip) else: x.chpPixToSeptemPix(isX, chip)
+  for chip in 0 .. 6:
+    for line in chipOutlineX:
+      let val  = line.x.toLayout(true, chip)
+      let minV = line.yMin.toLayout(false, chip)
+      let maxV = line.yMax.toLayout(false, chip)
+      plt = plt + geom_linerange(aes = aes(x = val, yMin = minV, yMax = maxV))
+    for line in chipOutlineY:
+      let val  = line.y.toLayout(false, chip)
+      let minV = line.xMin.toLayout(true, chip)
+      let maxV = line.xMax.toLayout(true, chip)
+      plt = plt + geom_linerange(aes = aes(y = val, xMin = minV, xMax = maxV))
+
 proc plotSeptemEvent*(evData: PixelsInt, run, eventNumber: int,
                       lines: seq[tuple[m, b: float]],
                       centers: seq[tuple[x, y: float]],
@@ -376,36 +400,12 @@ proc plotSeptemEvent*(evData: PixelsInt, run, eventNumber: int,
   ## XXX: make an argument to this proc? Also config.toml and cmdline arg.
   let UseRealLayout = parseBool(getEnv("USE_REAL_LAYOUT", "true"))
 
-  const chipOutlineX = @[
-    (x: 0,   yMin: 0, yMax: 255),
-    (x: 255, yMin: 0, yMax: 255)
-  ]
-  const chipOutlineY = @[
-    (y: 0  , xMin: 0, xMax: 255),
-    (y: 255, xMin: 0, xMax: 255)
-  ]
-
-  proc addOutline(plt: var GgPlot) =
-    proc toLayout(x: int, isX: bool, chip: int): int =
-      result = if UseRealLayout: x.chpPixToRealPix(isX, chip) else: x.chpPixToSeptemPix(isX, chip)
-    for chip in 0 .. 6:
-      for line in chipOutlineX:
-        let val  = line.x.toLayout(true, chip)
-        let minV = line.yMin.toLayout(false, chip)
-        let maxV = line.yMax.toLayout(false, chip)
-        plt = plt + geom_linerange(aes = aes(x = val, yMin = minV, yMax = maxV))
-      for line in chipOutlineY:
-        let val  = line.y.toLayout(false, chip)
-        let minV = line.xMin.toLayout(true, chip)
-        let maxV = line.xMax.toLayout(true, chip)
-        plt = plt + geom_linerange(aes = aes(y = val, xMin = minV, xMax = maxV))
-
   var plt = ggplot(df, aes(x, y)) +
     geom_point(aes = aes(color = factor("cluster ID")), size = 1.0) +
     xlim(0, 800) + ylim(0, 900) +
     scale_x_continuous() + scale_y_continuous() +
     geom_line(data = dfCircle, aes = aes(x = "xCircle", y = "yCircle"))
-  plt.addOutline()
+  plt.addSeptemboardOutline(UseRealLayout)
   if dfLines.len > 0:
     plt = plt +
       geom_line(data = dfLines, aes = aes(x = "xs", y = "ys", color = factor("cluster ID"))) +

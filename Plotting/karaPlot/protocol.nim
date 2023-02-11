@@ -363,7 +363,9 @@ proc getRunsStr*(runs: seq[int]): kstring =
     result = runs.foldl($a & " " & $b, "").strip(chars = {' '})
 
 proc toFilename(s: DataSelector): string =
-  let sCuts = s.cuts.mapIt(&"{it.dset}_{it.min}_{it.max}").join("_")
+  proc toFnameDset(c: GenericCut): string =
+    c.dset.replace("/", "_")
+  let sCuts = s.cuts.mapIt(&"{it.toFnameDset()}_{it.min}_{it.max}").join("_")
   let numIdxs = if s.idxs.len > 0: &"numIdxs_{s.idxs.len}" else: ""
   let sApplyAll = if s.cuts.len > 0: &"applyAll_{s.applyAll}" else: ""
   let sRegion = &"region_{s.region}"

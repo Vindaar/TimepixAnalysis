@@ -1,6 +1,7 @@
 ## A tool to plot data from H5 files
 import plotly
 import ggplotnim
+from ginger import initViewport, layout, embedAsRelative, addViewport, draw
 import os except FileInfo
 import strutils, strformat, times, sequtils, math, macros, algorithm, sets, stats, base64
 import options, logging, typeinfo, json
@@ -477,7 +478,7 @@ proc applyCuts(h5f: H5File, selector: DataSelector, dset: H5Dataset, idx: seq[in
 
   let parentGrp = h5f[dset.parent.grp_str]
   var performedCut = false
-  if idx.len == 0: # only apply if no indices already specified
+  if idx.len == 0 and not selector.isFadc: # only apply if no indices already specified
     let cuts = selector.getCuts(h5f.name.extractFilename, dset.name)
     # now apply the correct cuts
     # get the cut indices to only read passing data
@@ -515,10 +516,16 @@ proc readFull*(h5f: H5File,
   ## reads the given dataset from the H5 file and returns it
   ## (potentially) converted to ``dtype``
   var dset: H5DataSet
+  var selector = selector
   if isFadc:
     dset = h5f[(fadcRecoPath(runNumber) / dsetName).dset_str]
+    # reset selector, we don't want cuts for FADC data
+    selector = DataSelector(region: crAll, isFadc: true)
   else:
     dset = h5f[(fileInfo.dataPath(runNumber, chipNumber).string / dsetName).dset_str]
+
+  ## XXX: Better handle FADC by working fully on DFs. So use our reading proc that reads
+  ## chip & fadc data together and apply cuts on those
 
   ## possibly set indices to a subset based on cuts
   let idx = h5f.applyCuts(selector, dset, idx)
@@ -894,7 +901,9 @@ proc plotHist2D(data: Tensor[float], title, outfile: string): PlotV =
   else:
     discard
 
-proc plotSparseEvent(df: DataFrame, title, outfile: string): PlotV =
+proc plotSparseEvent(df: DataFrame, title, outfile: string,
+                     fullSeptemboard, useRealLayout: bool
+                    ): PlotV =
   ## creates a 2D histogram plot (basically an image) of the given 2D
   ## Tensor
   result = initPlotV(title, "pixel x", "pixel y", ShapeKind.Rectangle)
@@ -904,11 +913,19 @@ proc plotSparseEvent(df: DataFrame, title, outfile: string): PlotV =
   of bMpl:
     discard
   of bGgPlot:
-    result.pltGg = ggplot(df, aes("x", "y", color = "ch")) +
-      geom_point() +
+    echo df
+    result.pltGg = ggplot(df, aes("x", "y"), backend = bkCairo) +
+      geom_point(aes = aes(color = "ch")) +
       margin(left = 9.0, right = 3, top = 2) +
-      xlim(0, NPix) + ylim(0, NPix) +
       result.theme # just add the theme directly
+    if fullSeptemboard:
+      result.pltGg.addSeptemboardOutline(useRealLayout)
+      if not useRealLayout:
+        result.pltGg = result.pltGg + xlim(0, 3 * NPix) + ylim(0, 3 * NPix)
+      else:
+        result.pltGg = result.pltGg + xlim(0, 800) + ylim(0, 900)
+    else:
+      result.pltGg = result.pltGg + xlim(0, NPix) + ylim(0, NPix)
   else:
     discard
 
@@ -937,8 +954,7 @@ proc plotScatter(pltV: var PlotV, x, y: seq[float], name, outfile: string,
                   color = some(parseHex("FF00FF"))) +
         pltV.theme # just add the theme directly
     else:
-      # in this case a plot already exists!
-      pltV.pltGg = ggplot(df, aes("x", "y")) +
+      pltV.pltGg = ggplot(df, aes("x", "y"), backend = bkCairo) +
         geom_line() +
         pltV.theme # just add the theme directly
   else:
@@ -991,25 +1007,47 @@ proc plotScatter(x, y: seq[float], title, name, outfile: string): PlotV =
   else: discard
   result.plotScatter(x, y, name, outfile, isNew = true)
 
-proc makeSubplot(pd: PlotDescriptor, plts: seq[PlotV]): PlotV =
+proc makeSubplot(pd: PlotDescriptor, plts: seq[PlotV],
+                 outfile: string): PlotV =
   result = initPlotV(pd.title, pd.xlabel, pd.ylabel)
-  let baseLayout = plts[0].plLayout
-  baseLayout.width = 1600
-  baseLayout.height = 800
-  # move all potential annotations from plts[> 0] to baseLayout
-  for i in 1 .. plts.high:
-    baseLayout.annotations.add plts[i].plPlot.layout.annotations
-  case plts.len
-  of 2:
-    result.plPlotJson = subplots:
-      baseLayout: baseLayout
-      plot:
-        plts[0].plPlot
-        pd.domain[0]
-      plot:
-        plts[1].plPlot
-        pd.domain[1]
-  else: echo "Subplots currently only supported for 2 plots!"
+  case BKind
+  of bPlotly:
+    let baseLayout = plts[0].plLayout
+    baseLayout.width = 1600
+    baseLayout.height = 800
+    # move all potential annotations from plts[> 0] to baseLayout
+    for i in 1 .. plts.high:
+      baseLayout.annotations.add plts[i].plPlot.layout.annotations
+    case plts.len
+    of 2:
+      result.plPlotJson = subplots:
+        baseLayout: baseLayout
+        plot:
+          plts[0].plPlot
+          pd.domain[0]
+        plot:
+          plts[1].plPlot
+          pd.domain[1]
+    else: echo "Subplots currently only supported for 2 plots!"
+  of bGgPlot:
+    ## XXX: this should really be fitting better into the whole code!
+    var img = initViewport(wImg = 1200, hImg = 600, backend = bkCairo)
+    let numPlots = plts.len
+    doAssert numPlots == 2
+    img.layout(numPlots, rows = 1)
+    img.embedAsRelative(0, ggcreate(plts[0].pltGg).view)
+    img.embedAsRelative(1, ggcreate(plts[1].pltGg).view)
+
+    var area = img.addViewport()
+    ## XXX: if we use subplots for more in future, adapt
+    #let title = &"Septemboard event and FADC signal for event {eventNumber}"
+    #let text = area.initText(c(0.5, 0.05, ukRelative), title, goText, taCenter, font = some(font(16.0)))
+    #area.addObj text
+    #img.children.add area
+    echo "DRAWING ", outfile
+    img.draw(outfile)
+  else:
+    doAssert false, "Unsupported on backend " & $BKind
 
 # TODO: also plot occupancies without full frames (>4095 hits)?
 proc occupancies(h5f: H5File, runType: RunTypeKind,
@@ -1285,7 +1323,9 @@ proc buildEvents[T, U](x, y: seq[seq[T]], ch: seq[seq[U]],
 #  result = buildEvents(x, y, ch, toOrderedSet(@[0]))
 
 proc readEventsSparse*(h5f: H5File, fileInfo: FileInfo, run, chip: int, #idx: int,
-                       selector: DataSelector): DataFrame =
+                       selector: DataSelector,
+                       fullSeptemboard = false,
+                       useRealLayout = false): DataFrame =
   ## helper proc to read data for given indices of events `idx` and
   ## builds a tensor of `idx.len` events.
   let
@@ -1304,11 +1344,35 @@ proc readEventsSparse*(h5f: H5File, fileInfo: FileInfo, run, chip: int, #idx: in
   result = newDataFrame()
   doAssert events.len == x.len, "Event indices are: " & $eventIdxs.len & " and x.len " & $x.len
   # eventIdxs can be empty if we read _all_ events in a run!
+
   for i in 0 ..< x.len:
     let evIdx = if eventIdxs.len > 0: eventIdxs[i] else: i
+    ## XXX: if real layout septemboard events, transform using septemToReal ?
     let dfLoc = toDf({ "x" : x[i].mapIt(it.int), "y" : y[i].mapIt(it.int), "ch" : ch[i].mapIt(it.int),
-                       "Index" : evIdx })
+                       "Index" : evIdx, "eventNumber" : events[i] })
+      .mutate(f{int: "x" ~ chpPixToRealPix(`x`, true, chip)},
+              f{int: "y" ~ chpPixToRealPix(`y`, false, chip)})
     result.add dfLoc
+
+proc readSeptemEvents*(h5f: H5File, fileInfo: FileInfo, run: int,
+                       selector: DataSelector): DataFrame =
+  ## Reads the event information of all septemboard events (all chips) for those that pass
+  ## the cuts of the `selector` *on the center chip*.
+  ##
+  ## XXX: think about if there's desire (and if so how) to have the ability to apply cuts to
+  ## the outer chips instead? I guess we could introduce something like a target chip, which
+  ## would be the one to apply the cuts to.
+  let dfCenter = h5f.readEventsSparse(fileInfo, run, fileInfo.centerChip, selector, true, true)
+  let evSet = dfCenter["eventNumber", int].toSeq1D.toSet
+  # empty selector to not cut anything for outer chips
+  let sel = DataSelector(region: crAll)
+  result = dfCenter
+  for chip in 0 ..< fileInfo.chips.len:
+    if chip == fileInfo.centerChip: continue
+    # read and filter this DF down to the event set that we have from `dfCenter`
+    let df = h5f.readEventsSparse(fileInfo, run, chip, sel, true, true)
+      .filter(f{int: `eventNumber` in evSet})
+    result.add df # now all data for the center events left
 
 proc readIngridForEventDisplay*(h5f: H5File, fileInfo: FileInfo, run, chip: int, #idx: int,
                                 selector: DataSelector): DataFrame =
@@ -1316,11 +1380,13 @@ proc readIngridForEventDisplay*(h5f: H5File, fileInfo: FileInfo, run, chip: int,
   ## builds a tensor of `idx.len` events.
   result = newDataFrame()
   for dset in concat(@InGridDsets, @ToADsets):
-    echo "Attpmting to read: ", dset
+    echo "Attempting to read: ", dset
     try:
-      result[dset] = h5f.read(fileInfo, run, dset, selector,
-                              chipNumber = chip,
-                              dtype = float)
+      let data = h5f.read(fileInfo, run, dset, selector,
+                          chipNumber = chip,
+                          dtype = float)
+      if data.len > 0:
+        result[dset] = data
     except KeyError:
       echo "Could not read dataset ", dset
       continue # drop this key
@@ -1330,7 +1396,10 @@ proc createEventDisplayPlots(h5f: H5File,
                              runType: RunTypeKind,
                              fileInfo: FileInfo,
                              config: Config,
-                             events: OrderedSet[int]): seq[PlotDescriptor] =
+                             events: OrderedSet[int],
+                             fullSeptemboard = false,
+                             useRealLayout = false
+                            ): seq[PlotDescriptor] =
   let selector = initSelector(config)
   for ch in fileInfo.chips:
     #for ev in events:
@@ -1342,7 +1411,10 @@ proc createEventDisplayPlots(h5f: H5File,
                               runs: @[run],
                               chip: ch,
                               isCenterChip: fileInfo.centerChip == ch,
-                              plotKind: pkInGridEvent)
+                              plotKind: pkInGridEvent,
+                              fullSeptemboard: fullSeptemboard,
+                              useRealLayout: useRealLayout)
+
                               #event: ev)
 
 proc createFadcPlots(h5f: H5File,
@@ -1392,23 +1464,26 @@ proc createInGridFadcEvDisplay(h5f: H5File,
   let selector = initSelector(config)
   var finfo = fileInfo
   finfo.chips = @[finfo.centerChip]
-  let ingridPds = createEventDisplayPlots(h5f, run, runType, fInfo, config, events)
+
+  ## XXX: this needs to become a septemboard event display in case the given data
+  ## is a septemboard run! (which is always the case if asking for FADC data,
+  ## as there no other detector and very likely never will be another with the FADC)
+
+  let ingridPds = createEventDisplayPlots(h5f, run, runType, fInfo, config, events,
+                                          fullSeptemboard = true,
+                                          useRealLayout = true)
   let ingridDomain = (left: 0.0, bottom: 0.0, width: 0.45, height: 1.0)
   let fadcPds = createFadcPlots(h5f, run, runType, fInfo, config, events)
   let fadcDomain = (left: 0.525, bottom: 0.05, width: 0.575, height: 0.6)
-  for tup in zip(ingridPds, fadcPds):
-    let
-      ingrid = tup[0]
-      fadc = tup[1]
-    result.add PlotDescriptor(runType: runType,
-                              name: "Event display InGrid + FADC",
-                              runs: @[run],
-                              selector: selector,
-                              chip: fileInfo.centerChip,
-                              isCenterChip: true,
-                              plotKind: pkSubPlots,
-                              plots: @[ingrid, fadc],
-                              domain: @[ingridDomain, fadcDomain])
+  result.add PlotDescriptor(runType: runType,
+                            name: "Event display InGrid + FADC",
+                            runs: @[run],
+                            selector: selector,
+                            chip: fileInfo.centerChip,
+                            isCenterChip: true,
+                            plotKind: pkInGridFadcEvent,
+                            plots: @[ingridPds[0], fadcPds[0]],
+                            domain: @[ingridDomain, fadcDomain])
 
 proc percentile[T](t: Tensor[T], perc: float): float =
   let dataSorted = t.reshape(t.size.int).sorted.toSeq1D.filterIt(it > 0.0)
@@ -1954,7 +2029,8 @@ iterator ingridEventIter(h5f: H5File,
                          fileInfo: FileInfo,
                          #pds: seq[PlotDescriptor],
                          pd: PlotDescriptor,
-                         config: Config): (string, PlotV) =
+                         config: Config): (string, int, PlotV) {.closure.} =
+  ## The integer returned is the *event number* of the returned plot.
   #var events {.global.}: seq[int]
   # all PDs are guaranteed to be from  the same run!
   let run = pd.runs[0] #pds[0].runs[0]
@@ -1982,28 +2058,35 @@ iterator ingridEventIter(h5f: H5File,
     let ev = readEvent(h5f, run, chip, events, config)
     for i, pd in pds:
       discard
-  let events = readEventsSparse(h5f, fileInfo, run, chip, pd.selector)
+  let events = if pd.fullSeptemboard: readSeptemEvents(h5f, fileInfo, run, pd.selector)
+               else: readEventsSparse(h5f, fileInfo, run, chip, pd.selector)
+  echo "Read : ", events, " events"
   let dfDsets = readIngridForEventDisplay(h5f, fileInfo, run, chip, pd.selector)
   var idx = 0
-  for (tup, subDf) in groups(group_by(events, "Index")):
+
+  ## XXX: MAKE USED LAYOUT (MARGIN) AND ANNOTATION PLACEMENT DEPENDENT ON SEPTEMBOARD LAYOUT USAGE!
+
+  for (tup, subDf) in groups(group_by(events, "eventNumber")):
     let event = tup[0][1].toInt
 
     echo "Generating event display for ", tup, " is ", subDf
     ## XXX: HACK: change to sometingn better to generate filenames
+    ## !!! In particular don't base it on event number, but index for multiple clusters
     var pd = pd
     pd.event = event
     let title = buildTitle(pd)
     var outfile = buildOutfile(pd, fileDir, fileType)
-    var pltV = plotSparseEvent(subDf, title, outfile)
+    var pltV = plotSparseEvent(subDf, title, outfile, pd.fullSeptemboard, pd.useRealLayout)
 
     var texts: seq[string]
     if pd.selector.cuts.len > 0:
       texts.add &"{\" \":>15}Cuts used: "
       for c in pd.selector.cuts:
         texts.add &"{c.dset:>15}: [{c.min:.2f}, {c.max:.2f}]"
-    if pd.selector.maskRegion.len > 0:
+    let masks = getMasks(pd.selector, h5f.name, "")
+    if masks.len > 0:
       texts.add &"{\" \":>15}Masks used: "
-      for m in pd.selector.maskRegion:
+      for m in masks:
         texts.add &"    [x: ({m.x.min}, {m.x.max}), y: ({m.y.min}, {m.y.max})]"
     for dset in concat(@InGridDsets, @ToADsets):
       try:
@@ -2013,7 +2096,6 @@ iterator ingridEventIter(h5f: H5File,
       except KeyError:
         echo "Ignoring missing key: ", dset, " for annotation!"
         continue # ignore this field
-    echo "Have texts : ", texts
     case BKind
     of bPlotly:
       for i, a in texts:
@@ -2034,51 +2116,65 @@ iterator ingridEventIter(h5f: H5File,
       echo "InGrid Event property annotations not supported on " &
         "Matplotlib backend yet!"
     pltV.annotations = texts
+
     echo "Plot has annotations: ", pltV.annotations
-    yield (outfile, pltV)
+    yield (outfile, event, pltV)
     inc idx
+
+proc ingridEventIterator(h5f: H5File,
+                         fileInfo: FileInfo,
+                         pd: PlotDescriptor,
+                         config: Config): iterator(): (string, int, PlotV) =
+  ## Just for convenience.
+  result = iterator(): (string, int, PlotV) =
+    for outfile, eventNumber, pltV in ingridEventIter(h5f, fileInfo, pd, config):
+      # only a single pd
+      yield (outfile, eventNumber, pltV)
 
 iterator fadcEventIter(h5f: H5File,
                        fileInfo: FileInfo,
-                       pds: seq[PlotDescriptor],
-                       config: Config): (string, PlotV) =
-  var events {.global.}: seq[int]
+                       pd: PlotDescriptor,
+                       config: Config
+                      ): (string, PlotV) {.closure.} =
+  ## `eventNumbers` can be used to preselect individual events
+  var events: seq[int]
   # all PDs are guaranteed to be from  the same run!
-  let run = pds[0].runs[0]
+  let run = pd.runs[0] #pds[0].runs[0]
 
-  var lastRun {.global.} = 0
-  var evNums {.global.}: seq[int]
-  var evTab {.global.}: Table[int, int]
-  if run != lastRun:
-    evNums = h5f.read(fileInfo, run, "eventNumber", pds[0].selector, dtype = int,
-                      isFadc = true)
-    evTab = initTable[int, int]()
-    for i, ev in evNums:
-      evTab[ev] = i
-    lastRun = run
-  events.setLen(0)
-  for pd in pds:
-    events.add evTab[pd.event]
+  var lastRun = 0
+  var evNums: seq[int]
+  var evTab: Table[int, int]
+  #if run != lastRun:
+  evNums = h5f.read(fileInfo, run, "eventNumber", pd.selector, dtype = int,
+                    isFadc = true)
+
+  evTab = initTable[int, int]()
+  for i, ev in evNums:
+    evTab[ev] = i
+  lastRun = run
+  #events.setLen(0)
+  #for pd in pds:
+  #  events.add evTab[pd.event]
 
   let
     dset = h5f[(fadcRecoPath(run) / "fadc_data").dset_str]
-    fadc = dset.read_hyperslab(float64, @[events[0], 0], @[events.len, 2560])
+    fadc = dset[float64] #dset.read_hyperslab(float64, @[events[0], 0], @[events.len, 2560])
     fShape = [fadc.len div 2560, 2560]
     fTensor = fadc.toTensor.reshape(fShape)
 
-  for i, pd in pds:
+  while evTab.len > 0:
     var texts: seq[string]
-    let event = evTab[pd.event]
+    let idx = evTab[pd.event]
     for d in AllFadcDsets:
       let val = h5f.read(fileInfo, run, d, pd.selector, isFadc = true,
-                         dtype = float, idx = @[event])[0]
+                         dtype = float, idx = @[idx])[0]
       let s = &"{d:15}: {val:6.4f}"
       texts.add s
 
     let xFadc = toSeq(0 ..< 2560).mapIt(it.float)
     let title = buildTitle(pd)
     var outfile = buildOutfile(pd, fileDir, fileType)
-    let yFadc = fTensor[i,_].squeeze.clone.toRawSeq
+    let yFadc = fTensor[idx,_].squeeze.clone.toRawSeq
     var pltV = plotScatter(xFadc, yFadc, title, title, outfile)
     case BKind
     of bPlotly:
@@ -2098,14 +2194,25 @@ iterator fadcEventIter(h5f: H5File,
       pltV.annotations = texts
     else:
       echo "FADC property annotations not supported on Matplotlib backend yet!"
+    # remove the event so that at some point we actually finish!
+    evTab.del(pd.event)
     yield (outfile, pltV)
+
+proc fadcEventIterator(h5f: H5File,
+                       fileInfo: FileInfo,
+                       pd: PlotDescriptor,
+                       config: Config): iterator(): (string, PlotV) =
+  result = iterator(): (string, PlotV) =
+    for outfile, pltV in fadcEventIter(h5f, fileInfo, pd, config):
+      # only a single pd
+      yield (outfile, pltV)
 
 proc handleIngridEvent(h5f: H5File,
                        fileInfo: FileInfo,
                        pd: PlotDescriptor,
                        config: Config): (string, PlotV) =
   doAssert pd.plotKind == pkInGridEvent
-  for outfile, pltV in ingridEventIter(h5f, fileInfo, pd, config):
+  for outfile, eventNumber, pltV in ingridEventIter(h5f, fileInfo, pd, config):
     # result will be last event, HACK
     result = (outfile, pltV)
     # call save here
@@ -2122,7 +2229,7 @@ proc handleFadcEvent(h5f: H5File,
                      pd: PlotDescriptor,
                      config: Config): (string, PlotV) =
   doAssert pd.plotKind == pkFadcEvent
-  for outfile, pltV in fadcEventIter(h5f, fileInfo, @[pd], config):
+  for outfile, pltV in fadcEventIter(h5f, fileInfo, pd, config):
     # only a single pd
     result = (outfile, pltV)
 
@@ -2168,6 +2275,35 @@ proc handleCustomPlot(h5f: H5File,
 proc createPlot*(h5f: H5File, fileInfo: FileInfo,
                  pd: PlotDescriptor, config: Config): (string, PlotV)
 
+proc handleIngridFadcEvents(h5f: H5File,
+                            fileInfo: FileInfo,
+                            pd: PlotDescriptor,
+                            config: Config): (string, PlotV) =
+  doAssert pd.plotKind == pkInGridFadcEvent
+  let iPd = pd.plots[0]
+  var fPd = pd.plots[1]
+  var pd = pd
+  var fadcIter = fadcEventIter
+  let outdir = buildOutfile(pd, fileDir, fileType).parentDir
+  createDir(outdir)
+  for outfile, eventNumber, pltV in ingridEventIter(h5f, fileInfo, iPd, config):
+    # given event number, create the FADC plot. Overwrite its event number to get the correct plot
+    fPd.event = eventNumber
+    let (outFadc, pltFadc) = fadcIter(h5f, fileInfo, fPd, config)
+
+    # now combine plots
+    pd.name = $eventNumber # assign event number as name for output file
+    result[0] = buildOutfile(pd, fileDir, fileType)
+    info &"Calling savePlot for {pd.plotKind} with filename {result[0]}"
+
+    echo pltV.kind, " and ", pltFadc.kind, "\n\n"
+
+    try:
+      result[1] = makeSubplot(pd, @[pltV, pltFadc], result[0])
+    except Exception as e:
+      echo "Failed to generate plot with error ", e.msg
+      continue
+
 proc handleSubPlots(h5f: H5File,
                     fileInfo: FileInfo,
                     pd: PlotDescriptor,
@@ -2188,7 +2324,7 @@ proc handleSubPlots(h5f: H5File,
     plts.add pltV
 
   # now combine plots
-  let plt = makeSubplot(pd, plts)
+  let plt = makeSubplot(pd, plts, "/tmp/test.pdf")
   plt.plPlotJson.show()
 
 proc createPlot*(h5f: H5File,
@@ -2234,6 +2370,8 @@ proc createPlot*(h5f: H5File,
       result = handleFadcEvent(h5f, fileInfo, pd, config)
       #for outfile, pltV in fadcEventIter(h5f, fileInfo, pd, config):
       #  yield (outfile, pltV)
+    of pkInGridFadcEvent:
+      result = handleIngridFadcEvents(h5f, fileInfo, pd, config)
     of pkSubPlots:
       result = handleSubPlots(h5f, fileInfo, pd, config)
       #for outfile, pltV in subPlotsIter(h5f, fileInfo, pd, config):
@@ -2449,6 +2587,7 @@ proc serve(h5f: H5File,
 
 proc eventDisplay(h5file: string,
                   runOpt: Option[int],
+                  septemboard: bool,
                   runType: RunTypeKind,
                   bKind: PlottingBackendKind,
                   config: Config): string =
@@ -2461,10 +2600,11 @@ proc eventDisplay(h5file: string,
   let run = runOpt.get
   var pds: seq[PlotDescriptor]
   for r in fileInfo.runs:
-    if run > 0 and r == run:
-      pds.add createEventDisplayPlots(h5f, r, runType, fInfoConfig, config, events)
-    elif run < 0:
-      pds.add createEventDisplayPlots(h5f, r, runType, fInfoConfig, config, events)
+    if (run > 0 and r == run) or run < 0:
+      if septemboard:
+        pds.add createIngridFadcEvDisplay(h5f, r, runType, fInfoConfig, config, events)
+      else:
+        pds.add createEventDisplayPlots(h5f, r, runType, fInfoConfig, config, events, fullSeptemboard = false)
 
   if cfProvideServer in config.flags:
     serve(h5f, fileInfo, pds, config)
@@ -2588,14 +2728,16 @@ proc handlePlotTypes(h5file: string,
                      bKind: PlottingBackendKind,
                      runType: RunTypeKind,
                      config: Config,
-                     evDisplayRun = none[int]()) =
+                     evDisplayRun = none[int](),
+                     septemboard = false
+                    ) =
   ## handles dispatch of the correct data type / kind / mode to be plotted
   ## calibration, X-ray, background, event display...
   ## If not run in server mode, launch staticDisplay with output JSON file
   ## TODO: what happens for SVG? Need to check too.
   var outfile = ""
   if evDisplayRun.isSome():
-    outfile = eventDisplay(h5file, evDisplayRun, runType, BKind, config)
+    outfile = eventDisplay(h5file, evDisplayRun, septemboard, runType, BKind, config)
   else:
     case runType
     of rtCalibration:
@@ -2865,6 +3007,7 @@ proc plotData*(
   runType: RunTypeKind,
   backend: PlottingBackendKind = bGgPlot,
   eventDisplay: int = int.high,
+  septemboard: bool = false,
   h5Compare: seq[string] = @[], # additional files to compare against
   compareRunTypes: seq[RunTypeKind] = @[],
   server = false, fadc = false, ingrid = false, occupancy = false,
@@ -2955,7 +3098,7 @@ proc plotData*(
     evDisplayRun = some(eventDisplay)
 
   if h5Compare.len == 0:
-    handlePlotTypes(h5file, backend, runType, cfg, evDisplayRun = evDisplayRun)
+    handlePlotTypes(h5file, backend, runType, cfg, evDisplayRun = evDisplayRun, septemboard = septemboard)
   else:
     createComparePlots(h5file, h5Compare, backend, runType, compareRunTypes, cfg)
 
@@ -3017,6 +3160,9 @@ when isMainModule:
 
     "eventDisplay" : """If given will show event displays of the given run. If a negative
 run number is given, will generate events for all runs in the file.""",
+    "septemboard" : """If given in addition to `eventDisplay` it will present full septemboard
+events including the FADC events side by side""",
+
     "h5Compare" : "If any given, all plots will compare with same data from these files.",
     "server" : """If flag given, will launch client and send plots individually,
   instead of creating all plots and dumping them.""",

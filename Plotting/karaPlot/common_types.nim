@@ -121,6 +121,7 @@ type
     pkFePhotoDivEscape     ## Evolution of Fe photo peak / escape peak location vs time
     pkInGridEvent          ## Individual InGrid event
     pkFadcEvent            ## Individual FADC event
+    pkInGridFadcEvent      ## Individual InGrid (septemboard) + FADC event
     pkCalibRandom          ## ? to be filled for different calibration plots
     pkCustomPlot           ## Custom plot of: scatter: some x vs. some y, histogram, ...
     pkMultiDset            ## Plot of multiple histograms. Will be removed and replaced
@@ -139,6 +140,7 @@ type
 
   ## Helper that is used to store combined cuts as well as a region
   DataSelector* = object
+    isFadc*: bool
     region*: ChipRegion ## Region defaults to full chip
     cuts*: seq[GenericCut]
     maskRegion*: seq[MaskRegion]
@@ -193,6 +195,8 @@ type
     of pkInGridEvent, pkFadcEvent:
       # events*: OrderedSet[int] # events to plot (indices at the moment, not event numbers)
       event*: int # the current event being plotted
+      fullSeptemboard*: bool # if true will read and plot full septemboard
+      useRealLayout*: bool # if true and if plotting septemboard, use the real layout
     of pkFeVsTime, pkFeChVsTime, pkFePixDivChVsTime:
       # If unequal to 0 will create the plot not just split by runs, but rather split the
       # calib data for each run in pieces of `splitBySec` seconds of time slices.
@@ -202,7 +206,7 @@ type
       # if splitBySec doesn't fit into splitBySec within `lastSliceError` decide if to drop
       # that slice or keep it
       dropLastSlice*: bool
-    of pkSubPlots:
+    of pkSubPlots, pkInGridFadcEvent:
       # a way to combine several plots into a single plot of subplots
       plots*: seq[PlotDescriptor]
       domain*: seq[Domain] # relative location within [0, 1] of the
@@ -264,7 +268,7 @@ func `==`*(p1, p2: PlotDescriptor): bool =
       cmpField(splitBySec)
       cmpField(lastSliceError)
       cmpField(dropLastSlice)
-    of pkSubPlots:
+    of pkSubPlots, pkInGridFadcEvent:
       cmpField(plots)
       cmpField(domain)
     of pkOuterChips:

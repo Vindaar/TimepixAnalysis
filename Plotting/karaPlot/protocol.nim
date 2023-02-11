@@ -86,6 +86,7 @@ const PhotoDivEscapeFnameTemplate* = "photo_div_escape_pos_vs_time_runs$1"
 const PhotoDivEscapeTitleTemplate* = "Ratio of photo and escape peak in charge (runs $1) vs time"
 const InGridEventTitleTemplate* = "InGrid event for run $1, chip $2, event index $3"
 const InGridEventFnameTemplate* = "ingrid_event_run$1_chip$2_event$3"
+const InGridFadcEventFnameTemplate* = "septemEvents/septem_fadc_run_$1_event_$2"
 const FadcEventTitleTemplate* = "FADC event for run $1, event index $2"
 const FadcEventFnameTemplate* = "fadc_event_run$1_event$2"
 const OuterChipFnameTemplate* = "outer_chip_$1"
@@ -441,7 +442,9 @@ proc buildOutfile*(pd: PlotDescriptor, prefix, filetype: string): kstring =
   of pkFadcEvent:
     name = FadcEventFnameTemplate %% [runsStr,
                                       $pd.event]
-
+  of pkInGridFadcEvent:
+    ## XXX: maybe a bit of an abuse of the `name` field, but it's useful here
+    name = InGridFadcEventFnameTemplate %% [runsStr, pd.name]
   of pkSubPlots:
     for p in pd.plots:
       name &= pd.buildOutfile("", "")
@@ -514,6 +517,8 @@ proc buildTitle*(pd: PlotDescriptor): kstring =
   of pkToTPerPixel:
     result = ToTPerPixelTitleTemplate %% [runsStr,
                                           $pd.chip]
+  of pkInGridFadcEvent:
+    result = ""
   of pkSubPlots:
     result = ""
     for p in pd.plots:

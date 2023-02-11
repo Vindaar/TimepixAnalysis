@@ -1,5 +1,5 @@
-import std / os
-import pkg / nimhdf5
+import std / [os, sequtils]
+import pkg / [nimhdf5, ggplotnim]
 
 import ../ingrid_types
 from ./geometry import inRegion
@@ -24,11 +24,40 @@ proc cutOnProperties*(h5f: H5File,
   ## indices first, before applying the indices on InGrid data.
   # first get data
   var dsets = newSeqOfCap[seq[float]](cuts.len)
+  var dfChip = newDataFrame()
+  var dfFadc = newDataFrame()
   for c in cuts:
-    let dset = h5f[(group.name / c.dset).dset_str]
-    # use `convertType` proc from nimhdf5
-    let convert = dset.convertType(float)
-    dsets.add dset.convert
+    if c.isFadc:
+      if dfFadc.len == 0:
+        dfFadc = toDf({"eventNumber" : h5f.readAs(group.name.parentDir / "fadc/eventNumber", int)})
+      dfFadc[c.dset] = h5f.readAs(group.name.parentDir / c.dset, float)
+    else:
+      if dfChip.len == 0:
+        dfChip = toDf({"eventNumber" : h5f.readAs(group.name / "eventNumber", int)})
+      dfChip[c.dset] = h5f.readAs(group.name / c.dset, float)
+
+  ## XXX: this restritcs usage to only chips, but not only FADC!!!
+  dfChip["Index"] = toSeq(0 ..< dfChip.len)
+
+  proc toDsets(df: DataFrame, cuts: seq[GenericCut]): seq[seq[float]] =
+    for c in cuts:
+      result.add df[c.dset, float].toSeq1d
+
+  ## XXX: current problem: the inner join removes data, but we want to return the
+  ## INDICES. Therefore need indices in input.
+  ## FIXED WITH INDEX, but currently hardcoded for dfChip
+  var index: Tensor[int]
+  if dfChip.len > 0 and dfFadc.len > 0:
+    let dfComb = innerJoin(dfChip, dfFadc, by = "eventNumber")
+    dsets = dfComb.toDsets(@cuts)
+    index = dfComb["Index", int]
+  elif dfChip.len > 0:
+    dsets = dfChip.toDsets(@cuts)
+    index = dfChip["Index", int]
+  else:
+    dsets = dfFadc.toDsets(@cuts)
+    index = dfFadc["Index", int] ##XXX: BROKEN AT THE MOMENT!!!
+
   # if chip region not all, get `posX` and `posY`
   var
     posX: seq[float]
@@ -56,6 +85,7 @@ proc cutOnProperties*(h5f: H5File,
   doAssert nEvents > 0, "crAll cannot be combined with no `cuts`"
   for i in 0 ..< nEvents:
     # cut on region if applicable
+    let idx = index[i]
     if region != crAll and not inRegion(posX[i], posY[i], region):
       continue
     var skipThis = false
@@ -74,7 +104,7 @@ proc cutOnProperties*(h5f: H5File,
           break
     if not skipThis:
       # else add this index
-      result.add i
+      result.add idx
 
 proc cutOnProperties*(h5f: H5File,
                       group: H5Group,

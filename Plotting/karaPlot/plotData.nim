@@ -1,7 +1,7 @@
 ## A tool to plot data from H5 files
 import plotly
 import ggplotnim
-from ginger import initViewport, layout, embedAsRelative, addViewport, draw
+from ginger import initViewport, layout, embedAsRelative, addViewport, draw, quant, UnitKind
 import os except FileInfo
 import strutils, strformat, times, sequtils, math, macros, algorithm, sets, stats, base64
 import options, logging, typeinfo, json
@@ -501,8 +501,9 @@ proc applyCuts(h5f: H5File, selector: DataSelector, dset: H5Dataset, idx: seq[in
   # now possibly apply region cut
   if performedCut and result.len > 0:
     result = applyMaskRegion(h5f, selector, dset.name, parentGrp, result)
-  elif not performedCut:
+  elif not performedCut and result.len == 0:
     result = applyMaskRegion(h5f, selector, dset.name, parentGrp, @[])
+  # else leave `idx` as it is
 
 proc readFull*(h5f: H5File,
                fileInfo: FileInfo,
@@ -530,7 +531,7 @@ proc readFull*(h5f: H5File,
   ## possibly set indices to a subset based on cuts
   let idx = h5f.applyCuts(selector, dset, idx)
   when dtype is SomeNumber:
-    if not selector.hasCuts(h5f.name.extractFilename, dset): # read everything and idx.len == 0:
+    if not selector.hasCuts(h5f.name.extractFilename, dset) and idx.len == 0: # read everything and idx.len == 0:
       result[1] = dset.readAs(dtype)
     elif idx.len > 0:
       # manual conversion required
@@ -543,7 +544,7 @@ proc readFull*(h5f: H5File,
       raise newException(Exception, "Cannot convert N-D sequence to type: " &
         subtype.name)
     else:
-      if not selector.hasCuts(h5f.name.extractFilename, dset): # read everything idx.len == 0:
+      if not selector.hasCuts(h5f.name.extractFilename, dset) and idx.len == 0: # read everything idx.len == 0:
         # convert to subtype and reshape to dsets shape
         result[1] = dset.readAs(subtype).reshape2D(dset.shape)
       elif idx.len > 0:
@@ -916,16 +917,17 @@ proc plotSparseEvent(df: DataFrame, title, outfile: string,
     echo df
     result.pltGg = ggplot(df, aes("x", "y"), backend = bkCairo) +
       geom_point(aes = aes(color = "ch")) +
-      margin(left = 9.0, right = 3, top = 2) +
       result.theme # just add the theme directly
     if fullSeptemboard:
       result.pltGg.addSeptemboardOutline(useRealLayout)
       if not useRealLayout:
-        result.pltGg = result.pltGg + xlim(0, 3 * NPix) + ylim(0, 3 * NPix)
+        result.pltGg = result.pltGg + margin(left = 7.5, right = 3, top = 2) +
+          xlim(0, 3 * NPix) + ylim(0, 3 * NPix)
       else:
-        result.pltGg = result.pltGg + xlim(0, 800) + ylim(0, 900)
+        result.pltGg = result.pltGg + margin(left = 7.5, right = 3, top = 2) + xlim(0, 800) + ylim(0, 900)
     else:
-      result.pltGg = result.pltGg + xlim(0, NPix) + ylim(0, NPix)
+      result.pltGg = result.pltGg + margin(left = 9.0, right = 3, top = 2) +
+        xlim(0, NPix) + ylim(0, NPix)
   else:
     discard
 
@@ -956,6 +958,7 @@ proc plotScatter(pltV: var PlotV, x, y: seq[float], name, outfile: string,
     else:
       pltV.pltGg = ggplot(df, aes("x", "y"), backend = bkCairo) +
         geom_line() +
+        margin(top = 2) +
         pltV.theme # just add the theme directly
   else:
     warn &"Unsupported backend kind: {BKind}"
@@ -1031,10 +1034,10 @@ proc makeSubplot(pd: PlotDescriptor, plts: seq[PlotV],
     else: echo "Subplots currently only supported for 2 plots!"
   of bGgPlot:
     ## XXX: this should really be fitting better into the whole code!
-    var img = initViewport(wImg = 1200, hImg = 600, backend = bkCairo)
+    var img = initViewport(wImg = 1400, hImg = 600, backend = bkCairo)
     let numPlots = plts.len
     doAssert numPlots == 2
-    img.layout(numPlots, rows = 1)
+    img.layout(numPlots, rows = 1, colWidths = @[quant(0.6, ukRelative), quant(0.4, ukRelative)])
     img.embedAsRelative(0, ggcreate(plts[0].pltGg).view)
     img.embedAsRelative(1, ggcreate(plts[1].pltGg).view)
 
@@ -1379,7 +1382,7 @@ proc readIngridForEventDisplay*(h5f: H5File, fileInfo: FileInfo, run, chip: int,
   ## helper proc to read data for given indices of events `idx` and
   ## builds a tensor of `idx.len` events.
   result = newDataFrame()
-  for dset in concat(@InGridDsets, @ToADsets):
+  for dset in concat(@InGridDsets, @ToADsets, @["eventNumber"]):
     echo "Attempting to read: ", dset
     try:
       let data = h5f.read(fileInfo, run, dset, selector,
@@ -2088,7 +2091,7 @@ iterator ingridEventIter(h5f: H5File,
       texts.add &"{\" \":>15}Masks used: "
       for m in masks:
         texts.add &"    [x: ({m.x.min}, {m.x.max}), y: ({m.y.min}, {m.y.max})]"
-    for dset in concat(@InGridDsets, @ToADsets):
+    for dset in concat(@InGridDsets, @ToADsets, @["eventNumber"]):
       try:
         let val = dfDsets[dset, idx, float]
         let s = &"{dset:>25}: {val:6.4f}"
@@ -2107,8 +2110,12 @@ iterator ingridEventIter(h5f: H5File,
     of bGgPlot:
       # create a font to use using the `ggplotnim.font` helper
       let font = font(10.0, family = "monospace")
+
+      let leftLoc = if pd.fullSeptemboard: -0.6
+                    else: -0.3
+
       for i, a in texts:
-        pltV.pltGg.annotations.add ggplotnim.Annotation(left: some(-0.3),
+        pltV.pltGg.annotations.add ggplotnim.Annotation(left: some(leftLoc),
                                                         bottom: some(0.15 + i.float * 0.03),
                                                         font: font,
                                                         text: texts[i])
@@ -2187,10 +2194,15 @@ iterator fadcEventIter(h5f: H5File,
                                                              text: texts[i])
       pltV.annotations = texts
     of bGgPlot:
+      let font = font(10.0, family = "monospace")
       for i, a in texts:
-        pltV.pltGg.annotations.add ggplotnim.Annotation(left: some(0.1),
-                                                        bottom: some(0.9 - (i.float * 0.05)),
+        pltV.pltGg.annotations.add ggplotnim.Annotation(left: some(-0.35),
+                                                        bottom: some(0.025 + i.float * 0.03),
+                                                        font: font,
                                                         text: texts[i])
+                                   #ggplotnim.Annotation(left: some(0.1),
+                                   #                     bottom: some(0.9 - (i.float * 0.05)),
+                                   #                     text: texts[i])
       pltV.annotations = texts
     else:
       echo "FADC property annotations not supported on Matplotlib backend yet!"
@@ -2283,6 +2295,7 @@ proc handleIngridFadcEvents(h5f: H5File,
   let iPd = pd.plots[0]
   var fPd = pd.plots[1]
   var pd = pd
+  pd.name = $0
   var fadcIter = fadcEventIter
   let outdir = buildOutfile(pd, fileDir, fileType).parentDir
   createDir(outdir)
@@ -2387,8 +2400,9 @@ proc createPlot*(h5f: H5File,
 
     # finally call savePlot if we actually created a plot
     #if not result[1].plPlot.isNil:
-    info &"Calling savePlot for {pd.plotKind} with filename {result[0]}"
-    savePlot(result[1], result[0], config, fullPath = true)
+    if pd.plotKind != pkInGridFadcEvent:
+      info &"Calling savePlot for {pd.plotKind} with filename {result[0]}"
+      savePlot(result[1], result[0], config, fullPath = true)
   except KeyError as e:
     echo "WARNING: Could not generate the plot: " & $pd & ". Skipping it."
     echo "Exception message: ", e.msg
@@ -3117,6 +3131,7 @@ when isMainModule:
     try:
       let dset = vals[0].strip(chars = {'"'})
       dst = GenericCut(dset: dset,
+                       isFadc: "fadc" in dset,
                        inverted: inverted,
                        applyDset: @[dset], ## XXX: set this?
                        min: parseFloat(vals[1].strip),

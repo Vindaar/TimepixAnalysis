@@ -534,6 +534,7 @@ type
     applyFile*: seq[string] ## apply this cut to all files in this seq (all if empty)
     applyDset*: seq[string] ## apply this cut when reading all datasets in this seq (all if empty)
     dset*: string
+    isFadc*: bool # true if dataset is an FADC dataset. ``Must`` contain `"fadc/*"` prefix!
     min*: float
     max*: float
     inverted*: bool ## If true the cut is inverted, i.e. we remove everything *in* the cut

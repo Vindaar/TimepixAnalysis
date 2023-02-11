@@ -220,6 +220,8 @@ func isVetoedByFadc(eventNumber: int, fadcTrigger, fadcEvNum: seq[int64],
   ## makes it seem like anything above ~130 is probably not an X-ray. Take that for
   ## now.
   ## TODO: CHOOSE THESE VALUE MORE WISELY!!!!!!
+  ## NOTE: these values do not match the typical values seen in the 2017 data taking!
+  ## (which to be fair had different FADC settings etc!)
   const cutRiseHigh = 130'u16
   const cutRiseLow = 40'u16
   const cutFallLow = 400'u16

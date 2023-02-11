@@ -325,9 +325,10 @@ proc fadcFileToFadcData*[T](data: Tensor[uint16],
 
   # and cut out channel 3 (the one we take data with)
   var ch0_vals = fadc_data[ch0_indices]
+  ## XXX: these are not actually faulty, huh.
   # set the two 'faulty' registers to 0
-  ch0_vals[0] = 0
-  ch0_vals[1] = 0
+  #ch0_vals[0] = 0
+  #ch0_vals[1] = 0
 
   # now perform temporal correction
   let tempCorrected = performTemporalCorrection(ch0_vals, trigRec, postTrig)

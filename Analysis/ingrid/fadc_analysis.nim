@@ -197,22 +197,41 @@ proc diffUnderModulo*[T](a, b: T, modulo: int): T {.inline.} =
     d2 = abs(modulo - abs(a - b))
   result = min(d1, d2)
 
+proc percIdx(q: float, len: int): int = (len.float * q).round.int
+proc biasedTruncMean1D(t: Tensor[float], qLow, qHigh: float): float =
+  let numH = t.size.int
+  let plow = percIdx(qLow, numH)
+  let phih = percIdx(qHigh, numH)
+  let subSorted = t.sorted
+  ## compute the biased truncated mean by slicing sorted data to lower and upper
+  ## percentile index
+  var red = 0.0
+  for j in max(0, plow) ..< min(numH, phih): # loop manually as data is `uint16` to convert
+    red += subSorted[j].float
+  result = red / (phih - plow).float
+
 proc calcRiseAndFallTime*[T: seq | Tensor](fadc: T): tuple[baseline: float,
-                                             xmin,
-                                             riseStart,
-                                             fallStop,
-                                             riseTime,
-                                             fallTime: uint16] =
+                                                           xmin,
+                                                           riseStart,
+                                                           fallStop,
+                                                           riseTime,
+                                                           fallTime: uint16] =
   ## Calculates the baseline, minimum location, start of pulse rise, end of pulse fall,
-  ## rise time and fall time for a single FADC spectrum
+  ## rise time and fall time for a ``single`` FADC spectrum
   when T is seq:
     let fadc = fadc.toTensor
   # get location of minimum
   let xMin = argmin(fadc)
 
-  # now determine baseline + 10 % of its maximum value
-  let baseline = fadc.percentile(p = 50) + max(fadc) * 0.1
-  # now determine rise and fall times
+  when false:
+    let df = toDf({ "fadc" : fadc,
+                    "idx" : toSeq(0 ..< 2560) })
+    ggplot(df, aes("idx", "fadc")) + geom_line() + ggsave("/t/test.pdf")
+
+  ## XXX: think over these values more?
+  # determine baseline based on truncated mean. Remove good chunk of lower data to make sure we 'cut out'
+  # the typical signal. 2560/0.3 = 768 channels is a reasonable width that covers most signals.
+  let baseline = fadc.biasedTruncMean1D(0.30, 0.95)
   let
     riseStart = findThresholdValue(fadc, xMin, baseline)
     fallStop = findThresholdValue(fadc, xMin, baseline, left = false)
@@ -229,7 +248,7 @@ proc calcRiseAndFallTime*[T: seq | Tensor](fadc: T): tuple[baseline: float,
 proc calcRiseAndFallTime*(fadc: Tensor[float],
                           seqBased: static bool): RecoFadc =
   ## Calculates the baseline, minimum location, start of pulse rise, end of pulse fall,
-  ## rise time and fall time for all given FADC spectra
+  ## rise time and fall time for ``all`` given FADC spectra
   when seqBased:
     # get location of minimum
     let x_min = mapIt(fadc, argmin(it.toTensor))

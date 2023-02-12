@@ -222,10 +222,12 @@ func isVetoedByFadc(eventNumber: int, fadcTrigger, fadcEvNum: seq[int64],
   ## TODO: CHOOSE THESE VALUE MORE WISELY!!!!!!
   ## NOTE: these values do not match the typical values seen in the 2017 data taking!
   ## (which to be fair had different FADC settings etc!)
-  const cutRiseHigh = 130'u16
-  const cutRiseLow = 40'u16
-  const cutFallLow = 400'u16
-  const cutFallHigh = 600'u16
+  ## NOTE: Numbers adjusted quickly based on the 1, 5, 95, 99-th percentiles of the
+  ## rise / fall time FADC data (see `statusAndProgress` notes)
+  const cutRiseLow = 65'u16
+  const cutRiseHigh = 200'u16
+  const cutFallLow = 470'u16
+  const cutFallHigh = 640'u16
   result = false
   let fIdx = fadcEvNum.lowerBound(eventNumber)
   if fIdx < fadcEvNum.high and

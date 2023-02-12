@@ -234,9 +234,9 @@ func isVetoedByFadc(eventNumber: int, fadcTrigger, fadcEvNum: seq[int64],
     # thus we know that `fIdx` points to an event with an FADC trigger
     # corresponding to `eventNumber`
     if fadcRise[fIdx] >= cutRiseLow and
-       fadcRise[fIdx] >= cutRiseHigh and
+       fadcRise[fIdx] <= cutRiseHigh and
        fadcFall[fIdx] >= cutFallLow and
-       fadcFall[fIdx] >= cutFallHigh:
+       fadcFall[fIdx] <= cutFallHigh:
       result = false
     else:
       # outside either of the cuts, throw it out

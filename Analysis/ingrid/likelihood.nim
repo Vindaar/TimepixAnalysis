@@ -365,6 +365,20 @@ proc containsOriginal(cl: ClusterObject[PixInt], septemFrame: SeptemFrame): bool
   let testPix = septemFrame.centerCluster[septemFrame.centerCluster.high div 2] # we can take any pixel as we don't drop pixels
   result = testPix in cl.data
 
+proc isOriginal(cl: ClusterObject[PixInt], septemFrame: SeptemFrame): bool =
+  ## Checks whether the given cluster is *exactly* the original cluster
+  ## (not very efficient, in the case where they contain exactly the same number
+  ## of pixels, but otherwise just a check on pixel count)
+  if cl.data.len != septemFrame.centerCluster.len:
+    result = false
+  else:
+    let clSort = cl.data.sorted
+    let origSort = septemFrame.centerCluster.sorted
+    result = true
+    for idx in 0 ..< clSort.len:
+      if clSort[idx] != origSort[idx]:
+        return false
+
 proc getCenterClusterData(septemFrame: SeptemFrame,
                           centerData: CenterChipData,
                           recoEv: RecoEvent[PixInt],
@@ -461,7 +475,13 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
 
   ## As long as this cluster does not contain the original cluster data (depending on the line veto kind!)
   ## we perform the line veto
-  let ofInterest = not (lineVetoKind in {lvRegularNoHLC, lvCheckHLC} and clTup[1].containsOriginal(septemFrame))
+  let containsOriginal = clTup[1].containsOriginal(septemFrame)
+  let isOriginal = clTup[1].isOriginal(septemFrame)
+  let ofInterest =
+    if isOriginal: false # never care about *only* the original cluster!
+    elif containsOriginal and lineVetoKind in {lvRegular, lvCheckHLC}: true # contained, but we want it
+    elif containsOriginal and lineVetoKind == lvRegularNoHLC: false # contained, but we *dont* want it
+    else: true # if it neither contains the original, nor is it, it is of interest
   if fkLineVeto in flags and ofInterest and
      cl.geometry.eccentricity > EccentricityLineVetoCut:
     # if this is not in region of interest, check its eccentricity and compute if line points to original

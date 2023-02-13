@@ -84,10 +84,10 @@ const PhotoPixDivChVsTimeFnameTemplate* = "photopeak_pix_div_charge_pos_vs_time_
 const PhotoPixDivChVsTimeTitleTemplate* = "Photopeak pix / charge of Fe spectra (runs $1) vs time"
 const PhotoDivEscapeFnameTemplate* = "photo_div_escape_pos_vs_time_runs$1"
 const PhotoDivEscapeTitleTemplate* = "Ratio of photo and escape peak in charge (runs $1) vs time"
-const InGridEventTitleTemplate* = "InGrid event for run $1, chip $2, event index $3"
+const InGridEventTitleTemplate* = "InGrid event for run $1, chip $2, event number $3"
 const InGridEventFnameTemplate* = "ingrid_event_run$1_chip$2_event$3"
 const InGridFadcEventFnameTemplate* = "septemEvents/septem_fadc_run_$1_event_$2"
-const FadcEventTitleTemplate* = "FADC event for run $1, event index $2"
+const FadcEventTitleTemplate* = "FADC event for run $1, event number $2"
 const FadcEventFnameTemplate* = "fadc_event_run$1_event$2"
 const OuterChipFnameTemplate* = "outer_chip_$1"
 const ToTPerPixelFnameTemplate* = "tot_per_pixel_run$1_chip$2"
@@ -527,4 +527,8 @@ proc buildTitle*(pd: PlotDescriptor): kstring =
       result &= pd.buildTitle()
   else:
     discard
-  result.add ":" & toTitle(pd.selector)
+  if pd.plotKind notin {pkInGridEvent, pkFadcEvent, pkInGridFadcEvent}: # no need to add cut information here!
+    result.add ":" & toTitle(pd.selector)
+  else: # but do add `applyAll`!
+    let applyAll = if pd.selector.cuts.len > 0: &" applyAll: {pd.selector.applyAll}" else: ""
+    result.add applyAll

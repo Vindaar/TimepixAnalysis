@@ -916,7 +916,7 @@ proc plotSparseEvent(df: DataFrame, title, outfile: string,
   of bGgPlot:
     echo df
     result.pltGg = ggplot(df, aes("x", "y"), backend = bkCairo) +
-      geom_point(aes = aes(color = "ch")) +
+      geom_point(aes = aes(color = "ch"), size = 1.0) +
       result.theme # just add the theme directly
     if fullSeptemboard:
       result.pltGg.addSeptemboardOutline(useRealLayout)

@@ -24,7 +24,8 @@ proc cutOnProperties*(h5f: H5File,
   ## indices first, before applying the indices on InGrid data.
   # first get data
   var dsets = newSeqOfCap[seq[float]](cuts.len)
-  var dfChip = newDataFrame()
+  # for the chip data we always need the event number information!
+  var dfChip = toDf({"eventNumber" : h5f.readAs(group.name / "eventNumber", int)})
   var dfFadc = newDataFrame()
   for c in cuts:
     if c.isFadc:
@@ -32,8 +33,6 @@ proc cutOnProperties*(h5f: H5File,
         dfFadc = toDf({"eventNumber" : h5f.readAs(group.name.parentDir / "fadc/eventNumber", int)})
       dfFadc[c.dset] = h5f.readAs(group.name.parentDir / c.dset, float)
     else:
-      if dfChip.len == 0:
-        dfChip = toDf({"eventNumber" : h5f.readAs(group.name / "eventNumber", int)})
       dfChip[c.dset] = h5f.readAs(group.name / c.dset, float)
 
   ## XXX: this restritcs usage to only chips, but not only FADC!!!
@@ -55,6 +54,7 @@ proc cutOnProperties*(h5f: H5File,
     dsets = dfChip.toDsets(@cuts)
     index = dfChip["Index", int]
   else:
+    doAssert false, "This should never happen!"
     dsets = dfFadc.toDsets(@cuts)
     index = dfFadc["Index", int] ##XXX: BROKEN AT THE MOMENT!!!
 

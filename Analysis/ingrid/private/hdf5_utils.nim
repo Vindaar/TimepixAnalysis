@@ -1,7 +1,7 @@
 import ../ingrid_types
 import helpers/utils
 import os except FileInfo
-import strutils, times, strformat, sequtils, tables, re, algorithm, sets, strscans
+import std / [strutils, times, strformat, sequtils, tables, re, algorithm, sets, strscans, typetraits]
 import nimhdf5, arraymancer
 import macros
 import pure
@@ -888,14 +888,11 @@ proc readRecoFadc*(h5f: H5File, runNumber: int): RecoFadc =
   let fadcGroup = fadcRecoPath(runNumber)
   doAssert fadcGroup in h5f
   let group = h5f[fadcGroup.grp_str]
-  result = RecoFadc(
-    baseline: h5f.read(fadcBaselineBasename(runNumber), float),
-    xmin: h5f.read(argMinvalBasename(runNumber), uint16),
-    riseStart: h5f.read(riseStartBasename(runNumber), uint16),
-    fallStop: h5f.read(fallStopBasename(runNumber), uint16),
-    riseTime: h5f.read(riseTimeBasename(runNumber), uint16),
-    fallTime: h5f.read(fallTimeBasename(runNumber), uint16),
-  )
+  # read all data using `fieldPairs`. This requires the fields & H5 datasets to have same
+  # name, which is guaranteed by using the same approach when writing.
+  for field, data in fieldPairs(result):
+    type innerType = get(genericParams(typeof data), 0)
+    data = h5f.read(fadcRecoPath(runNumber) / astToStr(field), innerType)
 
 proc readRecoFadcRun*(h5f: H5File, runNumber: int): ReconstructedFadcRun =
   ## Returns the `RecoFadc` data, i.e. all 1D data computed in `calcRiseAndFallTime` and

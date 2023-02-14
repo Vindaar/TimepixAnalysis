@@ -638,9 +638,13 @@ when not defined(pure) and not defined(js):
     ## Stores all the 1D information of the FADC data in a single
     ## run, i.e. everything that is computed related to the fall
     ## and rise time.
+    ##
+    ## NOTE: First of all the order of the fields is important. And it is
+    ## important that it _only_ contains 1D data. We use `fieldPairs` to
+    ## simplify dealing with the object (serializing to H5).
     RecoFadc* = object
       baseline*: Tensor[float] # all tensors 1D, 1 element per FADC event
-      xmin*: Tensor[uint16]
+      argMinval*: Tensor[uint16]
       riseStart*: Tensor[uint16]
       fallStop*: Tensor[uint16]
       riseTime*: Tensor[uint16]

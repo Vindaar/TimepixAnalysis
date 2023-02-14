@@ -455,7 +455,7 @@ when compileOption("threads"):
   ###################################################################################
   # The following procs all deal with the calculation of whether a given FADC event #
   # is noisy or not                                                                 #
-  # NOTE: the general procs have been moved to helpers/utils module              #
+  # NOTE: the general procs have been moved to helpers/utils module                 #
   ###################################################################################
 
 proc isFadcFileNoisy*(fadc: FadcData, n_dips: int): bool =

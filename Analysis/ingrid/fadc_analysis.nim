@@ -1,7 +1,7 @@
 # this file contains procs, which deal with the analysis of the
 # FADC data stored in a H5 file
 
-import std / [strutils, sequtils, strformat, heapqueue, os, tables, times]
+import std / [strutils, sequtils, strformat, heapqueue, os, tables, times, typetraits]
 import nimhdf5
 
 import arraymancer
@@ -271,13 +271,16 @@ proc biasedTruncMean1D(t: Tensor[float], qLow, qHigh: float): float =
   result = red / (phih - plow).float
 
 proc calcRiseAndFallTime*[T: seq | Tensor](fadc: T): tuple[baseline: float,
-                                                           xmin,
+                                                           argMinval,
                                                            riseStart,
                                                            fallStop,
                                                            riseTime,
                                                            fallTime: uint16] =
   ## Calculates the baseline, minimum location, start of pulse rise, end of pulse fall,
   ## rise time and fall time for a ``single`` FADC spectrum
+  ##
+  ## WARNING: `calcRiseAndFallTime` return data *must* be in the order of the fields
+  ## in `RecoFadc`!
   when T is seq:
     let fadc = fadc.toTensor
   # get location of minimum
@@ -306,7 +309,7 @@ proc calcRiseAndFallTime*[T: seq | Tensor](fadc: T): tuple[baseline: float,
     riseTime = diffUnderModulo(xMin, riseStart, 2560)
     fallTime = diffUnderModulo(xMin, fallStop, 2560)
 
-  result = (baseline: baseline, xMin: xMin.uint16, riseStart: riseStart.uint16, fallStop: fallStop.uint16,
+  result = (baseline: baseline, argMinval: xMin.uint16, riseStart: riseStart.uint16, fallStop: fallStop.uint16,
             riseTime: riseTime.uint16, fallTime: fallTime.uint16)
 
 proc calcRiseAndFallTime*(fadc: Tensor[float],
@@ -342,26 +345,15 @@ proc calcRiseAndFallTime*(fadc: Tensor[float],
               riseTime: rise_times_u, fallTime: fall_times_u)
   else:
     let nSpectra = fadc.shape[0]
-    var
-      baseline = newTensorUninit[float](nSpectra)
-      xMin = newTensorUninit[uint16](nSpectra)
-      riseStart = newTensorUninit[uint16](nSpectra)
-      fallStop = newTensorUninit[uint16](nSpectra)
-      riseTime = newTensorUninit[uint16](nSpectra)
-      fallTime = newTensorUninit[uint16](nSpectra)
+    for field, data in fieldPairs(result):
+      data = newTensorUninit[get(genericParams(typeof data), 0)](nSpectra)
     # for i in `||`(0, fadc.high, ""):
     for i in 0 ..< nSpectra:
+      ## WARNING: `calcRiseAndFallTime` return fields *must* have the same names as the
+      ## fields in `RecoFadc`!
       let tup = calcRiseAndFallTime(fadc[i, _].squeeze)
-      baseline[i] = tup[0]
-      xMin[i] = tup[1]
-      riseStart[i] = tup[2]
-      fallStop[i] = tup[3]
-      riseTime[i] = tup[4]
-      fallTime[i] = tup[5]
-    result = RecoFadc(baseline: baseline,
-                      xMin: xMin,
-                      riseStart: riseStart, fallStop: fallStop,
-                      riseTime: riseTime,   fallTime: fallTime)
+      for field, data in fieldPairs(result):
+        data[i] = getField(tup, field)
 
 proc calcRiseAndFallTimes*(h5f: H5File, run_number: int) =
   ## proc which reads the FADC data from the given file
@@ -390,21 +382,11 @@ proc calcRiseAndFallTimes*(h5f: H5File, run_number: int) =
   let recoFadc = calcRiseAndFallTime(f_data, false)
   echo "FADC minima calculations took: ", (epochTime() - t0)
   # now write data back to h5file
-  var
-    base_dset = h5f.create_dataset(fadcBaselineBasename(run_number), nEvents, float)
-    x_min_dset = h5f.create_dataset(argMinvalBasename(run_number), nEvents, uint16)
-    rise_s_dset = h5f.create_dataset(riseStartBasename(run_number), nEvents, uint16)
-    fall_s_dset = h5f.create_dataset(fallStopBasename(run_number), nEvents, uint16)
-    rise_t_dset = h5f.create_dataset(riseTimeBasename(run_number), nEvents, uint16)
-    fall_t_dset = h5f.create_dataset(fallTimeBasename(run_number), nEvents, uint16)
-
-  # write the data
-  base_dset.unsafeWrite(recoFadc.baseline.toUnsafeView(), nEvents)
-  x_min_dset.unsafeWrite(recoFadc.xMin.toUnsafeView(), nEvents)
-  rise_s_dset.unsafeWrite(recoFadc.riseStart.toUnsafeView(), nEvents)
-  fall_s_dset.unsafeWrite(recoFadc.fallStop.toUnsafeView(), nEvents)
-  rise_t_dset.unsafeWrite(recoFadc.riseTime.toUnsafeView(), nEvents)
-  fall_t_dset.unsafeWrite(recoFadc.fallTime.toUnsafeView(), nEvents)
+  for field, data in fieldPairs(recoFadc):
+    type innerType = get(genericParams(typeof data), 0)
+    var dset = h5f.create_dataset(fadcRecoPath(runNumber) / astToStr(field), nEvents, innerType)
+    # write the data
+    dset.unsafeWrite(data.toUnsafeView(), nEvents)
 
 proc main(h5file: string, runNumber: int = -1,
           noise_analysis = false,

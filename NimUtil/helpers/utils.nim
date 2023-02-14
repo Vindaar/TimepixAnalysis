@@ -46,6 +46,12 @@ macro `+`*[N, M: int](a: array[N, string], b: array[M, string]): untyped =
     tree
   )
 
+macro getField*(tup: typed, field: static string): untyped =
+  ## Mini helper to access the field `field` of a tuple from a
+  ## static string, as returned by `fieldPairs`.
+  let id = ident(field)
+  result = nnkDotExpr.newTree(tup, id)
+
 proc removePref*(s: string, pref: string): string =
   result = s
   result.removePrefix(pref)
@@ -449,20 +455,20 @@ when not defined(pure):
     # we define the cut value (which determines skip_non_outliers) as values, which are
     # smaller than one sigma smaller than the mean value
     var cut_value: float
-    if skip_non_outliers == true:
+    if skip_non_outliers:
       cut_value = mean(t) - std(t)
 
     var
       ind, u, min_ind, min_range, max_range, min_from_min: int = 0
 
-    for i in 0..<steps:
+    for i in 0 ..< steps:
       ind = i * width
       u   = ind + width - 1
-      let view = t[ind..u]
+      let view = t[ind .. u]
       min_ind = findArgOfLocalMin(view, ind)
       # given the current minimum, check whether we skip this element
       # since it is outside our bounds of interest anyway
-      if skip_non_outliers == true:
+      if skip_non_outliers:
         int_min = t[min_ind]
         if int_min > cut_value:
           continue

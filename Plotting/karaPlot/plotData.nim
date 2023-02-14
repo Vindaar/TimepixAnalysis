@@ -2028,6 +2028,11 @@ proc handleToTPerPixel(h5f: H5File,
     result[1] = plotHist(tots.mapIt(it.int), title, pd.name, result[0],
                          binS = pd.binSize, binR = pd.binRange)
 
+proc getThisClusterEvent(df: DataFrame, event: int): DataFrame =
+  ## Helper to work around "environment misses `event`"
+  result = df.filter(f{int: `eventNumber` == event})
+    .arrange("likelihood", SortOrder.Ascending)
+
 iterator ingridEventIter(h5f: H5File,
                          fileInfo: FileInfo,
                          #pds: seq[PlotDescriptor],
@@ -2065,14 +2070,15 @@ iterator ingridEventIter(h5f: H5File,
                else: readEventsSparse(h5f, fileInfo, run, chip, pd.selector)
   echo "Read : ", events, " events"
   let dfDsets = readIngridForEventDisplay(h5f, fileInfo, run, chip, pd.selector)
-  var idx = 0
 
   ## XXX: MAKE USED LAYOUT (MARGIN) AND ANNOTATION PLACEMENT DEPENDENT ON SEPTEMBOARD LAYOUT USAGE!
-
   for (tup, subDf) in groups(group_by(events, "eventNumber")):
+    ## NOTE: because of septemboard events we use the real event number. For events with
+    ## multiple clusters we print the properties of the cluster with the lowest lnL value.
+    ## An additional `numClusters` field is added to notify how many clusters were found.
     let event = tup[0][1].toInt
-
-    echo "Generating event display for ", tup, " is ", subDf
+    # get the cluster info for the main (lowest lnL) cluster
+    let dfProps = getThisClusterEvent(dfDsets, event)
     ## XXX: HACK: change to sometingn better to generate filenames
     ## !!! In particular don't base it on event number, but index for multiple clusters
     var pd = pd
@@ -2093,12 +2099,14 @@ iterator ingridEventIter(h5f: H5File,
         texts.add &"    [x: ({m.x.min}, {m.x.max}), y: ({m.y.min}, {m.y.max})]"
     for dset in concat(@InGridDsets, @ToADsets, @["eventNumber"]):
       try:
-        let val = dfDsets[dset, idx, float]
+        let val = dfProps[dset, 0, float]
         let s = &"{dset:>25}: {val:6.4f}"
         texts.add s
       except KeyError:
         echo "Ignoring missing key: ", dset, " for annotation!"
         continue # ignore this field
+    if dfProps.len > 1: # more than 1 cluster, add number of found clusters
+      texts.add &"{\"numClusters\":>25}: {dfProps.len}"
     case BKind
     of bPlotly:
       for i, a in texts:
@@ -2126,7 +2134,6 @@ iterator ingridEventIter(h5f: H5File,
 
     echo "Plot has annotations: ", pltV.annotations
     yield (outfile, event, pltV)
-    inc idx
 
 proc ingridEventIterator(h5f: H5File,
                          fileInfo: FileInfo,

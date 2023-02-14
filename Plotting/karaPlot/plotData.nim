@@ -1332,22 +1332,25 @@ proc readEventsSparse*(h5f: H5File, fileInfo: FileInfo, run, chip: int, #idx: in
   ## helper proc to read data for given indices of events `idx` and
   ## builds a tensor of `idx.len` events.
   let
-    x = h5f.readVlen(fileInfo, run, "x", selector,
-                     chipNumber = chip,
-                     dtype = uint8)
-    y = h5f.readVlen(fileInfo, run, "y", selector,
-                     chipNumber = chip,
-                     dtype = uint8)
-    ch = h5f.readVlen(fileInfo, run, "ToT", selector,
-                      chipNumber = chip,
-                      dtype = uint16)
     (eventIdxs, events) = h5f.readFull(fileInfo, run, "eventNumber", selector,
                                        chipNumber = chip,
                                        dtype = int)
+    x = h5f.readVlen(fileInfo, run, "x", selector,
+                     chipNumber = chip,
+                     dtype = uint8,
+                     idx = eventIdxs)
+    y = h5f.readVlen(fileInfo, run, "y", selector,
+                     chipNumber = chip,
+                     dtype = uint8,
+                     idx = eventIdxs)
+    ch = h5f.readVlen(fileInfo, run, "ToT", selector,
+                      chipNumber = chip,
+                      dtype = uint16,
+                      idx = eventIdxs)
   result = newDataFrame()
   doAssert events.len == x.len, "Event indices are: " & $eventIdxs.len & " and x.len " & $x.len
   # eventIdxs can be empty if we read _all_ events in a run!
-
+  var dfs = newSeq[DataFrame]()
   for i in 0 ..< x.len:
     let evIdx = if eventIdxs.len > 0: eventIdxs[i] else: i
     ## XXX: if real layout septemboard events, transform using septemToReal ?
@@ -1355,7 +1358,8 @@ proc readEventsSparse*(h5f: H5File, fileInfo: FileInfo, run, chip: int, #idx: in
                        "Index" : evIdx, "eventNumber" : events[i] })
       .mutate(f{int: "x" ~ chpPixToRealPix(`x`, true, chip)},
               f{int: "y" ~ chpPixToRealPix(`y`, false, chip)})
-    result.add dfLoc
+    dfs.add dfLoc
+  result = assignStack(dfs)
 
 proc readSeptemEvents*(h5f: H5File, fileInfo: FileInfo, run: int,
                        selector: DataSelector): DataFrame =

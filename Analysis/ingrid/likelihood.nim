@@ -417,11 +417,11 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
                      calibTuple: tuple[b, m: float], ## contains the parameters required to perform energy calibration
                      ctx: LikelihoodContext,
                      lineVetoKind: LineVetoKind,
+                     useRealLayout: bool,
                      flags: set[FlagKind]
                     ): tuple[logL, energy: float, lineVetoPassed: bool] =
   ## XXX: add these to config.toml and as a cmdline argument in addition
   let EccentricityLineVetoCut = parseFloat(getEnv("ECC_LINE_VETO_CUT", "1.5"))
-  let UseRealLayout = parseBool(getEnv("USE_REAL_LAYOUT", "true"))
   # total charge for this cluster
   let clusterId = clTup[0]
   let cl = clTup[1]
@@ -433,7 +433,7 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
   for pix in clData:
     # take each pixel tuple and reconvert it to chip based coordinates
     # first determine chip it corresponds to
-    let pixChip = if UseRealLayout: determineRealChip(pix)
+    let pixChip = if useRealLayout: determineRealChip(pix)
                   else: determineChip(pix)
 
     # for this pixel and chip get the correct gas gain and push it to the `RunningStat`
@@ -449,8 +449,8 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
   # determine parameters of the lines through the cluster centers
   # invert the slope
   let slope = tan(Pi - cl.geometry.rotationAngle)
-  let cX = if UseRealLayout: toRealXPix(cl.centerX) else: toXPix(cl.centerX)
-  let cY = if UseRealLayout: toRealYPix(cl.centerY) else: toYPix(cl.centerY)
+  let cX = if useRealLayout: toRealXPix(cl.centerX) else: toXPix(cl.centerX)
+  let cY = if useRealLayout: toRealYPix(cl.centerY) else: toYPix(cl.centerY)
   let intercept = cY.float - slope * cX.float
   septemGeometry.centers.add (x: cX.float, y: cY.float)
   septemGeometry.lines.add (m: slope, b: intercept)
@@ -490,11 +490,11 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
     let orthSlope = -1.0 / slope
     # determine y axis intersection
     ## Center data must be converted as it doesn't go through reco!
-    let centerNew = if UseRealLayout: tightToReal((x: centerData.cX, y: centerData.cY))
+    let centerNew = if useRealLayout: tightToReal((x: centerData.cX, y: centerData.cY))
                     else: (x: centerData.cX, y: centerData.cY)
-    septemGeometry.xCenter = if UseRealLayout: toRealXPix(centerNew.x)
+    septemGeometry.xCenter = if useRealLayout: toRealXPix(centerNew.x)
                              else: toXPix(centerNew.x)
-    septemGeometry.yCenter = if UseRealLayout: toRealYPix(centerNew.y)
+    septemGeometry.yCenter = if useRealLayout: toRealYPix(centerNew.y)
                              else: toYPix(centerNew.y)
 
     let centerInter = septemGeometry.yCenter.float - orthSlope * septemGeometry.xCenter.float
@@ -563,7 +563,8 @@ proc buildSeptemEvent(evDf: DataFrame,
                       lhoodCenter, energies: seq[float],
                       cutTab: CutValueInterpolator,
                       allChipData: AllChipData,
-                      centerChip: int): SeptemFrame =
+                      centerChip: int,
+                      useRealLayout: bool): SeptemFrame =
   ## Given a
   result = SeptemFrame(centerEvIdx: -1, numRecoPixels: 0)
   # assign later to avoid indirection for each pixel
@@ -585,7 +586,12 @@ proc buildSeptemEvent(evDf: DataFrame,
       # assign center event index if this is the cluster that passes logL cut
       result.centerEvIdx = idx.int
       # in this case assign `pixData` to the result as a reference for data of original cluster
-      result.centerCluster = pixData
+      if useRealLayout:
+        result.centerCluster = newSeq[PixInt](pixData.len)
+        for i in 0 ..< pixData.len:
+          result.centerCluster[i] = septemPixToRealPix(pixData[i])
+      else:
+        result.centerCluster = pixData
 
   result.charge = chargeTensor
   result.pixels = pixels
@@ -681,7 +687,9 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
   ## cutoff for which events to plot when running with `--plotSeptem`. In addition the
   ## variable `USE_TEX` can be adjusted to generate TikZ TeX plots.
   let useTeX = getEnv("USE_TEX", "false").parseBool
+  ## XXX: add these to config.toml and as a cmdline argument in addition
   let PlotCutEnergy = getEnv("PLOT_SEPTEM_E_CUTOFF", "5.0").parseFloat
+  let UseRealLayout = parseBool(getEnv("USE_REAL_LAYOUT", "true"))
   ## Make this a command line argument / config.toml file feature instead of just env variable
   let lineVetoKind = parseEnum[LineVetoKind](getEnv("LINE_VETO_KIND", "lvRegularNoHLC"))
 
@@ -722,7 +730,7 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
     if evNum in passedEvs:
       # then grab all chips for this event
       var septemFrame = buildSeptemEvent(evGroup, centerData.lhoodCenter, centerData.energies,
-                                         cutTab, allChipData, ctx.centerChip)
+                                         cutTab, allChipData, ctx.centerChip, UseRealLayout)
       if septemFrame.centerEvIdx == -1:
         echo "Broken event! ", evGroup.pretty(-1)
         quit(1)
@@ -766,7 +774,9 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
                                                              calibTuple,
                                                              ctx,
                                                              lineVetoKind,
+                                                             UseRealLayout,
                                                              flags)
+
         let cX = toXPix(clusterTup[1].centerX)
         let cY = toYPix(clusterTup[1].centerY)
         let chipClusterCenter = (x: cX, y: cY, ch: 0).determineChip(allowOutsideChip = true)

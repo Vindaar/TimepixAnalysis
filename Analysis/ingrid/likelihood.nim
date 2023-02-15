@@ -224,10 +224,13 @@ func isVetoedByFadc(eventNumber: int, fadcTrigger, fadcEvNum: seq[int64],
   ## (which to be fair had different FADC settings etc!)
   ## NOTE: Numbers adjusted quickly based on the 1, 5, 95, 99-th percentiles of the
   ## rise / fall time FADC data (see `statusAndProgress` notes)
+  ##
+  ## For a motivation see sec. [[#sec:fadc:noisy_events_and_fadc_veto]] in ~statusAndProgress.org~
   const cutRiseLow = 65'u16
   const cutRiseHigh = 200'u16
   const cutFallLow = 470'u16
   const cutFallHigh = 640'u16
+  const cutSkewness = -0.4
   result = false
   let fIdx = fadcEvNum.lowerBound(eventNumber)
   if fIdx < fadcEvNum.high and
@@ -238,7 +241,8 @@ func isVetoedByFadc(eventNumber: int, fadcTrigger, fadcEvNum: seq[int64],
     if fadcRise[fIdx] >= cutRiseLow and
        fadcRise[fIdx] <= cutRiseHigh and
        fadcFall[fIdx] >= cutFallLow and
-       fadcFall[fIdx] <= cutFallHigh:
+       fadcFall[fIdx] <= cutFallHigh and
+       fadcSkew[fIdx] <= cutSkewness:
       result = false
     else:
       # outside either of the cuts, throw it out

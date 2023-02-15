@@ -892,7 +892,7 @@ proc readRecoFadc*(h5f: H5File, runNumber: int): RecoFadc =
   # name, which is guaranteed by using the same approach when writing.
   for field, data in fieldPairs(result):
     type innerType = get(genericParams(typeof data), 0)
-    data = h5f.read(fadcRecoPath(runNumber) / astToStr(field), innerType)
+    data = h5f.read(fadcRecoPath(runNumber) / field, innerType)
 
 proc readRecoFadcRun*(h5f: H5File, runNumber: int): ReconstructedFadcRun =
   ## Returns the `RecoFadc` data, i.e. all 1D data computed in `calcRiseAndFallTime` and

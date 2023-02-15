@@ -649,6 +649,7 @@ when not defined(pure) and not defined(js):
       fallStop*: Tensor[uint16]
       riseTime*: Tensor[uint16]
       fallTime*: Tensor[uint16]
+      skewness*: Tensor[float] # the skewness of the full FADC event, useful to detect noise events
 
     ## This object stores the FADC data of a (possibly partial) run. That means
     ## each field contains N (= number of FADC events in a run) or a subset of

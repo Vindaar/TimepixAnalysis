@@ -270,12 +270,21 @@ proc biasedTruncMean1D(t: Tensor[float], qLow, qHigh: float): float =
     red += subSorted[j].float
   result = red / (phih - plow).float
 
+proc skewness(t: Tensor[float]): float =
+  ## Skewness from a tensor
+  var ms = initMovingStat[float, int]()
+  for i in 0 ..< t.size.int:
+    ms.push t[i]
+  result = ms.skewness()
+
 proc calcRiseAndFallTime*[T: seq | Tensor](fadc: T): tuple[baseline: float,
                                                            argMinval,
                                                            riseStart,
                                                            fallStop,
                                                            riseTime,
-                                                           fallTime: uint16] =
+                                                           fallTime: uint16,
+                                                           skewness: float
+                                                          ] =
   ## Calculates the baseline, minimum location, start of pulse rise, end of pulse fall,
   ## rise time and fall time for a ``single`` FADC spectrum
   ##
@@ -310,7 +319,8 @@ proc calcRiseAndFallTime*[T: seq | Tensor](fadc: T): tuple[baseline: float,
     fallTime = diffUnderModulo(xMin, fallStop, 2560)
 
   result = (baseline: baseline, argMinval: xMin.uint16, riseStart: riseStart.uint16, fallStop: fallStop.uint16,
-            riseTime: riseTime.uint16, fallTime: fallTime.uint16)
+            riseTime: riseTime.uint16, fallTime: fallTime.uint16,
+            skewness: fadc.skewness())
 
 proc calcRiseAndFallTime*(fadc: Tensor[float],
                           seqBased: static bool): RecoFadc =
@@ -384,7 +394,7 @@ proc calcRiseAndFallTimes*(h5f: H5File, run_number: int) =
   # now write data back to h5file
   for field, data in fieldPairs(recoFadc):
     type innerType = get(genericParams(typeof data), 0)
-    var dset = h5f.create_dataset(fadcRecoPath(runNumber) / astToStr(field), nEvents, innerType)
+    var dset = h5f.create_dataset(fadcRecoPath(runNumber) / field, nEvents, innerType)
     # write the data
     dset.unsafeWrite(data.toUnsafeView(), nEvents)
 

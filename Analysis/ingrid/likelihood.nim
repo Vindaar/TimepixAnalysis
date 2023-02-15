@@ -211,7 +211,7 @@ proc writeLikelihoodData(h5f: var H5File,
   runGrp.writeLogLDsetAttributes(ctx.cdlFile, ctx.year)
 
 func isVetoedByFadc(eventNumber: int, fadcTrigger, fadcEvNum: seq[int64],
-                    fadcRise, fadcFall: seq[uint16]): bool =
+                    fadcRise, fadcFall: seq[uint16], fadcSkew: seq[float]): bool =
   ## returns `true` if the event of `ind` is vetoed by the FADC based on cuts on
   ## the rise and fall time. Vetoed means the event must be thrown out
   ## because it does ``not`` conform to the X-ray hypothesis.

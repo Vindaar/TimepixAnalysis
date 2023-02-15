@@ -54,7 +54,7 @@ const
   ToADsets = ["toaLength", "toaRms", "toaMean", "toaMin", "toaSkewness", "toaKurtosis"]
   FadcDsets = ["minvals", "fallTime", "riseTime"]
   AllFadcDsets = ["argMinval", "baseline", "eventNumber", "fallStop", "fallTime",
-                  "minvals", "noisy", "riseStart", "riseTime"]
+                  "minvals", "noisy", "riseStart", "riseTime", "skewness"]
 
 type
   ShapeKind = enum

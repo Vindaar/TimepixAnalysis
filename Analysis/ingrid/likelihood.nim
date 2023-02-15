@@ -900,6 +900,7 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
       fadcTrigger: seq[int64]
       fadcRise: seq[uint16]
       fadcFall: seq[uint16]
+      fadcSkew: seq[float]
       fadcEvNum: seq[int64]
       scinti1Trigger: seq[int64]
       scinti2Trigger: seq[int64]
@@ -908,6 +909,7 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
         fadcTrigger = h5f[group / "fadcReadout", int64]
         fadcRise = h5f[group / "fadc/riseTime", uint16]
         fadcFall = h5f[group / "fadc/fallTime", uint16]
+        fadcSkew = h5f[group / "fadc/skewness", float]
         fadcEvNum = h5f[group / "fadc/eventNumber", int64]
       except KeyError:
         echo "Run ", num, " has no FADC datasets!"
@@ -980,7 +982,7 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
         var scintiVeto = false
         if useFadcVeto:
           fadcVeto = isVetoedByFadc(evNumbers[ind], fadcTrigger, fadcEvNum,
-                                    fadcRise, fadcFall)
+                                    fadcRise, fadcFall, fadcSkew)
         if fadcVeto:
           # increase if FADC vetoed this event
           inc fadcVetoCount

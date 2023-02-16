@@ -174,17 +174,17 @@ proc runMc(): DataFrame =
 
 proc generatePlots(df: DataFrame) =
   if UseTemps:
-    ggplot(df, aes("T [K]", "σT [UnitLess]", color = "σL [UnitLess]")) +
+    ggplot(df, aes("T [K]", "σT [μm•√cm]", color = "σL [μm•√cm]")) +
       geom_point() +
-      geom_errorbar(aes = aes(yMin = f{idx("σT [UnitLess]") - idx("ΔσT [UnitLess]")},
-                              yMax = f{idx("σT [UnitLess]") + idx("ΔσT [UnitLess]")})) +
+      geom_errorbar(aes = aes(yMin = f{idx("σT [μm•√cm]") - idx("ΔσT [μm•√cm]")},
+                              yMax = f{idx("σT [μm•√cm]") + idx("ΔσT [μm•√cm]")})) +
       ggsave("out/septemboard_cast_gas_temps_σT.pdf")
-    ggplot(df, aes("T [K]", "σL [UnitLess]", color = "σT [UnitLess]")) +
+    ggplot(df, aes("T [K]", "σL [μm•√cm]", color = "σT [μm•√cm]")) +
       geom_point() +
-      geom_errorbar(aes = aes(yMin = f{idx("σL [UnitLess]") - idx("ΔσL [UnitLess]")},
-                              yMax = f{idx("σL [UnitLess]") + idx("ΔσL [UnitLess]")})) +
+      geom_errorbar(aes = aes(yMin = f{idx("σL [μm•√cm]") - idx("ΔσL [μm•√cm]")},
+                              yMax = f{idx("σL [μm•√cm]") + idx("ΔσL [μm•√cm]")})) +
       ggsave("out/septemboard_cast_gas_temps_σL.pdf")
-    ggplot(df, aes("T [K]", "v [mm•μs⁻¹]", color = "σT [UnitLess]")) +
+    ggplot(df, aes("T [K]", "v [mm•μs⁻¹]", color = "σT [μm•√cm]")) +
       geom_point() +
       geom_errorbar(aes = aes(yMin = f{idx("v [mm•μs⁻¹]") - idx("Δv [mm•μs⁻¹]")},
                               yMax = f{idx("v [mm•μs⁻¹]") + idx("Δv [mm•μs⁻¹]")})) +
@@ -195,18 +195,18 @@ proc generatePlots(df: DataFrame) =
                               yMax = f{idx("σT_σL [UnitLess]") + idx("ΔσT_σL [UnitLess]")})) +
       ggsave("out/septemboard_cast_gas_temps_σT_over_σL.pdf")
   else:
-    ggplot(df, aes("E [V•cm⁻¹]", "σT [UnitLess]", color = "σL [UnitLess]")) +
+    ggplot(df, aes("E [V•cm⁻¹]", "σT [μm•√cm]", color = "σL [μm•√cm]")) +
       geom_point() +
-      geom_errorbar(aes = aes(yMin = f{idx("σT [UnitLess]") - idx("ΔσT [UnitLess]")},
-                              yMax = f{idx("σT [UnitLess]") + idx("ΔσT [UnitLess]")})) +
+      geom_errorbar(aes = aes(yMin = f{idx("σT [μm•√cm]") - idx("ΔσT [μm•√cm]")},
+                              yMax = f{idx("σT [μm•√cm]") + idx("ΔσT [μm•√cm]")})) +
       ggsave("out/septemboard_cast_gas_temps_Es_σT.pdf")
-    ggplot(df, aes("E [V•cm⁻¹]", "σL [UnitLess]", color = "σT [UnitLess]")) +
+    ggplot(df, aes("E [V•cm⁻¹]", "σL [μm•√cm]", color = "σT [μm•√cm]")) +
       geom_point() +
-      geom_errorbar(aes = aes(yMin = f{idx("σL [UnitLess]") - idx("ΔσL [UnitLess]")},
-                              yMax = f{idx("σL [UnitLess]") + idx("ΔσL [UnitLess]")})) +
+      geom_errorbar(aes = aes(yMin = f{idx("σL [μm•√cm]") - idx("ΔσL [μm•√cm]")},
+                              yMax = f{idx("σL [μm•√cm]") + idx("ΔσL [μm•√cm]")})) +
       ggsave("out/septemboard_cast_gas_temps_Es_σL.pdf")
 
-    ggplot(df, aes("E [V•cm⁻¹]", "v [mm•μs⁻¹]", color = "σT [UnitLess]")) +
+    ggplot(df, aes("E [V•cm⁻¹]", "v [mm•μs⁻¹]", color = "σT [μm•√cm]")) +
       geom_point() +
       geom_errorbar(aes = aes(yMin = f{idx("v [mm•μs⁻¹]") - idx("Δv [mm•μs⁻¹]")},
                               yMax = f{idx("v [mm•μs⁻¹]") + idx("Δv [mm•μs⁻¹]")})) +
@@ -225,6 +225,12 @@ proc main(csvInput = "",
     df = runMc()
   elif csvInput.len > 0:
     df = readCsv(csvInput)
+
+  # rename columns appropriately
+  df = df.rename(f{"σT [μm•√cm]" <- "σT [UnitLess]"},
+                 f{"σL [μm•√cm]" <- "σL [UnitLess]"},
+                 f{"ΔσT [μm•√cm]" <- "ΔσT [UnitLess]"},
+                 f{"ΔσL [μm•√cm]" <- "ΔσL [UnitLess]"})
 
   if UseTemps:
     echo df.arrange("T [K]").toOrgTable()

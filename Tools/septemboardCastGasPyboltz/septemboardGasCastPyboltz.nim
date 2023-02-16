@@ -17,14 +17,13 @@ import cligen / [procpool, mslice, osUt]
 ## serves as a reference to having the expected numbers for the drift velocity,
 ## longitudinal and transverse diffusion coefficients.
 
-
 defUnit(V•cm⁻¹)
-defUnit(cm•μs⁻¹)
+defUnit(mm•μs⁻¹)
 type
   MagRes = object
     E: V•cm⁻¹
-    T: K
-    v: Measurement[cm•μs⁻¹]
+    T: K ## XXX: FIX CONVERSION OF C TO K
+    v: Measurement[mm•μs⁻¹] ## XXX: FIX UP UNITS. PyBoltz returns mm•μs⁻¹!!!
     σT: Measurement[float] # μm²•cm⁻¹] # we currently do not support √unit :(
     σL: Measurement[float] # μm²•cm⁻¹]
     σT_σL: Measurement[float]
@@ -48,7 +47,7 @@ proc toFlatRes(m: MagRes): FlatRes =
 
 proc toMagRes(f: FlatRes): MagRes =
   result = MagRes(E: f.E.V•cm⁻¹, T: f.T.Kelvin,
-                  v: f.v.cm•μs⁻¹ ± f.Δv.cm•μs⁻¹,
+                  v: f.v.mm•μs⁻¹ ± f.Δv.mm•μs⁻¹,
                   σT: f.σT ± f.ΔσT,
                   σL: f.σL ± f.ΔσL,
                   σT_σL: f.σT_σL ± f.ΔσT_σL)
@@ -58,7 +57,7 @@ proc toMagRes(res: PyObject, E = EDrift, temp: Kelvin = 0.K): MagRes =
 
   let v = res["Drift_vel"].val[2].to(float)
   let Δv = res["Drift_vel"].err[2].to(float)
-  result.v = v.cm•μs⁻¹ ± Δv.cm•μs⁻¹
+  result.v = v.mm•μs⁻¹ ± Δv.mm•μs⁻¹
 
   # now get diffusion coefficients for a single centimeter (well √cm)
   let σ_T1 = res["DT1"].val.to(float)
@@ -137,10 +136,9 @@ proc runMc(): DataFrame =
           Settings["EField_Vcm"] = % val
 
         # commence the run!
-        #var flatRes = PBRun.Run(Settings).toMagRes((temp + 273.15).K).toFlatRes
         var flatRes: FlatRes
         if UseTemps:
-          flatRes = PBRun.Run(Settings).toMagRes(temp = val.K).toFlatRes
+          flatRes = PBRun.Run(Settings).toMagRes(temp = (val + 273.15).K).toFlatRes
         else:
           flatRes = PBRun.Run(Settings).toMagRes(E = val.V•cm⁻¹).toFlatRes
         let t1 = epochTime()
@@ -186,10 +184,10 @@ proc generatePlots(df: DataFrame) =
       geom_errorbar(aes = aes(yMin = f{idx("σL [UnitLess]") - idx("ΔσL [UnitLess]")},
                               yMax = f{idx("σL [UnitLess]") + idx("ΔσL [UnitLess]")})) +
       ggsave("out/septemboard_cast_gas_temps_σL.pdf")
-    ggplot(df, aes("T [K]", "v [cm•μs⁻¹]", color = "σT [UnitLess]")) +
+    ggplot(df, aes("T [K]", "v [mm•μs⁻¹]", color = "σT [UnitLess]")) +
       geom_point() +
-      geom_errorbar(aes = aes(yMin = f{idx("v [cm•μs⁻¹]") - idx("Δv [cm•μs⁻¹]")},
-                              yMax = f{idx("v [cm•μs⁻¹]") + idx("Δv [cm•μs⁻¹]")})) +
+      geom_errorbar(aes = aes(yMin = f{idx("v [mm•μs⁻¹]") - idx("Δv [mm•μs⁻¹]")},
+                              yMax = f{idx("v [mm•μs⁻¹]") + idx("Δv [mm•μs⁻¹]")})) +
       ggsave("out/septemboard_cast_gas_temps_vel.pdf")
     ggplot(df, aes("T [K]", "σT_σL [UnitLess]")) +
       geom_point() +
@@ -208,10 +206,10 @@ proc generatePlots(df: DataFrame) =
                               yMax = f{idx("σL [UnitLess]") + idx("ΔσL [UnitLess]")})) +
       ggsave("out/septemboard_cast_gas_temps_Es_σL.pdf")
 
-    ggplot(df, aes("E [V•cm⁻¹]", "v [cm•μs⁻¹]", color = "σT [UnitLess]")) +
+    ggplot(df, aes("E [V•cm⁻¹]", "v [mm•μs⁻¹]", color = "σT [UnitLess]")) +
       geom_point() +
-      geom_errorbar(aes = aes(yMin = f{idx("v [cm•μs⁻¹]") - idx("Δv [cm•μs⁻¹]")},
-                              yMax = f{idx("v [cm•μs⁻¹]") + idx("Δv [cm•μs⁻¹]")})) +
+      geom_errorbar(aes = aes(yMin = f{idx("v [mm•μs⁻¹]") - idx("Δv [mm•μs⁻¹]")},
+                              yMax = f{idx("v [mm•μs⁻¹]") + idx("Δv [mm•μs⁻¹]")})) +
       ggsave("out/septemboard_cast_gas_temps_Es_vel.pdf")
 
 

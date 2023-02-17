@@ -783,7 +783,11 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
 
         let cX = toXPix(clusterTup[1].centerX)
         let cY = toYPix(clusterTup[1].centerY)
-        let chipClusterCenter = (x: cX, y: cY, ch: 0).determineChip(allowOutsideChip = true)
+        var chipClusterCenter: int
+        if UseRealLayout:
+          chipClusterCenter = (x: cX, y: cY, ch: 0).determineRealChip(allowOutsideChip = true)
+        else:
+          chipClusterCenter = (x: cX, y: cY, ch: 0).determineChip(allowOutsideChip = true)
         if chipClusterCenter == ctx.centerChip and # this cluster's center is on center chip
            logL < cutTab[energy]:              # cluster passes logL cut
           septemVetoPassed = true

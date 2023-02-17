@@ -367,7 +367,7 @@ proc chpPixToSeptemPix*(a: int, isX: bool, chipNumber: range[0 .. 6]): int =
   result = if isX: sepCoord.x
            else: sepCoord.y
 
-proc determineRealChip*(p: PixInt): int =
+proc determineRealChip*(p: PixInt, allowOutsideChip = false): int =
   ## Determines the chip for an input pixel on the real layout.
   ## XXX: why cannot be `let`?
   ## XXX2: can merge this with `determineChip`, no?
@@ -388,7 +388,10 @@ proc determineRealChip*(p: PixInt): int =
     if p.x >= bounds.left and p.x <= bounds.right and
        p.y >= bounds.bottom and p.y <= bounds.top:
       return chip
-  doAssert false, "The pixel : " & $p & " does not belong to a chip!"
+  if not allowOutsideChip:
+    doAssert false, "The pixel : " & $p & " does not belong to a chip!"
+  else:
+    result = -1
 
 func chpPixToSeptemPix*(pix: Pixels, chipNumber: range[0 .. 6]): PixelsInt =
   ## converts the given local chip pixels to the full septem frame coordinate system

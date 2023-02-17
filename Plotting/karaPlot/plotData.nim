@@ -914,7 +914,6 @@ proc plotSparseEvent(df: DataFrame, title, outfile: string,
   of bMpl:
     discard
   of bGgPlot:
-    echo df
     result.pltGg = ggplot(df, aes("x", "y"), backend = bkCairo) +
       geom_point(aes = aes(color = "ch"), size = 1.0) +
       result.theme # just add the theme directly
@@ -2034,8 +2033,13 @@ proc handleToTPerPixel(h5f: H5File,
 
 proc getThisClusterEvent(df: DataFrame, event: int): DataFrame =
   ## Helper to work around "environment misses `event`"
-  result = df.filter(f{int: `eventNumber` == event})
-    .arrange("likelihood", SortOrder.Ascending)
+  if "likelihood" in df:
+    result = df.filter(f{int: `eventNumber` == event})
+      .arrange("likelihood", SortOrder.Ascending)
+  else:
+    # if the likelihood dataset does not exist, use eccentricity
+    result = df.filter(f{int: `eventNumber` == event})
+      .arrange("eccentricity", SortOrder.Ascending)
 
 iterator ingridEventIter(h5f: H5File,
                          fileInfo: FileInfo,
@@ -2072,7 +2076,6 @@ iterator ingridEventIter(h5f: H5File,
       discard
   let events = if pd.fullSeptemboard: readSeptemEvents(h5f, fileInfo, run, pd.selector)
                else: readEventsSparse(h5f, fileInfo, run, chip, pd.selector)
-  echo "Read : ", events, " events"
   let dfDsets = readIngridForEventDisplay(h5f, fileInfo, run, chip, pd.selector)
 
   ## XXX: MAKE USED LAYOUT (MARGIN) AND ANNOTATION PLACEMENT DEPENDENT ON SEPTEMBOARD LAYOUT USAGE!

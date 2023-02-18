@@ -132,6 +132,8 @@ proc writeVetoInfos(grp: H5Group, fadcVetoCount, scintiVetoCount: int,
   var mgrp = grp
   mgrp.attrs["FADC Veto"] = $(fkFadc in flags)
   mgrp.attrs["Scinti Veto"] = $(fkScinti in flags)
+  mgrp.attrs["Septem Veto"] = $(fkSeptem in flags)
+  mgrp.attrs["Line Veto"] = $(fkLineVeto in flags)
   mgrp.attrs["# removed by FADC veto"] = fadcVetoCount
   mgrp.attrs["# removed by scinti veto"] = scintiVetoCount
 
@@ -1082,9 +1084,7 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
     lhGrp.attrs["totalPassedEvents"] = totalLogLCount
     lhGrp.attrs["totalCutByScinti"] = totalScintiRemoveCount
     lhGrp.attrs["onlyCutByScinti"] = totalScintiRemovedNotLogRemoved
-    lhGrp.attrs["MorphingKind"] = cutTab.kind
-    ## TODO: add morphing kind to output!
-
+    lhGrp.attrs["MorphingKind"] = $cutTab.kind
   # write year and CDL and reference file used
   lhGrp.writeLogLDsetAttributes(ctx.cdlFile, ctx.year)
 

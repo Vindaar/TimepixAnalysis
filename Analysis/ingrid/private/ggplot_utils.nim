@@ -96,17 +96,21 @@ proc readRunDsets*(h5f: H5File, run: int, # path to specific run
     result = (@args).filterIt(it.len > 0)
   proc numFilled(args: varargs[DataFrame]): int =
     result = getFilled(args).len
-  if numFilled(dfChip, dfAll, dfFadc) == 3:
+
+  let dfsFilled = numFilled(dfChip, dfAll, dfFadc)
+  if dfsFilled == 3:
     # all filled
     result = innerJoin(dfChip, dfAll, evNumDset)
     result = innerJoin(result, dfFadc, evNumDset)
-  elif numFilled(dfChip, dfAll, dfFadc) == 2:
+  elif dfsFilled == 2:
     let filled = getFilled(dfChip, dfAll, dfFadc)
     result = innerJoin(filled[0], filled[1], evNumDset)
-  else:
+  elif dfsFilled == 1:
     let filled = getFilled(dfChip, dfAll, dfFadc)
     doAssert filled.len == 1
     result = filled[0]
+  else: # no data read
+    return newDataFrame()
   result["runNumber"] = run
 
 proc readRunDsetsAllChips*(h5f: H5File, run: int, # path to specific run

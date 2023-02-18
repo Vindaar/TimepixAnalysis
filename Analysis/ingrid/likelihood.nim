@@ -425,7 +425,7 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
                      flags: set[FlagKind]
                     ): tuple[logL, energy: float, lineVetoPassed: bool] =
   ## XXX: add these to config.toml and as a cmdline argument in addition
-  let EccentricityLineVetoCut = parseFloat(getEnv("ECC_LINE_VETO_CUT", "1.5"))
+  let EccentricityLineVetoCut = parseFloat(getEnv("ECC_LINE_VETO_CUT", "1.0"))
   # total charge for this cluster
   let clusterId = clTup[0]
   let cl = clTup[1]
@@ -695,7 +695,9 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
   let PlotCutEnergy = getEnv("PLOT_SEPTEM_E_CUTOFF", "5.0").parseFloat
   let UseRealLayout = parseBool(getEnv("USE_REAL_LAYOUT", "true"))
   ## Make this a command line argument / config.toml file feature instead of just env variable
-  let lineVetoKind = parseEnum[LineVetoKind](getEnv("LINE_VETO_KIND", "lvRegularNoHLC"))
+  let lineVetoDefault = if fkSeptem in flags: "lvRegularNoHLC" # in this case don't need HLC
+                        else: "lvRegular" # in case line veto only (or ignored anyway)
+  let lineVetoKind = parseEnum[LineVetoKind](getEnv("LINE_VETO_KIND", lineVetoDefault))
 
 
   echo "Passed indices before septem veto ", passedInds.card

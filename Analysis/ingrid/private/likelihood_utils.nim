@@ -127,7 +127,7 @@ template withCdlData*(cdlFile, dset: string,
   var frameworkKind {.inject.} = fkMarlin
   var fitByRun = false
   echo "Opening file to build LogL from ", cdlFile, " for dset: ", dset
-  withH5(cdlFile, "rw"):
+  withH5(cdlFile, "r"):
     if "FrameworkKind" in h5f.attrs:
       frameworkKind = parseEnum[FrameworkKind](h5f.attrs["FrameworkKind", string])
     if "fitByRun" in h5f.attrs:

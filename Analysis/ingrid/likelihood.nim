@@ -1,5 +1,6 @@
 import std / [os, tables, strutils, strformat, algorithm, sets,
               stats, sequtils, typetraits, random]
+from std/sugar import dup
 # import docopt except Value
 import cligen / macUt
 import nimhdf5, tos_helpers, seqmath, arraymancer
@@ -39,7 +40,8 @@ type
     fkTracking, fkFadc, fkScinti, fkSeptem, fkLineVeto, fkAggressive,
     fkRocCurve, fkComputeLogL, fkPlotLogL, fkPlotSeptem,
     fkEstRandomCoinc, # used to estimate the random coincidence of the septem & line veto
-    fkEstRandomFixedEvent # use a fixed center cluster and only vary around the outer ring
+    fkEstRandomFixedEvent, # use a fixed center cluster and only vary around the outer ring
+    fkReadOnly # makes the input file read only
 
 template withConfig(body: untyped): untyped =
   const sourceDir = currentSourcePath().parentDir
@@ -123,12 +125,23 @@ proc calcLogLikelihood*(h5f: var H5File,
       dset[dset.all] = logL
       dset.writeLogLDsetAttributes(ctx.cdlFile, ctx.year)
 
+proc writeVetoInfos(grp: H5Group, fadcVetoCount, scintiVetoCount: int,
+                    flags: set[FlagKind]) =
+  ## writes information about used vetoes and the number of events removed by
+  ## the vetos
+  var mgrp = grp
+  mgrp.attrs["FADC Veto"] = $(fkFadc in flags)
+  mgrp.attrs["Scinti Veto"] = $(fkScinti in flags)
+  mgrp.attrs["# removed by FADC veto"] = fadcVetoCount
+  mgrp.attrs["# removed by scinti veto"] = scintiVetoCount
+
 proc writeLikelihoodData(h5f: var H5File,
                          h5fout: var H5File,
                          group: var H5Group,
                          chipNumber: int,
                          cutTab: CutValueInterpolator,
                          passedInds: OrderedSet[int],
+                         fadcVetoCount, scintiVetoCount: int, flags: set[FlagKind],
                          ctx: LikelihoodContext
                         ) =
                          #durations: (float64, float64)) =
@@ -208,6 +221,7 @@ proc writeLikelihoodData(h5f: var H5File,
   # copy attributes over from the input file
   runGrp.copy_attributes(group.attrs)
   chpGrpOut.copy_attributes(chpGrpIn.attrs)
+  chpGrpOut.writeVetoInfos(fadcVetoCount, scintiVetoCount, flags)
   runGrp.writeLogLDsetAttributes(ctx.cdlFile, ctx.year)
 
 func isVetoedByFadc(eventNumber: int, fadcTrigger, fadcEvNum: seq[int64],
@@ -268,16 +282,6 @@ func isVetoedByScintis(eventNumber: int,
       (scinti2[sIdx] > low and scinti2[sIdx] < high)):
     # had a non trivial trigger, throw out
     result = true
-
-proc writeVetoInfos(grp: H5Group, fadcVetoCount, scintiVetoCount: int,
-                    flags: set[FlagKind]) =
-  ## writes information about used vetoes and the number of events removed by
-  ## the vetos
-  var mgrp = grp
-  mgrp.attrs["FADC Veto"] = $(fkFadc in flags)
-  mgrp.attrs["Scinti Veto"] = $(fkScinti in flags)
-  mgrp.attrs["# removed by FADC veto"] = fadcVetoCount
-  mgrp.attrs["# removed by scinti veto"] = scintiVetoCount
 
 type
   SeptemFrame = object
@@ -1021,7 +1025,9 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
           # only those events that otherwise wouldn't have made it by logL only
           inc totalScintiRemovedNotLogRemoved
 
-      chpGrp.writeVetoInfos(fadcVetoCount, scintiVetoCount, flags)
+      if fkReadOnly notin flags: # write to output if not in read only
+        chpGrp.writeVetoInfos(fadcVetoCount, scintiVetoCount, flags)
+
       if chipNumber == centerChip:
         totalScintiRemoveCount += scintiVetoCount
 
@@ -1044,6 +1050,7 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
                                   chipNumber,
                                   cutTab,
                                   passedInds,
+                                  fadcVetoCount, scintiVetoCount, flags,
                                   ctx)
 
         if chipNumber == centerChip:
@@ -1051,7 +1058,7 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
 
         when false:
           (totalDurationRun, totalDurationRunPassed)
-      else:
+      elif fkReadOnly notin flags: # do not write if we're in read only mode
         var mchpGrp = chpGrp
         mchpGrp.attrs["LogLSpectrum"] = "No events passed cut"
         echo "No clusters found passing logL cut"
@@ -1360,6 +1367,7 @@ proc main(
   plotSeptem = false,
   createRocCurve = false,
   plotLogL = false,
+  readOnly = false,
   version = false
      ) =
   docCommentAdd(versionStr)
@@ -1380,6 +1388,7 @@ proc main(
   if plotSeptem          : flags.incl fkPlotSeptem
   if estimateRandomCoinc : flags.incl fkEstRandomCoinc
   if estFixedEvent       : flags.incl fkEstRandomFixedEvent
+  if readOnly            : flags.incl fkReadOnly
 
   let region = if region.len > 0:
                  parseEnum[ChipRegion](region)
@@ -1398,8 +1407,9 @@ proc main(
   doAssert energyDset != igInvalid, "Please enter a valid energy dataset. " &
     "Choices: {energyFromCharge, energyFromPixel}"
 
-  var h5f = H5open(file, "rw")
-  h5f.visitFile
+  var h5f = if readOnly: H5open(file, "r")
+            else: H5open(file, "rw")
+  h5f.visitFile()
   let timepix = h5f.timepixVersion()
 
   # get data to read info to store in context
@@ -1427,6 +1437,8 @@ proc main(
     plotLogL(ctx)
   if fkComputeLogL in flags:
     # perform likelihood calculation
+    if readOnly:
+      raise newException(ValueError, "Given flag `--readOnly` incompatible with `--computeLogL`!")
     h5f.calcLogLikelihood(ctx)
     h5f.flush() # flush so the data is written already
   if extract.len == 0 and h5out.len > 0:
@@ -1492,4 +1504,6 @@ when isMainModule:
     "computeLogL"    : """If flag is set, we compute the logL dataset for each run in the
   the input file. This is only required once or after changes to the
   property datasets (e.g. energy calibration changed).""",
+    "readOnly"       : """If set treats the input file `--file` purely as read only. Useful to run multiple
+  calculations in parallel on one H5 file. Not compatible with `--computeLogL` for obvious reasons.""",
     "version"        : "Show version."})

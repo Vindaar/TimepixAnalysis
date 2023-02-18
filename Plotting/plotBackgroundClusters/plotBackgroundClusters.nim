@@ -151,8 +151,10 @@ proc writeNoisyClusters(cTab: CountTable[(int, int)],
   f.close()
 
 proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
-                  suffix, title: string) =
-  createDir("plots")
+                  suffix, title, outpath: string) =
+  let outpath = if outpath.len > 0: outpath else: "plots"
+  createDir(outpath)
+  let fname = &"{outpath}/background_cluster_centers{suffix}"
   if names.len == 0 or names.deduplicate.len == 1:
     let totalEvs = df["count", int].sum()
     let plt = ggplot(df, aes("x", "y", color = "count")) +
@@ -162,12 +164,11 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
       margin(top = 1.75) +
       scale_color_continuous(scale = (low: 0.0, high: zMax))
     if not useTikZ:
-      let fname = &"plots/background_cluster_centers{suffix}.pdf"
       echo "[INFO]: Saving plot to ", fname
       plt + ggtitle(title & &". Total # cluster = {totalEvs}") +
         ggsave(fname)
     else:
-      let fname = &"/home/basti/phd/Figs/backgroundClusters/background_cluster_centers{suffix}"
+      #let fname = &"/home/basti/phd/Figs/backgroundClusters/background_cluster_centers{suffix}"
       echo "[INFO]: Saving plot to ", fname
       plt + ggtitle(title & r". Total \# cluster = " & $totalEvs) +
         ggvegatex(fname)
@@ -176,7 +177,7 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
     for tup, subDf in groups(df.group_by("Type")):
       let numEvs = subDf["count", int].sum()
       totalEvs.add &"{tup[0][1]}: {numEvs}"
-    let fname = &"/home/basti/org/Figs/statusAndProgress/IAXO_TDR/background_cluster_centers{suffix}.pdf"
+    #let fname = &"/home/basti/org/Figs/statusAndProgress/IAXO_TDR/background_cluster_centers{suffix}.pdf"
     echo "[INFO]: Saving plot to ", fname
     let ticks = arange(0, 260, 5).mapIt(it.float)
     ggplot(df, aes("x", "y", color = "count")) +
@@ -193,7 +194,8 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
              width = 900, height = 480)
              #useTeX = true, standalone = true) # onlyTikZ = true)
 
-proc plotSuppression(df: DataFrame, cTab: CountTable[(int, int)], tiles: int) =
+proc plotSuppression(df: DataFrame, cTab: CountTable[(int, int)], tiles: int,
+                     outpath: string) =
   ## Plots a tilemap of background suppressions. It uses `tiles` elements in each axis.
   proc toTensor(cTab: CountTable[(int, int)]): Tensor[int] =
     result = zeros[int]([256, 256])
@@ -230,6 +232,8 @@ proc plotSuppression(df: DataFrame, cTab: CountTable[(int, int)], tiles: int) =
   echo dfTile
 
   let size = step.ceil
+  let outfile = if outpath.len > 0: outpath / "background_suppression_tile_map.pdf"
+                else: "plots/background_suppression_tile_map.pdf"
   ggplot(dfTile, aes("xI", "yI", fill = "sI", width = size, height = size)) +
     geom_tile() +
     geom_text(aes = aes(x = f{`xI` + size / 2.0}, y = f{`yI` + size / 2.0}, text = "sI"), color = "white") +
@@ -237,7 +241,7 @@ proc plotSuppression(df: DataFrame, cTab: CountTable[(int, int)], tiles: int) =
     xlab("x [Pixel]") + ylab("y [Pixel]") +
     margin(top = 1.75) +
     ggtitle("Local background suppression compared to 1.5·10⁶ raw clusters") +
-    ggsave("plots/background_suppression_tile_map.pdf")
+    ggsave(outfile, useTeX = true, standalone = true)
 
 proc main(
   files: seq[string], suffix = "", title = "",
@@ -249,7 +253,8 @@ proc main(
   zMax = 5.0,
   threshold = 2,
   chip = -1, # chip can be used to overwrite center chip reading
-  tiles = 7) =
+  tiles = 7,
+  outpath = "") =
 
   let (totalNum, cTab) = readClusters(files, filterNoisyPixels, filterEnergy, chip)
   if writeNoisyClusters:
@@ -269,7 +274,8 @@ proc main(
     # now sort all again
     df = df.arrange("count", order = SortOrder.Ascending)
 
-  plotSuppression(df, cTab, tiles)
+  plotClusters(df, names, useTikZ, zMax, suffix, title, outpath)
+  plotSuppression(df, cTab, tiles, outpath)
 
   when false:
     # convert center positions to a 256x256 map

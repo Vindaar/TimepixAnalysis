@@ -1342,7 +1342,8 @@ proc buildEvents[T, U](x, y: seq[seq[T]], ch: seq[seq[U]],
 proc readEventsSparse*(h5f: H5File, fileInfo: FileInfo, run, chip: int, #idx: int,
                        selector: DataSelector,
                        fullSeptemboard = false,
-                       useRealLayout = false): DataFrame =
+                       useRealLayout = false,
+                       event = -1): DataFrame =
   ## helper proc to read data for given indices of events `idx` and
   ## builds a tensor of `idx.len` events.
   let
@@ -1379,25 +1380,30 @@ proc readEventsSparse*(h5f: H5File, fileInfo: FileInfo, run, chip: int, #idx: in
     # else do nothing
     dfs.add dfLoc
   result = assignStack(dfs)
+  if event > 0:
+    result = result.filter(f{`eventNumber` == event})
+
 
 proc readSeptemEvents*(h5f: H5File, fileInfo: FileInfo, run: int,
-                       selector: DataSelector): DataFrame =
+                       selector: DataSelector, event: int): DataFrame =
   ## Reads the event information of all septemboard events (all chips) for those that pass
   ## the cuts of the `selector` *on the center chip*.
   ##
   ## XXX: think about if there's desire (and if so how) to have the ability to apply cuts to
   ## the outer chips instead? I guess we could introduce something like a target chip, which
   ## would be the one to apply the cuts to.
-  let dfCenter = h5f.readEventsSparse(fileInfo, run, fileInfo.centerChip, selector, true, true)
+  let dfCenter = h5f.readEventsSparse(fileInfo, run, fileInfo.centerChip, selector, true, true, event)
   if dfCenter.len == 0: return newDataFrame() # return empty handed, no data found :(
-  let evSet = dfCenter["eventNumber", int].toSeq1D.toSet
+  let evSet = if event > 0: @[event].toSet # only read specified event
+              else: dfCenter["eventNumber", int].toSeq1D.toSet
+
   # empty selector to not cut anything for outer chips
   let sel = DataSelector(region: crAll)
   result = dfCenter
   for chip in 0 ..< fileInfo.chips.len:
     if chip == fileInfo.centerChip: continue
     # read and filter this DF down to the event set that we have from `dfCenter`
-    var df = h5f.readEventsSparse(fileInfo, run, chip, sel, true, true)
+    var df = h5f.readEventsSparse(fileInfo, run, chip, sel, true, true, event)
     if df.len == 0:
       continue # no data for this chip, skip
     else:
@@ -1405,7 +1411,8 @@ proc readSeptemEvents*(h5f: H5File, fileInfo: FileInfo, run: int,
     result.add df # now all data for the center events left
 
 proc readIngridForEventDisplay*(h5f: H5File, fileInfo: FileInfo, run, chip: int, #idx: int,
-                                selector: DataSelector): DataFrame =
+                                selector: DataSelector,
+                                event: int): DataFrame =
   ## helper proc to read data for given indices of events `idx` and
   ## builds a tensor of `idx.len` events.
   result = newDataFrame()
@@ -1420,51 +1427,62 @@ proc readIngridForEventDisplay*(h5f: H5File, fileInfo: FileInfo, run, chip: int,
     except KeyError:
       echo "Could not read dataset ", dset
       continue # drop this key
+  if event > 0: # have a specific event we want! Not efficient, but hopefully user won't use it for many events!
+    result = result.filter(f{`eventNumber` == event})
 
 proc createEventDisplayPlots(h5f: H5File,
                              run: int,
                              runType: RunTypeKind,
                              fileInfo: FileInfo,
                              config: Config,
-                             events: OrderedSet[int],
                              fullSeptemboard = false,
-                             useRealLayout = false
+                             useRealLayout = false,
+                             events: seq[int] = @[]
                             ): seq[PlotDescriptor] =
   let selector = initSelector(config)
   for ch in fileInfo.chips:
-    #for ev in events:
-    result.add PlotDescriptor(runType: runType,
-                              name: "EventDisplay",
-                              selector: selector,
-                              xlabel: "x",
-                              ylabel: "y",
-                              runs: @[run],
-                              chip: ch,
-                              isCenterChip: fileInfo.centerChip == ch,
-                              plotKind: pkInGridEvent,
-                              fullSeptemboard: fullSeptemboard,
-                              useRealLayout: useRealLayout)
-
-                              #event: ev)
+    var pd = PlotDescriptor(runType: runType,
+                            name: "EventDisplay",
+                            selector: selector,
+                            xlabel: "x",
+                            ylabel: "y",
+                            runs: @[run],
+                            chip: ch,
+                            isCenterChip: fileInfo.centerChip == ch,
+                            plotKind: pkInGridEvent,
+                            fullSeptemboard: fullSeptemboard,
+                            useRealLayout: useRealLayout,
+                            event: -1)
+    if events.len > 0:
+      for ev in events:
+        pd.event = ev
+        result.add pd
+    else:
+      result.add pd
 
 proc createFadcPlots(h5f: H5File,
                      run: int,
                      runType: RunTypeKind,
                      fileInfo: FileInfo,
                      config: Config,
-                     events: OrderedSet[int]): seq[PlotDescriptor] =
+                     events: seq[int]): seq[PlotDescriptor] =
   let selector = initSelector(config)
-  for ev in events:
-    result.add PlotDescriptor(runType: runType,
-                              name: "EventDisplay FADC",
-                              selector: selector,
-                              xlabel: "Clock cycles FADC",
-                              ylabel: "U / V",
-                              runs: @[run],
-                              chip: fileInfo.centerChip,
-                              isCenterChip: true,
-                              plotKind: pkFadcEvent,
-                              event: ev)
+  var pd = PlotDescriptor(runType: runType,
+                          name: "EventDisplay FADC",
+                          selector: selector,
+                          xlabel: "Clock cycles FADC",
+                          ylabel: "U / V",
+                          runs: @[run],
+                          chip: fileInfo.centerChip,
+                          isCenterChip: true,
+                          plotKind: pkFadcEvent,
+                          event: -1)
+  if events.len > 0:
+    for ev in events:
+      pd.event = ev
+      result.add pd
+  else:
+    result.add pd
 
 proc createOuterChipHistograms*(h5f: H5File,
                                runType: RunTypeKind,
@@ -1490,7 +1508,7 @@ proc createInGridFadcEvDisplay(h5f: H5File,
                                runType: RunTypeKind,
                                fileInfo: FileInfo,
                                config: Config,
-                               events: OrderedSet[int]): seq[PlotDescriptor] =
+                               events: seq[int]): seq[PlotDescriptor] =
   let selector = initSelector(config)
   var finfo = fileInfo
   finfo.chips = @[finfo.centerChip]
@@ -1499,9 +1517,10 @@ proc createInGridFadcEvDisplay(h5f: H5File,
   ## is a septemboard run! (which is always the case if asking for FADC data,
   ## as there no other detector and very likely never will be another with the FADC)
 
-  let ingridPds = createEventDisplayPlots(h5f, run, runType, fInfo, config, events,
+  let ingridPds = createEventDisplayPlots(h5f, run, runType, fInfo, config,
                                           fullSeptemboard = true,
-                                          useRealLayout = true)
+                                          useRealLayout = true,
+                                          events = events)
   let ingridDomain = (left: 0.0, bottom: 0.0, width: 0.45, height: 1.0)
   let fadcPds = createFadcPlots(h5f, run, runType, fInfo, config, events)
   let fadcDomain = (left: 0.525, bottom: 0.05, width: 0.575, height: 0.6)
@@ -2041,7 +2060,6 @@ proc handleToTPerPixel(h5f: H5File,
     for batch in 0 ..< (tots.len.float / batchSize).ceil.int:
       let lower = batch * batchSize
       let upper = min((batch + 1) * batchSize, tots.len)
-      echo "lower ", lower, " and higher ", upper, " and totslen ", tots.len
       var (h, b) = histogram(tots[lower ..< upper].mapIt(it.int),
                              bins = ((pd.binRange[1] - pd.binRange[0]) / pd.binSize).round.int,
                              range = (pd.binRange[0], pd.binRange[1]))
@@ -2071,38 +2089,14 @@ iterator ingridEventIter(h5f: H5File,
                          pd: PlotDescriptor,
                          config: Config): (string, int, PlotV) {.closure.} =
   ## The integer returned is the *event number* of the returned plot.
-  #var events {.global.}: seq[int]
-  # all PDs are guaranteed to be from  the same run!
-  let run = pd.runs[0] #pds[0].runs[0]
-  # TODO: check if all PDs necessarily have same chip. Will be the case for
-  # InGrid = FADC, but not necessarily only chip?
-  let chip = pd.chip #pds[0].chip
-
-  when false:
-    var lastRun {.global.} = 0
-    var evNums {.global.}: seq[int]
-    var evTab {.global.}: Table[int, int]
-    if run != lastRun:
-      evNums = h5f.read(fileInfo, run, "eventNumber", pd.selector, dtype = int,
-                        chipNumber = chip)
-      evTab = initTable[int, int]()
-      for i, ev in evNums:
-        evTab[i] = ev
-        events.add ev
-      lastRun = run
-
-    events.setLen(0)
-    for pd in pds:
-      events.add evTab[pd.event]
-
-    let ev = readEvent(h5f, run, chip, events, config)
-    for i, pd in pds:
-      discard
-  let events = if pd.fullSeptemboard: readSeptemEvents(h5f, fileInfo, run, pd.selector)
-               else: readEventsSparse(h5f, fileInfo, run, chip, pd.selector)
-  let dfDsets = readIngridForEventDisplay(h5f, fileInfo, run, chip, pd.selector)
+  let run = pd.runs[0]
+  let chip = pd.chip
+  let events = if pd.fullSeptemboard: readSeptemEvents(h5f, fileInfo, run, pd.selector, event = pd.event)
+               else: readEventsSparse(h5f, fileInfo, run, chip, pd.selector, event = pd.event)
+  let dfDsets = readIngridForEventDisplay(h5f, fileInfo, run, chip, pd.selector, event = pd.event)
 
   ## XXX: MAKE USED LAYOUT (MARGIN) AND ANNOTATION PLACEMENT DEPENDENT ON SEPTEMBOARD LAYOUT USAGE!
+  if events.len == 0: return # nothing to yield for this run!
   for (tup, subDf) in groups(group_by(events, "eventNumber")):
     ## NOTE: because of septemboard events we use the real event number. For events with
     ## multiple clusters we print the properties of the cluster with the lowest lnL value.
@@ -2186,17 +2180,14 @@ iterator fadcEventIter(h5f: H5File,
   # all PDs are guaranteed to be from  the same run!
   let run = pd.runs[0] #pds[0].runs[0]
 
-  var lastRun = 0
   var evNums: seq[int]
   var evTab: Table[int, int]
-  #if run != lastRun:
   evNums = h5f.read(fileInfo, run, "eventNumber", pd.selector, dtype = int,
                     isFadc = true)
 
   evTab = initTable[int, int]()
   for i, ev in evNums:
     evTab[ev] = i
-  lastRun = run
 
   if evTab.len == 0: return # the regular code path if there is FADC data in this file
   let
@@ -2659,7 +2650,8 @@ proc eventDisplay(h5file: string,
     if septemboard:
       pds.add createIngridFadcEvDisplay(h5f, r, runType, fInfoConfig, config, events)
     else:
-      pds.add createEventDisplayPlots(h5f, r, runType, fInfoConfig, config, events, fullSeptemboard = false)
+      pds.add createEventDisplayPlots(h5f, r, runType, fInfoConfig, config,
+                                      fullSeptemboard = false, events = events)
 
   if cfProvideServer in config.flags:
     serve(h5f, fileInfo, pds, config)

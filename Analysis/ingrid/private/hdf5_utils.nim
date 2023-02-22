@@ -744,6 +744,10 @@ proc dataBase*(fileInfo: FileInfo): string =
   of tpkTpx3Raw:
     doAssert false, "Invalid file kind to plot data from! " & $tpkTpx3Raw
 
+proc fadcDataPath*(fileInfo: FileInfo, run: int): grp_str =
+  ## Returns the path to the FADC data based on the `FileInfo` for a given run.
+  result = (fileInfo.dataBase() & $run / "fadc").grp_str
+
 proc getFileInfo*(h5f: H5File): FileInfo =
   ## returns a set of all run numbers in the given file
   # 1. determine the `TpaFileKind` (determines `baseGroup`)

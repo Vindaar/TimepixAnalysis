@@ -2197,18 +2197,23 @@ iterator fadcEventIter(h5f: H5File,
   for i, ev in evNums:
     evTab[ev] = i
   lastRun = run
-  #events.setLen(0)
-  #for pd in pds:
-  #  events.add evTab[pd.event]
 
+  if evTab.len == 0: return # the regular code path if there is FADC data in this file
   let
-    dset = h5f[(fadcRecoPath(run) / "fadc_data").dset_str]
+    dset = h5f[(fileInfo.fadcDataPath(run).string / "fadc_data").dset_str]
     fadc = dset[float64] #dset.read_hyperslab(float64, @[events[0], 0], @[events.len, 2560])
     fShape = [fadc.len div 2560, 2560]
     fTensor = fadc.toTensor.reshape(fShape)
 
   while evTab.len > 0:
+    let title = buildTitle(pd)
+    var outfile = buildOutfile(pd, fileDir, fileType)
     var texts: seq[string]
+
+    if pd.event notin evTab:
+      let pltV = initPlotV("No FADC event", "FADC", "V")
+      yield (outfile, pltV)
+      continue
     let idx = evTab[pd.event]
     for d in AllFadcDsets:
       let val = h5f.read(fileInfo, run, d, pd.selector, isFadc = true,
@@ -2217,8 +2222,6 @@ iterator fadcEventIter(h5f: H5File,
       texts.add s
 
     let xFadc = toSeq(0 ..< 2560).mapIt(it.float)
-    let title = buildTitle(pd)
-    var outfile = buildOutfile(pd, fileDir, fileType)
     let yFadc = fTensor[idx,_].squeeze.clone.toRawSeq
     var pltV = plotScatter(xFadc, yFadc, title, title, outfile)
     case BKind

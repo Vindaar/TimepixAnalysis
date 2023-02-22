@@ -2614,25 +2614,22 @@ proc serve(h5f: H5File,
     stopChannel.send(true)
 
 proc eventDisplay(h5file: string,
-                  runOpt: Option[int],
                   septemboard: bool,
                   runType: RunTypeKind,
                   bKind: PlottingBackendKind,
-                  config: Config): string =
+                  config: Config,
+                  events: seq[int] = @[]
+                 ): string =
   ## use as event display tool
   var h5f = H5open(h5file, "r")
   let fileInfo = getFileInfo(h5f)
   let fInfoConfig = fileInfo.appliedConfig(config)
-  let events = toOrderedSet(toSeq(0 .. 50))#initOrderedSet[int]())
-  ## XXX: events irrelevant
-  let run = runOpt.get
   var pds: seq[PlotDescriptor]
-  for r in fileInfo.runs:
-    if (run > 0 and r == run) or run < 0:
-      if septemboard:
-        pds.add createIngridFadcEvDisplay(h5f, r, runType, fInfoConfig, config, events)
-      else:
-        pds.add createEventDisplayPlots(h5f, r, runType, fInfoConfig, config, events, fullSeptemboard = false)
+  for r in fInfoConfig.runs:
+    if septemboard:
+      pds.add createIngridFadcEvDisplay(h5f, r, runType, fInfoConfig, config, events)
+    else:
+      pds.add createEventDisplayPlots(h5f, r, runType, fInfoConfig, config, events, fullSeptemboard = false)
 
   if cfProvideServer in config.flags:
     serve(h5f, fileInfo, pds, config)
@@ -2756,16 +2753,17 @@ proc handlePlotTypes(h5file: string,
                      bKind: PlottingBackendKind,
                      runType: RunTypeKind,
                      config: Config,
-                     evDisplayRun = none[int](),
-                     septemboard = false
+                     eventDisplay = false,
+                     septemboard = false,
+                     events: seq[int] = @[]
                     ) =
   ## handles dispatch of the correct data type / kind / mode to be plotted
   ## calibration, X-ray, background, event display...
   ## If not run in server mode, launch staticDisplay with output JSON file
   ## TODO: what happens for SVG? Need to check too.
   var outfile = ""
-  if evDisplayRun.isSome():
-    outfile = eventDisplay(h5file, evDisplayRun, septemboard, runType, BKind, config)
+  if eventDisplay:
+    outfile = eventDisplay(h5file, septemboard, runType, BKind, config, events)
   else:
     case runType
     of rtCalibration:
@@ -3034,7 +3032,7 @@ proc plotData*(
   h5file: string,
   runType: RunTypeKind,
   backend: PlottingBackendKind = bGgPlot,
-  eventDisplay: int = int.high,
+  eventDisplay: bool = false,
   septemboard: bool = false,
   h5Compare: seq[string] = @[], # additional files to compare against
   compareRunTypes: seq[RunTypeKind] = @[],
@@ -3057,7 +3055,8 @@ proc plotData*(
   z: string = "",
   cdlDset: float = -1.0,
   compareDensity: bool = false,
-  separateRuns: bool = false
+  separateRuns: bool = false,
+  events: seq[int] = @[]
               ) =
   ## the main workhorse of the server end
   if version:
@@ -3120,13 +3119,12 @@ proc plotData*(
     # create and run the websocket server
     thr.createThread(serve)
 
-  var evDisplayRun: Option[int] = none[int]()
   BKind = backend
-  if eventDisplay != int.high:
-    evDisplayRun = some(eventDisplay)
-
   if h5Compare.len == 0:
-    handlePlotTypes(h5file, backend, runType, cfg, evDisplayRun = evDisplayRun, septemboard = septemboard)
+    handlePlotTypes(h5file, backend, runType, cfg,
+                    eventDisplay = eventDisplay,
+                    septemboard = septemboard,
+                    events = events)
   else:
     createComparePlots(h5file, h5Compare, backend, runType, compareRunTypes, cfg)
 
@@ -3191,6 +3189,8 @@ when isMainModule:
 run number is given, will generate events for all runs in the file.""",
     "septemboard" : """If given in addition to `eventDisplay` it will present full septemboard
 events including the FADC events side by side""",
+    "events" : """A seq of event numbers for which to generate event displays. *Only* those events will be
+generated!""",
 
     "h5Compare" : "If any given, all plots will compare with same data from these files.",
     "server" : """If flag given, will launch client and send plots individually,

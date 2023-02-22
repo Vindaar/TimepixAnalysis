@@ -29,9 +29,14 @@ proc cutOnProperties*(h5f: H5File,
   var dfFadc = newDataFrame()
   for c in cuts:
     if c.isFadc:
-      if dfFadc.len == 0:
-        dfFadc = toDf({"eventNumber" : h5f.readAs(group.name.parentDir / "fadc/eventNumber", int)})
-      dfFadc[c.dset] = h5f.readAs(group.name.parentDir / c.dset, float)
+      let fadcGrp = group.name.parentDir / "fadc"
+      if fadcGrp in h5f:
+        if dfFadc.len == 0:
+          dfFadc = toDf({"eventNumber" : h5f.readAs(fadcGrp / "eventNumber", int)})
+        dfFadc[c.dset] = h5f.readAs(group.name.parentDir / c.dset, float)
+      else:
+        # if we _have_ an FADC group, but no FADC data, return empty seq as we filter _everything_
+        return @[]
     else:
       dfChip[c.dset] = h5f.readAs(group.name / c.dset, float)
 

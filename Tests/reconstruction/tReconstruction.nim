@@ -41,7 +41,7 @@ const DatasetSet = ["skewnessTransverse",
 const ChipGroupsSet = (toSeq(0 .. 6).mapIt("chip_" & $it)).toHashSet
 const RunGroupsSet = toHashSet(["run_240", "run_241"])
 const FadcDatasetSet = toHashSet(["fadc_data",
-                                  "minvals",
+                                  "minVal",
                                   "noisy",
                                   "eventNumber"])
 

@@ -36,7 +36,7 @@ proc readAndCalc(f: string, window, order: int): tuple[event: DataFrame, all: Da
   # now read all aux data
   result.all = toDf({ "fallTime" : h5f.readAs(fallTimeBasename(run), int),
                       "riseTime" : h5f.readAs(riseTimeBasename(run), int),
-                      "minvals" : h5f[minvalsBasename(run), float] })
+                      "minVal" : h5f[minValBasename(run), float] })
   doAssert h5f.close() >= 0
 
 proc main(files: seq[string], window = 15, order = 4) =
@@ -52,8 +52,8 @@ proc main(files: seq[string], window = 15, order = 4) =
   echo df
   echo dfO
 
-  dfO = dfO.filter(f{float -> bool: abs(`minvals`) < 10.0})
-    .gather(["fallTime", "riseTime", "minvals"], "key", "value")
+  dfO = dfO.filter(f{float -> bool: abs(`minVal`) < 10.0})
+    .gather(["fallTime", "riseTime", "minVal"], "key", "value")
   for (tup, subDf) in groups(dfO.group_by("key")):
     ggplot(subDf, aes("value", fill = "File")) +
       facet_wrap("key", scales = "free") +

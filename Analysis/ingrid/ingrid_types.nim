@@ -650,6 +650,8 @@ when not defined(pure) and not defined(js):
       riseTime*: Tensor[uint16]
       fallTime*: Tensor[uint16]
       skewness*: Tensor[float] # the skewness of the full FADC event, useful to detect noise events
+      noisy*: Tensor[int]      # flag which says whether event was noisy
+      minVal*: Tensor[float]  # minimum values of events (voltage of dips)
 
     ## This object stores the FADC data of a (possibly partial) run. That means
     ## each field contains N (= number of FADC events in a run) or a subset of
@@ -670,10 +672,6 @@ when not defined(pure) and not defined(js):
       eventNumber*: seq[int]
       # processed and converted FADC data
       fadcData*: Tensor[float]
-      # flag which says whether event was noisy
-      noisy*: seq[int]
-      # minimum values of events (voltage of dips)
-      minVals*: seq[float]
 
     CutValueInterpolator* = object
       case kind*: MorphingKind

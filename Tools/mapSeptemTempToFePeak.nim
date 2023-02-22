@@ -34,7 +34,7 @@ proc readFePeaks(files: seq[string], feKind: FeFileKind = fePixel): DataFrame =
     dset = "FeSpectrumCharge"
   of feFadc:
     kalphaIdx = kalphaCharge
-    dset = "FeSpectrumFadcPlot" # raw dataset is `minvals` instead of `FeSpectrumFadc`
+    dset = "FeSpectrumFadcPlot" # raw dataset is `minVal` instead of `FeSpectrumFadc`
 
   var h5files = files.mapIt(H5open(it, "r"))
   var fileInfos = newSeq[FileInfo]()

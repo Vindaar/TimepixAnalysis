@@ -330,8 +330,6 @@ proc writeFadcReco*(h5f: H5File, runNumber: int, fadc: ReconstructedFadcRun,
   var
     dset        = h5f[fadcDataBasename(runNumber).dset_str]
     eventNumber = h5f[eventNumberBasenameReco(runNumber).dset_str]
-    noisy       = h5f[noiseBasename(runNumber).dset_str]
-    minVals     = h5f[minValsBasename(runNumber).dset_str]
     pedestal    = h5f[pedestalBasename(runNumber).dset_str]
   # now write the data
   let t0 = epochTime()
@@ -342,11 +340,6 @@ proc writeFadcReco*(h5f: H5File, runNumber: int, fadc: ReconstructedFadcRun,
   dset.unsafeWrite(cast[ptr uint16](fadc.fadcData.unsafe_raw_offset()), dataSize)
   eventNumber.resize((nEvents,))
   eventNumber.unsafeWrite(cast[ptr int](fadc.eventNumber[0].unsafeAddr), nEvents)
-  noisy.resize((nEvents,))
-  noisy.unsafeWrite(cast[ptr int](fadc.noisy[0].unsafeAddr), nEvents)
-  minVals.resize((nEvents,))
-  minVals.unsafeWrite(cast[ptr float](fadc.minVals[0].unsafeAddr), nEvents)
-
   # no need to resize pedestal. Pre set to 2560·4
   pedestal.unsafeWrite(pedestalRun.toUnsafeView(), all_ch_len())
   info "Writing of FADC data took $# seconds" % $(epochTime() - t0)
@@ -522,10 +515,6 @@ proc initRecoFadcInH5(h5f, h5fout: H5File, runNumber, batchsize: int) =
     fadc_dset        = h5fout.datasetCreation(fadcDataBasename(runNumber), (0, ch_len), float)
     # dataset of eventNumber
     eventNumber_dset = h5fout.datasetCreation(eventNumberBasenameReco(runNumber), 0, int)
-    # dataset stores flag whether FADC event was a noisyo one (using our algorithm)
-    noisy_dset       = h5fout.datasetCreation(noiseBasename(runNumber), 0, int)
-    # dataset stores minima of each FADC event, dip voltage
-    minVals_dset     = h5fout.datasetCreation(minValsBasename(runNumber), 0, float)
     # pedestal dataset is simply 2560 * 4 elements large
     pedestal_dset    = h5fout.datasetCreation(pedestalBasename(runNumber), all_ch_len, float)
 
@@ -614,22 +603,14 @@ proc reconstructFadcData(h5f, h5fout: H5File, runNumber: int) =
     fadc_ch0_indices = getCh0Indices()
     # compute pedestal run from the data
     pedestal_run = getPedestalRun(fadcRun)
-    # we demand at least 4 dips, before we can consider an event as noisy
-    n_dips = 4
-    # the percentile considered for the calculation of the minimum
-    min_percentile = 0.95
 
   let numFiles = fadcRun.eventNumber.len
   doAssert numFiles > 0, "Input does not contain any FADC data for run " & $runNumber
   var fData = ReconstructedFadcRun(
     fadc_data: newTensorUninit[float]([numFiles, ch_len()]),
-    eventNumber: fadcRun.eventNumber,
-    noisy: newSeq[int](numFiles),
-    minVals: newSeq[float](numFiles)
+    eventNumber: fadcRun.eventNumber
   )
   let
-    noisyBuf = cast[ptr UncheckedArray[int]](fData.noisy[0].addr)
-    minValsBuf = cast[ptr UncheckedArray[float]](fData.minVals[0].addr)
     dataBuf = fadcRun.rawFadcData.toUnsafeView()
     pedestalBuf = pedestal_run.toUnsafeView()
     outBuf = fData.fadc_data.toUnsafeView()
@@ -642,8 +623,8 @@ proc reconstructFadcData(h5f, h5fout: H5File, runNumber: int) =
   ## hand full seqs if only for read only!
   ## -> or maybe not, because above still crashes randomly
   parallelFor i in 0 ..< numFiles:
-    captures: {numFiles, noisyBuf, minValsBuf, dataBuf, pedestalBuf, outBuf,
-                n_dips, min_percentile, trigRecBuf, postTrig, bitMode14, idxBuf}
+    captures: {numFiles, dataBuf, pedestalBuf, outBuf, trigRecBuf,
+                postTrig, bitMode14, idxBuf}
     let dataT = dataBuf.fromBuffer([numFiles, all_ch_len()])
     let data = fadcFileToFadcData(
       dataT[i, _].squeeze,
@@ -653,8 +634,6 @@ proc reconstructFadcData(h5f, h5fout: H5File, runNumber: int) =
     ).data
     var fadcData = outBuf.fromBuffer([numFiles, ch_len()])
     fadcData[i, _] = data.unsqueeze(axis = 0)
-    noisyBuf[i]    = data.isFadcFileNoisy(n_dips)
-    minValsBuf[i]  = data.calcMinOfPulse(min_percentile)
   syncRoot(Weave)
   exit(Weave)
   # write the data to the output

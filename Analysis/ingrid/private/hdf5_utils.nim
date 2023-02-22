@@ -435,8 +435,8 @@ template trigRecBasename*(runNumber: int): string =
 template noiseBasename*(runNumber: int): string =
   fadcRecoPath(runNumber) / "noisy"
 
-template minvalsBasename*(runNumber: int): string =
-  fadcRecoPath(runNumber) / "minvals"
+template minValBasename*(runNumber: int): string =
+  fadcRecoPath(runNumber) / "minVal"
 
 template pedestalBasename*(runNumber: int): string =
   fadcRecoPath(runNumber) / "pedestalRun"
@@ -828,8 +828,8 @@ proc getExtendedRunInfo*(h5f: H5File, runNumber: int,
     evDuration = h5f[grp.name / "eventDuration", float64]
     nEvents = h5f[(grp.name / "eventNumber").dset_str].shape[0]
   var nFadcEvents = 0
-  if minvalsBasename(runNumber) in h5f:
-    nFadcEvents = h5f[minvalsBasename(runNumber).dset_str].shape[0]
+  if minValBasename(runNumber) in h5f:
+    nFadcEvents = h5f[minValBasename(runNumber).dset_str].shape[0]
 
   result.activeTime = initDuration(seconds = evDuration.foldl(a + b).round.int)
   result.nEvents = nEvents
@@ -906,9 +906,7 @@ proc readRecoFadcRun*(h5f: H5File, runNumber: int): ReconstructedFadcRun =
   let group = h5f[fadcGroup.grp_str]
   result = ReconstructedFadcRun(
     eventNumber: h5f[group.name / "eventNumber", int],
-    fadcData: h5f.read(fadcDataBasename(runNumber), float),
-    noisy: h5f[noiseBasename(runNumber), int],
-    minVals: h5f[minvalsBasename(runNumber), float]
+    fadcData: h5f.read(fadcDataBasename(runNumber), float)
   )
 
 proc genPlotDirname*(h5f: H5File, outpath: string, attrName: string): string =

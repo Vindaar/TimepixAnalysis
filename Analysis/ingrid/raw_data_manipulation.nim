@@ -372,8 +372,7 @@ proc processRawInGridData(run: Run, totCut: TotCut): ProcessedRun =
 
 proc processFadcData(fadcFiles: seq[FadcFile]): ProcessedFadcRun {.inline.} =
   ## proc which performs all processing needed to be done on the raw FADC
-  ## data. Starting from conversion of FadcFiles -> FadcData, but includes
-  ## calculation of minimum and check for noisy events
+  ## data. Starting from conversion of FadcFiles -> FadcData
   # sequence to store the indices needed to extract the 0 channel
   let nEvents = fadcFiles.len
   result.raw_fadc_data = newTensorUninit[uint16]([nEvents, all_ch_len()])
@@ -419,10 +418,6 @@ proc initFadcInH5(h5f: var H5File, runNumber, batchsize: int, filename: string) 
     trigrec_dset     = h5f.datasetCreation(trigrecBasename(runNumber), 0, int)
     # dataset of eventNumber
     eventNumber_dset = h5f.datasetCreation(eventNumberBasenameRaw(runNumber), 0, int)
-    # dataset stores flag whether FADC event was a noisyo one (using our algorithm)
-    #noisy_dset       = h5f.datasetCreation(noiseBasename(runNumber), (0, 1), int)
-    # dataset stores minima of each FADC event, dip voltage
-    #minVals_dset     = h5f.datasetCreation(minValsBasename(runNumber), (0, 1), float)
 
   # write attributes to FADC groups
   # read the given FADC file and extract that information from it

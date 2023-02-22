@@ -519,11 +519,19 @@ proc readFull*(h5f: H5File,
   var dset: H5DataSet
   var selector = selector
   if isFadc:
-    dset = h5f[(fadcRecoPath(runNumber) / dsetName).dset_str]
+    let evNumDset = fileInfo.fadcDataPath(runNumber).string / dsetName
+    if evNumDset in h5f:
+      dset = h5f[(fileInfo.fadcDataPath(runNumber).string / dsetName).dset_str]
+    else:
+      return # early, no such dataset. can happen e.g. if no FADC data in run
     # reset selector, we don't want cuts for FADC data
     selector = DataSelector(region: crAll, isFadc: true)
   else:
-    dset = h5f[(fileInfo.dataPath(runNumber, chipNumber).string / dsetName).dset_str]
+    let evNumDset = fileInfo.dataPath(runNumber, chipNumber).string / dsetName
+    if evNumDset in h5f:
+      dset = h5f[(fileInfo.dataPath(runNumber, chipNumber).string / dsetName).dset_str]
+    else:
+      return # early, there is no such dataset! Can happen e.g. in likelihood output
 
   ## XXX: Better handle FADC by working fully on DFs. So use our reading proc that reads
   ## chip & fadc data together and apply cuts on those
@@ -576,13 +584,17 @@ proc readVlen(h5f: H5File,
   ## reads variable length data `dsetName` and returns it
   ## In contrast to `read` this proc does *not* convert the data.
   let vlenDtype = special_type(dtype)
-  let dset = h5f[(fileInfo.dataPath(runNumber, chipNumber).string / dsetName).dset_str]
-  let idx = h5f.applyCuts(selector, dset, idx)
-  if not selector.hasCuts(h5f.name.extractFilename, dset):
-    result = dset[vlenDType, dtype]
-  elif idx.len > 0:
-    result = dset[vlenDtype, dtype, idx]
-  # else nothing to read, remain empty
+  let name = fileInfo.dataPath(runNumber, chipNumber).string / dsetName
+  if name in h5f:
+    let dset = h5f[name.dset_str]
+    let idx = h5f.applyCuts(selector, dset, idx)
+    if not selector.hasCuts(h5f.name.extractFilename, dset):
+      result = dset[vlenDType, dtype]
+    elif idx.len > 0:
+      result = dset[vlenDtype, dtype, idx]
+    # else nothing to read, remain empty
+  else:
+    return # early, no such data
 
 template applyFilter(theSet, fileInfo, field: untyped): untyped =
   if theSet.card > 0:
@@ -1374,6 +1386,7 @@ proc readSeptemEvents*(h5f: H5File, fileInfo: FileInfo, run: int,
   ## the outer chips instead? I guess we could introduce something like a target chip, which
   ## would be the one to apply the cuts to.
   let dfCenter = h5f.readEventsSparse(fileInfo, run, fileInfo.centerChip, selector, true, true)
+  if dfCenter.len == 0: return newDataFrame() # return empty handed, no data found :(
   let evSet = dfCenter["eventNumber", int].toSeq1D.toSet
   # empty selector to not cut anything for outer chips
   let sel = DataSelector(region: crAll)
@@ -1381,8 +1394,11 @@ proc readSeptemEvents*(h5f: H5File, fileInfo: FileInfo, run: int,
   for chip in 0 ..< fileInfo.chips.len:
     if chip == fileInfo.centerChip: continue
     # read and filter this DF down to the event set that we have from `dfCenter`
-    let df = h5f.readEventsSparse(fileInfo, run, chip, sel, true, true)
-      .filter(f{int: `eventNumber` in evSet})
+    var df = h5f.readEventsSparse(fileInfo, run, chip, sel, true, true)
+    if df.len == 0:
+      continue # no data for this chip, skip
+    else:
+      df = df.filter(f{int: `eventNumber` in evSet})
     result.add df # now all data for the center events left
 
 proc readIngridForEventDisplay*(h5f: H5File, fileInfo: FileInfo, run, chip: int, #idx: int,

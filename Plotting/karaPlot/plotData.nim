@@ -1353,10 +1353,15 @@ proc readEventsSparse*(h5f: H5File, fileInfo: FileInfo, run, chip: int, #idx: in
   for i in 0 ..< x.len:
     let evIdx = if eventIdxs.len > 0: eventIdxs[i] else: i
     ## XXX: if real layout septemboard events, transform using septemToReal ?
-    let dfLoc = toDf({ "x" : x[i].mapIt(it.int), "y" : y[i].mapIt(it.int), "ch" : ch[i].mapIt(it.int),
+    var dfLoc = toDf({ "x" : x[i].mapIt(it.int), "y" : y[i].mapIt(it.int), "ch" : ch[i].mapIt(it.int),
                        "Index" : evIdx, "eventNumber" : events[i] })
-      .mutate(f{int: "x" ~ chpPixToRealPix(`x`, true, chip)},
-              f{int: "y" ~ chpPixToRealPix(`y`, false, chip)})
+    if fullSeptemboard and useRealLayout:
+      dfLoc = dfLoc.mutate(f{int: "x" ~ chpPixToRealPix(`x`, true, chip)},
+                           f{int: "y" ~ chpPixToRealPix(`y`, false, chip)})
+    elif fullSeptemboard:
+      dfLoc = dfLoc.mutate(f{int: "x" ~ chpPixToSeptemPix(`x`, true, chip)},
+                           f{int: "y" ~ chpPixToSeptemPix(`y`, false, chip)})
+    # else do nothing
     dfs.add dfLoc
   result = assignStack(dfs)
 

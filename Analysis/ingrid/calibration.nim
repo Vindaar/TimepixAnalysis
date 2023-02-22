@@ -879,10 +879,10 @@ proc fitToFeSpectrum*(h5f: H5File, runNumber, chipNumber: int,
     ## Also fit the 55Fe spectrum in the FADC data
     ## XXX: in the future `minvals` may be replaced by a "charge" equivalent based on
     ## an integral of the signal!
-    var minValsDset = h5f[minvalsBasename(runNumber).dset_str]
-    let minVals = minvalsDset[float64]
+    var minValDset = h5f[minValBasename(runNumber).dset_str]
+    let minVal = minValDset[float64]
     info "Fit FADC spectrum of run: " & $runNumber
-    let feSpecFadc = fitFeSpectrumFadc(minVals)
+    let feSpecFadc = fitFeSpectrumFadc(minVal)
     info "Fit FADC energy calibration of run: " & $runNumber
     let ecDataFadc = fitEnergyCalib(feSpecFadc, isPixel = false)
     let textsFadc = buildTextForFeSpec(feSpecFadc, ecDataFadc, isPixel = false, isFadc = true)
@@ -894,7 +894,7 @@ proc fitToFeSpectrum*(h5f: H5File, runNumber, chipNumber: int,
     plotFeEnergyCalib(ecDataFadc, runNumber, isPixel = false, isFadc = true,
                       pathPrefix = plotPath)
     if writeToFile:
-      h5f.extractAndWriteAttrs(minvalsDset,
+      h5f.extractAndWriteAttrs(minValDset,
                                1e3, ## XXX: fix this number!
                                feSpecFadc,
                                ecDataFadc,

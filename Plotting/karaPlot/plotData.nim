@@ -3145,7 +3145,7 @@ when isMainModule:
     try:
       let dset = vals[0].strip(chars = {'"'})
       dst = GenericCut(dset: dset,
-                       isFadc: "fadc" in dset,
+                       isFadc: "fadc/" in dset,
                        inverted: inverted,
                        applyDset: @[dset], ## XXX: set this?
                        min: parseFloat(vals[1].strip),

@@ -52,9 +52,9 @@ const
                  "rmsLongitudinal", "rmsTransverse", "hits", "energyFromPixel",
                  "energyFromCharge", "likelihood", "centerX", "centerY"]
   ToADsets = ["toaLength", "toaRms", "toaMean", "toaMin", "toaSkewness", "toaKurtosis"]
-  FadcDsets = ["minvals", "fallTime", "riseTime"]
+  FadcDsets = ["minVal", "fallTime", "riseTime"]
   AllFadcDsets = ["argMinval", "baseline", "eventNumber", "fallStop", "fallTime",
-                  "minvals", "noisy", "riseStart", "riseTime", "skewness"]
+                  "minVal", "noisy", "riseStart", "riseTime", "skewness"]
 
 type
   ShapeKind = enum
@@ -974,6 +974,48 @@ proc plotScatter(pltV: var PlotV, x, y: seq[float], name, outfile: string,
         pltV.theme # just add the theme directly
   else:
     warn &"Unsupported backend kind: {BKind}"
+
+proc plotFadcEvent(df, dfProps: DataFrame, title, name, outfile: string): PlotV =
+  result = initPlotV(title, "FADC register", "U [V]", ShapeKind.Rectangle)
+  case BKind # for plotly, mpl backends treat as line plot
+  of bPlotly:
+    # in this case plot is defined
+    let (x, y) = (df["x", float].toSeq1D, df["y", float].toSeq1D)
+    let trFit = Trace[float](`type`: PlotType.Scatter,
+                             xs: x,
+                             ys: y,
+                             name: name)
+    result.plPlot.traces.add @[trFit]
+  of bMpl:
+    # in this case `ax` is defined
+    let (x, y) = (df["x", float].toSeq1D, df["y", float].toSeq1D)
+    discard result.ax.plot(x,
+                           y,
+                           label = name,
+                           color = "r")
+  of bGgPlot:
+    result.pltGg = ggplot(df, aes("x", "y"), backend = bkCairo) +
+      geom_line() +
+      geom_point(color = color(0.1, 0.1, 0.1, 0.1)) +
+      geom_line(data = dfProps, aes = aes("x", "baseline"),
+                       color = "blue") +
+      geom_line(data = dfProps, aes = aes("argMinval", "y"),
+                       color = "red") +
+      geom_line(data = dfProps, aes = aes("riseStart", "y"),
+                       color = "green") +
+      geom_line(data = dfProps, aes = aes("riseStop", "y"),
+                       color = "green", lineType = ltDashed) +
+      geom_line(data = dfProps, aes = aes("fallStop", "y"),
+                       color = "pink") +
+      geom_line(data = dfProps, aes = aes("fallStart", "y"),
+                       color = "pink", lineType = ltDashed) +
+      geom_line(data = dfProps, aes = aes("minEdges", y = "minVal"),
+                       color = "purple") +
+      margin(top = 2) +
+      result.theme # just add the theme directly
+  else:
+    warn &"Unsupported backend kind: {BKind}"
+
 
 proc plotCustomScatter(x, y: seq[float],
                        pd: PlotDescriptor,
@@ -2206,15 +2248,32 @@ iterator fadcEventIter(h5f: H5File,
       yield (outfile, pltV)
       continue
     let idx = evTab[pd.event]
+    var dfProps = newDataFrame()
     for d in AllFadcDsets:
       let val = h5f.read(fileInfo, run, d, pd.selector, isFadc = true,
                          dtype = float, idx = @[idx])[0]
       let s = &"{d:15}: {val:6.4f}"
       texts.add s
+      dfProps[d] = @[val, val]
 
-    let xFadc = toSeq(0 ..< 2560).mapIt(it.float)
-    let yFadc = fTensor[idx,_].squeeze.clone.toRawSeq
-    var pltV = plotScatter(xFadc, yFadc, title, title, outfile)
+    proc addAdditionalFields(df: var DataFrame, minVal: float) =
+      let baseline = df["baseline", float][0]
+      let riseStart = df["riseStart", float][0]
+      let riseTime = df["riseTime", float][0]
+      let fallStop = df["fallStop", float][0]
+      let fallTime = df["fallTime", float][0]
+      df["x"] = @[0, 2560]
+      df["y"] = @[baseline, minVal]
+      df["riseStop"] = @[riseStart + riseTime, riseStart + riseTime]
+      df["fallStart"] = @[fallStop - fallTime, fallStop - fallTime]
+      df["minEdges"] = @[riseStart + riseTime, fallStop - fallTime]
+    let xFadc = toSeq(0 ..< 2560)
+    let yFadc = fTensor[idx,_].squeeze
+    dfProps.addAdditionalFields(yFadc.min)
+
+    let dfFadc = toDf({"x" : xFadc, "y" : yFadc})
+    var pltV = plotFadcEvent(dfFadc, dfProps, title, title, outfile)
+
     case BKind
     of bPlotly:
       pltV.plPlot = pltV.plPlot.mode(PlotMode.Lines).lineWidth(1)

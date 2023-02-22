@@ -1050,8 +1050,10 @@ proc makeSubplot(pd: PlotDescriptor, plts: seq[PlotV],
     let numPlots = plts.len
     doAssert numPlots == 2
     img.layout(numPlots, rows = 1, colWidths = @[quant(0.6, ukRelative), quant(0.4, ukRelative)])
-    img.embedAsRelative(0, ggcreate(plts[0].pltGg).view)
-    img.embedAsRelative(1, ggcreate(plts[1].pltGg).view)
+    if plts[0].pltGg.geoms.len > 0: # only add them if they have data!
+      img.embedAsRelative(0, ggcreate(plts[0].pltGg).view)
+    if plts[1].pltGg.geoms.len > 0:
+      img.embedAsRelative(1, ggcreate(plts[1].pltGg).view)
 
     var area = img.addViewport()
     ## XXX: if we use subplots for more in future, adapt
@@ -2334,6 +2336,7 @@ proc handleIngridFadcEvents(h5f: H5File,
   pd.name = $0
   var fadcIter = fadcEventIter
   let outdir = buildOutfile(pd, fileDir, fileType).parentDir
+  var dummyFadcPlt = initPlotV("No FADC event", "FADC", "U")
   createDir(outdir)
   for outfile, eventNumber, pltV in ingridEventIter(h5f, fileInfo, iPd, config):
     # given event number, create the FADC plot. Overwrite its event number to get the correct plot
@@ -2348,7 +2351,9 @@ proc handleIngridFadcEvents(h5f: H5File,
     echo pltV.kind, " and ", pltFadc.kind, "\n\n"
 
     try:
-      result[1] = makeSubplot(pd, @[pltV, pltFadc], result[0])
+      let plts = if pltFadc.kind != bNone: @[pltV, pltFadc]
+                 else: @[pltV, dummyFadcPlt]
+      result[1] = makeSubplot(pd, plts, result[0])
     except Exception as e:
       echo "Failed to generate plot with error ", e.msg
       continue

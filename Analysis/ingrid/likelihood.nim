@@ -194,14 +194,46 @@ proc writeLikelihoodData(h5f: var H5File,
           outDset[outDset.all] = data
 
   # get all event numbers from hash set by using elements as indices for event numbers
-  let evNumsPassed = mapIt(passedInds, evNumbers[it]).sorted do (x, y: int64) -> int:
-    result = cmp(x, y)
+  let evNumsPassed = mapIt(passedInds, evNumbers[it]).sorted
   # create dataset for allowed indices
   var evDset = h5fout.create_dataset((logLgroup / "eventNumber"),
                                      evNumsPassed.len,
                                      int)
   # write event numbers
   evDset[evDset.all] = evNumsPassed
+
+  # now write the regular datasets, need to match up the event numbers!
+  if chipNumber == 3: # centerChip # XXX: DO THIS
+    let passedEvSet = evNumsPassed.toSet
+    proc copyOver(h5f, h5fout: H5File, grp: H5Group, baseName: string) =
+      let grpEvNums = h5f[grp.name / "eventNumber", int]
+      # get the indices matching the event numbers that passed on center chip!
+      let grpIdxs = toSeq(0 ..< grpEvNums.len).filterIt(grpEvNums[it] in passedEvSet)
+      for dataset in items(grp): # copy one level (nested is not copied)
+        echo "Copying dataset ", dataset
+        withDset(dataset): # reads full dataset into injected `dset` variable
+          var data: Tensor[elementType(dset)]
+          type T = elementType(dset)
+          when T is SomeNumber: # do not want bool, char, string etc! Also because they break `arraymancer`...
+            if dataset.shape.len == 1:
+              data = newTensor[T]([grpIdxs.len])  #newSeqOfCap[elementType(dset)](passedInds.card)
+              for i, idx in grpIdxs:
+                data[i] = dset[idx]
+            else:
+              doAssert dataset.shape.len == 2, "Datasets with shape " & $dataset.shape & " not yet supported!"
+              data = newTensor[T]([grpIdxs.len, dataset.shape[1]])  #newSeqOfCap[elementType(dset)](passedInds.card)
+              let dsetShaped = dset.toTensor.reshape(dataset.shape)
+              for i, idx in grpIdxs:
+                data[i, _] = dsetShaped[idx, _]
+            if data.len > 0: # if there's no data to write, don't create dataset
+              var outDset = h5fout.create_dataset((baseName / dataset.name.extractFilename),
+                                                  data.shape.toSeq,
+                                                  elementType(dset))
+              outDset.unsafeWrite(data.toUnsafeView(), data.size)
+    h5f.copyOver(h5fout, group, runGrpName) # copy over the common datasets
+    if group.name / "fadc" in h5f:
+      let fadcGroup = h5f[(group.name / "fadc").grp_str]
+      h5f.copyOver(h5fout, fadcGroup, runGrpName / "fadc") # copy over the FADC datasets
 
   # finally write all interesting attributes
   chpGrpOut.attrs["MorphingKind"] = $cutTab.kind

@@ -249,12 +249,15 @@ proc findThresholdValue*[T: seq | Tensor; U](data: T, x_min: int,
     # register is the mean index of the queue (we start index from 0,
     # increase for each add) add to the start index mod 2560
     var resIdx: int
+    # remove the offset induced by where we start (`xMin`) and where we start
+    # rise/fall time calc (`xMinThreshold`)
+    let meanIdx = removeQueue.meanIdx() - (abs(xMin - xMinThreshold))
     if left:
-      resIdx = xMinThreshold - removeQueue.meanIdx()
+      resIdx = xMinThreshold - meanIdx
       if resIdx < 0:
-        resIdx = 2560 - resIdx
+        resIdx += 2560 # push it to the right by one full window
     else:
-      resIdx = removeQueue.meanIdx() + xMinThreshold
+      resIdx = meanIdx + xMinThreshold
     result = (resIdx mod 2560, xMinThreshold)
 
 proc diffUnderModulo*[T](a, b: T, modulo: int): T {.inline.} =

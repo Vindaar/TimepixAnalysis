@@ -258,6 +258,40 @@ proc writeLikelihoodData(h5f: var H5File,
   chpGrpOut.writeVetoInfos(fadcVetoCount, scintiVetoCount, flags)
   runGrp.writeLogLDsetAttributes(ctx.cdlFile, ctx.year)
 
+proc determineFadcVetoCutoff(h5f: H5File): array[FadcSetting, FadcCuts] =
+  # 1. get rise time & fall time data, cleaned with some cuts
+  # 2. determine correct subsets correlating to FADC settings
+  # 3. determine peak of distribution. find hard cut for data
+  #   based on peak * scale
+  # 4. determine cut based on percentile of data
+  # 5. store result in a mapping of valid runs -> `FadcCuts`
+  var df = readFilteredFadc(h5f)
+  ## XXX: adjustable!
+  const perc = 99
+  # now for each FADC setting:
+  for (tup, subDf) in groups(df.group_by("Settings")):
+    proc calcLowHigh(df: DataFrame, dset: string): (float, float) =
+      let data = subDf[dset, float]
+      let samples = linspace(data.min, data.max, 1000).toTensor
+      # get the maximum by computing the KDE & getting the sample of the maximum index
+      let kdeArgMax = kde(data, samples = samples).argmax(0)
+      let maxVal = samples[kdeArgMax[0]]
+      ## XXX: adjustable!
+      const scaleFactor = 1.45
+      let cutoff = maxVal * scaleFactor
+      # now compute the desired percentile of the rise time data after cutting
+      # to `cutoff`
+      let dfF = subDf.filter(f{float -> bool: idx(dset) < cutoff})
+      let dataCut = dfF[dset, float]
+      result = (percentile(dataCut, 1), percentile(dataCut, perc))
+    let (riseLow, riseHigh) = calcLowHigh(subDf, "riseTime")
+    let (fallLow, fallHigh) = calcLowHigh(subDf, "fallTime")
+    # parse string of group label to setting
+    let fSetting = parseEnum[FadcSetting](tup[0][1].toStr)
+    result[fSetting] = (riseLow: riseLow, riseHigh: riseHigh,
+                        fallLow: fallLow, fallHigh: fallHigh,
+                        skewness: -0.4)
+
 func isVetoedByFadc(eventNumber: int, fadcTrigger, fadcEvNum: seq[int64],
                     fadcRise, fadcFall: seq[uint16], fadcSkew: seq[float]): bool =
   ## returns `true` if the event of `ind` is vetoed by the FADC based on cuts on

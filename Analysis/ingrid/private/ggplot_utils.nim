@@ -9,7 +9,7 @@ import nimhdf5
 import arraymancer
 
 import ingrid / ingrid_types
-import geometry, arraymancer_utils
+import geometry, arraymancer_utils, cdl_cuts, cut_utils, fadc_utils
 
 macro echoType(x: typed): untyped =
   echo x.treeRepr
@@ -112,6 +112,52 @@ proc readRunDsets*(h5f: H5File, run: int, # path to specific run
   else: # no data read
     return newDataFrame()
   result["runNumber"] = run
+
+proc readFilteredFadc*(h5f: H5File): DataFrame =
+  let fileInfo = h5f.getFileInfo()
+  result = newDataFrame()
+  for run in fileInfo.runs:
+    if recoBase() & $run / "fadc" notin h5f: continue # skip runs that were without FADC
+    var df = h5f.readRunDsets(
+      run,
+      fadcDsets = @["eventNumber",
+                    "baseline",
+                    "riseStart",
+                    "riseTime",
+                    "fallStop",
+                    "fallTime",
+                    "minvals",
+                    "noisy",
+                    "argMinval"]
+    )
+    let xrayRefCuts = getXrayCleaningCuts()
+    let runGrp = h5f[(recoBase() & $run).grp_str]
+    ## XXX: use different cuts based on photo or escape?
+    let tfKind = tfMnCr12 # to determine correct cuts!
+    let cut = xrayRefCuts[$tfKind]
+    let grp = h5f[(recoBase() & $run / "chip_3").grp_str]
+    proc readIdxs(h5f: H5File, grp: H5Group, cut: Cuts, eLow, eHigh: float): seq[int] =
+      result = cutOnProperties(
+        h5f,
+        grp,
+        crSilver, # try cutting to silver
+        (toDset(igRmsTransverse), cut.minRms, cut.maxRms),
+        (toDset(igEccentricity), 0.0, cut.maxEccentricity),
+        (toDset(igLength), 0.0, cut.maxLength),
+        (toDset(igHits), cut.minPix, Inf),
+        (toDset(igEnergyFromCharge), eLow, eHigh)
+      )
+    let passIdx = concat(@[readIdxs(h5f, grp, cut, 2.5, 3.5), # escapepeak photons
+                           readIdxs(h5f, grp, cut, 5.5, 6.5)]) # photopeak photons
+    let dfChip = h5f.readRunDsets(run, chipDsets = some((chip: 3, dsets: @["eventNumber"])))
+    let allEvNums = dfChip["eventNumber", int]
+    let evNums = passIdx.mapIt(allEvNums[it]).toSet
+    # filter to allowed events & remove any noisy events
+    df = df.filter(f{int: `eventNumber` in evNums and `noisy`.int < 1})
+    df["runNumber"] = run
+    # which FADC setting was used
+    df["Settings"] = $run.toFadcSetting()
+    result.add df
 
 proc readRunDsetsAllChips*(h5f: H5File, run: int, # path to specific run
                            chips: seq[int],

@@ -717,6 +717,28 @@ when not defined(pure) and not defined(js):
 
     ## These veto related types are here as one of them uses a `Tensor` and they are
     ## anyhow only intended for usage in `likelihood.nim`.
+
+    ################################################
+    ############## FADC veto related ###############
+    ################################################
+
+    ## Helper object to store the cuts used in the FADC veto
+    FadcCuts* = tuple
+      riseLow: float
+      riseHigh: float
+      fallLow: float
+      fallHigh: float
+      skewness: float
+
+    ## Helper enum to map different FADC settings to a common string.
+    ## The run numbers matching each setting are defined by the `toFadcSettings`
+    ## helper in `fadc_utils.nim`.
+    FadcSetting* = enum
+      fs1 = "Setting 1"
+      fs2 = "Setting 2"
+      fs3 = "Setting 3"
+      fs4 = "Setting 4"
+
     ################################################
     ############# Septem veto related ##############
     ################################################

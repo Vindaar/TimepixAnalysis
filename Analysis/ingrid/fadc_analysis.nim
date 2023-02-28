@@ -329,13 +329,14 @@ proc calcRiseAndFallTime*(fadc: Tensor[float]): tuple[baseline: float,
   # value and define a threshold of `OffsetToBaseline` from the minimum value which is the starting
   # point from where rise/fall times are measured!
   const PercentileMean = 0.995 # 0.5% = 2560 * 0.005 = 12.8 registers around the minimum for the minimum val
-  const OffsetToBaseline = 0.025 # 2.5 % below baseline seems reasonable
+  const OffsetToBaselineTop = 0.1 # 10 % below baseline due to noisy events
+  const OffsetToBaselineBottom = 0.025 # 2.5 % below baseline seems reasonable
   let meanMinVal = calcMinOfPulse(fadc, PercentileMean)
-  let offset = abs(OffsetToBaseline * (meanMinVal - baseline)) # relative to the 'amplitude'
-
+  let offsetTop = abs(OffsetToBaselineTop * (meanMinVal - baseline)) # relative to the 'amplitude'
+  let offsetBottom = abs(OffsetToBaselineBottom * (meanMinVal - baseline)) # relative to the 'amplitude'
   let
-    (riseStart, riseStop) = findThresholdValue(fadc, xMin, meanMinVal + offset, baseline - offset)
-    (fallStop, fallStart)  = findThresholdValue(fadc, xMin, meanMinVal + offset, baseline - offset, left = false)
+    (riseStart, riseStop) = findThresholdValue(fadc, xMin, meanMinVal + offsetBottom, baseline - offsetTop)
+    (fallStop, fallStart)  = findThresholdValue(fadc, xMin, meanMinVal + offsetBottom, baseline - offsetTop, left = false)
 
   # given this data, we could now in principle already calculate the fall and rise
   # times in nano seconds, but we're going to stick to registers for now
@@ -349,7 +350,7 @@ proc calcRiseAndFallTime*(fadc: Tensor[float]): tuple[baseline: float,
             noisy: noisy,
             minVal: minVal)
 
-proc calcRiseAndFallTimes*(fadc: Tensor[float]): RecoFadc =
+proc calcRiseAndFallTimes*(fadc: Tensor[float], eventNumber: seq[int] = @[]): RecoFadc =
   ## Calculates the baseline, minimum location, start of pulse rise, end of pulse fall,
   ## rise time and fall time for ``all`` given FADC spectra
   let nSpectra = fadc.shape[0]
@@ -359,6 +360,7 @@ proc calcRiseAndFallTimes*(fadc: Tensor[float]): RecoFadc =
   for i in 0 ..< nSpectra:
     ## WARNING: `calcRiseAndFallTime` return fields *must* have the same names as the
     ## fields in `RecoFadc`!
+    # if eventNumber[i] != 15599: continue # can be used to debug events
     let tup = calcRiseAndFallTime(fadc[i, _].squeeze)
     for field, data in fieldPairs(result):
       data[i] = getField(tup, field)
@@ -387,7 +389,8 @@ proc calcRiseAndFallTimes*(h5f: H5File, run_number: int) =
   # fall and rise times
   let t0 = epochTime()
   echo "Start fadc calc"
-  let recoFadc = calcRiseAndFallTimes(f_data)
+  let evNums = h5f[fadc_group.parentDir / "eventNumber", int]
+  let recoFadc = calcRiseAndFallTimes(f_data, evNums)
   echo "FADC minima calculations took: ", (epochTime() - t0)
   # now write data back to h5file
   for field, data in fieldPairs(recoFadc):

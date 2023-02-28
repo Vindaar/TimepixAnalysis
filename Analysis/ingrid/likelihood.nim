@@ -910,9 +910,6 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
     # alternative, total duration of whole run
     var totalDuration: float64 = 0.0
 
-  var useFadcVeto = fkFadc in flags
-  var useScintiVeto = fkScinti in flags
-
   var
     totalScintiRemoveCount = 0
     totalScintiRemovedNotLogRemoved = 0
@@ -924,6 +921,12 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
 
   let fileInfo = getFileInfo(h5f)
   for num, group in runs(h5f):
+
+    ## Only a for run setting so that if we set it to false due to missing data
+    ## in one run, we don't do that for all!
+    var useFadcVeto = fkFadc in flags
+    var useScintiVeto = fkScinti in flags
+
     ## XXX: turn the following into a proper feature
     #if num != 261: continue
     echo &"Start logL cutting of run {group}"
@@ -959,9 +962,9 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
         fadcFall = h5f[group / "fadc/fallTime", uint16]
         fadcSkew = h5f[group / "fadc/skewness", float]
         fadcEvNum = h5f[group / "fadc/eventNumber", int64]
-      except KeyError:
-        echo "Run ", num, " has no FADC datasets!"
-        useFadcVeto = false
+      except KeyError as e:
+        echo "Run ", num, " has no FADC datasets!. Exception: ", e.msg
+        useFadcVeto = false # turn off for ``this run``
     if fkScinti in flags:
       scinti1Trigger = h5f[group / "szint1ClockInt", int64]
       scinti2Trigger = h5f[group / "szint2ClockInt", int64]
@@ -1028,7 +1031,7 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
 
         var fadcVeto = false
         var scintiVeto = false
-        if useFadcVeto:
+        if useFadcVeto and chipNumber == 3:
           fadcVeto = isVetoedByFadc(evNumbers[ind], fadcTrigger, fadcEvNum,
                                     fadcRise, fadcFall, fadcSkew)
         if fadcVeto:

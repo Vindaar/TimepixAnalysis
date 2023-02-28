@@ -539,6 +539,16 @@ type
     max*: float
     inverted*: bool ## If true the cut is inverted, i.e. we remove everything *in* the cut
 
+  ## A helper distinct version of an unchecked array. Mainly used in the septem veto related
+  ## handling of all chip data
+  DataView*[T] = distinct ptr UncheckedArray[T]
+
+## Accessor and converter of a `ptr` to a `DataView` (all we need)
+func `[]`*[T](dv: DataView[T], idx: int): T = cast[ptr UncheckedArray[T]](dv)[idx]
+#proc `=copy`[T](dv1, dv2: DataView[T]) {.error: "Copying a data view is forbidden!".}
+func toDataView*[T](p: ptr seq[T]): DataView[T] = DataView[T](cast[ptr UncheckedArray[T]](p[0].addr))
+
+
 const TosDateString* = "yyyy-MM-dd'.'hh:mm:ss"
 
 # and some general InGrid related constants
@@ -685,6 +695,82 @@ when not defined(pure) and not defined(js):
         ## `cutEnergies[idx]` is given as `cutValue[idx]`.
         cutEnergies*: seq[float] # is a `seq` to use `lowerBound`
         cutValues*: Tensor[float]
+
+
+    ## Explanation of the 3 different line veto kinds. Terminology used here:
+    ## 'OC': original cluster. This is the cluster that was identified to pass the
+    ##    lnL cut on the center chip.
+    ## 'HLC': Hypothetical Larger Cluster, a cluster found using the full Septemboard
+    ##    event, which ``includes`` the OC in it.
+    ## 1. 'regular' line veto. *Every* cluster checks the line to the center
+    ##    cluster. Without septem veto this includes HLC checking OC.
+    ## 2. 'regular without HLC' line veto: Lines check the OC, but the HLC is
+    ##    explicitly *not* considered.
+    ## 3. 'checking the HLC' line veto: In this case *all* clusters check the
+    ##    center of the HLC.
+    ## (From experience I would argue 3 in particular is bad and 1 is essentially a
+    ## bad version of the septem veto + the line veto. Best to just use 2)
+    LineVetoKind* = enum
+      lvRegular,
+      lvRegularNoHLC,
+      lvCheckHLC
+
+    ## These veto related types are here as one of them uses a `Tensor` and they are
+    ## anyhow only intended for usage in `likelihood.nim`.
+    ################################################
+    ############# Septem veto related ##############
+    ################################################
+
+    ## Stores all the data of all chips needed to reconstruct the septemboard events in the context
+    ## of the septem veto
+    AllChipData* = object
+      x*: seq[seq[seq[uint8]]]
+      y*: seq[seq[seq[uint8]]]
+      ToT*: seq[seq[seq[uint16]]]
+      charge*: seq[seq[seq[float]]]
+
+    ## Stores information about a reconstructed septem event
+    SeptemFrame* = object
+      pixels*: PixelsInt        ## pure pixel data of all pixels in the septem frame (zero suppressed)
+      centerCluster*: PixelsInt ## pure pixel data of the original center cluster that passes lnL
+      charge*: Tensor[float]    ## charge values of all pixels in a [768,768] tensor
+      centerEvIdx*: int         ## index of the center event
+      numRecoPixels*: int       ## number of pixels ``after`` reconstruction. To truncate `pixels` after recoEvent
+
+    ## Stores information about the clusters that pass the lnL cut on the center chip
+    ## for which the septem veto is applied
+    CenterChipData* = object
+      lhoodCenter*: seq[float]
+      energies*: seq[float]
+      energyCenter*: seq[float]
+      cXCenter*: seq[float]
+      cYCenter*: seq[float]
+      hitsCenter*: seq[int]
+      rmsTCenter*: seq[float]
+      rmsLCenter*: seq[float]
+
+    ## Equivalent of the above, but for a single event.
+    CenterClusterData* = object
+      lhood*: float
+      energy*: float
+      energyCenter*: float
+      cX*: float
+      cY*: float
+      hits*: int
+      rmsT*: float
+      rmsL*: float
+
+    ## The name might not be the most descriptive: This object stores information about different
+    ## geometric properties of the separate clusters found in the septem event. This includes
+    ## information about the original "center" event (the one that passed the logL cut on the center
+    ## chip) (`center` in the field name) and sequences for the centers of each other cluster
+    ## as well as lines that go through the centers of each cluster along the long axis.
+    SeptemEventGeometry* = object
+      lines*: seq[tuple[m, b: float]]   ## lines along the long axis through the center of each cluster
+      centers*: seq[tuple[x, y: float]] ## centers of each found cluster in the septem event
+      xCenter*: int ## x center pixel of the original "center event" (that passed logL)
+      yCenter*: int ## y center pixel of the original "center event" (that passed logL)
+      centerRadius*: float ## "radius" of the original "center event" (based on 3 * (RMS_T + RMS_L)/2 in pixel)
 
     ## Helper object to store configuration parameters and relevant data pieces
     ## that are used recurringly in `likelihood.nim`.

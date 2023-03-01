@@ -7,11 +7,11 @@ from strutils import repeat, endsWith, strip, parseFloat, removeSuffix
 import pkg / [sorted_seq]
 
 import ingrid / tos_helpers
+# the interpolation code
+import ingrid / background_interpolation
 import numericalnim except linspace, cumSum
 import arraymancer except read_csv, cumSum
 
-# the interpolation code
-import /tmp/background_interpolation
 
 defUnit(keV⁻¹•cm⁻²)
 

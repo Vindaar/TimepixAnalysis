@@ -39,9 +39,9 @@ proc isOriginal*(cl: ClusterObject[PixInt], septemFrame: SeptemFrame): bool =
         return false
 
 proc getCenterClusterData*(septemFrame: SeptemFrame,
-                          centerData: CenterChipData,
-                          recoEv: RecoEvent[PixInt],
-                          lineVetoKind: LineVetoKind
+                           centerData: CenterChipData,
+                           recoEv: RecoEvent[PixInt],
+                           lineVetoKind: LineVetoKind
                          ): CenterClusterData =
   ## Returns the data of the correct cluster depending on the LineVetoKind
   case lineVetoKind
@@ -67,6 +67,9 @@ proc getCenterClusterData*(septemFrame: SeptemFrame,
         )
         return result # can return early here.
     doAssert false, "We cannot be here. This implies we *DID NOT FIND* the original cluster in the reconstructed data!"
+  of lvNone:
+    doAssert false, "This is not intended as a usable veto kind!"
+
 
 proc getPixels*(allChipData: AllChipData, chip, idx: int, chargeTensor: var Tensor[float]): PixelsInt =
   ## Use `idx` of this cluster & event to look up all x, y, ToT and charge data of the cluster

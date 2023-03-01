@@ -149,6 +149,7 @@ proc readFilteredFadc*(h5f: H5File): DataFrame =
       )
     let passIdx = concat(@[readIdxs(h5f, grp, cut, 2.5, 3.5), # escapepeak photons
                            readIdxs(h5f, grp, cut, 5.5, 6.5)]) # photopeak photons
+      .sorted
     let dfChip = h5f.readRunDsets(run, chipDsets = some((chip: 3, dsets: @["eventNumber"])))
     let allEvNums = dfChip["eventNumber", int]
     let evNums = passIdx.mapIt(allEvNums[it]).toSet

@@ -711,6 +711,7 @@ when not defined(pure) and not defined(js):
     ## (From experience I would argue 3 in particular is bad and 1 is essentially a
     ## bad version of the septem veto + the line veto. Best to just use 2)
     LineVetoKind* = enum
+      lvNone, # the default, if none given (only for initialization)
       lvRegular,
       lvRegularNoHLC,
       lvCheckHLC
@@ -724,6 +725,7 @@ when not defined(pure) and not defined(js):
 
     ## Helper object to store the cuts used in the FADC veto
     FadcCuts* = tuple
+      active: bool # only a valid cut if `active`, used to indicate we had data for this FADC setting
       riseLow: float
       riseHigh: float
       fallLow: float
@@ -808,12 +810,28 @@ when not defined(pure) and not defined(js):
       numMorphedEnergies*: int = 1000
       refDf*: DataFrame
       refDfEnergy*: seq[float]
+      # general
+      useTeX*: bool # whether to generate TikZ plots or cairo
       # Septem & line veto related
       clusterAlgo*: ClusteringAlgorithm = caDBSCAN
       searchRadius*: int = 50 # for caDefault the search radius in septem events
       dbscanEpsilon*: float = 65.0 # for caDBSCAN the epsilon
       centerChip*: int = 3 # center chip on the detector
       numChips*: int = 7 # number of chips on the detector
+      useRealLayout*: bool # whether to use Septemboard layout with gaps between chips or not
+      # Line veto related
+      lineVetoKind*: LineVetoKind  # which kind of line veto to use (see enum def for explanation)
+      eccLineVetoCut*: float = 1.0 # eccentricity value that needs to be exceeded by a cluster to participate
+                                   # in line veto
+      # FADC veto related
+      calibFile*: string # path to the calibration file from which to read FADC
+                         # data to deduce rise/fall time cuts
+      vetoPercentile*: float = 0.99 # percentile to use for rise/fall time distribution
+      fadcScaleCutoff*: float = 1.45 # scale factor applied to the `maximum` of the rise/fall time distribution
+                                     # to define the ``upper hard cutoff` on the data (due to double X-ray events
+                                     # defining a _very long_ tail.
+      fadcVetoes*: array[FadcSetting, FadcCuts] # computed `FadcCuts` based on `calibFile`. Only those entries
+                                                # contained in `calibFile` will be filled!
 
 proc initFeSpecData*(hist: seq[float],
                      binning: seq[float],

@@ -8,7 +8,7 @@ import helpers/utils
 import ingrid / [ingrid_types, calibration]
 import ingrid/calibration/fit_functions
 from ingrid / private / geometry import recoEvent
-import ingrid / private / likelihood_utils
+import ingrid / private / [likelihood_utils, fadc_utils]
 import ingridDatabase / [databaseRead, databaseDefinitions]
 import parsetoml except `{}`
 
@@ -258,41 +258,7 @@ proc writeLikelihoodData(h5f: var H5File,
   chpGrpOut.writeVetoInfos(fadcVetoCount, scintiVetoCount, flags)
   runGrp.writeLogLDsetAttributes(ctx.cdlFile, ctx.year)
 
-proc determineFadcVetoCutoff(h5f: H5File): array[FadcSetting, FadcCuts] =
-  # 1. get rise time & fall time data, cleaned with some cuts
-  # 2. determine correct subsets correlating to FADC settings
-  # 3. determine peak of distribution. find hard cut for data
-  #   based on peak * scale
-  # 4. determine cut based on percentile of data
-  # 5. store result in a mapping of valid runs -> `FadcCuts`
-  var df = readFilteredFadc(h5f)
-  ## XXX: adjustable!
-  const perc = 99
-  # now for each FADC setting:
-  for (tup, subDf) in groups(df.group_by("Settings")):
-    proc calcLowHigh(df: DataFrame, dset: string): (float, float) =
-      let data = subDf[dset, float]
-      let samples = linspace(data.min, data.max, 1000).toTensor
-      # get the maximum by computing the KDE & getting the sample of the maximum index
-      let kdeArgMax = kde(data, samples = samples).argmax(0)
-      let maxVal = samples[kdeArgMax[0]]
-      ## XXX: adjustable!
-      const scaleFactor = 1.45
-      let cutoff = maxVal * scaleFactor
-      # now compute the desired percentile of the rise time data after cutting
-      # to `cutoff`
-      let dfF = subDf.filter(f{float -> bool: idx(dset) < cutoff})
-      let dataCut = dfF[dset, float]
-      result = (percentile(dataCut, 1), percentile(dataCut, perc))
-    let (riseLow, riseHigh) = calcLowHigh(subDf, "riseTime")
-    let (fallLow, fallHigh) = calcLowHigh(subDf, "fallTime")
-    # parse string of group label to setting
-    let fSetting = parseEnum[FadcSetting](tup[0][1].toStr)
-    result[fSetting] = (riseLow: riseLow, riseHigh: riseHigh,
-                        fallLow: fallLow, fallHigh: fallHigh,
-                        skewness: -0.4)
-
-func isVetoedByFadc(eventNumber: int, fadcTrigger, fadcEvNum: seq[int64],
+func isVetoedByFadc(ctx: LikelihoodContext, run, eventNumber: int, fadcTrigger, fadcEvNum: seq[int64],
                     fadcRise, fadcFall: seq[uint16], fadcSkew: seq[float]): bool =
   ## returns `true` if the event of `ind` is vetoed by the FADC based on cuts on
   ## the rise and fall time. Vetoed means the event must be thrown out
@@ -301,30 +267,30 @@ func isVetoedByFadc(eventNumber: int, fadcTrigger, fadcEvNum: seq[int64],
   ## looking at ~/org/Figs/SPSC_Jan_2019/test/Run3/{rise,fall}Time_normalizedPDF_run3.pdf
   ## makes it seem like anything above ~130 is probably not an X-ray. Take that for
   ## now.
-  ## TODO: CHOOSE THESE VALUE MORE WISELY!!!!!!
   ## NOTE: these values do not match the typical values seen in the 2017 data taking!
   ## (which to be fair had different FADC settings etc!)
   ## NOTE: Numbers adjusted quickly based on the 1, 5, 95, 99-th percentiles of the
   ## rise / fall time FADC data (see `statusAndProgress` notes)
   ##
   ## For a motivation see sec. [[#sec:fadc:noisy_events_and_fadc_veto]] in ~statusAndProgress.org~
-  const cutRiseLow = 65'u16
-  const cutRiseHigh = 200'u16
-  const cutFallLow = 470'u16
-  const cutFallHigh = 640'u16
-  const cutSkewness = -0.4
+  ##
+  ## UPDATE: The values nowadays are chosen based on a custom percentile of the rise/fall time
+  ## distributions as seen in the 55Fe calibration data (which is handed as the `--calibFile`
+  ## argument).
+  # get correct veto cut values for the current FADC settings (of this run)
+  let cut = ctx.fadcVetoes[ run.toFadcSetting() ]
+  doAssert cut.active, "The cuts for FADC setting " & $run.toFadcSetting() & " is not active, i.e. " &
+    "we did not read corresponding run data in the given calibration file: " & $ctx.calibFile & "!"
   result = false
   let fIdx = fadcEvNum.lowerBound(eventNumber)
   if fIdx < fadcEvNum.high and
-     fadcEvNum[fIdx] == eventNumber and
-     fadcTrigger[fIdx] == 1:
-    # thus we know that `fIdx` points to an event with an FADC trigger
-    # corresponding to `eventNumber`
-    if fadcRise[fIdx] >= cutRiseLow and
-       fadcRise[fIdx] <= cutRiseHigh and
-       fadcFall[fIdx] >= cutFallLow and
-       fadcFall[fIdx] <= cutFallHigh and
-       fadcSkew[fIdx] <= cutSkewness:
+     fadcEvNum[fIdx] == eventNumber: #  and
+     #fadcTrigger[fIdx] == 1: # cannot use trigger, as it's a global dataset and `fIdx` does not match! Anyhow not needed.
+    if fadcRise[fIdx].float >= cut.riseLow and
+       fadcRise[fIdx].float <= cut.riseHigh and
+       fadcFall[fIdx].float >= cut.fallLow and
+       fadcFall[fIdx].float <= cut.fallHigh and
+       fadcSkew[fIdx]       <= cut.skewness:
       result = false
     else:
       # outside either of the cuts, throw it out
@@ -358,12 +324,9 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
                      gainVals: seq[float],
                      calibTuple: tuple[b, m: float], ## contains the parameters required to perform energy calibration
                      ctx: LikelihoodContext,
-                     lineVetoKind: LineVetoKind,
-                     useRealLayout: bool,
                      flags: set[FlagKind]
                     ): tuple[logL, energy: float, lineVetoPassed: bool] =
   ## XXX: add these to config.toml and as a cmdline argument in addition
-  let EccentricityLineVetoCut = parseFloat(getEnv("ECC_LINE_VETO_CUT", "1.0"))
   # total charge for this cluster
   let clusterId = clTup[0]
   let cl = clTup[1]
@@ -375,7 +338,7 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
   for pix in clData:
     # take each pixel tuple and reconvert it to chip based coordinates
     # first determine chip it corresponds to
-    let pixChip = if useRealLayout: determineRealChip(pix)
+    let pixChip = if ctx.useRealLayout: determineRealChip(pix)
                   else: determineChip(pix)
 
     # for this pixel and chip get the correct gas gain and push it to the `RunningStat`
@@ -391,8 +354,8 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
   # determine parameters of the lines through the cluster centers
   # invert the slope
   let slope = tan(Pi - cl.geometry.rotationAngle)
-  let cX = if useRealLayout: toRealXPix(cl.centerX) else: toXPix(cl.centerX)
-  let cY = if useRealLayout: toRealYPix(cl.centerY) else: toYPix(cl.centerY)
+  let cX = if ctx.useRealLayout: toRealXPix(cl.centerX) else: toXPix(cl.centerX)
+  let cY = if ctx.useRealLayout: toRealYPix(cl.centerY) else: toYPix(cl.centerY)
   let intercept = cY.float - slope * cX.float
   septemGeometry.centers.add (x: cX.float, y: cY.float)
   septemGeometry.lines.add (m: slope, b: intercept)
@@ -421,22 +384,22 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
   let isOriginal = clTup[1].isOriginal(septemFrame)
   let ofInterest =
     if isOriginal: false # never care about *only* the original cluster!
-    elif containsOriginal and lineVetoKind in {lvRegular, lvCheckHLC}: true # contained, but we want it
-    elif containsOriginal and lineVetoKind == lvRegularNoHLC: false # contained, but we *dont* want it
+    elif containsOriginal and ctx.lineVetoKind in {lvRegular, lvCheckHLC}: true # contained, but we want it
+    elif containsOriginal and ctx.lineVetoKind == lvRegularNoHLC: false # contained, but we *dont* want it
     else: true # if it neither contains the original, nor is it, it is of interest
   if fkLineVeto in flags and ofInterest and
-     cl.geometry.eccentricity > EccentricityLineVetoCut:
+     cl.geometry.eccentricity > ctx.eccLineVetoCut:
     # if this is not in region of interest, check its eccentricity and compute if line points to original
     # center cluster
     # compute line orthogonal to this cluster's line
     let orthSlope = -1.0 / slope
     # determine y axis intersection
     ## Center data must be converted as it doesn't go through reco!
-    let centerNew = if useRealLayout: tightToReal((x: centerData.cX, y: centerData.cY))
+    let centerNew = if ctx.useRealLayout: tightToReal((x: centerData.cX, y: centerData.cY))
                     else: (x: centerData.cX, y: centerData.cY)
-    septemGeometry.xCenter = if useRealLayout: toRealXPix(centerNew.x)
+    septemGeometry.xCenter = if ctx.useRealLayout: toRealXPix(centerNew.x)
                              else: toXPix(centerNew.x)
-    septemGeometry.yCenter = if useRealLayout: toRealYPix(centerNew.y)
+    septemGeometry.yCenter = if ctx.useRealLayout: toRealYPix(centerNew.y)
                              else: toYPix(centerNew.y)
 
     let centerInter = septemGeometry.yCenter.float - orthSlope * septemGeometry.xCenter.float
@@ -613,15 +576,8 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
   ## The environment variable `PLOT_SEPTEM_E_CUTOFF` can be used to adjust the energy
   ## cutoff for which events to plot when running with `--plotSeptem`. In addition the
   ## variable `USE_TEX` can be adjusted to generate TikZ TeX plots.
-  let useTeX = getEnv("USE_TEX", "false").parseBool
   ## XXX: add these to config.toml and as a cmdline argument in addition
   let PlotCutEnergy = getEnv("PLOT_SEPTEM_E_CUTOFF", "5.0").parseFloat
-  let UseRealLayout = parseBool(getEnv("USE_REAL_LAYOUT", "true"))
-  ## Make this a command line argument / config.toml file feature instead of just env variable
-  let lineVetoDefault = if fkSeptem in flags: "lvRegularNoHLC" # in this case don't need HLC
-                        else: "lvRegular" # in case line veto only (or ignored anyway)
-  let lineVetoKind = parseEnum[LineVetoKind](getEnv("LINE_VETO_KIND", lineVetoDefault))
-
 
   echo "Passed indices before septem veto ", passedInds.card
   let group = h5f[(recoBase() & $runNumber).grp_str]
@@ -659,7 +615,7 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
     if evNum in passedEvs:
       # then grab all chips for this event
       var septemFrame = buildSeptemEvent(evGroup, centerData.lhoodCenter, centerData.energies,
-                                         cutTab, allChipData, ctx.centerChip, UseRealLayout)
+                                         cutTab, allChipData, ctx.centerChip, ctx.useRealLayout)
       if septemFrame.centerEvIdx == -1:
         echo "Broken event! ", evGroup.pretty(-1)
         quit(1)
@@ -674,7 +630,7 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
                              dbscanEpsilon = ctx.dbscanEpsilon,
                              clusterAlgo = ctx.clusterAlgo)
 
-      let centerClusterData = getCenterClusterData(septemFrame, centerData, recoEv, lineVetoKind)
+      let centerClusterData = getCenterClusterData(septemFrame, centerData, recoEv, ctx.lineVetoKind)
 
       # extract the correct gas gain slices for this event
       var gainVals: seq[float]
@@ -702,14 +658,12 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
                                                              gainVals,
                                                              calibTuple,
                                                              ctx,
-                                                             lineVetoKind,
-                                                             UseRealLayout,
                                                              flags)
 
         let cX = toXPix(clusterTup[1].centerX)
         let cY = toYPix(clusterTup[1].centerY)
         var chipClusterCenter: int
-        if UseRealLayout:
+        if ctx.useRealLayout:
           chipClusterCenter = (x: cX, y: cY, ch: 0).determineRealChip(allowOutsideChip = true)
         else:
           chipClusterCenter = (x: cX, y: cY, ch: 0).determineChip(allowOutsideChip = true)
@@ -753,7 +707,7 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
                           yCenter = septemGeometry.yCenter,
                           radius = septemGeometry.centerRadius,
                           energyCenter = centerData.energies[septemFrame.centerEvIdx],
-                          useTeX = useTeX)
+                          useTeX = ctx.useTeX)
   echo "Passed indices after septem veto ", passedEvs.card
   fout.write("Septem events after fake cut: " & $passedEvs.len & "\n")
   fout.close()
@@ -917,8 +871,8 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
         var fadcVeto = false
         var scintiVeto = false
         if useFadcVeto and chipNumber == 3:
-          fadcVeto = isVetoedByFadc(evNumbers[ind], fadcTrigger, fadcEvNum,
-                                    fadcRise, fadcFall, fadcSkew)
+          fadcVeto = ctx.isVetoedByFadc(num, evNumbers[ind], fadcTrigger, fadcEvNum,
+                                        fadcRise, fadcFall, fadcSkew)
         if fadcVeto:
           # increase if FADC vetoed this event
           inc fadcVetoCount
@@ -1127,8 +1081,8 @@ proc calcSigEffBackRej(df: DataFrame, logLBins: seq[float],
       effs.add eff
     let binConst = toSeq(0 ..< effs.len).mapIt(pair[0][1].toStr)
     let effDf = toDf({ "eff" : effs,
-                           "cutVals" : logLBins,
-                           "bin" : binConst })
+                       "cutVals" : logLBins,
+                       "bin" : binConst })
     result.add effDf
 
 proc calcRocCurve(dfSignal, dfBackground: DataFrame): DataFrame =
@@ -1288,6 +1242,15 @@ proc main(
   createRocCurve = false,
   plotLogL = false,
   readOnly = false,
+  useTeX = false,
+  # line veto
+  lineVetoKind = lvNone,
+  eccLineVetoCut = 0.0,
+  # FADC veto
+  calibFile = "",
+  vetoPercentile = 0.99,
+  fadcScaleCutoff = 1.45,
+  # misc
   version = false
      ) =
   docCommentAdd(versionStr)
@@ -1320,6 +1283,7 @@ proc main(
              else:
                # default to 2014
                yr2014
+
   let energyDset = if energyDset.len > 0:
                      toIngridDset(energyDset)
                    else:
@@ -1347,7 +1311,16 @@ proc main(
                                   #numChips = numChips,
                                   clusterAlgo = readClusterAlgo(),
                                   searchRadius = readSearchRadius(),
-                                  dbscanEpsilon = readDbscanEpsilon())
+                                  dbscanEpsilon = readDbscanEpsilon(),
+                                  useTeX = useTeX,
+                                  septemVeto = fkSeptem in flags,
+                                  lineVetoKind = lineVetoKind,
+                                  eccLineVetoCut = eccLineVetoCut,
+                                  # fadc veto
+                                  fadcVeto = fkFadc in flags,
+                                  calibFile = calibFile,
+                                  vetoPercentile = vetoPercentile,
+                                  fadcScaleCutoff = fadcScaleCutoff)
 
   if fkRocCurve in flags:
     ## create the ROC curves and likelihood distributios. This requires to
@@ -1401,29 +1374,51 @@ when isMainModule:
   h5out argument, we will extract all raw event files,
   which are contained in it from the given FOLDER.
   Useful to e.g. plot passed events with the event display.""",
-    "to"             : "Output location of all extracted events. Events will just be copied there.",
-    "region"         : "The chip region to which we cut.",
+
+    # CDL arguments
     "cdlYear"        : "The year from which to use the CDL data (2014, 2018). Default for now is *2014*!",
     "cdlFile"        : "CDL file to use, default is `calibration-cdl` in `resources`.",
+
+    "computeLogL"    : """If flag is set, we compute the logL dataset for each run in the
+  the input file. This is only required once or after changes to the
+  property datasets (e.g. energy calibration changed).""",
+
+    # misc
+    "to"             : "Output location of all extracted events. Events will just be copied there.",
+    "region"         : "The chip region to which we cut.",
     "energyDset"     : "Name of the energy dataset to use. By default `energyFromCharge`.",
     "tracking"       : "If flag is set, we only consider solar trackings (signal like)",
+    "readOnly"       : """If set treats the input file `--file` purely as read only. Useful to run multiple
+  calculations in parallel on one H5 file. Not compatible with `--computeLogL` for obvious reasons.""",
+    "useTeX"         : "If set will produce plots using TikZ backend",
+
+    # vetoes
     "scintiveto"     : "If flag is set, we use the scintillators as a veto",
     "fadcveto"       : "If flag is set, we use the FADC as a veto",
     "septemveto"     : "If flag is set, we use the Septemboard as a veto",
     "lineveto"       : "If flag is set, we use an additional septem veto based on eccentric clusters",
     "aggressive"     : """If set, use aggressive veto. DO NOT USE (unless as a *reference*. Requires deep thought
   about random coincidences & dead time of detector!)""",
+
+    # line veto settings
+    "lineVetoKind"   : "If the line veto is used, the line veto kind to use for it.",
+    "eccLineVetoCut" : "If the line veto is used, decides how eccentric a cluster must be to participate",
+
+    # FADC veto settings
+    "calibFile"      : """If FADC veto used required to determine the FADC veto cutoffs from. The calibration
+  file of the same run period as the given background data file. In case of a mismatch will raise.""",
+    "vetoPercentile" : "The percentile to use for the determination of the rise/fall time cutoffs",
+    "fadcScaleCutoff": "The hard upper cutoff based on the rise/fall peak position scaled by this value",
+
+    # random coincidence of line & septem veto
     "estimateRandomCoinc" : """If flag is set, instead of applying the real septem & line veto the code
   attempts to estimate the random coincidence & dead time of the septem and line veto""",
     "estFixedEvent"  : """If flag is set uses a fixed center cluster for a whole run to estimate the
   septem & line veto random coincidences. Useful to verify the estimation is working.""",
+
     "plotSeptem"     : "If flag is set, plots the SeptemEvents of all center clusters passing logL cut",
     "createRocCurve" : """If flag is set, we create ROC curves for all energy bins. This
   requires the input to already have a `likelihood` dataset!""",
     "plotLogL"       : "If flag is set, we only plot the signal logL distributions.",
-    "computeLogL"    : """If flag is set, we compute the logL dataset for each run in the
-  the input file. This is only required once or after changes to the
-  property datasets (e.g. energy calibration changed).""",
-    "readOnly"       : """If set treats the input file `--file` purely as read only. Useful to run multiple
-  calculations in parallel on one H5 file. Not compatible with `--computeLogL` for obvious reasons.""",
+
     "version"        : "Show version."})

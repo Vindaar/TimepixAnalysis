@@ -1,7 +1,7 @@
 import strutils, os, sequtils, strformat
-import nimhdf5, seqmath, ggplotnim
+import nimhdf5, seqmath, ggplotnim, arraymancer
 
-import cdl_cuts, hdf5_utils, geometry
+import cdl_cuts, hdf5_utils, geometry, ggplot_utils
 import ../ingrid_types
 import helpers/utils
 
@@ -666,6 +666,10 @@ proc readSignalEff(): float =
   withConfig:
     result = config["Likelihood"]["signalEfficiency"].getFloat
 
+proc readConfigField(field: string): string =
+  withConfig:
+    result = config["Likelihood"][field].getStr
+
 proc determineCutValue*[T: seq | Tensor](hist: T, eff: float): int =
   ## given a histogram `hist`, determine the correct bin to cut at to achieve
   ## a software efficiency of `eff`
@@ -744,18 +748,117 @@ proc calcCutValueTab*(ctx: LikelihoodContext): CutValueInterpolator =
     #echo mapIt(logHists, it.sum)
     #echo "Corresponding to logL values of ", result
 
-proc initLikelihoodContext*(cdlFile: string, year: YearKind, region: ChipRegion,
-                            energyDset: InGridDsetKind,
-                            timepix: TimepixVersion,
-                            morphKind: MorphingKind,
-                            stretch = none[CdlStretch](),
-                            numMorphedEnergies = 1000,
-                            centerChip = 3,
-                            numChips = 7,
-                            clusterAlgo: ClusteringAlgorithm = caDBSCAN,
-                            searchRadius: int = 50,
-                            dbscanEpsilon: float = 65.0
+proc calcLowHigh(df: DataFrame, dset: string, percentile, scaleCutoff: float): (float, float) =
+  ## Compute the low and high cut value based on the pre defined percentile
+  ## and scale factor.
+  let data = df[dset, float]
+  let samples = linspace(data.min, data.max, 1000).toTensor
+  # get the maximum by computing the KDE & getting the sample of the maximum index
+  let kdeData = kde(data, samples = samples, normalize = true)
+  let kdeArgMax = kdeData.argmax(0)
+  let maxVal = samples[kdeArgMax[0]]
+  let cutoff = maxVal * scaleCutoff
+  # now compute the desired percentile of the rise time data after cutting
+  # to `cutoff`
+  let dfF = df.filter(f{float -> bool: idx(dset) < cutoff})
+  let dataCut = dfF[dset, float]
+  let perc = (percentile * 100.0).round.int # convert to integer (0, 100)
+  result = (percentile(dataCut, 100 - perc), percentile(dataCut, perc))
+  when true:
+    echo "For dset: ", dset, " cutting at ", result[0], " to ", result[1]
+    # plot the dataset including the percentile cutoffs & hard cutoff
+    let dfProps = toDf({ "y" : @[0.0, kdeData.max],
+                         "Low" : @[result[0], result[0]],
+                         "High" : @[result[1], result[1]],
+                         "HardCut" : @[cutoff, cutoff] })
+    let setting = df["Settings", string][0]
+    ggplot(df.filter(f{idx(dset) < 2.0 * cutoff}), aes(dset)) +
+      geom_density(normalize = true) +
+      geom_line(data = dfProps, aes = aes("Low", "y"),
+                       color = "blue") +
+      geom_line(data = dfProps, aes = aes("High", "y"),
+                       color = "red") +
+      geom_line(data = dfProps, aes = aes("HardCut", "y"),
+                       color = "black") +
+      ggtitle(&"fadc {dset} {setting} percentile {percentile} scaleCut {scaleCutoff}") +
+      ggsave(&"/tmp/fadc_{dset}_{setting}_perc_{percentile}_scaleCut_{scaleCutoff}.pdf")
+
+proc determineFadcVetoCutoff(fname: string, vetoPercentile, fadcScaleCutoff: float): array[FadcSetting, FadcCuts] =
+  # 1. get rise time & fall time data, cleaned with some cuts
+  # 2. determine correct subsets correlating to FADC settings
+  # 3. determine peak of distribution. find hard cut for data
+  #   based on peak * scale
+  # 4. determine cut based on percentile of data
+  # 5. store result in a mapping of valid runs -> `FadcCuts`
+  let h5f = H5open(fname, "r")
+  var df = readFilteredFadc(h5f)
+  # now for each FADC setting:
+  for (tup, subDf) in groups(df.group_by("Settings")):
+    let (riseLow, riseHigh) = calcLowHigh(subDf, "riseTime", vetoPercentile, fadcScaleCutoff)
+    let (fallLow, fallHigh) = calcLowHigh(subDf, "fallTime", vetoPercentile, fadcScaleCutoff)
+    # parse string of group label to setting
+    let fSetting = parseEnum[FadcSetting](tup[0][1].toStr)
+    result[fSetting] = (active: true, # any setting we don't see from this file will be inactive.
+                        riseLow: riseLow, riseHigh: riseHigh,
+                        fallLow: fallLow, fallHigh: fallHigh,
+                        skewness: -0.4)
+  discard h5f.close()
+
+proc initLikelihoodContext*(
+  cdlFile: string, year: YearKind, region: ChipRegion,
+  energyDset: InGridDsetKind,
+  timepix: TimepixVersion,
+  morphKind: MorphingKind,
+  stretch = none[CdlStretch](),
+  numMorphedEnergies = 1000,
+  centerChip = 3,
+  numChips = 7,
+  useTeX: bool = false,
+  # Septem veto related
+  septemVeto: bool = false,
+  clusterAlgo: ClusteringAlgorithm = caDBSCAN,
+  searchRadius: int = 50,
+  dbscanEpsilon: float = 65.0,
+  # line veto related
+  lineVetoKind: LineVetoKind = lvNone,
+  eccLineVetoCut: float = 0.0,
+  # FADC veto related
+  fadcVeto: bool = false,
+  calibFile: string = "",
+  vetoPercentile: float = 0.0,
+  fadcScaleCutoff: float = 0.0
                            ): LikelihoodContext =
+  ## The configuration elements are generally picked according to the following priority:
+  ## 1. command line argument
+  ## 2. environment variable (if supported for the option)
+  ## 3. config file
+  ## 4. default
+  #
+  ## line veto related
+  ## The environment variable `PLOT_SEPTEM_E_CUTOFF` can be used to adjust the energy
+  ## cutoff for which events to plot when running with `--plotSeptem`. In addition the
+  ## variable `USE_TEX` can be adjusted to generate TikZ TeX plots.
+
+  let useTeX = if useTeX: useTeX
+               else: getEnv("USE_TEX", "false").parseBool
+  ## XXX: add these to config.toml and as a cmdline argument in addition
+  let PlotCutEnergy = getEnv("PLOT_SEPTEM_E_CUTOFF", "5.0").parseFloat
+  let UseRealLayout = parseBool(getEnv("USE_REAL_LAYOUT", "true"))
+  ## XXX: Add config.toml field for these!
+  let lvKindEnv = parseEnum[LineVetoKind](getEnv("LINE_VETO_KIND", "lvNone"))
+  let lineVetoDefault = if lineVetoKind != lvNone: lineVetoKind
+                        elif lvKindEnv != lvNone: lvKindEnv
+                        elif septemVeto: lvRegularNoHLC # in this case don't need HLC
+                        else: lvRegular # in case line veto only (or ignored anyway)
+  let eccLvCutEnv = parseFloat(getEnv("ECC_LINE_VETO_CUT", "0.0"))
+  let eccLineVetoCut = if eccLineVetoCut > 0.0: eccLineVetoCut
+                       elif eccLvCutEnv > 0.0: eccLvCutEnv
+                       else: 1.0 # default
+
+  if fadcVeto and calibFile.len == 0:
+    raise newException(ValueError, "When using the FADC veto an H5 file containing the ⁵⁵Fe calibration data " &
+      "of the same run period is required.")
+  let fadcVetoes = determineFadcVetoCutoff(calibFile, vetoPercentile, fadcScaleCutoff)
   result = LikelihoodContext(cdlFile: cdlFile,
                              year: year,
                              region: region,
@@ -769,7 +872,15 @@ proc initLikelihoodContext*(cdlFile: string, year: YearKind, region: ChipRegion,
                              numChips: numChips,
                              clusterAlgo: clusterAlgo,
                              searchRadius: searchRadius,
-                             dbscanEpsilon: dbscanEpsilon)
+                             dbscanEpsilon: dbscanEpsilon,
+                             # misc
+                             useTeX: useTeX,
+                             # line veto
+                             calibFile: calibFile,
+                             vetoPercentile: vetoPercentile,
+                             fadcScaleCutoff: fadcScaleCutoff,
+                             fadcVetoes: fadcVetoes)
+
   case result.morph
   of mkNone:
     result.refSetTuple = result.readRefDsets()

@@ -210,6 +210,7 @@ proc writeLikelihoodData(h5f: var H5File,
       # get the indices matching the event numbers that passed on center chip!
       let grpIdxs = toSeq(0 ..< grpEvNums.len).filterIt(grpEvNums[it] in passedEvSet)
       for dataset in items(grp): # copy one level (nested is not copied)
+        if dataset.name.extractFilename() == "pedestalRun": continue # do not copy it a) not useful b) different size
         echo "Copying dataset ", dataset
         withDset(dataset): # reads full dataset into injected `dset` variable
           var data: Tensor[elementType(dset)]
@@ -225,7 +226,7 @@ proc writeLikelihoodData(h5f: var H5File,
               let dsetShaped = dset.toTensor.reshape(dataset.shape)
               for i, idx in grpIdxs:
                 data[i, _] = dsetShaped[idx, _]
-            if data.len > 0: # if there's no data to write, don't create dataset
+            if data.size > 0: # if there's no data to write, don't create dataset
               var outDset = h5fout.create_dataset((baseName / dataset.name.extractFilename),
                                                   data.shape.toSeq,
                                                   elementType(dset))

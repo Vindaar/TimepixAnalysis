@@ -841,15 +841,15 @@ proc initLikelihoodContext*(
 
   let useTeX = if useTeX: useTeX
                else: getEnv("USE_TEX", "false").parseBool
-  ## XXX: add these to config.toml and as a cmdline argument in addition
+  ## XXX: add these to config.toml and as a cmdline argument in addition!
   let PlotCutEnergy = getEnv("PLOT_SEPTEM_E_CUTOFF", "5.0").parseFloat
-  let UseRealLayout = parseBool(getEnv("USE_REAL_LAYOUT", "true"))
+  let useRealLayout = parseBool(getEnv("USE_REAL_LAYOUT", "true"))
   ## XXX: Add config.toml field for these!
   let lvKindEnv = parseEnum[LineVetoKind](getEnv("LINE_VETO_KIND", "lvNone"))
-  let lineVetoDefault = if lineVetoKind != lvNone: lineVetoKind
-                        elif lvKindEnv != lvNone: lvKindEnv
-                        elif septemVeto: lvRegularNoHLC # in this case don't need HLC
-                        else: lvRegular # in case line veto only (or ignored anyway)
+  let lvKind = if lineVetoKind != lvNone: lineVetoKind
+               elif lvKindEnv != lvNone: lvKindEnv
+               elif septemVeto: lvRegularNoHLC # in this case don't need HLC
+               else: lvRegular # in case line veto only (or ignored anyway)
   let eccLvCutEnv = parseFloat(getEnv("ECC_LINE_VETO_CUT", "0.0"))
   let eccLineVetoCut = if eccLineVetoCut > 0.0: eccLineVetoCut
                        elif eccLvCutEnv > 0.0: eccLvCutEnv
@@ -873,6 +873,10 @@ proc initLikelihoodContext*(
                              clusterAlgo: clusterAlgo,
                              searchRadius: searchRadius,
                              dbscanEpsilon: dbscanEpsilon,
+                             useRealLayout: useRealLayout,
+                             # line veto
+                             lineVetoKind: lvKind,
+                             eccLineVetoCut: eccLineVetoCut,
                              # misc
                              useTeX: useTeX,
                              # line veto

@@ -790,6 +790,7 @@ proc determineFadcVetoCutoff(fname: string, vetoPercentile, fadcScaleCutoff: flo
   #   based on peak * scale
   # 4. determine cut based on percentile of data
   # 5. store result in a mapping of valid runs -> `FadcCuts`
+  if fname.len == 0: return # nothing to do
   let h5f = H5open(fname, "r")
   var df = readFilteredFadc(h5f)
   # now for each FADC setting:

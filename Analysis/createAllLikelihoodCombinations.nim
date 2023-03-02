@@ -46,16 +46,17 @@ proc toStr(fk: FlagKind): string =
   of fkLineVeto: "--lineveto"
   of fkExclusiveLineVeto: "--lineveto"
 
-
 proc genVetoStr(vetoes: set[FlagKind]): string =
   for v in vetoes:
     result = result & " " & (v.toStr())
 
 iterator genCombinations(f2017, f2018: string,
+                         c2017, c2018: string,
                          regions: set[ChipRegion],
                          vetoes: set[FlagKind]
-                        ): tuple[fname: string, year: int, region: ChipRegion, vetoes: set[FlagKind]] =
-  for fname in @[f2017, f2018].filterIt(it.len > 0):
+                        ): tuple[fname, calib: string, year: int, region: ChipRegion, vetoes: set[FlagKind]] =
+  for tup in zip(@[f2017, f2018].filterIt(it.len > 0), @[c2017, c2018]):
+    let (fname, calib) = (tup[0], tup[1])
     let year = if fname == f2017: 2017 else: 2018
     for region in regions:
       var vetoSet: set[FlagKind]
@@ -66,7 +67,7 @@ iterator genCombinations(f2017, f2018: string,
             # remove septem veto
             vetoSet.excl fkSeptem
             vetoSet.excl fkLineVeto # don't need line veto anymore
-        yield (fname: fname, year: year, region: region, vetoes: vetoSet)
+        yield (fname: fname, calib: calib, year: year, region: region, vetoes: vetoSet)
 
 proc buildFilename(year: int, region: ChipRegion, vetoes: set[FlagKind], outpath: string): string =
   let runPeriod = if year == 2017: "Run2" else: "Run3"
@@ -76,21 +77,20 @@ proc buildFilename(year: int, region: ChipRegion, vetoes: set[FlagKind], outpath
     if vetoStr.len > 0: # avoid double `_`
       result = result & "_" & vetoStr
   result = result & ".h5"
-const
-  lhood = "ingrid/likelihood"
-  cdl2018 = "--cdlYear=2018 --altCdlFile=ingrid/calibrationTest-2018.h5 --altRefFile=ingrid/xrayRefTest2018.h5"
 
-proc runCommand(fname: string, year: int, region: ChipRegion, vetoes: set[FlagKind],
+proc runCommand(fname, calib: string, year: int, region: ChipRegion, vetoes: set[FlagKind],
                 cdlFile, outpath: string, cdlYear: int, dryRun: bool, readOnly: bool) =
   let vetoStr = genVetoStr(vetoes)
   let outfile = buildFilename(year, region, vetoes, outpath)
   let regionStr = &"--region={region}"
   let cdlYear = &"--cdlYear={cdlYear}"
   let cdlFile = &"--cdlFile={cdlFile}"
+  let calibFile = if fkFadc in vetoes: &"--calibFile={calib}"
+                  else: ""
   let readOnly = if readOnly: "--readOnly" else: ""
   if not dryRun:
     let (res, err) = shellVerbose:
-      "likelihood -f" ($fname) "--h5out" ($outfile) ($regionStr) ($cdlYear) ($vetoStr) ($cdlFile) ($readOnly)
+      "likelihood -f" ($fname) "--h5out" ($outfile) ($regionStr) ($cdlYear) ($vetoStr) ($cdlFile) ($readOnly) ($calibFile)
     # first write log file
     let logOutput = outfile.extractFilename.replace(".h5", ".log")
     writeFile(&"{outpath}/{logOutput}", res)
@@ -98,11 +98,12 @@ proc runCommand(fname: string, year: int, region: ChipRegion, vetoes: set[FlagKi
     doAssert err == 0, "The last command returned error code: " & $err
   else:
     shellEcho:
-      "likelihood -f" ($fname) "--h5out" ($outfile) ($regionStr) ($cdlYear) ($vetoStr) ($cdlFile) ($readOnly)
+      "likelihood -f" ($fname) "--h5out" ($outfile) ($regionStr) ($cdlYear) ($vetoStr) ($cdlFile) ($readOnly) ($calibFile)
 
 type
   InputData = object
     fname: array[512, char] # fixed array for the data filename
+    calib: array[512, char] # fixed array for filename of calibration file
     year: int
     region: ChipRegion
     vetoes: set[FlagKind]
@@ -118,9 +119,11 @@ proc fromArray(ar: array[512, char]): string =
     if ar[i] == '\0': break
     result.add ar[i]
 
-proc `$`(id: InputData): string = $(fname: id.fname.fromArray(), year: id.year, region: id.region, vetoes: id.vetoes)
+proc `$`(id: InputData): string =
+  $(fname: id.fname.fromArray(), calib: id.calib.fromArray(), year: id.year, region: id.region, vetoes: id.vetoes)
 
 proc main(f2017, f2018: string = "", # paths to the Run-2 and Run-3 data files
+          c2017, c2018: string = "", # paths to the Run-2 and Run-3 calibration files (needed for FADC veto)
           regions: set[ChipRegion], # which chip regions to compute data for
           vetoes: set[FlagKind],
           cdlFile: string,
@@ -128,13 +131,19 @@ proc main(f2017, f2018: string = "", # paths to the Run-2 and Run-3 data files
           cdlYear = 2018,
           dryRun = false,
           multiprocessing = false) =
+  if fkFadc in vetoes and ( # stop if FADC veto used but calibration file missing
+     (f2017.len > 0 and c2017.len == 0) or
+     (f2018.len > 0 and c2018.len == 0)):
+    doAssert false, "When using the FADC veto the corresponding calibration file to the background " &
+      "data file is required."
   if not multiprocessing: # run all commands in serial
-    for (fname, year, region, vetoes) in genCombinations(f2017, f2018, regions, vetoes):
-      runCommand(fname, year, region, vetoes, cdlFile, outpath, cdlYear, dryRun, readOnly = false)
+    for (fname, calib, year, region, vetoes) in genCombinations(f2017, f2018, c2017, c2018, regions, vetoes):
+      runCommand(fname, calib, year, region, vetoes, cdlFile, outpath, cdlYear, dryRun, readOnly = false)
   else:
     var cmds = newSeq[InputData]()
-    for (fname, year, region, vetoes) in genCombinations(f2017, f2018, regions, vetoes):
+    for (fname, calib, year, region, vetoes) in genCombinations(f2017, f2018, c2017, c2018, regions, vetoes):
       cmds.add InputData(fname: fname.toArray(),
+                         calib: calib.toArray(),
                          year: year,
                          region: region,
                          vetoes: vetoes)
@@ -145,7 +154,7 @@ proc main(f2017, f2018: string = "", # paths to the Run-2 and Run-3 data files
     if not dryRun:
       # run them using a procpool
       let t0 = epochTime()
-      let jobs = 10 # running with 28 jobs _definitely_ runs out of RAM on a machine with 64GB. 10 seems to work fine.
+      let jobs = 5 # running with 28 jobs _definitely_ runs out of RAM on a machine with 64GB. 10 seems to work fine.
                     # However, most of the jobs are done very quickly anyway. The crAll (esp incl septem/line veto)
                     # are by far the slowest. So while 10 is slower than 28, the difference is small.
       # We use a cligen procpool to handle running all jobs in parallel
@@ -156,7 +165,9 @@ proc main(f2017, f2018: string = "", # paths to the Run-2 and Run-3 data files
           var cmd: InputData
           while i.uRd(cmd):
             echo "Running value: ", cmd
-            runCommand(cmd.fname.fromArray(), cmd.year, cmd.region, cmd.vetoes, cdlFile, outpath, cdlYear, dryRun, readOnly = true)
+            runCommand(cmd.fname.fromArray(), cmd.calib.fromArray(),
+                       cmd.year, cmd.region, cmd.vetoes,
+                       cdlFile, outpath, cdlYear, dryRun, readOnly = true)
             discard w.wrLine "INFO: Finished input pair: " & $cmd
       ), framesLines, jobs)
 

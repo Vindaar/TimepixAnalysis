@@ -18,7 +18,7 @@
 [Occupancy]
 
 [Cuts]
-cuts = [1]
+cuts = []
 # Example cut
 # [Cuts.1] # name is just 1
 # applyFile = [] # apply this cut to the input files listed in this array

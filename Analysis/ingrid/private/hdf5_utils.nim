@@ -37,6 +37,15 @@ const XrayReferenceDsets* = {
   igFractionInTransverseRms,
   igTotalCharge}
 
+const FadcVetoAttrStr* = "FADC veto"
+const FadcVetoPercAttrStr* = "FADC veto percentile"
+const ScintiVetoAttrStr* = "Scinti veto"
+const SeptemVetoAttrStr* = "Septem veto"
+const LineVetoAttrStr* = "Line veto"
+const TrackingAttrStr* = "Tracking?" ## Indicates only events in tracking in output if true.
+                                     ## If false only those outside tracking time. Note: If run has
+                                     ## no tracking information yet, this cannot be relied upon!
+
 proc toDset*(igKind: InGridDsetKind, frameworkKind: FrameworkKind = fkTpa): string =
   ## Converts a InGridDsetKind enum element to the string representation given
   ## the framework the data was created with

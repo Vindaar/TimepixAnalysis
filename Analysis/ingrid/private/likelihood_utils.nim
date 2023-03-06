@@ -820,6 +820,7 @@ proc initLikelihoodContext*(
   clusterAlgo: ClusteringAlgorithm = caDBSCAN,
   searchRadius: int = 50,
   dbscanEpsilon: float = 65.0,
+  useRealLayout: bool = true,
   # line veto related
   lineVetoKind: LineVetoKind = lvNone,
   eccLineVetoCut: float = 0.0,
@@ -844,7 +845,8 @@ proc initLikelihoodContext*(
                else: getEnv("USE_TEX", "false").parseBool
   ## XXX: add these to config.toml and as a cmdline argument in addition!
   let PlotCutEnergy = getEnv("PLOT_SEPTEM_E_CUTOFF", "5.0").parseFloat
-  let useRealLayout = parseBool(getEnv("USE_REAL_LAYOUT", "true"))
+  let useRealLayout = if useRealLayout: useRealLayout
+                      else: parseBool(getEnv("USE_REAL_LAYOUT", "true"))
   ## XXX: Add config.toml field for these!
   let lvKindEnv = parseEnum[LineVetoKind](getEnv("LINE_VETO_KIND", "lvNone"))
   let lvKind = if lineVetoKind != lvNone: lineVetoKind

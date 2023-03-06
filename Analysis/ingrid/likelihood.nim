@@ -1247,6 +1247,7 @@ proc main(
   # line veto
   lineVetoKind = lvNone,
   eccLineVetoCut = 0.0,
+  useRealLayout = true,
   # FADC veto
   calibFile = "",
   vetoPercentile = 0.99,
@@ -1315,8 +1316,10 @@ proc main(
                                   dbscanEpsilon = readDbscanEpsilon(),
                                   useTeX = useTeX,
                                   septemVeto = fkSeptem in flags,
+                                  # line veto
                                   lineVetoKind = lineVetoKind,
                                   eccLineVetoCut = eccLineVetoCut,
+                                  useRealLayout = useRealLayout,
                                   # fadc veto
                                   fadcVeto = fkFadc in flags,
                                   calibFile = calibFile,
@@ -1401,8 +1404,10 @@ when isMainModule:
     "aggressive"     : """If set, use aggressive veto. DO NOT USE (unless as a *reference*. Requires deep thought
   about random coincidences & dead time of detector!)""",
 
+
     # line veto settings
     "lineVetoKind"   : "If the line veto is used, the line veto kind to use for it.",
+    "useRealLayout"  : "If true will use the real layout of the septemboard with spacing in between chips.",
     "eccLineVetoCut" : "If the line veto is used, decides how eccentric a cluster must be to participate",
 
     # FADC veto settings

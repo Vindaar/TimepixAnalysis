@@ -154,7 +154,7 @@ proc main(f2017, f2018: string = "", # paths to the Run-2 and Run-3 data files
     if not dryRun:
       # run them using a procpool
       let t0 = epochTime()
-      let jobs = 5 # running with 28 jobs _definitely_ runs out of RAM on a machine with 64GB. 10 seems to work fine.
+      let jobs = 4 # running with 28 jobs _definitely_ runs out of RAM on a machine with 64GB. 10 seems to work fine.
                     # However, most of the jobs are done very quickly anyway. The crAll (esp incl septem/line veto)
                     # are by far the slowest. So while 10 is slower than 28, the difference is small.
       # We use a cligen procpool to handle running all jobs in parallel

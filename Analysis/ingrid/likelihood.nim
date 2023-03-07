@@ -35,6 +35,10 @@ when not cdlExists:
 # distance
 const RmsCleaningCut = 1.5
 
+when not defined(useMalloc):
+  {.fatal: "Please compile with `-d:useMalloc` to reduce the amount of memory kept by the " &
+    "program. This allows to use more jobs in `createAllLikelihoodCombinations`.".}
+
 type
   FlagKind = enum
     fkTracking, fkFadc, fkScinti, fkSeptem, fkLineVeto, fkAggressive,

@@ -1,172 +1,143 @@
-import std / [os, sequtils, strutils, sets]
-import nimhdf5, ingrid/tos_helpers, ggplotnim
+import nimhdf5, ggplotnim
+import std / [strutils, os, sequtils, sets, strformat]
+import ingrid / [tos_helpers, ingrid_types]
+import ingrid / calibration / [calib_fitting, calib_plotting]
+import ingrid / calibration
 
-let doc = """
-InGrid/FADC reading and cutting.
+proc plotFallTimeRiseTime(df: DataFrame, suffix: string, isCdl: bool) =
+  ## Given a full run of FADC data, create the
+  ## Note: it may be sensible to compute a truncated mean instead
+  proc plotDset(dset: string) =
 
-Usage:
-  plotFADC <HDF5file> [options]
-  plotFADC <HDF5file> [--runNumber <runnum>] [--chipNumber <chipnum>] [options]
-  plotFADC <HDF5file> --evParams  [options]
-  plotFADC <HDF5file> [--choose <chparams>] [--cutFADC_low <fadccutlow>] [--cutFADC_high <fadccuthigh>] [options]
-  plotFADC <HDF5file> [--choose <chparams>] [--cutFADC_low <fadccutlow>] [--cutFADC_high <fadccuthigh>] [--plot_high <plothigh>] [options]
-  plotFADC <HDF5file>  [--choose <chparams>] [--plot_low <plotlow>] [--plot_high <plothigh>] [options]
-  plotFADC -h | --help
+    for (tup, subDf) in groups(group_by(df, "Type")):
+      echo "============================== ", dset, " =============================="
+      echo "Type: ", tup
+      echo "Percentiles:"
+      echo "\t 1-th: ", subDf[dset, float].percentile(1)
+      echo "\t 5-th: ", subDf[dset, float].percentile(5)
+      echo "\t50-th: ", subDf[dset, float].percentile(50)
+      echo "\t mean: ", subDf[dset, float].mean
+      echo "\t80-th: ", subDf[dset, float].percentile(80)
+      echo "\t95-th: ", subDf[dset, float].percentile(95)
+      echo "\t99-th: ", subDf[dset, float].percentile(99)
+    df.writeCsv("/tmp/fadc_data_$#.csv" % suffix)
+    #let df = df.filter(f{`Type` == "Cu-Ni-15kV"})
+    ggplot(df, aes(dset, fill = "Type")) +
+      geom_histogram(position = "identity", bins = 100, hdKind = hdOutline, alpha = 0.7) +
+      ggtitle(&"Comparison of FADC signal {dset} in ⁵⁵Fe vs background data in $#" % suffix) +
+      ggsave(&"Figs/statusAndProgress/FADC/fadc_{dset}_energy_dep_$#.pdf" % suffix)
+    ggplot(df, aes(dset, fill = "Type")) +
+      geom_density(normalize = true, alpha = 0.7, adjust = 2.0) +
+      ggtitle(&"Comparison of FADC signal {dset} in ⁵⁵Fe vs background data in $#" % suffix) +
+      ggsave(&"Figs/statusAndProgress/FADC/fadc_{dset}_kde_energy_dep_$#.pdf" % suffix)
+    let df = df.filter(f{`riseTime` < 200})
+    ggplot(df, aes(dset, fill = "Type")) +
+      geom_histogram(position = "identity", bins = 100, hdKind = hdOutline, alpha = 0.7) +
+      ggtitle(&"Comparison of FADC signal {dset} in ⁵⁵Fe vs background data in $#" % suffix) +
+      ggsave(&"Figs/statusAndProgress/FADC/fadc_{dset}_energy_dep_less_200_rise_$#.pdf" % suffix)
+    ggplot(df, aes(dset, fill = "Type")) +
+      geom_density(normalize = true, alpha = 0.7, adjust = 2.0) +
+      ggtitle(&"Comparison of FADC signal {dset} in ⁵⁵Fe vs background data in $#" % suffix) +
+      ggsave(&"Figs/statusAndProgress/FADC/fadc_{dset}_kde_energy_dep_less_200_rise_$#.pdf" % suffix)
 
+    if isCdl:
+      let xrayRef = getXrayRefTable()
+      var labelOrder = initTable[Value, int]()
+      for idx, el in xrayRef:
+        labelOrder[%~ el] = idx
+      ggplot(df, aes(dset, fill = "Type")) +
+        ggridges("Type", overlap = 1.5, labelOrder = labelOrder) +
+        geom_density(normalize = true, alpha = 0.7, adjust = 2.0, color = "black") +
+        ggtitle(&"Comparison of FADC signal {dset} in ⁵⁵Fe vs background data in $#" % suffix) +
+        ggsave(&"Figs/statusAndProgress/FADC/fadc_{dset}_ridgeline_kde_energy_dep_less_200_rise_$#.pdf" % suffix)
 
-Options:
-  --runNumber <runnum>          choose the run you would like to look at
-  --chipNumber <chipnum>        choose the chip you would like to look at
-  --evParams                    shows a list of possible InGrid Parameters
-  --choose <chparams>           choose one InGrid Parameter from the list
-  --cutFADC_low <fadccutlow>    choose a low limit for cuts
-  --cutFADC_high <fadccuthigh>  choose a high limit for cuts
-  --plot_low <plotlow>          choose a low limit for plot range
-  --plot_high <plothigh>        choose a high limit for plot range
-  -h --help                     show this text
- """
+    ggplot(df, aes(dset, fill = "Settings")) +
+      geom_density(normalize = true, alpha = 0.7, adjust = 2.0, color = "black") +
+      ggtitle(dset & " of different FADC settings used") +
+      ggsave(&"Figs/statusAndProgress/FADC/fadc_{dset}_kde_different_fadc_ampb_settings_$#.pdf" % suffix)
 
-proc readandcut*[T](h5f: var H5FileObj, runNumber: int, chip: int, chParams: string, cutlow: int, cuthigh: int): seq[T] =
-
-  ##get the ingrid data
-
-  var reco_group = rawDatabase() & $runNumber
-  var reco_group_chip = recoDataChipBase(runNumber) & $chip
-  var group = h5f[reco_group.grp_str]
-  var group_chip = h5f[reco_group_chip.grp_str]
-  let chip_number = group_chip.attrs["chipNumber", int]
-  let evNumbers = h5f[group_chip.name / "eventNumber", int64]
-  let choosenParams = h5f[group_chip.name / chParams, float64]
-  let a = choosenParams.filterIt(it < 1000)
-  let b = a.filterIt(abs(it).classify != fcInf) ## filter for fcInf, to guarantee that all Parameters can be plotted
-
-
-  ##get the fadc data
-
-  var fadc_eventNumber_name = eventNumberBasename(runNumber)
-  let fadc_evNumbers = h5f[fadc_eventNumber_name, int64]
-  var fallTimename = fallTimeBasename(runNumber)
-  let fadc_fallTime = h5f[fallTimename, uint16]
-
-  ##process data and make cuts
-
-  let zipData = zip(evNumbers, b)
-  let zipData_fadc = zip(fadc_evNumbers, fadc_fallTime)
-  let cutData_fadc = zipData_fadc.filterIt(it[1] > cutlow.uint16 and it[1] < cuthigh.uint16)
-
-  let evcut_fadc = cutData_fadc.mapIt(it[0])
-  let evcut_fadc_set = toSet(evcut_fadc)
-  let cutData = zipData.filterIt(it[0] in evcut_fadc_set)
-  let cuta = cutData.mapIt(it[0])
-  let cutb = cutData.mapIt(it[1])
-
-  result = cutb
-
-proc plotcuts*[T](cuts: seq[T], chParams: string, mincut:float, maxcut: float) =
-  ##plot the results
-  let
-    d = Trace[float](`type`: PlotType.Histogram,
-                     bins: (mincut, maxcut), binSize: 0.1 ) ##somehow change bin and binsize in respect to the data
-
-  d.xs = cuts
-  let
-    layout = Layout(title: "distribution histogram"  ,
-                    width: 1200, height: 800,
-                    xaxis: Axis(title: chParams),
-                    yaxis: Axis(title:"counts"),
-                    autosize: false)
-    p = Plot[float](layout: layout, traces: @[d])
-  p.show()
-#  p.saveImage("chParams.pdf")
+    ggplot(df, aes(dset, fill = factor("runNumber"))) +
+      geom_density(normalize = true, alpha = 0.7, adjust = 2.0, color = "black") +
+      ggtitle(dset & " of different runs") +
+      ggsave(&"Figs/statusAndProgress/FADC/fadc_{dset}_kde_different_runs_$#.pdf" % suffix)
 
 
-proc main() =
+  plotDset("fallTime")
+  plotDset("riseTime")
 
-  let args = docopt(doc)
-  when not defined(release):
-    echo args
-  let  h5file = $args["<HDF5file>"]
-  var
-    runNum = $args["--runNumber"]
-    chipNum = $args["--chipNumber"]
-    chParams = $args["--choose"]
-    cutFADCnum_low = $args["--cutFADC_low"]
-    cutFADCnum_high = $args["--cutFADC_high"]
-    plothigh_num = $args["--plot_high"]
-    plotlow_num = $args["--plot_low"]
 
-  var h5f = H5open(h5file, "rw")
-  h5f.visit_file
-  var runNumint: int
-  var chipNumint: int
-  var cuts: seq[float]
-  var chParamstring: string
-  var cutlow: int
-  var cuthigh: int
-  var dataBasename = recoBase()
-  var maxcut: int
-  var maxcutfloat: float
-  var mincutfloat: float
 
-  if chParams != "nil":
-    chParamstring = chParams
+proc read(fname, typ: string, eLow, eHigh: float,
+          isCdl: bool): DataFrame =
+  var h5f = H5open(fname, "r")
+  let fileInfo = h5f.getFileInfo()
+
+  var peakPos = newSeq[float]()
+  result = newDataFrame()
+  for run in fileInfo.runs:
+    if recoBase() & $run / "fadc" notin h5f: continue # skip runs that were without FADC
+    var df = h5f.readRunDsets(
+      run,
+      fadcDsets = @["eventNumber",
+                    "baseline",
+                    "riseStart",
+                    "riseTime",
+                    "fallStop",
+                    "fallTime",
+                    "minvals",
+                    "noisy",
+                    "argMinval"]
+    )
+    let xrayRefCuts = getXrayCleaningCuts()
+    let runGrp = h5f[(recoBase() & $run).grp_str]
+    let tfKind = if not isCdl: tfMnCr12
+                 else: runGrp.attrs["tfKind", string].parseEnum[:TargetFilterKind]()
+    let cut = xrayRefCuts[$tfKind]
+    let grp = h5f[(recoBase() & $run / "chip_3").grp_str]
+    let passIdx = cutOnProperties(
+      h5f,
+      grp,
+      crSilver, # try cutting to silver
+      (toDset(igRmsTransverse), cut.minRms, cut.maxRms),
+      (toDset(igEccentricity), 0.0, cut.maxEccentricity),
+      (toDset(igLength), 0.0, cut.maxLength),
+      (toDset(igHits), cut.minPix, Inf),
+      (toDset(igEnergyFromCharge), eLow, eHigh)
+    )
+    let dfChip = h5f.readRunDsets(run, chipDsets = some((chip: 3, dsets: @["eventNumber"])))
+    let allEvNums = dfChip["eventNumber", int]
+    let evNums = passIdx.mapIt(allEvNums[it]).toSet
+    # filter to allowed events & remove any noisy events
+    df = df.filter(f{int: `eventNumber` in evNums and `noisy`.int < 1})
+    df["runNumber"] = run
+    if isCdl:
+      df["Type"] = $tfKind
+
+    df["Settings"] = "Setting " & $(@[80, 101, 121].lowerBound(run))
+    result.add df
+  if not isCdl:
+    result["Type"] = typ
+  echo result
+
+proc main(fname: string, year: int,
+          energyLow = 0.0, energyHigh = Inf,
+          isCdl = false) =
+  if not isCdl:
+    var df = newDataFrame()
+    df.add read(fname, "escape", 2.5, 3.5, isCdl = false)
+    df.add read(fname, "photo", 5.5, 6.5, isCdl = false)
+
+    let is2017 = year == 2017
+    let is2018 = year == 2018
+    if not is2017 and not is2018:
+      raise newException(IOError, "The input file is neither clearly a 2017 nor 2018 calibration file!")
+
+    let yearToRun = if is2017: 2 else: 3
+    let suffix = "run$#" % $yearToRun
+    plotFallTimeRiseTime(df, suffix, isCdl)
   else:
-    chParamstring = "eccentricity"
-    echo "When no InGrid Parameter is set, the eccentricity will be used"
-
-  if cutFADCnum_low != "nil":
-    cutlow = cutFADCnum_low.parseInt
-  else:
-    cutlow = 1
-    echo "Standard low cut limit is 1"
-
-  if cutFADCnum_high != "nil":
-    cuthigh = cutFADCnum_high.parseInt
-  else:
-    cuthigh = 1000
-    echo "Standard high cut limit is 1000"
-
-  ##get the runNumber and the center chip number
-
-  let groups = toSeq(keys(h5f.groups))
-  var rawG = h5f["runs".grp_str]
-  let center_chip = rawG.attrs["centerChip", int]
-  if chipNum == "nil":
-    chipNumint = center_chip
-    echo "When no chip is set, the center chip will be used"
-  else:
-    chipNumint = chipNum.parseInt
-
-  let runRegex = re(data_basename & r"(\d+)$")
-  var run: array[1, string]
-
-  if runNum == "nil":
-    for grp in groups:
-      if grp.match(runRegex, run) == true:
-        var runNumber = run[0].parseInt
-        runNumint = run[0].parseInt
-        cuts.add readandcut[float](h5f, runNumint, chipNumint, chParamstring, cutlow, cuthigh)
-  else:
-    runNumint = runNum.parseInt
-    cuts = readandcut[float](h5f, runNumint, chipNumint, chParamstring, cutlow, cuthigh)
-
-  if $args["--plot_low"] != "nil":
-     mincutfloat = plotlow_num.parseFloat
-  else:
-     mincutfloat = 0.0
-
-  if plothigh_num != "nil":
-     maxcutfloat = plothigh_num.parseFloat
-  else:
-     maxcutfloat = cuts.max ##find the maximum to define the upper plotting limit
-
-  if $args["--evParams"] ==  "true":
-    echo getFloatDsetNames()
-  else:
-    plotcuts(cuts, chParamstring, mincutfloat,  maxcutfloat)
-
-  discard h5f.close()
-
-
+    let df = read(fname, "", 0.0, Inf, isCdl = true)
+    plotFallTimeRiseTime(df, "CDL", isCdl)
 when isMainModule:
-  main()
+  import cligen
+  dispatch main

@@ -84,9 +84,10 @@ proc distance*(metric: typedesc[CustomMetric], v, w: Tensor[float]): float =
   # NOTE: this is the fastest way to compute the distance
   # - no squeeze
   # - no temp tensor allocation
-  let arg1 = abs(v[0] - w[0])
-  let arg2 = abs(v[1] - w[1])
-  let arg3 = abs(v[2] - w[2])
+  # Argument is non squeezed, so we need to access 2nd axis 0 manually
+  let arg1 = abs(v[0, 0] - w[0, 0])
+  let arg2 = abs(v[0, 1] - w[0, 1])
+  let arg3 = abs(v[0, 2] - w[0, 2])
   let xyDist = arg1*arg1 + arg2*arg2
   ##echo "xy dist ", xyDist, " vs ", Euclidean.distance(v, w)
   let zDist = arg3*arg3

@@ -208,3 +208,27 @@ proc main(f2017, f2018: string = "", # paths to the Run-2 and Run-3 data files
 when isMainModule:
   import cligen
   dispatch main
+
+
+#[
+A test run of:
+```
+likelihood -f ~/CastData/data/DataRuns2017_Reco.h5 --h5out /tmp/blabla.h5 --region crAll --cdlYear 2018 --cdlFile ~/CastData/data/CDL_2019/calibration-cdl-2018.h5 --lineveto --scintiveto --fadcveto --calibFile ~/CastData/data/CalibrationRuns2017_Reco.h5
+```
+peaked at 10.1GB of used memory according to `htop`.
+
+Interestingly it seemed to increase only at the _end_ of each run, probably during the
+writing portion of the code.
+
+It's a bit annoying that the memory seems to increase significantly each time. As expected run
+186 (the 11 day run) caused the largest spike.
+
+Let's test by compiling `likelihood` with `-d:useMalloc` to see if we actually give memory
+back to the system.
+
+Update: This seems to have done the trick! When we reached run 186 in the initial run without
+using malloc we were already at 7GB and after at over 9. This time we are at 3.3GB with a very
+short peak to 4.1GB during the (likely?) writing period, but a direct drop down to about 3GB again!
+So instead of increasing we are actually giving memory back.
+
+]#

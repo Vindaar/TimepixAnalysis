@@ -1853,14 +1853,17 @@ proc expectedLimit(limits: seq[float]): float =
   ## Currently it's just defined as the median of the determined limits.
   result = limits.median(q = 50)
 
-proc plotMCLimitHistogram(ctx: Context, limits: seq[float], candsInSens: seq[int],
-                          limitKind: LimitKind, nmc: int,
-                          limitNoSignal: float, expLimit = Inf,
-                          bins = 50,
-                          xlimit = (0.0, 0.0),
-                          ylimit = (0.0, 0.0),
-                          xLabel = "Limit", yLabel = "Count",
-                          linesTo = 1000) =
+proc plotMCLimitHistogram(
+  ctx: Context, limits: seq[float], candsInSens: seq[int],
+  limitKind: LimitKind, nmc: int,
+  limitNoSignal: float, expLimit = Inf,
+  bins = 50,
+  xlimit = (0.0, 0.0),
+  ylimit = (0.0, 0.0),
+  xLabel = "Limit", yLabel = "Count",
+  linesTo = 1000,
+  outpath = "/tmp/",
+  suffix = "") =
   let expLimit = if classify(expLimit) == fcInf: expectedLimit limits
                  else: expLimit
   echo "Expected limit: ", expLimit
@@ -1889,13 +1892,13 @@ proc plotMCLimitHistogram(ctx: Context, limits: seq[float], candsInSens: seq[int
   of puUncertain:
     pufSuff = &"posUncertain_{ctx.uncertaintyPosition}_σp_{ctx.σ_p:.4f}"
     putSuff = &"{ctx.uncertaintyPosition}, σp = {ctx.σ_p:.4f}"
-  dfL.writeCsv(&"/tmp/mc_limit_{limitKind}_{ctx.samplingKind}_nmc_{nmc}_{ufSuff}_{pufSuff}.csv")
+  dfL.writeCsv(&"{outpath}/mc_limit_{limitKind}_{ctx.samplingKind}_nmc_{nmc}_{ufSuff}_{pufSuff}{suffix}.csv")
 
   let maxVal = if xlimit[1] > 0.0: xLimit[1] else: 3e-20
   dfL = dfL
     #.filter(f{`limits` < 2e-19})
     .filter(f{`limits` < maxVal})
-  ggplot(dfL, aes("limits", fill = factor("candsInSens"))) +
+  var plt = ggplot(dfL, aes("limits", fill = factor("candsInSens"))) +
     geom_histogram(bins = bins, hdKind = hdOutline, position = "identity", alpha = some(0.5)) +
     geom_linerange(aes = aes(x = limitNoSignal, y = 0.0, yMin = 0.0, yMax = linesTo),
                    color = some(parseHex("FF0000"))) +
@@ -1915,12 +1918,16 @@ proc plotMCLimitHistogram(ctx: Context, limits: seq[float], candsInSens: seq[int
              font = font(color = parseHex("0000FF")),
              backgroundColor = color(0.0, 0.0, 0.0, 0.0)) +
     scale_x_continuous() + scale_y_continuous() +
-    margin(top = 1.5) +
-    xlim(xlimit[0], xlimit[1]) + ylim(ylimit[0], ylimit[1]) +
+    margin(top = 1.5)
+  if xlimit[0] != xlimit[1]:
+    plt = plt + xlim(xlimit[0], xlimit[1])
+  if ylimit[0] != ylimit[1]:
+    plt = plt + ylim(ylimit[0], ylimit[1])
+  plt +
     xlab(xLabel) + ylab(yLabel) +
     ggtitle(&"MC limit histogram of {nmc} toys using {ctx.samplingKind} and {limitKind}. {utSuff} " &
             &"{putSuff}. Expected limit g_ae² = {expLimit:.4e}") +
-    ggsave(&"/tmp/mc_limit_{limitKind}_{ctx.samplingKind}_nmc_{nmc}_{ufSuff}_{pufSuff}.pdf",
+    ggsave(&"{outpath}/mc_limit_{limitKind}_{ctx.samplingKind}_nmc_{nmc}_{ufSuff}_{pufSuff}{suffix}.pdf",
             width = 800, height = 480)
 
 proc monteCarloLimits(ctx: Context, rnd: var Random, limitKind: LimitKind,
@@ -3489,7 +3496,9 @@ proc limit(
     xLow = 0.0, xHigh = 0.0,
     yLow = 0.0, yHigh = 0.0,
     xLabel = "Limit", yLabel = "Count",
-    linesTo = 1000
+    linesTo = 1000,
+    outpath = "/tmp/",
+    suffix = ""
      ): int =
   ## dummy return an `int`, otherwise run into some cligen bug
   let backgroundTime = 3318.Hour ## TODO: FIX ME GET FROM FILES
@@ -3502,7 +3511,7 @@ proc limit(
                 doAssert files.len == years.len, "Every file must be given an associated year!"
                 var f = newSeq[(int, string)]()
                 for i in 0 ..< files.len:
-                  f[i] = (years[i], files[i])
+                  f.add (years[i], files[i])
                 f
   var ctx = initContext(
     path, files, useConstantBackground = useConstantBackground,
@@ -3556,7 +3565,9 @@ proc limit(
     let limitNoSignal = ctx.computeLimit(rnd, newSeq[Candidate](), limitKind)
     ctx.plotMCLimitHistogram(limits.mapIt(it[0]), limits.mapIt(it[1]),
                              limitKind, nmc,
-                             limitNoSignal = limitNoSignal)
+                             limitNoSignal = limitNoSignal,
+                             outpath = outpath,
+                             suffix = suffix)
 
 when isMainModule:
   import cligen/argcvt

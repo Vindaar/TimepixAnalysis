@@ -31,7 +31,8 @@ proc getDf*(h5f: H5File, path: string, keys: varargs[string]): DataFrame =
       when type(dset) is seq[SupportedRead]:
         result[key] = dset
 
-proc readDsets*(h5f: H5FileObj, df: var DataFrame, names: seq[string], baseName: string) =
+proc readDsets*(h5f: H5FileObj, df: var DataFrame, names: seq[string], baseName: string,
+                verbose = true) =
   ## reads the given datasets `names` from `baseName` into the existing `df`
   for name in names:
     let dsetName = baseName / name
@@ -47,13 +48,15 @@ proc readDsets*(h5f: H5FileObj, df: var DataFrame, names: seq[string], baseName:
         else:
           doAssert false, "Invalid datatype for DataFrame! Dtype is " & $(type(dset))
     else:
-      echo &"INFO: Run {baseName} does not have any data for dataset {name}"
+      if verbose:
+        echo &"INFO: Run {baseName} does not have any data for dataset {name}"
 
 proc readRunDsets*(h5f: H5File, run: int, # path to specific run
                    chipDsets = none[tuple[chip: int, dsets: seq[string]]](),
                    commonDsets: openArray[string] = @[],
                    fadcDsets: openArray[string] = @[],
-                   basePath = recoBase()
+                   basePath = recoBase(),
+                   verbose = true
                   ): DataFrame =
   ## reads all desired datasets `chipDsets, commonDsets` in the given `h5f`
   ## file of `chip` under the given `path`. The result is returned as a
@@ -89,9 +92,9 @@ proc readRunDsets*(h5f: H5File, run: int, # path to specific run
   var dfAll = newDataFrame()
   var dfFadc = newDataFrame()
   if readChip:
-    h5f.readDsets(dfChip, chipDsetNames, path / "chip_" & $chip)
-  h5f.readDsets(dfAll, commonDsets, path)
-  h5f.readDsets(dfFadc, fadcDsets, path / "fadc")
+    h5f.readDsets(dfChip, chipDsetNames, path / "chip_" & $chip, verbose = verbose)
+  h5f.readDsets(dfAll, commonDsets, path, verbose = verbose)
+  h5f.readDsets(dfFadc, fadcDsets, path / "fadc", verbose = verbose)
   proc getFilled(args: varargs[DataFrame]): seq[DataFrame] =
     result = (@args).filterIt(it.len > 0)
   proc numFilled(args: varargs[DataFrame]): int =
@@ -163,21 +166,24 @@ proc readFilteredFadc*(h5f: H5File): DataFrame =
 proc readRunDsetsAllChips*(h5f: H5File, run: int, # path to specific run
                            chips: seq[int],
                            dsets: seq[string],
-                           basePath = recoBase()
+                           basePath = recoBase(),
+                           verbose = true
                   ): DataFrame =
   ## reads all desired datasets `dsets` for all chips available in this run.
   ## The only common dataset read is the `eventNumber`.
   var dfs = newSeq[DataFrame]()
   for chip in chips:
     var dfLoc = readRunDsets(h5f, run, chipDsets = some((chip: chip, dsets: dsets)),
-                             commonDsets = @["eventNumber"])
+                             commonDsets = @["eventNumber"],
+                             verbose = verbose)
     dfLoc["chip"] = chip
     dfs.add dfLoc
   result = assignStack(dfs)
 
 proc readDsets*(h5f: H5File, path = recoBase(),
                 chipDsets = none[tuple[chip: int, dsets: seq[string]]](),
-                commonDsets: openArray[string] = @[]): DataFrame =
+                commonDsets: openArray[string] = @[],
+                verbose = true): DataFrame =
   ## reads all desired datasets `chipDsets, commonDsets` in the given `h5f`
   ## file of `chip` under the given `path`. The result is returned as a
   ## `DataFrame`.
@@ -190,7 +196,8 @@ proc readDsets*(h5f: H5File, path = recoBase(),
   result = newDataFrame()
   for run, grp in runs(h5f, path):
     let df = h5f.readRunDsets(run = run, chipDsets = chipDsets, commonDsets = commonDsets,
-                              basePath = path)
+                              basePath = path,
+                              verbose = verbose)
     if df.len > 0:
       result.add df
 

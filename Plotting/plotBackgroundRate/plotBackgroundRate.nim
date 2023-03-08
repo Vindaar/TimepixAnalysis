@@ -52,14 +52,25 @@ proc readTime(h5f: H5File): float =
 proc scaleDset(h5f: H5File, data: Column, factor: float): Column =
   result = scaleDset(data, h5f.readTime(), factor)
 
-proc extractYear(f: string): int =
+import macros
+macro log(verbose: bool, body: untyped): untyped =
+  result = newStmtList()
+  for arg in body:
+    let b = quote do:
+      if `verbose`:
+        let argStr = $`arg`
+        echo "[INFO]:", argStr
+    result.add b
+
+proc extractYear(f: string, verbose: bool): int =
   ## We assume the filenames
   ## - always contain a year
   ## - always separated by underscores
   let fname = f.extractFilename
   var dummy: string
   if fname.scanf("$*_$i_$*", dummy, result, dummy):
-    echo "found a year ", result
+    log(verbose):
+      &"found a year {result}"
 
 proc toIdx(x: float): int = (x / 14.0 * 256.0).round.int.clamp(0, 255)
 
@@ -67,7 +78,8 @@ proc readFiles(files: seq[string], names: seq[string], region: ChipRegion,
                energyDset: string,
                centerChip: int,
                readToA: bool,
-               toaCutoff: seq[float]): seq[LogLFile] =
+               toaCutoff: seq[float],
+               verbose: bool): seq[LogLFile] =
   ## reads all H5 files given and stacks them to a single
   ## DF. An additional column is added, which corresponds to
   ## the filename. That way one can later differentiate which
@@ -78,16 +90,19 @@ proc readFiles(files: seq[string], names: seq[string], region: ChipRegion,
   doAssert names.len == 0 or names.len == files.len, "Need one name for each input file!"
   let noiseSet = noisyPixels.toHashSet
   for idx, file in files:
-    echo "Opening file: ", file, " of files : ", files
+    log(verbose):
+      &"Opening file: {file} of files : {files}"
     let h5f = H5open(file, "r")
-    var df = h5f.readDsets(likelihoodBase(), some((centerChip, DsetNames)))
+    var df = h5f.readDsets(likelihoodBase(), some((centerChip, DsetNames)), verbose = verbose)
     df = df
       .filter(f{float -> bool: (`centerX`.toIdx, `centerY`.toIdx) notin noiseSet })
     if readToA:
       let toaC = toaCutoff[idx]
-      echo "Cutting toa length to ", toaC, " ", df.len
+      log(verbose):
+        &"Cutting toa length to {toaC}, input df length: {df.len}"
       df = df.filter(f{`toaLength` < toaC})
-      echo "df len now ", df.len
+      log(verbose):
+        &"df len now {df.len}"
 
     doAssert not df.isNil, "Read DF is nil. Likely you gave a non existant chip number. Is " &
       $centerChip & " really the center chip in your input file?"
@@ -96,20 +111,22 @@ proc readFiles(files: seq[string], names: seq[string], region: ChipRegion,
     let fname = if names.len > 0: names[idx]
                 else: file.extractFilename
     df["File"] = constantColumn(fname, df.len)
-    echo "[INFO]: File: ", fname
-    echo "[INFO]: Elements before cut: ", df.len
+    log(verbose):
+      &"File: {fname}"
+      &"Elements before cut: {df.len}"
     df = df.filter(f{float: inRegion(`centerX`, `centerY`, region) == true})
-    echo "[INFO]: Elements after cut: ", df.len
+    log(verbose):
+      &"Elements after cut: {df.len}"
     result.add LogLFile(name: fname,
                         totalTime: readTime(h5f),
                         df: df,
-                        year: extractYear(fname))
+                        year: extractYear(fname, verbose))
     discard h5f.close()
 
 proc read2014Data(log: bool): DataFrame =
   ## Reads the 2014 data from the CSV file and prepares it to be added to the
   ## DFs from `readFiles`.
-  result = toDf(readCsv(Data2014, sep = ' ', header = "#"))
+  result = readCsv(Data2014, sep = ' ', header = "#")
     .rename(f{Rcol <- "Rate[/keV/cm²/s]"}, f{"yMax" <- "dRateUp"},
             f{"yMin" <- "dRateDown"}, f{Ecol <- "E[keV]"})
   let lastLine = toDf({ Ecol : @[10.1], Rcol : @[0.0], "yMin" : @[0.0], "yMax" : @[0.0] })
@@ -138,7 +155,7 @@ template sumIt(s: seq[typed], body: untyped): untyped =
     res += body
   res
 
-proc flatScale(files: seq[LogLFile], factor: float, dropCounts = true): DataFrame =
+proc flatScale(files: seq[LogLFile], factor: float, verbose: bool, dropCounts = true): DataFrame =
   #var count {.global.} = 0
   var df: DataFrame
   for f in files:
@@ -177,9 +194,10 @@ proc flatScale(files: seq[LogLFile], factor: float, dropCounts = true): DataFram
     if dropCounts:
       dfLoc = dfLoc.drop(["Counts", "CountErr"])
     result.add dfLoc
-  echo result.pretty(-1)
+  log(verbose):
+    result.pretty(-1)
 
-proc flatScaleMedian(df: DataFrame, factor: float, totalTime: float): DataFrame =
+proc flatScaleMedian(df: DataFrame, factor: float, totalTime: float, verbose: bool): DataFrame =
   result = newDataFrame()
   for tup, subDf in groups(df.group_by("Variable")):
     var dfVal = newDataFrame()
@@ -199,7 +217,8 @@ proc flatScaleMedian(df: DataFrame, factor: float, totalTime: float): DataFrame 
       dfVal.add dfLoc
     dfVal["Variable"] = constantColumn(tup[0][1].toStr, dfVal.len)
     result.add dfVal
-  echo result.pretty(-1)
+  log(verbose):
+    result.pretty(-1)
 
 proc calcIntegratedBackgroundRate(df: DataFrame, factor: float,
                                   energyRange: Slice[float] = 0.0 .. 10.0): float =
@@ -238,12 +257,14 @@ proc addNoisyPixels() =
       noisyPixels.add (x, y)
 
 proc plotMedianBools(df: DataFrame, fnameSuffix, title: string,
-                     suffix, outpath: string) =
+                     suffix, outpath: string, verbose: bool) =
   let transparent = color(0, 0, 0, 0)
   let fname = &"{outpath}/background_rate_median_bools_{fnameSuffix}.pdf"
-  echo "INFO: storing plot in ", fname
+  log(true): # always
+    &"Storing plot in {fname}"
   #let df = df.select([Ecol, Rcol, "Variable", "Value"])
-  echo df.pretty(-1)
+  log(verbose):
+    df.pretty(-1)
 
   ggplot(df, aes(Ecol, Rcol, fill = "Value")) +
     facet_wrap("Variable", scales = "free") +
@@ -280,8 +301,9 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
   let transparent = color(0, 0, 0, 0)
   let fname = if outfile.len > 0: outpath / outfile
               else: &"{outpath}/background_rate_{fnameSuffix}.pdf"
-  echo df
-  echo "INFO: storing plot in ", fname
+  log(true): # always write this!
+    df
+    &"INFO: storing plot in {fname}"
   var plt: GgPlot
   let numDsets = df.unique("Dataset").len
 
@@ -365,7 +387,7 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
   df = df.drop(["Dataset", "yMin", "yMax"])
   df.writeCsv("/tmp/background_rate_data.csv")
 
-proc plotEfficiencyComparison(files: seq[LogLFile], outpath: string) =
+proc plotEfficiencyComparison(files: seq[LogLFile], outpath: string, verbose: bool) =
   ## creates a plot comparing different logL cut efficiencies. Each filename should contain the
   ## efficiency in the format
   ## `_eff_<eff>.h5`
@@ -378,7 +400,7 @@ proc plotEfficiencyComparison(files: seq[LogLFile], outpath: string) =
     doAssert "_eff_" in f.name
     # ugly for now
     let eff = f.name.split("_")[^1].dup(removeSuffix(".h5")).parseFloat
-    var dfFlat = flatScale(@[f], 1e5, dropCounts = false)
+    var dfFlat = flatScale(@[f], 1e5, verbose, dropCounts = false)
     dfFlat["ε/√B"] = dfFlat["Counts", float].map_inline:
       if x > 0.0:
         eff / sqrt(x)
@@ -433,7 +455,8 @@ proc main(files: seq[string], log = false, title = "",
           filterNoisyPixels = false,
           logPlot = false,
           outpath = "plots",
-          outfile = ""
+          outfile = "",
+          quiet = false
          ) =
   discard existsOrCreateDir(outpath)
   if readToA:
@@ -442,7 +465,9 @@ proc main(files: seq[string], log = false, title = "",
   if filterNoisyPixels:
     addNoisyPixels()
 
-  let logLFiles = readFiles(files, names, region, energyDset, centerChip, readToA, toaCutoff)
+  let verbose = not quiet
+
+  let logLFiles = readFiles(files, names, region, energyDset, centerChip, readToA, toaCutoff, verbose)
   let fnameSuffix = logLFiles.mapIt($it.year).join("_") & "_show2014_" & $show2014 & "_separate_" & $separateFiles & "_" & suffix.replace(" ", "_")
 
   let factor = if log: 1.0 else: 1e5
@@ -454,26 +479,29 @@ proc main(files: seq[string], log = false, title = "",
       df.add f.df.clone() ## need to clone otherwise modify?!
       totalTime += f.totalTime
     plotMedianBools(computeMedianBools(df).flatScaleMedian(factor = factor,
-                                                           totalTime = totalTime),
+                                                           totalTime = totalTime,
+                                                           verbose = verbose),
                     fnameSuffix, title = "Comparison of background rate by different variables: clusters < and > than median",
                     suffix = suffix,
-                    outpath = outpath)
+                    outpath = outpath,
+                    verbose = verbose)
 
   if compareEfficiencies:
-    plotEfficiencyComparison(logLFiles, outpath)
+    plotEfficiencyComparison(logLFiles, outpath, verbose)
   else:
     var df = newDataFrame()
     if names.len > 0:
       doAssert names.len == files.len, "Need one name for each input file!"
       #for logL in logLFiles:
-      df.add flatScale(logLFiles, factor)
+      df.add flatScale(logLFiles, factor, verbose)
     elif separateFiles:
-      df = flatScale(logLFiles, factor)
+      df = flatScale(logLFiles, factor, verbose)
     elif logLFiles.len > 0:
       # add up all input files
       var logL: LogLFile
       for l in logLFiles:
-        echo "[INFO] total time: ", l.totalTime, " of file: ", l.name
+        log(true):
+          &"Total time: {l.totalTime} of file: {l.name}"
         if l.totalTime == 0.0:
           logL = l
         else:
@@ -481,7 +509,8 @@ proc main(files: seq[string], log = false, title = "",
           logL.df.add l.df.clone()
       if totalTime.Hour > 0.0.Hour:
         logL.totalTime = totalTime.Hour.to(Second).float
-      echo "[INFO]: total total time: ", logL.totalTime
+      log(true):
+        &"Total total time: {logL.totalTime}"
       logL.name = combName
       logL.year = combYear
       logL.df["File"] = combName
@@ -489,7 +518,7 @@ proc main(files: seq[string], log = false, title = "",
         raise newException(ValueError, "separateFiles == true requires a `combName`!")
       if logL.year == 0:
         raise newException(ValueError, "separateFiles == true requires a `combYear`!")
-      df = flatScale(@[logL], factor)
+      df = flatScale(@[logL], factor, verbose)
     # else no input files. Only 2014 data to plot
     #if separateFiles:
     #  for logL in logLFiles:
@@ -511,9 +540,12 @@ proc main(files: seq[string], log = false, title = "",
           let f = tup[0][1].toStr
           let intBackRate = calcIntegratedBackgroundRate(subDf, factor, energyRange)
           let size = energyRange.b - energyRange.a
-          echo &"Dataset: {f}"
-          echo &"\t Integrated background rate in range: {energyRange}: {intBackRate:.4e} cm⁻² s⁻¹"
-          echo &"\t Integrated background rate/keV in range: {energyRange}: {intBackRate / size:.4e} keV⁻¹·cm⁻²·s⁻¹"
+          log(true): # always print
+            &"Dataset: {f}"
+          log(true): # for some reason cannot have in one, shrug
+            &"\t Integrated background rate in range: {energyRange}: {intBackRate:.4e} cm⁻²·s⁻¹"
+          log(true):
+            &"\t Integrated background rate/keV in range: {energyRange}: {intBackRate / size:.4e} keV⁻¹·cm⁻²·s⁻¹"
       intBackRate(df, factor, 0.0 .. 12.0)
       intBackRate(df, factor, 0.5 .. 2.5)
       intBackRate(df, factor, 0.5 .. 5.0)

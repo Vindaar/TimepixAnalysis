@@ -45,11 +45,11 @@ proc scaleDset(data: Column, totalTime, factor: float): Column =
   let scale = factor / (totalTime * shutter_open * area.float * bin_width) #* 1e5
   result = toColumn data.toTensor(float).map_inline(x * scale)
 
-proc readTime(h5f: H5FileObj): float =
+proc readTime(h5f: H5File): float =
   let lhGrp = h5f["/likelihood".grp_str]
   result = lhGrp.attrs["totalDuration", float]
 
-proc scaleDset(h5f: H5FileObj, data: Column, factor: float): Column =
+proc scaleDset(h5f: H5File, data: Column, factor: float): Column =
   result = scaleDset(data, h5f.readTime(), factor)
 
 proc extractYear(f: string): int =

@@ -1,32 +1,20 @@
 import times, sequtils, algorithm, strutils, os, strformat
 import ingrid / [tos_helpers, ingrid_types]
 from helpers/utils import getDaysHoursMinutes
-import docopt
 import nimhdf5
+import cligen / macUt # for `docCommentAdd`
 
 when defined(linux):
   const commitHash = staticExec("git rev-parse --short HEAD")
 else:
   const commitHash = ""
-
 # get date using `CompileDate` magic
-const currentDate = CompileDate & " at " & CompileTime
+const compileDate = CompileDate & " at " & CompileTime
+const versionStr = "Version: $# built on: $#" % [commitHash, compileDate]
 
 const docTmpl = """
-Version: $# built on: $#
 A tool to write the run list including # trackings
-
-Usage:
-  writeRunList <H5file> <H5file2> [options]
-
-Options:
-  -h, --help             Show this help
-  --version              Show the version number
-
-The first file should be the `DataRuns.h5` and the second the `CalibrationRuns.h5`.
 """
-const doc = docTmpl % [commitHash, currentDate]
-
 const HeaderElements = ["Run #",
                         "Type",
                         "DataType",
@@ -107,19 +95,46 @@ proc writeSummary(runs: RunList, runType: RunTypeKind) =
   echo "Type: ", runType
   var trackingDuration = initDuration()
   var nonTrackingDuration = initDuration()
+  var activeTrackingTime = initDuration()
+  var activeNonTrackingTime = initDuration()
+  var totalTime = initDuration()
+  var activeTime = initDuration()
   for r in runs:
-    trackingDuration = trackingDuration + r.trackingDuration
-    nonTrackingDuration = nonTrackingDuration + r.nonTrackingDuration
+    trackingDuration += r.trackingDuration
+    nonTrackingDuration += r.nonTrackingDuration
+    activeTrackingTime += r.activeTrackingTime
+    activeNonTrackingTime += r.activeNonTrackingTime
+    totalTime += r.totalTime
+    activeTime += r.activeTime
+
+  proc asHours(d: Duration): float =
+    ## Returns the time as exact float hours
+    result = d.inMicroSeconds().float / 3600e6
+
+  echo "\t total duration: ", totalTime
+  echo "\t   In hours: ", totalTime.asHours()
+  echo "\t   active duration: ", activeTime.asHours()
   echo "\t trackingDuration: ", trackingDuration
+  echo "\t   In hours: ", trackingDuration.asHours()
+  echo "\t   active tracking duration: ", activeTrackingTime.asHours()
   echo "\t nonTrackingDuration: ", nonTrackingDuration
+  echo "\t   In hours: ", nonTrackingDuration.asHours()
+  echo "\t   active background duration: ", activeNonTrackingTime.asHours()
+  let df = toDf({ "Solar tracking [h]" : trackingDuration.asHours(),
+                  "Background [h]" : nonTrackingDuration.asHours(),
+                  "Active tracking [h]" : activeTrackingTime.asHours(),
+                  "Active background [h]" : activeNonTrackingTime.asHours(),
+                  "Total time [h]" : totalTime.asHours(),
+                  "Active time [h]" : activeTime.asHours() })
+  echo df.toOrgTable(precision = 6)
 
-proc main =
-  let args = docopt(doc)
-  let backFname = $args["<H5file>"]
-  let calibFname = $args["<H5file2>"]
+proc main(back, calib: string) =
+  ## Given a path to a `DataRuns.h5` (`back`) and `CalibrationRuns.h5` file (`calib`) outputs a
+  ## run list and the total tracking and non tracking durations.
+  docCommentAdd(versionStr)
 
-  let pltBack = createRunList(backFname, rtBackground)
-  let pltCalib = createRunList(calibFname, rtCalibration)
+  let pltBack = createRunList(back, rtBackground)
+  let pltCalib = createRunList(calib, rtCalibration)
 
   let sortedRuns = sortRuns(pltBack, pltCalib)
   echo sortedRuns
@@ -130,4 +145,5 @@ proc main =
   write("runList.org", sortedRuns)
 
 when isMainModule:
-  main()
+  import cligen
+  dispatch main

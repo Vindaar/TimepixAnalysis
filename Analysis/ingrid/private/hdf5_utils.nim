@@ -826,6 +826,11 @@ proc parseTracking(grp: H5Group, idx: int): RunTimeInfo =
   # from actual events
   result.t_length = result.t_end - result.t_start
 
+proc `*`(d: Duration, f: float): Duration =
+  result = initDuration(
+    microSeconds = (d.inMicroSeconds().float * f).round.int
+  )
+
 proc getExtendedRunInfo*(h5f: H5File, runNumber: int,
                          runType: RunTypeKind,
                          rfKind: RunFolderKind = rfNewTos): ExtendedRunInfo =
@@ -847,6 +852,8 @@ proc getExtendedRunInfo*(h5f: H5File, runNumber: int,
                           t_end: (tstamp[^1].float + evDuration[^1]).fromUnixFloat) # end is last tstamp + duration of that event!
   tInfo.t_length = tInfo.t_end - tInfo.t_start
   result.timeInfo = tInfo
+  result.totalTime = tInfo.t_length
+  result.activeRatio = result.activeTime.inSeconds.float / result.totalTime.inSeconds.float
 
   # calculate background time from trackings
   var trackingDuration = initDuration()
@@ -860,7 +867,9 @@ proc getExtendedRunInfo*(h5f: H5File, runNumber: int,
     trackingDuration = trackingDuration + tracking.t_length
 
   result.trackingDuration = trackingDuration
-  result.nonTrackingDuration = result.timeInfo.t_length - trackingDuration
+  result.activeTrackingTime = result.trackingDuration * result.activeRatio
+  result.nonTrackingDuration = result.timeInfo.t_length - result.trackingDuration
+  result.activeNonTrackingTime = result.nonTrackingDuration * result.activeRatio
 
   result.rfKind = rfKind
   result.runType = runType

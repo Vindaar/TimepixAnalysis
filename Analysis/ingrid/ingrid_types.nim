@@ -157,11 +157,15 @@ when not defined(js):
       runType*: RunTypeKind
       nEvents*: int
       nFadcEvents*: int
+      totalTime*: Duration # total time from beginning of each run to endy
       activeTime*: Duration # total time shutter was open
+      activeRatio*: float # ratio of total time the shutter was open
       # reuse `RunTimeInfo` to store possible tracking starts / ends
       trackings*: seq[RunTimeInfo]
       nonTrackingDuration*: Duration
+      activeNonTrackingTime*: Duration # total time shutter was open during no tracking
       trackingDuration*: Duration
+      activeTrackingTime*: Duration # total time shutter was open during tracking
 
   ################################
   # Reconstruction related types #

@@ -396,9 +396,9 @@ proc dumpStartParamsPlot(bins_to_fit, data_to_fit: seq[float],
                          fn: proc(p_ar: seq[float], x: float): float) =
   ## generates a plot of rhte data and the start parameters
   let df = toDf({ "x" : bins_to_fit,
-                      "y" : data_to_fit,
-                      "yFit" : bins_to_fit.mapIt(fn(params, it))})
-  echo df.pretty(-1)
+                  "y" : data_to_fit,
+                  "yFit" : bins_to_fit.mapIt(fn(params, it))})
+  #echo df.pretty(-1)
   ggplot(df, aes("x", "y")) +
     geom_histogram(stat = "identity") +
     geom_line(aes(y = "yFit")) +

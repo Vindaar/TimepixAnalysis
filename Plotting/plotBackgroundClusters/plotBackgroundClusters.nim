@@ -52,7 +52,8 @@ proc goldRegionOutline(maxVal: int): Tensor[int] =
         coord[0] in {min .. max}):
       result[coord[0], coord[1]] = maxVal
 
-when false:
+## XXX: Handle the noisy pixels better!
+when true:
   const noisyPixels = [(64, 109),
                        (64, 110),
                        (67, 112),
@@ -77,14 +78,15 @@ when false:
                        (66, 111),
                        (69, 110)]
 
-var noisyPixels = newSeq[(int, int)]()
-for x in 150 .. 250:
-  for y in 130 .. 162:
-    noisyPixels.add (x, y)
+when false:
+  var noisyPixels = newSeq[(int, int)]()
+  for x in 150 .. 250:
+    for y in 130 .. 162:
+      noisyPixels.add (x, y)
 
-for x in 125 .. 135:
-  for y in 110 .. 120:
-    noisyPixels.add (x, y)
+  for x in 125 .. 135:
+    for y in 110 .. 120:
+      noisyPixels.add (x, y)
 
 proc readClusters(file: string, cTab: var CountTable[(int, int)],
                   filterNoisyPixels: bool,
@@ -154,7 +156,7 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
                   suffix, title, outpath: string) =
   let outpath = if outpath.len > 0: outpath else: "plots"
   createDir(outpath)
-  let fname = &"{outpath}/background_cluster_centers{suffix}"
+  let fname = &"{outpath}/background_cluster_centers{suffix}.pdf"
   if names.len == 0 or names.deduplicate.len == 1:
     let totalEvs = df["count", int].sum()
     let plt = ggplot(df, aes("x", "y", color = "count")) +

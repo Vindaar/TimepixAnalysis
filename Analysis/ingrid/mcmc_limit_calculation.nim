@@ -2,7 +2,7 @@ import std / [os, math, random, strformat, times, stats, osproc, logging, monoti
 import pkg / [nimhdf5, unchained, seqmath, chroma, cligen, shell]
 
 import sequtils except repeat
-from strutils import repeat, endsWith, strip, parseFloat, removeSuffix
+from strutils import repeat, endsWith, strip, parseFloat, removeSuffix, parseBool
 
 import pkg / [sorted_seq]
 
@@ -307,27 +307,73 @@ proc filterNoisyPixels(df: DataFrame, noiseFilter: NoiseFilter): DataFrame =
   result = df.filter(f{not (toIdx(`centerX`) in xSet and
                             toIdx(`centerY`) in ySet)})
 
-proc readFiles(path: string, s: seq[string], noiseFilter: NoiseFilter): DataFrame =
+type
+  LogLFlagKind = enum
+    fkTracking, fkFadc, fkScinti, fkSeptem, fkLineVeto, fkAggressive
+
+  ReadData = object
+    df: DataFrame
+    flags: set[LogLFlagKind]
+    vetoPercentile: float # if FADC veto used, the percentile used to generate the cuts
+
+proc readFlags(h5f: H5File): tuple[vetoPercentile: float, flags: set[LogLFlagKind]] =
+  let logLGrp = h5f[likelihoodGroupGrpStr]
+  var flags: set[LogLFlagKind]
+  var perc: float
+  proc readField(grp: H5Group, name: string): bool =
+    if name in grp:
+      result = parseBool(grp.attrs[name, string])
+  if readField(logLGrp, FadcVetoAttrStr):
+    flags.incl fkFadc
+  if readField(logLGrp, ScintiVetoAttrStr):
+    flags.incl fkScinti
+  if readField(logLGrp, SeptemVetoAttrStr):
+    flags.incl fkSeptem
+  if readField(logLGrp, LineVetoAttrStr):
+    flags.incl fkLineVeto
+  if readField(logLGrp, TrackingAttrStr):
+    flags.incl fkTracking
+  if FadcVetoPercAttrStr in logLGrp:
+    perc = logLGrp.attrs[FadcVetoPercAttrStr, float]
+  result = (vetoPercentile: perc, flags: flags)
+
+proc readFiles(path: string, s: seq[string], noiseFilter: NoiseFilter): ReadData =
   var h5fs = newSeq[datatypes.H5File]()
   echo path
   echo s
   for fs in s:
     h5fs.add H5open(path / fs, "r")
-  result = h5fs.mapIt(
+  var df = h5fs.mapIt(
     it.readDsets(likelihoodBase(), some((chip: 3, dsets: @["energyFromCharge", "centerX", "centerY"])))
     .rename(f{"Energy" <- "energyFromCharge"})
     .filterNoisyPixels(noiseFilter)
   ).flatten
-  doAssert not result.isNil, "Our input data is nil. This should not happen!"
-  echo "[INFO]: Read a total of ", result.len, " input clusters."
+  doAssert not df.isNil, "Our input data is nil. This should not happen!"
+
+  echo "[INFO]: Read a total of ", df.len, " input clusters."
   ## NOTE: the energy cutoff used here does not matter much, because the background interpolation
   ## is of course energy dependent and only happens in an `EnergyRange` around the desired point.
   ## The candidates are drawn in a range defined by `EnergyCutoff`. The kd tree just has to be
   ## able to provide points for the interpolation up to the `EnergyCutoff`. That's why the
   ## `t.sum()` does not change if we change the energy filter here.
-  result = result.filter(f{`Energy` < 12.0})
+  df = df.filter(f{`Energy` < 12.0})
+  var lastFlags: set[LogLFlagKind]
+  var lastPerc: float
+  var first = true
   for h in h5fs:
+    let (perc, flags) = readFlags(h)
+    if not first and flags != lastFlags:
+      raise newException(IOError, "Input files do not all match in the vetoes used! Current file " &
+        h.name & " has vetoes: " & $flags & ", but last file: " & $lastFlags)
+    if not first and perc != lastPerc:
+      raise newException(IOError, "Input files do not all match in the FADC veto percentile used! Current file " &
+        h.name & " has percentile: " & $perc & ", but last file: " & $lastPerc)
+
+    first = false
+    lastFlags = flags
+    lastPerc = perc
     discard h.close()
+  result = ReadData(df: df, flags: lastFlags, vetoPercentile: lastPerc)
 
 defUnit(keV⁻¹•cm⁻²•s⁻¹)
 defUnit(keV⁻¹•m⁻²•yr⁻¹)
@@ -494,6 +540,26 @@ proc initNoiseFilter(yearFiles: seq[(int, string)]): NoiseFilter =
     result = NoiseFilter(pixels: @pixels,
                          fnames: yearFiles.filterIt(it[0] == year).mapIt(it[1]))
 
+proc calcVetoEfficiency(readData: ReadData,
+                        septemVetoRandomCoinc,
+                        lineVetoRandomCoinc,
+                        septemLineVetoRandomCoinc: float): float =
+  ## Calculates the combined efficiency of the detector given the used vetoes, the
+  ## random coincidence rates of each and the FADC veto percentile used to compute
+  ## the veto cut.
+  result = 1.0 # starting efficiency
+  if fkFadc in readData.flags:
+    doAssert readData.vetoPercentile > 0.5, "Veto percentile was below 0.5: " &
+      $readData.vetoPercentile # 0.5 would imply nothing left & have upper percentile
+    # input is e.g. `0.99` so: invert, multiply (both sided percentile cut), invert again
+    result = 1.0 - (1.0 - readData.vetoPercentile) * 2.0
+  if {fkSeptem, fkLineVeto} - readData.flags == {}: # both septem & line veto
+    result *= septemLineVetoRandomCoinc
+  elif fkSeptem in readData.flags:
+    result *= septemVetoRandomCoinc
+  elif fkLineVeto in readData.flags:
+    result *= lineVetoRandomCoinc
+
 proc initContext(path: string, yearFiles: seq[(int, string)],
                  useConstantBackground: bool, # decides whether to use background interpolation or not
                  radius, sigma: float, energyRange: keV, nxy, nE: int,
@@ -501,9 +567,24 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
                  windowRotation = 30.°,
                  σ_sig = 0.0, σ_back = 0.0, # depending on which `σ` is given as > 0, determines uncertainty
                  σ_p = 0.0,
-                 rombergIntegrationDepth = 5
+                 rombergIntegrationDepth = 5,
+                 septemVetoRandomCoinc = 1.0,    # random coincidence rate of the septem veto
+                 lineVetoRandomCoinc = 1.0,      # random coincidence rate of the line veto
+                 septemLineVetoRandomCoinc = 1.0 # random coincidence rate of the septem + line veto
                 ): Context =
   let samplingKind = if useConstantBackground: skConstBackground else: skInterpBackground
+
+  let files = yearFiles.mapIt(it[1])
+  let noiseFilter = initNoiseFilter(yearFiles)
+  # read data including vetoes & FADC percentile
+  let readData = readFiles(path, files, noiseFilter)
+
+  let kdeSpl = block:
+    let dfLoc = readData.df.toKDE(true)
+    newCubicSpline(dfLoc["Energy", float].toSeq1D, dfLoc["KDE", float].toSeq1D)
+  let backgroundInterp = toNearestNeighborTree(readData.df)
+  let energies = linspace(0.071, 9.999, 10000).mapIt(it) # cut to range valid in interpolation
+  let backgroundCdf = energies.mapIt(kdeSpl.eval(it)).toCDF()
 
   let axData = readAxModel()
   ## TODO: use linear interpolator to avoid going to negative?
@@ -511,9 +592,18 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
                              axData["Flux / keV⁻¹•cm⁻²•s⁻¹", float].toSeq1D)
 
   let combEffDf = readCsv("/home/basti/org/resources/combined_detector_efficiencies.csv")
+  # calc the efficiency based on the given vetoes
+  let vetoEff = calcVetoEfficiency(readData,
+                                   septemVetoRandomCoinc,
+                                   lineVetoRandomCoinc,
+                                   septemLineVetoRandomCoinc)
+  # now correct for additional veto eff loss (`map_inline` below) and
+  # create a spline
   let effSpl = newCubicSpline(combEffDf["Energy [keV]", float].toSeq1D,
                               #combEffDf["Efficiency", float].toSeq1D)
-                              combEffDf["Eff • ε • LLNL", float].toSeq1D) # effective area included in raytracer
+                              # total efficiency is given efficiency times veto efficiency
+                              # (effective area included in raytracer, `LLNL`)
+                              combEffDf["Eff • ε • LLNL", float].map_inline(x * vetoEff).toSeq1D)
 
   let raySpl = block:
     #let hmap = readCsv("/home/basti/org/resources/axion_image_heatmap_2017.csv")
@@ -536,16 +626,6 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
       t[x, y] = (z / zSum * pixPerArea).float #zMax / 784.597 # / zSum # TODO: add telescope efficiency abs. * 0.98
     newBilinearSpline(t, (0.0, 255.0), (0.0, 255.0)) # bicubic produces negative values!
 
-  let files = yearFiles.mapIt(it[1])
-  let noiseFilter = initNoiseFilter(yearFiles)
-  var df = readFiles(path, files, noiseFilter)
-  let kdeSpl = block:
-    var dfLoc = df.toKDE(true)
-    newCubicSpline(dfLoc["Energy", float].toSeq1D, dfLoc["KDE", float].toSeq1D)
-  let backgroundInterp = toNearestNeighborTree(df)
-  let energies = linspace(0.071, 9.999, 10000).mapIt(it) # cut to range valid in interpolation
-  let backgroundCdf = energies.mapIt(kdeSpl.eval(it)).toCDF()
-
   result = Context(samplingKind: samplingKind,
                    axionModel: axData,
                    axionSpl: axSpl,
@@ -553,10 +633,10 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
                    efficiencySpl: effSpl,
                    raytraceSpl: raySpl,
                    backgroundSpl: kdeSpl,
-                   backgroundDf: df,
+                   backgroundDf: readData.df,
                    backgroundCDF: backgroundCdf,
                    energyForBCDF: energies,
-                   totalBackgroundClusters: df.len,
+                   totalBackgroundClusters: readData.df.len,
                    totalBackgroundTime: backgroundTime,
                    totalTrackingTime: trackingTime,
                    g_aγ²: 1e-12 * 1e-12, ## reference axion photon coupling
@@ -2624,11 +2704,11 @@ proc sanityCheckBackground(ctx: Context, log: Logger) =
                          0.5.cm * 0.5.cm)
 
   # read data files without removing noisy pixels
-  let dfNoise = readFiles(ctx.filePath, ctx.files, NoiseFilter())
+  let readData = readFiles(ctx.filePath, ctx.files, NoiseFilter())
 
   log.infos("Background"):
     &"Number of background clusters = {ctx.backgroundDf.len}"
-    &"Number of background clusters including noisy pixels = {dfNoise.len}"
+    &"Number of background clusters including noisy pixels = {readData.df.len}"
     # 2. total background time
     &"Total background time = {ctx.totalBackgroundTime}"
     &"Ratio of background to tracking time = {ratio}"
@@ -2652,7 +2732,7 @@ proc sanityCheckBackground(ctx: Context, log: Logger) =
       ggtitle("Background <12 keV, # clusters = " & $df.len & suffix) +
       ggsave(clusterPlotPath)
   plotClusters(ctx.backgroundDf, "background_clusters.pdf", ". noisy pixels filtered")
-  plotClusters(dfNoise, "background_clusters_including_noisy_pixels.pdf", ". noisy pixels *not* filtered")
+  plotClusters(readData.df, "background_clusters_including_noisy_pixels.pdf", ". noisy pixels *not* filtered")
 
   # plot of background rate in gold region
   # compute the weight of each cluster
@@ -3487,6 +3567,9 @@ proc limit(
     σ_sig = 0.04692492913207222,
     σ_back = 0.002821014576353691,
     σ_p = 0.05,
+    septemVetoRandomCoinc = 0.7841029411764704, # only septem veto random coinc based on bootstrapped fake data
+    lineVetoRandomCoinc = 0.8601764705882353,   # lvRegular based on bootstrapped fake data
+    septemLineVetoRandomCoinc = 0.732514705882353, # lvRegularNoHLC based on bootstrapped fake data
     limitKind = lkBayesScan,
     computeLimit = false,
     scanSigmaLimits = false,
@@ -3520,7 +3603,11 @@ proc limit(
     nxy = nxy, nE = nE,
     σ_sig = σ_sig, # from sqrt(squared sum) of signal uncertainties
     σ_back = σ_back,#, # from sqrt(square sum) of back uncertainties
-    σ_p = σ_p) # from sqrt(squared sum of x / 7) position uncertainties
+    σ_p = σ_p,
+    septemVetoRandomCoinc = septemVetoRandomCoinc,
+    lineVetoRandomCoinc = lineVetoRandomCoinc,
+    septemLineVetoRandomCoinc = septemLineVetoRandomCoinc
+  ) # from sqrt(squared sum of x / 7) position uncertainties
     # large values of σ_sig cause NaN and grind some integrations to a halt!
     ## XXX: σ_sig = 0.3)
   #echo ctx.interp.expCounts

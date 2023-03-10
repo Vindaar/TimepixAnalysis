@@ -1,5 +1,7 @@
-import shell, sequtils, strformat, strutils, os
+import std / [sequtils, strformat, strutils, os, sets, algorithm]
 from std / times import epochTime
+
+import shell
 from ingrid / ingrid_types import ChipRegion
 
 import cligen / [procpool, mslice, osUt]
@@ -37,6 +39,10 @@ type
     fkExclusiveLineVeto # line veto *without* septem veto & lvRegular, ecc cut 1.0
                         # important this is last!
 
+  Veto = object
+    kind: FlagKind
+    additional: bool # whether this veto is treated as an additional or also standalone
+
   Combination = object
     fname: string
     calib: string
@@ -54,37 +60,58 @@ proc toStr(fk: FlagKind): string =
   of fkLineVeto: "--lineveto"
   of fkExclusiveLineVeto: "--lineveto"
 
+proc `$`(v: Veto): string =
+  if v.additional:
+    result = "+"
+  result.add v.kind.toStr()
+
+proc contains(s: HashSet[Veto], f: FlagKind): bool =
+  for x in s:
+    if x.kind == f: return true
+
+iterator items(s: HashSet[Veto]): Veto =
+  # yield elements in order of `FlagKind`
+  var vSeq: seq[Veto]
+  var ms = s
+  while ms.len > 0:
+    vSeq.add ms.pop
+  vSeq = vSeq.sortedByIt(it.kind)
+  for x in vSeq:
+    yield x
+
 proc genVetoStr(vetoes: set[FlagKind]): string =
   for v in vetoes:
-    result = result & " " & (v.toStr())
+    result = result & " " & v.toStr()
 
 iterator genCombinations(f2017, f2018: string,
                          c2017, c2018: string,
                          regions: set[ChipRegion],
-                         vetoes: set[FlagKind],
+                         vetoSets: seq[HashSet[Veto]],
                          fadcVetoPercentiles: seq[float]
                         ): Combination =
   for tup in zip(@[f2017, f2018].filterIt(it.len > 0), @[c2017, c2018]):
     let (fname, calib) = (tup[0], tup[1])
     let year = if fname == f2017: 2017 else: 2018
     for region in regions:
-      var vetoSet: set[FlagKind]
-      for veto in FlagKind: # iterate over `FlagKind` checking if this veto contained in input
-        if veto in vetoes:  # guarantees we return in order of `FlagKind`. Each *additional*
-          vetoSet.incl veto # combination is therefore returned
-          if veto == fkExclusiveLineVeto:
+      for vSet in vetoSets:
+        var flags: set[FlagKind]
+        for veto in vSet:      # iterate over `HashSet[Veto]`, adding this veto to the current flags
+          flags.incl veto.kind # combination is therefore returned
+          if veto.kind == fkExclusiveLineVeto:
             # remove septem veto
-            vetoSet.excl fkSeptem
-            vetoSet.excl fkLineVeto # don't need line veto anymore
-        var comb = Combination(fname: fname, calib: calib, year: year,
-                               region: region, vetoes: vetoSet,
-                               vetoPercentile: -1.0)
-        if fkFadc in vetoSet: # if FADC contained, yield all percentiles after another
-          for perc in fadcVetoPercentiles:
-            comb.vetoPercentile = perc
+            flags.excl fkSeptem
+            flags.excl fkLineVeto # don't need line veto anymore
+          if veto.additional: # in this case we *do not* yield, e.g. `+fkScinti` won't run with scinti only, accumulate
+            continue
+          var comb = Combination(fname: fname, calib: calib, year: year,
+                                 region: region, vetoes: flags,
+                                 vetoPercentile: -1.0)
+          if fkFadc in flags: # if FADC contained, yield all percentiles after another
+            for perc in fadcVetoPercentiles:
+              comb.vetoPercentile = perc
+              yield comb
+          else:
             yield comb
-        else:
-          yield comb
 
 proc buildFilename(comb: Combination, outpath: string): string =
   let runPeriod = if comb.year == 2017: "Run2" else: "Run3"
@@ -159,24 +186,24 @@ proc toCombination(data: InputData): Combination =
 proc main(f2017, f2018: string = "", # paths to the Run-2 and Run-3 data files
           c2017, c2018: string = "", # paths to the Run-2 and Run-3 calibration files (needed for FADC veto)
           regions: set[ChipRegion], # which chip regions to compute data for
-          vetoes: set[FlagKind],
+          vetoSets: seq[HashSet[Veto]] = @[],
           cdlFile: string,
           outpath = "out",
           cdlYear = 2018,
           dryRun = false,
           multiprocessing = false,
           fadcVetoPercentiles: seq[float] = @[]) =
-  if fkFadc in vetoes and ( # stop if FADC veto used but calibration file missing
+  if vetoSets.anyIt(fkFadc in it) and ( # stop if FADC veto used but calibration file missing
      (f2017.len > 0 and c2017.len == 0) or
      (f2018.len > 0 and c2018.len == 0)):
     doAssert false, "When using the FADC veto the corresponding calibration file to the background " &
       "data file is required."
   if not multiprocessing: # run all commands in serial
-    for comb in genCombinations(f2017, f2018, c2017, c2018, regions, vetoes, fadcVetoPercentiles):
+    for comb in genCombinations(f2017, f2018, c2017, c2018, regions, vetoSets, fadcVetoPercentiles):
       runCommand(comb, cdlFile, outpath, cdlYear, dryRun, readOnly = false)
   else:
     var cmds = newSeq[InputData]()
-    for comb in genCombinations(f2017, f2018, c2017, c2018, regions, vetoes, fadcVetoPercentiles):
+    for comb in genCombinations(f2017, f2018, c2017, c2018, regions, vetoSets, fadcVetoPercentiles):
       cmds.add comb.toInputData()
 
     for cmd in cmds:
@@ -206,6 +233,21 @@ proc main(f2017, f2018: string = "", # paths to the Run-2 and Run-3 data files
       echo "Running all likelihood combinations took ", epochTime() - t0, " s"
 
 when isMainModule:
+  import cligen/argcvt
+  from strutils import parseEnum
+  proc argParse(dst: var HashSet[Veto], dfl: HashSet[Veto],
+                a: var ArgcvtParams): bool =
+    var vals = a.val.strip(chars = {'{', '}'}).split(',')
+    for val in vals:
+      let valC = val.strip
+      let additional = if valC[0] == '+': true else: false
+      try:
+        let kind = parseEnum[FlagKind](valC.strip(chars = {'+'}))
+        dst.incl(Veto(kind: kind, additional: additional))
+      except ValueError:
+        raise newException(Exception, "Invalid flag given: " & $valC)
+    result = true
+
   import cligen
   dispatch main
 

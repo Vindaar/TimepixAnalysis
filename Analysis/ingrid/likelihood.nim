@@ -657,7 +657,8 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
       var septemGeometry: SeptemEventGeometry # no need for constructor. `default` is fine
       if fkAggressive in flags:
         # if there's more than 1 cluster, remove
-        if recoEv.cluster.len > 1:
+        if recoEv.cluster.len > 1: # <- this is a very bad idea knowing something about random coincidence rates now!
+                                   # (anyhow this is not really ever used)
           passedInds.excl septemFrame.centerEvIdx
           passedEvs.excl evNum
           continue # skip to next iteration

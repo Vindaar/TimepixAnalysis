@@ -531,16 +531,21 @@ proc getCenterChip*(h5f: H5File, runNumber: int): int =
 ##################### HDF5 related helper functions ############################
 ################################################################################
 
-proc getTrackingEvents*(h5f: H5File, group: H5Group, num_tracking: int = -1, tracking = true): seq[int] =
+proc getTrackingEvents*(h5f: H5File, group: H5Group,
+                        num_tracking: int = -1,
+                        tracking = true,
+                        returnEventNumbers = false): seq[int] =
   ## given a `group` in a `h5f`, filter out all indices, which are part of
   ## a tracking (`tracking == true`) or not part of a tracking (`tracking == false`)
-  ## NOTE: the indices of the whole timestamp array correspond to the event
-  ## numbers of a run, since this is a 1:1 mapping.
-  ## NOTE2: This only works as long as the raw input does ``actually`` contain
+  ##
+  ## Note: The returned data are the `indices` by default and not the event numbers,
+  ## even though the two should be interchangeable as the common dataset `eventNumber`
+  ## should always go from 0 to N without skipping any nor duplicates.
+  ##
+  ## Note 2: This only works as long as the raw input does ``actually`` contain
   ## all files! While this was true for Virtex 6 TOS files in 2017/18, it does
-  ## not at all hold for V6 2014/15 and SRS TOS files!. Thus get the event numbers
-  ## and map to them.
-  result = @[]
+  ## not at all hold for V6 2014/15 and SRS TOS files! If the event numbers are
+  ## required, use `returnEventNumbers = true`.
   # attributes of this group
   var attrs = group.attrs
   try:
@@ -567,28 +572,34 @@ proc getTrackingEvents*(h5f: H5File, group: H5Group, num_tracking: int = -1, tra
     # first get all indices of all trackings in a seq[seq[int]]
     var allTrackingInds: seq[seq[int]] = @[]
     for k in 0 ..< ntrackings:
-      allTrackingInds.add filterIt(toSeq(0 ..< tstamp.len)) do:
-        tstamp[it] > tr_starts_s[k] and tstamp[it] < tr_stops_s[k]
-    if tracking == true:
+      var inds = newSeqOfCap[int](tstamp.len)
+      for i in 0 ..< tstamp.len:
+        if tstamp[i] >= tr_starts_s[k] and tstamp[i] <= tr_stops_s[k]:
+          inds.add i
+      allTrackingInds.add inds
+    if tracking:
       if num_tracking >= 0:
         # simply get the correct indices from allTrackingInds
-        result = allTrackingInds[num_tracking].mapIt(evNums[it])
+        result = allTrackingInds[num_tracking]
       else:
         # flatten the allTrackingInds nested seq and return
-        result = flatten(allTrackingInds).mapIt(evNums[it])
+        result = flatten(allTrackingInds)
     else:
       # all outside trackings are simply the indices, which are not part of a flattened
       # allTrackingInds
-      let allTrackingsFlat = flatten(allTrackingInds)
+      let allTrackingsFlat = flatten(allTrackingInds).toSet
       # and now filter all indices not part of flattened index
-      result = toSeq(0 ..< tstamp.len)
-        .filterIt(it notin allTrackingsFlat)
-        .mapIt(evNums[it])
+      result = newSeqOfCap[int](allTrackingsFlat.card)
+      for i in 0 ..< tstamp.len:
+        if i notin allTrackingsFlat:
+          result.add i
+
+    if result.len > 0 and returnEventNumbers: # caller asks for event numbers, convert
+      result = result.mapIt(evNums[it])
   except KeyError:
     # in this case there is no tracking information. Keep all indices
     echo &"No tracking information in {group.name} found, use all clusters"
     result = @[]
-
 
 proc filterTrackingEvents*[T: SomeInteger](cluster_events: seq[T], eventsInTracking: seq[int]): seq[int] =
   ## filters out all event numbers of a reconstructed run for one chip

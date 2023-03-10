@@ -765,6 +765,8 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
     totalEvCount = 0
     totalLogLCount = 0
 
+  let tracking = fkTracking in flags
+
   # first copy over the attributes part of the `/reconstruction` group
   h5f.copyOverAttrs(h5fout)
 
@@ -786,14 +788,39 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
     # get timestamp for run
     let tstamp = h5f[(group / "timestamp"), int64]
     let eventNumbers = h5f[group / "eventNumber", int64]
+
+    # get indices corresponding to tracking (or non tracking); indices needed to determine
+    # total durations correctly
+    var indicesInTracking: seq[int]
+    if tracking:
+      indicesInTracking = h5f.getTrackingEvents(mgrp, tracking = true, returnEventNumbers = false)
+    else:
+      indicesInTracking = h5f.getTrackingEvents(mgrp, tracking = false, returnEventNumbers = false)
+    ## XXX: A test run for Run-3 using `--tracking` to check the time we recover yielded
+    ## 316176.977955 s and
+    ## 87.8269383208 h
+    ## as the tracking time. Our expectation is:
+    ## 74.2981 h total and 66.9231 h of active time.
+    ## Why? Debug that once it's time to unblind!
+
+    # get the event numbers for safety
+    let eventsInTracking = indicesInTracking.mapIt(eventNumbers[it].int)
+
     case fileInfo.timepix
     of Timepix1:
       # determine total duration based on `eventDuration`
       let evDurations = h5f[group / "eventDuration", float64]
-      totalDuration += evDurations.foldl(a + b, 0.0)
+      if eventsInTracking.len == 0: # use all indices (i.e. no tracking found)
+        totalDuration += evDurations.foldl(a + b, 0.0)
+      else: # use only those event numbers that are part of considered data
+        for idx in indicesInTracking:
+          totalDuration += evDurations[idx]
     of Timepix3:
       # in case of stream based readout, total duration is just stop - start of run
       # (stored as an attribute already)
+      ## XXX: This cannot handle tracking for Tpx3 obviously.
+      doAssert not tracking, "Solar tracking not yet supported for Tpx3 detectors. Maybe " &
+        "seeing this message means you actually have Tpx3 data from BabyIAXO? Wow. Welcome to 2032."
       totalDuration += h5f[group.grp_str].attrs["totalRunDuration", int].float
 
     var
@@ -856,22 +883,15 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
         rmsTrans = h5f[(chipGroup / "rmsTransverse"), float64]
         evNumbers = h5f[(chipGroup / "eventNumber"), int64].asType(int)
 
-      # get event numbers corresponding to tracking (non tracking)
-      var eventsInTracking: seq[int]
-      if fkTracking in flags:
-        eventsInTracking = h5f.getTrackingEvents(mgrp, tracking = true)
-      else:
-        eventsInTracking = h5f.getTrackingEvents(mgrp, tracking = false)
-
       # get all events part of tracking (non tracking)
-      let indicesInTracking = filterTrackingEvents(evNumbers, eventsInTracking)
+      let chipIdxsInTracking = filterTrackingEvents(evNumbers, eventsInTracking)
       if chipNumber == centerChip:
-        totalEvCount += indicesInTracking.len
+        totalEvCount += chipIdxsInTracking.len
 
       # hash set containing all indices of clusters, which pass the cuts
       var passedInds = initOrderedSet[int]()
       # iterate through all clusters not part of tracking and apply logL cut
-      for ind in indicesInTracking:
+      for ind in chipIdxsInTracking:
         when false:
           # see above, not yet implemented
           # add current ind to total duration; note before cut, since we want

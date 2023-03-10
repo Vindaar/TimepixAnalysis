@@ -90,7 +90,8 @@ proc noiseAnalysis(h5f: H5File): tuple[f50, f100: Table[string, float64]] =
       let
         durations = h5f[(group / "eventDuration").dset_str][float64]
         # get tracking indices of this tracking number
-        tracking_inds = h5f.getTrackingEvents(grp, i, tracking = true)
+        tracking_inds = h5f.getTrackingEvents(grp, i, tracking = true,
+                                              returnEventNumbers = true)
         # get all durations for events within tracking from the tstamp indices
         durations_track = durations[tracking_inds]
         # sum all event durations within tracking

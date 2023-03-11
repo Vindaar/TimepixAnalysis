@@ -48,6 +48,7 @@ type
     calib: string
     year: int
     region: ChipRegion
+    signalEff: float # the lnL signal efficiency
     vetoes: set[FlagKind]
     vetoPercentile: float # FADC veto percentile
 
@@ -83,9 +84,34 @@ proc genVetoStr(vetoes: set[FlagKind]): string =
   for v in vetoes:
     result = result & " " & v.toStr()
 
+template yieldVetoes(): untyped {.dirty.} =
+  for vSet in vetoSets:
+    var flags: set[FlagKind]
+    for veto in vSet:      # iterate over `HashSet[Veto]`, adding this veto to the current flags
+      flags.incl veto.kind # combination is therefore returned
+      if veto.kind == fkExclusiveLineVeto:
+        # remove septem veto
+        flags.excl fkSeptem
+        flags.excl fkLineVeto # don't need line veto anymore
+      if veto.additional: # in this case we *do not* yield, e.g. `+fkScinti` won't run with scinti only, accumulate
+        continue
+      var comb = Combination(fname: fname, calib: calib, year: year,
+                             region: region,
+                             signalEff: eff,
+                             vetoes: flags,
+                             vetoPercentile: -1.0)
+      if fkFadc in flags: # if FADC contained, yield all percentiles after another
+        for perc in fadcVetoPercentiles:
+          comb.vetoPercentile = perc
+          yield comb
+      else:
+        yield comb
+
+
 iterator genCombinations(f2017, f2018: string,
                          c2017, c2018: string,
                          regions: set[ChipRegion],
+                         signalEff: seq[float],
                          vetoSets: seq[HashSet[Veto]],
                          fadcVetoPercentiles: seq[float]
                         ): Combination =
@@ -93,29 +119,18 @@ iterator genCombinations(f2017, f2018: string,
     let (fname, calib) = (tup[0], tup[1])
     let year = if fname == f2017: 2017 else: 2018
     for region in regions:
-      for vSet in vetoSets:
-        var flags: set[FlagKind]
-        for veto in vSet:      # iterate over `HashSet[Veto]`, adding this veto to the current flags
-          flags.incl veto.kind # combination is therefore returned
-          if veto.kind == fkExclusiveLineVeto:
-            # remove septem veto
-            flags.excl fkSeptem
-            flags.excl fkLineVeto # don't need line veto anymore
-          if veto.additional: # in this case we *do not* yield, e.g. `+fkScinti` won't run with scinti only, accumulate
-            continue
-          var comb = Combination(fname: fname, calib: calib, year: year,
-                                 region: region, vetoes: flags,
-                                 vetoPercentile: -1.0)
-          if fkFadc in flags: # if FADC contained, yield all percentiles after another
-            for perc in fadcVetoPercentiles:
-              comb.vetoPercentile = perc
-              yield comb
-          else:
-            yield comb
+      if signalEff.len > 0:
+        for eff in signalEff:
+          yieldVetoes()
+      else:
+        let eff = 0.0 # local zero so that it acts as none given
+        yieldVetoes()
 
 proc buildFilename(comb: Combination, outpath: string): string =
   let runPeriod = if comb.year == 2017: "Run2" else: "Run3"
   result = &"{outpath}/likelihood_cdl2018_{runPeriod}_{comb.region}"
+  if comb.signalEff > 0.0:
+    result.add &"_signalEff_{comb.signalEff}"
   for v in comb.vetoes:
     let vetoStr = (v.toStr).replace("--", "").replace("veto", "")
     if vetoStr.len > 0: # avoid double `_`
@@ -135,10 +150,11 @@ proc runCommand(comb: Combination, cdlFile, outpath: string,
                   else: ""
   let vetoPerc = if comb.vetoPercentile > 0.0: &"--vetoPercentile={comb.vetoPercentile}" else: ""
   let readOnly = if readOnly: "--readOnly" else: ""
+  let signalEff = if comb.signalEff > 0.0: &"--signalEfficiency={comb.signalEff}" else: ""
   let fname = comb.fname
   if not dryRun:
     let (res, err) = shellVerbose:
-      "likelihood -f" ($fname) "--h5out" ($outfile) ($regionStr) ($cdlYear) ($vetoStr) ($cdlFile) ($readOnly) ($calibFile) ($vetoPerc)
+      "likelihood -f" ($fname) "--h5out" ($outfile) ($regionStr) ($cdlYear) ($vetoStr) ($cdlFile) ($readOnly) ($calibFile) ($vetoPerc) ($signalEff)
     # first write log file
     let logOutput = outfile.extractFilename.replace(".h5", ".log")
     writeFile(&"{outpath}/{logOutput}", res)
@@ -146,7 +162,7 @@ proc runCommand(comb: Combination, cdlFile, outpath: string,
     doAssert err == 0, "The last command returned error code: " & $err
   else:
     shellEcho:
-      "likelihood -f" ($fname) "--h5out" ($outfile) ($regionStr) ($cdlYear) ($vetoStr) ($cdlFile) ($readOnly) ($calibFile) ($vetoPerc)
+      "likelihood -f" ($fname) "--h5out" ($outfile) ($regionStr) ($cdlYear) ($vetoStr) ($cdlFile) ($readOnly) ($calibFile) ($vetoPerc) ($signalEff)
 
 type
   InputData = object
@@ -154,6 +170,7 @@ type
     calib: array[512, char] # fixed array for filename of calibration file
     year: int
     region: ChipRegion
+    signalEff: float # the lnL signal efficiency
     vetoes: set[FlagKind]
     vetoPercentile: float
 
@@ -170,17 +187,23 @@ proc fromArray(ar: array[512, char]): string =
 
 proc `$`(id: InputData): string =
   $(fname: id.fname.fromArray(), calib: id.calib.fromArray(),
-    year: id.year, region: id.region, vetoes: id.vetoes,
+    year: id.year, region: id.region,
+    signalEff: id.signalEff,
+    vetoes: id.vetoes,
     vetoPercentile: id.vetoPercentile)
 
 proc toInputData(comb: Combination): InputData =
   result = InputData(fname: comb.fname.toArray(), calib: comb.calib.toArray(),
-                     year: comb.year, region: comb.region, vetoes: comb.vetoes,
+                     year: comb.year, region: comb.region,
+                     signalEff: comb.signalEff,
+                     vetoes: comb.vetoes,
                      vetoPercentile: comb.vetoPercentile)
 
 proc toCombination(data: InputData): Combination =
   result = Combination(fname: data.fname.fromArray(), calib: data.calib.fromArray(),
-                       year: data.year, region: data.region, vetoes: data.vetoes,
+                       year: data.year, region: data.region,
+                       signalEff: data.signalEff,
+                       vetoes: data.vetoes,
                        vetoPercentile: data.vetoPercentile)
 
 proc main(f2017, f2018: string = "", # paths to the Run-2 and Run-3 data files
@@ -192,18 +215,20 @@ proc main(f2017, f2018: string = "", # paths to the Run-2 and Run-3 data files
           cdlYear = 2018,
           dryRun = false,
           multiprocessing = false,
-          fadcVetoPercentiles: seq[float] = @[]) =
+          fadcVetoPercentiles: seq[float] = @[],
+          signalEfficiency: seq[float] = @[],
+         ) =
   if vetoSets.anyIt(fkFadc in it) and ( # stop if FADC veto used but calibration file missing
      (f2017.len > 0 and c2017.len == 0) or
      (f2018.len > 0 and c2018.len == 0)):
     doAssert false, "When using the FADC veto the corresponding calibration file to the background " &
       "data file is required."
   if not multiprocessing: # run all commands in serial
-    for comb in genCombinations(f2017, f2018, c2017, c2018, regions, vetoSets, fadcVetoPercentiles):
+    for comb in genCombinations(f2017, f2018, c2017, c2018, regions, signalEfficiency, vetoSets, fadcVetoPercentiles):
       runCommand(comb, cdlFile, outpath, cdlYear, dryRun, readOnly = false)
   else:
     var cmds = newSeq[InputData]()
-    for comb in genCombinations(f2017, f2018, c2017, c2018, regions, vetoSets, fadcVetoPercentiles):
+    for comb in genCombinations(f2017, f2018, c2017, c2018, regions, signalEfficiency, vetoSets, fadcVetoPercentiles):
       cmds.add comb.toInputData()
 
     for cmd in cmds:

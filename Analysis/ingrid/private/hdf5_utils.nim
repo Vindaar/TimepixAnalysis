@@ -37,6 +37,7 @@ const XrayReferenceDsets* = {
   igFractionInTransverseRms,
   igTotalCharge}
 
+const SignalEffAttrStr* = "Signal efficiency"
 const FadcVetoAttrStr* = "FADC veto"
 const FadcVetoPercAttrStr* = "FADC veto percentile"
 const ScintiVetoAttrStr* = "Scinti veto"

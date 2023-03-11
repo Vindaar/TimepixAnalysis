@@ -314,12 +314,15 @@ type
   ReadData = object
     df: DataFrame
     flags: set[LogLFlagKind]
+    signalEff: float # the lnL cut signal efficiency used in the inputs
     vetoPercentile: float # if FADC veto used, the percentile used to generate the cuts
 
-proc readFlags(h5f: H5File): tuple[vetoPercentile: float, flags: set[LogLFlagKind]] =
+proc readFlags(h5f: H5File): tuple[signalEff, vetoPercentile: float, flags: set[LogLFlagKind]] =
   let logLGrp = h5f[likelihoodGroupGrpStr]
-  var flags: set[LogLFlagKind]
-  var perc: float
+  var
+    flags: set[LogLFlagKind]
+    perc: float
+    signalEff: float
   proc readField(grp: H5Group, name: string): bool =
     if name in grp:
       result = parseBool(grp.attrs[name, string])
@@ -335,7 +338,9 @@ proc readFlags(h5f: H5File): tuple[vetoPercentile: float, flags: set[LogLFlagKin
     flags.incl fkTracking
   if FadcVetoPercAttrStr in logLGrp:
     perc = logLGrp.attrs[FadcVetoPercAttrStr, float]
-  result = (vetoPercentile: perc, flags: flags)
+  if SignalEffAttrStr in logLGrp:
+    signalEff = logLGrp.attrs[SignalEffAttrStr, float]
+  result = (signalEff: signalEff, vetoPercentile: perc, flags: flags)
 
 proc readFiles(path: string, s: seq[string], noiseFilter: NoiseFilter): ReadData =
   var h5fs = newSeq[datatypes.H5File]()
@@ -357,23 +362,29 @@ proc readFiles(path: string, s: seq[string], noiseFilter: NoiseFilter): ReadData
   ## able to provide points for the interpolation up to the `EnergyCutoff`. That's why the
   ## `t.sum()` does not change if we change the energy filter here.
   df = df.filter(f{`Energy` < 12.0})
-  var lastFlags: set[LogLFlagKind]
-  var lastPerc: float
-  var first = true
+  var
+    lastFlags: set[LogLFlagKind]
+    lastPerc: float
+    first = true
+    lastSigEff: float
   for h in h5fs:
-    let (perc, flags) = readFlags(h)
+    let (signalEff, perc, flags) = readFlags(h)
     if not first and flags != lastFlags:
       raise newException(IOError, "Input files do not all match in the vetoes used! Current file " &
         h.name & " has vetoes: " & $flags & ", but last file: " & $lastFlags)
     if not first and perc != lastPerc:
       raise newException(IOError, "Input files do not all match in the FADC veto percentile used! Current file " &
         h.name & " has percentile: " & $perc & ", but last file: " & $lastPerc)
+    if not first and signalEff != lastSigEff:
+      raise newException(IOError, "Input files do not all match in the lnL signal efficiency used! Current file " &
+        h.name & " has ε = " & $signalEff & ", but last file: " & $lastSigEff)
 
     first = false
     lastFlags = flags
     lastPerc = perc
+    lastSigEff = signalEff
     discard h.close()
-  result = ReadData(df: df, flags: lastFlags, vetoPercentile: lastPerc)
+  result = ReadData(df: df, flags: lastFlags, signalEff: lastSigEff, vetoPercentile: lastPerc)
 
 defUnit(keV⁻¹•cm⁻²•s⁻¹)
 defUnit(keV⁻¹•m⁻²•yr⁻¹)
@@ -560,6 +571,10 @@ proc calcVetoEfficiency(readData: ReadData,
   elif fkLineVeto in readData.flags:
     result *= lineVetoRandomCoinc
 
+  # now multiply by lnL cut efficiency (default to 0.8 if not in input file yet; only added recently)
+  let lnLeff = if readData.signalEff > 0.0: readData.signalEff else: 0.8
+  result *= lnLeff
+
 proc initContext(path: string, yearFiles: seq[(int, string)],
                  useConstantBackground: bool, # decides whether to use background interpolation or not
                  radius, sigma: float, energyRange: keV, nxy, nE: int,
@@ -597,13 +612,14 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
                                    septemVetoRandomCoinc,
                                    lineVetoRandomCoinc,
                                    septemLineVetoRandomCoinc)
+  echo "[INFO]: Total veto efficiency is ", vetoEff
   # now correct for additional veto eff loss (`map_inline` below) and
   # create a spline
-  let effSpl = newCubicSpline(combEffDf["Energy [keV]", float].toSeq1D,
-                              #combEffDf["Efficiency", float].toSeq1D)
-                              # total efficiency is given efficiency times veto efficiency
-                              # (effective area included in raytracer, `LLNL`)
-                              combEffDf["Eff • ε • LLNL", float].map_inline(x * vetoEff).toSeq1D)
+  # compute detector efficiency (gas absorption, window losses + telescope effective area)
+  let detTelEff = combEffDf["Efficiency", float] *. combEffDf["LLNL", float]
+  # total efficiency is given detector efficiency times veto + lnL efficiency
+  let totalEff  = detTelEff.map_inline(x * vetoEff).toSeq1D
+  let effSpl = newCubicSpline(combEffDf["Energy [keV]", float].toSeq1D, totalEff)
 
   let raySpl = block:
     #let hmap = readCsv("/home/basti/org/resources/axion_image_heatmap_2017.csv")

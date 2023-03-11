@@ -72,7 +72,7 @@ proc readDbscanEpsilon(): float =
   withConfig:
     result = config["Likelihood"]["epsilon"].getFloat
 
-proc writeLogLDsetAttributes[T: H5DataSet | H5Group](dset: var T,
+proc writeCdlAttributes[T: H5DataSet | H5Group](dset: var T,
                              cdlFile: string,
                              year: YearKind) =
   ## writes information about what datasets were used to calculate the likelihood
@@ -122,16 +122,19 @@ proc calcLogLikelihood*(h5f: var H5File,
     for tup in zip(logL_dsets, logL_chips):
       var (dset, logL) = tup
       dset[dset.all] = logL
-      dset.writeLogLDsetAttributes(ctx.cdlFile, ctx.year)
+      dset.writeCdlAttributes(ctx.cdlFile, ctx.year)
 
-proc writeVetoInfos(grp: H5Group, fadcVetoCount, scintiVetoCount: int,
-                    fadcVetoPercentile: float,
-                    flags: set[FlagKind]) =
+proc writeInfos(grp: H5Group, ctx: LikelihoodContext,
+                fadcVetoCount, scintiVetoCount: int,
+                flags: set[FlagKind]) =
   ## writes information about used vetoes and the number of events removed by
   ## the vetos
+  # write the CDL file info
   var mgrp = grp
+  mgrp.writeCdlAttributes(ctx.cdlFile, ctx.year)
+  mgrp.attrs[SignalEffAttrStr] = ctx.signalEfficiency
   mgrp.attrs[FadcVetoAttrStr] = $(fkFadc in flags)
-  mgrp.attrs[FadcVetoPercAttrStr] = fadcVetoPercentile
+  mgrp.attrs[FadcVetoPercAttrStr] = ctx.vetoPercentile
   mgrp.attrs[ScintiVetoAttrStr] = $(fkScinti in flags)
   mgrp.attrs[SeptemVetoAttrStr] = $(fkSeptem in flags)
   mgrp.attrs[LineVetoAttrStr] = $(fkLineVeto in flags)
@@ -259,8 +262,8 @@ proc writeLikelihoodData(h5f: var H5File,
   # copy attributes over from the input file
   runGrp.copy_attributes(group.attrs)
   chpGrpOut.copy_attributes(chpGrpIn.attrs)
-  chpGrpOut.writeVetoInfos(fadcVetoCount, scintiVetoCount, ctx.vetoPercentile, flags)
-  runGrp.writeLogLDsetAttributes(ctx.cdlFile, ctx.year)
+  chpGrpOut.writeInfos(ctx, fadcVetoCount, scintiVetoCount, flags)
+  runGrp.writeCdlAttributes(ctx.cdlFile, ctx.year)
 
 func isVetoedByFadc(ctx: LikelihoodContext, run, eventNumber: int, fadcTrigger, fadcEvNum: seq[int64],
                     fadcRise, fadcFall: seq[uint16], fadcSkew: seq[float]): bool =
@@ -927,7 +930,7 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
           inc totalScintiRemovedNotLogRemoved
 
       if fkReadOnly notin flags: # write to output if not in read only
-        chpGrp.writeVetoInfos(fadcVetoCount, scintiVetoCount, ctx.vetoPercentile, flags)
+        chpGrp.writeInfos(ctx, fadcVetoCount, scintiVetoCount, flags)
 
       if chipNumber == centerChip:
         totalScintiRemoveCount += scintiVetoCount
@@ -986,10 +989,8 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
     lhGrp.attrs["MorphingKind"] = $cutTab.kind
     ## XXX: add "number of runs" or something to differentiate not knowning runs vs not looking at them?
     lhGrp.attrs[TrackingAttrStr] = $(fkTracking in flags)
-  # write year and CDL and reference file used
-  lhGrp.writeLogLDsetAttributes(ctx.cdlFile, ctx.year)
-  # write the veto information also to the likelihood group
-  lhGrp.writeVetoInfos(-1, -1, ctx.vetoPercentile, flags)
+  # write infos about vetoes, cdl file used etc.
+  lhGrp.writeInfos(ctx, -1, -1, flags)
 
 proc extractEvents(h5f: var H5File, extractFrom, outfolder: string) =
   ## extracts all events passing the likelihood cut from the folder

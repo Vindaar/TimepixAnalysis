@@ -696,7 +696,6 @@ proc calcCutValueTab*(ctx: LikelihoodContext): CutValueInterpolator =
   # read signal efficiency (default 80%) from TOML file
 
   ## TODO: finish implementation of 55Fe for morphed data!
-  let efficiency = readSignalEff()
   let morphKind = ctx.morph
   let xray_ref = getXrayRefTable()
   case morphKind
@@ -708,7 +707,7 @@ proc calcCutValueTab*(ctx: LikelihoodContext): CutValueInterpolator =
       echo "Starting FOR LOOP--------------------------------------------------"
       let dset = tup[0][1].toStr
       let logL = subDf["logL", float]
-      let cutValIdx = determineCutValueData(logL, efficiency)
+      let cutValIdx = determineCutValueData(logL, ctx.signalEfficiency)
       # incl the correct values for the logL cut values
       result[dset] = logL.sorted(SortOrder.Ascending)[cutValIdx]
       echo "Cut value of ", dset, " is ", result[dset]
@@ -731,7 +730,7 @@ proc calcCutValueTab*(ctx: LikelihoodContext): CutValueInterpolator =
         echo energy
         if energy < 1.0:
           efficiency = 0.6
-      let cutVal = determineCutValue(subDf["Hist", float], efficiency)
+      let cutVal = determineCutValue(subDf["Hist", float], ctx.signalEfficiency)
       # incl the correct values for the logL cut values
       energies.add energy
       cutVals.add subDf["Bins", float][cutVal]
@@ -815,6 +814,8 @@ proc initLikelihoodContext*(
   centerChip = 3,
   numChips = 7,
   useTeX: bool = false,
+  # lnL settings
+  signalEfficiency: float = 0.0,
   # Septem veto related
   septemVeto: bool = false,
   clusterAlgo: ClusteringAlgorithm = caDBSCAN,
@@ -858,6 +859,10 @@ proc initLikelihoodContext*(
                        elif eccLvCutEnv > 0.0: eccLvCutEnv
                        else: 1.0 # default
 
+
+  let signalEff = if signalEfficiency > 0.0: signalEfficiency
+                  else: readSignalEff() # else read from `config.toml` file
+
   if fadcVeto and calibFile.len == 0:
     raise newException(ValueError, "When using the FADC veto an H5 file containing the ⁵⁵Fe calibration data " &
       "of the same run period is required.")
@@ -870,6 +875,10 @@ proc initLikelihoodContext*(
                              timepix: timepix,
                              stretch: stretch,
                              numMorphedEnergies: numMorphedEnergies,
+                             # misc
+                             useTeX: useTeX,
+                             # lnL cut
+                             signalEfficiency: signalEff,
                              # septem veto related
                              centerChip: centerChip,
                              numChips: numChips,
@@ -880,9 +889,7 @@ proc initLikelihoodContext*(
                              # line veto
                              lineVetoKind: lvKind,
                              eccLineVetoCut: eccLineVetoCut,
-                             # misc
-                             useTeX: useTeX,
-                             # line veto
+                             # FADC veto
                              calibFile: calibFile,
                              vetoPercentile: vetoPercentile,
                              fadcScaleCutoff: fadcScaleCutoff,

@@ -52,11 +52,6 @@ template withConfig(body: untyped): untyped =
   let config {.inject.} = parseToml.parseFile(sourceDir / "config.toml")
   body
 
-proc readSignalEff(): float =
-  ## reads the `signalEfficiency` field from the TOML file
-  withConfig:
-    result = config["Likelihood"]["signalEfficiency"].getFloat
-
 proc readMorphKind(): MorphingKind =
   ## reads the `morphingKind` field from the TOML file
   withConfig:
@@ -1277,6 +1272,8 @@ proc main(
   plotLogL = false,
   readOnly = false,
   useTeX = false,
+  # lnL cut
+  signalEfficiency = 0.0,
   # line veto
   lineVetoKind = lvNone,
   eccLineVetoCut = 0.0,
@@ -1344,10 +1341,14 @@ proc main(
                                   cdlStretch,
                                   centerChip = centerChip,
                                   #numChips = numChips,
+                                  # misc,
+                                  useTeX = useTeX,
+                                  # lnL cut
+                                  signalEfficiency = signalEfficiency,
+                                  # septem veto
                                   clusterAlgo = readClusterAlgo(),
                                   searchRadius = readSearchRadius(),
                                   dbscanEpsilon = readDbscanEpsilon(),
-                                  useTeX = useTeX,
                                   septemVeto = fkSeptem in flags,
                                   # line veto
                                   lineVetoKind = lineVetoKind,
@@ -1437,6 +1438,8 @@ when isMainModule:
     "aggressive"     : """If set, use aggressive veto. DO NOT USE (unless as a *reference*. Requires deep thought
   about random coincidences & dead time of detector!)""",
 
+    # lnL cut settings
+    "signalEfficiency" : "The signal efficiency to use for the lnL cut. Overrides the `config.toml` setting.",
 
     # line veto settings
     "lineVetoKind"   : "If the line veto is used, the line veto kind to use for it.",

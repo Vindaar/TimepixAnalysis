@@ -816,6 +816,8 @@ when not defined(pure) and not defined(js):
       refDfEnergy*: seq[float]
       # general
       useTeX*: bool # whether to generate TikZ plots or cairo
+      # lnL settings
+      signalEfficiency*: float = 0.8 # the signal efficiency that defines the cuts
       # Septem & line veto related
       clusterAlgo*: ClusteringAlgorithm = caDBSCAN
       searchRadius*: int = 50 # for caDefault the search radius in septem events

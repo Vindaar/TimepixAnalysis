@@ -12,6 +12,9 @@ import ingrid / background_interpolation
 import numericalnim except linspace, cumSum
 import arraymancer except read_csv, cumSum
 
+# get serialization support for DataFrame and Tensor
+import datamancer / serialize
+
 
 defUnit(keV⁻¹•cm⁻²)
 
@@ -129,6 +132,39 @@ type
   NoiseFilter = object
     pixels: seq[(int, int)] # the pixels to filter
     fnames: seq[string] # the filenames this filter should be applied to
+
+  ## A wrapper object for easier serialization
+  LimitOutput = object
+    ctx: Context ## The context storing most information
+    nmc: int
+    limits: seq[float]
+    limitNoSignal: float
+    candsInSens: seq[int]
+    limitKind: LimitKind
+
+proc toH5(h5f: H5File, x: InterpolatorType[float], name = "", path = "/") =
+  ## Serialize the interpolators we use. They all take energies in a fixed range,
+  ## namely `(0.071, 9.999)` (based on the inputs, one of which is only defined
+  ## in this range unfortunately).
+  let energies = linspace(0.071, 9.999, 10000).mapIt(it) # cut to range valid in interpolation
+  let ys = energies.mapIt(x.eval(it))
+  let dset = h5f.create_dataset(path / name,
+                                energies.len,
+                                float)
+  dset[dset.all] = ys
+
+proc toH5(h5f: H5File, interp: Interpolator2DType[float], name = "", path = "/") =
+  ## Serialize the 2D interpolator we use. Interpolator of the raytracing image
+  ## as a 2D grid defined for each pixel (in theory higher, but practically not
+  ## relevant).
+  var zs = zeros[float]([256, 256])
+  for x in 0 ..< 256:
+    for y in 0 ..< 256:
+      zs[x, y] = interp.eval(x.float + 0.5, y.float + 0.5)
+  let dset = h5f.create_dataset(path / name,
+                                (256, 256),
+                                float)
+  dset.unsafeWrite(zs.toUnsafeView, zs.size.int)
 
 proc pretty(s: Systematics): string =
   result = "("
@@ -1949,6 +1985,30 @@ proc expectedLimit(limits: seq[float]): float =
   ## Currently it's just defined as the median of the determined limits.
   result = limits.median(q = 50)
 
+proc writeLimitOutput(
+  ctx: Context,
+  outpath, outfile: string,
+  nmc: int,
+  limitKind: LimitKind,
+  limitNoSignal: float,
+  limits: seq[float], candsInSens: seq[int],
+  path = "") =
+  ## Writes the output of the limit calculation to an H5 file that includes the
+  ## achieved limits as well as all the parameters that were used. This is simpler
+  ## and more stable than relying on a CSV file + the file name.
+  let limitOutput = LimitOutput(ctx: ctx,
+                                nmc: nmc,
+                                limits: limits,
+                                candsInSens: candsInSens,
+                                limitNoSignal: limitNoSignal)
+  ## XXX: or do we want to store _all_ in a single file? "Limits H5"?
+  let name = outpath / outfile & ".h5"
+  limitOutput.toH5(name, path)
+  echo "Wrote outfile ", name
+proc genOutfile(limitKind: LimitKind, samplingKind: SamplingKind,
+                nmc: int, ufSuff, pufSuff, suffix: string): string =
+  result = &"mc_limit_{limitKind}_{samplingKind}_nmc_{nmc}_{ufSuff}_{pufSuff}{suffix}"
+
 proc plotMCLimitHistogram(
   ctx: Context, limits: seq[float], candsInSens: seq[int],
   limitKind: LimitKind, nmc: int,
@@ -1960,6 +2020,7 @@ proc plotMCLimitHistogram(
   linesTo = 1000,
   outpath = "/tmp/",
   suffix = "") =
+
   let expLimit = if classify(expLimit) == fcInf: expectedLimit limits
                  else: expLimit
   echo "Expected limit: ", expLimit
@@ -1988,7 +2049,12 @@ proc plotMCLimitHistogram(
   of puUncertain:
     pufSuff = &"posUncertain_{ctx.uncertaintyPosition}_σp_{ctx.σ_p:.4f}"
     putSuff = &"{ctx.uncertaintyPosition}, σp = {ctx.σ_p:.4f}"
-  dfL.writeCsv(&"{outpath}/mc_limit_{limitKind}_{ctx.samplingKind}_nmc_{nmc}_{ufSuff}_{pufSuff}{suffix}.csv")
+
+
+  # First write a H5 file of the context and limits
+  let baseOutfile = genOutfile(limitKind, ctx.samplingKind, nmc, ufSuff, pufSuff, suffix)
+  ctx.writeLimitOutput(outpath, baseOutfile, nmc, limitKind, limitNoSignal, limits, candsInSens)
+  dfL.writeCsv(&"{outpath}/{baseOutfile}.csv")
 
   let maxVal = if xlimit[1] > 0.0: xLimit[1] else: 3e-20
   dfL = dfL
@@ -2336,8 +2402,7 @@ proc integrateSignalOverImage(ctx: Context, log: Logger) =
   flushFile(cast[FileLogger](log).file)
 
   # now integrate over full area
-  let energies = linspace(0.071, 9.999, 10).mapIt(it.keV) # cut to range valid in interpolation
-  let eWidth = energies[1].keV - energies[0].keV
+  let eWidth = ctx.energyForBCDF[1].keV - ctx.energyForBCDF[0].keV
   let pix = 256 * 256
   let area = 1.4.cm * 1.4.cm
   let pixArea = area / pix
@@ -2389,7 +2454,7 @@ proc integrateSignalOverImage(ctx: Context, log: Logger) =
     var res: IntRes
     s.toOb(res)
     intRes.add res
-  pp.evalOb energies, readRes
+  pp.evalOb ctx.energyForBCDF, readRes
   # filter to all results that contain useful information
   intRes = intRes.filterIt(it.done and it.hadWork)
   # fold all energies

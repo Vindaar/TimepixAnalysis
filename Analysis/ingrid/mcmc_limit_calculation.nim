@@ -117,7 +117,7 @@ type
     couplingStep: float # a step we take in the couplings during a scan
     g_aγ²: float # the reference g_aγ (squared)
     g_ae²: float # the current g_ae value (squared)
-    logLVals: Tensor[float] # the logL values corresponding to `couplings`
+    #logLVals: Tensor[float] # the logL values corresponding to `couplings`
     maxIdx: int # index of the maximum of the logL curve
     systematics: Systematics
     noiseFilter: NoiseFilter
@@ -303,7 +303,7 @@ proc clone(ctx: Context): Context =
                    couplingStep: ctx.couplingStep,
                    g_aγ²: ctx.g_aγ²,
                    g_ae²: ctx.g_ae²,
-                   logLVals: ctx.logLVals.clone(),
+                   #logLVals: ctx.logLVals.clone(),
                    maxIdx: ctx.maxIdx,
                    systematics: ctx.systematics)
   case ctx.samplingKind

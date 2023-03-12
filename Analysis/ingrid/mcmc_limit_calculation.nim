@@ -133,6 +133,16 @@ type
     pixels: seq[(int, int)] # the pixels to filter
     fnames: seq[string] # the filenames this filter should be applied to
 
+  ## The different ways we can compute a limit. `lkMCMC` is considered the best. `lkBayesScan`
+  ## gives the ~same results but in cases with systematics becomes impractically slow.
+  ## The others are somewhat outdated.
+  LimitKind = enum
+    lkSimple,     ## purely physical region going down to 95% equivalent
+    lkScan,       ## proper scan for maximum using a binary approach
+    lkLinearScan, ## limit based on linear scan in pre defined range
+    lkBayesScan,  ## limit based on integrating bayes theorem (posterior prob.)
+    lkMCMC        ## limit based on Metropolis-Hastings Markov Chain Monte Carlo
+
   ## A wrapper object for easier serialization
   LimitOutput = object
     ctx: Context ## The context storing most information
@@ -1958,14 +1968,6 @@ proc candsInSens(ctx: Context, cands: seq[Candidate], cutoff = 0.5): int =
     let sig = ctx.expectedSignal(c.energy, c.pos)
     if ln(1 + sig / ctx.background(c.energy, c.pos)) >= cutoff:
       inc result
-
-type
-  LimitKind = enum
-    lkSimple,     ## purely physical region going down to 95% equivalent
-    lkScan,       ## proper scan for maximum using a binary approach
-    lkLinearScan, ## limit based on linear scan in pre defined range
-    lkBayesScan,   ## limit based on integrating bayes theorem (posterior prob.)
-    lkMCMC
 
 proc computeLimit(ctx: Context, rnd: var Random,
                   cands: seq[Candidate],

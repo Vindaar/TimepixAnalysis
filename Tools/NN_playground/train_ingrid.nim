@@ -38,30 +38,32 @@ proc forward(net: MLP, x: RawTensor): RawTensor =
 ## from the first type). This breaks it. To use it, we currently need to replace
 ## the logic instead (putting this one first). Once things work we can try to ask Hugo &
 ## check if submoduling individual models helps.
-defModule:
-  type
-    ConvNet* = object of Module
-      conv1* = Conv2d(1, 50, 15)
-      conv2* = Conv2d(50, 70, 15)
-      conv3* = Conv2d(70, 100, 15)
-      #lin1* = Linear(100 * 15 * 15, 1000)
-      lin1* = Linear(3610, 1000)
-      lin2* = Linear(1000, 50)
-      lin3* = Linear(50, 2)
-
-proc forward(net: ConvNet, x: RawTensor): RawTensor =
-  var x = net.conv1.forward(x).relu().max_pool2d([2, 2])
-  x = net.conv2.forward(x).relu().max_pool2d([2, 2])
-  x = net.conv3.forward(x).relu().max_pool2d([2, 2])
-  x = net.lin1.forward(x).relu()
-  x = net.lin2.forward(x).relu()
-  x = net.lin3.forward(x).relu()
-  return x
+#defModule:
+#  type
+#    ConvNet* = object of Module
+#      conv1* = Conv2d(1, 50, 15)
+#      conv2* = Conv2d(50, 70, 15)
+#      conv3* = Conv2d(70, 100, 15)
+#      #lin1* = Linear(100 * 15 * 15, 1000)
+#      lin1* = Linear(3610, 1000)
+#      lin2* = Linear(1000, 50)
+#      lin3* = Linear(50, 2)
+#
+#proc forward(net: ConvNet, x: RawTensor): RawTensor =
+#  var x = net.conv1.forward(x).relu().max_pool2d([2, 2])
+#  x = net.conv2.forward(x).relu().max_pool2d([2, 2])
+#  x = net.conv3.forward(x).relu().max_pool2d([2, 2])
+#  x = net.lin1.forward(x).relu()
+#  x = net.lin2.forward(x).relu()
+#  x = net.lin3.forward(x).relu()
+#  return x
 
 type
   ModelKind = enum
     mkMLP = "MLP"
     mkCNN = "ConvNet"
+
+  ConvNet = object
 
   AnyModel = MLP | ConvNet
 
@@ -73,20 +75,25 @@ let validReadDSets = XrayReferenceDsets - { igNumClusters,
                                             igFractionInHalfRadius,
                                             igRadiusDivRmsTrans,
                                             igRadius, igBalance,
-                                            igLengthDivRadius,
-                                            igTotalCharge } + {
+                                            igLengthDivRadius } + {
                                               igCenterX, igCenterY }
 
-let validDsets = validReadDSets - { igLikelihood, igCenterX, igCenterY, igHits, igEnergyFromCharge }
+let validDsets = validReadDSets - { igLikelihood, igCenterX, igCenterY, igHits, igEnergyFromCharge, igTotalCharge }
 
-proc readDsets(h5f: H5File, grpName: string): DataFrame =
+proc readDsets(h5f: H5File, cdlPath, dset: string): DataFrame =
   result = newDataFrame()
-  for dst in XrayReferenceDsets:
-    if dst in validReadDsets:
-      result[dst.toDset(fkTpa)] = h5f.readDset(grpName, dst)
-  result["eventNumber"] = h5f.readAs(grp_name / "eventNumber", int)
+  let dsets = concat(toSeq(validReadDsets - { igLikelihood } ), @[igEventNumber])
+  var passData: array[InGridDsetKind, seq[float]]
+  for s in mitems(passData):
+    s = newSeqOfCap[float](50_000)
+  withLogLFilterCuts(cdlPath, dset, yr2018, igEnergyFromCharge, dsets):
+    for d in dsets:
+      passData[d].add data[d][i]
+  for d in dsets:
+    result[d.toDset(fkTpa)] = passData[d]
 
 proc readRaw(h5f: H5File, grpName: string, idxs: seq[int] = @[]): DataFrame =
+  ## XXX: Need to implement filtering to suitable data for CDL data!
   result = newDataFrame()
   let
     xs = h5f[grpName / "x", special_type(uint8), uint8]
@@ -169,10 +176,9 @@ proc prepareCDL(readRaw: bool,
   for k, bin in tb:
     var dfLoc = newDataFrame()
     if not readRaw:
-      dfLoc = h5f.readDsets(cdlPrefix($yr2018) & bin)
-      let pass = h5f.buildLogLHist(bin)
-      doAssert pass.len == dfLoc.len
-      dfLoc["pass?"] = pass
+      # read dsets only returns those indices that pass
+      dfLoc = h5f.readDsets(cdlPath, bin)
+      dfLoc["pass?"] = true
     else:
       let pass = h5f.buildLogLHist(bin)
       var idxs = newSeqOfCap[int](pass.len)
@@ -196,7 +202,7 @@ proc prepareCDL(readRaw: bool,
 
 proc prepareBackground(h5f: H5File, run: int, readRaw: bool): DataFrame =
   let path = "/reconstruction/run_$#/chip_3" % $run
-  let dsets = toSeq(validReadDsets).mapIt(it.toDset(fkTpa))
+  let dsets = toSeq(validReadDsets - { igLikelihood }).mapIt(it.toDset(fkTpa))
   let evNumDset = "eventNumber"
   let grp = h5f[path.grp_str]
   if not readRaw:
@@ -648,20 +654,23 @@ proc predictBackground(model: AnyModel, fname: string, ε: float, totalTime: Hou
     energies[i] = energiesAll[idx]
   plotBackground(energies, totalTime)
 
-converter toModule[T: AnyModel](m: T): Module = Module(m)
-
-proc trainModel[T: AnyModel](_: typedesc[T],
-                             fname: string,
-                             device: Device,
-                             run = 186, # default background run to use. If none use a mix of all
-                             ε = 0.8, # signal efficiency for background rate prediction
-                             totalTime = -1.0.Hour, # total background rate time in hours. Normally read from input file
-                             rocCurve = false,
-                             predict = false
-                            ) =
-  var model = T.init()
+#converter toModule[T: AnyModel](m: T): Module = Module(m)
+#
+## XXX: inside of a generic proc (what we would normally do) the `parameters` call
+## breaks! Nim doesn'- understand that the MLP / ConvNet type can be converted
+## to a `Module`!
+template trainModel(Typ: typedesc,
+                    fname: string,
+                    device: Device,
+                    run = 186, # default background run to use. If none use a mix of all
+                    ε = 0.8, # signal efficiency for background rate prediction
+                    totalTime = -1.0.Hour, # total background rate time in hours. Normally read from input file
+                    rocCurve = false,
+                    predict = false
+                   ): untyped {.dirty.} =
+  var model = Typ.init()
   model.to(device)
-  when T is MLP:
+  when Typ is MLP:
     const readRaw = false
   else:
     const readRaw = true

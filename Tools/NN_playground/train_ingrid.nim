@@ -37,12 +37,12 @@ proc readDset(h5f: H5File, grpName: string, igKind: InGridDsetKind): seq[float64
   result = h5f.readAs(grp_name / igKind.toDset(fkTpa), float64)
 
 let validReadDSets = XrayReferenceDsets - { igNumClusters,
-                                           igFractionInHalfRadius,
-                                           igRadiusDivRmsTrans,
-                                           igRadius, igBalance,
-                                           igLengthDivRadius,
-                                           igTotalCharge } + {
-                                           igCenterX, igCenterY }
+                                            igFractionInHalfRadius,
+                                            igRadiusDivRmsTrans,
+                                            igRadius, igBalance,
+                                            igLengthDivRadius,
+                                            igTotalCharge } + {
+                                              igCenterX, igCenterY }
 
 let validDsets = validReadDSets - { igLikelihood, igCenterX, igCenterY, igHits, igEnergyFromCharge }
 
@@ -268,10 +268,10 @@ proc calcSigEffBackRej(df: DataFrame, bins: seq[float],
   let vals = df.arrange("predictions")["predictions", float]
   var effs = newSeqOfCap[float](bins.len)
   for l in bins:
-    let eff = determineEff(vals.toRawSeq, l, isBackground = isBackground)
+    let eff = determineEff(vals.toSeq1D, l, isBackground = isBackground)
     effs.add eff
   result = toDf({ "eff" : effs,
-                      "cutVals" : bins })
+                  "cutVals" : bins })
 
 proc calcRocCurve(predictions: seq[float], targets: seq[int]): DataFrame =
   # now use both to determine signal and background efficiencies
@@ -317,7 +317,7 @@ proc logLValues(df: DataFrame): (seq[float], seq[int]) =
   let targets = df["Type", string].map_inline:
     if x == "back": 0
     else: 1
-  result = (logL.toRawSeq, targets.toRawSeq)
+  result = (logL.toSeq1D, targets.toSeq1D)
 
 proc plotLogLRocCurve(df: DataFrame) =
   ## plots the ROC curve of the predictions vs the targets
@@ -484,7 +484,7 @@ proc histogram(df: DataFrame): DataFrame =
   ## Calculates the histogam of the energy data in the `df` and returns
   ## a histogram of the binned data
   ## TODO: allow to do this by combining different `File` values
-  let (hist, bins) = histogram(df["energies"].toTensor(float).toRawSeq,
+  let (hist, bins) = histogram(df["energies"].toTensor(float).toSeq1D,
                                range = (0.0, 20.0), bins = 100)
   result = toDf({ "energies" : bins, "count" : concat(hist, @[0]) })
 

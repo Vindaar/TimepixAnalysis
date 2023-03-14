@@ -17,7 +17,7 @@ let bsz = 8192 # batch size
 
 defModule:
   type
-    XorNet* = object of Module
+    MLP* = object of Module
       hidden* = Linear(12, 500)
       #hidden2* = Linear(100, 100)
       #hidden2* = Linear(5000, 5000)
@@ -27,11 +27,44 @@ defModule:
       #fc1* = Linear(320, 50)
       #fc2* = Linear(50, 10)
 
-proc forward(net: XorNet, x: RawTensor): RawTensor =
+proc forward(net: MLP, x: RawTensor): RawTensor =
   #var x = net.hidden2.forward(net.hidden.forward(x).relu()).relu()
   var x = net.hidden.forward(x).relu()
   #x = net.hidden2.forward(x).relu()
   return net.classifier.forward(x).squeeze(1)
+
+## XXX: Defining two models in a single file is currently broken. When trying to use it
+## the nim compiler assigns the wrong destructor to the second one (reusing the one
+## from the first type). This breaks it. To use it, we currently need to replace
+## the logic instead (putting this one first). Once things work we can try to ask Hugo &
+## check if submoduling individual models helps.
+defModule:
+  type
+    ConvNet* = object of Module
+      conv1* = Conv2d(1, 50, 15)
+      conv2* = Conv2d(50, 70, 15)
+      conv3* = Conv2d(70, 100, 15)
+      #lin1* = Linear(100 * 15 * 15, 1000)
+      lin1* = Linear(3610, 1000)
+      lin2* = Linear(1000, 50)
+      lin3* = Linear(50, 2)
+
+proc forward(net: ConvNet, x: RawTensor): RawTensor =
+  var x = net.conv1.forward(x).relu().max_pool2d([2, 2])
+  x = net.conv2.forward(x).relu().max_pool2d([2, 2])
+  x = net.conv3.forward(x).relu().max_pool2d([2, 2])
+  x = net.lin1.forward(x).relu()
+  x = net.lin2.forward(x).relu()
+  x = net.lin3.forward(x).relu()
+  return x
+
+type
+  ModelKind = enum
+    mkMLP = "MLP"
+    mkCNN = "ConvNet"
+
+  AnyModel = MLP | ConvNet
+
 
 proc readDset(h5f: H5File, grpName: string, igKind: InGridDsetKind): seq[float64] =
   result = h5f.readAs(grp_name / igKind.toDset(fkTpa), float64)
@@ -127,15 +160,27 @@ proc shuff(x: seq[int]): seq[int] =
   result = x
   result.shuffle()
 
-proc prepareCDL(): DataFrame =
-  var h5f = H5file("/home/basti/CastData/data/CDL_2019/calibration-cdl-2018.h5", "r")
+proc prepareCDL(readRaw: bool,
+                cdlPath = "/home/basti/CastData/data/CDL_2019/calibration-cdl-2018.h5"
+               ): DataFrame =
+  var h5f = H5file(cdlPath, "r")
   let tb = getXrayRefTable()
   var df = newDataFrame()
   for k, bin in tb:
-    var dfLoc = h5f.readDsets(cdlPrefix($yr2018) & bin)
-    let pass = h5f.buildLogLHist(bin)
-    doAssert pass.len == dfLoc.len
-    dfLoc["pass?"] = pass
+    var dfLoc = newDataFrame()
+    if not readRaw:
+      dfLoc = h5f.readDsets(cdlPrefix($yr2018) & bin)
+      let pass = h5f.buildLogLHist(bin)
+      doAssert pass.len == dfLoc.len
+      dfLoc["pass?"] = pass
+    else:
+      let pass = h5f.buildLogLHist(bin)
+      var idxs = newSeqOfCap[int](pass.len)
+      for i, p in pass:
+        if p:
+          idxs.add i
+      dfLoc = h5f.readRaw(cdlPrefix($yr2018) & bin, idxs)
+      dfLoc["pass?"] = true
     dfLoc["Target"] = bin
     # remove all that don't pass
     dfLoc = dfLoc.filter(f{bool: idx("pass?") == true})
@@ -149,14 +194,17 @@ proc prepareCDL(): DataFrame =
   result.drop("Idx")
   echo result
 
-proc prepareBackground(h5f: H5File, run: int): DataFrame =
+proc prepareBackground(h5f: H5File, run: int, readRaw: bool): DataFrame =
   let path = "/reconstruction/run_$#/chip_3" % $run
   let dsets = toSeq(validReadDsets).mapIt(it.toDset(fkTpa))
   let evNumDset = "eventNumber"
   let grp = h5f[path.grp_str]
-  for dset in dsets:
-    result[dset] = h5f.readAs(grp.name / dset, float)
-  result["eventNumber"] = h5f.readAs(grp.name / "eventNumber", int)
+  if not readRaw:
+    for dset in dsets:
+      result[dset] = h5f.readAs(grp.name / dset, float)
+    result["eventNumber"] = h5f.readAs(grp.name / "eventNumber", int)
+  else:
+    result = h5f.readRaw(grp.name)
   result["pass?"] = true # does not matter!
   #result["runNumber
   result["Type"] = "back"
@@ -165,17 +213,18 @@ proc prepareBackground(h5f: H5File, run: int): DataFrame =
   let targetTab = getXrayRefTable()
   ## TODO: the following is broken? CHECK!
   # result = result.mutate(f{"Target" ~ targetTab[energyBins.lowerBound(idx("energyFromCharge"))]})
-  result = result.mutate(f{"Target" ~ `energyFromCharge`.toRefDset}) # ["energyFromCharge", float].toRawSeq.mapIt(targetTab[energyBins.lowerBound(it)])
+  if not readRaw:
+    result = result.mutate(f{"Target" ~ `energyFromCharge`.toRefDset}) # ["energyFromCharge", float].toSeq1D.mapIt(targetTab[energyBins.lowerBound(it)])
 
-proc prepareBackground(fname: string, run: int): DataFrame =
+proc prepareBackground(fname: string, run: int, readRaw: bool): DataFrame =
   var h5f = H5open(fname, "r")
-  result = h5f.prepareBackground(run)
+  result = h5f.prepareBackground(run, readRaw)
   discard h5f.close()
 
-proc prepareAllBackground(fname: string): DataFrame =
+proc prepareAllBackground(fname: string, readRaw: bool): DataFrame =
   var h5f = H5open(fname, "r")
   for run, grp in runs(h5f):
-    var df = h5f.prepareBackground(run)
+    var df = h5f.prepareBackground(run, readRaw)
     df["runNumber"] = run
     result.add df
 
@@ -205,21 +254,54 @@ proc generateTrainTest(df: var DataFrame):
   # - generate
   # - generate random numbers from 0 to df length
   # - add as column and sort by it
-  df["Idx"] = toSeq(0 .. df.high).shuff()
-  df = df.arrange("Idx")
 
-  let dfTrain = df[0 .. df.high div 2]
-  let dfTest = df[df.high div 2 + 1 .. df.high]
+  ## XXX: this mixes signal and background events!
+  ## XXX: Replace this `"x" in df` check by something sane!
+  if "x" in df: # raw data
+    const Num = 1000
+    let nTrain = Num #df.len div 2
+    let nTest = Num # df.len - nTrain
+    var data = rawtensors.zeros(nTrain * 256 * 256).reshape([nTrain.int64, 256, 256].asTorchView())
+    var target = rawtensors.zeros(nTrain * 2).reshape(sizes = [nTrain.int64, 2].asTorchView())
+    var dataTest = rawtensors.zeros(nTest * 256 * 256).reshape(sizes = [nTest.int64, 256, 256].asTorchView())
+    var targetTest = rawtensors.zeros(nTest * 2).reshape(sizes = [nTest.int64, 2].asTorchView())
+    var i = 0
+    for (tup, subDf) in groups(df.group_by(["eventNumber", "Type"])):
+      let ev = tup[0][1].toInt
+      # echo "Event number ", ev, " at index ", i
+      let xs = subDf["x", int]
+      let ys = subDf["y", int]
+      let isSignal = tup[1][1].toStr == "signal"
+      for j in 0 ..< xs.size:
+        let x = xs[j]
+        let y = ys[j]
+        if i < nTrain:
+          data[i, x, y] = 1.0
+          target[i, _] = if isSignal: [1, 0].toRawTensorFromScalar
+                         else: [0, 1].toRawTensorFromScalar
+        else:
+          dataTest[i - nTrain, x, y] = 1.0
+          targetTest[i - nTrain, _] = if isSignal: [1, 0].toRawTensorFromScalar
+                                      else: [0, 1].toRawTensorFromScalar
+      inc i
+      if i >= nTrain + nTest: break
+    result = (train: (data, target), test: (dataTest, targetTest))
+  else:
+    df["Idx"] = toSeq(0 .. df.high).shuff()
+    df = df.arrange("Idx")
 
-  ## Add another output each to get the target
-  ## thus return
-  ## train: (input, target)
-  ## test: (input, target)
-  ## tuples each.
-  echo "SIZES\n\n"
-  echo dfTrain.len
-  echo dfTest.len
-  result = (train: dfTrain.toInputTensor, test: dfTest.toInputTensor)
+    let dfTrain = df[0 .. df.high div 2]
+    let dfTest = df[df.high div 2 + 1 .. df.high]
+
+    ## Add another output each to get the target
+    ## thus return
+    ## train: (input, target)
+    ## test: (input, target)
+    ## tuples each.
+    echo "SIZES\n\n"
+    echo dfTrain.len
+    echo dfTest.len
+    result = (train: dfTrain.toInputTensor, test: dfTest.toInputTensor)
 
 proc toNimSeq[T](t: RawTensor): seq[T] =
   doAssert t.sizes().len == 1
@@ -324,24 +406,25 @@ proc plotLogLRocCurve(df: DataFrame) =
   let (logl, targets) = logLValues(df)
   rocCurve(logl, targets, "_likelihood")
 
-proc prepareDataframe(fname: string, run: int): DataFrame =
-  let dfCdl = prepareCdl()
-  let dfBack = prepareBackground(fname, run).drop(["centerX", "centerY"])
+proc prepareDataframe(fname: string, run: int, readRaw: bool): DataFrame =
+  let dfCdl = prepareCdl(readRaw)
+  let dfBack = prepareBackground(fname, run, readRaw) # .drop(["centerX", "centerY"])
   echo dfCdl
   echo dfBack
   result = newDataFrame()
   result.add dfCdl
   result.add dfBack
   # create likelihood plot
-  result.plotLikelihoodDist()
-  result.plotLogLRocCurve()
+  #result.plotLikelihoodDist()
+  #result.plotLogLRocCurve()
 
 template printTensorInfo(arg: untyped): untyped =
   echo astToStr(arg), ": ", typeof(arg), " on device ", arg.get_device(), " is cuda ", arg.is_cuda()
 
-proc train(model: XorNet, optimizer: var Optimizer,
+proc train(model: AnyModel, optimizer: var Optimizer,
            input, target: RawTensor,
-           device: Device) =
+           device: Device,
+           readRaw: bool) =
   let dataset_size = input.size(0)
   echo "Starting size ", dataset_size
   var toPlot = false
@@ -360,7 +443,12 @@ proc train(model: XorNet, optimizer: var Optimizer,
       # minibatch offset in the Tensor
       ## TODO: generalize the batching and make sure to take `all` elements! (currently skip last X)
       let offset = batch_id * bsz
-      let x = input[offset ..< offset + bsz, _ ]
+      var x: RawTensor
+      if not readRaw:
+        x = input[offset ..< offset + bsz, _ ]
+      else:
+        x = input[offset ..< offset + bsz, _, _ ].unsqueeze(1)
+        echo "INPUT TENSOR SHAPE ", x.sizes
 
       let target = target[offset ..< offset + bsz]
       #printTensorInfo(target)
@@ -394,7 +482,7 @@ proc train(model: XorNet, optimizer: var Optimizer,
       rocCurve(preds, targets)
       toPlot = false
 
-proc test(model: XorNet,
+proc test(model: AnyModel,
           input, target: RawTensor,
           device: Device,
           plotOutfile = "/tmp/test_validation.pdf"): (seq[float], seq[int]) =
@@ -431,7 +519,7 @@ proc test(model: XorNet,
   let preds = predictions.mapIt(clamp(it, -50.0, 50.0))
   result = (preds, targets)
 
-proc predict(model: XorNet,
+proc predict(model: AnyModel,
              input, target: RawTensor,
              device: Device,
              cutVal: float): seq[int] =
@@ -504,7 +592,7 @@ proc plotBackground(data: seq[float], totalTime: Hour) =
     xlab("Energy [keV]") + ylab("Rate [10⁻⁵ keV⁻¹•cm⁻²•s⁻¹]") +
     ggsave("/tmp/simple_background_rate.pdf")
 
-proc targetSpecificRoc(model: XorNet, df: DataFrame, device: Device) =
+proc targetSpecificRoc(model: AnyModel, df: DataFrame, device: Device) =
   ## computes the CDL target specific ROC curves for logL and MLP
 
   # 1. split the input df by target and perform regular ROC calculations
@@ -527,11 +615,12 @@ proc targetSpecificRoc(model: XorNet, df: DataFrame, device: Device) =
     ylim(0.5, 1.0) +
     ggsave("/tmp/roc_curve_combined_split_by_target.pdf")
 
-proc predictBackground(model: XorNet, fname: string, ε: float, totalTime: Hour,
-                       device: Device) =
+proc predictBackground(model: AnyModel, fname: string, ε: float, totalTime: Hour,
+                       device: Device,
+                       readRaw: bool) =
   # classify
   # determine cut value at 80%
-  let dfCdl = prepareCdl()
+  let dfCdl = prepareCdl(readRaw)
   let (cdlInput, cdlTarget) = dfCdl.toInputTensor()
   let (cdlPredict, predTargets) = model.test(cdlInput, cdlTarget, device,
                                              plotOutfile = "/tmp/cdl_prediction.pdf")
@@ -546,7 +635,7 @@ proc predictBackground(model: XorNet, fname: string, ε: float, totalTime: Hour,
 
   ## XXX: make sure the cut value stuff & the sign of the predictions is correct everywhere! We flipped the
   ## sign initially to compare with logL!
-  let dfAll = prepareAllBackground(fname)
+  let dfAll = prepareAllBackground(fname, readRaw)
   let (allInput, allTarget) = dfAll.toInputTensor()
   let passedInds = model.predict(allInput, allTarget, device, cutVal)
   echo "p inds len ", passedInds.len, " compared to all "
@@ -559,28 +648,25 @@ proc predictBackground(model: XorNet, fname: string, ε: float, totalTime: Hour,
     energies[i] = energiesAll[idx]
   plotBackground(energies, totalTime)
 
-proc main(fname: string, run = 186, # default background run to use
-          ε = 0.8, # signal efficiency for background rate prediction
-          totalTime = -1.0.Hour, # total background rate time in hours. Normally read from input file
-          predict = false) = # if true, only predict background rate from all data in input file
+converter toModule[T: AnyModel](m: T): Module = Module(m)
 
-  # 1. set up the model
-  Torch.manual_seed(1)
-  var device_type: DeviceKind
-  if Torch.cuda_is_available():
-    echo "CUDA available! Training on GPU."
-    device_type = kCuda
-  else:
-    echo "Training on CPU."
-    device_type = kCPU
-  let device = Device.init(device_type)
-
-  var model = XorNet.init()
+proc trainModel[T: AnyModel](_: typedesc[T],
+                             fname: string,
+                             device: Device,
+                             run = 186, # default background run to use. If none use a mix of all
+                             ε = 0.8, # signal efficiency for background rate prediction
+                             totalTime = -1.0.Hour, # total background rate time in hours. Normally read from input file
+                             rocCurve = false,
+                             predict = false
+                            ) =
+  var model = T.init()
   model.to(device)
-
+  when T is MLP:
+    const readRaw = false
+  else:
+    const readRaw = true
   if not predict: # all data that needs CDL & specific run data (i.e. training & test dataset)
-    var df = prepareDataframe(fname, run)
-    let (logL, logLTargets) = df.logLValues()
+    var df = prepareDataframe(fname, run, readRaw = readRaw)
     # get training & test dataset
     let (trainTup, testTup) = generateTrainTest(df)
     let (trainIn, trainTarg) = trainTup
@@ -595,7 +681,11 @@ proc main(fname: string, run = 186, # default background run to use
         SGDOptions.init(0.005).momentum(0.2)
         #learning_rate = 0.005
       )
-      model.train(optimizer, trainIn.to(kFloat32).to(device), trainTarg.to(kFloat32).to(device), device)
+      model.train(optimizer,
+                  trainIn.to(kFloat32).to(device),
+                  trainTarg.to(kFloat32).to(device),
+                  device,
+                  readRaw)
       model.save("/tmp/trained_model.pt")
     else:
       # load the model
@@ -604,23 +694,52 @@ proc main(fname: string, run = 186, # default background run to use
     let (testPredict, testTargets) = model.test(testIn, testTarg, device)
 
     # combined ROC
-    var dfLogLRoc = calcRocCurve(logL, logLTargets)
-    let dfMLPRoc = calcRocCurve(testPredict, testTargets)
-    let dfRoc = bind_rows([("LogL", dfLogLRoc), ("MLP", dfMLPRoc)],
-                          "Type")
-    ggplot(dfRoc, aes("sigEff", "backRej", color = "Type")) +
-      geom_line() +
-      ggsave("/tmp/roc_curve_combined.pdf")
+    if rocCurve: ## XXX: this should not really live here either
+      let (logL, logLTargets) = df.logLValues()
+      var dfLogLRoc = calcRocCurve(logL, logLTargets)
+      let dfMLPRoc = calcRocCurve(testPredict, testTargets)
+      let dfRoc = bind_rows([("LogL", dfLogLRoc), ("MLP", dfMLPRoc)],
+                            "Type")
+      ggplot(dfRoc, aes("sigEff", "backRej", color = "Type")) +
+        geom_line() +
+        ggsave("/tmp/roc_curve_combined.pdf")
 
-    # target specific roc curves
-    targetSpecificRoc(model, df, device)
+      # target specific roc curves
+      targetSpecificRoc(model, df, device)
+    ## XXX: also not really serving a purpose here
     # now predict background rate
-    model.predictBackground(fname, ε, totalTime, device)
+    model.predictBackground(fname, ε, totalTime, device, readRaw)
   else:
     doAssert fileExists("/tmp/trained_model.pt"), "When using the `--predict` option, the trained model must exist!"
     # load the model
     model.load("/tmp/trained_model.pt")
-    model.predictBackground(fname, ε, totalTime, device)
+    model.predictBackground(fname, ε, totalTime, device, readRaw)
+
+proc main(fname: string, run = 186, # default background run to use
+          ε = 0.8, # signal efficiency for background rate prediction
+          totalTime = -1.0.Hour, # total background rate time in hours. Normally read from input file
+          rocCurve = false,
+          predict = false,
+          model = "MLP") = # MLP or ConvNet
+          #model = mkMLP) = # if true, only predict background rate from all data in input file
+
+  # 1. set up the model
+  Torch.manual_seed(1)
+  var device_type: DeviceKind
+  if Torch.cuda_is_available():
+    echo "CUDA available! Training on GPU."
+    device_type = kCuda
+  else:
+    echo "Training on CPU."
+    device_type = kCPU
+  let device = Device.init(device_type)
+
+
+  let mKind = parseEnum[ModelKind](model)
+  if mKind == mkMLP:
+    MLP.trainModel(fname, device, run, ε, totalTime, rocCurve, predict)
+  #else:
+  #  ConvNet.trainModel(fname, device, run, ε, totalTime, rocCurve, predict)
 
 when isMainModule:
   import cligen/argcvt

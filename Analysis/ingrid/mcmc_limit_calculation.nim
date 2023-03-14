@@ -91,8 +91,34 @@ type
       θ_y: float
     of puCertain: discard # no uncertainty
 
+  # The vetoes and flags available in `likelihood` that are relevant here
+  LogLFlagKind = enum
+    fkTracking, fkFadc, fkScinti, fkSeptem, fkLineVeto, fkAggressive
+
+  # helper object about the data we read from an input H5 file
+  ReadData = object
+    df: DataFrame
+    flags: set[LogLFlagKind]
+    signalEff: float # the lnL cut signal efficiency used in the inputs
+    vetoPercentile: float # if FADC veto used, the percentile used to generate the cuts
+  Efficiency = object
+    totalEff: float # total efficiency multiplier based on signal efficiency of lnL cut, FADC & veto random coinc rate
+    signalEff: float # the lnL cut signal efficiency used in the inputs
+    vetoPercentile: float # if FADC veto used, the percentile used to generate the cuts
+    septemVetoRandomCoinc: float # random coincidence rate of septem veto
+    lineVetoRandomCoinc: float # random coincidence rate of line veto
+    septemLineVetoRandomCoinc: float # random coincidence rate of septem + line veto
+
   Context = ref object ## XXX: make ref object
     mcIdx: int # monte carlo index, just for reference
+    # input file related information
+    logLFlags: set[LogLFlagKind]
+    eff: Efficiency
+    # time information
+    totalBackgroundClusters: int # total number of background clusters in non-tracking time
+    totalBackgroundTime: Hour # total time of background data taking
+    totalTrackingTime: Hour # total time of solar tracking
+    # axion signal info
     axionModel: DataFrame
     integralBase: float # integral of axion flux using base coupling constants
     # detector related
@@ -106,25 +132,24 @@ type
     backgroundDf: DataFrame # the DataFrame containing all background cluster data
     backgroundCDF: seq[float] # CDF of the background
     energyForBCDF: seq[float] # energies to draw from for background CDF
-    totalBackgroundClusters: int # total number of background clusters in non-tracking time
-    totalBackgroundTime: Hour # total time of background data taking
-    totalTrackingTime: Hour # total time of solar tracking
     case samplingKind: SamplingKind # the type of candidate sampling we do
     of skInterpBackground:
       interp: Interpolation ## A helper object to store all interpolation fields
     else: discard # skConstant doesn't need
     # limit related
-    couplingStep: float # a step we take in the couplings during a scan
     g_aγ²: float # the reference g_aγ (squared)
     g_ae²: float # the current g_ae value (squared)
-    #logLVals: Tensor[float] # the logL values corresponding to `couplings`
-    maxIdx: int # index of the maximum of the logL curve
+    # systematics and noise
     systematics: Systematics
     noiseFilter: NoiseFilter
     # additional fields for computation & input data storage
     rombergIntegrationDepth: int ## only for case of logLFullUncertain integration!
     filePath: string   ## The path to the data files
     files: seq[string] ## The data files we read
+    # the following are old parameters that are not in use anymore (lkSimple, lkScan etc)
+    #couplingStep: float # a step we take in the couplings during a scan
+    #logLVals: Tensor[float] # the logL values corresponding to `couplings`
+    #maxIdx: int # index of the maximum of the logL curve
 
   ## For now a noise filter only defines a single set of pixels that are applied to
   ## all files in `fnames`. In the future we could generalize to specific sets of pixels
@@ -365,15 +390,6 @@ proc filterNoisyPixels(df: DataFrame, noiseFilter: NoiseFilter): DataFrame =
   result = df.filter(f{not (toIdx(`centerX`) in xSet and
                             toIdx(`centerY`) in ySet)})
 
-type
-  LogLFlagKind = enum
-    fkTracking, fkFadc, fkScinti, fkSeptem, fkLineVeto, fkAggressive
-
-  ReadData = object
-    df: DataFrame
-    flags: set[LogLFlagKind]
-    signalEff: float # the lnL cut signal efficiency used in the inputs
-    vetoPercentile: float # if FADC veto used, the percentile used to generate the cuts
 
 proc readFlags(h5f: H5File): tuple[signalEff, vetoPercentile: float, flags: set[LogLFlagKind]] =
   let logLGrp = h5f[likelihoodGroupGrpStr]
@@ -670,6 +686,15 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
                                    septemVetoRandomCoinc,
                                    lineVetoRandomCoinc,
                                    septemLineVetoRandomCoinc)
+  let eff = Efficiency(
+    totalEff: vetoEff, # total efficiency of the veto & detector feature related
+    vetoPercentile: readData.vetoPercentile,
+    signalEff: if readData.signalEff > 0.0: readData.signalEff else: 0.8, # 0.8 default
+    septemVetoRandomCoinc: septemVetoRandomCoinc,
+    lineVetoRandomCoinc: lineVetoRandomCoinc,
+    septemLineVetoRandomCoinc: septemLineVetoRandomCoinc,
+  )
+
   echo "[INFO]: Total veto efficiency is ", vetoEff
   # now correct for additional veto eff loss (`map_inline` below) and
   # create a spline
@@ -700,25 +725,34 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
       t[x, y] = (z / zSum * pixPerArea).float #zMax / 784.597 # / zSum # TODO: add telescope efficiency abs. * 0.98
     newBilinearSpline(t, (0.0, 255.0), (0.0, 255.0)) # bicubic produces negative values!
 
-  result = Context(samplingKind: samplingKind,
-                   axionModel: axData,
-                   axionSpl: axSpl,
-                   windowRotation: windowRotation,
-                   efficiencySpl: effSpl,
-                   raytraceSpl: raySpl,
-                   backgroundSpl: kdeSpl,
-                   backgroundDf: readData.df,
-                   backgroundCDF: backgroundCdf,
-                   energyForBCDF: energies,
-                   totalBackgroundClusters: readData.df.len,
-                   totalBackgroundTime: backgroundTime,
-                   totalTrackingTime: trackingTime,
-                   g_aγ²: 1e-12 * 1e-12, ## reference axion photon coupling
-                   systematics: initSystematics(σ_sig, σ_back, σ_p),
-                   noiseFilter: noiseFilter,
-                   rombergIntegrationDepth: rombergIntegrationDepth,
-                   filePath: path,
-                   files: files)
+  result = Context(
+    # general information and input parameters
+    logLFlags: readData.flags,
+    eff: eff,
+    # general time information
+    totalBackgroundClusters: readData.df.len,
+    #totalBackgroundTime: backgroundTime,
+    #totalTrackingTime: trackingTime,
+    # axion model
+    g_aγ²: 1e-12 * 1e-12, ## reference axion photon coupling
+    axionModel: axData,
+    axionSpl: axSpl,
+    # efficiency & signal ray tracing
+    windowRotation: windowRotation,
+    efficiencySpl: effSpl,
+    raytraceSpl: raySpl,
+    # background sampling
+    samplingKind: samplingKind,
+    backgroundSpl: kdeSpl,
+    backgroundDf: readData.df,
+    backgroundCDF: backgroundCdf,
+    energyForBCDF: energies,
+    systematics: initSystematics(σ_sig, σ_back, σ_p),
+    noiseFilter: noiseFilter,
+    rombergIntegrationDepth: rombergIntegrationDepth,
+    # misc
+    filePath: path,
+    files: files)
   let ctx = result # XXX: hack to workaround bug in formula macro due to `result` name!!!
   let axModel = axData
     .mutate(f{"Flux" ~ idx("Flux / keV⁻¹•cm⁻²•s⁻¹") * detectionEff(ctx, idx("Energy / keV").keV) })

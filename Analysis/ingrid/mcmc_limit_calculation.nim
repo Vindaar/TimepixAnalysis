@@ -151,6 +151,8 @@ type
     limitNoSignal: float
     candsInSens: seq[int]
     limitKind: LimitKind
+    expectedLimit: float # expected limit as `g_ae · g_aγ` with `g_aγ = 1e-12 GeV⁻¹`
+
 
 proc toH5(h5f: H5File, x: InterpolatorType[float], name = "", path = "/") =
   ## Serialize the interpolators we use. They all take energies in a fixed range,
@@ -2012,11 +2014,14 @@ proc writeLimitOutput(
                                 nmc: nmc,
                                 limits: limits,
                                 candsInSens: candsInSens,
-                                limitNoSignal: limitNoSignal)
+                                limitNoSignal: limitNoSignal,
+                                limitKind: limitKind,
+                                expectedLimit: sqrt(limits.percentile(50)) * sqrt(ctx.g_aγ²))
   ## XXX: or do we want to store _all_ in a single file? "Limits H5"?
   let name = outpath / outfile & ".h5"
   limitOutput.toH5(name, path)
   echo "Wrote outfile ", name
+
 proc genOutfile(limitKind: LimitKind, samplingKind: SamplingKind,
                 nmc: int, ufSuff, pufSuff, suffix: string): string =
   result = &"mc_limit_{limitKind}_{samplingKind}_nmc_{nmc}_{ufSuff}_{pufSuff}{suffix}"

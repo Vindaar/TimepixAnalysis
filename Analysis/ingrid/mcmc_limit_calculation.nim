@@ -101,6 +101,8 @@ type
     flags: set[LogLFlagKind]
     signalEff: float # the lnL cut signal efficiency used in the inputs
     vetoPercentile: float # if FADC veto used, the percentile used to generate the cuts
+    totalTime: Hour # total time (background or tracking, depending on file) in Hours
+
   Efficiency = object
     totalEff: float # total efficiency multiplier based on signal efficiency of lnL cut, FADC & veto random coinc rate
     signalEff: float # the lnL cut signal efficiency used in the inputs
@@ -390,13 +392,14 @@ proc filterNoisyPixels(df: DataFrame, noiseFilter: NoiseFilter): DataFrame =
   result = df.filter(f{not (toIdx(`centerX`) in xSet and
                             toIdx(`centerY`) in ySet)})
 
-
-proc readFlags(h5f: H5File): tuple[signalEff, vetoPercentile: float, flags: set[LogLFlagKind]] =
+proc readFileData(h5f: H5File):
+    tuple[totalTime: Hour, signalEff, vetoPercentile: float, flags: set[LogLFlagKind]] =
   let logLGrp = h5f[likelihoodGroupGrpStr]
   var
     flags: set[LogLFlagKind]
     perc: float
     signalEff: float
+    totalTime: Hour
   proc readField(grp: H5Group, name: string): bool =
     if name in grp.attrs:
       result = parseBool(grp.attrs[name, string])
@@ -414,7 +417,9 @@ proc readFlags(h5f: H5File): tuple[signalEff, vetoPercentile: float, flags: set[
     perc = logLGrp.attrs[FadcVetoPercAttrStr, float]
   if SignalEffAttrStr in logLGrp.attrs:
     signalEff = logLGrp.attrs[SignalEffAttrStr, float]
-  result = (signalEff: signalEff, vetoPercentile: perc, flags: flags)
+  if "totalDuration" in logLGrp.attrs:
+    totalTime = logLGrp.attrs["totalDuration", float].Second.to(Hour)
+  result = (totalTime: totalTime, signalEff: signalEff, vetoPercentile: perc, flags: flags)
 
 proc readFiles(path: string, s: seq[string], noiseFilter: NoiseFilter): ReadData =
   var h5fs = newSeq[datatypes.H5File]()
@@ -441,8 +446,9 @@ proc readFiles(path: string, s: seq[string], noiseFilter: NoiseFilter): ReadData
     lastPerc: float
     first = true
     lastSigEff: float
+    totalTime: Hour
   for h in h5fs:
-    let (signalEff, perc, flags) = readFlags(h)
+    let (time, signalEff, perc, flags) = readFileData(h)
     if not first and flags != lastFlags:
       raise newException(IOError, "Input files do not all match in the vetoes used! Current file " &
         h.name & " has vetoes: " & $flags & ", but last file: " & $lastFlags)
@@ -457,8 +463,9 @@ proc readFiles(path: string, s: seq[string], noiseFilter: NoiseFilter): ReadData
     lastFlags = flags
     lastPerc = perc
     lastSigEff = signalEff
+    totalTime += time
     discard h.close()
-  result = ReadData(df: df, flags: lastFlags, signalEff: lastSigEff, vetoPercentile: lastPerc)
+  result = ReadData(df: df, flags: lastFlags, signalEff: lastSigEff, vetoPercentile: lastPerc, totalTime: totalTime)
 
 defUnit(keV⁻¹•cm⁻²•s⁻¹)
 defUnit(keV⁻¹•m⁻²•yr⁻¹)
@@ -652,7 +659,7 @@ proc calcVetoEfficiency(readData: ReadData,
 proc initContext(path: string, yearFiles: seq[(int, string)],
                  useConstantBackground: bool, # decides whether to use background interpolation or not
                  radius, sigma: float, energyRange: keV, nxy, nE: int,
-                 backgroundTime, trackingTime: Hour,
+                 backgroundTime, trackingTime: Hour, ## XXX: input times are ignored now! Not reflected in calling code yet!
                  windowRotation = 30.°,
                  σ_sig = 0.0, σ_back = 0.0, # depending on which `σ` is given as > 0, determines uncertainty
                  σ_p = 0.0,
@@ -725,12 +732,17 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
       t[x, y] = (z / zSum * pixPerArea).float #zMax / 784.597 # / zSum # TODO: add telescope efficiency abs. * 0.98
     newBilinearSpline(t, (0.0, 255.0), (0.0, 255.0)) # bicubic produces negative values!
 
+  let backTime = readData.totalTime
+  let trackTime = backTime / TrackingBackgroundRatio
+
   result = Context(
     # general information and input parameters
     logLFlags: readData.flags,
     eff: eff,
     # general time information
     totalBackgroundClusters: readData.df.len,
+    totalBackgroundTime: backTime,
+    totalTrackingTime: trackTime,
     #totalBackgroundTime: backgroundTime,
     #totalTrackingTime: trackingTime,
     # axion model

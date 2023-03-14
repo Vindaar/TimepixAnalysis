@@ -12,6 +12,7 @@ import pure
 
 const PlotDirPrefixAttr* = "plotDirPrefix"
 const PlotDirRawPrefixAttr* = "plotDirRawPrefix"
+## The datasets that appear in Christoph's `XrayReference` file
 const XrayReferenceDsets* = {
   igHits,
   igLengthDivRadius,
@@ -36,6 +37,23 @@ const XrayReferenceDsets* = {
   igRadius,
   igFractionInTransverseRms,
   igTotalCharge}
+
+## The datasets needed to filter to the CDL events that are used in the
+## construction of the reference datasets for the lnL cut method
+const LogLCutDsets* = @[
+  igHits,
+  igRmsTransverse,
+  igEccentricity,
+  igHits,
+  igLength,
+  igLengthDivRmsTrans,
+  igEnergyFromCharge,
+  igFractionInTransverseRms,
+  igTotalCharge,
+  igCenterX,
+  igCenterY
+]
+
 
 const SignalEffAttrStr* = "Signal efficiency"
 const FadcVetoAttrStr* = "FADC veto"

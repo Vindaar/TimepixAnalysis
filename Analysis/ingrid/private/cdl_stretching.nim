@@ -106,7 +106,7 @@ proc readCdlData(dfFe: DataFrame, energy: float, cdlFile: string): DataFrame =
   let grp = energy.toRefDset()
   let passedInds = block:
     var res = newSeqOfCap[int](100_000)
-    withLogLFilterCuts(cdlFile, grp, yr2018, igEnergyFromCharge):
+    withLogLFilterCuts(cdlFile, grp, yr2018, igEnergyFromCharge, LogLCutDsets):
       res.add i
     res
   const xray_ref = getXrayRefTable()

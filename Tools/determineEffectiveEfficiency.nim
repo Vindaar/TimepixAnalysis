@@ -272,8 +272,9 @@ proc handleFakeData(fname: string, energy: float, cutTab: CutValueInterpolator):
   discard h5f.close()
 
 proc getIndices(dset: string): seq[int] =
+  ## XXX: This is not safe and does not work if `fitByRun` is used!!
   result = newSeq[int]()
-  withLogLFilterCuts(CdlFile, dset, yr2018, igEnergyFromCharge):
+  withLogLFilterCuts(CdlFile, dset, yr2018, igEnergyFromCharge, LogLCutDsets):
   #withXrayRefCuts(CdlFile, dset, yr2018, igEnergyFromCharge):
     result.add i
 

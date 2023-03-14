@@ -106,9 +106,19 @@ when false:
 
 template withCdlData*(cdlFile, dset: string,
                       year: YearKind, energyDset: InGridDsetKind,
+                      igDsets: seq[InGridDsetKind],
                       body: untyped): untyped =
   ## Sorry for the nested templates with a whole bunch of injected variables
   ## future reader... :)
+  ##
+  ## The `data` variable is the heart of it. An array of the `IngridDsetsKinds` handed
+  ## as `igDsets` (plus a few mandatory ones!) of all the data that passes the charge cuts in case of
+  ## `fitByRun` and all data in case of `fitByRun = false`.
+  ## XXX: This is ugly. Both branches should have the same behavior.
+  ##
+  ## WARNING: Any dataset that is not part of `igDsets` will not be read, but the `data` array
+  ## still has an entry for that enum value! Do not access an enum field without checking the
+  ## length of the data or making sure you supply the dataset as `igDsets`!
   ##
   ## `withCdlData` should ``not`` be used on its own ``unless`` your are fine with
   ## the fact that it pre-applies the charge cuts to the CDL data around the main
@@ -134,34 +144,12 @@ template withCdlData*(cdlFile, dset: string,
       fitByRun = parseBool(h5f.attrs["fitByRun", string])
     # open h5 file using template
     ## XXX: if `fitByRun` instead read by each run!
-    let
-      energyStr = igEnergyFromCharge.toDset(frameworkKind)
-      centerXStr = igCenterX.toDset(frameworkKind)
-      centerYStr = igCenterY.toDset(frameworkKind)
-      eccStr = igEccentricity.toDset(frameworkKind)
-      lengthStr = igLength.toDset(frameworkKind)
-      chargeStr = igTotalCharge.toDset(frameworkKind)
-      rmsTransStr = igRmsTransverse.toDset(frameworkKind)
-      ldivStr = igLengthDivRmsTrans.toDset(frameworkKind)
-      fracRmsStr = igFractionInTransverseRms.toDset(frameworkKind)
-      npixStr = igHits.toDset(frameworkKind)
-    # read the datasets
-    var
-      energy {.inject.} = newSeqOfCap[float](50_000)
-      centerX {.inject.} = newSeqOfCap[float](50_000)
-      centerY {.inject.} = newSeqOfCap[float](50_000)
-      ecc {.inject.} = newSeqOfCap[float](50_000)
-      length {.inject.} = newSeqOfCap[float](50_000)
-      charge {.inject.} = newSeqOfCap[float](50_000)
-      rmsTrans {.inject.} = newSeqOfCap[float](50_000)
-      ldivRms {.inject.} = newSeqOfCap[float](50_000)
-      fracRms {.inject.} = newSeqOfCap[float](50_000)
-      npix {.inject.} = newSeqOfCap[float](50_000)
-      # get the cut values for this dataset. As `var` as we need to assign the charge
-      # cut values for `cuts`
-      cuts {.inject.} = cutsTab[dset]
-    let
-      xrayCuts {.inject.} = xrayCutsTab[dset]
+    let chargeStr = igTotalCharge.toDset(frameworkKind)
+    var cuts {.inject.} = cutsTab[dset]
+    let xrayCuts {.inject.} = xrayCutsTab[dset]
+    var data {.inject.}: array[InGridDsetKind, seq[float]]
+    for s in mitems(data):
+      s = newSeqOfCap[float](50_000)
     if fitByRun:
       ## In cas of fitByRun we need to read data from all runs and stack the data into the
       ## variables
@@ -172,34 +160,30 @@ template withCdlData*(cdlFile, dset: string,
         if "ChargeLow" notin runGrp.attrs or "ChargeHigh" notin runGrp.attrs:
           raise newException(KeyError, "The group " & $runGrp.name & " does not contain the charge " &
             "cut bounds. This is likely because you use an old `calibration-cdl*.h5` file.")
+        var dataFull: array[InGridDsetKind, seq[float]]
+        for d in igDsets:
+          dataFull[d] = h5f.readAs(runGrp.name / d.toDset(frameworkKind), float64)
         cuts.minCharge  = runGrp.attrs["ChargeLow", float]
         cuts.maxCharge = runGrp.attrs["ChargeHigh", float]
-        var
-          energyFull = h5f.readAs(runGrp.name / energyStr, float64)
-          cX = h5f.readAs(runGrp.name / centerXStr, float64)
-          cY = h5f.readAs(runGrp.name / centerYStr, float64)
-          eccFull = h5f.readAs(runGrp.name / eccStr, float64)
-          lengthFull = h5f.readAs(runGrp.name / lengthStr, float64)
-          rmsTransFull = h5f.readAs(runGrp.name / rmsTransStr, float64)
-          ldivRmsFull = h5f.readAs(runGrp.name / ldivStr, float64)
-          fracRmsFull = h5f.readAs(runGrp.name / fracRmsStr, float64)
-          npixFull = h5f.readAs(runGrp.name / npixStr, float64)
+
+        ## XXX: just get passing indices, then do rest in one?
+        var passIdx = newSeqOfCap[int](50_000)
         for i, c in chargeFull:
           # now add all data that passes the charge cut. All other cuts will be used later
           ## IMPORTANT: This here implies that we _cannot_ get the CDL data _without_ cuts to
           ## the charge. However, we don't *do* that anywhere anyway, unless the user calls
           ## `withCdlData` manually.
           if c >= cuts.minCharge and c <= cuts.maxCharge:
-            charge.add chargeFull[i]
-            energy.add energyFull[i]
-            centerX.add cX[i]
-            centerY.add cY[i]
-            ecc.add eccFull[i]
-            length.add lengthFull[i]
-            rmsTrans.add rmsTransFull[i]
-            ldivRms.add ldivRmsFull[i]
-            fracRms.add fracRmsFull[i]
-            npix.add npixFull[i]
+            passIdx.add i
+        for d in igDsets:
+          data[d].add dataFull[d][passIdx]
+          #for i, c in chargeFull:
+          #  # now add all data that passes the charge cut. All other cuts will be used later
+          #  ## IMPORTANT: This here implies that we _cannot_ get the CDL data _without_ cuts to
+          #  ## the charge. However, we don't *do* that anywhere anyway, unless the user calls
+          #  ## `withCdlData` manually.
+          #  if c >= cuts.minCharge and c <= cuts.maxCharge:
+          #    data[d].add dataFull[d][i]
     else:
       let grp = h5f[grp_name.grp_str]
       if "ChargeLow" notin grp.attrs or "ChargeHigh" notin grp.attrs:
@@ -209,53 +193,57 @@ template withCdlData*(cdlFile, dset: string,
       cuts.maxCharge = grp.attrs["ChargeHigh", float]
       # the charge cuts will be applied in the regular `minCharge`/`maxCharge` filter
       # now read all data
-      energy = h5f.readAs(grp_name / energyStr, float64)
-      centerX = h5f.readAs(grp_name / centerXStr, float64)
-      centerY = h5f.readAs(grp_name / centerYStr, float64)
-      ecc = h5f.readAs(grp_name / eccStr, float64)
-      length = h5f.readAs(grp_name / lengthStr, float64)
-      charge = h5f.readAs(grp_name / chargeStr, float64)
-      rmsTrans = h5f.readAs(grp_name / rmsTransStr, float64)
-      ldivRms = h5f.readAs(grp_name / ldivStr, float64)
-      fracRms = h5f.readAs(grp_name / fracRmsStr, float64)
-      npix = h5f.readAs(grp_name / npixStr, float64)
+      for d in igDsets:
+        data[d] = h5f.readAs(grp_name / d.toDset(frameworkKind), float64)
     body
 
 template withLogLFilterCuts*(cdlFile, dset: string,
                              year: YearKind, energyDset: InGridDsetKind,
+                             igDsets: seq[InGridDsetKind],
                              body: untyped): untyped =
   ## Note: see the injected variables in the `withCdlData` template!
-  withCdlData(cdlFile, dset, year, energyDset):
-    for i {.inject.} in 0 ..< energy.len:
+  for d in LogLCutDsets:
+    if d notin igDsets:
+      raise newException(ValueError, "The dataset: " & $d & " is not in `igDsets`, but is " &
+        "required to perform the LogL filter cuts!")
+
+  withCdlData(cdlFile, dset, year, energyDset, igDsets):
+    for i {.inject.} in 0 ..< data[energyDset].len:
       let
         # first apply Xray cuts (see C. Krieger PhD Appendix B & C)
-        regionCut  = inRegion(centerX[i], centerY[i], crSilver)
-        xRmsCut    = rmsTrans[i].float >= xrayCuts.minRms and rmsTrans[i] <= xrayCuts.maxRms
-        xLengthCut = length[i].float   <= xrayCuts.maxLength
-        xEccCut    = ecc[i].float      <= xrayCuts.maxEccentricity
+        regionCut  = inRegion(data[igCenterX][i], data[igCenterY][i], crSilver)
+        xRmsCut    = data[igRmsTransverse][i].float >= xrayCuts.minRms and data[igRmsTransverse][i] <= xrayCuts.maxRms
+        xLengthCut = data[igLength][i].float        <= xrayCuts.maxLength
+        xEccCut    = data[igEccentricity][i].float  <= xrayCuts.maxEccentricity
         # then apply reference cuts
-        chargeCut  = charge[i].float   > cuts.minCharge and charge[i]   < cuts.maxCharge
-        rmsCut     = rmsTrans[i].float > cuts.minRms    and rmsTrans[i] < cuts.maxRms
-        lengthCut  = length[i].float   < cuts.maxLength
-        pixelCut   = npix[i].float     > cuts.minPix
+        chargeCut  = data[igTotalCharge][i].float   > cuts.minCharge and data[igTotalCharge][i]   < cuts.maxCharge
+        rmsCut     = data[igRmsTransverse][i].float > cuts.minRms    and data[igRmsTransverse][i] < cuts.maxRms
+        lengthCut  = data[igLength][i].float        < cuts.maxLength
+        pixelCut   = data[igHits][i].float          > cuts.minPix
       # add event to likelihood if all cuts passed
       if allIt([regionCut, xRmsCut, xLengthCut, xEccCut, chargeCut, rmsCut, lengthCut, pixelCut], it):
         body
 
 template withXrayRefCuts*(cdlFile, dset: string,
                           year: YearKind, energyDset: InGridDsetKind,
+                          igDsets: seq[InGridDsetKind],
                           body: untyped): untyped =
   ## Note: see the injected variables in the `withCdlData` template!
-  withCdlData(cdlFile, dset, year, energyDset):
-    for i {.inject.} in 0 ..< energy.len:
+  for d in [igCenterX, igCenterY, igTotalCharge, igRmsTransverse, igLength, igHits]:
+    if d notin igDsets:
+      raise newException(ValueError, "The dataset: " & $d & " is not in `igDsets`, but is " &
+        "required to perform the X-ray reference cuts!")
+
+  withCdlData(cdlFile, dset, year, energyDset, igDsets):
+    for i {.inject.} in 0 ..< data[energyDset].len:
       let
         # first apply Xray cuts (see C. Krieger PhD Appendix B & C)
-        regionCut  = inRegion(centerX[i], centerY[i], crSilver)
+        regionCut  = inRegion(data[igCenterX][i], data[igCenterY][i], crSilver)
         # then apply reference cuts
-        chargeCut  = charge[i].float   > cuts.minCharge and charge[i]   < cuts.maxCharge
-        rmsCut     = rmsTrans[i].float > cuts.minRms    and rmsTrans[i] < cuts.maxRms
-        lengthCut  = length[i].float   < cuts.maxLength
-        pixelCut   = npix[i].float     > cuts.minPix
+        chargeCut  = data[igTotalCharge][i].float   > cuts.minCharge and data[igTotalCharge][i]   < cuts.maxCharge
+        rmsCut     = data[igRmsTransverse][i].float > cuts.minRms    and data[igRmsTransverse][i] < cuts.maxRms
+        lengthCut  = data[igLength][i].float        < cuts.maxLength
+        pixelCut   = data[igHits][i].float          > cuts.minPix
       # add event to likelihood if all cuts passed
       if allIt([regionCut, chargeCut, rmsCut, lengthCut, pixelCut], it):
         body
@@ -269,11 +257,11 @@ proc readRawRefData*(
   var ldiv = newSeq[float]()
   var frac = newSeq[float]()
   #withXrayRefCuts(cdlFile, dset, year, energyDset):
-  withLogLFilterCuts(cdlFile, dset, year, energyDset):
+  withLogLFilterCuts(cdlFile, dset, year, energyDset, LogLCutDsets):
     # read filtered data
-    eccs.add ecc[i]
-    ldiv.add ldivRms[i]
-    frac.add fracRms[i]
+    eccs.add data[igEccentricity][i]
+    ldiv.add data[igLengthDivRmsTrans][i]
+    frac.add data[igFractionInTransverseRms][i]
   result = (eccs: eccs, ldiv: ldiv, frac: frac)
 
 proc readRawLogLFilteredData*(
@@ -285,12 +273,12 @@ proc readRawLogLFilteredData*(
   var ldiv = newSeq[float]()
   var frac = newSeq[float]()
   var E = newSeq[float]()
-  withLogLFilterCuts(cdlFile, dset, year, energyDset):
+  withLogLFilterCuts(cdlFile, dset, year, energyDset, LogLCutDsets):
     # read filtered data
-    eccs.add ecc[i]
-    ldiv.add ldivRms[i]
-    frac.add fracRms[i]
-    E.add energy[i]
+    eccs.add data[igEccentricity][i]
+    ldiv.add data[igLengthDivRmsTrans][i]
+    frac.add data[igFractionInTransverseRms][i]
+    E.add data[energyDset][i]
   result = (eccs: eccs, ldiv: ldiv, frac: frac, energy: E)
 
 proc buildRefHistos(year: YearKind, eccs, ldiv, frac: seq[float]): tuple[ecc, ldivRms, fracRms: HistTuple] =
@@ -438,8 +426,8 @@ proc buildLogLHist*(dset: string, ctx: LikelihoodContext): tuple[logL, energy: s
   result[1] = newSeqOfCap[float](100_000)
   when false:
     withLogLFilterCuts(ctx.cdlFile, dset, ctx.year, ctx.energyDset):
-      result[0].add logL[i]
-      result[1].add energy[i]
+      result[0].add data[igLikelihood][i]
+      result[1].add data[ctx.energyDset][i]
     # now create plots of all ref likelihood distributions
     echo "max is inf ? ", min(result[0]), " ", max(result[0])
   else:

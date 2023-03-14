@@ -56,12 +56,20 @@ proc calcLikeOld(): seq[float] =
   # get old reference
   let (eccs, ldiv, frac) = readRefEx()
   when false:
-    withLogLFilterCuts(CdlFile, toRefDset(5.9), yr2018, igEnergyFromCharge):
-      result.add calcLogL(ecc[i], ldivRms[i], fracRms[i], eccs, ldiv, frac)
+    withLogLFilterCuts(CdlFile, toRefDset(5.9), yr2018, igEnergyFromCharge, LogLCutDsets):
+      result.add calcLogL(data[igEccentricity][i],
+                          data[igLengthDivRmsTrans][i],
+                          data[igFractionInTransverseRms][i],
+                          eccs, ldiv, frac)
   else:
-    withCdlData(CdlFile, toRefDset(5.9), yr2018, igEnergyFromCharge):
+    ## XXX: CAREFUL: The following applies the charge cut around the main peak for the data
+    ##. Think about if this is desired here!
+    withCdlData(CdlFile, toRefDset(5.9), yr2018, igEnergyFromCharge, LogLCutDsets):
       for i {.inject.} in 0 ..< energy.len:
-        result.add calcLogL(ecc[i], ldivRms[i], fracRms[i], eccs, ldiv, frac)
+        result.add calcLogL(data[igEccentricity][i],
+                            data[igLengthDivRmsTrans][i],
+                            data[igFractionInTransverseRms][i],
+                            eccs, ldiv, frac)
 
 block LogLComparisons:
   let logLEx = readExisting()

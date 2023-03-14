@@ -53,6 +53,24 @@ proc readDsets(h5f: H5File, grpName: string): DataFrame =
       result[dst.toDset(fkTpa)] = h5f.readDset(grpName, dst)
   result["eventNumber"] = h5f.readAs(grp_name / "eventNumber", int)
 
+proc readRaw(h5f: H5File, grpName: string, idxs: seq[int] = @[]): DataFrame =
+  result = newDataFrame()
+  let
+    xs = h5f[grpName / "x", special_type(uint8), uint8]
+    ys = h5f[grpName / "y", special_type(uint8), uint8]
+    ev = h5f.readAs(grp_name / "eventNumber", int)
+  doAssert xs.len == ev.len
+  var xsAll = newSeqOfCap[int](xs.len * 100)
+  var ysAll = newSeqOfCap[int](xs.len * 100)
+  var evAll = newSeqOfCap[int](xs.len * 100)
+  for i in idxs:
+    for j in 0 ..< xs[i].len:
+      xsAll.add xs[i][j].int
+      ysAll.add ys[i][j].int
+      evAll.add ev[i]
+  result = toDf({"x" : xsAll, "y" : ysAll, "eventNumber" : evAll})
+
+
 proc buildLogLHist*(h5f: H5file, dset: string): seq[bool] =
   ## returns the a boolean to either keep an event or throw it out.
   ## `true` if we keep it

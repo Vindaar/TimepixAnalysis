@@ -284,38 +284,48 @@ proc clone(t: Table[Candidate, keV⁻¹•cm⁻²]): Table[Candidate, keV⁻¹�
     result[key] = val
 
 proc clone(it: Interpolation): Interpolation =
-  result = Interpolation(kd: it.kd.clone(),
-                         backCache: it.backCache.clone(),
-                         radius: it.radius,
-                         energyRange: it.energyRange,
-                         nxy: it.nxy,
-                         nE: it.nE, xyOffset: it.xyOffset,
-                         eOffset: it.eOffset,
-                         coords: it.coords,
-                         energies: it.energies,
-                         expCounts: it.expCounts.clone(),
-                         zeroSig: it.zeroSig,
-                         zeroBack: it.zeroBack,
-                         zeroSigBack: it.zeroSigBack)
+  for field, v1, v2 in fieldPairs(result, it):
+    when typeof(v1) is KDTree[float] | Table[Candidate, keV⁻¹•cm⁻²] | Tensor[float]:
+      v1 = v2.clone()
+    else:
+      v1 = v2
+
+proc replace(n: NimNode, repl, by: NimNode): NimNode =
+  ## Replace `repl` by `by` in `n`.
+  if n == repl:
+    result = by
+  else:
+    result = n.copyNimTree()
+    for i in 0 ..< result.len:
+      result[i] = result[i].replace(repl, by)
+
+macro cloneNoCase(res, toClone: typed, body: untyped): untyped =
+  ## Ultra simple clone helper to provide access to all fields that are not case
+  ## fields (those would be possible to add, but I don't have the patience atm)
+  ##
+  ## Inject the variables `v1` and `v2` which are replaced by the fields of `res`
+  ## and `toClone` respectively.
+  ##
+  ## Note: this could do all the checks needed on the types that we manually place
+  ## in the body below, but at that point it becomes a specific to this type cloning
+  ## tool.
+  let typ = toClone.getTypeImpl[0].getTypeImpl
+  result = newStmtList()
+  for field in typ[2]:
+    if field.kind != nnkIdentDefs: continue # skip `case` fields and their children
+    let fname = ident(field[0].strVal)
+    let rv = nnkDotExpr.newTree(res, fname)
+    let cv = nnkDotExpr.newTree(toClone, fname)
+    let bodyRepl = body.replace(ident"v1", rv).replace(ident"v2", cv)
+    result.add bodyRepl
 
 proc clone(ctx: Context): Context =
-  result = Context(mcIdx: ctx.mcIdx,
-                   axionModel: ctx.axionModel.clone(),
-                   integralBase: ctx.integralBase,
-                   axionSpl: ctx.axionSpl.clone(),
-                   efficiencySpl: ctx.efficiencySpl.clone(),
-                   raytraceSpl: ctx.raytraceSpl.clone(),
-                   backgroundSpl: ctx.backgroundSpl.clone(),
-                   backgroundCDF: ctx.backgroundCDF,
-                   energyForBCDF: ctx.energyForBCDF,
-                   totalBackgroundClusters: ctx.totalBackgroundClusters,
-                   samplingKind: ctx.samplingKind,
-                   couplingStep: ctx.couplingStep,
-                   g_aγ²: ctx.g_aγ²,
-                   g_ae²: ctx.g_ae²,
-                   #logLVals: ctx.logLVals.clone(),
-                   maxIdx: ctx.maxIdx,
-                   systematics: ctx.systematics)
+  result = Context(samplingKind: ctx.samplingKind)
+  result.cloneNoCase(ctx):
+    when typeof(v1) is DataFrame | InterpolatorType[float] | Interpolator2DType[float] | Interpolation:
+      v1 = v2.clone()
+    else:
+      v1 = v2
   case ctx.samplingKind
   of skInterpBackground:
     result.interp = ctx.interp.clone()

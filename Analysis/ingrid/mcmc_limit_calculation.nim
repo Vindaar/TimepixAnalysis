@@ -370,7 +370,7 @@ proc readFlags(h5f: H5File): tuple[signalEff, vetoPercentile: float, flags: set[
     perc: float
     signalEff: float
   proc readField(grp: H5Group, name: string): bool =
-    if name in grp:
+    if name in grp.attrs:
       result = parseBool(grp.attrs[name, string])
   if readField(logLGrp, FadcVetoAttrStr):
     flags.incl fkFadc
@@ -382,9 +382,9 @@ proc readFlags(h5f: H5File): tuple[signalEff, vetoPercentile: float, flags: set[
     flags.incl fkLineVeto
   if readField(logLGrp, TrackingAttrStr):
     flags.incl fkTracking
-  if FadcVetoPercAttrStr in logLGrp:
+  if FadcVetoPercAttrStr in logLGrp.attrs:
     perc = logLGrp.attrs[FadcVetoPercAttrStr, float]
-  if SignalEffAttrStr in logLGrp:
+  if SignalEffAttrStr in logLGrp.attrs:
     signalEff = logLGrp.attrs[SignalEffAttrStr, float]
   result = (signalEff: signalEff, vetoPercentile: perc, flags: flags)
 

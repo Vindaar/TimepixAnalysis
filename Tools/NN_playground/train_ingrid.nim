@@ -297,7 +297,7 @@ proc plotBackground(data: seq[float], totalTime: Hour) =
     .filter(f{`energies` < 20.0})
   #dfE.showBrowser()
   var dfH = histogram(dfE)
-  let t = if totalTime > 0.0.Hour: totalTime else: 2401.0.Hour
+  let t = if totalTime > 0.0.Hour: totalTime else: 2144.67.Hour ## Correct time for Run-2
   dfH["Rate"] = dfH["count"].scaleDset(t.to(Second).float, 1e5)
   echo dfH
   #ggplot(dfE, aes("energies")) +
@@ -331,31 +331,35 @@ proc targetSpecificRoc(model: AnyModel, df: DataFrame, device: Device) =
     ylim(0.5, 1.0) +
     ggsave("/tmp/roc_curve_combined_split_by_target.pdf")
 
+proc determineCdlEfficiency(model: AnyModel, device: Device, ε: float, readRaw: bool) =
+  ##
+  let dfCdl = prepareCdl(readRaw)
+  let cutVal = determineCutValue(model, device, ε, readRaw)
+  # for reference determine cut value based on full data (expect to get out `ε`)
+  proc getEff(model: AnyModel, df: DataFrame, outfile: string): float =
+    let (cdlInput, cdlTarget) = df.toInputTensor()
+    let (cdlPredict, predTargets) = model.test(cdlInput, cdlTarget, device,
+                                               plotOutfile = outfile)
+    result = determineEff(cdlPredict.sorted, cutVal)
+  let totalEff = model.getEff(dfCdl, &"/tmp/cdl_prediction_all_data.pdf")
+  echo "Total efficiency = ", totalEff
+  for (tup, subDf) in groups(dfCdl.group_by("Target")):
+    let target = tup[0][1].toStr
+    #echo "Current target: ", target, " data: ", subDf
+    let effectiveEff = model.getEff(subDf, &"/tmp/cdl_prediction_{target}.pdf")
+    echo "Target: ", target, " eff = ", effectiveEff
+
 proc predictBackground(model: AnyModel, fname: string, ε: float, totalTime: Hour,
                        device: Device,
                        readRaw: bool) =
   # classify
-  # determine cut value at 80%
-  let dfCdl = prepareCdl(readRaw)
-  let (cdlInput, cdlTarget) = dfCdl.toInputTensor()
-  let (cdlPredict, predTargets) = model.test(cdlInput, cdlTarget, device,
-                                             plotOutfile = "/tmp/cdl_prediction.pdf")
-  # Note: `predTargets` & `cdlTarget` contain same data. May not have same order though!
-  let dfMLPRoc = calcRocCurve(cdlPredict, predTargets)
-  dfMlpRoc.showBrowser()
-
-  let dfme = dfMLPRoc.filter(f{`sigEff` >= ε}).head(20) # assumes sorted by sig eff (which it is)
-  let cutVal = dfme["cutVals", float][0]
-  echo "Cut value: ", cutVal
-  dfMLPRoc.filter(f{`sigEff` >= ε}).showBrowser()
-
+  let cutVal = determineCutValue(model, device, ε, readRaw)
   ## XXX: make sure the cut value stuff & the sign of the predictions is correct everywhere! We flipped the
   ## sign initially to compare with logL!
   let dfAll = prepareAllBackground(fname, readRaw)
   let (allInput, allTarget) = dfAll.toInputTensor()
   let passedInds = model.predict(allInput, allTarget, device, cutVal)
-  echo "p inds len ", passedInds.len, " compared to all "
-  echo dfAll
+  echo "p inds len ", passedInds.len, " compared to all ", dfAll.len
 
   # get all energies of these passing events
   let energiesAll = dfAll["energyFromCharge", float]
@@ -425,14 +429,19 @@ template trainModel(Typ: typedesc,
 
       # target specific roc curves
       targetSpecificRoc(model, df, device)
+
     ## XXX: also not really serving a purpose here
     # now predict background rate
     model.predictBackground(fname, ε, totalTime, device, readRaw)
+
+    model.determineCdlEfficiency(device, ε, readRaw)
   else:
     doAssert fileExists("/tmp/trained_model.pt"), "When using the `--predict` option, the trained model must exist!"
     # load the model
     model.load("/tmp/trained_model.pt")
     model.predictBackground(fname, ε, totalTime, device, readRaw)
+
+    model.determineCdlEfficiency(device, ε, readRaw)
 
 proc main(fname: string, run = 186, # default background run to use
           ε = 0.8, # signal efficiency for background rate prediction

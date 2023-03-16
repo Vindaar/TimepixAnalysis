@@ -14,7 +14,10 @@ import parsetoml except `{}`
 
 from std / envvars import getEnv # for some additional config, plotSeptem cutoff ...
 
-#import ../../Tools/NN_playground/predict_event
+when defined(cpp):
+  ## What do we need? Flambeau ? NN submodule?
+  #import ../../Tools/NN_playground/predict_event
+  discard
 
 when defined(linux):
   const commitHash = staticExec("git rev-parse --short HEAD")
@@ -41,7 +44,7 @@ when not defined(useMalloc):
 
 type
   FlagKind = enum
-    fkTracking, fkFadc, fkScinti, fkSeptem, fkLineVeto, fkAggressive,
+    fkTracking, fkLogL, fkMLP, fkConvNet, fkFadc, fkScinti, fkSeptem, fkLineVeto, fkAggressive,
     fkRocCurve, fkComputeLogL, fkPlotLogL, fkPlotSeptem,
     fkEstRandomCoinc, # used to estimate the random coincidence of the septem & line veto
     fkEstRandomFixedEvent, # use a fixed center cluster and only vary around the outer ring
@@ -243,9 +246,9 @@ proc writeLikelihoodData(h5f: var H5File,
       h5f.copyOver(h5fout, fadcGroup, runGrpName / "fadc") # copy over the FADC datasets
 
   # finally write all interesting attributes
-  chpGrpOut.attrs["MorphingKind"] = $cutTab.kind
-  if cutTab.kind == mkNone:
-    for key, val in pairs(cutTab.cutTab):
+  chpGrpOut.attrs["MorphingKind"] = $cutTab.morphKind
+  if cutTab.morphKind == mkNone:
+    for key, val in pairs(cutTab.lnLcutTab):
       chpGrpOut.attrs[&"logL cut value: {key}"] = val
       chpGrpOut.attrs["SpectrumType"] = "background"
   else:
@@ -725,14 +728,19 @@ proc copyOverAttrs(h5f, h5fout: H5File) =
   let recoGrp = h5f[recoGroupGrpStr]
   logGrp.copy_attributes(recoGrp.attrs)
 
-proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
-                          ctx: LikelihoodContext,
-                          flags: set[FlagKind]) =
-  ## filters all clusters with a likelihood value in the given `h5f` by
-  ## the logL cut values returned by `calcCutValueTab`
-  ## clusters passing the cuts are stored in `h5fout`
+proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
+                            ctx: LikelihoodContext,
+                            flags: set[FlagKind]) =
+  ## Filters all clusters based on our background suppression methods consisting
+  ## of neural networks, a likelihood cut method and different additional detector
+  ## vetoes.
+  ##
+  ## Clusters passing the cuts are stored in `h5fout`
+  ##
   ## The `flags` argument decides what kind of filtering we perform aside from
   ## the logL cuts
+  ## - fkMLP: use the neural network cut method
+  ## - fkLogL: Use the lnL cut method
   ## - fkTracking: only tracking data considered
   ## The remaining flags may not be available for all datasets!
   ## - fkFadc: FADC used as veto
@@ -741,6 +749,10 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
   # TODO: should the argument to calcCutValueTab not be crGold all the time?
   # We want to extract that data from the CDL data that most resembles the X-rays
   # we measured. This is guaranteed by using the gold region.
+  ## XXX: add NN support
+  #let useNeuralNetworkCut = fkMLP in flags
+  ## XXX: Make this just another veto option
+  const useLnLCut = true # fkLogL in flags
   let cutTab = calcCutValueTab(ctx)
   # get the likelihood and energy datasets
   # get the group from file
@@ -880,6 +892,7 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
         centerY = h5f[(chipGroup / "centerY"), float64]
         rmsTrans = h5f[(chipGroup / "rmsTransverse"), float64]
         evNumbers = h5f[(chipGroup / "eventNumber"), int64].asType(int)
+        #nnPred = ctx.predictNN(h5f, chipGroup)
 
       # get all events part of tracking (non tracking)
       let chipIdxsInTracking = filterTrackingEvents(evNumbers, eventsInTracking)
@@ -896,27 +909,46 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
           # total time detector was alive!
           totalDurationRun += evDurations[ind]
 
-        var fadcVeto = false
-        var scintiVeto = false
+        ## ------------------------------
+        ##      Main cut application
+        ## ------------------------------
+
+        ## in region check: check if cluster in desired target region
+        let inCutRegion = inRegion(centerX[ind], centerY[ind], ctx.region)
+        var
+          nnVeto = false # vetoed by neural network (MLP or ConvNet) (and in use)
+          lnLVeto = false # vetoed by lnL cut (and in use)
+          fadcVeto = false # vetoed by FADC (and in use)
+          scintiVeto = false # vetoed by scintillators (and in use)
+          ## XXX: Remove cleaning cut???
+          rmsCleaningVeto = false # smaller than RMS cleaning cut
+        ## NN cut
+        #if useNeuralNetworkCut and nnPred[ind] < nnCutTab[energy[ind]]:
+        #  # vetoed if larger than prediction
+        #  nnVeto = true  #ctx.isVetoedByNeuralNetwork()
+        ## LnL cut
+        if useLnLCut and logL[ind] > cutTab[energy[ind]]:
+          lnLVeto = true
+        ## RMS cleaning cut
+        rmsCleaningVeto = rmsTrans[ind] > RmsCleaningCut
+        ## FADC veto
         if useFadcVeto and chipNumber == 3:
           fadcVeto = ctx.isVetoedByFadc(num, evNumbers[ind], fadcTrigger, fadcEvNum,
                                         fadcRise, fadcFall, fadcSkew)
-        if fadcVeto:
-          # increase if FADC vetoed this event
-          inc fadcVetoCount
+          if fadcVeto:
+            # increase if FADC vetoed this event
+            inc fadcVetoCount
+        ## Scintillator veto
         if useScintiVeto:
           scintiVeto = isVetoedByScintis(evNumbers[ind], eventNumbers, scinti1Trigger,
                                          scinti2Trigger)
-        if scintiVeto:
-          # increase if Scintis vetoed this event
-          inc scintiVetoCount
-
-        # given datasest add element to dataset, iff it passes logL, region and
-        # cleaning cut
-        let inCutRegion = inRegion(centerX[ind], centerY[ind], ctx.region)
-        if logL[ind] <= cutTab[energy[ind]] and
-           inCutRegion and
-           rmsTrans[ind] <= RmsCleaningCut and
+          if scintiVeto:
+            # increase if Scintis vetoed this event
+            inc scintiVetoCount
+        ## Check if all cluster in region and all vetoes passed
+        if inCutRegion and
+           not lnLVeto and
+           not rmsCleaningVeto and
            not fadcVeto and # if veto is true, means throw out!
            not scintiVeto:
           # include this index to the set of indices
@@ -924,7 +956,7 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
             totalDurationRunPassed += evDurations[ind]
           passedInds.incl ind
 
-        if logL[ind] <= cutTab[energy[ind]] and inCutRegion and rmsTrans[ind] <= RmsCleaningCut and
+        if not lnLVeto and inCutRegion and not rmsCleaningVeto and
            scintiVeto and chipNumber == centerChip:
           # only those events that otherwise wouldn't have made it by logL only
           inc totalScintiRemovedNotLogRemoved
@@ -936,6 +968,8 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
         totalScintiRemoveCount += scintiVetoCount
 
       # create dataset to store it
+      ## Now handle all passed indices, which includes the second round of vetoes, namely those
+      ## using the full septemboard: Septem veto & line veto (if in use)
       if passedInds.card > 0:
         # now in a second pass perform a septem veto if desired
         # If there's no events left, then we don't care about
@@ -947,8 +981,7 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
                               ctx = ctx,
                               flags = flags)
 
-        if passedInds.card > 0:
-          # call function which handles writing the data
+        if passedInds.card > 0: # if still any left after septem & line veto, write
           h5f.writeLikelihoodData(h5fout,
                                   mgrp,
                                   chipNumber,
@@ -986,7 +1019,7 @@ proc filterClustersByLogL(h5f: var H5File, h5fout: var H5File,
     lhGrp.attrs["totalPassedEvents"] = totalLogLCount
     lhGrp.attrs["totalCutByScinti"] = totalScintiRemoveCount
     lhGrp.attrs["onlyCutByScinti"] = totalScintiRemovedNotLogRemoved
-    lhGrp.attrs["MorphingKind"] = $cutTab.kind
+    lhGrp.attrs["MorphingKind"] = $cutTab.morphKind
     ## XXX: add "number of runs" or something to differentiate not knowning runs vs not looking at them?
     lhGrp.attrs[TrackingAttrStr] = $(fkTracking in flags)
   # write infos about vetoes, cdl file used etc.
@@ -1260,6 +1293,10 @@ proc main(
   cdlFile = h5cdl_file,
   energyDset = "",
   computeLogL = false,
+  # vetoes and cut methods
+  lnL = false,
+  mlp = "",
+  convnet = "",
   tracking = false,
   scintiveto = false,
   fadcveto = false,
@@ -1273,6 +1310,8 @@ proc main(
   plotLogL = false,
   readOnly = false,
   useTeX = false,
+  # NN cut
+  nnSignalEff = 0.0,
   # lnL cut
   signalEfficiency = 0.0,
   # line veto
@@ -1292,7 +1331,11 @@ proc main(
   ## writes them back to the H5 file
 
   var flags: set[FlagKind]
+  var nnModelPath: string
   if tracking            : flags.incl fkTracking
+  if lnL                 : flags.incl fkLogL
+  if mlp.len > 0         : flags.incl fkMLP; nnModelPath = mlp
+  if convnet.len > 0     : flags.incl fkConvNet; nnModelPath = convnet
   if scintiveto          : flags.incl fkScinti
   if fadcveto            : flags.incl fkFadc
   if septemveto          : flags.incl fkSeptem
@@ -1305,6 +1348,11 @@ proc main(
   if estimateRandomCoinc : flags.incl fkEstRandomCoinc
   if estFixedEvent       : flags.incl fkEstRandomFixedEvent
   if readOnly            : flags.incl fkReadOnly
+
+  when not defined(cpp):
+    if mlp.len > 0 or convnet.len > 0:
+      raise newException(Exception, "Using neural network vetoes is only supported if the program is compiled " &
+        "using the C++ backend!")
 
   let region = if region.len > 0:
                  parseEnum[ChipRegion](region)
@@ -1344,7 +1392,12 @@ proc main(
                                   #numChips = numChips,
                                   # misc,
                                   useTeX = useTeX,
+                                  # NN cut
+                                  useNeuralNetworkCut = fkMLP in flags or fkConvNet in flags,
+                                  nnModelPath = (if mlp.len > 0: mlp else: convnet), # both might be empty
+                                  nnSignalEff = nnSignalEff,
                                   # lnL cut
+                                  useLnLCut = fkLogL in flags,
                                   signalEfficiency = signalEfficiency,
                                   # septem veto
                                   clusterAlgo = readClusterAlgo(),
@@ -1383,7 +1436,7 @@ proc main(
 
     # now perform the cut on the logL values stored in `h5f` and write
     # the results to h5fout
-    h5f.filterClustersByLogL(h5fout, ctx, flags)
+    h5f.filterClustersByVetoes(h5fout, ctx, flags)
     # given the cut values and the likelihood values for all events
     # based on the X-ray reference distributions, we can now cut away
     # all events not passing the cuts :)
@@ -1431,7 +1484,12 @@ when isMainModule:
   calculations in parallel on one H5 file. Not compatible with `--computeLogL` for obvious reasons.""",
     "useTeX"         : "If set will produce plots using TikZ backend",
 
-    # vetoes
+    # vetoes and cut methods
+    "lnL"            : "If flag is set, we use the lnL cut method as a veto",
+    "mlp"            : """Serves as a flag to use an MLP as the veto method. Argument must be the path to the
+  trained model (`.pt` file).""",
+    "convnet"        : """Serves as a flag to use a ConvNet as the veto method. Argument must be the path to the
+  trained model (`.pt` file).""",
     "scintiveto"     : "If flag is set, we use the scintillators as a veto",
     "fadcveto"       : "If flag is set, we use the FADC as a veto",
     "septemveto"     : "If flag is set, we use the Septemboard as a veto",

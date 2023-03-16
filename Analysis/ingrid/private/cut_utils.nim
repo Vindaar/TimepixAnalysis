@@ -1,5 +1,6 @@
 import std / [os, sequtils]
 import pkg / [nimhdf5, ggplotnim]
+from algorithm import lowerBound
 
 import ../ingrid_types
 from ./geometry import inRegion
@@ -123,3 +124,22 @@ proc cutOnProperties*(h5f: H5File,
                       cuts: seq[tuple[dset: string,
                                       lower, upper: float]]): seq[int] {.inline.} =
   result = h5f.cutOnProperties(group, crAll, cuts.toGenericCut())
+
+from ./cdl_cuts import toRefDset
+## Extensions for the `CutValueInterpolator` type
+proc `[]`*(cv: CutValueInterpolator, e: float): float =
+  case cv.cutMethod
+  of cmLnLCut:
+    case cv.morphKind
+    of mkNone: result = cv[e.toRefDset()]
+    of mkLinear:
+      let idx = min(cv.lnLCutEnergies.lowerBound(e), cv.lnLCutEnergies.high)
+      result = cv.lnLCutValues[idx]
+  of cmNnCut:
+    case cv.nnCutKind
+    of nkGlobal: result = cv.cut
+    of nkLocal: result = cv[e.toRefDset()]
+    of nkInterpolated:
+      discard
+      #let idx = min(cv.nnCutEnergies.lowerBound(e), cv.nnCutEnergies.high)
+      #result = cv.nnCutValues[idx]

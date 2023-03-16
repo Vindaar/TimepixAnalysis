@@ -687,19 +687,32 @@ when not defined(pure) and not defined(js):
       # processed and converted FADC data
       fadcData*: Tensor[float]
 
-    CutValueInterpolator* = object
-      case kind*: MorphingKind
-      of mkNone:
-        ## just the regular table containing a cut value for each target/filter combination
-        cutTab*: OrderedTable[string, float]
-      of mkLinear:
-        ## two tensors: `cutEnergies` stores the energy values we used to
-        ## compute different morphed distributions. `cutValues` stores the cut
-        ## value of each distribution. So for index `idx` the cut value of energy
-        ## `cutEnergies[idx]` is given as `cutValue[idx]`.
-        cutEnergies*: seq[float] # is a `seq` to use `lowerBound`
-        cutValues*: Tensor[float]
 
+    CutMethodKind* = enum
+      cmLnLCut, cmNnCut
+
+    NeuralNetCutKind* = enum
+      nkGlobal, nkLocal, nkInterpolated
+
+    CutValueInterpolator* = object
+      case cutMethod*: CutMethodKind
+      of cmLnLCut:
+        case morphKind*: MorphingKind
+        of mkNone:
+          ## just the regular table containing a cut value for each target/filter combination
+          lnLCutTab*: OrderedTable[string, float]
+        of mkLinear:
+          ## two tensors: `cutEnergies` stores the energy values we used to
+          ## compute different morphed distributions. `cutValues` stores the cut
+          ## value of each distribution. So for index `idx` the cut value of energy
+          ## `cutEnergies[idx]` is given as `cutValue[idx]`.
+          lnLCutEnergies*: seq[float] # is a `seq` to use `lowerBound`
+          lnLCutValues*: Tensor[float]
+      of cmNnCut: # neural network cut method (only supported on cpp backend!)
+        case nnCutKind*: NeuralNetCutKind
+        of nkGlobal: cut*: float # global fixed efficiency
+        of nkLocal: nnCutTab*: OrderedTable[string, float] # local (per target!) fixed efficiency
+        of nkInterpolated: discard # liner interpolation between `nkLocal` targets
 
     ## Explanation of the 3 different line veto kinds. Terminology used here:
     ## 'OC': original cluster. This is the cluster that was identified to pass the
@@ -917,26 +930,47 @@ proc toDsetSuffix*(g: GasGainIntervalData): string =
 proc initCutValueInterpolator*(kind: MorphingKind): CutValueInterpolator =
   case kind
   of mkNone:
-    result = CutValueInterpolator(kind: mkNone)
-    result.cutTab = initOrderedTable[string, float]()
+    result = CutValueInterpolator(cutMethod: cmLnLCut, morphKind: mkNone)
+    result.lnLCutTab = initOrderedTable[string, float]()
   of mkLinear:
-    result = CutValueInterpolator(kind: mkLinear)
+    result = CutValueInterpolator(cutMethod: cmLnLCut, morphKind: mkLinear)
 
-proc initCutValueInterpolator*(tab: OrderedTable[string, float]): CutValueInterpolator =
-  result = initCutValueInterpolator(mkNone)
-  result.cutTab = tab
+proc initCutValueInterpolator*(kind: NeuralNetCutKind): CutValueInterpolator =
+  case kind
+  of nkGlobal:
+    result = CutValueInterpolator(cutMethod: cmNnCut, nnCutKind: nkGlobal)
+  of nkLocal:
+    result = CutValueInterpolator(cutMethod: cmNnCut, nnCutKind: nkLocal)
+    result.nnCutTab = initOrderedTable[string, float]()
+  of nkInterpolated:
+    result = CutValueInterpolator(cutMethod: cmNnCut, nnCutKind: nkInterpolated)
+
+proc initCutValueInterpolator*(tab: OrderedTable[string, float],
+                               cutMethod = cmLnLCut): CutValueInterpolator =
+  case cutMethod
+  of cmLnLCut:
+    result = initCutValueInterpolator(mkNone)
+    result.lnLCutTab = tab
+  of cmNnCut:
+    result = initCutValueInterpolator(nkLocal)
+    result.nnCutTab = tab
 
 proc initCutValueInterpolator*(energies: seq[float]): CutValueInterpolator =
   result = initCutValueInterpolator(mkLinear)
-  result.cutEnergies = energies
-  result.cutValues = zeros[float](energies.len.int)
+  result.lnLCutEnergies = energies
+  result.lnLCutValues = zeros[float](energies.len.int)
 
 proc `[]`*(cv: CutValueInterpolator, s: string): float =
-  result = cv.cutTab[s]
+  case cv.cutMethod
+  of cmLnLCut: result = cv.lnLCutTab[s]
+  of cmNnCut: result = cv.nnCutTab[s]
 
 proc `[]=`*(cv: var CutValueInterpolator, s: string, val: float) =
-  doAssert cv.kind == mkNone
-  cv.cutTab[s] = val
+  doAssert (cv.cutMethod == cmLnLCut and cv.morphKind == mkNone) or
+    (cv.cutMethod == cmNnCut and cv.nnCutKind == nkLocal)
+  case cv.cutMethod
+  of cmLnLCut: cv.lnLCutTab[s] = val
+  of cmNnCut: cv.nnCutTab[s] = val
 
 proc `==`*[T: SomePix](c1, c2: ClusterObject[T]): bool =
   result = true

@@ -1,16 +1,9 @@
 import strutils, os, sequtils, strformat
 import nimhdf5, seqmath, ggplotnim, arraymancer
 
-import cdl_cuts, hdf5_utils, geometry, ggplot_utils
+import cdl_cuts, hdf5_utils, geometry, ggplot_utils, cut_utils
 import ../ingrid_types
 import helpers/utils
-
-proc `[]`*(cv: CutValueInterpolator, e: float): float =
-  case cv.kind
-  of mkNone: result = cv.cutTab[e.toRefDset()]
-  of mkLinear:
-    let idx = min(cv.cutEnergies.lowerBound(e), cv.cutEnergies.high)
-    result = cv.cutValues[idx]
 
 import sugar
 proc morph*(df: DataFrame, energy: float, offset = 1): (Tensor[float], Tensor[float]) =
@@ -723,8 +716,8 @@ proc calcCutValueTab*(ctx: LikelihoodContext): CutValueInterpolator =
       energies.add energy
       cutVals.add subDf["Bins", float][cutVal]
     let sorted = zip(energies, cutVals).sortedByIt(it[0])
-    result.cutEnergies = sorted.mapIt(it[0])
-    result.cutValues = sorted.mapIt(it[1]).toTensor
+    result.lnLCutEnergies = sorted.mapIt(it[0])
+    result.lnLCutValues = sorted.mapIt(it[1]).toTensor
   else:
     result = getChristophCutVals()
   when false: # not defined(release) or defined(DEBUG):
@@ -802,7 +795,12 @@ proc initLikelihoodContext*(
   centerChip = 3,
   numChips = 7,
   useTeX: bool = false,
-  # lnL settings
+  # NN cut
+  useNeuralNetworkCut: bool = false,
+  nnModelPath = "",
+  nnSignalEff: float = 0.0,
+  # lnL cut & settings
+  useLnLCut: bool = false,
   signalEfficiency: float = 0.0,
   # Septem veto related
   septemVeto: bool = false,

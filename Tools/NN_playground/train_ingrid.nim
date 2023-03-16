@@ -149,6 +149,7 @@ proc train(model: AnyModel, optimizer: var Optimizer,
       toPlot = true
     var predictions = newSeqOfCap[float](dataset_size)
     var targets = newSeqOfCap[int](dataset_size)
+    ## XXX: Adjust the upper end similar to in `test` to get all data!
     for batch_id in 0 ..< dataset_size div bsz:
       # Reset gradients.
       optimizer.zero_grad()
@@ -205,11 +206,12 @@ proc test(model: AnyModel,
   var predictions = newSeqOfCap[float](dataset_size)
   var targets = newSeqOfCap[int](dataset_size)
   no_grad_mode:
-    for batch_id in 0 ..< dataset_size div bsz:
+    for batch_id in 0 ..< (dataset_size.float / bsz.float).ceil.int:
       # minibatch offset in the Tensor
       let offset = batch_id * bsz
-      let x = input[offset ..< offset + bsz, _ ].to(device)
-      let target = target[offset ..< offset + bsz].to(device)
+      let stop = min(offset + bsz, dataset_size)
+      let x = input[offset ..< stop, _ ].to(device)
+      let target = target[offset ..< stop].to(device)
       # Running input through the network
       let output = model.forward(x)
       # get the larger prediction along axis 1 (the example axis)
@@ -241,6 +243,7 @@ proc predict(model: AnyModel,
   var correct = 0
   var predictions = newSeq[float]()
   no_grad_mode:
+    ## XXX: Adjust the upper end similar to in `test` to get all data!
     for batch_id in 0 ..< dataset_size div bsz:
       # minibatch offset in the Tensor
       let offset = batch_id * bsz

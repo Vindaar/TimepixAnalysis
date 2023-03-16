@@ -1,259 +1,16 @@
-import flambeau/[flambeau_nn]
-import flambeau / tensors
-import strformat
+import flambeau / [flambeau_nn, tensors]
+import std / [strformat, os, strutils, sequtils, random, algorithm, options]
 
-
-import nimhdf5
 import ingrid / [tos_helpers, ingrid_types]
-import os, strutils, sequtils, random, algorithm, options, cligen
-import datamancer, unchained
+import pkg / [datamancer, unchained, nimhdf5]
+
+# have to include the type definitions
+include ./nn_types, ./io_helpers, ./nn_cuts
 
 {.experimental: "views".}
 
-let bsz = 8192 # batch size
-
-# We will build the following network:
-# Input --> Linear(out_features = 12) --> relu --> Linear(out_features = 1)
-
-defModule:
-  type
-    MLP* = object of Module
-      hidden* = Linear(12, 500)
-      #hidden2* = Linear(100, 100)
-      #hidden2* = Linear(5000, 5000)
-      classifier* = Linear(500, 2)
-      #conv2* = Conv2d(10, 20, 5)
-      #conv2_drop* = Dropout2d()
-      #fc1* = Linear(320, 50)
-      #fc2* = Linear(50, 10)
-
-proc forward(net: MLP, x: RawTensor): RawTensor =
-  #var x = net.hidden2.forward(net.hidden.forward(x).relu()).relu()
-  var x = net.hidden.forward(x).relu()
-  #x = net.hidden2.forward(x).relu()
-  return net.classifier.forward(x).squeeze(1)
-
-## XXX: Defining two models in a single file is currently broken. When trying to use it
-## the nim compiler assigns the wrong destructor to the second one (reusing the one
-## from the first type). This breaks it. To use it, we currently need to replace
-## the logic instead (putting this one first). Once things work we can try to ask Hugo &
-## check if submoduling individual models helps.
-#defModule:
-#  type
-#    ConvNet* = object of Module
-#      conv1* = Conv2d(1, 50, 15)
-#      conv2* = Conv2d(50, 70, 15)
-#      conv3* = Conv2d(70, 100, 15)
-#      #lin1* = Linear(100 * 15 * 15, 1000)
-#      lin1* = Linear(3610, 1000)
-#      lin2* = Linear(1000, 50)
-#      lin3* = Linear(50, 2)
-#
-#proc forward(net: ConvNet, x: RawTensor): RawTensor =
-#  var x = net.conv1.forward(x).relu().max_pool2d([2, 2])
-#  x = net.conv2.forward(x).relu().max_pool2d([2, 2])
-#  x = net.conv3.forward(x).relu().max_pool2d([2, 2])
-#  x = net.lin1.forward(x).relu()
-#  x = net.lin2.forward(x).relu()
-#  x = net.lin3.forward(x).relu()
-#  return x
-
-type
-  ModelKind = enum
-    mkMLP = "MLP"
-    mkCNN = "ConvNet"
-
-  ConvNet = object
-
-  AnyModel = MLP | ConvNet
-
-
-proc readDset(h5f: H5File, grpName: string, igKind: InGridDsetKind): seq[float64] =
-  result = h5f.readAs(grp_name / igKind.toDset(fkTpa), float64)
-
-let validReadDSets = XrayReferenceDsets - { igNumClusters,
-                                            igFractionInHalfRadius,
-                                            igRadiusDivRmsTrans,
-                                            igRadius, igBalance,
-                                            igLengthDivRadius } + {
-                                              igCenterX, igCenterY }
-
-let validDsets = validReadDSets - { igLikelihood, igCenterX, igCenterY, igHits, igEnergyFromCharge, igTotalCharge }
-
-proc readDsets(h5f: H5File, cdlPath, dset: string): DataFrame =
-  result = newDataFrame()
-  let dsets = concat(toSeq(validReadDsets - { igLikelihood } ), @[igEventNumber])
-  var passData: array[InGridDsetKind, seq[float]]
-  for s in mitems(passData):
-    s = newSeqOfCap[float](50_000)
-  withLogLFilterCuts(cdlPath, dset, yr2018, igEnergyFromCharge, dsets):
-    for d in dsets:
-      passData[d].add data[d][i]
-  for d in dsets:
-    result[d.toDset(fkTpa)] = passData[d]
-
-proc readRaw(h5f: H5File, grpName: string, idxs: seq[int] = @[]): DataFrame =
-  ## XXX: Need to implement filtering to suitable data for CDL data!
-  result = newDataFrame()
-  let
-    xs = h5f[grpName / "x", special_type(uint8), uint8]
-    ys = h5f[grpName / "y", special_type(uint8), uint8]
-    ev = h5f.readAs(grp_name / "eventNumber", int)
-  doAssert xs.len == ev.len
-  var xsAll = newSeqOfCap[int](xs.len * 100)
-  var ysAll = newSeqOfCap[int](xs.len * 100)
-  var evAll = newSeqOfCap[int](xs.len * 100)
-  for i in idxs:
-    for j in 0 ..< xs[i].len:
-      xsAll.add xs[i][j].int
-      ysAll.add ys[i][j].int
-      evAll.add ev[i]
-  result = toDf({"x" : xsAll, "y" : ysAll, "eventNumber" : evAll})
-
-
-proc buildLogLHist*(h5f: H5file, dset: string): seq[bool] =
-  ## returns the a boolean to either keep an event or throw it out.
-  ## `true` if we keep it
-  var grp_name = cdlPrefix($yr2018) & dset
-  # create global vars for xray and normal cuts table to avoid having
-  # to recreate them each time
-  let xrayCutsTab = getXrayCleaningCuts()
-  let cutsTab = getEnergyBinMinMaxVals2018()
-  var frameworkKind = fkTpa
-  if "FrameworkKind" in h5f.attrs:
-    frameworkKind = parseEnum[FrameworkKind](h5f.attrs["FrameworkKind", string])
-  # open h5 file using template
-  let
-    energyStr = igEnergyFromCharge.toDset(frameworkKind)
-    centerXStr = igCenterX.toDset(frameworkKind)
-    centerYStr = igCenterY.toDset(frameworkKind)
-    eccStr = igEccentricity.toDset(frameworkKind)
-    lengthStr = igLength.toDset(frameworkKind)
-    chargeStr = igTotalCharge.toDset(frameworkKind)
-    rmsTransStr = igRmsTransverse.toDset(frameworkKind)
-    npixStr = igHits.toDset(frameworkKind)
-
-  let
-    energy = h5f.readAs(grp_name / energyStr, float64)
-    centerX = h5f.readAs(grp_name / centerXStr, float64)
-    centerY = h5f.readAs(grp_name / centerYStr, float64)
-    ecc = h5f.readAs(grp_name / eccStr, float64)
-    length = h5f.readAs(grp_name / lengthStr, float64)
-    charge = h5f.readAs(grp_name / chargeStr, float64)
-    rmsTrans = h5f.readAs(grp_name / rmsTransStr, float64)
-    npix = h5f.readAs(grp_name / npixStr, float64)
-    # get the cut values for this dataset
-    cuts = cutsTab[dset]
-    xrayCuts = xrayCutsTab[dset]
-  result = newSeq[bool](energy.len)
-  for i in 0 .. energy.high:
-    let
-      # first apply Xray cuts (see C. Krieger PhD Appendix B & C)
-      regionCut  = inRegion(centerX[i], centerY[i], crSilver)
-      xRmsCut    = rmsTrans[i] >= xrayCuts.minRms and rmsTrans[i] <= xrayCuts.maxRms
-      xLengthCut = length[i]   <= xrayCuts.maxLength
-      xEccCut    = ecc[i]      <= xrayCuts.maxEccentricity
-      # then apply reference cuts
-      chargeCut  = charge[i]   > cuts.minCharge and charge[i]   < cuts.maxCharge
-      rmsCut     = rmsTrans[i] > cuts.minRms    and rmsTrans[i] < cuts.maxRms
-      lengthCut  = length[i]   < cuts.maxLength
-      pixelCut   = npix[i]     > cuts.minPix
-    # add event to likelihood if all cuts passed
-    if allIt([regionCut, xRmsCut, xLengthCut, xEccCut, chargeCut, rmsCut, lengthCut, pixelCut], it):
-      # take it
-      result[i] = true
-
-proc shuff(x: seq[int]): seq[int] =
-  result = x
-  result.shuffle()
-
-proc prepareCDL(readRaw: bool,
-                cdlPath = "/home/basti/CastData/data/CDL_2019/calibration-cdl-2018.h5"
-               ): DataFrame =
-  var h5f = H5file(cdlPath, "r")
-  let tb = getXrayRefTable()
-  var df = newDataFrame()
-  for k, bin in tb:
-    var dfLoc = newDataFrame()
-    if not readRaw:
-      # read dsets only returns those indices that pass
-      dfLoc = h5f.readDsets(cdlPath, bin)
-      dfLoc["pass?"] = true
-    else:
-      let pass = h5f.buildLogLHist(bin)
-      var idxs = newSeqOfCap[int](pass.len)
-      for i, p in pass:
-        if p:
-          idxs.add i
-      dfLoc = h5f.readRaw(cdlPrefix($yr2018) & bin, idxs)
-      dfLoc["pass?"] = true
-    dfLoc["Target"] = bin
-    # remove all that don't pass
-    dfLoc = dfLoc.filter(f{bool: idx("pass?") == true})
-    df.add dfLoc
-  discard h5f.close()
-  df["Type"] = "signal"
-  result = df
-  result["Idx"] = toSeq(0 ..< result.len).shuff()
-  result = result.arrange("Idx")
-  #result = result[0 ..< 55000]
-  result.drop("Idx")
-  echo result
-
-proc prepareBackground(h5f: H5File, run: int, readRaw: bool): DataFrame =
-  let path = "/reconstruction/run_$#/chip_3" % $run
-  let dsets = toSeq(validReadDsets - { igLikelihood }).mapIt(it.toDset(fkTpa))
-  let evNumDset = "eventNumber"
-  let grp = h5f[path.grp_str]
-  if not readRaw:
-    for dset in dsets:
-      result[dset] = h5f.readAs(grp.name / dset, float)
-    result["eventNumber"] = h5f.readAs(grp.name / "eventNumber", int)
-  else:
-    result = h5f.readRaw(grp.name)
-  result["pass?"] = true # does not matter!
-  #result["runNumber
-  result["Type"] = "back"
-
-  let energyBins = getEnergyBinning()
-  let targetTab = getXrayRefTable()
-  ## TODO: the following is broken? CHECK!
-  # result = result.mutate(f{"Target" ~ targetTab[energyBins.lowerBound(idx("energyFromCharge"))]})
-  if not readRaw:
-    result = result.mutate(f{"Target" ~ `energyFromCharge`.toRefDset}) # ["energyFromCharge", float].toSeq1D.mapIt(targetTab[energyBins.lowerBound(it)])
-
-proc prepareBackground(fname: string, run: int, readRaw: bool): DataFrame =
-  var h5f = H5open(fname, "r")
-  result = h5f.prepareBackground(run, readRaw)
-  discard h5f.close()
-
-proc prepareAllBackground(fname: string, readRaw: bool): DataFrame =
-  var h5f = H5open(fname, "r")
-  for run, grp in runs(h5f):
-    var df = h5f.prepareBackground(run, readRaw)
-    df["runNumber"] = run
-    result.add df
-
-  # filter gold region
-  result = result.filter(f{float -> bool: inRegion(`centerX`, `centerY`, crGold)})
-  discard h5f.close()
-
-proc toInputTensor(df: DataFrame): (RawTensor, RawTensor) {.noInit.} =
-  ## Converts an appropriate data frame to a tuple of input / target tensors
-  let cols = validDsets.card
-  var input = rawtensors.zeros(df.len * cols).reshape(sizes = [df.len.int64, cols].asTorchView())
-  for i, c in validDsets.toSeq.mapIt(it.toDset(fkTpa)).sorted:
-    let xp = fromBlob[float](cast[pointer](df[c, float].unsafe_raw_offset()), df.len).convertRawTensor()
-    echo xp.sizes(), " weird ", c
-    input[_, i] = xp
-  var target = rawtensors.zeros(df.len * 2).reshape([df.len.int64, 2].asTorchView())
-  let typ = df["Type", string]
-  for i in 0 ..< typ.size:
-    if typ[i] == "signal":
-      target[i, _] = [1, 0].toRawTensorFromScalar #.toTensor.convertRawTensor()
-    else:
-      target[i, _] = [0, 1].toRawTensorFromScalar #toTensor.convertRawTensor()
-  result = (input, target)
+## The batch size we use!
+const bsz = 8192 # batch size
 
 proc generateTrainTest(df: var DataFrame):
                       ((RawTensor, RawTensor), (RawTensor, RawTensor)) {.noInit.} =
@@ -326,68 +83,19 @@ proc plotLikelihoodDist(df: DataFrame) =
 
 proc plotTraining(predictions: seq[float], targets: seq[int],
                   outfile = "/tmp/test.pdf") =
-  echo "INPUT ", predictions.len
-  echo "TARG ", targets.len
+  #echo "INPUT ", predictions.len
+  #echo "TARG ", targets.len
   let dfPlt = toDf(predictions, targets)
     .mutate(f{"isSignal" ~ `targets` == 1})
     .filter(f{`predictions` > -50.0 and `predictions` < 50.0})
   #dfPlt.showBrowser()
-  echo "Number of signals: ", dfPlt.filter(f{`isSignal` == true})
-  echo "Number of backs: ", dfPlt.filter(f{`isSignal` == false})
+  #echo "Number of signals: ", dfPlt.filter(f{`isSignal` == true})
+  #echo "Number of backs: ", dfPlt.filter(f{`isSignal` == false})
   #if true: quit()
   ggplot(dfPlt, aes("predictions", fill = "isSignal")) +
     geom_histogram(bins = 100, position = "identity", alpha = some(0.5), hdKind = hdOutline) +
     scale_x_continuous() +
     ggsave(outfile)
-
-proc determineEff(pred: seq[float], cutVal: float,
-                  isBackground = true): float =
-  ## returns the efficiency given the sorted (!) predictions, a
-  ## cut value `cutVal` and whether it's background or signal
-  let cutIdx = pred.lowerBound(cutVal)
-  result = cutIdx.float / pred.len.float
-  if isBackground:
-    result = (1.0 - result)
-
-proc calcSigEffBackRej(df: DataFrame, bins: seq[float],
-                       isBackground = true): DataFrame =
-  ## returns the signal eff and backround rej for all bins of the
-  ## given data frame, split by the `bins` column (that is CDL classes)
-  let vals = df.arrange("predictions")["predictions", float]
-  var effs = newSeqOfCap[float](bins.len)
-  for l in bins:
-    let eff = determineEff(vals.toSeq1D, l, isBackground = isBackground)
-    effs.add eff
-  result = toDf({ "eff" : effs,
-                  "cutVals" : bins })
-
-proc calcRocCurve(predictions: seq[float], targets: seq[int]): DataFrame =
-  # now use both to determine signal and background efficiencies
-  # essentially have to generate some binning in `logL` we deem appropriate,
-  let dfPlt = toDf(predictions, targets)
-    .mutate(f{"isSignal" ~ `targets` == 1})
-  const nBins = 1000
-  let bins = linspace(predictions.min, predictions.max, nBins)
-  let dfSignal = dfPlt.filter(f{`isSignal` == true})
-  let dfBackground = dfPlt.filter(f{`isSignal` == false})
-
-  var
-    sigEffDf = newDataFrame()
-    backRejDf = newDataFrame()
-  if dfSignal.len > 0:
-    sigEffDf = calcSigEffBackRej(dfSignal, bins, isBackground = false)
-      .rename(f{"sigEff" <- "eff"})
-  if dfBackground.len > 0:
-    backRejDf = calcSigEffBackRej(dfBackground, bins, isBackground = true)
-      .rename(f{"backRej" <- "eff"})
-  if sigEffDf.len > 0 and backRejDf.len > 0:
-    result = innerJoin(sigEffDf, backRejDf, by = "cutVals")
-  elif sigEffDf.len > 0:
-    result = sigEffDf
-  elif backRejDf.len > 0:
-    result = backRejDf
-  else:
-    doAssert false, "Both signal and background dataframes are empty!"
 
 proc rocCurve(predictions: seq[float], targets: seq[int],
               suffix = "") =
@@ -432,7 +140,6 @@ proc train(model: AnyModel, optimizer: var Optimizer,
            device: Device,
            readRaw: bool) =
   let dataset_size = input.size(0)
-  echo "Starting size ", dataset_size
   var toPlot = false
   for epoch in 0 .. 100000:
     var correct = 0

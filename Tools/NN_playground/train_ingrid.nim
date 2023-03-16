@@ -380,7 +380,8 @@ template trainModel(Typ: typedesc,
                     ε = 0.8, # signal efficiency for background rate prediction
                     totalTime = -1.0.Hour, # total background rate time in hours. Normally read from input file
                     rocCurve = false,
-                    predict = false
+                    predict = false,
+                    modelOutpath = "/tmp/trained_model.pt"
                    ): untyped {.dirty.} =
   var model = Typ.init()
   model.to(device)
@@ -396,7 +397,7 @@ template trainModel(Typ: typedesc,
     let (testIn, testTarg) = testTup
 
     # check if model already exists as trained file
-    if not fileExists("/tmp/trained_model.pt"):
+    if not fileExists(modelOutpath):
       # Learning loop
       # Stochastic Gradient Descent
       var optimizer = SGD.init(
@@ -409,10 +410,10 @@ template trainModel(Typ: typedesc,
                   trainTarg.to(kFloat32).to(device),
                   device,
                   readRaw)
-      model.save("/tmp/trained_model.pt")
+      model.save(modelOutpath)
     else:
       # load the model
-      model.load("/tmp/trained_model.pt")
+      model.load(modelOutpath)
     # perform validation
     let (testPredict, testTargets) = model.test(testIn, testTarg, device)
 
@@ -436,9 +437,9 @@ template trainModel(Typ: typedesc,
 
     model.determineCdlEfficiency(device, ε, readRaw)
   else:
-    doAssert fileExists("/tmp/trained_model.pt"), "When using the `--predict` option, the trained model must exist!"
+    doAssert fileExists(modelOutpath), "When using the `--predict` option, the trained model must exist!"
     # load the model
-    model.load("/tmp/trained_model.pt")
+    model.load(modelOutpath)
     model.predictBackground(fname, ε, totalTime, device, readRaw)
 
     model.determineCdlEfficiency(device, ε, readRaw)
@@ -448,9 +449,8 @@ proc main(fname: string, run = 186, # default background run to use
           totalTime = -1.0.Hour, # total background rate time in hours. Normally read from input file
           rocCurve = false,
           predict = false,
-          model = "MLP") = # MLP or ConvNet
-          #model = mkMLP) = # if true, only predict background rate from all data in input file
-
+          model = "MLP", # MLP or ConvNet #model = mkMLP ## parsing an enum here causes weird CT error in cligen :/
+          modelOutpath = "/tmp/trained_model.pt") =
   # 1. set up the model
   Torch.manual_seed(1)
   var device_type: DeviceKind
@@ -465,7 +465,7 @@ proc main(fname: string, run = 186, # default background run to use
 
   let mKind = parseEnum[ModelKind](model)
   if mKind == mkMLP:
-    MLP.trainModel(fname, device, run, ε, totalTime, rocCurve, predict)
+    MLP.trainModel(fname, device, run, ε, totalTime, rocCurve, predict, modelOutpath)
   #else:
   #  ConvNet.trainModel(fname, device, run, ε, totalTime, rocCurve, predict)
 
@@ -480,4 +480,5 @@ when isMainModule:
     result = true
   proc argHelp*(dfl: Hour; a: var ArgcvtParams): seq[string] =
     result = @[ a.argKeys, "<value>.Hour", $dfl ]
+  import cligen
   dispatch main

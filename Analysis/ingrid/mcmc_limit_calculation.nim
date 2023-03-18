@@ -640,6 +640,28 @@ proc calcVetoEfficiency(readData: ReadData,
   doAssert readData.vetoCfg.signalEfficiency > 0.0
   result *= readData.vetoCfg.signalEfficiency
 
+proc overwriteRandomCoinc(readData: ReadData,
+                          lineVetoRandomCoinc, septemLineVetoRandomCoinc: float): (float, float) =
+  ## Potentially overwrite the random coincidence values if the input file uses an
+  ## eccenrticity cutoff other than 1.
+  var
+    lineVetoRandomCoinc = lineVetoRandomCoinc
+    septemLineVetoRandomCoinc = septemLineVetoRandomCoinc
+  if readData.vetoCfg.eccLineVetoCut > 1.0:
+    ## in this case need to overwrite the info from `lineVetoRandomCoinc` and `septemLineVetoRandomCoinc`
+    ## with the values from our resources file
+    let df = readCsv("/home/basti/org/resources/septem_line_random_coincidences_ecc_cut.csv")
+    let lvDf = df.filter(f{`Type` == "LinelvRegularFake"},
+                         f{float -> bool: abs(`ε_cut` - readData.vetoCfg.eccLineVetoCut) < 1e-3})
+    doAssert lvDf.len == 1, "No, was : " & $lvDf
+    lineVetoRandomCoinc = lvDf["FractionPass", float][0]
+    let slDf = df.filter(f{`Type` == "SeptemLinelvRegularNoHLCFake"},
+                         f{float -> bool: abs(`ε_cut` - readData.vetoCfg.eccLineVetoCut) < 1e-3})
+    doAssert slDf.len == 1, "No, was : " & $slDf
+    septemLineVetoRandomCoinc = slDf["FractionPass", float][0]
+    echo "Updated line and septem line veto random coincidence numbers : ", lineVetoRandomCoinc, " and ", septemLineVetoRandomCoinc
+  result = (lineVetoRandomCoinc, septemLineVetoRandomCoinc)
+
 proc initContext(path: string, yearFiles: seq[(int, string)],
                  useConstantBackground: bool, # decides whether to use background interpolation or not
                  radius, sigma: float, energyRange: keV, nxy, nE: int,
@@ -673,6 +695,9 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
 
   let combEffDf = readCsv("/home/basti/org/resources/combined_detector_efficiencies.csv")
   # calc the efficiency based on the given vetoes
+  let (lineVetoRandomCoinc,
+       septemLineVetoRandomCoinc) = readData.overwriteRandomCoinc(lineVetoRandomCoinc,
+                                                                  septemLineVetoRandomCoinc)
   let vetoEff = calcVetoEfficiency(readData,
                                    septemVetoRandomCoinc,
                                    lineVetoRandomCoinc,

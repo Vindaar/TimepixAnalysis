@@ -90,6 +90,17 @@ proc plotTraining(predictions: seq[float], targets: seq[int],
     scale_x_continuous() +
     ggsave(outfile)
 
+proc plotType(epoch: int, data, testData: seq[float], typ: string, outfile: string) =
+  if data.len < 2: return
+  var df = toDf(data, testData)
+  df["Epoch"] = linspace(0, epoch, data.len)
+  df = df
+    .gather(["data", "testData"], "Type", typ)
+  ggplot(df, aes("Epoch", typ, color = "Type")) +
+    geom_line() +
+    scale_y_log10() +
+    ggsave(outfile)
+
 proc rocCurve(predictions: seq[float], targets: seq[int],
               suffix = "") =
   ## plots the ROC curve of the predictions vs the targets
@@ -148,39 +159,55 @@ template printTensorInfo(arg: untyped): untyped =
 
 proc train(model: AnyModel, optimizer: var Optimizer,
            input, target: RawTensor,
+           testInput, testTarget: RawTensor,
            device: Device,
            readRaw: bool) =
   let dataset_size = input.size(0)
   var toPlot = false
+  var accuracies = newSeq[float]()
+  var testAccuracies = newSeq[float]()
+  var losses = newSeq[float]()
+  var testLosses = newSeq[float]()
+
+  ## XXX: Implement snapshotting of the model if better loss in test than before!
+
+  const PlotEvery = 5000
   for epoch in 0 .. 100000:
     var correct = 0
     if epoch mod 50 == 0:
       echo "Epoch is:" & $epoch
-    if epoch mod 5000 == 0:
+    if epoch mod PlotEvery == 0:
       toPlot = true
     var predictions = newSeqOfCap[float](dataset_size)
     var targets = newSeqOfCap[int](dataset_size)
     ## XXX: Adjust the upper end similar to in `test` to get all data!
-    for batch_id in 0 ..< dataset_size div bsz:
+    var sumLoss = 0.0
+    var count = 0
+    for batch_id in 0 ..< (dataset_size.float / bsz.float).ceil.int:
       # Reset gradients.
       optimizer.zero_grad()
 
       # minibatch offset in the Tensor
       ## TODO: generalize the batching and make sure to take `all` elements! (currently skip last X)
+      # minibatch offset in the Tensor
       let offset = batch_id * bsz
+      let stop = min(offset + bsz, dataset_size)
       var x: RawTensor
       if not readRaw:
-        x = input[offset ..< offset + bsz, _ ]
+        x = input[offset ..< stop, _ ].to(device)
       else:
-        x = input[offset ..< offset + bsz, _, _ ].unsqueeze(1)
+        x = input[offset ..< stop, _, _ ].unsqueeze(1).to(device)
+        #x = input[offset ..< offset + bsz, _, _ ].unsqueeze(1)
         echo "INPUT TENSOR SHAPE ", x.sizes
 
-      let target = target[offset ..< offset + bsz]
+      let target = target[offset ..< stop].to(device)
       #printTensorInfo(target)
       # Running input through the network
       let output = model.forward(x)
+      #echo "computed forward"
       #printTensorInfo(output)
       let pred = output.argmax(1)
+      #echo "pred ", pred
       #printTensorInfo(pred)
 
       if toPlot:
@@ -190,19 +217,34 @@ proc train(model: AnyModel, optimizer: var Optimizer,
         correct += pred.eq(target.argmax(1)).sum().item(int)
       # Computing the loss
       var loss = sigmoid_cross_entropy(output, target)
+      #echo "computed loss ", loss
       # Compute the gradient (i.e. contribution of each parameter to the loss)
       loss.backward()
+      #echo "did backward"
       # Correct the weights now that we have the gradient information
       optimizer.step()
+      #echo "stepped"
+      sumLoss += loss.item(float)
+      inc count
 
     if toPlot:
-      let train_loss = correct.float / dataset_size.float64() # loss.item(float)
-      echo &"\nTrain set: Average loss: {train_loss:.4f} " &
+      let train_acc = correct.float / dataset_size.float64() # loss.item(float)
+      let averageLoss = sumLoss / count.float
+      echo &"\nTrain set: Average loss: {averageLoss:.4f} " &
            &"| Accuracy: {correct.float64() / dataset_size.float64():.3f}"
+      let (testAccuracy, testLoss, tOut, tTarget) = model.test(testInput, testTarget, device)
+      # Accuracies
+      accuracies.add train_acc
+      testAccuracies.add testAccuracy
+      # Losses
+      losses.add averageLoss
+      testLosses.add testLoss
 
     ## create output plot
     if toPlot:
       plotTraining(predictions, targets, outfile = "/tmp/test_training.pdf")
+      plotType(epoch, accuracies, testAccuracies, "Accuracy", outfile = "/tmp/accuracy.pdf")
+      plotType(epoch, losses, testLosses, "Loss", outfile = "/tmp/loss.pdf")
       let preds = predictions.mapIt(clamp(it, -50.0, 50.0))
       rocCurve(preds, targets)
       toPlot = false
@@ -210,12 +252,14 @@ proc train(model: AnyModel, optimizer: var Optimizer,
 proc test(model: AnyModel,
           input, target: RawTensor,
           device: Device,
-          plotOutfile = "/tmp/test_validation.pdf"): (seq[float], seq[int]) =
+          plotOutfile = "/tmp/test_validation.pdf"): (float, float, seq[float], seq[int]) =
   ## returns the predictions / targets
   let dataset_size = input.size(0)
   var correct = 0
   var predictions = newSeqOfCap[float](dataset_size)
   var targets = newSeqOfCap[int](dataset_size)
+  var sumLoss = 0.0
+  var count = 0
   no_grad_mode:
     for batch_id in 0 ..< (dataset_size.float / bsz.float).ceil.int:
       # minibatch offset in the Tensor
@@ -232,18 +276,21 @@ proc test(model: AnyModel,
       targets.add target[_, 0].toNimSeq[:int]
       correct += pred.eq(target.argmax(1)).sum().item(int)
       # Computing the loss
-      # var loss = sigmoid_cross_entropy(output, target)
+      let loss = sigmoid_cross_entropy(output, target)
+      sumLoss += loss.item(float)
+      inc count
 
-  let test_loss = correct.float / dataset_size.float64()
-  echo &"\nTest set: Average loss: {test_loss:.4f} " &
-       &"| Accuracy: {correct.float64() / dataset_size.float64():.3f}"
+  let testAcc = correct.float / dataset_size.float64()
+  let testLoss = sumLoss / count.float
+  echo &"\nTest set: Average loss: {testLoss:.4f} " &
+       &"| Accuracy: {testAcc:.4f}"
 
   ## create output plot
   plotTraining(predictions, targets, outfile = plotOutfile)
   # will fail probably...
   # doAssert target == targets
   let preds = predictions.mapIt(clamp(it, -50.0, 50.0))
-  result = (preds, targets)
+  result = (testAcc, testLoss, preds, targets)
 
 proc predict(model: AnyModel,
              input, target: RawTensor,
@@ -328,7 +375,7 @@ proc targetSpecificRoc(model: AnyModel, df: DataFrame, device: Device) =
     let bin = tup[0][1].toStr
     let (logL, logLTargets) = subDf.logLValues()
     let (input, target) = subDf.toInputTensor()
-    let (predict, mlpTargets) = model.test(input, target, device)
+    let (_, _, predict, mlpTargets) = model.test(input, target, device)
     # combined ROC
     var dfLogLRoc = calcRocCurve(logL, logLTargets)
     let dfMLPRoc = calcRocCurve(predict, mlpTargets)
@@ -349,7 +396,7 @@ proc determineCdlEfficiency(model: AnyModel, device: Device, ε: float, readRaw:
   # for reference determine cut value based on full data (expect to get out `ε`)
   proc getEff(model: AnyModel, df: DataFrame, outfile: string): float =
     let (cdlInput, cdlTarget) = df.toInputTensor()
-    let (cdlPredict, predTargets) = model.test(cdlInput, cdlTarget, device,
+    let (_, _, cdlPredict, predTargets) = model.test(cdlInput, cdlTarget, device,
                                                plotOutfile = outfile)
     result = determineEff(cdlPredict.sorted, cutVal)
   let totalEff = model.getEff(dfCdl, &"/tmp/cdl_prediction_all_data.pdf")
@@ -385,14 +432,17 @@ proc predictBackground(model: AnyModel, fname: string, ε: float, totalTime: Hou
 ## breaks! Nim doesn'- understand that the MLP / ConvNet type can be converted
 ## to a `Module`!
 template trainModel(Typ: typedesc,
-                    fname: string,
+                    #fname: string,
+                    calib: seq[string],
+                    back: seq[string],
                     device: Device,
-                    run = 186, # default background run to use. If none use a mix of all
+                    #run = 186, # default background run to use. If none use a mix of all
                     ε = 0.8, # signal efficiency for background rate prediction
                     totalTime = -1.0.Hour, # total background rate time in hours. Normally read from input file
                     rocCurve = false,
                     predict = false,
-                    modelOutpath = "/tmp/trained_model.pt"
+                    modelOutpath = "/tmp/trained_model.pt",
+                    subsetPerRun = 1000
                    ): untyped {.dirty.} =
   var model = Typ.init()
   model.to(device)
@@ -419,9 +469,12 @@ template trainModel(Typ: typedesc,
         SGDOptions.init(0.005).momentum(0.2)
         #learning_rate = 0.005
       )
+      echo "Training model"
       model.train(optimizer,
                   trainIn.to(kFloat32).to(device),
                   trainTarg.to(kFloat32).to(device),
+                  testIn.to(kFloat32).to(device),
+                  testTarg.to(kFloat32).to(device),
                   device,
                   readRaw)
       model.save(modelOutpath)
@@ -429,8 +482,8 @@ template trainModel(Typ: typedesc,
       # load the model
       model.load(modelOutpath)
     # perform validation
-    let (testPredict, testTargets) = model.test(testIn, testTarg, device)
-
+    let (acc, loss, testPredict, testTargets) = model.test(testIn, testTarg, device)
+    echo "Test loss after training: ", loss, " with accuracy ", acc
     # combined ROC
     if rocCurve: ## XXX: this should not really live here either
       let (logL, logLTargets) = df.logLValues()
@@ -447,14 +500,14 @@ template trainModel(Typ: typedesc,
 
     ## XXX: also not really serving a purpose here
     # now predict background rate
-    model.predictBackground(fname, ε, totalTime, device, readRaw)
+    #model.predictBackground(fname, ε, totalTime, device, readRaw)
 
     model.determineCdlEfficiency(device, ε, readRaw)
   else:
     doAssert fileExists(modelOutpath), "When using the `--predict` option, the trained model must exist!"
     # load the model
     model.load(modelOutpath)
-    model.predictBackground(fname, ε, totalTime, device, readRaw)
+    #model.predictBackground(fname, ε, totalTime, device, readRaw)
 
     model.determineCdlEfficiency(device, ε, readRaw)
 

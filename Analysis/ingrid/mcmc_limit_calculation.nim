@@ -6,7 +6,7 @@ from strutils import repeat, endsWith, strip, parseFloat, removeSuffix, parseBoo
 
 import pkg / [sorted_seq]
 
-import ingrid / tos_helpers
+import ingrid / [tos_helpers, ingrid_types]
 # the interpolation code
 import ingrid / background_interpolation
 import numericalnim except linspace, cumSum
@@ -91,16 +91,11 @@ type
       θ_y: float
     of puCertain: discard # no uncertainty
 
-  # The vetoes and flags available in `likelihood` that are relevant here
-  LogLFlagKind = enum
-    fkTracking, fkFadc, fkScinti, fkSeptem, fkLineVeto, fkAggressive
-
   # helper object about the data we read from an input H5 file
   ReadData = object
     df: DataFrame
+    vetoCfg: VetoSettings # veto settings containing efficiencies of FADC, lnL cut, NN cut, ...
     flags: set[LogLFlagKind]
-    signalEff: float # the lnL cut signal efficiency used in the inputs
-    vetoPercentile: float # if FADC veto used, the percentile used to generate the cuts
     totalTime: Hour # total time (background or tracking, depending on file) in Hours
 
   Efficiency = object
@@ -393,33 +388,27 @@ proc filterNoisyPixels(df: DataFrame, noiseFilter: NoiseFilter): DataFrame =
                             toIdx(`centerY`) in ySet)})
 
 proc readFileData(h5f: H5File):
-    tuple[totalTime: Hour, signalEff, vetoPercentile: float, flags: set[LogLFlagKind]] =
+    tuple[totalTime: Hour, vetoCfg: VetoSettings, flags: set[LogLFlagKind]] =
   let logLGrp = h5f[likelihoodGroupGrpStr]
-  var
-    flags: set[LogLFlagKind]
-    perc: float
-    signalEff: float
-    totalTime: Hour
-  proc readField(grp: H5Group, name: string): bool =
-    if name in grp.attrs:
-      result = parseBool(grp.attrs[name, string])
-  if readField(logLGrp, FadcVetoAttrStr):
-    flags.incl fkFadc
-  if readField(logLGrp, ScintiVetoAttrStr):
-    flags.incl fkScinti
-  if readField(logLGrp, SeptemVetoAttrStr):
-    flags.incl fkSeptem
-  if readField(logLGrp, LineVetoAttrStr):
-    flags.incl fkLineVeto
-  if readField(logLGrp, TrackingAttrStr):
-    flags.incl fkTracking
-  if FadcVetoPercAttrStr in logLGrp.attrs:
-    perc = logLGrp.attrs[FadcVetoPercAttrStr, float]
-  if SignalEffAttrStr in logLGrp.attrs:
-    signalEff = logLGrp.attrs[SignalEffAttrStr, float]
+  var totalTime: Hour
   if "totalDuration" in logLGrp.attrs:
     totalTime = logLGrp.attrs["totalDuration", float].Second.to(Hour)
-  result = (totalTime: totalTime, signalEff: signalEff, vetoPercentile: perc, flags: flags)
+  ## XXX: understand why using `fromH5` as a name breaks the code
+  let ctx = deserializeH5[LikelihoodContext](h5f, "logLCtx", logLGrp.name,
+                                             exclude = @["refSetTuple", "refDf", "refDfEnergy"])
+  result = (totalTime: totalTime, vetoCfg: ctx.vetoCfg, flags: ctx.flags)
+
+proc compareVetoCfg(c1, c2: VetoSettings): bool =
+  result = true
+  for field, v1, v2 in fieldPairs(c1, c2):
+    if field notin ["fadcVetoes", "calibFile"]:
+      when typeof(v1) is float:
+        result = result and value.almostEqual(v1, v2)
+      else:
+        result = result and v1 == v2
+      if not result:
+        echo "Comparison failed in field: ", field, " is ", v1, " and ", v2
+        return
 
 proc readFiles(path: string, s: seq[string], noiseFilter: NoiseFilter): ReadData =
   var h5fs = newSeq[datatypes.H5File]()
@@ -442,30 +431,24 @@ proc readFiles(path: string, s: seq[string], noiseFilter: NoiseFilter): ReadData
   ## `t.sum()` does not change if we change the energy filter here.
   df = df.filter(f{`Energy` < 12.0})
   var
-    lastFlags: set[LogLFlagKind]
-    lastPerc: float
     first = true
-    lastSigEff: float
+    lastFlags: set[LogLFlagKind]
     totalTime: Hour
+    lastCfg: VetoSettings
   for h in h5fs:
-    let (time, signalEff, perc, flags) = readFileData(h)
+    let (time, vetoCfg, flags) = readFileData(h)
     if not first and flags != lastFlags:
       raise newException(IOError, "Input files do not all match in the vetoes used! Current file " &
         h.name & " has vetoes: " & $flags & ", but last file: " & $lastFlags)
-    if not first and perc != lastPerc:
-      raise newException(IOError, "Input files do not all match in the FADC veto percentile used! Current file " &
-        h.name & " has percentile: " & $perc & ", but last file: " & $lastPerc)
-    if not first and signalEff != lastSigEff:
-      raise newException(IOError, "Input files do not all match in the lnL signal efficiency used! Current file " &
-        h.name & " has ε = " & $signalEff & ", but last file: " & $lastSigEff)
-
-    first = false
-    lastFlags = flags
-    lastPerc = perc
-    lastSigEff = signalEff
+    if not first and not compareVetoCfg(vetoCfg, lastCfg):
+      raise newException(IOError, "Input files do not all match in the veto parameters. " &
+        h.name & " has settings: " & $vetoCfg & ", but last file: " & $lastCfg)
     totalTime += time
+    lastCfg = vetoCfg
+    lastFlags = flags
+    first = false
     discard h.close()
-  result = ReadData(df: df, flags: lastFlags, signalEff: lastSigEff, vetoPercentile: lastPerc, totalTime: totalTime)
+  result = ReadData(df: df, flags: lastFlags, vetoCfg: lastCfg, totalTime: totalTime)
 
 defUnit(keV⁻¹•cm⁻²•s⁻¹)
 defUnit(keV⁻¹•m⁻²•yr⁻¹)
@@ -642,10 +625,10 @@ proc calcVetoEfficiency(readData: ReadData,
   ## the veto cut.
   result = 1.0 # starting efficiency
   if fkFadc in readData.flags:
-    doAssert readData.vetoPercentile > 0.5, "Veto percentile was below 0.5: " &
-      $readData.vetoPercentile # 0.5 would imply nothing left & have upper percentile
+    doAssert readData.vetoCfg.vetoPercentile > 0.5, "Veto percentile was below 0.5: " &
+      $readData.vetoCfg.vetoPercentile # 0.5 would imply nothing left & have upper percentile
     # input is e.g. `0.99` so: invert, multiply (both sided percentile cut), invert again
-    result = 1.0 - (1.0 - readData.vetoPercentile) * 2.0
+    result = 1.0 - (1.0 - readData.vetoCfg.vetoPercentile) * 2.0
   if {fkSeptem, fkLineVeto} - readData.flags == {}: # both septem & line veto
     result *= septemLineVetoRandomCoinc
   elif fkSeptem in readData.flags:
@@ -653,9 +636,9 @@ proc calcVetoEfficiency(readData: ReadData,
   elif fkLineVeto in readData.flags:
     result *= lineVetoRandomCoinc
 
-  # now multiply by lnL cut efficiency (default to 0.8 if not in input file yet; only added recently)
-  let lnLeff = if readData.signalEff > 0.0: readData.signalEff else: 0.8
-  result *= lnLeff
+  # now multiply by lnL cut efficiency
+  doAssert readData.vetoCfg.signalEfficiency > 0.0
+  result *= readData.vetoCfg.signalEfficiency
 
 proc initContext(path: string, yearFiles: seq[(int, string)],
                  useConstantBackground: bool, # decides whether to use background interpolation or not
@@ -696,8 +679,8 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
                                    septemLineVetoRandomCoinc)
   let eff = Efficiency(
     totalEff: vetoEff, # total efficiency of the veto & detector feature related
-    vetoPercentile: readData.vetoPercentile,
-    signalEff: if readData.signalEff > 0.0: readData.signalEff else: 0.8, # 0.8 default
+    vetoPercentile: readData.vetoCfg.vetoPercentile,
+    signalEff: readData.vetoCfg.signalEfficiency,
     septemVetoRandomCoinc: septemVetoRandomCoinc,
     lineVetoRandomCoinc: lineVetoRandomCoinc,
     septemLineVetoRandomCoinc: septemLineVetoRandomCoinc,

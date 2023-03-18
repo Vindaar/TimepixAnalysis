@@ -693,7 +693,7 @@ proc calcCutValueTab*(ctx: LikelihoodContext): CutValueInterpolator =
       echo "Starting FOR LOOP--------------------------------------------------"
       let dset = tup[0][1].toStr
       let logL = subDf["logL", float]
-      let cutValIdx = determineCutValueData(logL, ctx.signalEfficiency)
+      let cutValIdx = determineCutValueData(logL, ctx.vetoCfg.signalEfficiency)
       # incl the correct values for the logL cut values
       result[dset] = logL.sorted(SortOrder.Ascending)[cutValIdx]
       echo "Cut value of ", dset, " is ", result[dset]
@@ -716,7 +716,7 @@ proc calcCutValueTab*(ctx: LikelihoodContext): CutValueInterpolator =
         echo energy
         if energy < 1.0:
           efficiency = 0.6
-      let cutVal = determineCutValue(subDf["Hist", float], ctx.signalEfficiency)
+      let cutVal = determineCutValue(subDf["Hist", float], ctx.vetoCfg.signalEfficiency)
       # incl the correct values for the logL cut values
       energies.add energy
       cutVals.add subDf["Bins", float][cutVal]
@@ -821,7 +821,8 @@ proc initLikelihoodContext*(
   fadcVeto: bool = false,
   calibFile: string = "",
   vetoPercentile: float = 0.0,
-  fadcScaleCutoff: float = 0.0
+  fadcScaleCutoff: float = 0.0,
+  flags: set[LogLFlagKind] = {}
                            ): LikelihoodContext =
   ## The configuration elements are generally picked according to the following priority:
   ## 1. command line argument
@@ -861,33 +862,45 @@ proc initLikelihoodContext*(
     raise newException(ValueError, "When using the FADC veto an H5 file containing the ⁵⁵Fe calibration data " &
       "of the same run period is required.")
   let fadcVetoes = determineFadcVetoCutoff(calibFile, vetoPercentile, fadcScaleCutoff)
-  result = LikelihoodContext(cdlFile: cdlFile,
-                             year: year,
-                             region: region,
-                             morph: morphKind,
-                             energyDset: energyDset,
-                             timepix: timepix,
-                             stretch: stretch,
-                             numMorphedEnergies: numMorphedEnergies,
-                             # misc
-                             useTeX: useTeX,
-                             # lnL cut
-                             signalEfficiency: signalEff,
-                             # septem veto related
-                             centerChip: centerChip,
-                             numChips: numChips,
-                             clusterAlgo: clusterAlgo,
-                             searchRadius: searchRadius,
-                             dbscanEpsilon: dbscanEpsilon,
-                             useRealLayout: useRealLayout,
-                             # line veto
-                             lineVetoKind: lvKind,
-                             eccLineVetoCut: eccLineVetoCut,
-                             # FADC veto
-                             calibFile: calibFile,
-                             vetoPercentile: vetoPercentile,
-                             fadcScaleCutoff: fadcScaleCutoff,
-                             fadcVetoes: fadcVetoes)
+  let vetoCfg = VetoSettings(
+    # NN cut
+    useNeuralNetworkCut: useNeuralNetworkCut,
+    nnModelPath: nnModelPath,
+    nnSignalEff: nnSignalEff,
+    nnCutKind: nnCutKind,
+    # lnL cut
+    useLnLCut: useLnLCut,
+    signalEfficiency: signalEff,
+    # septem veto related
+    centerChip: centerChip,
+    numChips: numChips,
+    clusterAlgo: clusterAlgo,
+    searchRadius: searchRadius,
+    dbscanEpsilon: dbscanEpsilon,
+    useRealLayout: useRealLayout,
+    # line veto
+    lineVetoKind: lvKind,
+    eccLineVetoCut: eccLineVetoCut,
+    # FADC veto
+    calibFile: calibFile,
+    vetoPercentile: vetoPercentile,
+    fadcScaleCutoff: fadcScaleCutoff,
+    fadcVetoes: fadcVetoes
+  )
+  result = LikelihoodContext(
+    cdlFile: cdlFile,
+    year: year,
+    region: region,
+    morph: morphKind,
+    energyDset: energyDset,
+    timepix: timepix,
+    stretch: stretch,
+    numMorphedEnergies: numMorphedEnergies,
+    # misc
+    useTeX: useTeX,
+    flags: flags,
+    vetoCfg: vetoCfg
+  )
 
   case result.morph
   of mkNone:

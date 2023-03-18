@@ -817,23 +817,24 @@ when not defined(pure) and not defined(js):
       yCenter*: int ## y center pixel of the original "center event" (that passed logL)
       centerRadius*: float ## "radius" of the original "center event" (based on 3 * (RMS_T + RMS_L)/2 in pixel)
 
-    ## Helper object to store configuration parameters and relevant data pieces
-    ## that are used recurringly in `likelihood.nim`.
-    LikelihoodContext* = object
-      cdlFile*: string ## the CDL file used
-      year*: YearKind
-      region*: ChipRegion
-      morph*: MorphingKind
-      energyDset*: InGridDsetKind
-      timepix*: TimepixVersion
-      stretch*: Option[CdlStretch]
-      refSetTuple*: tuple[ecc, ldivRms, fracRms: Table[string, HistTuple]]
-      numMorphedEnergies*: int = 1000
-      refDf*: DataFrame
-      refDfEnergy*: seq[float]
-      # general
-      useTeX*: bool # whether to generate TikZ plots or cairo
+    LogLFlagKind* = enum
+      # vetoes
+      fkTracking, fkLogL, fkMLP, fkConvNet, fkFadc, fkScinti, fkSeptem, fkLineVeto, fkAggressive,
+      # other options
+      fkRocCurve, fkComputeLogL, fkPlotLogL, fkPlotSeptem,
+      fkEstRandomCoinc, # used to estimate the random coincidence of the septem & line veto
+      fkEstRandomFixedEvent, # use a fixed center cluster and only vary around the outer ring
+      fkReadOnly # makes the input file read only
+
+    ## All the veto related setting parameters for easy serialization
+    VetoSettings* = object
+      # NN cut method
+      useNeuralNetworkCut*: bool
+      nnSignalEff*: float = 0.95
+      nnModelPath*: string
+      nnCutKind*: NeuralNetCutKind = nkLocal
       # lnL settings
+      useLnLCut*: bool
       signalEfficiency*: float = 0.8 # the signal efficiency that defines the cuts
       # Septem & line veto related
       clusterAlgo*: ClusteringAlgorithm = caDBSCAN
@@ -855,6 +856,26 @@ when not defined(pure) and not defined(js):
                                      # defining a _very long_ tail.
       fadcVetoes*: array[FadcSetting, FadcCuts] # computed `FadcCuts` based on `calibFile`. Only those entries
                                                 # contained in `calibFile` will be filled!
+
+    ## Helper object to store configuration parameters and relevant data pieces
+    ## that are used recurringly in `likelihood.nim`.
+    LikelihoodContext* = object
+      cdlFile*: string ## the CDL file used
+      year*: YearKind
+      region*: ChipRegion
+      morph*: MorphingKind
+      energyDset*: InGridDsetKind
+      timepix*: TimepixVersion
+      stretch*: Option[CdlStretch]
+      refSetTuple*: tuple[ecc, ldivRms, fracRms: Table[string, HistTuple]]
+      numMorphedEnergies*: int = 1000
+      refDf*: DataFrame
+      refDfEnergy*: seq[float]
+      # general
+      useTeX*: bool # whether to generate TikZ plots or cairo
+      #when defined(cpp):
+      flags*: set[LogLFlagKind]
+      vetoCfg*: VetoSettings
 
 proc initFeSpecData*(hist: seq[float],
                      binning: seq[float],

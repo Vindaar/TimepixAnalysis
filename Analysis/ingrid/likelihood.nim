@@ -42,14 +42,6 @@ when not defined(useMalloc):
   {.fatal: "Please compile with `-d:useMalloc` to reduce the amount of memory kept by the " &
     "program. This allows to use more jobs in `createAllLikelihoodCombinations`.".}
 
-type
-  FlagKind = enum
-    fkTracking, fkLogL, fkMLP, fkConvNet, fkFadc, fkScinti, fkSeptem, fkLineVeto, fkAggressive,
-    fkRocCurve, fkComputeLogL, fkPlotLogL, fkPlotSeptem,
-    fkEstRandomCoinc, # used to estimate the random coincidence of the septem & line veto
-    fkEstRandomFixedEvent, # use a fixed center cluster and only vary around the outer ring
-    fkReadOnly # makes the input file read only
-
 template withConfig(body: untyped): untyped =
   const sourceDir = currentSourcePath().parentDir
   let config {.inject.} = parseToml.parseFile(sourceDir / "config.toml")
@@ -105,7 +97,7 @@ proc calcLogLikelihood*(h5f: var H5File,
     # get number of chips from attributes
     var run_attrs = h5f[group.grp_str].attrs
 
-    var logL_chips = newSeq[seq[float64]](ctx.numChips)
+    var logL_chips = newSeq[seq[float64]](ctx.vetoCfg.numChips)
 
     for (_, chipNumber, grp) in chipGroups(h5f, group):
       # iterate over all chips and perform logL calcs
@@ -115,7 +107,7 @@ proc calcLogLikelihood*(h5f: var H5File,
       # index for logL
       logL_chips[chipNumber] = logL
     # after we added all logL data to the seqs, write it to the file
-    var logL_dsets = mapIt(toSeq(0 ..< ctx.numChips),
+    var logL_dsets = mapIt(toSeq(0 ..< ctx.vetoCfg.numChips),
                            h5f.create_dataset((group / &"chip_{it}/likelihood"),
                                               logL_chips[it].len,
                                               float64,
@@ -127,20 +119,17 @@ proc calcLogLikelihood*(h5f: var H5File,
       dset[dset.all] = logL
       dset.writeCdlAttributes(ctx.cdlFile, ctx.year)
 
-proc writeInfos(grp: H5Group, ctx: LikelihoodContext,
+import datamancer / serialize
+proc writeInfos(h5f: H5File, grp: H5Group, ctx: LikelihoodContext,
                 fadcVetoCount, scintiVetoCount: int,
-                flags: set[FlagKind]) =
+                flags: set[LogLFlagKind]) =
   ## writes information about used vetoes and the number of events removed by
   ## the vetos
   # write the CDL file info
   var mgrp = grp
   mgrp.writeCdlAttributes(ctx.cdlFile, ctx.year)
-  mgrp.attrs[SignalEffAttrStr] = ctx.signalEfficiency
-  mgrp.attrs[FadcVetoAttrStr] = $(fkFadc in flags)
-  mgrp.attrs[FadcVetoPercAttrStr] = ctx.vetoPercentile
-  mgrp.attrs[ScintiVetoAttrStr] = $(fkScinti in flags)
-  mgrp.attrs[SeptemVetoAttrStr] = $(fkSeptem in flags)
-  mgrp.attrs[LineVetoAttrStr] = $(fkLineVeto in flags)
+  # now serialize the veto settings we used
+  h5f.toH5(ctx, "logLCtx", grp.name, exclude = @["refSetTuple", "refDf", "refDfEnergy"])
   if fadcVetoCount >= 0:
     mgrp.attrs["# removed by FADC veto"] = fadcVetoCount
   if scintiVetoCount >= 0:
@@ -152,7 +141,7 @@ proc writeLikelihoodData(h5f: var H5File,
                          chipNumber: int,
                          cutTab: CutValueInterpolator,
                          passedInds: OrderedSet[int],
-                         fadcVetoCount, scintiVetoCount: int, flags: set[FlagKind],
+                         fadcVetoCount, scintiVetoCount: int, flags: set[LogLFlagKind],
                          ctx: LikelihoodContext
                         ) =
                          #durations: (float64, float64)) =
@@ -265,7 +254,7 @@ proc writeLikelihoodData(h5f: var H5File,
   # copy attributes over from the input file
   runGrp.copy_attributes(group.attrs)
   chpGrpOut.copy_attributes(chpGrpIn.attrs)
-  chpGrpOut.writeInfos(ctx, fadcVetoCount, scintiVetoCount, flags)
+  h5fout.writeInfos(chpGrpOut, ctx, fadcVetoCount, scintiVetoCount, flags)
   runGrp.writeCdlAttributes(ctx.cdlFile, ctx.year)
 
 func isVetoedByFadc(ctx: LikelihoodContext, run, eventNumber: int, fadcTrigger, fadcEvNum: seq[int64],
@@ -288,9 +277,9 @@ func isVetoedByFadc(ctx: LikelihoodContext, run, eventNumber: int, fadcTrigger, 
   ## distributions as seen in the 55Fe calibration data (which is handed as the `--calibFile`
   ## argument).
   # get correct veto cut values for the current FADC settings (of this run)
-  let cut = ctx.fadcVetoes[ run.toFadcSetting() ]
+  let cut = ctx.vetoCfg.fadcVetoes[ run.toFadcSetting() ]
   doAssert cut.active, "The cuts for FADC setting " & $run.toFadcSetting() & " is not active, i.e. " &
-    "we did not read corresponding run data in the given calibration file: " & $ctx.calibFile & "!"
+    "we did not read corresponding run data in the given calibration file: " & $ctx.vetoCfg.calibFile & "!"
   result = false
   let fIdx = fadcEvNum.lowerBound(eventNumber)
   if fIdx < fadcEvNum.high and
@@ -334,7 +323,7 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
                      gainVals: seq[float],
                      calibTuple: tuple[b, m: float], ## contains the parameters required to perform energy calibration
                      ctx: LikelihoodContext,
-                     flags: set[FlagKind]
+                     flags: set[LogLFlagKind]
                     ): tuple[logL, energy: float, lineVetoPassed: bool] =
   ## XXX: add these to config.toml and as a cmdline argument in addition
   # total charge for this cluster
@@ -348,7 +337,7 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
   for pix in clData:
     # take each pixel tuple and reconvert it to chip based coordinates
     # first determine chip it corresponds to
-    let pixChip = if ctx.useRealLayout: determineRealChip(pix)
+    let pixChip = if ctx.vetoCfg.useRealLayout: determineRealChip(pix)
                   else: determineChip(pix)
 
     # for this pixel and chip get the correct gas gain and push it to the `RunningStat`
@@ -364,8 +353,8 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
   # determine parameters of the lines through the cluster centers
   # invert the slope
   let slope = tan(Pi - cl.geometry.rotationAngle)
-  let cX = if ctx.useRealLayout: toRealXPix(cl.centerX) else: toXPix(cl.centerX)
-  let cY = if ctx.useRealLayout: toRealYPix(cl.centerY) else: toYPix(cl.centerY)
+  let cX = if ctx.vetoCfg.useRealLayout: toRealXPix(cl.centerX) else: toXPix(cl.centerX)
+  let cY = if ctx.vetoCfg.useRealLayout: toRealYPix(cl.centerY) else: toYPix(cl.centerY)
   let intercept = cY.float - slope * cX.float
   septemGeometry.centers.add (x: cX.float, y: cY.float)
   septemGeometry.lines.add (m: slope, b: intercept)
@@ -394,22 +383,22 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
   let isOriginal = clTup[1].isOriginal(septemFrame)
   let ofInterest =
     if isOriginal: false # never care about *only* the original cluster!
-    elif containsOriginal and ctx.lineVetoKind in {lvRegular, lvCheckHLC}: true # contained, but we want it
-    elif containsOriginal and ctx.lineVetoKind == lvRegularNoHLC: false # contained, but we *dont* want it
+    elif containsOriginal and ctx.vetoCfg.lineVetoKind in {lvRegular, lvCheckHLC}: true # contained, but we want it
+    elif containsOriginal and ctx.vetoCfg.lineVetoKind == lvRegularNoHLC: false # contained, but we *dont* want it
     else: true # if it neither contains the original, nor is it, it is of interest
   if fkLineVeto in flags and ofInterest and
-     cl.geometry.eccentricity > ctx.eccLineVetoCut:
+     cl.geometry.eccentricity > ctx.vetoCfg.eccLineVetoCut:
     # if this is not in region of interest, check its eccentricity and compute if line points to original
     # center cluster
     # compute line orthogonal to this cluster's line
     let orthSlope = -1.0 / slope
     # determine y axis intersection
     ## Center data must be converted as it doesn't go through reco!
-    let centerNew = if ctx.useRealLayout: tightToReal((x: centerData.cX, y: centerData.cY))
+    let centerNew = if ctx.vetoCfg.useRealLayout: tightToReal((x: centerData.cX, y: centerData.cY))
                     else: (x: centerData.cX, y: centerData.cY)
-    septemGeometry.xCenter = if ctx.useRealLayout: toRealXPix(centerNew.x)
+    septemGeometry.xCenter = if ctx.vetoCfg.useRealLayout: toRealXPix(centerNew.x)
                              else: toXPix(centerNew.x)
-    septemGeometry.yCenter = if ctx.useRealLayout: toRealYPix(centerNew.y)
+    septemGeometry.yCenter = if ctx.vetoCfg.useRealLayout: toRealYPix(centerNew.y)
                              else: toYPix(centerNew.y)
 
     let centerInter = septemGeometry.yCenter.float - orthSlope * septemGeometry.xCenter.float
@@ -576,7 +565,7 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
                      passedInds: var OrderedSet[int],
                      cutTab: CutValueInterpolator,
                      ctx: LikelihoodContext,
-                     flags: set[FlagKind]) =
+                     flags: set[LogLFlagKind]) =
   ## Applies the septem board veto to the given `passedInds` in `runNumber` of `h5f`.
   ## Writes the resulting clusters, which pass to the `septem` subgroup (parallel to
   ## the `chip_*` groups into `h5fout`.
@@ -594,13 +583,13 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
   var septemDf = h5f.getSeptemEventDF(runNumber)
 
   # now filter events for `centerChip` from and compare with `passedInds`
-  let centerDf = septemDf.filter(f{int: `chipNumber` == ctx.centerChip})
+  let centerDf = septemDf.filter(f{int: `chipNumber` == ctx.vetoCfg.centerChip})
   # The `passedEvs` simply maps the *indices* to the *event numbers* that pass *on the
   # center chip*.
   var passedEvs = passedInds.mapIt(centerDf["eventNumber", int][it]).sorted.toOrderedSet
 
   ## Read all the pixel data for all chips
-  let allChipData = readAllChipData(h5f, group, ctx.numChips)
+  let allChipData = readAllChipData(h5f, group, ctx.vetoCfg.numChips)
   var centerData = readCenterChipData(h5f, group, ctx.energyDset)
   let estimateRandomCoinc = fkEstRandomCoinc in flags
   if estimateRandomCoinc:
@@ -611,11 +600,11 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
   let useSeptemVeto = fkSeptem in flags
   fout.write(&"Septem events before: {passedEvs.len} (S,L,F) = ({$useSeptemVeto}, {$useLineVeto}, {estimateRandomCoinc})\n")
 
-  let chips = toSeq(0 ..< ctx.numChips)
+  let chips = toSeq(0 ..< ctx.vetoCfg.numChips)
   let gains = chips.mapIt(h5f[(group.name / "chip_" & $it / "gasGainSlices"), GasGainIntervalResult])
   let septemHChips = chips.mapIt(getSeptemHChip(it))
   let toTCalibParams = septemHChips.mapIt(getTotCalibParameters(it, runNumber))
-  let calibTuple = getCalibVsGasGainFactors(septemHChips[ctx.centerChip], runNumber)
+  let calibTuple = getCalibVsGasGainFactors(septemHChips[ctx.vetoCfg.centerChip], runNumber)
   var rs: RunningStat
 
   # for the `passedEvs` we have to read all data from all chips
@@ -625,7 +614,7 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
     if evNum in passedEvs:
       # then grab all chips for this event
       var septemFrame = buildSeptemEvent(evGroup, centerData.lhoodCenter, centerData.energies,
-                                         cutTab, allChipData, ctx.centerChip, ctx.useRealLayout)
+                                         cutTab, allChipData, ctx.vetoCfg.centerChip, ctx.vetoCfg.useRealLayout)
       if septemFrame.centerEvIdx == -1:
         echo "Broken event! ", evGroup.pretty(-1)
         quit(1)
@@ -636,15 +625,15 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
       let inp = (pixels: septemFrame.pixels, eventNumber: evNum.int,
                  toa: newSeq[uint16](), toaCombined: newSeq[uint64]())
       let recoEv = recoEvent(inp, -1,
-                             runNumber, searchRadius = ctx.searchRadius,
-                             dbscanEpsilon = ctx.dbscanEpsilon,
-                             clusterAlgo = ctx.clusterAlgo)
+                             runNumber, searchRadius = ctx.vetoCfg.searchRadius,
+                             dbscanEpsilon = ctx.vetoCfg.dbscanEpsilon,
+                             clusterAlgo = ctx.vetoCfg.clusterAlgo)
 
-      let centerClusterData = getCenterClusterData(septemFrame, centerData, recoEv, ctx.lineVetoKind)
+      let centerClusterData = getCenterClusterData(septemFrame, centerData, recoEv, ctx.vetoCfg.lineVetoKind)
 
       # extract the correct gas gain slices for this event
       var gainVals: seq[float]
-      for chp in 0 ..< ctx.numChips:
+      for chp in 0 ..< ctx.vetoCfg.numChips:
         let gainSlices = gains[chp]
         let gainEvs = gainSlices.mapIt(it.sliceStartEvNum)
         let sliceIdx = gainEvs.lowerBound(evNum)
@@ -674,11 +663,11 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
         let cX = toXPix(clusterTup[1].centerX)
         let cY = toYPix(clusterTup[1].centerY)
         var chipClusterCenter: int
-        if ctx.useRealLayout:
+        if ctx.vetoCfg.useRealLayout:
           chipClusterCenter = (x: cX, y: cY, ch: 0).determineRealChip(allowOutsideChip = true)
         else:
           chipClusterCenter = (x: cX, y: cY, ch: 0).determineChip(allowOutsideChip = true)
-        if chipClusterCenter == ctx.centerChip and # this cluster's center is on center chip
+        if chipClusterCenter == ctx.vetoCfg.centerChip and # this cluster's center is on center chip
            logL < cutTab[energy]:              # cluster passes logL cut
           septemVetoPassed = true
 
@@ -730,7 +719,7 @@ proc copyOverAttrs(h5f, h5fout: H5File) =
 
 proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
                             ctx: LikelihoodContext,
-                            flags: set[FlagKind]) =
+                            flags: set[LogLFlagKind]) =
   ## Filters all clusters based on our background suppression methods consisting
   ## of neural networks, a likelihood cut method and different additional detector
   ## vetoes.
@@ -927,7 +916,7 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
         #  # vetoed if larger than prediction
         #  nnVeto = true  #ctx.isVetoedByNeuralNetwork()
         ## LnL cut
-        if useLnLCut and logL[ind] > cutTab[energy[ind]]:
+        if ctx.vetoCfg.useLnLCut and logL[ind] > cutTab[energy[ind]]:
           lnLVeto = true
         ## RMS cleaning cut
         rmsCleaningVeto = rmsTrans[ind] > RmsCleaningCut
@@ -962,7 +951,7 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
           inc totalScintiRemovedNotLogRemoved
 
       if fkReadOnly notin flags: # write to output if not in read only
-        chpGrp.writeInfos(ctx, fadcVetoCount, scintiVetoCount, flags)
+        h5f.writeInfos(chpGrp, ctx, fadcVetoCount, scintiVetoCount, flags)
 
       if chipNumber == centerChip:
         totalScintiRemoveCount += scintiVetoCount
@@ -1023,7 +1012,7 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
     ## XXX: add "number of runs" or something to differentiate not knowning runs vs not looking at them?
     lhGrp.attrs[TrackingAttrStr] = $(fkTracking in flags)
   # write infos about vetoes, cdl file used etc.
-  lhGrp.writeInfos(ctx, -1, -1, flags)
+  h5fout.writeInfos(lhGrp, ctx, -1, -1, flags)
 
 proc extractEvents(h5f: var H5File, extractFrom, outfolder: string) =
   ## extracts all events passing the likelihood cut from the folder
@@ -1312,6 +1301,7 @@ proc main(
   useTeX = false,
   # NN cut
   nnSignalEff = 0.0,
+  nnCutKind = nkLocal,
   # lnL cut
   signalEfficiency = 0.0,
   # line veto
@@ -1330,7 +1320,7 @@ proc main(
   ## It calculates the likelihood values for each reconstructed cluster of a run and
   ## writes them back to the H5 file
 
-  var flags: set[FlagKind]
+  var flags: set[LogLFlagKind]
   var nnModelPath: string
   if tracking            : flags.incl fkTracking
   if lnL                 : flags.incl fkLogL
@@ -1396,6 +1386,7 @@ proc main(
                                   useNeuralNetworkCut = fkMLP in flags or fkConvNet in flags,
                                   nnModelPath = (if mlp.len > 0: mlp else: convnet), # both might be empty
                                   nnSignalEff = nnSignalEff,
+                                  nnCutKind = nnCutKind,
                                   # lnL cut
                                   useLnLCut = fkLogL in flags,
                                   signalEfficiency = signalEfficiency,
@@ -1412,7 +1403,8 @@ proc main(
                                   fadcVeto = fkFadc in flags,
                                   calibFile = calibFile,
                                   vetoPercentile = vetoPercentile,
-                                  fadcScaleCutoff = fadcScaleCutoff)
+                                  fadcScaleCutoff = fadcScaleCutoff,
+                                  flags = flags)
 
   if fkRocCurve in flags:
     ## create the ROC curves and likelihood distributios. This requires to

@@ -15,28 +15,31 @@ const PlotDirRawPrefixAttr* = "plotDirRawPrefix"
 ## The datasets that appear in Christoph's `XrayReference` file
 const XrayReferenceDsets* = {
   igHits,
-  igLengthDivRadius,
+  igNumClusters,
+  igTotalCharge,
+  igEnergyFromCharge,
+  igRotationAngle,
+  igEccentricity,
+  igLength,
+  igWidth,
   igSkewnessLongitudinal,
   igSkewnessTransverse,
-  igRmsTransverse,
-  igEccentricity,
-  igHits,
   igKurtosisLongitudinal,
   igKurtosisTransverse,
-  igLength,
-  igNumClusters,
-  igFractionInHalfRadius,
-  igRadiusDivRmsTrans,
-  igBalance,
-  igWidth,
   igRmsLongitudinal,
+  igRmsTransverse,
   igLengthDivRmsTrans,
-  igRotationAngle,
-  igEnergyFromCharge,
-  igLikelihood,
-  igRadius,
   igFractionInTransverseRms,
-  igTotalCharge}
+  igLikelihood,
+  # the next are not part of TPA, only in Marlin
+  igBalance,
+  igRadius,
+  igLengthDivRadius,
+  igRadiusDivRmsTrans,
+  igFractionInHalfRadius
+}
+
+
 
 ## The datasets needed to filter to the CDL events that are used in the
 ## construction of the reference datasets for the lnL cut method

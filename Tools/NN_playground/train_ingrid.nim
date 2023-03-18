@@ -34,7 +34,7 @@ proc generateTrainTest(df: var DataFrame):
       # echo "Event number ", ev, " at index ", i
       let xs = subDf["x", int]
       let ys = subDf["y", int]
-      let isSignal = tup[1][1].toStr == "signal"
+      let isSignal = tup[1][1].toStr == $dtSignal
       for j in 0 ..< xs.size:
         let x = xs[j]
         let y = ys[j]
@@ -65,12 +65,6 @@ proc generateTrainTest(df: var DataFrame):
     echo dfTrain.len
     echo dfTest.len
     result = (train: dfTrain.toInputTensor, test: dfTest.toInputTensor)
-
-proc toNimSeq[T](t: RawTensor): seq[T] =
-  doAssert t.sizes().len == 1
-  result = newSeq[T](t.size(0))
-  for i in 0 ..< result.len:
-    result[i] = t[i].item(T)
 
 proc plotLikelihoodDist(df: DataFrame) =
   echo df
@@ -111,7 +105,7 @@ proc logLValues(df: DataFrame): (seq[float], seq[int]) =
       50.0
     else: x
   let targets = df["Type", string].map_inline:
-    if x == "back": 0
+    if x == $dtBack: 0
     else: 1
   result = (logL.toSeq1D, targets.toSeq1D)
 

@@ -13,12 +13,19 @@ const ValidReadDSets* = XrayReferenceDsets - { igNumClusters,
 
 const ValidDsets* = ValidReadDSets - { igLikelihood, igCenterX, igCenterY, igHits, igEnergyFromCharge, igTotalCharge }
 
+type
+  DataType* = enum
+    dtSignal = "signal"
+    dtBack = "back"
+
 proc shuff*(x: seq[int]): seq[int] =
   ## Not in place shuffle
   result = x
   result.shuffle()
 
-proc readDsets*(h5f: H5File, cdlPath, dset: string): DataFrame =
+proc readCdlDset*(h5f: H5File, cdlPath, dset: string): DataFrame =
+  ## Reads the given dataset (target/filter kind) `dset` according
+  ## to the required cuts for X-rays for this target/filter.
   result = newDataFrame()
   let dsets = concat(toSeq(ValidReadDsets - { igLikelihood } ), @[igEventNumber])
   var passData: array[InGridDsetKind, seq[float]]
@@ -48,6 +55,44 @@ proc readRaw*(h5f: H5File, grpName: string, idxs: seq[int] = @[]): DataFrame =
       evAll.add ev[i]
   result = toDf({"x" : xsAll, "y" : ysAll, "eventNumber" : evAll})
 
+proc shuffle*(df: DataFrame): DataFrame =
+  ## Shufles the input data frame
+  result = df.shallowCopy()
+  result["Idx"] = toSeq(0 .. df.high).shuff()
+  result = result.arrange("Idx")
+  result.drop("Idx")
+
+proc randomHead*(df: DataFrame, head: int): DataFrame =
+  ## Returns the `head` elements of the input data frame shuffled
+  #if head > df.len:
+  #  echo "Dataframe: ", df
+  result = df.shuffle().head(min(head, df.len))
+
+proc readValidDsets*(h5f: H5File, path: string, readRaw = false,
+                     typ = dtBack,
+                     subsetPerRun = 0): DataFrame =
+  ## Reads all data for the given run `path` (must be a chip path)
+  ##
+  ## `subsetPerRun` is an integer which if given only returns this many entries (random)
+  ## from each run.
+  let dsets = toSeq(ValidReadDsets - { igLikelihood }).mapIt(it.toDset(fkTpa))
+  let evNumDset = igEventNumber.toDset(fkTpa)
+  let grp = h5f[path.grp_str]
+  if not readRaw:
+    for dset in dsets:
+      result[dset] = h5f.readAs(grp.name / dset, float)
+    result[evNumDset] = h5f.readAs(grp.name / evNumDset, int)
+  else:
+    result = h5f.readRaw(grp.name)
+  result["pass?"] = true # does not matter!
+  ## XXX: Add run number?
+  #result["runNumber
+  result["Type"] = $typ
+  if not readRaw:
+    result = result.mutate(f{"Target" ~ `energyFromCharge`.toRefDset})
+  if subsetPerRun > 0:
+    result = result.randomHead(subsetPerRun)
+
 proc prepareCDL*(readRaw: bool,
                  cdlPath = "/home/basti/CastData/data/CDL_2019/calibration-cdl-2018.h5"
                ): DataFrame =
@@ -58,7 +103,7 @@ proc prepareCDL*(readRaw: bool,
     var dfLoc = newDataFrame()
     if not readRaw:
       # read dsets only returns those indices that pass
-      dfLoc = h5f.readDsets(cdlPath, bin)
+      dfLoc = h5f.readCdlDset(cdlPath, bin)
       dfLoc["pass?"] = true
     else:
       doAssert false, "Raw data reading currently not supported!"
@@ -82,45 +127,22 @@ proc prepareCDL*(readRaw: bool,
     dfLoc = dfLoc.filter(f{bool: idx("pass?") == true})
     df.add dfLoc
   discard h5f.close()
-  df["Type"] = "signal"
-  result = df
-  result["Idx"] = toSeq(0 ..< result.len).shuff()
-  result = result.arrange("Idx")
-  #result = result[0 ..< 55000]
-  result.drop("Idx")
-  #echo result
+  df["Type"] = $dtSignal
+  result = df.shuffle()
 
-proc prepareBackground*(h5f: H5File, run: int, readRaw: bool): DataFrame =
+proc prepareData*(h5f: H5File, run: int, readRaw: bool, typ = dtBack, subsetPerRun = 0): DataFrame =
   let path = "/reconstruction/run_$#/chip_3" % $run
-  let dsets = toSeq(ValidReadDsets - { igLikelihood }).mapIt(it.toDset(fkTpa))
-  let evNumDset = "eventNumber"
-  let grp = h5f[path.grp_str]
-  if not readRaw:
-    for dset in dsets:
-      result[dset] = h5f.readAs(grp.name / dset, float)
-    result["eventNumber"] = h5f.readAs(grp.name / "eventNumber", int)
-  else:
-    result = h5f.readRaw(grp.name)
-  result["pass?"] = true # does not matter!
-  #result["runNumber
-  result["Type"] = "back"
+  result = h5f.readValidDsets(path, readRaw, typ, subsetPerRun)
 
-  let energyBins = getEnergyBinning()
-  let targetTab = getXrayRefTable()
-  ## TODO: the following is broken? CHECK!
-  # result = result.mutate(f{"Target" ~ targetTab[energyBins.lowerBound(idx("energyFromCharge"))]})
-  if not readRaw:
-    result = result.mutate(f{"Target" ~ `energyFromCharge`.toRefDset}) # ["energyFromCharge", float].toSeq1D.mapIt(targetTab[energyBins.lowerBound(it)])
-
-proc prepareBackground*(fname: string, run: int, readRaw: bool): DataFrame =
+proc prepareBackground*(fname: string, run: int, readRaw: bool, subsetPerRun = 0): DataFrame =
   var h5f = H5open(fname, "r")
-  result = h5f.prepareBackground(run, readRaw)
+  result = h5f.prepareData(run, readRaw, subsetPerRun = subsetPerRun)
   discard h5f.close()
 
-proc prepareAllBackground*(fname: string, readRaw: bool): DataFrame =
+proc prepareAllBackground*(fname: string, readRaw: bool, subsetPerRun = 0): DataFrame =
   var h5f = H5open(fname, "r")
   for run, grp in runs(h5f):
-    var df = h5f.prepareBackground(run, readRaw)
+    var df = h5f.prepareData(run, readRaw, subsetPerRun = subsetPerRun)
     df["runNumber"] = run
     result.add df
 
@@ -140,8 +162,16 @@ proc toInputTensor*(df: DataFrame): (RawTensor, RawTensor) {.noInit.} =
   var target = rawtensors.zeros(df.len * 2).reshape([df.len.int64, 2].asTorchView())
   let typ = df["Type", string]
   for i in 0 ..< typ.size:
-    if typ[i] == "signal":
+    if typ[i] == $dtSignal:
       target[i, _] = [1, 0].toRawTensorFromScalar #.toTensor.convertRawTensor()
-    else:
+    elif typ[i] == $dtBack:
       target[i, _] = [0, 1].toRawTensorFromScalar #toTensor.convertRawTensor()
+    else:
+      doAssert false, "Invalid type field " & $typ[i]
   result = (input, target)
+
+proc toNimSeq*[T](t: RawTensor): seq[T] =
+  doAssert t.sizes().len == 1
+  result = newSeq[T](t.size(0))
+  for i in 0 ..< result.len:
+    result[i] = t[i].item(T)

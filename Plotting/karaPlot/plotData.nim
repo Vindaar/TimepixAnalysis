@@ -617,6 +617,7 @@ proc plotHist[T](xIn: seq[T], title, dset, outfile: string,
                  binS: float, binR: (float, float),
                  runs: seq[int] = @[]): PlotV =
   ## plots the data in `x` as a histogram
+  if xIn.len == 0: return
   var df = newDataFrame()
   if runs.len == 0:
     df = toDf({"xs" : xIn.mapIt(it.float)})
@@ -635,6 +636,9 @@ proc plotHist[T](xIn: seq[T], title, dset, outfile: string,
   # now filter to bin range
   df = df.filter(fn {float: `xs` >= binRange[0] and
                             `xs` <= binRange[1]})
+
+  ## Nothing left to plot
+  if df.len == 0: return
 
   info &"Bin range {binRange} for dset: {dset}"
   case BKind

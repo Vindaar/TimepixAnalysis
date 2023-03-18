@@ -62,6 +62,9 @@ searchRadius = 50 # for default clustering algorithm
 epsilon = 65 # for DBSCAN algorithm
 
 [Likelihood]
+# the signal efficiency to be used for the neural network veto
+neuralNetSignalEff = 0.95
+neuralNetCutKind = "local" # global, local, interpolated
 # the signal efficiency to be used for the logL cut (percentage of X-rays of the
 # reference distributions that will be recovered with the corresponding cut value)
 signalEfficiency = 0.8

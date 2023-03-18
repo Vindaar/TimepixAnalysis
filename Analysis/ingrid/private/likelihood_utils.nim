@@ -642,6 +642,11 @@ proc readMorphKind(): MorphingKind =
   withConfig:
     result = parseEnum[MorphingKind](config["Likelihood"]["morphingKind"].getStr)
 
+proc readNeuralNetCutKind(): NeuralNetCutKind =
+  ## reads the `neuralNetCutMethod` field from the TOML file
+  withConfig:
+    result = parseEnum[NeuralNetCutKind](config["Likelihood"]["neuralNetCutKind"].getStr)
+
 proc readSignalEff(): float =
   ## reads the `signalEfficiency` field from the TOML file
   withConfig:
@@ -799,6 +804,7 @@ proc initLikelihoodContext*(
   useNeuralNetworkCut: bool = false,
   nnModelPath = "",
   nnSignalEff: float = 0.0,
+  nnCutKind: NeuralNetCutKind = nkNone,
   # lnL cut & settings
   useLnLCut: bool = false,
   signalEfficiency: float = 0.0,
@@ -845,6 +851,8 @@ proc initLikelihoodContext*(
                        elif eccLvCutEnv > 0.0: eccLvCutEnv
                        else: 1.0 # default
 
+  let nnCutKind = if nnCutKind != nkNone: nnCutKind
+                  else: readNeuralNetCutKind()
 
   let signalEff = if signalEfficiency > 0.0: signalEfficiency
                   else: readSignalEff() # else read from `config.toml` file

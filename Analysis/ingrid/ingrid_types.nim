@@ -692,7 +692,10 @@ when not defined(pure) and not defined(js):
       cmLnLCut, cmNnCut
 
     NeuralNetCutKind* = enum
-      nkGlobal, nkLocal, nkInterpolated
+      nkNone = "" # none selected
+      nkGlobal = "global"
+      nkLocal = "local"
+      nkInterpolated = "interpolated"
 
     CutValueInterpolator* = object
       case cutMethod*: CutMethodKind
@@ -713,6 +716,7 @@ when not defined(pure) and not defined(js):
         of nkGlobal: cut*: float # global fixed efficiency
         of nkLocal: nnCutTab*: OrderedTable[string, float] # local (per target!) fixed efficiency
         of nkInterpolated: discard # liner interpolation between `nkLocal` targets
+        else: discard
 
     ## Explanation of the 3 different line veto kinds. Terminology used here:
     ## 'OC': original cluster. This is the cluster that was identified to pass the
@@ -937,6 +941,7 @@ proc initCutValueInterpolator*(kind: MorphingKind): CutValueInterpolator =
 
 proc initCutValueInterpolator*(kind: NeuralNetCutKind): CutValueInterpolator =
   case kind
+  of nkNone: doAssert false, "Should not happen"
   of nkGlobal:
     result = CutValueInterpolator(cutMethod: cmNnCut, nnCutKind: nkGlobal)
   of nkLocal:

@@ -126,6 +126,24 @@ proc prepareDataframe(fname: string, run: int, readRaw: bool): DataFrame =
   #result.plotLikelihoodDist()
   #result.plotLogLRocCurve()
 
+proc prepareMixedDataframe(calib, back: seq[string], readRaw: bool,
+                           subsetPerRun: int): DataFrame =
+  let dfCdl = prepareCdl(readRaw)
+  var dfFe = newDataFrame()
+  for c in calib:
+    dfFe.add readCalibData(c, "escape", 2.5, 3.5, subsetPerRun div 2)
+    dfFe.add readCalibData(c, "photo", 5.0, 7.0, subsetPerRun div 2)
+  var dfBack = newDataFrame()
+  for b in back:
+    dfBack.add prepareAllBackground(b, readRaw, subsetPerRun = subsetPerRun * 6) # .drop(["centerX", "centerY"])
+  echo "CDL: ", dfCdl
+  echo "55Fe: ", dfFe
+  echo "Back: ", dfBack
+  result = newDataFrame()
+  result.add dfCdl
+  result.add dfFe.drop(["runNumber", "CalibType"])
+  result.add dfBack.drop(["runNumber"])
+
 template printTensorInfo(arg: untyped): untyped =
   echo astToStr(arg), ": ", typeof(arg), " on device ", arg.get_device(), " is cuda ", arg.is_cuda()
 
@@ -384,8 +402,11 @@ template trainModel(Typ: typedesc,
   else:
     const readRaw = true
   if not predict: # all data that needs CDL & specific run data (i.e. training & test dataset)
-    var df = prepareDataframe(fname, run, readRaw = readRaw)
+    echo "Reading data"
+    #var df = prepareDataframe(fname, run, readRaw = readRaw)
+    var df = prepareMixedDataframe(calib, back, readRaw = readRaw, subsetPerRun = subsetPerRun)
     # get training & test dataset
+    echo "Splitting data into train & test set"
     let (trainTup, testTup) = generateTrainTest(df)
     let (trainIn, trainTarg) = trainTup
     let (testIn, testTarg) = testTup
@@ -438,13 +459,16 @@ template trainModel(Typ: typedesc,
 
     model.determineCdlEfficiency(device, ε, readRaw)
 
-proc main(fname: string, run = 186, # default background run to use
+proc main(#fname: string,
+          #run = 186, # default background run to use
+          calib, back: seq[string] = @[],
           ε = 0.8, # signal efficiency for background rate prediction
           totalTime = -1.0.Hour, # total background rate time in hours. Normally read from input file
           rocCurve = false,
           predict = false,
           model = "MLP", # MLP or ConvNet #model = mkMLP ## parsing an enum here causes weird CT error in cligen :/
-          modelOutpath = "/tmp/trained_model.pt") =
+          modelOutpath = "/tmp/trained_model.pt",
+          subsetPerRun = 1000) =
   # 1. set up the model
   Torch.manual_seed(1)
   var device_type: DeviceKind
@@ -459,7 +483,7 @@ proc main(fname: string, run = 186, # default background run to use
 
   let mKind = parseEnum[ModelKind](model)
   if mKind == mkMLP:
-    MLP.trainModel(fname, device, run, ε, totalTime, rocCurve, predict, modelOutpath)
+    MLP.trainModel(calib, back, device, ε, totalTime, rocCurve, predict, modelOutpath, subsetPerRun)
   #else:
   #  ConvNet.trainModel(fname, device, run, ε, totalTime, rocCurve, predict)
 

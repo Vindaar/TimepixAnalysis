@@ -93,6 +93,46 @@ proc readValidDsets*(h5f: H5File, path: string, readRaw = false,
   if subsetPerRun > 0:
     result = result.randomHead(subsetPerRun)
 
+proc prepareData*(h5f: H5File, run: int, readRaw: bool, typ = dtBack, subsetPerRun = 0): DataFrame
+proc readCalibData*(fname, calibType: string, eLow, eHigh: float,
+                    subsetPerRun = 0): DataFrame =
+  ## `subsetPerRun` is an integer which if given only returns this many entries (random)
+  ## from each run.
+  var h5f = H5open(fname, "r")
+  let fileInfo = h5f.getFileInfo()
+
+  var peakPos = newSeq[float]()
+  result = newDataFrame()
+  for run in fileInfo.runs:
+    let xrayRefCuts = getXrayCleaningCuts()
+    let runGrp = h5f[(recoBase() & $run).grp_str]
+    let tfKind = if calibType == "photo": tfMnCr12 # same as 5.9 keV peak
+                 else: tfMnCr12 #tfAgAg6 # ~3 keV line similar to escape
+    let cut = xrayRefCuts[$tfKind]
+    let grp = h5f[(recoBase() & $run / "chip_3").grp_str]
+    let passIdx = cutOnProperties(
+      h5f,
+      grp,
+      crSilver, # try cutting to silver
+      (toDset(igRmsTransverse), cut.minRms, cut.maxRms),
+      (toDset(igEccentricity), 0.0, cut.maxEccentricity),
+      (toDset(igLength), 0.0, cut.maxLength),
+      (toDset(igHits), cut.minPix, Inf),
+      (toDset(igEnergyFromCharge), eLow, eHigh)
+    )
+    let dfChip = h5f.readRunDsets(run, chipDsets = some((chip: 3, dsets: @["eventNumber"])))
+    let allEvNums = dfChip["eventNumber", int]
+    let evNums = passIdx.mapIt(allEvNums[it]).toSet
+    # filter to allowed events & remove any noisy events
+    # note: do not use `subsetPerRun` here because we still need to extract valid event numbers!
+    var df = prepareData(h5f, run, readRaw = false, typ = dtSignal)
+    df = df.filter(f{int: `eventNumber` in evNums})
+    df["runNumber"] = run
+    if subsetPerRun > 0:
+      df = df.randomHead(subsetPerRun)
+    result.add df
+  result["CalibType"] = calibType # Photo or escape peak
+
 proc prepareCDL*(readRaw: bool,
                  cdlPath = "/home/basti/CastData/data/CDL_2019/calibration-cdl-2018.h5"
                ): DataFrame =

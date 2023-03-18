@@ -2380,8 +2380,8 @@ when true:
          # o.urite toString(results), '\0')
          echo "Bytes: ", w.wrLenSeq results)
 
-  proc computeParallelLimits(ctx: Context, limitKind: LimitKind, nmc: int): seq[(float, int)] =
-    let nJobs = countProcessors()
+  proc computeParallelLimits(ctx: Context, limitKind: LimitKind, nmc, jobs: int): seq[(float, int)] =
+    let nJobs = if jobs > 0: jobs else: countProcessors() - 2
     var pp = initProcPool(limitsWorker, framesLenPfx, jobs = nJobs)
 
     var work = newSeq[ProcData]()
@@ -3726,7 +3726,8 @@ proc limit(
     xLabel = "Limit", yLabel = "Count",
     linesTo = 1000,
     outpath = "/tmp/",
-    suffix = ""
+    suffix = "",
+    jobs = 0
      ): int =
   ## dummy return an `int`, otherwise run into some cligen bug
   let backgroundTime = 3318.Hour ## TODO: FIX ME GET FROM FILES
@@ -3793,7 +3794,7 @@ proc limit(
     return
 
   if true:
-    let limits = ctx.computeParallelLimits(limitKind, nmc)
+    let limits = ctx.computeParallelLimits(limitKind, nmc, jobs)
     let limitNoSignal = ctx.computeLimit(rnd, newSeq[Candidate](), limitKind)
     ctx.plotMCLimitHistogram(limits.mapIt(it[0]), limits.mapIt(it[1]),
                              limitKind, nmc,

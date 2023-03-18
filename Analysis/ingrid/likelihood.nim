@@ -16,8 +16,7 @@ from std / envvars import getEnv # for some additional config, plotSeptem cutoff
 
 when defined(cpp):
   ## What do we need? Flambeau ? NN submodule?
-  #import ../../Tools/NN_playground/predict_event
-  discard
+  import ../../Tools/NN_playground/nn_predict
 
 when defined(linux):
   const commitHash = staticExec("git rev-parse --short HEAD")
@@ -671,15 +670,6 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
            logL < cutTab[energy]:              # cluster passes logL cut
           septemVetoPassed = true
 
-          when false:
-            ## NN veto
-            # if the event seems to pass *everything* we've thrown at it so far, take our final
-            # killer veto
-            echo "Predicting: ", runNumber, " evnt ", septemFrame.centerEvIdx
-            let pred = h5f.predict(runNumber, septemFrame.centerEvIdx)
-            if pred >= 3.257343386744518:
-              passed = true
-
         if not lineVetoRejected and not lineVetoPassed:
           lineVetoRejected = true
       if (useSeptemVeto and not septemVetoPassed) or (useLineVeto and lineVetoRejected):
@@ -739,10 +729,9 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
   # We want to extract that data from the CDL data that most resembles the X-rays
   # we measured. This is guaranteed by using the gold region.
   ## XXX: add NN support
-  #let useNeuralNetworkCut = fkMLP in flags
-  ## XXX: Make this just another veto option
-  const useLnLCut = true # fkLogL in flags
   let cutTab = calcCutValueTab(ctx)
+  when defined(cpp):
+    let nnCutTab = calcNeuralNetCutValueTab(ctx)
   # get the likelihood and energy datasets
   # get the group from file
   when false:
@@ -881,7 +870,8 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
         centerY = h5f[(chipGroup / "centerY"), float64]
         rmsTrans = h5f[(chipGroup / "rmsTransverse"), float64]
         evNumbers = h5f[(chipGroup / "eventNumber"), int64].asType(int)
-        #nnPred = ctx.predictNN(h5f, chipGroup)
+      when defined(cpp):
+        let nnPred = ctx.predict(h5f, chipGroup)
 
       # get all events part of tracking (non tracking)
       let chipIdxsInTracking = filterTrackingEvents(evNumbers, eventsInTracking)
@@ -911,10 +901,11 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
           scintiVeto = false # vetoed by scintillators (and in use)
           ## XXX: Remove cleaning cut???
           rmsCleaningVeto = false # smaller than RMS cleaning cut
-        ## NN cut
-        #if useNeuralNetworkCut and nnPred[ind] < nnCutTab[energy[ind]]:
-        #  # vetoed if larger than prediction
-        #  nnVeto = true  #ctx.isVetoedByNeuralNetwork()
+        ## NN cut (smaller means "more background like")
+        when defined(cpp):
+          if ctx.vetoCfg.useNeuralNetworkCut and nnPred[ind] < nnCutTab[energy[ind]]:
+            # vetoed if larger than prediction
+            nnVeto = true  #ctx.isVetoedByNeuralNetwork()
         ## LnL cut
         if ctx.vetoCfg.useLnLCut and logL[ind] > cutTab[energy[ind]]:
           lnLVeto = true
@@ -936,6 +927,7 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
             inc scintiVetoCount
         ## Check if all cluster in region and all vetoes passed
         if inCutRegion and
+           not nnVeto and
            not lnLVeto and
            not rmsCleaningVeto and
            not fadcVeto and # if veto is true, means throw out!
@@ -1488,6 +1480,11 @@ when isMainModule:
     "lineveto"       : "If flag is set, we use an additional septem veto based on eccentric clusters",
     "aggressive"     : """If set, use aggressive veto. DO NOT USE (unless as a *reference*. Requires deep thought
   about random coincidences & dead time of detector!)""",
+
+    # nn cut settings
+    "nnSignalEff"    : "Cut efficiency to use for the neural network veto",
+    "nnCutKind"      : "The method by which the cut on the NN output is determined, global efficiency, local or interpolated",
+
 
     # lnL cut settings
     "signalEfficiency" : "The signal efficiency to use for the lnL cut. Overrides the `config.toml` setting.",

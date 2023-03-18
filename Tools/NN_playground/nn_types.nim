@@ -73,3 +73,29 @@ type
   ConvNet* = object
 
   AnyModel* = MLP | ConvNet
+
+## The batch size we use!
+const bsz = 8192 # batch size
+
+proc predictSingle*(model: MLP, input: RawTensor, device: Device): float =
+  # predict the output for the single input event
+  no_grad_mode:
+    # Running input through the network, get the 0th neuron output
+    result = model.forward(input.to(device))[_, 0].item(float)
+
+from ./io_helpers import toNimSeq
+proc predict*(model: AnyModel,
+              input: RawTensor,
+              device: Device): seq[float] =
+  ## Returns the predictions for all input data contained in `input`
+  let dataset_size = input.size(0)
+  result = newSeqOfCap[float](dataset_size)
+  no_grad_mode:
+    for batch_id in 0 ..< (dataset_size.float / bsz.float).ceil.int:
+      # minibatch offset in the Tensor
+      let offset = batch_id * bsz
+      let stop = min(offset + bsz, dataset_size)
+      let x = input[offset ..< stop, _ ].to(device)
+      # Running input through the network
+      let output = model.forward(x)
+      result.add output[_, 0].toNimSeq[:float]

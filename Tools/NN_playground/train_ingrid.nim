@@ -5,12 +5,11 @@ import ingrid / [tos_helpers, ingrid_types]
 import pkg / [datamancer, unchained, nimhdf5]
 
 # have to include the type definitions
-include ./nn_types, ./io_helpers, ./nn_cuts
+include ./nn_types
+import ./io_helpers
+include ./nn_cuts
 
 {.experimental: "views".}
-
-## The batch size we use!
-const bsz = 8192 # batch size
 
 proc generateTrainTest(df: var DataFrame):
                       ((RawTensor, RawTensor), (RawTensor, RawTensor)) {.noInit.} =

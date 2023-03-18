@@ -1,4 +1,12 @@
-import ./io_helpers
+#from std / algorithm import lowerBound
+#import pkg / datamancer except linspace
+#import seqmath
+#
+#import flambeau/[flambeau_nn, tensors]
+## local
+#import ./io_helpers, ./nn_types
+
+## Include this file!! After `io_helpers` imported!
 
 proc determineEff*(pred: seq[float], cutVal: float,
                   isBackground = true): float =
@@ -49,24 +57,19 @@ proc calcRocCurve*(predictions: seq[float], targets: seq[int]): DataFrame =
   else:
     doAssert false, "Both signal and background dataframes are empty!"
 
-proc determineCutValue*(model: AnyModel, device: Device, ε: float, readRaw: bool): float =
-  ## Returns the required cut value for a desired software efficiency `ε`.
-  ## This reads the (cleaned) CDL data, computes their output and returns the
-  ## cut value at the percentile corresponding to `ε`.
-  # get the CDL data
-  let dfCdl = prepareCdl(readRaw)
-  let (cdlInput, cdlTarget) = dfCdl.toInputTensor()
-  let (cdlPredict, predTargets) = model.test(cdlInput, cdlTarget, device,
-                                             plotOutfile = "/tmp/cdl_prediction.pdf")
+proc determineCutValue(model: AnyModel, device: Device, df: DataFrame, ε: float): float =
+  let (cdlInput, cdlTarget) = df.toInputTensor()
+  let cdlPredict = model.predict(cdlInput, device)
 
   # Compute alternative cut value by percentile
   # E.g. `ε = 0.8` means we need `1.0 - ε = 0.2` because the network predicts the
   # signal data on the positive side of the background (if we were to cut on the RHS
   # we'd keep all background!). Times 100 as int because `percentile` takes an integer
   let εLocal = 1.0 - ε
-  let cutValPerc = cdlPredict.percentile((εLocal * 100.0).round.int)
+  result = cdlPredict.percentile((εLocal * 100.0).round.int)
 
   when false:
+    ## XXX: this is not possible here anymore!
     # and now based on 'ROC curve'
     # Note: `predTargets` & `cdlTarget` contain same data. May not have same order though!
     let dfMLPRoc = calcRocCurve(cdlPredict, predTargets)
@@ -75,10 +78,33 @@ proc determineCutValue*(model: AnyModel, device: Device, ε: float, readRaw: boo
     let dfme = dfMLPRoc.filter(f{`sigEff` >= εLocal}).head(20) # assumes sorted by sig eff (which it is)
     let cutVal = dfme["cutVals", float][0]
     dfMLPRoc.filter(f{`sigEff` >= ε}).showBrowser()
-  echo "Cut value: ", cutValPerc
-  result = cutValPerc
+  echo "Cut value: ", result
+
+proc determineCutValue*(model: AnyModel, device: Device, ε: float, readRaw: bool): float =
+  ## Returns the required cut value for a desired software efficiency `ε`.
+  ## This reads the (cleaned) CDL data, computes their output and returns the
+  ## cut value at the percentile corresponding to `ε`.
+  ##
+  ## XXX: `readRaw` currently ignored!
+  # get the CDL data
+  let dfCdl = prepareCdl(readRaw)
+  result = model.determineCutValue(device, dfCdl, ε)
 
 import ingrid / ingrid_types
+proc determineLocalCutValue*(model: AnyModel, device: Device, ε: float, readRaw: bool): OrderedTable[string, float] =
+  ## Returns the required cut value for a desired software efficiency `ε`, which
+  ## will be calculated per target/filter combination (instead of globally)
+  ##
+  ## This reads the (cleaned) CDL data, computes their output and returns the
+  ## cut value at the percentile corresponding to `ε`.
+  # get the CDL data
+  result = initOrderedTable[string, float]()
+  let dfCdl = prepareCdl(readRaw)
+  for (tup, subDf) in groups(dfCdl.group_by("Target")):
+    let target = tup[0][1].toStr
+    result[target] = model.determineCutValue(device, subDf, ε)
+  echo "Local cut values: ", result
+
 proc calcCutValues*(model: AnyModel, device: Device, ε: float, readRaw: bool,
                     morphKind: MorphingKind): CutValueInterpolator =
   ## Important note: the `MorphingKind` is not actually doing any morphing in the NN
@@ -86,3 +112,4 @@ proc calcCutValues*(model: AnyModel, device: Device, ε: float, readRaw: bool,
   ## in the lnL cut methode case).
   ## As such all we can do is interpolate between the cut values from energy to energy.
   ## For the time being
+  discard

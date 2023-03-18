@@ -129,7 +129,7 @@ proc readFilteredFadc*(h5f: H5File): DataFrame =
                     "riseTime",
                     "fallStop",
                     "fallTime",
-                    "minvals",
+                    "minVal",
                     "noisy",
                     "argMinval"]
     )

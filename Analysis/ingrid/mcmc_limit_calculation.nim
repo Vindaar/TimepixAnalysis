@@ -476,9 +476,10 @@ proc readAxModel(): DataFrame =
   proc convert(x: float): float =
     result = x.keV⁻¹•m⁻²•yr⁻¹.to(keV⁻¹•cm⁻²•s⁻¹).float
   result = readCsv("/home/basti/CastData/ExternCode/AxionElectronLimit/axion_diff_flux_gae_1e-13_gagamma_1e-12.csv")
-    .mutate(f{"Energy / keV" ~ c"Energy / eV" / 1000.0},
-            f{"Flux / keV⁻¹•cm⁻²•s⁻¹" ~ convert(idx("Flux / keV⁻¹ m⁻² yr⁻¹"))})
-    .filter(f{float: c"Energy / keV" <= upperBin})
+    .mutate(f{"Energy [keV]" ~ c"Energy / eV" / 1000.0},
+            f{"Flux [keV⁻¹•cm⁻²•s⁻¹]" ~ convert(idx("Flux / keV⁻¹ m⁻² yr⁻¹"))})
+    .filter(f{float: c"Energy [keV]" <= upperBin})
+    .drop(["Energy / eV", "Flux / keV⁻¹ m⁻² yr⁻¹"])
 
 proc detectionEff(ctx: Context, energy: keV): UnitLess {.gcsafe.}
 
@@ -684,8 +685,8 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
 
   let axData = readAxModel()
   ## TODO: use linear interpolator to avoid going to negative?
-  let axSpl = newCubicSpline(axData["Energy / keV", float].toSeq1D,
-                             axData["Flux / keV⁻¹•cm⁻²•s⁻¹", float].toSeq1D)
+  let axSpl = newCubicSpline(axData["Energy [keV]", float].toSeq1D,
+                             axData["Flux [keV⁻¹•cm⁻²•s⁻¹]", float].toSeq1D)
 
   let combEffDf = readCsv("/home/basti/org/resources/combined_detector_efficiencies.csv")
   # calc the efficiency based on the given vetoes
@@ -767,10 +768,10 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
     files: files)
   let ctx = result # XXX: hack to workaround bug in formula macro due to `result` name!!!
   let axModel = axData
-    .mutate(f{"Flux" ~ idx("Flux / keV⁻¹•cm⁻²•s⁻¹") * detectionEff(ctx, idx("Energy / keV").keV) })
+    .mutate(f{"Flux" ~ idx("Flux [keV⁻¹•cm⁻²•s⁻¹]") * detectionEff(ctx, idx("Energy [keV]").keV) })
   echo axModel
   let integralBase = simpson(axModel["Flux", float].toSeq1D,
-                             axModel["Energy / keV", float].toSeq1D)
+                             axModel["Energy [keV]", float].toSeq1D)
   result.integralBase = integralBase
 
   ## Set fields for interpolation

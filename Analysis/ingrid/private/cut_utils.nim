@@ -143,3 +143,5 @@ proc `[]`*(cv: CutValueInterpolator, e: float): float =
       discard
       #let idx = min(cv.nnCutEnergies.lowerBound(e), cv.nnCutEnergies.high)
       #result = cv.nnCutValues[idx]
+    else:
+      doAssert false, "Should not happen!"

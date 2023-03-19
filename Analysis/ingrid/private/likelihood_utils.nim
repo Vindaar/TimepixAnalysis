@@ -218,6 +218,28 @@ template withLogLFilterCuts*(cdlFile, dset: string,
       if allIt([regionCut, xRmsCut, xLengthCut, xEccCut, chargeCut, rmsCut, lengthCut, pixelCut], it):
         body
 
+template withXrayCleaningCuts*(cdlFile, dset: string,
+                               year: YearKind, energyDset: InGridDsetKind,
+                               igDsets: seq[InGridDsetKind],
+                               body: untyped): untyped =
+  ## Note: see the injected variables in the `withCdlData` template!
+  for d in [igCenterX, igCenterY, igTotalCharge, igRmsTransverse, igLength, igHits]:
+    if d notin igDsets:
+      raise newException(ValueError, "The dataset: " & $d & " is not in `igDsets`, but is " &
+        "required to perform the X-ray reference cuts!")
+
+  withCdlData(cdlFile, dset, year, energyDset, igDsets):
+    for i {.inject.} in 0 ..< data[energyDset].len:
+      let
+        # first apply Xray cuts (see C. Krieger PhD Appendix B & C)
+        regionCut  = inRegion(data[igCenterX][i], data[igCenterY][i], crSilver)
+        xRmsCut    = data[igRmsTransverse][i].float >= xrayCuts.minRms and data[igRmsTransverse][i] <= xrayCuts.maxRms
+        xLengthCut = data[igLength][i].float        <= xrayCuts.maxLength
+        xEccCut    = data[igEccentricity][i].float  <= xrayCuts.maxEccentricity
+      # add event to likelihood if all cuts passed
+      if allIt([regionCut, xRmsCut, xLengthCut, xEccCut], it):
+        body
+
 template withXrayRefCuts*(cdlFile, dset: string,
                           year: YearKind, energyDset: InGridDsetKind,
                           igDsets: seq[InGridDsetKind],

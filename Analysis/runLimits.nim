@@ -1,4 +1,4 @@
-import os, strutils, sugar, strformat, times
+import os, strutils, sugar, strformat, times, sequtils
 import shell
 
 var CurrentFile: string
@@ -11,19 +11,26 @@ proc ctrlc() {.noconv.} =
 proc main(path = "/t/lhood_outputs_adaptive_fadc/",
           outpath = "/t/lhood_outputs_adaptive_fadc_limits/",
           prefix = "likelihood_cdl2018_Run2_crAll",
-          nmc = 2000) =
+          nmc = 2000,
+          dryRun = false) =
   setControlCHook(ctrlc)
   let t0 = epochTime()
-  let alreadyProcessed = readFile(outpath / "processed.txt").splitLines
+  let alreadyProcessed = readFile(outpath / "processed.txt").splitLines.mapIt(it.extractFilename)
   var processed = open(outpath / "processed.txt", fmAppend)
   echo "Limit calculation will be performed for the following files:"
   for file in walkFiles(path / prefix & "*.h5"):
-    if file notin alreadyProcessed:
+    if file.extractFilename notin alreadyProcessed:
       echo file
+    else:
+      echo "Already processed: ", file
+  if dryRun:
+    processed.close()
+    return
   for file in walkFiles(path / prefix & "*.h5"):
     CurrentFile = file
-    if CurrentFile in alreadyProcessed:
+    if CurrentFile.extractFilename in alreadyProcessed:
       echo "Skipping file ", CurrentFile, " as it was already processed."
+      continue
     let t1 = epochTime()
     let fRun2 = file
     # construct Run3 file
@@ -44,6 +51,7 @@ proc main(path = "/t/lhood_outputs_adaptive_fadc/",
       quit()
 
     processed.write(CurrentFile & "\n")
+    processed.flushFile()
     echo "Computing single limit took ", epochTime() - t1, " s"
 
   echo "Computing all limits took ", epochTime() - t0, " s"

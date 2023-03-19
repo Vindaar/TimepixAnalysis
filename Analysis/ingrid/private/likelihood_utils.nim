@@ -128,7 +128,7 @@ template withCdlData*(cdlFile, dset: string,
     cutsTab = getEnergyBinMinMaxVals2018()
 
   var frameworkKind {.inject.} = fkMarlin
-  var fitByRun = false
+  var fitByRun {.inject.} = false
   echo "Opening file to build LogL from ", cdlFile, " for dset: ", dset
   withH5(cdlFile, "r"):
     if "FrameworkKind" in h5f.attrs:
@@ -208,8 +208,9 @@ template withLogLFilterCuts*(cdlFile, dset: string,
         xRmsCut    = data[igRmsTransverse][i].float >= xrayCuts.minRms and data[igRmsTransverse][i] <= xrayCuts.maxRms
         xLengthCut = data[igLength][i].float        <= xrayCuts.maxLength
         xEccCut    = data[igEccentricity][i].float  <= xrayCuts.maxEccentricity
-        # then apply reference cuts
-        chargeCut  = data[igTotalCharge][i].float   > cuts.minCharge and data[igTotalCharge][i]   < cuts.maxCharge
+        # then apply reference cuts (charge cut already applied if `fitByRun` in use!)
+        chargeCut  = if fitByRun: true
+                     else: data[igTotalCharge][i].float > cuts.minCharge and data[igTotalCharge][i] < cuts.maxCharge
         rmsCut     = data[igRmsTransverse][i].float > cuts.minRms    and data[igRmsTransverse][i] < cuts.maxRms
         lengthCut  = data[igLength][i].float        < cuts.maxLength
         pixelCut   = data[igHits][i].float          > cuts.minPix
@@ -232,8 +233,9 @@ template withXrayRefCuts*(cdlFile, dset: string,
       let
         # first apply Xray cuts (see C. Krieger PhD Appendix B & C)
         regionCut  = inRegion(data[igCenterX][i], data[igCenterY][i], crSilver)
-        # then apply reference cuts
-        chargeCut  = data[igTotalCharge][i].float   > cuts.minCharge and data[igTotalCharge][i]   < cuts.maxCharge
+        # then apply reference cuts (charge cut already applied if `fitByRun` in use!)
+        chargeCut  = if fitByRun: true
+                     else: data[igTotalCharge][i].float > cuts.minCharge and data[igTotalCharge][i] < cuts.maxCharge
         rmsCut     = data[igRmsTransverse][i].float > cuts.minRms    and data[igRmsTransverse][i] < cuts.maxRms
         lengthCut  = data[igLength][i].float        < cuts.maxLength
         pixelCut   = data[igHits][i].float          > cuts.minPix

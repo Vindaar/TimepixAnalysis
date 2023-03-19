@@ -32,6 +32,11 @@ proc readXrayRefCuts*(cdlFile: string, tfKind: TargetFilterKind, dset: InGridDse
   withXrayRefCuts(cdlFile, $tfKind, yr2018, igEnergyFromCharge, Dsets):
     result.add data[dset][i]
 
+proc readXrayCleanCuts*(cdlFile: string, tfKind: TargetFilterKind, dset: InGridDsetKind): seq[float] =
+  ## Reads the data using the `withLogLFilterCuts` template
+  withXrayCleaningCuts(cdlFile, $tfKind, yr2018, igEnergyFromCharge, Dsets):
+    result.add data[dset][i]
+
 proc readLogLCuts*(cdlFile: string, tfKind: TargetFilterKind, dset: InGridDsetKind): seq[float] =
   ## Reads the data using the `withLogLFilterCuts` template
   withLogLFilterCuts(cdlFile, $tfKind, yr2018, igEnergyFromCharge, Dsets):
@@ -57,10 +62,14 @@ proc readDifferentCuts(h5f: H5File, cdlFile: string, tfKind: TargetFilterKind): 
     let dfXray = toDf({ dsetStr : readXrayRefCuts(cdlFile, tfKind, dset),
                         "Type" : "XrayRef",
                         "run" : 0 })
+    let dfClean = toDf({ dsetStr : readXrayCleanCuts(cdlFile, tfKind, dset),
+                        "Type" : "XrayClean",
+                        "run" : 0 })
     let dfLogL = toDf({ dsetStr : readLogLCuts(cdlFile, tfKind, dset),
                         "Type" : "LogLFilter",
                         "run" : 0 })
     df.add dfXray
+    df.add dfClean
     df.add dfLogL
     dsets.add dsetStr
     dfAll[dsetStr] = df[dsetStr, float]
@@ -76,9 +85,9 @@ proc plotDifferentCuts(df: DataFrame, tfKind: TargetFilterKind, plotPath: string
     echo subDf
     let dfP = subDf.filter(f{float -> bool: `Value` >= percentile(col("Value"), 3) and `Value` <= percentile(col("Value"), 97)})
 
-    ggplot(dfP, aes("Value", fill = factor("Type"))) +
-      geom_histogram(bins = 100, hdKind = hdOutline, alpha = 0.5, position = "identity", density = false) +
-      ggtitle("Dataset " & $dsetStr & " for " & $tfKind & " by different cut approaches") +
+    ggplot(dfP, aes("Value", color = factor("Type"))) +
+      geom_histogram(bins = 100, lineWidth = 2.0, hdKind = hdOutline, alpha = 0.0, position = "identity", density = false) +
+      ggtitle("Dataset " & $dset & " for " & $tfKind & " by different cut approaches") +
       ggsave(&"{plotPath}/{$tfKind}_{dset}_histogram_by_different_cut_approaches.pdf")
 
 proc main(fname: string, # path to CDL Reco H5 file

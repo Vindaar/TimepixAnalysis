@@ -101,6 +101,7 @@ type
   Efficiency = object
     totalEff: float # total efficiency multiplier based on signal efficiency of lnL cut, FADC & veto random coinc rate
     signalEff: float # the lnL cut signal efficiency used in the inputs
+    eccLineVetoCut: float # the eccentricity cutoff for the line veto (affects random coinc.)
     vetoPercentile: float # if FADC veto used, the percentile used to generate the cuts
     septemVetoRandomCoinc: float # random coincidence rate of septem veto
     lineVetoRandomCoinc: float # random coincidence rate of line veto
@@ -704,6 +705,7 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
                                    septemLineVetoRandomCoinc)
   let eff = Efficiency(
     totalEff: vetoEff, # total efficiency of the veto & detector feature related
+    eccLineVetoCut: readData.vetoCfg.eccLineVetoCut,
     vetoPercentile: readData.vetoCfg.vetoPercentile,
     signalEff: readData.vetoCfg.signalEfficiency,
     septemVetoRandomCoinc: septemVetoRandomCoinc,

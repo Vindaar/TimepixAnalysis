@@ -620,6 +620,20 @@ proc calcLikelihoodForEvent*(ctx: LikelihoodContext,
                                            ctx.refDf, idx)
   #echo "result ? ", result, " based on ", ecc, " ", lengthDivRmsTrans, " ", fracRmsTrans
 
+proc calcLikelihood*(ctx: LikelihoodContext, df: DataFrame): seq[float] =
+  ## Convenience helper that calculates the likelihood values for all events stored in `df`.
+  ## `df` must contain the energyFromCharge, eccentricity, lengthDivRmsTrans and fractionInTransverseRms
+  ## columns (under that name!).
+  let E = igEnergyFromCharge.toDset()
+  let ε = igEccentricity.toDset()
+  let l = igLengthDivRmsTrans.toDset()
+  let f = igFractionInTransverseRms.toDset()
+  doAssert E in df
+  doAssert ε in df
+  doAssert l in df
+  doAssert f in df
+  result = df.mutate(f{float: "logL" ~ ctx.calcLikelihoodForEvent(idx(E), idx(ε), idx(l), idx(f))})["logL", float].toSeq1D
+
 proc calcLikelihoodDataset*(h5f: var H5File, groupName: string, ctx: LikelihoodContext): seq[float] =
   let (ecc,
        lengthDivRmsTrans,

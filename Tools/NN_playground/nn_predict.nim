@@ -13,19 +13,11 @@ include ./nn_cuts
 proc readEvent(h5f: H5File, run, idx: int, path = recoBase()): DataFrame =
   let grp = path & $run & "/chip_3" # XXX: use center chip
   result = newDataFrame()
-  for dsetName in ValidDsets:
+  for dsetName in CurrentDsets:
     let dset = h5f[(grp / (dsetName).toDset).dset_str]
     result[dsetName.toDset] = dset.readAs(@[idx], float)
   result["Type"] = $dtBack
 
-proc toTorchTensor(df: DataFrame): RawTensor {.noInit.} =
-  ## Converts an appropriate data frame to a 2D RawTensor of the data to be fed to the network
-  let cols = ValidDsets.card
-  var input = rawtensors.zeros(df.len * cols).reshape(sizes = [df.len.int64, cols].asTorchView())
-  for i, c in ValidDsets.toSeq.mapIt(it.toDset(fkTpa)).sorted:
-    let xp = fromBlob[float](cast[pointer](df[c, float].unsafe_raw_offset()), df.len).convertRawTensor()
-    input[_, i] = xp
-  result = input
 
 # if this is ``imported``, we'll create a global classifier that we use for prediction.
 # 1. set up the model

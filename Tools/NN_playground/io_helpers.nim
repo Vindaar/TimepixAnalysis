@@ -11,7 +11,14 @@ const ValidReadDSets* = XrayReferenceDsets - { igNumClusters,
                                                igLengthDivRadius } + {
                                                  igCenterX, igCenterY }
 
-const ValidDsets* = ValidReadDSets - { igLikelihood, igCenterX, igCenterY, igHits, igEnergyFromCharge, igTotalCharge }
+# include total charge
+#const ValidDsets* = { igEccentricity, igLengthDivRmsTrans, igFractionInTransverseRms }
+const ValidDsets* = ValidReadDSets - { igLikelihood, igCenterX, igCenterY, igHits, igEnergyFromCharge } # , igTotalCharge }
+
+## `CurrentDsets` is the variable in use to read the correct data / extract the correct data
+## from a given DF and turn it into a Torch Tensor.
+## For now a global variable, that might likely become a field of `MLPDesc`.
+var CurrentDsets* = ValidDsets.toSeq
 
 type
   DataType* = enum
@@ -194,9 +201,9 @@ proc prepareAllBackground*(fname: string, readRaw: bool, subsetPerRun = 0): Data
 import flambeau / [flambeau_raw, tensors]
 proc toInputTensor*(df: DataFrame): (RawTensor, RawTensor) {.noInit.} =
   ## Converts an appropriate data frame to a tuple of input / target tensors
-  let cols = ValidDsets.card
+  let cols = CurrentDsets.len
   var input = rawtensors.zeros(df.len * cols).reshape(sizes = [df.len.int64, cols].asTorchView())
-  for i, c in ValidDsets.toSeq.mapIt(it.toDset(fkTpa)).sorted:
+  for i, c in CurrentDsets.mapIt(it.toDset(fkTpa)).sorted:
     let xp = fromBlob[float](cast[pointer](df[c, float].unsafe_raw_offset()), df.len).convertRawTensor()
     input[_, i] = xp
   var target = rawtensors.zeros(df.len * 2).reshape([df.len.int64, 2].asTorchView())
@@ -209,6 +216,16 @@ proc toInputTensor*(df: DataFrame): (RawTensor, RawTensor) {.noInit.} =
     else:
       doAssert false, "Invalid type field " & $typ[i]
   result = (input, target)
+
+proc toTorchTensor*(df: DataFrame): RawTensor {.noInit.} =
+  ## Converts an appropriate data frame to a 2D RawTensor of the data to be fed to the network
+  let df = df.mutate(f{"totalCharge" ~ `totalCharge` / 1e7})
+  let cols = CurrentDsets.len
+  var input = rawtensors.zeros(df.len * cols).reshape(sizes = [df.len.int64, cols].asTorchView())
+  for i, c in CurrentDsets.mapIt(it.toDset(fkTpa)).sorted:
+    let xp = fromBlob[float](cast[pointer](df[c, float].unsafe_raw_offset()), df.len).convertRawTensor()
+    input[_, i] = xp
+  result = input
 
 proc toNimSeq*[T](t: RawTensor): seq[T] =
   doAssert t.sizes().len == 1

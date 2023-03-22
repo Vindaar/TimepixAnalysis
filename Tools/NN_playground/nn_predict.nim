@@ -18,6 +18,9 @@ proc readEvent(h5f: H5File, run, idx: int, path = recoBase()): DataFrame =
     result[dsetName.toDset] = dset.readAs(@[idx], float)
   result["Type"] = $dtBack
 
+proc initDesc(model: string): MLPDesc =
+  result = initMLPDesc(model, "")
+  CurrentDsets = result.datasets
 
 # if this is ``imported``, we'll create a global classifier that we use for prediction.
 # 1. set up the model
@@ -30,7 +33,8 @@ template loadModelMakeDevice*(modelPath: string): untyped {.dirty.} =
     #echo "Training on CPU."
     device_type = kCPU
   let device = Device.init(device_type)
-  var model = MLP.init()
+  let desc = initDesc(modelPath)
+  var model = MLP.init(desc)
   Torch.manual_seed(1)
   model.to(device)
   model.load(modelPath)
@@ -59,14 +63,14 @@ proc predict*(h5f: H5File, modelPath: string, grp: string): seq[float] =
   # 2. convert to torch tensor
   let inp = toTorchTensor(data)
   # 3. forward pass through network
-  result = model.predict(inp, device)
+  result = model.forward(inp, device)
 
 proc predict*(model: AnyModel, device: Device, df: DataFrame): seq[float] =
   ## Returns the prediction of the (globally declared!) network for the given data, which
   ## must be a dataframe containing all required datasets!
   let inp = toTorchTensor(df)
   # 3. forward pass through network
-  result = model.predict(inp, device)
+  result = model.forward(inp, device)
 
 proc predict*(modelPath: string, df: DataFrame): seq[float] =
   ## Returns the prediction of the (globally declared!) network for the given data, which
@@ -74,11 +78,11 @@ proc predict*(modelPath: string, df: DataFrame): seq[float] =
   loadModelMakeDevice(modelPath)
   let inp = toTorchTensor(df)
   # 3. forward pass through network
-  result = model.predict(inp, device)
+  result = model.forward(inp, device)
 
 proc predict*(ctx: LikelihoodContext, h5f: H5File, grp: string): seq[float] =
-  if not ctx.useNeuralNetworkCut: return
-  result = predict(h5f, ctx.nnModelPath, grp)
+  if not ctx.vetoCfg.useNeuralNetworkCut: return
+  result = predict(h5f, ctx.vetoCfg.nnModelPath, grp)
 
 proc calcNeuralNetCutValueTab*(modelPath: string, cutKind: NeuralNetCutKind, ε: float): CutValueInterpolator =
   if modelPath.len == 0:
@@ -94,5 +98,15 @@ proc calcNeuralNetCutValueTab*(modelPath: string, cutKind: NeuralNetCutKind, ε:
     doAssert false, "Not supported yet!"
 
 proc calcNeuralNetCutValueTab*(ctx: LikelihoodContext): CutValueInterpolator =
-  if not ctx.useNeuralNetworkCut: return
-  result = calcNeuralNetCutValueTab(ctx.nnModelPath, ctx.nnCutKind, ctx.nnSignalEff)
+  if not ctx.vetoCfg.useNeuralNetworkCut: return
+  result = calcNeuralNetCutValueTab(ctx.vetoCfg.nnModelPath, ctx.vetoCfg.nnCutKind, ctx.vetoCfg.nnSignalEff)
+
+
+proc main(calib, back: seq[string] = @[],
+          model: string,
+          subsetPerRun = 1000) =
+  discard
+
+when isMainModule:
+  import cligen
+  dispatch main

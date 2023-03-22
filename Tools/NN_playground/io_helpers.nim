@@ -195,6 +195,7 @@ proc prepareAllBackground*(fname: string, readRaw: bool, subsetPerRun = 0): Data
 import flambeau / [flambeau_raw, tensors]
 proc toInputTensor*(df: DataFrame): (RawTensor, RawTensor) {.noInit.} =
   ## Converts an appropriate data frame to a tuple of input / target tensors
+  let df = df.mutate(f{"totalCharge" ~ `totalCharge` / 1e7})
   let cols = CurrentDsets.len
   var input = rawtensors.zeros(df.len * cols).reshape(sizes = [df.len.int64, cols].asTorchView())
   for i, c in CurrentDsets.mapIt(it.toDset(fkTpa)).sorted:

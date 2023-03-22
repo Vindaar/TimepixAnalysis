@@ -29,7 +29,7 @@ proc calcSigEffBackRej*(df: DataFrame, bins: seq[float],
   result = toDf({ "eff" : effs,
                   "cutVals" : bins })
 
-proc calcRocCurve*(predictions: seq[float], targets: seq[int]): DataFrame =
+proc calcRocCurve*(predictions: seq[float], targets: seq[int], verbose = false): DataFrame =
   # now use both to determine signal and background efficiencies
   # essentially have to generate some binning in `logL` we deem appropriate,
   let dfPlt = toDf(predictions, targets)
@@ -38,6 +38,11 @@ proc calcRocCurve*(predictions: seq[float], targets: seq[int]): DataFrame =
   let bins = linspace(predictions.min, predictions.max, nBins)
   let dfSignal = dfPlt.filter(f{`isSignal` == true})
   let dfBackground = dfPlt.filter(f{`isSignal` == false})
+
+
+  if verbose:
+    echo "df Signal: ", dfSignal
+    echo "df Back: ", dfBackground
 
   var
     sigEffDf = newDataFrame()
@@ -57,9 +62,15 @@ proc calcRocCurve*(predictions: seq[float], targets: seq[int]): DataFrame =
   else:
     doAssert false, "Both signal and background dataframes are empty!"
 
+proc calcRocCurve*(logL: seq[float], logLTargets: seq[int], predict: seq[float], mlpTargets: seq[int]): DataFrame =
+  var dfLogLRoc = calcRocCurve(logL, logLTargets)
+  let dfMLPRoc = calcRocCurve(predict, mlpTargets)
+  result = bind_rows([("LogL", dfLogLRoc), ("MLP", dfMLPRoc)],
+                     "Type")
+
 proc determineCutValue(model: AnyModel, device: Device, df: DataFrame, ε: float): float =
   let (cdlInput, cdlTarget) = df.toInputTensor()
-  let cdlPredict = model.predict(cdlInput, device)
+  let cdlPredict = model.forward(cdlInput, device)
 
   # Compute alternative cut value by percentile
   # E.g. `ε = 0.8` means we need `1.0 - ε = 0.2` because the network predicts the

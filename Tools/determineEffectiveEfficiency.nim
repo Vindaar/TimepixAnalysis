@@ -6,7 +6,7 @@ import numericalnim except linspace
 import ingrid / private / [likelihood_utils, hdf5_utils, ggplot_utils, geometry, cdl_cuts]
 import ingrid / calibration
 import ingrid / calibration / [fit_functions]
-import ingrid / ingrid_types
+import ingrid / [ingrid_types, tos_helpers]
 import ingridDatabase / [databaseRead, databaseDefinitions, databaseUtils]
 
 import arraymancer / stats / kde
@@ -16,7 +16,8 @@ import arraymancer / stats / kde
 # distance
 const RmsCleaningCut = 1.5
 
-let CdlFile = "/mnt/1TB/CAST/CDL_2019/calibration-cdl-2018.h5" # "/home/basti/CastData/data/CDL_2019/calibration-cdl-2018.h5"
+#let CdlFile = "/mnt/1TB/CAST/CDL_2019/calibration-cdl-2018.h5" #
+let CdlFile = "/home/basti/CastData/data/CDL_2019/calibration-cdl-2018.h5"
 
 proc drawNewEvent(rms, energy: seq[float]): int =
   let num = rms.len - 1
@@ -36,9 +37,9 @@ proc computeEnergy(h5f: H5File, pix: seq[Pix], group: string, centerChip: int,
   # now calculate energy for all hits
   result = totalCharge * calibFactor
 
-proc generateFakeData(h5f: H5File, nFake: int, energy = 3.0): DataFrame =
+proc generateFakeData(ctx: LikelihoodContext, h5f: H5File, nFake: int, energy = 3.0): DataFrame =
   ## For each run generate `nFake` fake events
-  let refSetTuple = readRefDsets(CdlFile, yr2018)
+  let refSetTuple = ctx.readRefDsets()
   result = newDataFrame()
   let fileInfo = h5f.getFileInfo()
   let tpx = fileInfo.timepix
@@ -168,7 +169,7 @@ proc generateFakeData(h5f: H5File, nFake: int, energy = 3.0): DataFrame =
     result.add df
 
 proc applyLogLCut(df: DataFrame, cutTab: CutValueInterpolator): DataFrame =
-  result = df.mutate(f{float: "passLogL?" ~ (
+  result = df.mutate(f{float -> bool: "passLogL?" ~ (
     block:
       #echo "Cut value: ", cutTab[idx(igEnergyFromCharge.toDset())], " at dset ", toRefDset(idx(igEnergyFromCharge.toDset())), " at energy ", idx(igEnergyFromCharge.toDset())
       idx(igLikelihood.toDset()) < cutTab[idx(igEnergyFromCharge.toDset())])})
@@ -263,9 +264,9 @@ proc handleFile(fname: string, cutTab: CutValueInterpolator,
       ggsave("/tmp/ugl.pdf")
   discard h5f.close()
 
-proc handleFakeData(fname: string, energy: float, cutTab: CutValueInterpolator): DataFrame =
+proc handleFakeData(ctx: LikelihoodContext, fname: string, energy: float, cutTab: CutValueInterpolator): DataFrame =
   let h5f = H5open(fname, "r")
-  var data = generateFakeData(h5f, 5000, energy = energy)
+  var data = generateFakeData(ctx, h5f, 5000, energy = energy)
     .filterEvents(energy)
     .applyLogLCut(cutTab)
   result = data
@@ -726,7 +727,9 @@ proc main(files: seq[string], fake = false, real = false, refPlots = false,
           energies: seq[float] = @[]) =
   ## given the input files of calibration runs, walks all files to determine the
   ## 'real' software efficiency for them & generates a plot
-  let cutTab = calcCutValueTab(CdlFile, yr2018, igEnergyFromCharge)
+  let ctx = initLikelihoodContext(CdlFile, yr2018, crSilver, igEnergyFromCharge,
+                                  Timepix1, mkLinear)
+  let cutTab = ctx.calcCutValueTab()
   var df = newDataFrame()
   if real and not fake:
     for f in files:
@@ -775,7 +778,7 @@ proc main(files: seq[string], fake = false, real = false, refPlots = false,
         return
       df = newDataFrame()
       for f in files:
-        df.add handleFakeData(f, e, cutTab)
+        df.add ctx.handleFakeData(f, e, cutTab)
       plotRefHistos(df, e, cutTab)
 
       echo "Done generating for energy ", e
@@ -794,9 +797,9 @@ proc main(files: seq[string], fake = false, real = false, refPlots = false,
     for (tup, subDf) in groups(dfCast.group_by("Peak")):
       case tup[0][1].toStr
       of "Escapepeak":
-        plotRefHistos(handleFakeData(f, 2.9, cutTab), 2.9, cutTab, @[("CAST", subDf)])
+        plotRefHistos(ctx.handleFakeData(f, 2.9, cutTab), 2.9, cutTab, @[("CAST", subDf)])
       of "Photopeak":
-        plotRefHistos(handleFakeData(f, 5.9, cutTab), 5.9, cutTab, @[("CAST", subDf)])
+        plotRefHistos(ctx.handleFakeData(f, 5.9, cutTab), 5.9, cutTab, @[("CAST", subDf)])
       else: doAssert false, "Invalid data: " & $tup[0][1].toStr
 
   if computeMeans:

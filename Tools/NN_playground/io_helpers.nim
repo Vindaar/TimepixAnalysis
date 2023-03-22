@@ -91,7 +91,6 @@ proc readValidDsets*(h5f: H5File, path: string, readRaw = false,
     result[evNumDset] = h5f.readAs(grp.name / evNumDset, int)
   else:
     result = h5f.readRaw(grp.name)
-  result["pass?"] = true # does not matter!
   ## XXX: Add run number?
   #result["runNumber
   result["Type"] = $typ
@@ -151,7 +150,6 @@ proc prepareCDL*(readRaw: bool,
     if not readRaw:
       # read dsets only returns those indices that pass
       dfLoc = h5f.readCdlDset(cdlPath, bin)
-      dfLoc["pass?"] = true
     else:
       doAssert false, "Raw data reading currently not supported!"
       when false:
@@ -167,11 +165,7 @@ proc prepareCDL*(readRaw: bool,
           if p:
             idxs.add i
         dfLoc = h5f.readRaw(cdlPrefix($yr2018) & bin, idxs)
-        dfLoc["pass?"] = true
     dfLoc["Target"] = bin
-    # remove all that don't pass
-    ## XXX: this should now be unnecessary
-    dfLoc = dfLoc.filter(f{bool: idx("pass?") == true})
     df.add dfLoc
   discard h5f.close()
   df["Type"] = $dtSignal

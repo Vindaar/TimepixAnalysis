@@ -134,6 +134,10 @@ proc toDset*(igKind: InGridDsetKind, frameworkKind: FrameworkKind = fkTpa): stri
     case frameworkKind
     of fkTpa: result = "energyFromPixel"
     of fkMarlin: result = "EnergyFromPixel"
+  of igEnergyFromCdlFit:
+    case frameworkKind
+    of fkTpa: result = "energyFromCdlFit"
+    of fkMarlin: doAssert false, "`igEnergyFromCdlFit` not available in Marlin."
   of igLikelihood:
     case frameworkKind
     of fkTpa: result = "likelihood"
@@ -170,6 +174,7 @@ proc toIngridDset*(dset: string): InGridDsetKind =
   elif dset in ["rotationAngle", "RotationAngle"]: result = igRotationAngle
   elif dset in ["energyFromCharge", "EnergyFromCharge"]: result = igEnergyFromCharge
   elif dset in ["energyFromPixel", "EnergyFromPixel"]: result = igEnergyFromPixel
+  elif dset == "energyFromCdlFit": result = igEnergyFromCdlFit
   elif dset in ["likelihood", "LikelihoodMarlin"]: result = igLikelihood
   elif dset in ["fractionInTransverseRms", "FractionWithinRmsTransverse"]: result = igFractionInTransverseRms
   elif dset in ["totalCharge", "TotalCharge"]: result = igTotalCharge

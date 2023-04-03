@@ -1194,9 +1194,13 @@ iterator getCdlData(h5f: H5File, tfKind: TargetFilterKind, dKind: DataKind, fitB
       df.add h5f.readCdlRunTfKind(grp, run, centerChip, tfKind, dKind)
     yield (0, df)
 
-proc writeChargeCutBounds(h5f: H5File, peak: MainPeak,
+proc writeChargeCutBounds(h5f: H5File,
+                          df: DataFrame,
+                          peak: MainPeak,
                           tfKind: TargetFilterKind, year: YearKind, fitByRun: bool, runNumber: int,
                           fileIsCdl: bool) =
+  ## Writes the fit information as attributes and also the dataset for the calibrated
+  ## charge based on the expected line energy & fit
   let grpName = if fileIsCdl: cdlGroupName($tfKind, $year, "", fitByRun, runNumber)
                 else:
                   recoDataChipBase(runNumber) & $(h5f.getCenterChip())
@@ -1211,6 +1215,18 @@ proc writeChargeCutBounds(h5f: H5File, peak: MainPeak,
   grp.attrs["ChargeLow"]  = (peak.fit_μ - (3 * peak.fit_σ)).value
   grp.attrs["ChargeHigh"] = (peak.fit_μ + (3 * peak.fit_σ)).value
 
+  ## Now write the calibrated energy dataset
+  if not fileIsCdl:
+    ## We don't need to write the calibrated dataset to the `calibration-cdl` file, because
+    ## the data is copied over from the `CDL_Reco` file!
+    let df = df.filter(f{idx("Cut?") == "Raw"})
+    let dset = h5f.create_dataset(grpName / igEnergyFromCdlFit.toDset(),
+                                  df.len,
+                                  dtype = float,
+                                  overwrite = true,
+                                  filter = filter)
+    dset.unsafeWrite(df["Energy", float].toUnsafeView(), df.len)
+
 proc fitAndPlot(h5f: H5File, fitParamsFname: string,
                 tfKind: TargetFilterKind, dKind: DataKind,
                 showStartParams, hideNloptFit, fitByRun: bool,
@@ -1224,9 +1240,10 @@ proc fitAndPlot(h5f: H5File, fitParamsFname: string,
                                   tfKind, dKind, showStartParams, hideNloptFit,
                                   plotPath)
     # calibrate energy using `fit_μ` for unbinned data `dfLoc`
-    dfU.add calcEnergyFromFits(dfLoc, peak)
+    let dfE = calcEnergyFromFits(dfLoc, peak)
+    dfU.add dfE
     # write cuts for the charge based on fit
-    h5f.writeChargeCutBounds(peak, tfKind, yr2018, fitByRun, runNumber, fileIsCdl = false)
+    h5f.writeChargeCutBounds(dfE, peak, tfKind, yr2018, fitByRun, runNumber, fileIsCdl = false)
     mainPeaks.add peak
 
   # first plot of only cut data by
@@ -1335,10 +1352,9 @@ proc generateCdlCalibrationFile(h5file: string, year: YearKind, fitByRun: bool,
                                   tfKind, Dcharge, showStartParams = false, hideNloptFit = true,
                                   plotPath)
         # calibrate energy using `fit_μ` for unbinned data `df`
-        ## XXX: write energy to output
         df = calcEnergyFromFits(df, peak)
-        # write cuts for the charge based on fit
-        h5fout.writeChargeCutBounds(peak, tfKind, year, fitByRun, run, fileIsCdl = true)
+        # write cuts for the charge based on fit & the correct energy using fit
+        h5fout.writeChargeCutBounds(df, peak, tfKind, year, fitByRun, run, fileIsCdl = true)
       else:
         df.add h5f.readCdlRunTfKind(grp, run, centerChip, tfKind, Dcharge)
 
@@ -1379,6 +1395,11 @@ proc generateCdlCalibrationFile(h5file: string, year: YearKind, fitByRun: bool,
             echo "Skipping dataset: ", dset.name
             continue
         else:
+          if true:
+            raise newException(Exception, "Why do we have to append data: " & $dset.name & " when writing " &
+              "to calibration-cdl file?")
+
+
           # append to dataset
           var outDset = h5fout[outname.dset_str]
           case outDset.dtypeAnyKind
@@ -1402,10 +1423,9 @@ proc generateCdlCalibrationFile(h5file: string, year: YearKind, fitByRun: bool,
                                 tfKind, Dcharge, showStartParams = false, hideNloptFit = true,
                                 plotPath)
       # calibrate energy using `fit_μ` for unbinned data `dfLoc`
-      ## XXX: write energy to output
       df = calcEnergyFromFits(df, peak)
-      # write cuts for the charge based on fit
-      h5fout.writeChargeCutBounds(peak, tfKind, year, fitByRun, 0, fileIsCdl = true)
+      # write cuts for the charge based on fit & the correct energy using fit
+      h5fout.writeChargeCutBounds(df, peak, tfKind, year, fitByRun, 0, fileIsCdl = true)
 
 
   h5fout.attrs["FrameworkKind"] = $CdlGenerateNamingScheme

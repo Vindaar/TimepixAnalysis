@@ -520,6 +520,7 @@ type
     igRotationAngle, # rotationAngle, RotationAngle
     igEnergyFromCharge, # energyFromCharge, Energy
     igEnergyFromPixel, # energyFromPixel, Energy
+    igEnergyFromCdlFit, # energy for CDL data from the fit to the charge peak & known energy
     igLikelihood, # likelihood, LikelihoodMarlin
     igFractionInTransverseRms, # fractionInTransverseRms, FractionWithinRmsTransverse
     igTotalCharge, # totalCharge, TotalCharge

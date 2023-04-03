@@ -576,22 +576,29 @@ proc calcGeometry*[T: SomePix](cluster: Cluster[T],
   stat_y.push(yRot)
 
   # now we have all data to calculate the geometric properties
+  let xRms  = stat_x.standardDeviation() # this way we simply take the longer axis, as a mirroring
+  let yRms  = stat_y.standardDeviation() # does not matter
+  let takeX = if xRms >= yRms: true # x is the long axis
+              else: false          # y is the long axis
+  # doAssert takeX, "Xr > Yr? " & $(xRms > yRms) & " ? " & $xRms & " vs " & $yRms & " pixels ? " & $xRot & " vs " & $yRot & " for rot angle\n " & $rotAngle & " \n cluster " & $cluster
+  template takeIt(x, y, takeX: untyped): untyped =
+    if takeX: x else: y
   let xLong = max(xRot) - min(xRot)     # helpers are there because in septem board data
   let yLong = max(yRot) - min(yRot)     # using real layout, the axes are sometimes switched.
-  let xRms = stat_x.standardDeviation() # this way we simply take the longer axis, as a mirroring
-  let yRms = stat_y.standardDeviation() # does not matter
   let xSkew = stat_x.skewness()
   let ySkew = stat_y.skewness()
   let xKurt = stat_x.kurtosis()
   let yKurt = stat_y.kurtosis()
-  result.length               = max(xLong, yLong)
-  result.width                = min(xLong, yLong)
-  result.rmsLongitudinal      = max(xRms, yRms)
-  result.rmsTransverse        = min(xRms, yRms)
-  result.skewnessLongitudinal = min(xSkew, ySkew)
-  result.skewnessTransverse   = max(xSkew, ySkew)
-  result.kurtosisLongitudinal = min(xKurt, yKurt)
-  result.kurtosisTransverse   = max(xKurt, yKurt)
+  # for each of the variables now take the correct x / y variable depending
+  # on which axis was the longer one
+  result.length               = takeIt(xLong, yLong, takeX)
+  result.width                = takeIt(xLong, yLong, not takeX)
+  result.rmsLongitudinal      = takeIt(xRms ,  yRms, takeX)
+  result.rmsTransverse        = takeIt(xRms ,  yRms, not takeX)
+  result.skewnessLongitudinal = takeIt(xSkew, ySkew, takeX)
+  result.skewnessTransverse   = takeIt(xSkew, ySkew, not takeX)
+  result.kurtosisLongitudinal = takeIt(xKurt, yKurt, takeX)
+  result.kurtosisTransverse   = takeIt(xKurt, yKurt, not takeX)
   result.rotationAngle        = rot_angle
   result.eccentricity         = result.rmsLongitudinal / result.rmsTransverse
 

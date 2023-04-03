@@ -884,7 +884,9 @@ proc fitToFeSpectrum*(h5f: H5File, runNumber, chipNumber: int,
     echo "Warning: `totalCharge` dataset does not exist in file. No fit to " &
       "charge Fe spectrum will be performed!"
 
-  if h5f.hasFadc(runNumber):
+  # `--only_fadc` must have been run nowadays. We only compute the `minVals` in the actual FADC reconstruction
+  # now!
+  if h5f.hasFadc(runNumber) and minValBasename(runNumber) in h5f:
     ## Also fit the 55Fe spectrum in the FADC data
     ## XXX: in the future `minvals` may be replaced by a "charge" equivalent based on
     ## an integral of the signal!

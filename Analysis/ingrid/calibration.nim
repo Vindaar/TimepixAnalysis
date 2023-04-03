@@ -22,6 +22,9 @@ when isMainModule:
   addHandler(L)
   addHandler(fL)
 
+# the filter we use globally in this file
+let filter = H5Filter(kind: fkZlib, zlibLevel: 4)
+
 proc cutOnDsets[T](eventNumbers: seq[SomeInteger],
                    region: ChipRegion,
                    posX, posY: seq[T],
@@ -170,15 +173,18 @@ proc createFeSpectrum*(h5f: H5File, runNumber, centerChip: int) =
     spectrumDset  = h5f.create_dataset(group.name & "/FeSpectrum",
                                        nEventsPassed,
                                        dtype = int,
-                                       overwrite = true)
+                                       overwrite = true,
+                                       filter = filter)
     specEventDset = h5f.create_dataset(group.name & "/FeSpectrumEvents",
                                        nEventsPassed,
                                        dtype = int,
-                                       overwrite = true)
+                                       overwrite = true,
+                                       filter = filter)
     specIndDset = h5f.create_dataset(group.name & "/FeSpectrumIndices",
                                        nEventsPassed,
                                        dtype = int,
-                                       overwrite = true)
+                                       overwrite = true,
+                                       filter = filter)
   spectrumDset[spectrumDset.all] = hitsSpectrum
   specEventDset[specEventDset.all] = eventSpectrum
   specIndDset[specIndDset.all] = specIndices
@@ -283,8 +289,8 @@ proc applyChargeCalibration*(h5f: H5File, runNumber: int,
         h5f.flush()
 
       var
-        chargeDset = h5f.create_dataset(grp / "charge", charge.len, dtype = vlenFloat)
-        totalChargeDset = h5f.create_dataset(grp / "totalCharge", charge.len, dtype = float64)
+        chargeDset = h5f.create_dataset(grp / "charge", charge.len, dtype = vlenFloat, filter = filter)
+        totalChargeDset = h5f.create_dataset(grp / "totalCharge", charge.len, dtype = float64, filter = filter)
       template writeDset(dset: H5DataSet, data: untyped) =
         dset[dset.all] = data
         # add attributes for TOT calibration factors used
@@ -359,7 +365,8 @@ proc writePolyaDsets(h5f: H5File, group: H5Group,
   var polyaDset = h5f.create_dataset(pName,
                                      (binned.len, 2),
                                      dtype = float64,
-                                     overwrite = true)
+                                     overwrite = true,
+                                     filter = filter)
   polyaDset[polyaDset.all] = zip(bin_edges, binned) -->
     map(@[it[0], it[1].float])
 
@@ -413,7 +420,8 @@ proc writeGasGainSliceData(h5f: H5File, group: H5Group, slices: seq[GasGainInter
   var dset = h5f.create_dataset(baseName & $(interval.round.int),
                                 slices.len,
                                 dtype = GasGainIntervalResult,
-                                overwrite = true)
+                                overwrite = true,
+                                filter = filter)
   dset[dset.all] = slices
   dset.attrs["applied Cut for gas gain"] = cutFormula
   ## create a
@@ -758,7 +766,8 @@ proc writeFeDset(h5f: H5File,
     var dset = h5f.create_dataset(group / name,
                                   (x.len, 2),
                                   dtype = float,
-                                  overwrite = true)
+                                  overwrite = true,
+                                  filter = filter)
     let data = zip(x, y) --> map(@[it[0], it[1]]) --> to(seq[seq[float]])
     dset[dset.all] = data
     dset
@@ -1060,7 +1069,8 @@ proc calcEnergyFromPixels*(h5f: H5File, runNumber: int, calib_factor: float) =
       # now calculate energy for all hits
       let energy = mapIt(hits, float(it) * calib_factor)
       # create dataset for energy
-      var energy_dset = h5f.create_dataset(grp / "energyFromPixel", energy.len, dtype = float)
+      var energy_dset = h5f.create_dataset(grp / "energyFromPixel", energy.len, dtype = float,
+                                           filter = filter)
       energy_dset[energy_dset.all] = energy
       # attach used conversion factor to dataset
       energy_dset.attrs["conversionFactorUsed"] = calib_factor
@@ -1132,7 +1142,8 @@ proc calcEnergyFromCharge*(h5f: H5File, chipGrp: H5Group,
     # create dataset for energy
   var energy_dset = h5f.create_dataset(mchpGrp.name / "energyFromCharge",
                                        energy.len, dtype = float,
-                                       overwrite = true)
+                                       overwrite = true,
+                                       filter = filter)
   energy_dset[energy_dset.all] = energy
   # attach used conversion factor to dataset
   energy_dset.attrs["Calibration function"] = "y = m * x + b"

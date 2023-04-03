@@ -185,7 +185,8 @@ proc toH5(h5f: H5File, x: InterpolatorType[float], name = "", path = "/") =
   let ys = energies.mapIt(x.eval(it))
   let dset = h5f.create_dataset(path / name,
                                 energies.len,
-                                float)
+                                float,
+                                filter = H5Filter(kind: fkZLib, zlibLevel: 4))
   dset[dset.all] = ys
 
 proc toH5(h5f: H5File, interp: Interpolator2DType[float], name = "", path = "/") =
@@ -198,7 +199,8 @@ proc toH5(h5f: H5File, interp: Interpolator2DType[float], name = "", path = "/")
       zs[x, y] = interp.eval(x.float + 0.5, y.float + 0.5)
   let dset = h5f.create_dataset(path / name,
                                 (256, 256),
-                                float)
+                                float,
+                                filter = H5Filter(kind: fkZLib, zlibLevel: 4))
   dset.unsafeWrite(zs.toUnsafeView, zs.size.int)
 
 proc pretty(s: Systematics): string =

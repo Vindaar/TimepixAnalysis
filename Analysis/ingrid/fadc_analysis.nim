@@ -392,13 +392,17 @@ proc calcRiseAndFallTimes*(h5f: H5File, run_number: int) =
   echo "Start fadc calc"
   let evNums = h5f[fadc_group.parentDir / "eventNumber", int]
   let recoFadc = calcRiseAndFallTimes(f_data, evNums)
+  # the filter we use globally in this file
+  let filter = H5Filter(kind: fkZlib, zlibLevel: 4)
+
   echo "FADC minima calculations took: ", (epochTime() - t0)
   # now write data back to h5file
   for field, data in fieldPairs(recoFadc):
     type innerType = get(genericParams(typeof data), 0)
     if fadcRecoPath(runNumber) / "minvals" in h5f: # delete old school minvals naming
       discard h5f.delete(fadcRecoPath(runNumber) / "minvals")
-    var dset = h5f.create_dataset(fadcRecoPath(runNumber) / field, nEvents, innerType)
+    var dset = h5f.create_dataset(fadcRecoPath(runNumber) / field, nEvents, innerType,
+                                  filter = filter)
     # write the data
     dset.unsafeWrite(data.toUnsafeView(), nEvents)
 

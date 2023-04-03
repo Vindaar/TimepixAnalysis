@@ -566,7 +566,7 @@ proc initInGridInH5*(h5f: var H5File, runNumber, nChips,
     totDset = mapIt(names, h5f.datasetCreation(it & "/ToT", uint16))
     hitDset = mapIt(names, h5f.datasetCreation(it & "/Hits", uint16))
     # use normal dataset creation proc, due to static size of occupancies
-    occDset = mapIt(names, h5f.create_dataset(it & "/Occupancy", (256, 256), int))
+    occDset = mapIt(names, h5f.create_dataset(it & "/Occupancy", (256, 256), int, filter = filter))
 
 proc getCenterChipAndName(run: ProcessedRun): (int, string) =
   ## returns the chip number and the name of the center chip
@@ -1059,7 +1059,8 @@ proc parseAndWriteTempLog(h5f: H5File, dataFiles: DataFiles, runNumber: int) =
   let data = parseTemperatureFile(dataFiles.temperatureLog)
   let dset = h5f.create_dataset(rawDataBase() & $runNumber / "temperatures",
                                 data.len,
-                                TemperatureLogEntry)
+                                TemperatureLogEntry,
+                                filter = filter)
   dset[dset.all] = data
 
 proc processAndWriteSingleRun(h5f: var H5File, run_folder: string,

@@ -75,6 +75,10 @@ const XrayRefGenerateNamingScheme = fkTpa
 # 2014 naming scheme (default TPA naming)
 const CdlGenerateNamingScheme = fkTpa
 
+# the filter we use globally in this file
+let filter = H5Filter(kind: fkZlib, zlibLevel: 4)
+
+
 type
   CdlFitFunc = proc(p_ar: seq[float], x: float): float
 
@@ -806,7 +810,9 @@ proc cutAndWrite(h5file: string) =
       proc writeDset(r: CDLRun, dsetWrite, dsetRead: string, datatype: typedesc) =
         var
           dset = h5f.create_dataset(grp.name / dsetWrite, nevents,
-                                    datatype)
+                                    datatype,
+                                    overwrite = true,
+                                    filter = filter)
         if dsetWrite == "CdlSpectrumIndices":
           dset[dset.all] = passIdx
         else:
@@ -1266,7 +1272,8 @@ proc cdlToXrayTransform(h5fout: var H5FileObj,
     # create dataset
     let dsetToWrite = h5fout.create_dataset((tfKindStr / outname),
                                             histBins.shape,
-                                            float)
+                                            float,
+                                            filter = filter)
     dsetToWrite[dsetToWrite.all] = histBins
 
 proc readAndFilter(h5f: var H5FileObj,
@@ -1285,7 +1292,8 @@ template datasetCreation(h5f: untyped, name, dlen, `type`: untyped): untyped =
                      dlen,
                      dtype = `type`,
                      chunksize = @[5000], # some hardcoded chunk size
-                     maxshape = @[int.high])
+                     maxshape = @[int.high],
+                     filter = filter)
 
 template createAndWrite(h5read, h5write, `type`, dset, outname: untyped): untyped =
   let vlenType = special_type(`type`)

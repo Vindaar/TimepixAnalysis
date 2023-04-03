@@ -37,6 +37,10 @@ when not cdlExists:
 # distance
 const RmsCleaningCut = 1.5
 
+# the filter we use globally in this file
+let filter = H5Filter(kind: fkZlib, zlibLevel: 4)
+
+
 when not defined(useMalloc):
   {.fatal: "Please compile with `-d:useMalloc` to reduce the amount of memory kept by the " &
     "program. This allows to use more jobs in `createAllLikelihoodCombinations`.".}
@@ -110,7 +114,8 @@ proc calcLogLikelihood*(h5f: var H5File,
                            h5f.create_dataset((group / &"chip_{it}/likelihood"),
                                               logL_chips[it].len,
                                               float64,
-                                              overwrite = true))
+                                              overwrite = true,
+                                              filter = filter))
     # write the data to the file
     echo &"Writing data of run {group} to file {h5f.name}"
     for tup in zip(logL_dsets, logL_chips):
@@ -187,7 +192,8 @@ proc writeLikelihoodData(h5f: var H5File,
         when not (elementType(dset) is string or elementType(dset) is seq[string]):
           var outDset = h5fout.create_dataset((logLgroup / dsetName),
                                               passedInds.len,
-                                              elementType(dset))
+                                              elementType(dset),
+                                              filter = filter)
           outDset[outDset.all] = data
 
   # get all event numbers from hash set by using elements as indices for event numbers
@@ -195,7 +201,8 @@ proc writeLikelihoodData(h5f: var H5File,
   # create dataset for allowed indices
   var evDset = h5fout.create_dataset((logLgroup / "eventNumber"),
                                      evNumsPassed.len,
-                                     int)
+                                     int,
+                                     filter = filter)
   # write event numbers
   evDset[evDset.all] = evNumsPassed
 
@@ -226,7 +233,8 @@ proc writeLikelihoodData(h5f: var H5File,
             if data.size > 0: # if there's no data to write, don't create dataset
               var outDset = h5fout.create_dataset((baseName / dataset.name.extractFilename),
                                                   data.shape.toSeq,
-                                                  elementType(dset))
+                                                  elementType(dset),
+                                                  filter = filter)
               outDset.unsafeWrite(data.toUnsafeView(), data.size)
     h5f.copyOver(h5fout, group, runGrpName) # copy over the common datasets
     if group.name / "fadc" in h5f:

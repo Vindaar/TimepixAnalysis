@@ -88,6 +88,7 @@ proc cutOnProperties*(h5f: H5File,
   let nEvents = if dsets.len > 0: dsets[0].len
                 elif posX.len > 0: posX.len
                 else: 0
+  doAssert nEvents == index.len
   doAssert nEvents > 0, "crAll cannot be combined with no `cuts`"
   for i in 0 ..< nEvents:
     # cut on region if applicable
@@ -145,3 +146,47 @@ proc `[]`*(cv: CutValueInterpolator, e: float): float =
       #result = cv.nnCutValues[idx]
     else:
       doAssert false, "Should not happen!"
+
+import ./cdl_cuts, ./hdf5_utils
+proc cutXrayCleaning*(df: DataFrame, tfKind: TargetFilterKind,
+                      eLow = NegInf, eHigh = Inf): DataFrame =
+  ## The input data frame must contain the following datasets:
+  ## - `[igCenterX, igCenterY, igRmsTransverse, igLength, igEccentricity]`
+  ## and optionally `igEnergyFromCharge` if `eLow` and/or `eHigh` is given.
+  ## Energies eLow and eHigh can be given to
+  const xrayCutsTab = getXrayCleaningCutArray()
+  const requiredDsets = [igCenterX, igCenterY, igRmsTransverse, igLength, igEccentricity]
+  for dset in requiredDsets:
+    doAssert dset.toDset() in df, "Dataset " & $dset & " does not exist in input data frame, but is required."
+  var needEnergy = false
+  if eLow > NegInf or eHigh < Inf:
+    needEnergy = true
+    doAssert igEnergyFromCharge.toDset() in df, "Dataset igEnergyFromCharge does not exist in input data frame, but is required."
+  let xrayCuts = xrayCutsTab[tfKind]
+  let minRms = xrayCuts.minRms
+  let maxRms = xrayCuts.maxRms
+  let maxLen = xrayCuts.maxLength
+  let maxEcc = xrayCuts.maxEccentricity
+  let minPix = xrayCuts.minPix
+  if not needEnergy:
+    result = df.filter(f{float -> bool: (
+      inRegion(idx(igCenterX.toDset()), idx(igCenterY.toDset()), crSilver) and
+      idx(igRmsTransverse.toDset())   >= minRms and
+      idx(igRmsTransverse.toDset())   <= maxRms and
+      idx(igLength.toDset())          <= maxLen and
+      idx(igEccentricity.toDset())    <= maxEcc and
+      idx(igHits.toDset())            >= minPix
+    ) })
+  else:
+    result = df.filter(f{float -> bool: (
+      inRegion(idx(igCenterX.toDset()), idx(igCenterY.toDset()), crSilver) and
+      idx(igRmsTransverse.toDset())   >= minRms and
+      idx(igRmsTransverse.toDset())   <= maxRms and
+      idx(igLength.toDset())          <= maxLen and
+      idx(igEccentricity.toDset())    <= maxEcc and
+      idx(igHits.toDset())            >= minPix and
+      idx(igEnergyFromCharge.toDset()) > eLow and idx(igEnergyFromCharge.toDset()) < eHigh
+    ) })
+
+proc cutXrayCleaning*(df: DataFrame, energy: float): DataFrame =
+  result = df.cutXrayCleaning(energy.toRefTfKind())

@@ -43,6 +43,19 @@ proc getXrayRefTable*(): OrderedTable[int, string] =
              6: "Mn-Cr-12kV",
              7: "Cu-Ni-15kV" }.toOrderedTable()
 
+proc getXrayTfKindTable*(): OrderedTable[int, TargetFilterKind] =
+  ## returns a table mapping the different energy bins to the correct
+  ## datasets in the X-ray reference file
+  # NOTE: we could also simply store this in a seq...
+  result = { 0: tfCEpic0_6,
+             1: tfCuEpic0_9,
+             2: tfCuEpic2,
+             3: tfAlAl4,
+             4: tfAgAg6,
+             5: tfTiTi9,
+             6: tfMnCr12,
+             7: tfCuNi15 }.toOrderedTable()
+
 proc getInverseXrayRefTable*(): OrderedTable[string, int] =
   ## returns the table mapping the different energy bins to the correct
   ## datasets in the X-ray reference file
@@ -71,6 +84,15 @@ proc toRefDset*(energy: float): string =
   let ind = binning.lowerBound(energy)
   result = xray_table[ind]
 
+proc toRefTfKind*(energy: float): TargetFilterKind =
+  ## returns the correct target filter kind associated with the given energy
+  # define xray table as global to only initialize it once
+  const
+    xrayTab = getXrayTfKindTable()
+    binning = getEnergyBinning()
+  let ind = binning.lowerBound(energy)
+  result = xrayTab[ind]
+
 func getXrayFluorescenceTable*(): OrderedTable[string, string] =
   ## returns a table mapping the target filter combinations to the
   ## names of the fluorescence lines
@@ -87,6 +109,17 @@ func getXrayFluorescenceLines*(): seq[float] =
   ## returns a sequence of the energey of the fluorescence lines in each target
   ## filter combination. Energy in keV
   result = @[8.04, 5.89, 4.51, 2.98, 1.49, 0.930, 0.525, 0.277].reversed
+
+proc toXrayLineEnergy*(target: TargetFilterKind): float =
+  ## Returns the energy of the given target/filter kind associated fluorescence line
+  const invXrayTab = getInverseXrayRefTable()
+  const energies = getXrayFluorescenceLines()
+  result = energies[invXrayTab[$target]]
+
+from std / strutils import parseEnum
+proc toXrayLineEnergy*(target: string): float =
+  ## Returns the energy of the given target/filter kind associated fluorescence line
+  result = toXrayLineEnergy(parseEnum[TargetFilterKind](target))
 
 func getXrayCleaningCuts*(): OrderedTable[string, Cuts] =
   ## returns a table of Cuts (kind ckXray) objects, one for each energy bin. These
@@ -135,6 +168,11 @@ func getXrayCleaningCuts*(): OrderedTable[string, Cuts] =
   result = initOrderedTable[string, Cuts]()
   for key, vals in pairs(xray_ref):
     result[vals] = ranges[key]
+
+func getXrayCleaningCutArray*(): array[TargetFilterKind, Cuts] =
+  const xrayTab = getXrayCleaningCuts()
+  for tf in TargetFilterKind:
+    result[tf] = xrayTab[$tf]
 
 func getEnergyBinMinMaxVals2018*(): OrderedTable[string, Cuts] =
   ## returns a table of Cuts (kind ckReference) objects, one for each energy bin for the

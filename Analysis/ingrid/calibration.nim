@@ -231,6 +231,20 @@ func calibrateCharge*(totValue: float, C: FemtoFarad, a, b, c, t: float): float 
   let q = 4 * (a * b * t  +  a * c  -  a * t * totValue)
   result = (factor / (2 * a)) * (p + sqrt(p * p + q))
 
+proc invertCharge*(charge: float, C: FemtoFarad, a, b, c, t: float): uint16 =
+  ## Inverts the charge calibration for the given `charge` input and returns a
+  ## ToT value using the fit parameters.
+  ##
+  ## See the docstring of `calibrateCharge` above.
+  let factor = capacityToFactor(C)
+  let eqV = charge / factor # equivalent voltage of the recorded charge
+  let tot = (a * eqV + b - (c / (eqV - t) ))
+  if tot > 11810: return 11810.uint16
+  #doAssert tot < uint16.high.float, " Input was " & $tot & " from charge: " & $charge
+  # floor conversion because if not one full clock cycle, it would not record!
+  if tot < 0.0: result = 0.uint16
+  else: result = tot.floor.uint16
+
 proc applyChargeCalibration*(h5f: H5File, runNumber: int,
                              toDelete: bool = false) =
   ## applies the charge calibration to the TOT values of all events of the

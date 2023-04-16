@@ -972,6 +972,53 @@ proc genPlotDirname*(h5f: H5File, outpath: string, attrName: string): string =
     result = outpath / name & "_" & timeStr
     h5f.attrs[attrName] = result
 
+iterator iterGainSlicesFromDset*(h5f: H5File,
+                                 group: H5Group,
+                                 interval = 0): GasGainIntervalResult =
+  ## The yielded value's slice range corresponds to the indices of the chip's dataset
+  ## after the application of the gas gain cuts!
+  let baseName = group.name / "gasGainSlices"
+  let dsetName = if interval == 0: baseName else: baseName & $interval
+  let gainSlices = h5f[dsetName, GasGainIntervalResult]
+  for g in gainSlices:
+    yield g
+
+iterator iterGainSlicesIdx*(h5f: H5File, grp, dset: string): (int, Slice[int]) =
+  doAssert "gasGainSlice" in dset
+  doAssert "chip_" in grp
+  let gainSlices = h5f[grp / dset, GasGainIntervalResult]
+  var
+    lowIdx = 0
+    highIdx = 0
+  for i, gasGainInterval in gainSlices:
+    lowIdx = if i == 0: 0 else: highIdx # start from last high value
+    highIdx = if i != gainSlices.high: gasGainInterval.sliceStop
+              else: gasGainInterval.sliceStop + 1 # add one because we yield have open range
+    yield (i, (lowIdx ..< highIdx))
+
+proc readInGridDsetKind*(h5f: H5File, grp: string, igDsets: seq[InGridDsetKind]): array[InGridDsetKind, seq[float]] =
+  for d in igDsets:
+    case d
+    of igGasGain:
+      ## Read all gas gain slices and assign based on indices
+      result[d] = newSeqOfCap[float](100_000)
+      let evNums = h5f.readAs(grp / igEventNumber.toDset(fkTpa), int)
+      var start = 0
+      let gains = h5f[grp / "gasGainSlices", GasGainIntervalResult]
+      for i, slice in gains:
+        # filter number of clusters
+        let idxStop = if i == gains.high: evNums.len
+                      else: evNums.upperBound(slice.sliceStopEvNum)
+        # echo "Slice from : ", slice.sliceStart, " to ", slice.sliceStop, " len ", slice.sliceStop - slice.sliceStart, " from : ", start, " to ", idxStop, " so far ", result[d].len#" full slice ", slice
+        for idx in start ..< idxStop:
+          result[d].add slice.G / 1000.0 # add G for all indices of this slice (divide by 1k)
+        start = idxStop
+    of igDiffusion:
+      #if result[igRmsTransverse].len > 0: # then perform fit
+      discard
+    else: # in all normal datasets just read als float
+      result[d] = h5f.readAs(grp / d.toDset(fkTpa), float64)
+
 proc toString[N](a: array[N, char]): string =
   ## Returns all non `\0` characters as a string
   for c in a:

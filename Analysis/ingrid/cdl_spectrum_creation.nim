@@ -1167,16 +1167,20 @@ proc readCdlRunTfKind(h5f: H5File, grp: H5Group, run, chip: int, tfKind: TargetF
   case dKind
   of Dhits:
     let RawDataSeq = h5f[grp.name / "hits", int64]
+    let evRaw = h5f[grp.name / "eventNumber", int64]
     let Cdlseq = h5f.readCutCDL(run, chip, "hits", tfKind, int64)
-    result = bind_rows([("Raw", toDf({"Counts": RawDataSeq})),
-                        ("Cut", toDf({"Counts": Cdlseq}))],
+    let evNums = h5f.readCutCDL(run, chip, "eventNumber", tfKind, int64)
+    result = bind_rows([("Raw", toDf({"Counts": RawDataSeq, "eventNumber" : evRaw})),
+                        ("Cut", toDf({"Counts": Cdlseq, "eventNumber" : evNums}))],
                        id = "Cut?")
     result["runNumber"] = run
   of Dcharge:
     let RawDataSeq = h5f[grp.name / "totalCharge", float]
+    let evRaw = h5f[grp.name / "eventNumber", int64]
     let Cdlseq = h5f.readCutCDL(run, chip, "totalCharge", tfKind, float)
-    result = bind_rows([("Raw", toDf({"Counts": RawDataSeq})),
-                        ("Cut", toDf({"Counts": Cdlseq}))],
+    let evNums = h5f.readCutCDL(run, chip, "eventNumber", tfKind, int64)
+    result = bind_rows([("Raw", toDf({"Counts": RawDataSeq, "eventNumber" : evRaw})),
+                        ("Cut", toDf({"Counts": Cdlseq, "eventNumber" : evNums}))],
                        id = "Cut?")
     result["runNumber"] = run
 
@@ -1216,16 +1220,19 @@ proc writeChargeCutBounds(h5f: H5File,
   grp.attrs["ChargeHigh"] = (peak.fit_μ + (3 * peak.fit_σ)).value
 
   ## Now write the calibrated energy dataset
-  if not fileIsCdl:
+  if not fileIsCdl and peak.dKind == DCharge: # only write the one from charge data!
     ## We don't need to write the calibrated dataset to the `calibration-cdl` file, because
     ## the data is copied over from the `CDL_Reco` file!
     let df = df.filter(f{idx("Cut?") == "Raw"})
+      .arrange("eventNumber") ## Sort by event number to make sure datasets align in H5 file!
     let dset = h5f.create_dataset(grpName / igEnergyFromCdlFit.toDset(),
                                   df.len,
                                   dtype = float,
                                   overwrite = true,
                                   filter = filter)
-    dset.unsafeWrite(df["Energy", float].toUnsafeView(), df.len)
+    let data = df["Energy", float].clone()
+    doAssert data.size.int == df.len
+    dset.unsafeWrite(data.toUnsafeView(), df.len)
 
 proc fitAndPlot(h5f: H5File, fitParamsFname: string,
                 tfKind: TargetFilterKind, dKind: DataKind,

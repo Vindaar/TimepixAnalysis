@@ -12,6 +12,36 @@ import pure
 
 const PlotDirPrefixAttr* = "plotDirPrefix"
 const PlotDirRawPrefixAttr* = "plotDirRawPrefix"
+## The datasets that are actually computed by TimepixAnalysis
+## (excluding `energyFromPixel` or specific ones like `energyFromCdlFit`)
+
+## XXX: ADD `igNumClusters` to our actual output after `reconstruction`! That would
+## allow us to filter out event numbers that have more than 1 cluster, e.g. when
+## using `cutOnProperties` as indices to filter to event numbers etc.
+## `numCluster == 1` could be an additional cut for something like "sane X-ray detection" for
+## reference purposes.
+
+const TPADatasets* = {
+  igHits,
+  igNumClusters,
+  igTotalCharge,
+  igEnergyFromCharge,
+  igRotationAngle,
+  igEccentricity,
+  igLength,
+  igWidth,
+  igSkewnessLongitudinal,
+  igSkewnessTransverse,
+  igKurtosisLongitudinal,
+  igKurtosisTransverse,
+  igRmsLongitudinal,
+  igRmsTransverse,
+  igLengthDivRmsTrans,
+  igFractionInTransverseRms,
+  igLikelihood,
+  igCenterX,
+  igCenterY
+}
 ## The datasets that appear in Christoph's `XrayReference` file
 const XrayReferenceDsets* = {
   igHits,

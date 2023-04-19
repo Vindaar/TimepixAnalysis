@@ -5,7 +5,7 @@ import databaseUtils
 import databaseDefinitions
 
 import ingrid / ingrid_types
-import ingrid / private / [hdf5_utils, pure]
+import ingrid / private / [hdf5_utils, pure, timepix_utils]
 
 
 # procs to get data from the file
@@ -185,3 +185,26 @@ proc readToTFile*(filename: string,
   else:
     raise newException(IOError, "Given filename " & $filename & " does not seem to be a " &
       "ToT calibration file.")
+
+from pkg / unchained import FemtoFarad, fF
+proc initCalibInfo*(h5f: H5File,
+                    runNumber: int,
+                    chipName: string, chipNumber: int,
+                    capacitance: FemtoFarad,
+                    basePath = recoBase()): CalibInfo =
+  # get factors for charge calibration
+  let (a, b, c, t) = getTotCalibParameters(chipName, runNumber)
+  echo "Getting parameters for ", runNumber, " of hip ", chipName, " a ", a, " b ", b, " c ", c, " t ", t
+
+  # get factors for charge / gas gain fit
+  let (bL, mL) = getCalibVsGasGainFactors(chipName, runNumber, suffix = $gcIndividualFits)
+  # now compute gas gain to use here by computing mean of all gas gain slices in this run (most sensible)
+  let group = basePath & $runNumber
+  let gain = h5f[group / &"chip_{chipNumber}/gasGainSlices", GasGainIntervalResult].mapIt(it.G).mean
+  result = CalibInfo(a: a, b: b, c: c, t: t, mL: mL, bL: bL, capacitance: capacitance, gain: gain)
+
+proc initCalibInfo*(h5f: H5File): CalibInfo =
+  let fileInfo = h5f.getFileInfo()
+  let run = fileInfo.runs[0]
+  let capacitance = getCapacitance(fileInfo.timepix)
+  result = h5f.initCalibInfo(run, fileInfo.centerChipName, fileInfo.centerChip, capacitance)

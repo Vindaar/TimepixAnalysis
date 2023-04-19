@@ -585,6 +585,7 @@ const TpaIngridDsetKinds* = block:
 # dependency
 when not defined(pure) and not defined(js):
   import arraymancer, datamancer
+  from unchained import FemtoFarad
   type
     Threshold* = Tensor[int]
     ThresholdMeans* = Tensor[int]
@@ -880,6 +881,14 @@ when not defined(pure) and not defined(js):
       #when defined(cpp):
       flags*: set[LogLFlagKind]
       vetoCfg*: VetoSettings
+
+    ## Parameters needed to reconstruct an event for a chip and a specific
+    ## run with `gain`
+    CalibInfo* = object
+      a*, b*, c*, t*: float
+      mL*, bL*: float
+      capacitance*: FemtoFarad
+      gain*: float # the mean gas gain of the run this corresponds to (or any gain to use!)
 
 proc initFeSpecData*(hist: seq[float],
                      binning: seq[float],

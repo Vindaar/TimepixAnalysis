@@ -1570,15 +1570,19 @@ proc createInGridFadcEvDisplay(h5f: H5File,
   let ingridDomain = (left: 0.0, bottom: 0.0, width: 0.45, height: 1.0)
   let fadcPds = createFadcPlots(h5f, run, runType, fInfo, config, events)
   let fadcDomain = (left: 0.525, bottom: 0.05, width: 0.575, height: 0.6)
-  result.add PlotDescriptor(runType: runType,
-                            name: "Event display InGrid + FADC",
-                            runs: @[run],
-                            selector: selector,
-                            chip: fileInfo.centerChip,
-                            isCenterChip: true,
-                            plotKind: pkInGridFadcEvent,
-                            plots: @[ingridPds[0], fadcPds[0]],
-                            domain: @[ingridDomain, fadcDomain])
+  doAssert ingridPds.len == fadcPds.len
+  for i in 0 ..< ingridPds.len:
+    ## XXX: CHANGE THIS so that it contains _all_ pds / event numbers to plot
+    ## already instead of a single one to improve performance drastically
+    result.add PlotDescriptor(runType: runType,
+                              name: "Event display InGrid + FADC",
+                              runs: @[run],
+                              selector: selector,
+                              chip: fileInfo.centerChip,
+                              isCenterChip: true,
+                              plotKind: pkInGridFadcEvent,
+                              plots: @[ingridPds[i], fadcPds[i]],
+                              domain: @[ingridDomain, fadcDomain])
 
 proc percentile[T](t: Tensor[T], perc: float): float =
   let dataSorted = t.reshape(t.size.int).sorted.toSeq1D.filterIt(it > 0.0)

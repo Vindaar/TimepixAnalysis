@@ -1630,8 +1630,9 @@ proc plotIngridProperties(h5f: H5File, tfKind: TargetFilterKind, plotPath: strin
   var dsets = newSeq[string]()
   let centerChip = h5f.getCenterChip()
   for dset in InGridDsetKind:
-    if dset in {igInvalid, igEnergyFromCharge, igEnergyFromPixel, igLikelihood, igNumClusters,
-                igFractionInHalfRadius, igRadiusDivRmsTrans, igRadius, igBalance, igLengthDivRadius, igEventNumber}:
+    if dset in { igInvalid, igEnergyFromCharge, igEnergyFromPixel, igLikelihood, igNumClusters,
+                 igFractionInHalfRadius, igRadiusDivRmsTrans, igRadius, igBalance, igLengthDivRadius, igEventNumber,
+                 igDiffusion, igGasGain }:
       continue
     var df = newDataFrame()
     let dsetStr = dset.toDset()

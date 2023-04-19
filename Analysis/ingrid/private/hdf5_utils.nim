@@ -743,7 +743,6 @@ iterator chipGroups*(h5f: H5File, data_basename = recoBase()): (int, int, string
          grp.removePrefix(nameFormat).scanf("/chip_$i$.", chipNumber):
         yield (runNumber, chipNumber, grp)
 
-
 iterator dsets*(h5f: H5File,
                 dsetName: string,
                 dtype: typedesc,

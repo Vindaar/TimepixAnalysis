@@ -153,9 +153,7 @@ template withCdlData*(cdlFile, dset: string,
         if "ChargeLow" notin runGrp.attrs or "ChargeHigh" notin runGrp.attrs:
           raise newException(KeyError, "The group " & $runGrp.name & " does not contain the charge " &
             "cut bounds. This is likely because you use an old `calibration-cdl*.h5` file.")
-        var dataFull: array[InGridDsetKind, seq[float]]
-        for d in igDsets:
-          dataFull[d] = h5f.readAs(runGrp.name / d.toDset(frameworkKind), float64)
+        let dataFull = h5f.readInGridDsetKind(runGrp.name, igDsets)
         cuts.minCharge  = runGrp.attrs["ChargeLow", float]
         cuts.maxCharge = runGrp.attrs["ChargeHigh", float]
 
@@ -186,8 +184,7 @@ template withCdlData*(cdlFile, dset: string,
       cuts.maxCharge = grp.attrs["ChargeHigh", float]
       # the charge cuts will be applied in the regular `minCharge`/`maxCharge` filter
       # now read all data
-      for d in igDsets:
-        data[d] = h5f.readAs(grp_name / d.toDset(frameworkKind), float64)
+      data = h5f.readInGridDsetKind(grp_name, igDsets)
     body
 
 template withLogLFilterCuts*(cdlFile, dset: string,

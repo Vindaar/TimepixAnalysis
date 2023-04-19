@@ -149,7 +149,7 @@ proc `[]`*(cv: CutValueInterpolator, e: float): float =
 
 import ./cdl_cuts, ./hdf5_utils
 proc cutXrayCleaning*(df: DataFrame, tfKind: TargetFilterKind,
-                      eLow = NegInf, eHigh = Inf): DataFrame =
+                      eLow = NegInf, eHigh = Inf, energyDset = igEnergyFromCharge): DataFrame =
   ## The input data frame must contain the following datasets:
   ## - `[igCenterX, igCenterY, igRmsTransverse, igLength, igEccentricity]`
   ## and optionally `igEnergyFromCharge` if `eLow` and/or `eHigh` is given.
@@ -161,7 +161,7 @@ proc cutXrayCleaning*(df: DataFrame, tfKind: TargetFilterKind,
   var needEnergy = false
   if eLow > NegInf or eHigh < Inf:
     needEnergy = true
-    doAssert igEnergyFromCharge.toDset() in df, "Dataset igEnergyFromCharge does not exist in input data frame, but is required."
+    doAssert energyDset.toDset() in df, "Dataset igEnergyFromCharge does not exist in input data frame, but is required."
   let xrayCuts = xrayCutsTab[tfKind]
   let minRms = xrayCuts.minRms
   let maxRms = xrayCuts.maxRms
@@ -185,7 +185,7 @@ proc cutXrayCleaning*(df: DataFrame, tfKind: TargetFilterKind,
       idx(igLength.toDset())          <= maxLen and
       idx(igEccentricity.toDset())    <= maxEcc and
       idx(igHits.toDset())            >= minPix and
-      idx(igEnergyFromCharge.toDset()) > eLow and idx(igEnergyFromCharge.toDset()) < eHigh
+      idx(energyDset.toDset()) > eLow and idx(energyDset.toDset()) < eHigh
     ) })
 
 proc cutXrayCleaning*(df: DataFrame, energy: float): DataFrame =

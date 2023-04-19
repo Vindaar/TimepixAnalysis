@@ -5,6 +5,8 @@ from sequtils import toSeq
 import helpers / utils
 import logging
 
+import projectDefs
+
 const docStr = """
 Usage:
   runAnalysisChain <dataPath> (--2014 | --2017 | --2018) [--noBack --noCalib --noRaw --noReco] [options]
@@ -31,11 +33,11 @@ const recoOptions = @[{rfOnlyFadc},
                       {rfOnlyGasGain},
                       {rfOnlyGainFit},
                       {rfOnlyEnergyElectrons}]
-const relIDPath = "../../InGridDatabase/src/resources"
+const relIDPath = TpxDir / "InGridDatabase/src/resources"
 
 type
   AnaFlags = enum
-    afBack, afCalib, afRaw, afReco
+    afBack, afCalib, afRaw, afReco, afLogL, afTracking
 
   InputKind = enum
     ikFileH5, # refers to a single H5 input file
@@ -176,7 +178,36 @@ proc reconstruction(input: string, options: set[RecoFlags],
   info "Last commands exit code: " & $res[1]
   result = res[1] == 0
 
-func likelihood() = discard
+proc likelihood(input: string,
+                cfg: Config,
+                output: string = ""): bool =
+  info "Running likelihood on " & $input & " to compute `likelihood` dataset"
+  ## XXX: make adjustable
+  let cdlData = "--cdlYear 2018 --cdlFile ~/CastData/data/CDL_2019/calibration-cdl-2018.h5"
+  let logLOpt = "--computeLogL"
+  var res: (string, int)
+  res = shellVerbose:
+    likelihood -f ($input) ($cdlData) ($logLOpt)
+  #info "Last commands output: " & $res[0]
+  info "Last commands exit code: " & $res[1]
+  result = res[1] == 0
+
+proc trackingInfo(input: string,
+                  cfg: Config,
+                  output: string = ""): bool =
+  info "Running likelihood on " & $input & " to compute `likelihood` dataset"
+  ## XXX: make adjustable
+
+  ## XXX: FIX THE PATH HERE!!!
+  const TrackingLogs = "-p " & TpxDir / "resources/LogFiles/tracking-logs"
+  var res: (string, int)
+  # Note: to be generic we include the whole data taking campaign of CAST (and then some)
+  # to make sure we don't lose tracking info on either end
+  res = shellVerbose:
+    cast_log_reader tracking ($TrackingLogs) --startTime "2017/01/01" --endTime "2018/12/31" --h5out ($input)
+  #info "Last commands output: " & $res[0]
+  info "Last commands exit code: " & $res[1]
+  result = res[1] == 0
 
 template tc(cmd: untyped): untyped {.dirty.} =
   ## convenience template to wrap a command in toContinue checks
@@ -235,12 +266,28 @@ proc runCastChain(cfg: Config, data: DataFiles, dYear: DataYear): bool =
   # if `raw` in flags but reco not we don't want to run options! Means input was a folder or
   # raw data file, but we didn't reconstruct it.
   ## XXX: check using tpa file kind
-  if afReco in cfg.anaFlags or (afReco notin cfg.anaFlags and afRaw notin cfg.anaFlags):
+  if afReco in cfg.anaFlags:
     for opt in recoOptions:
       if afCalib in cfg.anaFlags:
         tc(reconstruction(data.calibration.reco, opt, cfg))
       if afBack in cfg.anaFlags:
         tc(reconstruction(data.background.reco, opt, cfg))
+
+  ## XXX: We should rerun `--create_fe_spec` for the FADC spectrum fit. Because we only have
+  ## `minVal` after the FADC reco has run nowadays. This means the default Fe fitting does not
+  ## perform the fit anymore.
+
+  ## XXX: Technically for this step we also have to perform the generation of the CDL file
+  ## in the first place, which is not part of this!
+
+  ## As a final step compute the likelihood dataset in the file and add the tracking information
+  if afLogL in cfg.anaFlags:
+    tc(likelihood(data.calibration.reco, cfg))
+    tc(likelihood(data.background.reco, cfg))
+
+  ## And now the tracking information
+  if afTracking in cfg.anaFlags:
+    tc(trackingInfo(data.background.reco, cfg))
 
   result = toContinue
 
@@ -298,6 +345,8 @@ proc main(
   calib = false,
   raw = false,
   reco = false,
+  logL = false,
+  tracking = false,
   tpx3 = false,
   runType = rtNone,
   runNumber = -1,
@@ -316,14 +365,12 @@ proc main(
   ## Parse full analysis chain related parameters
   let anaFlags = block:
     var flags: set[AnaFlags]
-    if back:
-      flags.incl afBack
-    if calib:
-      flags.incl afCalib
-    if raw:
-      flags.incl afRaw
-    if reco:
-      flags.incl afReco
+    if back:     flags.incl afBack
+    if calib:    flags.incl afCalib
+    if raw:      flags.incl afRaw
+    if reco:     flags.incl afReco
+    if logL:     flags.incl afLogL
+    if tracking: flags.incl afTracking
     flags
 
   ## Parse `reconstruction` related parameters
@@ -397,6 +444,8 @@ to ikFileH5 if explicit H5 file given. For a single run handing this is required
     "calib"          : "(CAST) If set perform analysis of calibration data. Only relevant for full CAST data.",
     "raw"            : "If set performs parsing of data and storing in HDF5.",
     "reco"           : "If set performs geometric clustering and calculation of geometric properties.",
+    "logL"           : "If set computes the `likelihood` dataset for the CAST data chain",
+    "tracking"       : "If set adds the tracking information to the CAST data files",
     "tpx3"           : "If set indicates input is a Tpx3 based data file.",
 #    "plot"           : "If set generates all plots as described desired via `plotDataSuffix`.",
 #    "outpath"        : "The path in which all generated H5 files will be stored.",

@@ -63,19 +63,30 @@ iterator tfRuns*(h5f: H5File, tfKind: TargetFilterKind,
       # nothing to yield if not an "XrayFinger" (read CDL) run
       discard
 
-proc getCdlCutIdxs*(h5f: H5File, runNumber, chip: int, tfKind: TargetFilterKind): seq[int] =
+proc getCdlCutIdxs*(h5f: H5File, runNumber, chip: int, tfKind: TargetFilterKind,
+                    eMin = 0.0, eMax = 0.0, energyDset = igEnergyFromCharge): seq[int] =
   ## Returns a sequence of all indices which match the X-ray cleaning cuts from the
   ## CDL data of the given run and target/filter.
   let cutTab = getXrayCleaningCuts()
   let grp = h5f[(recoDataChipBase(runNumber) & $chip).grp_str]
   let cut = cutTab[$tfKind]
-  result = cutOnProperties(h5f,
-                           grp,
-                           cut.cutTo,
-                           ("rmsTransverse", cut.minRms, cut.maxRms),
-                           ("length", 0.0, cut.maxLength),
-                           ("hits", cut.minPix, Inf),
-                           ("eccentricity", 0.0, cut.maxEccentricity))
+  if eMin > 0.0 or eMax > 0.0:
+    result = cutOnProperties(h5f,
+                             grp,
+                             cut.cutTo,
+                             ("rmsTransverse", cut.minRms, cut.maxRms),
+                             ("length", 0.0, cut.maxLength),
+                             ("hits", cut.minPix, Inf),
+                             ("eccentricity", 0.0, cut.maxEccentricity),
+                             (energyDset.toDset(), eMin, eMax))
+  else:
+    result = cutOnProperties(h5f,
+                             grp,
+                             cut.cutTo,
+                             ("rmsTransverse", cut.minRms, cut.maxRms),
+                             ("length", 0.0, cut.maxLength),
+                             ("hits", cut.minPix, Inf),
+                             ("eccentricity", 0.0, cut.maxEccentricity))
 
 proc readCutCDL*[T](h5f: H5File, runNumber, chip: int, dset: string,
                     tfKind: TargetFilterKind, _: typedesc[T]): seq[T] =

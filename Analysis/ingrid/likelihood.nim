@@ -1070,8 +1070,8 @@ proc readLikelihoodDsets(h5f: H5File, energyDset: InGridDsetKind): DataFrame =
     logLs.add logL
   let bin_back = energies.mapIt(it.toRefDset)
   result = toDf({ "Bin" : bin_back,
-                      "Energy" : energies,
-                      "Likelihood" : logLs })
+                  "Energy" : energies,
+                  "Likelihood" : logLs })
 
 proc readLikelihoodDsetsCdl(ctx: LikelihoodContext): DataFrame =
   ## reads a CDL like H5 file and returns a DataFrame of the energies,
@@ -1157,7 +1157,8 @@ proc createRocCurves(h5Back: H5File,
   ## the X-ray reference file.
   let dfSignal = readLikelihoodDsetsCdl(ctx)
   let dfBack = readLikelihoodDsets(h5Back, ctx.energyDset)
-    .filter(f{float: `Likelihood` != Inf})
+    .filter(f{float: `Likelihood` != Inf}) # <- see, this is rubbish! Of course our curve looks worse then!
+                                           # clamp these to some large value
   ggplot(dfBack, aes("Likelihood", fill = "Bin")) +
     geom_histogram(binWidth = 0.2) +
     ggtitle("-LnL distributions of non-tracking background, stacked",

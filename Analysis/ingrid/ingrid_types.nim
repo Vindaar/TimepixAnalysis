@@ -529,7 +529,9 @@ type
     igRadiusDivRmsTrans, # "radiusdivbyrmsy"
     igRadius, # radius of cluster
     igBalance, # balance ?
-    igLengthDivRadius
+    igLengthDivRadius,
+    igGasGain, # gas gain, only calculated time slice wise!
+    igDiffusion # transverse diffusion determined from rmsTransverse cutoff
 
   FrameworkKind* = enum
     fkTpa, fkMarlin
@@ -572,7 +574,8 @@ const TpaIngridDsetKinds* = block:
   var dsets = newSeq[IngridDsetKind]()
   for dset in IngridDsetKind:
     if dset notin { igInvalid, igNumClusters, igLikelihood,
-                    igFractionInHalfRadius, igRadiusDivRmsTrans, igRadius, igBalance, igLengthDivRadius }:
+                    igFractionInHalfRadius, igRadiusDivRmsTrans, igRadius, igBalance, igLengthDivRadius,
+                    igGasGain, igDiffusion }:
       dsets.add dset
   dsets
 

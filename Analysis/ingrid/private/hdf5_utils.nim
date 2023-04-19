@@ -150,6 +150,10 @@ proc toDset*(igKind: InGridDsetKind, frameworkKind: FrameworkKind = fkTpa): stri
     case frameworkKind
     of fkTpa: result = "totalCharge"
     of fkMarlin: result = "TotalCharge"
+  of igGasGain:
+    result = "gasGain" # not an actual dataset like this! Stored in `gasGainSlices`!
+  of igDiffusion:
+    result = "σT" # not an actual dataset like this! Stored in `gasGainSlices`!
   of igNumClusters, igFractionInHalfRadius, igRadiusDivRmsTrans,
      igRadius, igBalance, igLengthDivRadius:
     doAssert false, "Only exists in 2014 XrayReferenceFile.h5: " & $igKind
@@ -184,6 +188,8 @@ proc toIngridDset*(dset: string): InGridDsetKind =
   elif dset == "radius": result = igRadius
   elif dset == "balance": result = igBalance
   elif dset == "lengthdivbyradius": result = igLengthDivRadius
+  elif dset in ["gasGain", "gain"]: result = igGasGain
+  elif dset in ["diffusion", "σT"]: result = igDiffusion
   else: result = igInvalid
 
 func cdlPath*(tfKindStr: string, year = "2019"): string =

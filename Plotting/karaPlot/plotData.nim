@@ -2417,7 +2417,7 @@ proc handleIngridFadcEvents(h5f: H5File,
       result[1] = makeSubplot(pd, plts, result[0])
     except Exception as e:
       echo "Failed to generate plot with error ", e.msg
-      continue
+      raise
 
 proc handleSubPlots(h5f: H5File,
                     fileInfo: FileInfo,
@@ -2508,6 +2508,7 @@ proc createPlot*(h5f: H5File,
   except KeyError as e:
     echo "WARNING: Could not generate the plot: " & $pd & ". Skipping it."
     echo "Exception message: ", e.msg
+    raise
 
 proc createOrg(outfile, fileType: string) =
   ## creates a simple org file consisting of headings and images

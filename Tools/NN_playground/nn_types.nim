@@ -28,6 +28,18 @@ type
 
   MLP* = CppSharedPtr[MLPImpl]
 
+  ActivationFunction* = enum
+    afReLU, afTanh, afELU, afGeLU # , ...?
+
+  OutputActivation* = enum
+    ofLinear, ofSigmoid, ofTanh # , ...?
+
+  LossFunction* = enum
+    lfSigmoidCrossEntropy, lfMLEloss, lfL1Loss # , ...?
+
+  OptimizerKind* = enum
+    opNone, opSGD, opAdam, opAdamW # , opAdaGrad, opAdaBoost ?
+
   ## A helper object that describes the layers of an MLP
   ## The number of input neurons and neurons on the hidden layer.
   ## This is serialized as an H5 file next to the trained network checkpoints.
@@ -37,28 +49,140 @@ type
   MLPDesc* = object
     path*: string # model path to the checkpoint files including the default model name!
     plotPath*: string # path in which plots are placed
+    calibFiles*: seq[string] ## Path to the calibration files
+    backFiles*: seq[string] ## Path to the background data files
+    simulatedData*: bool
+    numInputs*: int
+    numHidden*: seq[int]
+    numLayers*: int
+    learningRate*: float
+    datasets*: seq[string] # Not `InGridDsetKind` to support arbitrary new columns
+    subsetPerRun*: int
+    rngSeed*: int
+    #
+    activationFunction*: ActivationFunction
+    outputActivation*: OutputActivation
+    lossFunction*: LossFunction
+    optimizer*: OptimizerKind
+    # fields that store training information
+    epochs*: seq[int] ## epochs at which plots and checkpoints are generated
+    accuracies*: seq[float]
+    testAccuracies*: seq[float]
+    losses*: seq[float]
+    testLosses*: seq[float]
+
+  ## Old `MLPDesc` object. It is kept around to be above to deserialize the
+  ## old files easily and then map them to the new object (and thus rewrite the file).
+  ## We test for whether a file is V1 by checking for `numHidden` as an attribute. If
+  ## no such attribute exists the file is a V2 file.
+  MLPDescV1* = object
+    path*: string # model path to the checkpoint files including the default model name!
+    plotPath*: string # path in which plots are placed
     numInputs*: int
     numHidden*: int
-    datasets*: seq[InGridDsetKind]
+    learningRate*: float
+    datasets*: seq[string] # Not `InGridDsetKind` to support arbitrary new columns
+    # fields that store training information
+    epochs*: seq[int] ## epochs at which plots and checkpoints are generated
+    accuracies*: seq[float]
+    testAccuracies*: seq[float]
+    losses*: seq[float]
+    testLosses*: seq[float]
+
+  ModelKind* = enum
+    mkMLP = "MLP"
+    mkCNN = "ConvNet"
+
+  ## Placeholder for `ConvNet` above as currently defining both is problematic
+  ConvNet* = object
+
+  AnyModel* = MLP | ConvNet
+
+## The batch size we use!
+const bsz = 8192 # batch size
+
 
 const MLPDescName* = "mlp_desc.h5"
-proc initMLPDesc*(datasets: seq[InGridDsetKind],
-                  numHidden: int,
-                  modelPath: string, plotPath: string): MLPDesc =
-  result = MLPDesc(path: modelPath, plotPath: plotPath,
+proc initMLPDesc*(calib, back, datasets: seq[string],
+                  modelPath: string, plotPath: string,
+                  numHidden: seq[int],
+                  activation: ActivationFunction,
+                  outputActivation: OutputActivation,
+                  lossFunction: LossFunction,
+                  optimizer: OptimizerKind,
+                  learningRate: float,
+                  subsetPerRun: int,
+                  simulatedData: bool,
+                  rngSeed: int): MLPDesc =
+  result = MLPDesc(calibFiles: calib,
+                   backFiles: back,
+                   datasets: datasets,
+                   path: modelPath, plotPath: plotPath,
                    numInputs: datasets.len,
                    numHidden: numHidden,
-                   datasets: datasets)
+                   numLayers: numHidden.len,
+                   activationFunction: activation,
+                   outputActivation: outputActivation,
+                   lossFunction: lossFunction,
+                   optimizer: optimizer,
+                   learningRate: learningRate,
+                   subsetPerRun: subsetPerRun,
+                   simulatedData: simulatedData,
+                   rngSeed: rngSeed)
+
+proc init*(T: type MLP): MLP =
+  result = make_shared(MLPImpl)
+  result.hidden = result.register_module("hidden_module", init(Linear, 13, 500))
+  result.hidden2 = result.register_module("hidden2_module", init(Linear, 13, 500))
+  result.classifier = result.register_module("classifier_module",
+      init(Linear, 500, 2))
+
+proc forward*(net: MLP, desc: MLPDesc, x: RawTensor): RawTensor =
+  template actFn(it: typed, desc: MLPDesc): untyped =
+    case desc.activationFunction
+    of afReLU: it.relu()
+    of afTanh: it.tanh()
+    of afELU : it.elu()
+    of afGeLU: it.gelu()
+  template outFn(it: typed, desc: MlpDesc): untyped =
+    case desc.outputActivation
+    of ofLinear: it
+    of ofSigmoid: it.sigmoid()
+    of ofTanh: it.tanh()
+  var x = net.hidden.forward(x).actFn(desc)
+  if desc.numLayers == 2: # also apply layer 2
+    x = net.hidden2.forward(x).actFn(desc)
+  return net.classifier.forward(x).outFn(desc) #.squeeze(1)
+
+proc init*(T: type MLP, numInput: int, numLayers: int, numHidden: seq[int], numOutput = 2): MLP =
+  result = make_shared(MLPImpl)
+  if numLayers != numHidden.len:
+    raise newException(ValueError, "Number of layers does not match number of neurons given for each " &
+      "hidden layer! Layers: " & $numLayers & " and neurons per layer: " & $numHidden)
+  if numLayers > 2:
+    raise newException(ValueError, "Only up to 2 hidden layers supported with the `MLPImpl` type.")
+  result.hidden = result.register_module("hidden_module", init(Linear, numInput, numHidden[0]))
+  if numLayers == 1: # single hidden layer MLP
+    result.classifier = result.register_module("classifier_module", init(Linear, numHidden[0], numOutput))
+  else: # dual hidden layer MLP
+    result.hidden2 = result.register_module("hidden2_module", init(Linear, numHidden[0], numHidden[1]))
+    result.classifier = result.register_module("classifier_module", init(Linear, numHidden[1], numOutput))
 
 proc init*(T: type MLP, desc: MLPDesc): MLP =
-  result = MLP.init(desc.numInputs, desc.numHidden)
+  result = MLP.init(desc.numInputs, desc.numLayers, desc.numHidden)
 
 from pkg / nimhdf5 import deserializeH5
+from std / strutils import startsWith, parseEnum
 proc initMLPDesc*(modelPath: string, plotPath = ""): MLPDesc =
   ## Initialize the `MLPDesc` from the serialized `MLPDesc` in the given
   ## `modelPath`.
   let fname = modelPath.parentDir / MLPDescName
   result = deserializeH5[MLPDesc](fname)
+  if result.numHidden.len == 0:
+    raise newException(IOError, "The MLPDesc H5 file is still of version 1. Please regenerate " &
+      "it by running `train_ingrid` with all paramaters again.")
+  if result.datasets.anyIt(it.startsWith("ig")):
+    result.datasets = result.datasets.mapIt(parseEnum[InGridDsetKind](it).toDset())
   if plotPath.len > 0: # user wants a different plot path for prediction
     result.plotPath = plotPath
 
@@ -86,19 +210,6 @@ proc initMLPDesc*(modelPath: string, plotPath = ""): MLPDesc =
 #  x = net.lin2.forward(x).relu()
 #  x = net.lin3.forward(x).relu()
 #  return x
-
-type
-  ModelKind* = enum
-    mkMLP = "MLP"
-    mkCNN = "ConvNet"
-
-  ## Placeholder for `ConvNet` above as currently defining both is problematic
-  ConvNet* = object
-
-  AnyModel* = MLP | ConvNet
-
-## The batch size we use!
-const bsz = 8192 # batch size
 
 proc predictSingle*(model: MLP, input: RawTensor, device: Device): float =
   # predict the output for the single input event

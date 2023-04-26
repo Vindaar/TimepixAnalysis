@@ -700,6 +700,7 @@ when not defined(pure) and not defined(js):
       nkNone = "" # none selected
       nkGlobal = "global"
       nkLocal = "local"
+      nkRunBasedLocal = "runLocal"
       nkInterpolated = "interpolated"
 
     CutValueInterpolator* = object
@@ -719,7 +720,7 @@ when not defined(pure) and not defined(js):
       of cmNnCut: # neural network cut method (only supported on cpp backend!)
         case nnCutKind*: NeuralNetCutKind
         of nkGlobal: cut*: float # global fixed efficiency
-        of nkLocal: nnCutTab*: OrderedTable[string, float] # local (per target!) fixed efficiency
+        of nkLocal, nkRunBasedLocal: nnCutTab*: OrderedTable[string, float] # local (per target!) fixed efficiency
         of nkInterpolated: discard # liner interpolation between `nkLocal` targets
         else: discard
 
@@ -978,7 +979,7 @@ proc initCutValueInterpolator*(kind: NeuralNetCutKind): CutValueInterpolator =
   of nkNone: doAssert false, "Should not happen"
   of nkGlobal:
     result = CutValueInterpolator(cutMethod: cmNnCut, nnCutKind: nkGlobal)
-  of nkLocal:
+  of nkLocal, nkRunBasedLocal:
     result = CutValueInterpolator(cutMethod: cmNnCut, nnCutKind: nkLocal)
     result.nnCutTab = initOrderedTable[string, float]()
   of nkInterpolated:

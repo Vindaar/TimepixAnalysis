@@ -739,7 +739,7 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
   ## XXX: add NN support
   let cutTab = calcCutValueTab(ctx)
   when defined(cpp):
-    let nnCutTab = calcNeuralNetCutValueTab(ctx)
+    var nnCutTab = calcNeuralNetCutValueTab(ctx)
   # get the likelihood and energy datasets
   # get the group from file
   when false:
@@ -767,6 +767,10 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
   h5f.copyOverAttrs(h5fout)
 
   let fileInfo = getFileInfo(h5f)
+  let capacitance = fileInfo.timepix.getCapacitance()
+
+  ## XXX: Make adjustable
+  var rnd = initRand(1337)
   for num, group in runs(h5f):
 
     ## Only a for run setting so that if we set it to false due to missing data
@@ -841,6 +845,12 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
       scinti1Trigger = h5f[group / "szint1ClockInt", int64]
       scinti2Trigger = h5f[group / "szint2ClockInt", int64]
 
+
+    when defined(cpp):
+      # generate fake data for each CDL target and determine the local cut values for this run
+      ## XXX: currently using center chip!!
+      nnCutTab = ctx.calcLocalNNCutValueTab(rnd, h5f, fileInfo.runType, num, centerChip, fileInfo.centerChipName, capacitance)
+      echo "NN CUT TAB::: ", nnCutTab
     for (_, chipNumber, chipGroup) in chipGroups(h5f, group):
       if ctx.energyDset.toDset notin h5f[chipGroup.grp_str]:
         raise newException(IOError, "The input file " & $h5f.name & " does not contain the dataset " &
@@ -856,10 +866,7 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
       let chpGrp = h5f[chipGroup.grp_str]
       # iterate over all chips and perform logL calcs
       var attrs = chpGrp.attrs
-      let
-        # get chip specific dsets
-        chipNumber = attrs["chipNumber", int]
-
+      let chipName = attrs["chipName", string]
       when false:
         # add duration for this chip to Duration table
         totalDurations[chipNumber] = 0.0
@@ -879,7 +886,9 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
         rmsTrans = h5f[(chipGroup / "rmsTransverse"), float64]
         evNumbers = h5f[(chipGroup / "eventNumber"), int64].asType(int)
       when defined(cpp):
-        let nnPred = ctx.predict(h5f, chipGroup)
+        var nnPred: seq[float]
+        if ctx.vetoCfg.useNeuralNetworkCut:
+          nnPred = ctx.predict(h5f, chipGroup)
 
       # get all events part of tracking (non tracking)
       let chipIdxsInTracking = filterTrackingEvents(evNumbers, eventsInTracking)

@@ -50,6 +50,8 @@ proc readDsets*(h5f: H5FileObj, df: var DataFrame, names: seq[string], baseName:
     else:
       if verbose:
         echo &"INFO: Run {baseName} does not have any data for dataset {name}"
+  if df.len > 0:
+    df["Idx"] = toSeq(0 ..< df.len)
 
 proc readRunDsets*(h5f: H5File, run: int, # path to specific run
                    chipDsets = none[tuple[chip: int, dsets: seq[string]]](),

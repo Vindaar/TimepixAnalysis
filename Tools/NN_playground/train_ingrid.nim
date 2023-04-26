@@ -1,5 +1,5 @@
 import flambeau / [flambeau_nn, tensors]
-import std / [strformat, os, strutils, sequtils, random, algorithm, options]
+import std / [strformat, os, strutils, sequtils, random, algorithm, options, macros]
 
 import ingrid / [tos_helpers, ingrid_types]
 import pkg / [datamancer, unchained, nimhdf5]
@@ -98,11 +98,11 @@ proc plotTraining(predictions: seq[float], targets: seq[int],
   except:
     discard
 
-proc plotType(epoch: int, data, testData: seq[float], typ: string, outfile: string) =
+proc plotType(epochs: seq[int], data, testData: seq[float], typ: string,
+              outfile: string) =
+  ## XXX: this is broken for `continueAfterEpochs`!
   if data.len < 2: return
-  var df = toDf(data, testData)
-  df["Epoch"] = linspace(0, epoch, data.len)
-  df = df
+  let df = toDf({"Epoch" : epochs, data, testData})
     .gather(["data", "testData"], "Type", typ)
   try:
     ggplot(df, aes("Epoch", typ, color = "Type")) +
@@ -159,16 +159,84 @@ proc prepareDataframe(fname: string, run: int, readRaw: bool): DataFrame =
   result.add dfCdl
   result.add dfBack
 
-proc prepareMixedDataframe(calib, back: seq[string], readRaw: bool,
-                           subsetPerRun: int): DataFrame =
+import ingrid / [fake_event_generator, gas_physics]
+from pkg / xrayAttenuation import FluorescenceLine
+proc generateFakeEvents(rnd: var Rand,
+                        ctx: LikelihoodContext,
+                        calibInfo: CalibInfo,
+                        gains: seq[float],
+                        diffusion: seq[float]): DataFrame =
+  #let fakeEvs = generateAndReconstruct(rnd, 1000,
+  #result = toDf(
+  const nFake = 100_000
+  var count = 0
+  var fakeEvs = newSeqOfCap[FakeEvent](nFake)
+  # Note: tfKind and nFake irrelevant for us!
+  var fakeDesc = FakeDesc(kind: fkGainDiffusion, gasMixture: initCASTGasMixture())
+  while count < nFake:
+    if count mod 5000 == 0:
+      echo "Generated ", count, " events."
+    # 1. sample an energy
+    let energy = rnd.rand(0.1 .. 10.0).keV
+    let lines = @[FluorescenceLine(name: "Fake", energy: energy, intensity: 1.0)]
+    # 2. sample a gas gain
+    let G = rnd.gauss(mu = (gains[1] + gains[0]) / 2.0, sigma = (gains[1] - gains[0]) / 4.0)
+    let gain = GainInfo(N: 100_000.0, G: G, theta: rnd.rand(0.4 .. 2.4))
+    # 3. sample a diffusion
+    let σT = rnd.gauss(mu = 660.0, sigma = (diffusion[1] - diffusion[0] / 4.0))
+    #let σT = rnd.rand(diffusion[0] .. diffusion[1])
+    # update σT field of FakeDesc
+    fakeDesc.σT = σT
+    # now generate and add
+    let fakeEv = rnd.generateAndReconstruct(fakeDesc, lines, gain, calibInfo, energy, ctx)
+    if not fakeEv.valid:
+      continue
+    fakeEvs.add fakeEv
+    inc count
+  result = fakeToDf( fakeEvs )
+  result["Type"] = $dtSignal
+
+import ingridDatabase / databaseRead
+proc prepareSimDataframe(mlpDesc: MLPDesc, readRaw: bool): DataFrame =
+  ## Generates a dataframe to train on that contains real background events and
+  ## simulated X-rays. The calibration input files are only used to determine the
+  ## boundaries of the gas gain and diffusion in which to generate events in!
+  # for now we just define hardcoded bounds
+  let gains = @[2400.0, 4000.0]
+  let diffusion = @[550.0, 700.0] # μm/√cm, will be converted to `mm/√cm` when converted to DF
+  # the theta parameter describing the Pólya also needs to be varied somehow
+  let ctx = initLikelihoodContext(CdlFile,
+                                  year = yr2018,
+                                  energyDset = igEnergyFromCharge,
+                                  region = crSilver,
+                                  timepix = Timepix1,
+                                  morphKind = mkLinear) # morphing to plot interpolation
+  var rnd = initRand(mlpDesc.rngSeed)
+  var dfSim = newDataFrame()
+  for c in mlpDesc.calibFiles:
+    withH5(c, "r"):
+      let calibInfo = h5f.initCalibInfo()
+      dfSim.add rnd.generateFakeEvents(ctx, calibInfo, gains, diffusion)
+
+  var dfBack = newDataFrame()
+  for b in mlpDesc.backFiles:
+    dfBack.add prepareAllBackground(b, readRaw, subsetPerRun = mlpDesc.subsetPerRun * 6) # .drop(["centerX", "centerY"])
+  echo "Simulated: ", dfSim
+  echo "Back: ", dfBack
+  result = newDataFrame()
+  result.add dfSim.drop(["runNumber", "likelihood"])
+  result.add dfBack.drop(["runNumber", "eventNumber", "Target"])
+
+proc prepareMixedDataframe(mlpDesc: MLPDesc, readRaw: bool): DataFrame =
   let dfCdl = prepareCdl(readRaw)
   var dfFe = newDataFrame()
-  for c in calib:
-    dfFe.add readCalibData(c, "escape", 2.5, 3.5, subsetPerRun div 2)
-    dfFe.add readCalibData(c, "photo", 5.0, 7.0, subsetPerRun div 2)
+  let spr = mlpDesc.subsetPerRun
+  for c in mlpDesc.calibFiles:
+    dfFe.add readCalibData(c, "escape", 2.5, 3.5, spr div 2)
+    dfFe.add readCalibData(c, "photo", 5.0, 7.0, spr div 2)
   var dfBack = newDataFrame()
-  for b in back:
-    dfBack.add prepareAllBackground(b, readRaw, subsetPerRun = subsetPerRun * 6) # .drop(["centerX", "centerY"])
+  for b in mlpDesc.backFiles:
+    dfBack.add prepareAllBackground(b, readRaw, subsetPerRun = spr * 6) # .drop(["centerX", "centerY"])
   echo "CDL: ", dfCdl
   echo "55Fe: ", dfFe
   echo "Back: ", dfBack
@@ -187,24 +255,32 @@ proc genCheckpointName(s: string, epoch: int, loss, acc: float): string =
   result.removeSuffix(".pt")
   result.add &"checkpoint_epoch_{epoch}_loss_{loss:.4f}_acc_{acc:.4f}.pt"
 
+
+proc test(model: AnyModel,
+          input, target: RawTensor,
+          device: Device,
+          desc: MLPDesc,
+          plotOutfile = "/tmp/test_validation.pdf",
+          neuron = 0,
+          toPlot = true): (float, float, seq[float], seq[int])
+
 proc train(model: AnyModel, optimizer: var Optimizer,
            input, target: RawTensor,
            testInput, testTarget: RawTensor,
            device: Device,
            readRaw: bool,
-           modelOutpath: string,
-           plotPath = "/tmp/") =
+           desc: MLPDesc,
+           continueAfterEpoch = 0) =
   let dataset_size = input.size(0)
   var toPlot = false
-  var accuracies = newSeq[float]()
-  var testAccuracies = newSeq[float]()
-  var losses = newSeq[float]()
-  var testLosses = newSeq[float]()
 
-  ## XXX: Implement snapshotting of the model if better loss in test than before!
+  var mlpDesc = desc # local mutable copy to store losses, accuracy etc in
+  let plotPath = mlpDesc.plotPath
 
   const PlotEvery = 5000
-  for epoch in 0 .. 100000:
+  let start = continueAfterEpoch
+  let stop = start + 100000
+  for epoch in start .. stop:
     var correct = 0
     if epoch mod 50 == 0:
       echo "Epoch is:" & $epoch
@@ -235,7 +311,7 @@ proc train(model: AnyModel, optimizer: var Optimizer,
       let target = target[offset ..< stop].to(device)
       #printTensorInfo(target)
       # Running input through the network
-      let output = model.forward(x)
+      let output = model.forward(desc, x)
       #echo "computed forward"
       #printTensorInfo(output)
       let pred = output.argmax(1)
@@ -249,7 +325,8 @@ proc train(model: AnyModel, optimizer: var Optimizer,
         correct += pred.eq(target.argmax(1)).sum().item(int)
       # Computing the loss
       #var loss = l1_loss(output, target)
-      var loss = sigmoid_cross_entropy(output, target)
+      #var loss = sigmoid_cross_entropy(output, target)
+      var loss = mse_loss(output, target)
       # Compute the gradient (i.e. contribution of each parameter to the loss)
       loss.backward()
       #echo "did backward"
@@ -264,22 +341,26 @@ proc train(model: AnyModel, optimizer: var Optimizer,
       let averageLoss = sumLoss / count.float
       echo &"\nTrain set: Average loss: {averageLoss:.4f} " &
            &"| Accuracy: {correct.float64() / dataset_size.float64():.3f}"
-      let (testAccuracy, testLoss, tOut, tTarget) = model.test(testInput, testTarget, device)
+      let (testAccuracy, testLoss, tOut, tTarget) = model.test(testInput, testTarget, device, desc, toPlot = false)
+      # epoch
+      mlpDesc.epochs.add epoch
       # Accuracies
-      accuracies.add train_acc
-      testAccuracies.add testAccuracy
+      mlpDesc.accuracies.add train_acc
+      mlpDesc.testAccuracies.add testAccuracy
       # Losses
-      losses.add(min(1.0, averageLoss))
-      testLosses.add(min(1.0, testLoss))
+      mlpDesc.losses.add(min(1.0, averageLoss))
+      mlpDesc.testLosses.add(min(1.0, testLoss))
 
       # now save the model as a checkpoint
-      model.save(genCheckpointName(modelOutpath, epoch, testLoss, testAccuracy))
+      model.save(genCheckpointName(mlpDesc.path, epoch, testLoss, testAccuracy))
+      # now write the mlpDesc again
+      mlpDesc.toH5(mlpDesc.path.parentDir / MLPDescName)
 
-    ## create output plot
-    if toPlot:
-      plotTraining(predictions, targets, outfile = &"{plotPath}/test_training.pdf")
-      plotType(epoch, accuracies, testAccuracies, "Accuracy", outfile = &"{plotPath}/accuracy.pdf")
-      plotType(epoch, losses, testLosses, "Loss", outfile = &"{plotPath}/loss.pdf")
+      ## generate the plots
+      plotTraining(predictions, targets, outfile = &"{plotPath}/training_output.pdf")
+      plotTraining(tOut, tTarget, outfile = &"{plotPath}/validation_output.pdf")
+      plotType(mlpDesc.epochs, mlpDesc.accuracies, mlpDesc.testAccuracies, "Accuracy", outfile = &"{plotPath}/accuracy.pdf")
+      plotType(mlpDesc.epochs, mlpDesc.losses, mlpDesc.testLosses, "Loss", outfile = &"{plotPath}/loss.pdf")
       let preds = predictions.mapIt(clamp(it, -ClampOutput, ClampOutput))
       rocCurve(preds, targets, plotPath = plotPath)
       toPlot = false
@@ -287,8 +368,10 @@ proc train(model: AnyModel, optimizer: var Optimizer,
 proc test(model: AnyModel,
           input, target: RawTensor,
           device: Device,
+          desc: MLPDesc,
           plotOutfile = "/tmp/test_validation.pdf",
-          neuron = 0): (float, float, seq[float], seq[int]) =
+          neuron = 0,
+          toPlot = true): (float, float, seq[float], seq[int]) =
   ## returns the predictions / targets
   let dataset_size = input.size(0)
   var correct = 0
@@ -304,7 +387,7 @@ proc test(model: AnyModel,
       let x = input[offset ..< stop, _ ].to(device)
       let target = target[offset ..< stop].to(device)
       # Running input through the network
-      let output = model.forward(x)
+      let output = model.forward(desc, x)
       # get the larger prediction along axis 1 (the example axis)
       let pred = output.argmax(1)
       # take 0th column
@@ -313,7 +396,8 @@ proc test(model: AnyModel,
       correct += pred.eq(target.argmax(1)).sum().item(int)
       # Computing the loss
       #let loss = l1_loss(output, target)
-      let loss = sigmoid_cross_entropy(output, target)
+      #let loss = sigmoid_cross_entropy(output, target)
+      var loss = mse_loss(output, target)
       sumLoss += loss.item(float)
       inc count
 
@@ -323,7 +407,8 @@ proc test(model: AnyModel,
        &"| Accuracy: {testAcc:.4f}"
 
   ## create output plot
-  plotTraining(predictions, targets, outfile = plotOutfile)
+  if toPlot:
+    plotTraining(predictions, targets, outfile = plotOutfile)
   # will fail probably...
   # doAssert target == targets
   let preds = predictions.mapIt(clamp(it, -ClampOutput, ClampOutput))
@@ -332,6 +417,7 @@ proc test(model: AnyModel,
 proc predict(model: AnyModel,
              input, target: RawTensor,
              device: Device,
+             desc: MLPDesc,
              cutVal: float,
              neuron: int = 0,
              plotPath = "/tmp/"): seq[int] =
@@ -350,7 +436,7 @@ proc predict(model: AnyModel,
       let x = input[offset ..< stop, _ ].to(device)
       let target = target[offset ..< stop].to(device)
       # Running input through the network
-      let output = model.forward(x)
+      let output = model.forward(desc, x)
       # get the larger prediction along axis 1 (the example axis)
       let pred = output.argmax(1)
       let predSeq = pred.toNimSeq[:int]
@@ -359,7 +445,8 @@ proc predict(model: AnyModel,
       targets.add target[_, 0].toNimSeq[:int]
       correct += pred.eq(target.argmax(1)).sum().item(int)
       # Computing the loss
-      let loss = sigmoid_cross_entropy(output, target)
+      #let loss = sigmoid_cross_entropy(output, target)
+      var loss = mse_loss(output, target)
       sumLoss += loss.item(float)
       inc count
       for i in 0 ..< min(bsz, stop - offset):
@@ -390,7 +477,7 @@ proc predict(model: AnyModel,
         let x = input[offset ..< stop, _ ].to(device)
         let target = target[offset ..< stop].to(device)
         # Running input through the network
-        let output = model.forward(x)
+        let output = model.forward(desc, x)
         # get the larger prediction along axis 1 (the example axis)
         let pred = output.argmax(1).toNimSeq[:float]()
         # take 0th column
@@ -476,16 +563,17 @@ proc targetSpecificRoc(dfLnL, dfMlp: DataFrame, plotPath = "/tmp") =
     ylim(0.5, 1.0) +
     ggsave(&"{plotPath}/roc_curve_combined_split_by_target.pdf")
 
-proc determineCdlEfficiency(model: AnyModel, device: Device, ε: float, readRaw: bool,
+proc determineCdlEfficiency(model: AnyModel, device: Device, desc: MLPDesc, ε: float, readRaw: bool,
                             global = true, plotPath = "/tmp/") =
   ##
   let dfCdl = prepareCdl(readRaw)
-  let cutValGlobal = determineCutValue(model, device, ε, readRaw)
-  let cutValLocal = determineLocalCutValue(model, device, ε, readRaw)
+  let cutValGlobal = determineCutValue(model, device, desc, ε, readRaw)
+  let cutValLocal = determineLocalCutValue(model, device, desc, ε, readRaw)
   # for reference determine cut value based on full data (expect to get out `ε`)
   proc getEff(model: AnyModel, df: DataFrame, cutVal: float, outfile: string): float =
     let (cdlInput, cdlTarget) = df.toInputTensor()
     let (_, _, cdlPredict, predTargets) = model.test(cdlInput, cdlTarget, device,
+                                                     desc,
                                                      plotOutfile = outfile)
     result = determineEff(cdlPredict.sorted, cutVal)
   let totalEff = model.getEff(dfCdl, cutValGlobal, &"{plotPath}/cdl_prediction_all_data.pdf")
@@ -499,15 +587,15 @@ proc determineCdlEfficiency(model: AnyModel, device: Device, ε: float, readRaw:
     let suffix = if global: "global" else: "local"
     echo "Target ", suffix, " ", target, " eff = ", effectiveEff
 
-proc predictBackground(model: AnyModel, device: Device, fname: string, ε: float, totalTime: Hour,
+proc predictBackground(model: AnyModel, device: Device, desc: MLPDesc, fname: string, ε: float, totalTime: Hour,
                        readRaw: bool, plotPath: string) =
   # classify
-  let cutVal = determineCutValue(model, device, ε, readRaw)
+  let cutVal = determineCutValue(model, device, desc, ε, readRaw)
   ## XXX: make sure the cut value stuff & the sign of the predictions is correct everywhere! We flipped the
   ## sign initially to compare with logL!
   let dfAll = prepareAllBackground(fname, readRaw)
   let (allInput, allTarget) = dfAll.toInputTensor()
-  let passedInds = model.predict(allInput, allTarget, device, cutVal)
+  let passedInds = model.predict(allInput, allTarget, device, desc, cutVal)
   echo "p inds len ", passedInds.len, " compared to all ", dfAll.len
 
   # get all energies of these passing events
@@ -517,7 +605,7 @@ proc predictBackground(model: AnyModel, device: Device, fname: string, ε: float
     energies[i] = energiesAll[idx]
   plotBackground(energies, totalTime, plotPath)
 
-proc predictCalib(model: AnyModel, device: Device, fname: string, ε: float) =
+proc predictCalib(model: AnyModel, device: Device, desc: MLPDesc, fname: string, ε: float) =
   # classify
   var df = newDataFrame()
   df.add readCalibData(fname, "escape", 2.5, 3.5)
@@ -526,22 +614,21 @@ proc predictCalib(model: AnyModel, device: Device, fname: string, ε: float) =
   #let (model, device) = loadModelMakeDevice(model)
   for (tup, subDf) in groups(df.group_by(["Type", "runNumber"])):
     let (inp, target) = subDf.toInputTensor()
-    let passedInds = model.predict(inp, target, device, 0.0)
+    let passedInds = model.predict(inp, target, device, desc, 0.0)
     echo "p inds len ", passedInds.len, " compared to all ", subDf.len, " Efficiency: ", passedInds.len.float / subDf.len.float
 
 proc readAllData(model: AnyModel, device: Device,
-                 calib, back: seq[string],
-                 subsetPerRun: int,
+                 desc: MLPDesc,
                  calcLogL: bool,
                  mlpOutput: bool): (DataFrame, DataFrame, DataFrame) =
   var dfCdl = prepareCdl(false)
     #.filter(f{`Target` == "Mn-Cr-12kV"}) #<- to only look at Photo peak equivalent. Better look at ridge line!
   var dfFe = newDataFrame()
-  for c in calib:
+  for c in desc.calibFiles:
     dfFe.add readCalibData(c, "escape", 2.5, 3.5) #, subsetPerRun div 2)
     dfFe.add readCalibData(c, "photo", 5.0, 7.0) #, subsetPerRun div 2)
   var dfBack = newDataFrame()
-  for b in back:
+  for b in desc.backFiles:
     dfBack.add prepareAllBackground(b, false) # , subsetPerRun = subsetPerRun * 6) # .drop(["centerX", "centerY"])
 
   if calcLogL: # also calculate the likelihood of every event
@@ -560,7 +647,7 @@ proc readAllData(model: AnyModel, device: Device,
     ctx.lnL(dfBack)
   if mlpOutput:
     proc modelOutput(model: AnyModel, device: Device, df: var DataFrame, neuron: int) =
-      df["Neuron_" & $neuron] = model.forward(df.toTorchTensor(), device, neuron)
+      df["Neuron_" & $neuron] = model.forward(df.toTorchTensor(), device, desc, neuron)
         .mapIt(clamp(it, -ClampOutput, ClampOutput))
     model.modelOutput(device, dfCdl, neuron = 0)
     model.modelOutput(device, dfCdl, neuron = 1)
@@ -572,11 +659,8 @@ proc readAllData(model: AnyModel, device: Device,
   result = (dfCdl, dfFe, dfBack)
 
 proc predictAll(model: AnyModel, device: Device,
-                calib, back: seq[string],
-                subsetPerRun: int,
-                plotPath: string) =
-  let (dfCdl, dfFe, dfBack) = model.readAllData(device, calib, back,
-                                                subsetPerRun,
+                desc: MLPDesc) =
+  let (dfCdl, dfFe, dfBack) = model.readAllData(device, desc,
                                                 calcLogL = true,
                                                 mlpOutput = true)
 
@@ -599,7 +683,7 @@ proc predictAll(model: AnyModel, device: Device,
     ggplot(dfAll, aes("preds", fill = "Type")) +
       facet_wrap("Neuron") +
       geom_histogram(bins = 100, hdKind = hdOutline, alpha = 0.5, position = "identity") +
-      ggsave(&"{plotPath}/all_predictions.pdf", width = 1000, height = 500)
+      ggsave(&"{desc.plotPath}/all_predictions.pdf", width = 1000, height = 500)
 
   block AllByTypeRidge:
     template lnL(dfIn, typ: untyped): untyped =
@@ -642,14 +726,12 @@ proc predictAll(model: AnyModel, device: Device,
                        hdKind = hdOutline, position = "identity",
                        density = true) +
         ggsave(&"{plotPath}/all_predictions_by_type_ridgeline{suffix}.pdf", width = 800, height = 500)
-    plotRidges(dfMlp, "preds", plotPath, "_mlp")
+    plotRidges(dfMlp, "preds", desc.plotPath, "_mlp")
     # remove anything in the clamp region to not blow up our y scale with an 'overfilled' bin
-    plotRidges(dfLnL.filter(f{`lnLs` < 49.0}), "lnLs", plotPath, "_lnL")
+    plotRidges(dfLnL.filter(f{`lnLs` < 49.0}), "lnLs", desc.plotPath, "_lnL")
 
-proc generateRocCurves(model: AnyModel, device: Device, calib, back: seq[string],
-                       subsetPerRun: int, plotPath: string) =
-  let (dfCdl, dfFe, dfBack) = model.readAllData(device, calib, back,
-                                                subsetPerRun,
+proc generateRocCurves(model: AnyModel, device: Device, desc: MLPDesc) =
+  let (dfCdl, dfFe, dfBack) = model.readAllData(device, desc,
                                                 calcLogL = true,
                                                 mlpOutput = true)
   proc asDf(dfIn: DataFrame, typ, dset: string): DataFrame =
@@ -666,111 +748,125 @@ proc generateRocCurves(model: AnyModel, device: Device, calib, back: seq[string]
     df
   let dfLnL = buildLong(dfCdl, dfFe, dfBack, "likelihood")
   let dfMlp = buildLong(dfCdl, dfFe, dfBack, "Neuron_0")
-  plotRocCurve(dfLnL, dfMlp, "_lnL_vs_mlp", plotPath)
+  plotRocCurve(dfLnL, dfMlp, "_lnL_vs_mlp", desc.plotPath)
   # target specific roc curves
-  targetSpecificRoc(dfLnL, dfMlp, plotPath)
+  targetSpecificRoc(dfLnL, dfMlp, desc.plotPath)
 
-proc initDesc(datasets: seq[InGridDsetKind], numHidden: int, modelOutpath, plotPath: string): MLPDesc =
-  if numHidden == 0:
-    raise newException(ValueError, "Please provide a number of neurons on the hidden layer. 0 is invalid.")
+proc initDesc(calib, back: seq[string], # data
+              modelOutpath, plotPath: string,
+              datasets: seq[string], # datasets used as input neurons
+              numHidden: seq[int], # number of neurons on each hidden layer
+              activation: ActivationFunction,
+              outputActivation: OutputActivation,
+              lossFunction: LossFunction,
+              optimizer: OptimizerKind,
+              learningRate: float,
+              subsetPerRun: int,
+              simulatedData: bool,
+              rngSeed: int): MLPDesc =
+  if numHidden.len == 0:
+    raise newException(ValueError, "Please provide a number of neurons for the hidden layers.")
+  # 1. initialize the MLPDesc from the given parameters
   let dsets = if datasets.len == 0: CurrentDsets else: datasets
-  CurrentDsets = dsets
   let plotPath = if plotPath.len == 0: "/tmp/" else: plotPath
-  result = initMLPDesc(dsets, numHidden, modelOutpath, plotPath)
-  # potentially create the output path
-  discard existsOrCreateDir(result.plotPath)
-  discard existsOrCreateDir(result.path.parentDir)
-  result.toH5(result.path.parentDir / MLPDescName)
+  result = initMLPDesc(calib, back, dsets,
+                       modelOutpath, plotPath,
+                       numHidden,
+                       activation, outputActivation, lossFunction, optimizer,
+                       learningRate,
+                       subsetPerRun,
+                       simulatedData,
+                       rngSeed)
 
-proc initDesc(model, plotPath: string): MLPDesc =
-  result = initMLPDesc(model, plotPath)
+  # 2. check if such a file already exists to possibly merge it or just return that
+  let outfile = result.path.parentDir / MLPDescName
+  if fileExists(outfile):
+    ## Existing file with same name. Possibly an older version of it?
+    ## Try deserializing as a V1 MLPDesc
+    let descV1 = deserializeH5[MLPDescV1](outfile)
+    if descV1.numHidden != 0: # means it really was V1. Therefore copy over
+      ## As a V1, just copy over the training related fields
+      macro copyFields(fs: varargs[untyped]): untyped =
+        result = newStmtList()
+        for f in fs:
+          result.add quote do:
+            result.`f` = descV1.`f`
+      copyFields(epochs, accuracies, testAccuracies, losses, testLosses)
+      doAssert descV1.datasets == result.datasets, "Datasets in existing file and input don't match!"
+      # write back the now modified new version MLPDesc object
+      result.toH5(outfile)
+    else:
+      ## is actually V2, just return it! This branch is
+      # Note: input parameters are ignored in this case!
+      result = deserializeH5[MLPDesc](outfile)
+  else:
+    # potentially create the output path, serialize the object
+    discard existsOrCreateDir(result.plotPath)
+    discard existsOrCreateDir(result.path.parentDir)
+    result.toH5(outfile)
+  # update the global datasets!
   CurrentDsets = result.datasets
 
-#Converter toModule[T: AnyModel](m: T): Module = Module(m)
-#
+
 ## XXX: inside of a generic proc (what we would normally do) the `parameters` call
-## breaks! Nim doesn'- understand that the MLP / ConvNet type can be converted
+## breaks! Nim doesn't understand that the MLP / ConvNet type can be converted
 ## to a `Module`!
-template trainModel(Typ: typedesc,
-                    device: Device,
-                    calib: seq[string],
-                    back: seq[string],
-                    datasets: seq[InGridDsetKind],
-                    numHidden: int,
-                    modelOutpath = "/tmp/trained_model.pt",
-                    subsetPerRun = 1000,
-                    plotPath = ""
-                   ): untyped {.dirty.} =
+proc trainModel[T](_: typedesc[T],
+                   device: Device,
+                   mlpDesc: MLPDesc,
+                   continueAfterEpoch = -1
+                  ) =
   ## If we are training, construct a type appropriate to
-  let desc = initDesc(datasets, numHidden, modelOutpath, plotPath)
-  echo "MLPDesc: ", desc
-  var model = Typ.init(desc)
+  var model = T.init(mlpDesc)
   model.to(device)
-  when Typ is MLP:
+  if continueAfterEpoch > 0:
+    model.load(mlpDesc.path)
+  when T is MLP:
     const readRaw = false
   else:
     const readRaw = true
   echo "Reading data"
-  #var df = prepareDataframe(fname, run, readRaw = readRaw)
-  var df = prepareMixedDataframe(calib, back, readRaw = readRaw, subsetPerRun = subsetPerRun)
+  var df = if mlpDesc.simulatedData:
+             echo "Using simulated data."
+             prepareSimDataframe(mlpDesc, readRaw = readRaw)
+           else:
+             prepareMixedDataframe(mlpDesc, readRaw = readRaw)
   # get training & test dataset
   echo "Splitting data into train & test set"
   let (trainTup, testTup) = generateTrainTest(df)
   let (trainIn, trainTarg) = trainTup
   let (testIn, testTarg) = testTup
-  # echo trainIn.to(kCPU)[0, _, _] # ConvNet test?
-
   # check if model already exists as trained file
-  if not fileExists(modelOutpath):
-    #if true:
-    #  echo "fle does not exist"
-    #  quit()
-    # Learning loop
-    # Stochastic Gradient Descent
-    var optimizer = SGD.init(
-      model.parameters(),
-      SGDOptions.init(0.005).momentum(0.2) # .weight_decay(0.001)
-      #learning_rate = 0.005
-    )
-    # Adam optimizer
-    #var optimizer = Adam.init(
-    #  model.parameters(),
-    #  AdamOptions.init(0.005)
-    #)
-    echo "Training model"
-    model.train(optimizer,
-                trainIn.to(kFloat32).to(device),
-                trainTarg.to(kFloat32).to(device),
-                testIn.to(kFloat32).to(device),
-                testTarg.to(kFloat32).to(device),
-                device,
-                readRaw,
-                desc.path,
-                desc.plotPath)
-    model.save(modelOutpath)
+  let lr = mlpDesc.learningRate
+  if not fileExists(mlpDesc.path) or continueAfterEpoch > 0:
+    template callTrain(arg: typed): untyped =
+      model.train(arg,
+                  trainIn.to(kFloat32).to(device),
+                  trainTarg.to(kFloat32).to(device),
+                  testIn.to(kFloat32).to(device),
+                  testTarg.to(kFloat32).to(device),
+                  device,
+                  readRaw,
+                  mlpDesc,
+                  continueAfterEpoch)
+    withOptim(model, mlpDesc): # injects `optimizer` variable of correct type into body
+      callTrain(optimizer)
+    model.save(mlpDesc.path)
   else:
     # load the model
-    model.load(modelOutpath)
+    model.load(mlpDesc.path)
   # perform validation
-  let (acc, loss, testPredict, testTargets) = model.test(testIn, testTarg, device,
-                                                         plotOutfile = desc.plotPath / "test_validation.pdf")
+  let (acc, loss, testPredict, testTargets) = model.test(testIn, testTarg, device, mlpDesc,
+                                                         plotOutfile = mlpDesc.plotPath / "test_validation.pdf")
   echo "Test loss after training: ", loss, " with accuracy ", acc
 
 template predictModel(Typ: typedesc,
                       device: Device,
-                      calib: seq[string],
-                      back: seq[string],
-                      modelPath: string,
+                      desc: MLPDesc,
                       ε = 0.8, # signal efficiency for background rate prediction
                       totalTime = -1.0.Hour, # total background rate time in hours. Normally read from input file
                       rocCurve = false,
-                      subsetPerRun = 1000,
-                      plotPath = ""
                      ): untyped {.dirty.} =
-  doAssert fileExists(modelPath), "When using the `--predict` option, the trained model must exist!"
-  ## If we are training, construct a type appropriate to
-  let desc = initDesc(modelPath, plotPath)
-  echo "MLPDesc: ", desc
   var model = Typ.init(desc)
   model.to(device)
   when Typ is MLP:
@@ -780,49 +876,52 @@ template predictModel(Typ: typedesc,
 
   # load the model
   model.load(desc.path)
-  model.predictBackground(device, back[0], ε, totalTime, readRaw, desc.plotPath)
-  model.predictCalib(device, calib[0], ε)
+  model.predictBackground(device, desc, desc.backFiles[0], ε, totalTime, readRaw, desc.plotPath)
+  model.predictCalib(device, desc, desc.calibFiles[0], ε)
 
-  model.predictAll(device, calib, back, subsetPerRun, desc.plotPath)
+  model.predictAll(device, desc)
 
-  model.determineCdlEfficiency(device, ε, readRaw, plotPath = desc.plotPath)
-  model.determineCdlEfficiency(device, ε, readRaw, global = false, plotPath = desc.plotPath)
+  model.determineCdlEfficiency(device, desc, ε, readRaw, plotPath = desc.plotPath)
+  model.determineCdlEfficiency(device, desc, ε, readRaw, global = false, plotPath = desc.plotPath)
 
-  model.generateRocCurves(device, calib, back, subsetPerRun, desc.plotPath)
-
-proc writeMLPDesc(model, plotPath: string,
-                  numHidden: int,
-                  datasets: seq[InGridDsetKind]) =
-  ## This helper can be used to write an `MLPDesc` for a given model in case it doesn't have
-  ## this file for some reason (too old, deleted, etc.)
-  ## You are responsible for making sure the input data is correct of course!
-  let desc = initDesc(datasets, numHidden, model, plotPath)
-  desc.toH5(model.parentDir / MLPDescName)
+  model.generateRocCurves(device, desc)
 
 proc main(calib, back: seq[string] = @[],
-          datasets: seq[InGridDsetKind] = @[],
+          datasets: seq[string] = @[],
           ε = 0.8, # signal efficiency for background rate prediction
           totalTime = -1.0.Hour, # total background rate time in hours. Normally read from input file
           rocCurve = false,
           predict = false,
           model = "MLP", # MLP or ConvNet #model = mkMLP ## parsing an enum here causes weird CT error in cligen :/
           modelOutpath = "/tmp/trained_model.pt",
-          numHidden = 0,
+          numHidden: seq[int] = @[], ## number of neurons on the hidden layers. One number per layer.
+          activation: ActivationFunction = afReLU,
+          outputActivation: OutputActivation = ofLinear,
+          lossFunction: LossFunction = lfSigmoidCrossEntropy,
+          optimizer: OptimizerKind = opSGD,
+          learningRate = Inf,
           subsetPerRun = 1000,
           plotPath = "",
           clampOutput = 50.0,
           printDefaultDatasets = false,
-          writeMLPDesc = false) =
+          simulatedData = false,
+          continueAfterEpoch = -1,
+          rngSeed = 1337) =
   # 1. set up the model
   if printDefaultDatasets:
     echo "Total default datasets: ", CurrentDsets.len
     for d in CurrentDsets:
       echo d
     return
-  if writeMLPDesc:
-    let datasets = if datasets.len == 0: CurrentDsets else: datasets
-    writeMLPDesc(modelOutpath, plotPath, numHidden, datasets)
-    return
+
+  let desc = initDesc(calib, back, modelOutpath, plotPath,
+                      datasets,
+                      numHidden,
+                      activation, outputActivation, lossFunction, optimizer,
+                      learningRate,
+                      subsetPerRun,
+                      simulatedData,
+                      rngSeed)
 
   ClampOutput = clampOutput
 
@@ -840,19 +939,13 @@ proc main(calib, back: seq[string] = @[],
   if mKind == mkMLP:
     if not predict:
       MLP.trainModel(device,
-                     calib, back,
-                     datasets, numHidden,
-                     modelOutpath,
-                     subsetPerRun,
-                     plotPath)
+                     desc,
+                     continueAfterEpoch)
     else:
       MLP.predictModel(device,
-                       calib, back,
-                       modelOutpath,
+                       desc,
                        ε, totalTime,
-                       rocCurve,
-                       subsetPerRun,
-                       plotPath)
+                       rocCurve)
   #else:
   #  ConvNet.trainModel(fname, device, run, ε, totalTime, rocCurve, predict)
 
@@ -873,6 +966,14 @@ when isMainModule:
       result = true
     except ValueError:
       raise newException(Exception, "Invalid dataset given: " & $val)
+
+  proc argParse[T: enum](dst: var T, dfl: T, a: var ArgcvtParams): bool =
+    var val = a.val
+    try:
+      dst = parseEnum[T](val)
+      result = true
+    except ValueError:
+      raise newException(Exception, "Invalid enum value: " & $val)
   proc argHelp*(dfl: Hour; a: var ArgcvtParams): seq[string] =
     result = @[ a.argKeys, "<value>.Hour", $dfl ]
   import cligen

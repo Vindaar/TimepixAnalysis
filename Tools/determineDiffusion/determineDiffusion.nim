@@ -412,58 +412,59 @@ proc getDiffusion*(df: DataFrame): float =
 
 proc determineDiffusion(df: DataFrame) =
   var dfAll = newDataFrame()
-  for (tup, subDf) in groups(df.group_by("runNumber")):
+  for (tup, subDf) in groups(df.group_by("run")):
     let run = tup[0][1].toInt
-    let dfL = subDf # .filter(f{`rmsTransverse` < percentile(`rmsTransverse`, 99)})
-    const bins = 100
-    let (dfFit, pRes, text) = dfL["rmsTransverse", float].fitRmsTransverse(bins)
+    let runType = parseEnum[RunTypeKind](subDf["typ"].unique.item(string))
+    let isBackground = runType == rtBackground
+    let energy = if not isBackground: tfMnCr12.toXrayLineEnergy().keV
+                 else: 0.keV
 
-    ggplot(dfL, aes("rmsTransverse")) +
-      geom_histogram(bins = bins, hdKind = hdOutline) +
-      geom_line(data = dfFit, aes = aes("xFit", "yFit"), color = "purple") +
-      ggsave(&"/tmp/run_{run}_rmsTransverseFit.pdf")
+    # or use cache ?
+    let (σT, loss) = getDiffusion(subDf["rms", float].toSeq1D,
+                                  isBackground = isBackground,
+                                  run = run,
+                                  energy = energy,
+                                  useCache = true)
+    dfAll.add toDf( {"run" : run, "σT" : σT, "loss" : loss, "isBackground" : isBackground })
 
-    dfAll.add toDf({ "rmsT" : pRes[1] + pRes[2],
-                     "run" : run })
-
-  dfAll = dfAll.mutate(f{"σT" ~ `rmsT` / sqrt(3.0)})
-  echo dfAll.pretty(-1)
-
-  ggplot(dfAll, aes("run", "rmsT")) +
+  ggplot(dfAll, aes("run", "σT", color = "loss", shape = "isBackground")) +
     geom_point() +
-    ggsave("/tmp/rmsT_per_run.pdf")
-
-  ggplot(dfAll, aes("run", "σT")) +
-    geom_point() +
-    ggsave("/tmp/sigmaT_per_run.pdf")
-
-proc main(fnames: seq[string],
-          cdlFile: string = "",
-          plotPath: string = "") =
-  ## The `cdlFile` currently must be the `CDL_2019_Reco.h5` file!
-  let ctx = initLikelihoodContext(CdlFile,
-                                  year = yr2018,
-                                  energyDset = igEnergyFromCharge,
-                                  region = crSilver,
-                                  timepix = Timepix1,
-                                  morphKind = mkLinear) # morphing to plot interpolation
-  var df = newDataFrame()
-  for c in fnames:
-    # 3 keV
-    #df.add readRealCalib(c, "3.0", 2.5, 3.5, tfAgAg6)
-    # 5.9 keV
-    if "Calibration" in c:
-      df.add readRealCalib(c, "5.9", 5.0, 7.0, tfMnCr12)
-    else:
-      df.add prepareAllBackground(c, false)
-
-    determineDiffusion(df)
-
-  #if cdlFile.len > 0:
-  #  df.add readCdlData(cdlFile, tfAgAg6, 2.5, 3.5)
-  #  df.add readCdlData(cdlFile, tfMnCr12, 5.0, 7.0)
-  #  df.add readCdlData(cdlFile, tfCEpic0_6, 0.0, 0.4)
+    ggsave("/home/basti/Sync/σT_per_run.pdf")
 
 when isMainModule:
+  import ../NN_playground/io_helpers
+  proc readData(fname: string): DataFrame =
+    withH5(fname, "r"):
+      let fileInfo = h5f.getFileInfo()
+      let chipNumber = fileInfo.centerChip
+      result = newDataFrame()
+      for run in fileInfo.runs:
+        let group = (recoBase() & $run)
+        # need rmsTransverse to determine diffusion
+        let grp = h5f[(group / "chip_" & $chipNumber).grp_str]
+        # very weak cuts that should also apply well for background data that remove
+        # obvious events that are noisy, and not well defined photons or tracks!
+        ## NOTE: These do not apply to the CDL datasets!
+        let passIdx = h5f.cutOnProperties(
+          grp,
+          crSilver,
+          ("width", 0.0, 6.0),
+          ("rmsTransverse", 0.0, 1.3),
+          ("hits", 20.0, Inf))
+        # now need `rms` to calculate diffusion
+        let rms = h5f[group / &"chip_{chipNumber}/rmsTransverse", passIdx, float]
+        let df = toDf({ "rms" : rms,
+                        "run" : run,
+                        "typ" : $fileInfo.runType })
+        result.add df
+
+  proc main(fnames: seq[string],
+            plotPath: string = "") =
+    var df = newDataFrame()
+    for f in fnames:
+      df.add readData(f)
+    determineDiffusion(df)
+
+  #when isMainModule:
   import cligen
   dispatch main

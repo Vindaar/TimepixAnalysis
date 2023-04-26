@@ -190,13 +190,6 @@ proc createFeSpectrum*(h5f: H5File, runNumber, centerChip: int) =
   specIndDset[specIndDset.all] = specIndices
 
 import unchained
-func getCapacitance*(timepix: TimepixVersion): FemtoFarad =
-  ## The values are from the manual of the Timepix1 (and 2) as well as
-  ## from the Timepix3 manual.
-  case timepix
-  of Timepix1: result = 8.fF
-  of Timepix3: result = 3.fF
-
 func charge*(C: FemtoFarad, U: MilliVolt): UnitLess =
   ## Returns the charge on a capacitance of `C` at a voltage
   ## of `U` in *electrons*

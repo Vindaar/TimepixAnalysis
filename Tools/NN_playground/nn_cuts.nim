@@ -68,9 +68,9 @@ proc calcRocCurve*(logL: seq[float], logLTargets: seq[int], predict: seq[float],
   result = bind_rows([("LogL", dfLogLRoc), ("MLP", dfMLPRoc)],
                      "Type")
 
-proc determineCutValue(model: AnyModel, device: Device, df: DataFrame, ε: float): float =
-  let (cdlInput, cdlTarget) = df.toInputTensor()
-  let cdlPredict = model.forward(cdlInput, device)
+proc determineCutValue*(model: AnyModel, device: Device, desc: MLPDesc, df: DataFrame, ε: float): float =
+  let cdlInput = df.toTorchTensor()
+  let cdlPredict = model.forward(cdlInput, device, desc)
 
   # Compute alternative cut value by percentile
   # E.g. `ε = 0.8` means we need `1.0 - ε = 0.2` because the network predicts the
@@ -91,7 +91,7 @@ proc determineCutValue(model: AnyModel, device: Device, df: DataFrame, ε: float
     dfMLPRoc.filter(f{`sigEff` >= ε}).showBrowser()
   echo "Cut value: ", result
 
-proc determineCutValue*(model: AnyModel, device: Device, ε: float, readRaw: bool): float =
+proc determineCutValue*(model: AnyModel, device: Device, desc: MLPDesc, ε: float, readRaw: bool): float =
   ## Returns the required cut value for a desired software efficiency `ε`.
   ## This reads the (cleaned) CDL data, computes their output and returns the
   ## cut value at the percentile corresponding to `ε`.
@@ -99,10 +99,10 @@ proc determineCutValue*(model: AnyModel, device: Device, ε: float, readRaw: boo
   ## XXX: `readRaw` currently ignored!
   # get the CDL data
   let dfCdl = prepareCdl(readRaw)
-  result = model.determineCutValue(device, dfCdl, ε)
+  result = model.determineCutValue(device, desc, dfCdl, ε)
 
 import ingrid / ingrid_types
-proc determineLocalCutValue*(model: AnyModel, device: Device, ε: float, readRaw: bool): OrderedTable[string, float] =
+proc determineLocalCutValue*(model: AnyModel, device: Device, desc: MLPDesc, ε: float, readRaw: bool): OrderedTable[string, float] =
   ## Returns the required cut value for a desired software efficiency `ε`, which
   ## will be calculated per target/filter combination (instead of globally)
   ##
@@ -113,7 +113,21 @@ proc determineLocalCutValue*(model: AnyModel, device: Device, ε: float, readRaw
   let dfCdl = prepareCdl(readRaw)
   for (tup, subDf) in groups(dfCdl.group_by("Target")):
     let target = tup[0][1].toStr
-    result[target] = model.determineCutValue(device, subDf, ε)
+    result[target] = model.determineCutValue(device, desc, subDf, ε)
+  echo "Local cut values: ", result
+
+proc determineRunLocalCutValue*(model: AnyModel, device: Device, desc: MLPDesc,
+                                df: DataFrame, ε: float
+                               ): OrderedTable[string, float] =
+  ## Returns the required cut value for a desired software efficiency `ε`, which
+  ## will be calculated per target/filter combination based on the given run
+  ## data by determining the diffusion of the run and generating fake data
+  ## on which the cut value will be based.
+  # get the CDL data
+  result = initOrderedTable[string, float]()
+  for (tup, subDf) in groups(df.group_by("Target")):
+    let target = tup[0][1].toStr
+    result[target] = model.determineCutValue(device, desc, subDf, ε)
   echo "Local cut values: ", result
 
 proc calcCutValues*(model: AnyModel, device: Device, ε: float, readRaw: bool,

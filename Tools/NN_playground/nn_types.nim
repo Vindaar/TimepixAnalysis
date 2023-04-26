@@ -211,16 +211,17 @@ proc initMLPDesc*(modelPath: string, plotPath = ""): MLPDesc =
 #  x = net.lin3.forward(x).relu()
 #  return x
 
-proc predictSingle*(model: MLP, input: RawTensor, device: Device): float =
+proc predictSingle*(model: MLP, input: RawTensor, device: Device, desc: MLPDesc): float =
   # predict the output for the single input event
   no_grad_mode:
     # Running input through the network, get the 0th neuron output
-    result = model.forward(input.to(device))[_, 0].item(float)
+    result = model.forward(desc, input.to(device))[_, 0].item(float)
 
 from ./io_helpers import toNimSeq
 proc forward*(model: AnyModel,
               input: RawTensor,
               device: Device,
+              desc: MLPDesc,
               neuron = 0): seq[float] =
   ## Returns the predictions for all input data contained in `input`
   let dataset_size = input.size(0)
@@ -232,12 +233,13 @@ proc forward*(model: AnyModel,
       let stop = min(offset + bsz, dataset_size)
       let x = input[offset ..< stop, _ ].to(device)
       # Running input through the network
-      let output = model.forward(x)
+      let output = model.forward(desc, x)
       result.add output[_, neuron].toNimSeq[:float]
 
 proc modelPredict*(model: AnyModel,
                    input: RawTensor,
-                   device: Device): seq[int] =
+                   device: Device,
+                   desc: MLPDesc): seq[int] =
   ## Returns the predictions for all input data contained in `input`
   let dataset_size = input.size(0)
   result = newSeqOfCap[float](dataset_size)
@@ -248,6 +250,6 @@ proc modelPredict*(model: AnyModel,
       let stop = min(offset + bsz, dataset_size)
       let x = input[offset ..< stop, _ ].to(device)
       # Running input through the network
-      let output = model.forward(x)
+      let output = model.forward(desc, x)
       let pred = output.argmax(1).toNimSeq[:int]()
       result.add pred

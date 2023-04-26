@@ -14,8 +14,8 @@ proc readEvent(h5f: H5File, run, idx: int, path = recoBase()): DataFrame =
   let grp = path & $run & "/chip_3" # XXX: use center chip
   result = newDataFrame()
   for dsetName in CurrentDsets:
-    let dset = h5f[(grp / (dsetName).toDset).dset_str]
-    result[dsetName.toDset] = dset.readAs(@[idx], float)
+    let dset = h5f[(grp / (dsetName)).dset_str]
+    result[dsetName] = dset.readAs(@[idx], float)
   result["Type"] = $dtBack
 
 proc initDesc(model: string): MLPDesc =
@@ -46,7 +46,7 @@ proc predict*(h5f: H5File, modelPath: string, run, idx: int): float =
 
   let inp = toTorchTensor(h5f.readEvent(run, idx))
   echo "INP ", inp
-  result = model.predictSingle(inp, device)
+  result = model.predictSingle(inp, device, desc)
 
 import ingrid / ingrid_types
 proc predict*(h5f: H5File, modelPath: string, grp: string): seq[float] =
@@ -63,14 +63,14 @@ proc predict*(h5f: H5File, modelPath: string, grp: string): seq[float] =
   # 2. convert to torch tensor
   let inp = toTorchTensor(data)
   # 3. forward pass through network
-  result = model.forward(inp, device)
+  result = model.forward(inp, device, desc)
 
 proc predict*(model: AnyModel, device: Device, df: DataFrame): seq[float] =
   ## Returns the prediction of the (globally declared!) network for the given data, which
   ## must be a dataframe containing all required datasets!
   let inp = toTorchTensor(df)
   # 3. forward pass through network
-  result = model.forward(inp, device)
+  result = model.forward(inp, device, desc)
 
 proc predict*(modelPath: string, df: DataFrame): seq[float] =
   ## Returns the prediction of the (globally declared!) network for the given data, which
@@ -78,11 +78,16 @@ proc predict*(modelPath: string, df: DataFrame): seq[float] =
   loadModelMakeDevice(modelPath)
   let inp = toTorchTensor(df)
   # 3. forward pass through network
-  result = model.forward(inp, device)
+  result = model.forward(inp, device, desc)
 
 proc predict*(ctx: LikelihoodContext, h5f: H5File, grp: string): seq[float] =
   if not ctx.vetoCfg.useNeuralNetworkCut: return
   result = predict(h5f, ctx.vetoCfg.nnModelPath, grp)
+
+proc determineCutValue*(modelPath: string, df: DataFrame, ε: float): float =
+  ## Determines the cut value for the given model & df at `ε`
+  loadModelMakeDevice(modelPath)
+  result = model.determineCutValue(device, desc, df, ε)
 
 proc calcNeuralNetCutValueTab*(modelPath: string, cutKind: NeuralNetCutKind, ε: float): CutValueInterpolator =
   if modelPath.len == 0:
@@ -92,8 +97,11 @@ proc calcNeuralNetCutValueTab*(modelPath: string, cutKind: NeuralNetCutKind, ε:
 
   result = initCutValueInterpolator(cutKind)
   case cutKind
-  of nkGlobal: result.cut = determineCutValue(model, device, ε, readRaw = false)
+  of nkGlobal: result.cut = determineCutValue(model, device, desc, ε, readRaw = false)
   of nkLocal: result.nnCutTab = determineLocalCutValue(model, device, ε, readRaw = false)
+  of nkRunBasedLocal:
+    echo "[INFO]: nkRunBasedLocal requires run based determination of the local cut values ",
+     "using the rmsTransverse data for a reference of the diffusion."
   else:
     doAssert false, "Not supported yet!"
 
@@ -101,6 +109,31 @@ proc calcNeuralNetCutValueTab*(ctx: LikelihoodContext): CutValueInterpolator =
   if not ctx.vetoCfg.useNeuralNetworkCut: return
   result = calcNeuralNetCutValueTab(ctx.vetoCfg.nnModelPath, ctx.vetoCfg.nnCutKind, ctx.vetoCfg.nnSignalEff)
 
+import ingrid / fake_event_generator
+from pkg / unchained import FemtoFarad
+from std / random import Rand
+proc calcLocalNNCutValueTab*(ctx: LikelihoodContext,
+                             rnd: var Rand,
+                             h5f: H5File,
+                             runType: RunTypeKind,
+                             run, chipNumber: int,
+                             chipName: string,
+                             capacitance: FemtoFarad
+                            ): CutValueInterpolator =
+  loadModelMakeDevice(ctx.vetoCfg.nnModelPath)
+  var dfFake = newDataFrame()
+  for tf in TargetFilterKind:
+    let fakeDesc = FakeDesc(nFake: 5000,
+                            tfKind: tf,
+                            kind: fkGainDiffusion)
+    var dfLoc = generateRunFakeData(rnd, h5f, run, chipNumber, chipName, capacitance, fakeDesc, runType, DataFrame, some(ctx))
+    dfLoc["Target"] = $tf
+    dfFake.add dfLoc
+
+  # now use fake data to determine cuts
+  let ε = ctx.vetoCfg.nnSignalEff
+  result = initCutValueInterpolator(nkRunBasedLocal)
+  result.nnCutTab = determineRunLocalCutValue(model, device, dfFake, ε)
 
 proc main(calib, back: seq[string] = @[],
           model: string,

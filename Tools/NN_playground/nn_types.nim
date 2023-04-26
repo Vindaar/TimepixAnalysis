@@ -15,38 +15,19 @@ basti/.cache/nim/train_ingrid_r/@mtrain_ingrid.nim.cpp.o /home/basti/.cache/nim/
 
 ]#
 
-# We will build the following network:
-# Input --> Linear(out_features = 12) --> relu --> Linear(out_features = 1)
+# Update: to circumvent the above we define a custom C++ header file from which we define the type instead
 
-import flambeau / [flambeau_nn, tensors]
+import flambeau / [flambeau_nn]
 import ingrid / [tos_helpers, ingrid_types]
 
-defModule:
-  type
-    MLP* = object of Module
-      # 13 includes total charge
-      hidden* = Linear(13, 500)
-      #hidden2* = Linear(100, 100)
-      #hidden2* = Linear(5000, 5000)
-      classifier* = Linear(500, 2)
-      #conv2* = Conv2d(10, 20, 5)
-      #conv2_drop* = Dropout2d()
-      #fc1* = Linear(320, 50)
-      #fc2* = Linear(50, 10)
-
-proc forward*(net: MLP, x: RawTensor): RawTensor =
-  #var x = net.hidden2.forward(net.hidden.forward(x).relu()).relu()
-  var x = net.hidden.forward(x).relu()
-  #x = net.hidden2.forward(x).relu()
-  return net.classifier.forward(x).squeeze(1)
-
-proc init*(T: type MLP, numInput, numHidden: int, numOutput = 2): MLP =
-  result = make_shared(MLPImpl)
-  result.hidden = result.register_module("hidden_module", init(Linear, numInput, numHidden))
-  result.classifier = result.register_module("classifier_module",
-      init(Linear, numHidden, numOutput))
-
 type
+  MLPImpl* {.pure, header: "mlp_impl.hpp", importcpp: "MLPImpl".} = object of Module
+    hidden*: Linear
+    hidden2*: Linear
+    classifier*: Linear
+
+  MLP* = CppSharedPtr[MLPImpl]
+
   ## A helper object that describes the layers of an MLP
   ## The number of input neurons and neurons on the hidden layer.
   ## This is serialized as an H5 file next to the trained network checkpoints.

@@ -130,6 +130,29 @@ proc initMLPDesc*(calib, back, datasets: seq[string],
                    simulatedData: simulatedData,
                    rngSeed: rngSeed)
 
+template withOptim*(model: AnyModel, mlpDesc: MLPDesc, body: untyped): untyped =
+  let lr = mlpDesc.learningRate
+  case mlpDesc.optimizer
+  of opNone: doAssert false
+  of opSGD:
+    var optimizer {.inject.} = SGD.init(
+      model.deref.parameters(),
+      SGDOptions.init(lr).momentum(0.2) # .weight_decay(0.001)
+    )
+    body
+  of opAdam:
+    var optimizer {.inject.} = Adam.init(
+      model.deref.parameters(),
+      AdamOptions.init(lr)
+    )
+    body
+  of opAdamW:
+    var optimizer {.inject.} = AdamW.init(
+      model.deref.parameters(),
+      AdamWOptions.init(lr)
+    )
+    body
+
 proc init*(T: type MLP): MLP =
   result = make_shared(MLPImpl)
   result.hidden = result.register_module("hidden_module", init(Linear, 13, 500))

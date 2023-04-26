@@ -1,5 +1,5 @@
 from random import shuffle
-import std / [sequtils, os, strutils]
+import std / [sequtils, os, strutils, options]
 
 import ingrid / [tos_helpers, ingrid_types]
 import pkg / [nimhdf5, datamancer]
@@ -9,7 +9,7 @@ const ValidReadDSets* = XrayReferenceDsets - { igNumClusters,
                                                igRadiusDivRmsTrans,
                                                igRadius, igBalance,
                                                igLengthDivRadius } + {
-                                                 igCenterX, igCenterY }
+                                                 igCenterX, igCenterY, igGasGain }
 
 # include total charge
 #const ValidDsets* = { igEccentricity, igLengthDivRmsTrans, igFractionInTransverseRms }
@@ -18,7 +18,7 @@ const ValidDsets* = ValidReadDSets - { igLikelihood, igCenterX, igCenterY, igHit
 ## `CurrentDsets` is the variable in use to read the correct data / extract the correct data
 ## from a given DF and turn it into a Torch Tensor.
 ## For now a global variable, that might likely become a field of `MLPDesc`.
-var CurrentDsets* = ValidDsets.toSeq
+var CurrentDsets* = ValidDsets.toSeq.mapIt(it.toDset())
 
 type
   DataType* = enum
@@ -30,6 +30,7 @@ proc shuff*(x: seq[int]): seq[int] =
   result = x
   result.shuffle()
 
+import ../../Tools/determineDiffusion/determineDiffusion
 proc readCdlDset*(h5f: H5File, cdlPath, dset: string): DataFrame =
   ## Reads the given dataset (target/filter kind) `dset` according
   ## to the required cuts for X-rays for this target/filter.
@@ -43,6 +44,7 @@ proc readCdlDset*(h5f: H5File, cdlPath, dset: string): DataFrame =
       passData[d].add data[d][i]
   for d in dsets:
     result[d.toDset(fkTpa)] = passData[d]
+  result["σT"] = getDiffusion(result) / 1000.0 # convert from μm/√cm to mm/√cm
 
 proc readRaw*(h5f: H5File, grpName: string, idxs: seq[int] = @[]): DataFrame =
   ## XXX: Need to implement filtering to suitable data for CDL data!
@@ -77,17 +79,20 @@ proc randomHead*(df: DataFrame, head: int): DataFrame =
 
 proc readValidDsets*(h5f: H5File, path: string, readRaw = false,
                      typ = dtBack,
-                     subsetPerRun = 0): DataFrame =
+                     subsetPerRun = 0,
+                     validDsets: set[InGridDsetKind] = ValidReadDsets - { igLikelihood } ): DataFrame =
   ## Reads all data for the given run `path` (must be a chip path)
   ##
   ## `subsetPerRun` is an integer which if given only returns this many entries (random)
   ## from each run.
-  let dsets = toSeq(ValidReadDsets - { igLikelihood }).mapIt(it.toDset(fkTpa))
+  let dsets = toSeq(validDsets)
   let evNumDset = igEventNumber.toDset(fkTpa)
   let grp = h5f[path.grp_str]
+  result = newDataFrame()
   if not readRaw:
-    for dset in dsets:
-      result[dset] = h5f.readAs(grp.name / dset, float)
+    let data = readInGridDsetKind(h5f, grp.name, dsets)
+    for d in dsets: # these are all now filled
+      result[d.toDset()] = data[d]
     result[evNumDset] = h5f.readAs(grp.name / evNumDset, int)
   else:
     result = h5f.readRaw(grp.name)
@@ -98,10 +103,17 @@ proc readValidDsets*(h5f: H5File, path: string, readRaw = false,
     result = result.mutate(f{"Target" ~ `energyFromCharge`.toRefDset})
   if subsetPerRun > 0:
     result = result.randomHead(subsetPerRun)
+  #result["Idx"] = toSeq(0 ..< result.len)
+  result["σT"] = getDiffusion(result) / 1000.0 # convert from μm/√cm to mm/√cm
 
-proc prepareData*(h5f: H5File, run: int, readRaw: bool, typ = dtBack, subsetPerRun = 0): DataFrame
+proc prepareData*(h5f: H5File, run: int, readRaw: bool,
+                  typ = dtBack,
+                  subsetPerRun = 0,
+                  validDsets: set[InGridDsetKind] = ValidReadDsets - { igLikelihood } ): DataFrame
 proc readCalibData*(fname, calibType: string, eLow, eHigh: float,
-                    subsetPerRun = 0): DataFrame =
+                    subsetPerRun = 0,
+                    tfKind = none[TargetFilterKind](),
+                    validDsets: set[InGridDsetKind] = ValidReadDsets - { igLikelihood } ): DataFrame =
   ## `subsetPerRun` is an integer which if given only returns this many entries (random)
   ## from each run.
   var h5f = H5open(fname, "r")
@@ -112,34 +124,68 @@ proc readCalibData*(fname, calibType: string, eLow, eHigh: float,
   for run in fileInfo.runs:
     let xrayRefCuts = getXrayCleaningCuts()
     let runGrp = h5f[(recoBase() & $run).grp_str]
-    let tfKind = if calibType == "photo": tfMnCr12 # same as 5.9 keV peak
-                 else: tfMnCr12 #tfAgAg6 # ~3 keV line similar to escape
-    let cut = xrayRefCuts[$tfKind]
-    let grp = h5f[(recoBase() & $run / "chip_3").grp_str]
-    let passIdx = cutOnProperties(
-      h5f,
-      grp,
-      crSilver, # try cutting to silver
-      (toDset(igRmsTransverse), cut.minRms, cut.maxRms),
-      (toDset(igEccentricity), 0.0, cut.maxEccentricity),
-      (toDset(igLength), 0.0, cut.maxLength),
-      (toDset(igHits), cut.minPix, Inf),
-      (toDset(igEnergyFromCharge), eLow, eHigh)
-    )
-    let dfChip = h5f.readRunDsets(run, chipDsets = some((chip: 3, dsets: @["eventNumber"])))
-    let allEvNums = dfChip["eventNumber", int]
-    let evNums = passIdx.mapIt(allEvNums[it]).toSet
+    if tfKind.isSome:
+      # try to read attribute and if not given `tfKind` skip this run
+      let tf = tfKind.get
+      if "tfKind" in runGrp.attrs:
+        let tfKindFile = parseEnum[TargetFilterKind](runGrp.attrs["tfKind", string])
+        if tf != tfKindFile: continue
+      else:
+        echo "[WARNING]: You asked for the target filter kind: ", tf, " but the input file does not have " &
+          "this attribute in ", runGrp.name
+
+    ## XXX: verify we really want `tfMnCr12` for escape peak and not AgAg6kV!
+    let cutTfKind =
+      if tfKind.isSome: tfKind.get
+      elif calibType in ["photo", "5.9"]: tfMnCr12 # same as 5.9 keV peak
+      else: tfAgAg6 #tfMnCr12 #tfAgAg6 # ~3 keV line similar to escape
+    when false:
+      let cut = xrayRefCuts[$cutTfKind]
+      let grp = h5f[(recoBase() & $run / "chip_3").grp_str]
+      let passIdx = cutOnProperties(
+        h5f,
+        grp,
+        crSilver, # try cutting to silver
+        (toDset(igRmsTransverse), cut.minRms, cut.maxRms),
+        (toDset(igEccentricity), 0.0, cut.maxEccentricity),
+        (toDset(igLength), 0.0, cut.maxLength),
+        (toDset(igHits), cut.minPix, Inf),
+        (toDset(igEnergyFromCharge), eLow, eHigh)
+      )
+      let dfChip = h5f.readRunDsets(run, chipDsets = some((chip: 3, dsets: @["eventNumber"])))
+      let allEvNums = dfChip["eventNumber", int]
+      let evNums = passIdx.mapIt(allEvNums[it]).toSet
     # filter to allowed events & remove any noisy events
     # note: do not use `subsetPerRun` here because we still need to extract valid event numbers!
-    var df = prepareData(h5f, run, readRaw = false, typ = dtSignal)
-    df = df.filter(f{int: `eventNumber` in evNums})
+    var df = prepareData(h5f, run, readRaw = false, typ = dtSignal,
+                         validDsets = validDsets)
+      .cutXrayCleaning(cutTfKind,
+                       eLow, eHigh)
+    #echo "DF IS LONG: ", df.len, " and ALLEVNUMS LONG: ", allEvNums.len
+    # df = df.filter(f{int: `eventNumber` in evNums})
     df["runNumber"] = run
     if subsetPerRun > 0:
       df = df.randomHead(subsetPerRun)
+    if df.filter(f{`energyFromCharge` < eLow or `energyFromCharge` > eHigh}).len > 0:
+      let dfFF = df.filter(f{`energyFromCharge` < eLow or `energyFromCharge` > eHigh})
+      #echo
+      echo "eLow : ", eLow, " and ", eHigh
+      echo "What the fuck?"
+
+      echo df["Idx"].len
+      #echo passIdx.len
+
+      #echo "And pass idx ? ", passIdx
+      echo dfFF["Idx"]
+
+
+
+      quit()
+
     result.add df
   result["CalibType"] = calibType # Photo or escape peak
 
-proc prepareCDL*(readRaw: bool,
+proc prepareCdl*(readRaw: bool,
                  cdlPath = "/home/basti/CastData/data/CDL_2019/calibration-cdl-2018.h5"
                ): DataFrame =
   var h5f = H5file(cdlPath, "r")
@@ -171,19 +217,26 @@ proc prepareCDL*(readRaw: bool,
   df["Type"] = $dtSignal
   result = df.shuffle()
 
-proc prepareData*(h5f: H5File, run: int, readRaw: bool, typ = dtBack, subsetPerRun = 0): DataFrame =
+proc prepareData*(h5f: H5File, run: int, readRaw: bool, typ = dtBack, subsetPerRun = 0,
+                  validDsets: set[InGridDsetKind] = ValidReadDsets - { igLikelihood }
+                 ): DataFrame =
   let path = "/reconstruction/run_$#/chip_3" % $run
-  result = h5f.readValidDsets(path, readRaw, typ, subsetPerRun)
+  result = h5f.readValidDsets(path, readRaw, typ, subsetPerRun, validDsets)
 
-proc prepareBackground*(fname: string, run: int, readRaw: bool, subsetPerRun = 0): DataFrame =
+proc prepareBackground*(fname: string, run: int, readRaw: bool, subsetPerRun = 0,
+                        validDsets: set[InGridDsetKind] = ValidReadDsets - { igLikelihood }): DataFrame =
   var h5f = H5open(fname, "r")
-  result = h5f.prepareData(run, readRaw, subsetPerRun = subsetPerRun)
+  result = h5f.prepareData(run, readRaw, subsetPerRun = subsetPerRun,
+                           validDsets = validDsets)
   discard h5f.close()
 
-proc prepareAllBackground*(fname: string, readRaw: bool, subsetPerRun = 0): DataFrame =
+proc prepareAllBackground*(fname: string, readRaw: bool, subsetPerRun = 0,
+                           validDsets: set[InGridDsetKind] = ValidReadDsets - { igLikelihood }
+                          ): DataFrame =
   var h5f = H5open(fname, "r")
   for run, grp in runs(h5f):
-    var df = h5f.prepareData(run, readRaw, subsetPerRun = subsetPerRun)
+    var df = h5f.prepareData(run, readRaw, subsetPerRun = subsetPerRun,
+                             validDsets = validDsets)
     df["runNumber"] = run
     result.add df
 
@@ -191,39 +244,40 @@ proc prepareAllBackground*(fname: string, readRaw: bool, subsetPerRun = 0): Data
   result = result.filter(f{float -> bool: inRegion(`centerX`, `centerY`, crGold)})
   discard h5f.close()
 
-{.experimental: "views".}
-import flambeau / [flambeau_raw, tensors]
-proc toInputTensor*(df: DataFrame): (RawTensor, RawTensor) {.noInit.} =
-  ## Converts an appropriate data frame to a tuple of input / target tensors
-  let df = df.mutate(f{"totalCharge" ~ `totalCharge` / 1e7})
-  let cols = CurrentDsets.len
-  var input = rawtensors.zeros(df.len * cols).reshape(sizes = [df.len.int64, cols].asTorchView())
-  for i, c in CurrentDsets.mapIt(it.toDset(fkTpa)).sorted:
-    let xp = fromBlob[float](cast[pointer](df[c, float].unsafe_raw_offset()), df.len).convertRawTensor()
-    input[_, i] = xp
-  var target = rawtensors.zeros(df.len * 2).reshape([df.len.int64, 2].asTorchView())
-  let typ = df["Type", string]
-  for i in 0 ..< typ.size:
-    if typ[i] == $dtSignal:
-      target[i, _] = [1, 0].toRawTensorFromScalar #.toTensor.convertRawTensor()
-    elif typ[i] == $dtBack:
-      target[i, _] = [0, 1].toRawTensorFromScalar #toTensor.convertRawTensor()
-    else:
-      doAssert false, "Invalid type field " & $typ[i]
-  result = (input, target)
+when defined(cpp):
+  {.experimental: "views".}
+  import flambeau / [flambeau_raw]
+  proc toInputTensor*(df: DataFrame): (RawTensor, RawTensor) {.noInit.} =
+    ## Converts an appropriate data frame to a tuple of input / target tensors
+    let df = df.mutate(f{"totalCharge" ~ `totalCharge` / 1e7})
+    let cols = CurrentDsets.len
+    var input = rawtensors.zeros(df.len * cols).reshape(sizes = [df.len.int64, cols].asTorchView())
+    for i, c in CurrentDsets.sorted:
+      let xp = fromBlob(cast[pointer](df[c, float].unsafe_raw_offset()), df.len, float)
+      input[_, i] = xp
+    var target = rawtensors.zeros(df.len * 2).reshape([df.len.int64, 2].asTorchView())
+    let typ = df["Type", string]
+    for i in 0 ..< typ.size:
+      if typ[i] == $dtSignal:
+        target[i, _] = [1, 0].toRawTensorFromScalar #.toTensor.convertRawTensor()
+      elif typ[i] == $dtBack:
+        target[i, _] = [0, 1].toRawTensorFromScalar #toTensor.convertRawTensor()
+      else:
+        doAssert false, "Invalid type field " & $typ[i]
+    result = (input, target)
 
-proc toTorchTensor*(df: DataFrame): RawTensor {.noInit.} =
-  ## Converts an appropriate data frame to a 2D RawTensor of the data to be fed to the network
-  let df = df.mutate(f{"totalCharge" ~ `totalCharge` / 1e7})
-  let cols = CurrentDsets.len
-  var input = rawtensors.zeros(df.len * cols).reshape(sizes = [df.len.int64, cols].asTorchView())
-  for i, c in CurrentDsets.mapIt(it.toDset(fkTpa)).sorted:
-    let xp = fromBlob[float](cast[pointer](df[c, float].unsafe_raw_offset()), df.len).convertRawTensor()
-    input[_, i] = xp
-  result = input
+  proc toTorchTensor*(df: DataFrame): RawTensor {.noInit.} =
+    ## Converts an appropriate data frame to a 2D RawTensor of the data to be fed to the network
+    let df = df.mutate(f{"totalCharge" ~ `totalCharge` / 1e7})
+    let cols = CurrentDsets.len
+    var input = rawtensors.zeros(df.len * cols).reshape(sizes = [df.len.int64, cols].asTorchView())
+    for i, c in CurrentDsets.sorted:
+      let xp = fromBlob(cast[pointer](df[c, float].unsafe_raw_offset()), df.len, float)
+      input[_, i] = xp
+    result = input
 
-proc toNimSeq*[T](t: RawTensor): seq[T] =
-  doAssert t.sizes().len == 1
-  result = newSeq[T](t.size(0))
-  for i in 0 ..< result.len:
-    result[i] = t[i].item(T)
+  proc toNimSeq*[T](t: RawTensor): seq[T] =
+    doAssert t.sizes().len == 1
+    result = newSeq[T](t.size(0))
+    for i in 0 ..< result.len:
+      result[i] = t[i].item(T)

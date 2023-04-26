@@ -1,23 +1,220 @@
 import flambeau / [flambeau_nn, tensors]
 import std / [strformat, os, strutils, sequtils, random, algorithm, options, macros]
 
-import ingrid / [tos_helpers, ingrid_types]
-import pkg / [datamancer, unchained, nimhdf5]
+import pkg / [cppstl]
 
 # have to include the type definitions
-include ./nn_types
-import ./io_helpers
-include ./nn_cuts
+#include ./nn_types
+#import ./io_helpers
+#include ./nn_cuts
+
+type
+  MLPImpl* {.pure, header: "mlp_impl.hpp", importcpp: "MLPImpl".} = object of Module
+    hidden*: Linear
+    hidden2*: Linear
+    classifier*: Linear
+
+  MLP* = CppSharedPtr[MLPImpl]
+
+  ActivationFunction* = enum
+    afReLU, afTanh, afELU, afGeLU # , ...?
+
+  OutputActivation* = enum
+    ofLinear, ofSigmoid, ofTanh # , ...?
+
+  LossFunction* = enum
+    lfSigmoidCrossEntropy, lfMLEloss, lfL1Loss # , ...?
+
+  OptimizerKind* = enum
+    opNone, opSGD, opAdam, opAdamW # , opAdaGrad, opAdaBoost ?
+
+  GenericOptimizer* = object
+    case kind: OptimizerKind
+    of opNone: discard
+    of opSGD: sgd: CppSharedPtr[SGD]
+    of opAdam: adam: CppSharedPtr[Adam]
+    of opAdamW: adamW: CppSharedPtr[AdamW]
+
+  ## A helper object that describes the layers of an MLP
+  ## The number of input neurons and neurons on the hidden layer.
+  ## This is serialized as an H5 file next to the trained network checkpoints.
+  ## On loading a network this file is parsed first and then used to initialize
+  ## the correct size of a network.
+  ## In addition it contains the datasets that are used for the input.
+  MLPDesc* = object
+    path*: string # model path to the checkpoint files including the default model name!
+    plotPath*: string # path in which plots are placed
+    calibFiles*: seq[string] ## Path to the calibration files
+    backFiles*: seq[string] ## Path to the background data files
+    simulatedData*: bool
+    numInputs*: int
+    numHidden*: seq[int]
+    numLayers*: int
+    learningRate*: float
+    datasets*: seq[string] # Not `InGridDsetKind` to support arbitrary new columns
+    subsetPerRun*: int
+    rngSeed*: int
+    #
+    activationFunction*: ActivationFunction
+    outputActivation*: OutputActivation
+    lossFunction*: LossFunction
+    optimizer*: OptimizerKind
+    # fields that store training information
+    epochs*: seq[int] ## epochs at which plots and checkpoints are generated
+    accuracies*: seq[float]
+    testAccuracies*: seq[float]
+    losses*: seq[float]
+    testLosses*: seq[float]
+
+  ModelKind* = enum
+    mkMLP = "MLP"
+    mkCNN = "ConvNet"
+
+  ## Placeholder for `ConvNet` above as currently defining both is problematic
+  ConvNet* = object
+
+  AnyModel* = MLP | ConvNet
+
+## The batch size we use!
+const bsz = 8192 # batch size
+
+proc init*(T: type MLP): MLP =
+  result = make_shared(MLPImpl)
+  result.hidden = result.register_module("hidden_module", init(Linear, 13, 500))
+  result.hidden2 = result.register_module("hidden2_module", init(Linear, 13, 500))
+  result.classifier = result.register_module("classifier_module",
+      init(Linear, 500, 2))
+
+#func init*(T: type MLPImpl): T {.constructor, importcpp: "MLPImpl::MLPImpl(Linear(13, 500); Linear(500, 2))".}
+
+proc init*(T: type MLP, numInput: int, numLayers: int, numHidden: seq[int], numOutput = 2): MLP =
+  result = make_shared(MLPImpl)
+  if numLayers != numHidden.len:
+    raise newException(ValueError, "Number of layers does not match number of neurons given for each " &
+      "hidden layer! Layers: " & $numLayers & " and neurons per layer: " & $numHidden)
+  if numLayers > 2:
+    raise newException(ValueError, "Only up to 2 hidden layers supported with the `MLPImpl` type.")
+  result.hidden = result.register_module("hidden_module", init(Linear, numInput, numHidden[0]))
+  if numLayers == 1: # single hidden layer MLP
+    result.classifier = result.register_module("classifier_module", init(Linear, numHidden[0], numOutput))
+  else: # dual hidden layer MLP
+    result.hidden2 = result.register_module("hidden2_module", init(Linear, numHidden[0], numHidden[1]))
+    result.classifier = result.register_module("classifier_module", init(Linear, numHidden[1], numOutput))
+
+proc init*(T: type MLP, desc: MLPDesc): MLP =
+  result = MLP.init(desc.numInputs, desc.numLayers, desc.numHidden)
+
+proc initMLPDesc*(calib, back, datasets: seq[string],
+                  modelPath: string, plotPath: string,
+                  numHidden: seq[int],
+                  activation: ActivationFunction,
+                  outputActivation: OutputActivation,
+                  lossFunction: LossFunction,
+                  optimizer: OptimizerKind,
+                  learningRate: float,
+                  subsetPerRun: int,
+                  simulatedData: bool,
+                  rngSeed: int): MLPDesc =
+  result = MLPDesc(calibFiles: calib,
+                   backFiles: back,
+                   datasets: datasets,
+                   path: modelPath, plotPath: plotPath,
+                   numInputs: datasets.len,
+                   numHidden: numHidden,
+                   numLayers: numHidden.len,
+                   activationFunction: activation,
+                   outputActivation: outputActivation,
+                   lossFunction: lossFunction,
+                   optimizer: optimizer,
+                   learningRate: learningRate,
+                   subsetPerRun: subsetPerRun,
+                   simulatedData: simulatedData,
+                   rngSeed: rngSeed)
+
+proc initGenericOptim*(model: AnyModel, mlpDesc: MLPDesc): GenericOptimizer = # {.noInit.} =
+  let lr = mlpDesc.learningRate
+  result = GenericOptimizer(kind: mlpDesc.optimizer) #opNone)
+  case mlpDesc.optimizer
+  of opNone: doAssert false
+  of opSGD:
+    var sgd = makeShared(SGD)
+    var sgdD = sgd.deref
+    sgdD = SGD.init(
+      model.deref.parameters(),
+      SGDOptions.init(lr).momentum(0.2) # .weight_decay(0.001)
+    )
+    #result = GenericOptimizer(kind: opSGD, sgd: sgd)
+    result.sgd = sgd
+  of opAdam:
+    var adam = makeShared(Adam)
+    var adamD = adam.deref
+    adamD = Adam.init(
+      model.deref.parameters(),
+      AdamOptions.init(lr)
+    )
+    #result = GenericOptimizer(kind: opAdam, adam: adam)
+    result.adam = adam
+  of opAdamW:
+    var adamW = makeShared(AdamW)
+    var adamWD = adamW.deref
+    adamWD = AdamW.init(
+      model.deref.parameters(),
+      AdamWOptions.init(lr)
+    )
+    #result = GenericOptimizer(kind: opAdamW, adamW: adamW)
+    result.adamW = adamW
+
+#template initGenericOptim*(model: AnyModel, mlpDesc: MLPDesc): untyped =
+#  let lr = mlpDesc.learningRate
+#  var optim: Optimizer = Optimizer()
+#  case mlpDesc.optimizer
+#  of opSGD:
+#    #var sgd = makeShared(SGD)
+#    #var sgdD = sgd.deref
+#    var sgdD = SGD.init(
+#      model.deref.parameters(),
+#      SGDOptions.init(lr).momentum(0.2) # .weight_decay(0.001)
+#    )
+#    #result = GenericOptimizer(kind: opSGD, sgd: sgd)
+#    optim = sgdD
+#  of opAdam:
+#    #var adam = makeShared(Adam)
+#    #var adamD = adam.deref
+#    var adamD = Adam.init(
+#      model.deref.parameters(),
+#      AdamOptions.init(lr)
+#    )
+#    #result = GenericOptimizer(kind: opAdam, adam: adam)
+#    optim = adamD
+#  of opAdamW:
+#    #var adamW = makeShared(AdamW)
+#    #var adamWD = adamW.deref
+#    var adamWD = AdamW.init(
+#      model.deref.parameters(),
+#      AdamWOptions.init(lr)
+#    )
+#    #result = GenericOptimizer(kind: opAdamW, adamW: adamW)
+#    optim = adamWD
+#  optim
+
+proc `=destroy`*(go: var GenericOptimizer) = discard
+#proc `=sink`*(go: var GenericOptimizer, b: GenericOptimizer) = {.error: "Not available".}
+
+proc zero_grad*(go: var GenericOptimizer) =
+  case go.kind
+  of opNone: doAssert false
+  of opSGD: go.sgd.deref.zero_grad()
+  of opAdam: go.adam.deref.zero_grad()
+  of opAdamW: go.adamW.deref.zero_grad()
+
+proc step*(go: var GenericOptimizer) =
+  case go.kind
+  of opNone: doAssert false
+  of opSGD: go.sgd.deref.step()
+  of opAdam: go.adam.deref.step()
+  of opAdamW: go.adamW.deref.step()
 
 {.experimental: "views".}
-
-proc generateTrainTest(df: var DataFrame):
-                      ((RawTensor, RawTensor), (RawTensor, RawTensor)) {.noInit.} =
-  df["Idx"] = toSeq(0 .. df.high).shuff()
-  df = df.arrange("Idx")
-  let dfTrain = df[0 .. df.high div 2]
-  let dfTest = df[df.high div 2 + 1 .. df.high]
-  result = (train: dfTrain.toInputTensor, test: dfTest.toInputTensor)
 
 proc train(model: AnyModel, #optimizer: var Optimizer,#GenericOptimizer,
            input, target: RawTensor,
@@ -38,13 +235,12 @@ proc train(model: AnyModel, #optimizer: var Optimizer,#GenericOptimizer,
   let start = continueAfterEpoch
   let stop = start + 100000
   for epoch in start .. stop:
-    for batch_id in 0 ..< (dataset_size.float / bsz.float).ceil.int:
+    for batch_id in 0 ..< (dataset_size.float / bsz.float).int:
       # Reset gradients.
       optimizer.zero_grad()
 
 proc initDesc(calib, back: seq[string], # data
               modelOutpath, plotPath: string,
-              datasets: seq[string], # datasets used as input neurons
               numHidden: seq[int], # number of neurons on each hidden layer
               activation: ActivationFunction,
               outputActivation: OutputActivation,
@@ -54,12 +250,7 @@ proc initDesc(calib, back: seq[string], # data
               subsetPerRun: int,
               simulatedData: bool,
               rngSeed: int): MLPDesc =
-  if numHidden.len == 0:
-    raise newException(ValueError, "Please provide a number of neurons for the hidden layers.")
-  # 1. initialize the MLPDesc from the given parameters
-  let dsets = if datasets.len == 0: CurrentDsets else: datasets
-  let plotPath = if plotPath.len == 0: "/tmp/" else: plotPath
-  result = initMLPDesc(calib, back, dsets,
+  result = initMLPDesc(calib, back, @[],
                        modelOutpath, plotPath,
                        numHidden,
                        activation, outputActivation, lossFunction, optimizer,
@@ -67,35 +258,6 @@ proc initDesc(calib, back: seq[string], # data
                        subsetPerRun,
                        simulatedData,
                        rngSeed)
-
-  # 2. check if such a file already exists to possibly merge it or just return that
-  let outfile = result.path.parentDir / MLPDescName
-  if fileExists(outfile):
-    ## Existing file with same name. Possibly an older version of it?
-    ## Try deserializing as a V1 MLPDesc
-    let descV1 = deserializeH5[MLPDescV1](outfile)
-    if descV1.numHidden != 0: # means it really was V1. Therefore copy over
-      ## As a V1, just copy over the training related fields
-      macro copyFields(fs: varargs[untyped]): untyped =
-        result = newStmtList()
-        for f in fs:
-          result.add quote do:
-            result.`f` = descV1.`f`
-      copyFields(epochs, accuracies, testAccuracies, losses, testLosses)
-      doAssert descV1.datasets == result.datasets, "Datasets in existing file and input don't match!"
-      # write back the now modified new version MLPDesc object
-      result.toH5(outfile)
-    else:
-      ## is actually V2, just return it! This branch is
-      # Note: input parameters are ignored in this case!
-      result = deserializeH5[MLPDesc](outfile)
-  else:
-    # potentially create the output path, serialize the object
-    discard existsOrCreateDir(result.plotPath)
-    discard existsOrCreateDir(result.path.parentDir)
-    result.toH5(outfile)
-  # update the global datasets!
-  CurrentDsets = result.datasets
 
 ## XXX: inside of a generic proc (what we would normally do) the `parameters` call
 ## breaks! Nim doesn't understand that the MLP / ConvNet type can be converted
@@ -115,12 +277,10 @@ proc trainModel[T](Typ: typedesc[T],
   else:
     const readRaw = true
   echo "Reading data"
-  var df = newDataFrame()
   # get training & test dataset
   echo "Splitting data into train & test set"
-  let (trainTup, testTup) = generateTrainTest(df)
-  let (trainIn, trainTarg) = trainTup
-  let (testIn, testTarg) = testTup
+  var
+    trainIn, trainTarg, testIn, testTarg: RawTensor
   # check if model already exists as trained file
   let lr = mlpDesc.learningRate
   if not fileExists(mlpDesc.path) or continueAfterEpoch > 0:
@@ -136,7 +296,6 @@ proc trainModel[T](Typ: typedesc[T],
     model.save(mlpDesc.path)
 
 proc main(calib, back: seq[string] = @[],
-          datasets: seq[string] = @[],
           ε = 0.8, # signal efficiency for background rate prediction
           rocCurve = false,
           model = "MLP", # MLP or ConvNet #model = mkMLP ## parsing an enum here causes weird CT error in cligen :/
@@ -155,7 +314,6 @@ proc main(calib, back: seq[string] = @[],
           rngSeed = 1337) =
 
   let desc = initDesc(calib, back, modelOutpath, plotPath,
-                      datasets,
                       numHidden,
                       activation, outputActivation, lossFunction, optimizer,
                       learningRate,
@@ -182,15 +340,6 @@ proc main(calib, back: seq[string] = @[],
 
 when isMainModule:
   import cligen/argcvt
-  proc argParse(dst: var seq[InGridDsetKind], dfl: seq[InGridDsetKind],
-                a: var ArgcvtParams): bool =
-    var val = a.val
-    try:
-      dst.add parseEnum[InGridDsetKind](val)
-      result = true
-    except ValueError:
-      raise newException(Exception, "Invalid dataset given: " & $val)
-
   proc argParse[T: enum](dst: var T, dfl: T, a: var ArgcvtParams): bool =
     var val = a.val
     try:
@@ -198,7 +347,5 @@ when isMainModule:
       result = true
     except ValueError:
       raise newException(Exception, "Invalid enum value: " & $val)
-  proc argHelp*(dfl: Hour; a: var ArgcvtParams): seq[string] =
-    result = @[ a.argKeys, "<value>.Hour", $dfl ]
   import cligen
   dispatch main

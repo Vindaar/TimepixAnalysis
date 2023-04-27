@@ -54,6 +54,7 @@ type
   ## the correct size of a network.
   ## In addition it contains the datasets that are used for the input.
   MLPDesc* = object
+    version*: int # Version of this MLPDesc object
     path*: string # model path to the checkpoint files including the default model name!
     plotPath*: string # path in which plots are placed
     calibFiles*: seq[string] ## Path to the calibration files
@@ -192,7 +193,8 @@ proc initMLPDesc*(calib, back, datasets: seq[string],
                   subsetPerRun: int,
                   simulatedData: bool,
                   rngSeed: int): MLPDesc =
-  result = MLPDesc(calibFiles: calib,
+  result = MLPDesc(version: MLPVersion,
+                   calibFiles: calib,
                    backFiles: back,
                    datasets: datasets,
                    path: modelPath, plotPath: plotPath,
@@ -212,7 +214,7 @@ from pkg / nimhdf5 import deserializeH5
 from std / strutils import startsWith, parseEnum
 proc findNewestFile*(path: string): (int, string) =
   for i, f in MLPDescFilenames:
-    if existsFile(modelPath.parentDir / f):
+    if existsFile(path / f):
       result = (i+1, f)
 
 proc initMLPDesc*(modelPath: string, plotPath = ""): MLPDesc =
@@ -232,7 +234,7 @@ proc initMLPDesc*(modelPath: string, plotPath = ""): MLPDesc =
       result.plotPath = plotPath
   else:
     # see if older version exists
-    let (ver, newestFile) = findNewestFile(path)
+    let (ver, newestFile) = findNewestFile(modelPath.parentDir)
     echo "MLPDesc H5 file of version : ", ver, " exists: ", newestFile
     raise newException(IOError, "Required version: " & $MLPVersion & " of the MLPDesc H5 file does " &
       "not exist. Please rerun `train_ingrid` providing the needed parameters for the new MLPDesc version " &

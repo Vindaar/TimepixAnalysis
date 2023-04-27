@@ -29,16 +29,23 @@ type
   MLP* = CppSharedPtr[MLPImpl]
 
   ActivationFunction* = enum
-    afReLU, afTanh, afELU, afGeLU # , ...?
+    afReLU = "relu"
+    afTanh = "tanh"
+    afELU  = "elu"
+    afGeLU = "gelu" # , ...?
 
   OutputActivation* = enum
-    ofLinear, ofSigmoid, ofTanh # , ...?
+    ofLinear = "linear"
+    ofSigmoid = "sigmoid"
+    ofTanh = "tanh" # , ...?
 
   LossFunction* = enum
-    lfSigmoidCrossEntropy, lfMLEloss, lfL1Loss # , ...?
+    lfSigmoidCrossEntropy = "sigmoidCrossEntropy"
+    lfMSEloss = "MSE"
+    lfL1loss = "L1" # , ...?
 
   OptimizerKind* = enum
-    opNone, opSGD, opAdam, opAdamW # , opAdaGrad, opAdaBoost ?
+    opNone = "", opSGD = "SGD", opAdam = "Adam", opAdamW = "AdamW" # , opAdaGrad, opAdaBoost ?
 
   ## A helper object that describes the layers of an MLP
   ## The number of input neurons and neurons on the hidden layer.

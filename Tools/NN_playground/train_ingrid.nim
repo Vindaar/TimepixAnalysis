@@ -767,9 +767,8 @@ proc initDesc(calib, back: seq[string], # data
   if numHidden.len == 0:
     raise newException(ValueError, "Please provide a number of neurons for the hidden layers.")
   # 1. initialize the MLPDesc from the given parameters
-  let dsets = if datasets.len == 0: CurrentDsets else: datasets
   let plotPath = if plotPath.len == 0: "/tmp/" else: plotPath
-  result = initMLPDesc(calib, back, dsets,
+  result = initMLPDesc(calib, back, datasets,
                        modelOutpath, plotPath,
                        numHidden,
                        activation, outputActivation, lossFunction, optimizer,
@@ -792,7 +791,12 @@ proc initDesc(calib, back: seq[string], # data
           result.add quote do:
             result.`f` = descV1.`f`
       copyFields(epochs, accuracies, testAccuracies, losses, testLosses)
-      doAssert descV1.datasets == result.datasets, "Datasets in existing file and input don't match!"
+      if result.datasets.len == 0:
+        result.datasets = descV1.datasets
+        result.numInputs = result.datasets.len
+      else:
+        doAssert descV1.datasets == result.datasets, "Datasets in existing file and input don't match!"
+
       # write back the now modified new version MLPDesc object
       result.toH5(outfile)
     else:

@@ -105,37 +105,17 @@ type
 
   AnyModel* = MLP | ConvNet
 
+## Constants storing the names of the MLPDesc H5 files
+const MLPDescNameV1* = "mlp_desc.h5"
+const MLPDescNameV2* = "mlp_desc_v2.h5"
+# Points to the current name of the MLPDesc file
+const MLPDescName* = MLPDescNameV2
+const MLPVersion* = 2 #
+const MLPDescFilenames* = [MLPDescNameV1, MLPDescNameV2]
 ## The batch size we use!
 const bsz = 8192 # batch size
 
 
-const MLPDescName* = "mlp_desc.h5"
-proc initMLPDesc*(calib, back, datasets: seq[string],
-                  modelPath: string, plotPath: string,
-                  numHidden: seq[int],
-                  activation: ActivationFunction,
-                  outputActivation: OutputActivation,
-                  lossFunction: LossFunction,
-                  optimizer: OptimizerKind,
-                  learningRate: float,
-                  subsetPerRun: int,
-                  simulatedData: bool,
-                  rngSeed: int): MLPDesc =
-  result = MLPDesc(calibFiles: calib,
-                   backFiles: back,
-                   datasets: datasets,
-                   path: modelPath, plotPath: plotPath,
-                   numInputs: datasets.len,
-                   numHidden: numHidden,
-                   numLayers: numHidden.len,
-                   activationFunction: activation,
-                   outputActivation: outputActivation,
-                   lossFunction: lossFunction,
-                   optimizer: optimizer,
-                   learningRate: learningRate,
-                   subsetPerRun: subsetPerRun,
-                   simulatedData: simulatedData,
-                   rngSeed: rngSeed)
 
 template withOptim*(model: AnyModel, mlpDesc: MLPDesc, body: untyped): untyped =
   let lr = mlpDesc.learningRate
@@ -201,20 +181,62 @@ proc init*(T: type MLP, numInput: int, numLayers: int, numHidden: seq[int], numO
 proc init*(T: type MLP, desc: MLPDesc): MLP =
   result = MLP.init(desc.numInputs, desc.numLayers, desc.numHidden)
 
+proc initMLPDesc*(calib, back, datasets: seq[string],
+                  modelPath: string, plotPath: string,
+                  numHidden: seq[int],
+                  activation: ActivationFunction,
+                  outputActivation: OutputActivation,
+                  lossFunction: LossFunction,
+                  optimizer: OptimizerKind,
+                  learningRate: float,
+                  subsetPerRun: int,
+                  simulatedData: bool,
+                  rngSeed: int): MLPDesc =
+  result = MLPDesc(calibFiles: calib,
+                   backFiles: back,
+                   datasets: datasets,
+                   path: modelPath, plotPath: plotPath,
+                   numInputs: datasets.len,
+                   numHidden: numHidden,
+                   numLayers: numHidden.len,
+                   activationFunction: activation,
+                   outputActivation: outputActivation,
+                   lossFunction: lossFunction,
+                   optimizer: optimizer,
+                   learningRate: learningRate,
+                   subsetPerRun: subsetPerRun,
+                   simulatedData: simulatedData,
+                   rngSeed: rngSeed)
+
 from pkg / nimhdf5 import deserializeH5
 from std / strutils import startsWith, parseEnum
+proc findNewestFile*(path: string): (int, string) =
+  for i, f in MLPDescFilenames:
+    if existsFile(modelPath.parentDir / f):
+      result = (i+1, f)
+
 proc initMLPDesc*(modelPath: string, plotPath = ""): MLPDesc =
   ## Initialize the `MLPDesc` from the serialized `MLPDesc` in the given
   ## `modelPath`.
+
+  # 1. check if the current MLPDesc file version exists
   let fname = modelPath.parentDir / MLPDescName
-  result = deserializeH5[MLPDesc](fname)
-  if result.numHidden.len == 0:
-    raise newException(IOError, "The MLPDesc H5 file is still of version 1. Please regenerate " &
-      "it by running `train_ingrid` with all paramaters again.")
-  if result.datasets.anyIt(it.startsWith("ig")):
-    result.datasets = result.datasets.mapIt(parseEnum[InGridDsetKind](it).toDset())
-  if plotPath.len > 0: # user wants a different plot path for prediction
-    result.plotPath = plotPath
+  if existsFile(fname):
+    result = deserializeH5[MLPDesc](fname)
+    if result.numHidden.len == 0:
+      raise newException(IOError, "The MLPDesc H5 file is still of version 1. Please regenerate " &
+        "it by running `train_ingrid` with all paramaters again.")
+    if result.datasets.anyIt(it.startsWith("ig")):
+      result.datasets = result.datasets.mapIt(parseEnum[InGridDsetKind](it).toDset())
+    if plotPath.len > 0: # user wants a different plot path for prediction
+      result.plotPath = plotPath
+  else:
+    # see if older version exists
+    let (ver, newestFile) = findNewestFile(path)
+    echo "MLPDesc H5 file of version : ", ver, " exists: ", newestFile
+    raise newException(IOError, "Required version: " & $MLPVersion & " of the MLPDesc H5 file does " &
+      "not exist. Please rerun `train_ingrid` providing the needed parameters for the new MLPDesc version " &
+      "to regenerate the new file.")
 
 ## XXX: Defining two models in a single file is currently broken. When trying to use it
 ## the nim compiler assigns the wrong destructor to the second one (reusing the one

@@ -781,9 +781,12 @@ proc initDesc(calib, back: seq[string], # data
 
   # 2. check if such a file already exists to possibly merge it or just return that
   let outfile = result.path.parentDir / MLPDescName
-  if fileExists(outfile):
+  if not fileExists(outfile):
     ## Existing file with same name. Possibly an older version of it?
     ## Try deserializing as a V1 MLPDesc
+    let (version, newestFile) = findNewestFile(result.path.parentDir)
+    ## NOTE: for now we only have one older version to worry about. In the future we might
+    ## need to generalize it based on the actual version.
     let descV1 = deserializeH5[MLPDescV1](outfile)
     if descV1.numHidden != 0: # means it really was V1. Therefore copy over
       ## As a V1, just copy over the training related fields

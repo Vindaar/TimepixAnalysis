@@ -264,6 +264,13 @@ proc test(model: AnyModel,
           neuron = 0,
           toPlot = true): (float, float, seq[float], seq[int])
 
+proc calcLoss(output, target: RawTensor, desc: MLPDesc): RawTensor =
+  ## Applies the correct loss function based on the MLPDesc
+  case desc.lossFunction
+  of lfL1loss              : result = l1_loss(output, target)
+  of lfMSEloss             : result = mse_loss(output, target)
+  of lfSigmoidCrossEntropy : result = sigmoid_cross_entropy(output, target)
+
 proc train(model: AnyModel, optimizer: var Optimizer,
            input, target: RawTensor,
            testInput, testTarget: RawTensor,
@@ -324,9 +331,7 @@ proc train(model: AnyModel, optimizer: var Optimizer,
         targets.add target[_, 0].toNimSeq[:int]
         correct += pred.eq(target.argmax(1)).sum().item(int)
       # Computing the loss
-      #var loss = l1_loss(output, target)
-      #var loss = sigmoid_cross_entropy(output, target)
-      var loss = mse_loss(output, target)
+      var loss = calcLoss(output, target, desc)
       # Compute the gradient (i.e. contribution of each parameter to the loss)
       loss.backward()
       #echo "did backward"
@@ -395,9 +400,7 @@ proc test(model: AnyModel,
       targets.add target[_, 0].toNimSeq[:int]
       correct += pred.eq(target.argmax(1)).sum().item(int)
       # Computing the loss
-      #let loss = l1_loss(output, target)
-      #let loss = sigmoid_cross_entropy(output, target)
-      var loss = mse_loss(output, target)
+      var loss = calcLoss(output, target, desc)
       sumLoss += loss.item(float)
       inc count
 
@@ -445,8 +448,7 @@ proc predict(model: AnyModel,
       targets.add target[_, 0].toNimSeq[:int]
       correct += pred.eq(target.argmax(1)).sum().item(int)
       # Computing the loss
-      #let loss = sigmoid_cross_entropy(output, target)
-      var loss = mse_loss(output, target)
+      var loss = calcLoss(output, target, desc)
       sumLoss += loss.item(float)
       inc count
       for i in 0 ..< min(bsz, stop - offset):

@@ -65,7 +65,7 @@ proc predict*(h5f: H5File, modelPath: string, grp: string): seq[float] =
   # 3. forward pass through network
   result = model.forward(inp, device, desc)
 
-proc predict*(model: AnyModel, device: Device, df: DataFrame): seq[float] =
+proc predict*(model: AnyModel, device: Device, desc: MLPDesc, df: DataFrame): seq[float] =
   ## Returns the prediction of the (globally declared!) network for the given data, which
   ## must be a dataframe containing all required datasets!
   let inp = toTorchTensor(df)
@@ -98,7 +98,7 @@ proc calcNeuralNetCutValueTab*(modelPath: string, cutKind: NeuralNetCutKind, ε:
   result = initCutValueInterpolator(cutKind)
   case cutKind
   of nkGlobal: result.cut = determineCutValue(model, device, desc, ε, readRaw = false)
-  of nkLocal: result.nnCutTab = determineLocalCutValue(model, device, ε, readRaw = false)
+  of nkLocal: result.nnCutTab = determineLocalCutValue(model, device, desc, ε, readRaw = false)
   of nkRunBasedLocal:
     echo "[INFO]: nkRunBasedLocal requires run based determination of the local cut values ",
      "using the rmsTransverse data for a reference of the diffusion."
@@ -133,7 +133,7 @@ proc calcLocalNNCutValueTab*(ctx: LikelihoodContext,
   # now use fake data to determine cuts
   let ε = ctx.vetoCfg.nnSignalEff
   result = initCutValueInterpolator(nkRunBasedLocal)
-  result.nnCutTab = determineRunLocalCutValue(model, device, dfFake, ε)
+  result.nnCutTab = determineRunLocalCutValue(model, device, desc, dfFake, ε)
 
 proc main(calib, back: seq[string] = @[],
           model: string,

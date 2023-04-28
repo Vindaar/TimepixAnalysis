@@ -336,14 +336,19 @@ const Scale = 1.65
 const MaxZ = 3.0
 const CacheTabFile = "/dev/shm/cacheTab_diffusion_runs.h5"
 type
-  CacheTabTyp = Table[int, (float, float)]
+  TabKey = int
+  #        ^-- run number
+  TabVal = (float, float)
+  #         ^-- diffusion value
+  #                ^-- loss of gradient descent via Cramér-von Mises
+  CacheTabTyp = Table[TabKey, TabVal]
 ## Global helper table that stores diffusion values determined from
 ## the RMS data of this run
 var CacheTab =
   if fileExists(CacheTabFile):
     deserializeH5[CacheTabTyp](CacheTabFile)
   else:
-    initTable[int, (float, float)]()
+    initTable[TabKey, TabVal]()
 proc runAvailable(run: int): bool =
   if run in CacheTab:
     result = true

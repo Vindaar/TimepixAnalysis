@@ -537,13 +537,21 @@ proc studyRmsTransverseGasGain(df, dfEff: DataFrame, model, plotPath, suffix: st
       ggtitle("Lower, mid and upper 33% quantiles of property: " & $dset) +
       ggsave(&"{plotPath}/nn_cut_vs_quantiled_scatter_{dset}_{suffix}.pdf", width = 1200, height = 800)
 
-proc evaluateEffectiveEfficiencyByFakeRunCutVal(
+proc evaluateEffectiveEfficiencyByFakeRunCutVal*(
   ctx: LikelihoodContext, rnd: var Rand, model: string, fnames: seq[string], cdlFile: string,
   ε: float,
-  gainTab: Table[int, float],
   plotPath: string,
-  run = -1
-     ) =
+  gainTab: Table[int, float] = initTable[int, float](),
+  run = -1,
+  readEscapeData = true,
+  generatePlots = true
+     ): DataFrame =
+  ## This procedure returns a DataFrame that contains the effective efficiencies that the given
+  ## calibration files (+ CDL file if given) yield when evaluated using a cut value determined
+  ## from fake data of the gain and diffusion for each run.
+  ##
+  ## The result can be used to estimate the real efficiency and variance for a given signal
+  ## efficiency of a NN.
   var df = newDataFrame()
   template dfFile(expr, file: untyped): untyped =
     var dfLoc = expr
@@ -552,7 +560,8 @@ proc evaluateEffectiveEfficiencyByFakeRunCutVal(
 
   for c in fnames:
     # 3 keV
-    df.add dfFile(readRealCalib(c, "3.0", 2.5, 3.5, tfAgAg6), c)
+    if readEscapeData:
+      df.add dfFile(readRealCalib(c, "3.0", 2.5, 3.5, tfAgAg6), c)
     # 5.9 keV
     df.add dfFile(readRealCalib(c, "5.9", 4.9, 6.9, tfMnCr12), c)
 
@@ -561,19 +570,15 @@ proc evaluateEffectiveEfficiencyByFakeRunCutVal(
     for i, E in energies:
       # if E > 6.5: continue
       let bins = concat(@[0.0], getEnergyBinning())
-      echo "Ctuting energy to ", bins[i], " and ", bins[i+1]
+      echo "Cutting energy to ", bins[i], " and ", bins[i+1]
       df.add dfFile(readCdlData(cdlFile, E.toRefTfKind(),
                                 #0.4, 0.7,
                                 bins[i], bins[i+1],
                                 typeSuffix = ""),
                     cdlFile)
 
-    #df.add dfFile(readCdlData(cdlFile, tfAgAg6, 2.5, 3.5), cdlFile)
-    #df.add dfFile(readCdlData(cdlFile, tfMnCr12, 5.0, 7.0), cdlFile)
-  #var cutTab = initTable[(string, int)]()
   var dfEff = newDataFrame()
   for (tup, subDf) in groups(df.group_by(["DataType", "runNumber"])):
-
     let typ = tup[0][1].toStr
     let runNumber = tup[1][1].toInt
 
@@ -604,7 +609,8 @@ proc evaluateEffectiveEfficiencyByFakeRunCutVal(
     )
 
     ## plots for the real + fake data for each case
-    plotDatasets(bind_rows([("Real", subDf), ("Fake", dfFake)]), plotPath = plotPath / typ & "_" & $runNumber)
+    if generatePlots:
+      plotDatasets(bind_rows([("Real", subDf), ("Fake", dfFake)]), plotPath = plotPath / typ & "_" & $runNumber)
 
     let runCutVal = model.determineCutValue(dfFake, ε)
     # now predict output of `subDf`
@@ -615,21 +621,25 @@ proc evaluateEffectiveEfficiencyByFakeRunCutVal(
     ## cut of 80% for real data.
     ## -> write proc similar to `predictCut` that also determines cut value of real data.
     ##  Then iterate all events and extract the indices that are within the two efficiencies.
-    let realCutVal = model.determineCutValue(subDf, ε)
-    analyzeIntermediateEvents(model, subDf, runCutVal, realCutVal, plotPath)
+    if generatePlots:
+      let realCutVal = model.determineCutValue(subDf, ε)
+      analyzeIntermediateEvents(model, subDf, runCutVal, realCutVal, plotPath)
 
     echo "Fake data for ", typ, " at run ", runNumber, " and energy ", energy, " target ", target, " has a cut value ", runCutVal, " and effective eff ", eff
 
     if eff < 0.5 and target == tfMnCr12:
       echo "Efficiency is less than 50% in run: ", runNumber, " of ", typ, " tar ", target, " and ", energy, " w/ ", fakeDesc
       #if true: quit()
+    let gain = if runNumber in gainTab: gainTab[runNumber] else: 0.0
     dfEff.add toDf({ "DataType" : typ,
                      "Run" : runNumber,
-                     "Gain" : gainTab[runNumber],
+                     "Gain" : gain,
                      "Eff" : eff })
-  ggplot(dfEff, aes("Run", "Eff", color = "Gain", shape = "DataType")) +
-    geom_point() +
-    ggsave(&"{plotPath}/efficiency_based_on_fake_data_per_run_cut_val.pdf")
+  result = dfEff
+  if generatePlots:
+    ggplot(dfEff, aes("Run", "Eff", color = "Gain", shape = "DataType")) +
+     geom_point() +
+      ggsave(&"{plotPath}/efficiency_based_on_fake_data_per_run_cut_val.pdf")
 
 proc main(fnames: seq[string], model: string, ε: float,
           cdlFile: string = "",
@@ -667,7 +677,7 @@ proc main(fnames: seq[string], model: string, ε: float,
   ## For each run, extract the diffusion, then generate fake data for that run,
   ## use it to compute a bespoke effective cut value for each run and then apply
   ## that to the real data and see what efficiencies we end up with!
-  ctx.evaluateEffectiveEfficiencyByFakeRunCutVal(rnd, mlpDesc.path, fnames, cdlFile, ε, gainTab, mlpDesc.plotPath, run)
+  discard ctx.evaluateEffectiveEfficiencyByFakeRunCutVal(rnd, mlpDesc.path, fnames, cdlFile, ε, mlpDesc.plotPath, gainTab, run)
   if true: quit()
   when false:
     # 2. evaluate effective efficiency of the real 55Fe CAST data

@@ -1,5 +1,5 @@
-import strutils, os, sequtils, strformat
-import nimhdf5, seqmath, ggplotnim, arraymancer
+import std / [strutils, os, sequtils, strformat, random]
+import pkg / [nimhdf5, seqmath, ggplotnim, arraymancer]
 
 import cdl_cuts, hdf5_utils, geometry, ggplot_utils, cut_utils
 import ../ingrid_types
@@ -857,6 +857,7 @@ proc initLikelihoodContext*(
   calibFile: string = "",
   vetoPercentile: float = 0.0,
   fadcScaleCutoff: float = 0.0,
+  rngSeed: int = 299_792_458,
   flags: set[LogLFlagKind] = {}
                            ): LikelihoodContext =
   ## The configuration elements are generally picked according to the following priority:
@@ -934,7 +935,9 @@ proc initLikelihoodContext*(
     # misc
     useTeX: useTeX,
     flags: flags,
-    vetoCfg: vetoCfg
+    vetoCfg: vetoCfg,
+    rngSeed: rngSeed,
+    rnd: initRand(rngSeed)
   )
 
   case result.morph

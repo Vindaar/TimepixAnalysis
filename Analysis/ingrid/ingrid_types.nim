@@ -1,7 +1,7 @@
 # module which contains the used type definitions in the InGrid module
 when not defined(js):
   import times
-import tables, strformat, memfiles, options
+import std / [tables, strformat, memfiles, options, random]
 import karax / kbase
 
 type
@@ -839,6 +839,8 @@ when not defined(pure) and not defined(js):
       nnSignalEff*: float = 0.95
       nnModelPath*: string
       nnCutKind*: NeuralNetCutKind = nkLocal
+      nnEffectiveEff*: float ## ``Not`` a setting: effective efficiency of `nnSignalEff` for calibration runs
+      nnEffectiveEffStd*: float ## ``Not`` a setting: standard deviation of the above
       # lnL settings
       useLnLCut*: bool
       signalEfficiency*: float = 0.8 # the signal efficiency that defines the cuts
@@ -882,6 +884,8 @@ when not defined(pure) and not defined(js):
       #when defined(cpp):
       flags*: set[LogLFlagKind]
       vetoCfg*: VetoSettings
+      rngSeed*: int = 299_792_458 # seed used for the RNG for fake event generation
+      rnd*: Rand # the random number generator seeded by `rngSeed`
 
     ## Parameters needed to reconstruct an event for a chip and a specific
     ## run with `gain`

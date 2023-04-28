@@ -716,7 +716,7 @@ proc copyOverAttrs(h5f, h5fout: H5File) =
   logGrp.copy_attributes(recoGrp.attrs)
 
 proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
-                            ctx: LikelihoodContext,
+                            ctx: var LikelihoodContext,
                             flags: set[LogLFlagKind]) =
   ## Filters all clusters based on our background suppression methods consisting
   ## of neural networks, a likelihood cut method and different additional detector
@@ -769,8 +769,6 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
   let fileInfo = getFileInfo(h5f)
   let capacitance = fileInfo.timepix.getCapacitance()
 
-  ## XXX: Make adjustable
-  var rnd = initRand(1337)
   for num, group in runs(h5f):
 
     ## Only a for run setting so that if we set it to false due to missing data
@@ -849,7 +847,7 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
     when defined(cpp):
       # generate fake data for each CDL target and determine the local cut values for this run
       ## XXX: currently using center chip!!
-      nnCutTab = ctx.calcLocalNNCutValueTab(rnd, h5f, fileInfo.runType, num, centerChip, fileInfo.centerChipName, capacitance)
+      nnCutTab = ctx.calcLocalNNCutValueTab(ctx.rnd, h5f, fileInfo.runType, num, centerChip, fileInfo.centerChipName, capacitance)
       echo "NN CUT TAB::: ", nnCutTab
     for (_, chipNumber, chipGroup) in chipGroups(h5f, group):
       if ctx.energyDset.toDset notin h5f[chipGroup.grp_str]:
@@ -1277,6 +1275,21 @@ proc plotLogL(ctx: LikelihoodContext) =
     ggsave("signalLogL_ridgeline.pdf",
            height = 600.0)
 
+import .. / .. / Tools / NN_playground / effective_eff_55fe
+proc fillEffectiveEff(ctx: var LikelihoodContext) =
+  ## Fills the effective efficiency fields for the current run period.
+  ##
+  ## Defined here to avoid circular imports.
+  if ctx.vetoCfg.useNeuralNetworkCut:
+    if ctx.vetoCfg.calibFile.len == 0:
+      raise newException(ValueError, "Requires the calibration file for the data input to compute " &
+        "the effective efficiencies for the run period and given NN model and desired target signal " &
+        "efficiency.")
+    ## XXX: what to do with RNG? Make field of LikelihoodContext?
+    let (eff, std) = meanEffectiveEff(ctx, ctx.rnd, ctx.vetoCfg.nnModelPath, ctx.vetoCfg.calibFile, ctx.vetoCfg.nnSignalEff)
+    ctx.vetoCfg.nnEffectiveEff = eff
+    ctx.vetoCfg.nnEffectiveEffStd = std
+
 # switch to cligen (DONE), then do (STILL TODO):
 ## runs: seq[int] = @[]) = # `runs` allows to overwrite whihc run is logL cut'd
 ## Also do same for a `--useTeX` argument & flag! for Septem veto plots
@@ -1318,11 +1331,12 @@ proc main(
   lineVetoKind = lvNone,
   eccLineVetoCut = 0.0,
   useRealLayout = true,
-  # FADC veto
+  # FADC veto (and NN veto for calib file)
   calibFile = "",
   vetoPercentile = 0.99,
   fadcScaleCutoff = 1.45,
   # misc
+  rngSeed = 299_792_458,
   version = false
      ) =
   docCommentAdd(versionStr)
@@ -1385,7 +1399,7 @@ proc main(
   ## XXX: add `numChips` to root group!
   #let numChips = rootGrp.attrs["numChips", int]
 
-  let ctx = initLikelihoodContext(cdlFile, year, region, energyDset, timepix,
+  var ctx = initLikelihoodContext(cdlFile, year, region, energyDset, timepix,
                                   readMorphKind(),
                                   cdlStretch,
                                   centerChip = centerChip,
@@ -1414,7 +1428,10 @@ proc main(
                                   calibFile = calibFile,
                                   vetoPercentile = vetoPercentile,
                                   fadcScaleCutoff = fadcScaleCutoff,
+                                  rngSeed = rngSeed,
                                   flags = flags)
+  ## fill the effective efficiency fields if a NN is used
+  ctx.fillEffectiveEff()
 
   if fkRocCurve in flags:
     ## create the ROC curves and likelihood distributios. This requires to
@@ -1485,6 +1502,7 @@ when isMainModule:
     "readOnly"       : """If set treats the input file `--file` purely as read only. Useful to run multiple
   calculations in parallel on one H5 file. Not compatible with `--computeLogL` for obvious reasons.""",
     "useTeX"         : "If set will produce plots using TikZ backend",
+    "rngSeed"        : "Seed for the RNG to use for fake event generation",
 
     # vetoes and cut methods
     "lnL"            : "If flag is set, we use the lnL cut method as a veto",

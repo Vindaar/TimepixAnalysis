@@ -538,9 +538,10 @@ proc studyRmsTransverseGasGain(df, dfEff: DataFrame, model, plotPath, suffix: st
       ggsave(&"{plotPath}/nn_cut_vs_quantiled_scatter_{dset}_{suffix}.pdf", width = 1200, height = 800)
 
 proc evaluateEffectiveEfficiencyByFakeRunCutVal*(
-  ctx: LikelihoodContext, rnd: var Rand, model: string, fnames: seq[string], cdlFile: string,
+  ctx: LikelihoodContext, rnd: var Rand, model: string, fnames: seq[string],
   ε: float,
-  plotPath: string,
+  cdlFile: string = "",
+  plotPath: string = "",
   gainTab: Table[int, float] = initTable[int, float](),
   run = -1,
   readEscapeData = true,
@@ -641,6 +642,21 @@ proc evaluateEffectiveEfficiencyByFakeRunCutVal*(
      geom_point() +
       ggsave(&"{plotPath}/efficiency_based_on_fake_data_per_run_cut_val.pdf")
 
+proc meanEffectiveEff*(ctx: LikelihoodContext, rnd: var Rand, model: string, fname: string,
+                       ε: float): tuple[eff: float, sigma: float] =
+  ## Computes the mean effective efficiency given target `ε` for `model` on the calibration
+  ## file `fname`. Returns both the mean and standard deviation.
+  let df = ctx.evaluateEffectiveEfficiencyByFakeRunCutVal(
+    rnd,
+    model,
+    @[fname],
+    ε,
+    readEscapeData = false,
+    generatePlots = false
+  )
+  let effs = df["Eff", float]
+  result = (eff: effs.mean, sigma: effs.std)
+
 proc main(fnames: seq[string], model: string, ε: float,
           cdlFile: string = "",
           plotPath: string = "",
@@ -677,7 +693,7 @@ proc main(fnames: seq[string], model: string, ε: float,
   ## For each run, extract the diffusion, then generate fake data for that run,
   ## use it to compute a bespoke effective cut value for each run and then apply
   ## that to the real data and see what efficiencies we end up with!
-  discard ctx.evaluateEffectiveEfficiencyByFakeRunCutVal(rnd, mlpDesc.path, fnames, cdlFile, ε, mlpDesc.plotPath, gainTab, run)
+  discard ctx.evaluateEffectiveEfficiencyByFakeRunCutVal(rnd, mlpDesc.path, fnames, ε, cdlFile, mlpDesc.plotPath, gainTab, run)
   if true: quit()
   when false:
     # 2. evaluate effective efficiency of the real 55Fe CAST data

@@ -56,6 +56,7 @@ type
   MLPDesc* = object
     version*: int # Version of this MLPDesc object
     path*: string # model path to the checkpoint files including the default model name!
+    modelDir*: string # the parent directory of `path`
     plotPath*: string # path in which plots are placed
     calibFiles*: seq[string] ## Path to the calibration files
     backFiles*: seq[string] ## Path to the background data files
@@ -198,6 +199,7 @@ proc initMLPDesc*(calib, back, datasets: seq[string],
                    backFiles: back,
                    datasets: datasets,
                    path: modelPath, plotPath: plotPath,
+                   modelDir: modelPath.parentDir,
                    numInputs: datasets.len,
                    numHidden: numHidden,
                    numLayers: numHidden.len,

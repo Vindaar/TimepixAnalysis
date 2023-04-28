@@ -780,42 +780,40 @@ proc initDesc(calib, back: seq[string], # data
                        rngSeed)
 
   # 2. check if such a file already exists to possibly merge it or just return that
-  let outfile = result.path.parentDir / MLPDescName
+  let outfile = result.modelDir / MLPDescName
+  # potentially create the output paths
+  discard existsOrCreateDir(result.plotPath)
+  discard existsOrCreateDir(result.modelDir)
   if not fileExists(outfile):
     ## Existing file with same name. Possibly an older version of it?
     ## Try deserializing as a V1 MLPDesc
-    let (version, newestFile) = findNewestFile(result.path.parentDir)
-    ## NOTE: for now we only have one older version to worry about. In the future we might
-    ## need to generalize it based on the actual version.
-    let descV1 = deserializeH5[MLPDescV1](outfile)
-    if descV1.numHidden != 0: # means it really was V1. Therefore copy over
-      ## As a V1, just copy over the training related fields
-      macro copyFields(fs: varargs[untyped]): untyped =
-        result = newStmtList()
-        for f in fs:
-          result.add quote do:
-            result.`f` = descV1.`f`
-      copyFields(epochs, accuracies, testAccuracies, losses, testLosses)
-      if result.datasets.len == 0:
-        result.datasets = descV1.datasets
-        result.numInputs = result.datasets.len
-      else:
-        doAssert descV1.datasets == result.datasets, "Datasets in existing file and input don't match!"
-
-      # write back the now modified new version MLPDesc object
-      result.toH5(outfile)
-    else:
-      ## is actually V2, just return it! This branch is
-      # Note: input parameters are ignored in this case!
-      result = deserializeH5[MLPDesc](outfile)
-  else:
-    # potentially create the output path, serialize the object
-    discard existsOrCreateDir(result.plotPath)
-    discard existsOrCreateDir(result.path.parentDir)
+    let (version, newestFile) = findNewestFile(result.modelDir)
+    if newestFile.len > 0:
+      ## NOTE: for now we only have one older version to worry about. In the future we might
+      ## need to generalize it based on the actual version.
+      let descV1 = deserializeH5[MLPDescV1](result.modelDir / newestFile)
+      if descV1.numHidden != 0: # means it really was V1. Therefore copy over
+        ## As a V1, just copy over the training related fields
+        macro copyFields(fs: varargs[untyped]): untyped =
+          result = newStmtList()
+          for f in fs:
+            result.add quote do:
+              result.`f` = descV1.`f`
+        copyFields(epochs, accuracies, testAccuracies, losses, testLosses)
+        if result.datasets.len == 0:
+          result.datasets = descV1.datasets
+          result.numInputs = result.datasets.len
+        else:
+          doAssert descV1.datasets == result.datasets, "Datasets in existing file and input don't match!"
+    # no file exists at all
+    # write back the either modified new version MLPDesc object or initial file
     result.toH5(outfile)
+  else:
+    ## is actually V2, just return it! This branch is
+    # Note: input parameters are ignored in this case!
+    result = deserializeH5[MLPDesc](outfile)
   # update the global datasets!
   CurrentDsets = result.datasets
-
 
 ## XXX: inside of a generic proc (what we would normally do) the `parameters` call
 ## breaks! Nim doesn't understand that the MLP / ConvNet type can be converted

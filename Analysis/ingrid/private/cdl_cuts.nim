@@ -138,7 +138,7 @@ func getXrayCleaningCuts*(): OrderedTable[string, Cuts] =
                      cutTo: crSilver,
                      maxLength: Inf,
                      minRms: 0.1,
-                     maxRms: 1.3,
+                     maxRms: 1.3, # 1.1, # old valu
                      maxEccentricity: Inf)
   let range0 = replace(baseCut):
     maxLength = 6.0
@@ -150,17 +150,17 @@ func getXrayCleaningCuts*(): OrderedTable[string, Cuts] =
     maxEccentricity = 2.0
   let range4 = replace(baseCut):
     maxEccentricity = 1.4
-    maxRms = 1.2
+    maxRms = 1.2 # 1.0 # old value
     maxLength = 6.0
   let range5 = replace(baseCut):
     maxEccentricity = 1.3
-    maxRms = 1.2
+    maxRms = 1.2 # 1.0 # old value
   let range6 = replace(baseCut):
     maxEccentricity = 1.3
-    maxRms = 1.2
+    maxRms = 1.2 # 1.0 # old value
   let range7 = replace(baseCut):
     maxEccentricity = 1.3
-    maxRms = 1.2
+    maxRms = 1.2 # 1.0 # old value
   let
     ranges = [range0, range1, range2, range3, range4, range5, range6, range7]
     xray_ref = getXrayRefTable()
@@ -195,7 +195,7 @@ func getEnergyBinMinMaxVals2018*(): OrderedTable[string, Cuts] =
   ## This is why thes are `kind: cfReference`!
   let baseCut = Cuts(kind: ckReference,
                      minRms: 0.1,
-                     maxRms: 1.2,
+                     maxRms: 1.2, # 1.1 # old value
                      maxLength: 7.0,
                      minPix: 3,
                      minCharge: -Inf,

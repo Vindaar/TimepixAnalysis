@@ -140,7 +140,6 @@ proc predictCut(model: string, df: DataFrame, cutVal: float): (int, seq[float]) 
   ## Performs the prediction of the given input data and energy and applies the
   ## cut to the data. Returns the number of clusters that pass the cuts!
   let pred = predict(model, df)
-  if pred.len < 100: return (-1, @[])
   # 2. cut based on local prediction.
   ## XXX: ideally we would also look at the energy once we have `nkInterpolated`!
   var kept = 0

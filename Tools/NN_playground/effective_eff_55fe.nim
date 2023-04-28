@@ -642,20 +642,55 @@ proc evaluateEffectiveEfficiencyByFakeRunCutVal*(
      geom_point() +
       ggsave(&"{plotPath}/efficiency_based_on_fake_data_per_run_cut_val.pdf")
 
+
+const CacheTabFile = "/dev/shm/cacheTab_effective_eff.h5"
+type
+  TabKey = (string, string)
+  #         ^-- calibration filename
+  #                 ^-- sha1 hash of the NN model `.pt` file
+  TabVal = (float, float)
+  #         ^-- mean of effective effs
+  #                ^-- σ of effective effs
+  CacheTabTyp = Table[TabKey, TabVal]
+var CacheTab =
+  if fileExists(CacheTabFile):
+    deserializeH5[CacheTabTyp](CacheTabFile)
+  else:
+    initTable[TabKey, TabVal]()
+proc fileAvailable(fname, modelHash: string): bool =
+  if (fname, modelHash) in CacheTab:
+    result = true
+  else:
+    # try rereading & updating file
+    if fileExists(CacheTabFile):
+      let tab = deserializeH5[CacheTabTyp](CacheTabFile)
+      # merge `tab` and `CacheTab`
+      for k, v in tab:
+        CacheTab[k] = v # overwrite possible existing keys in table
+    result = (fname, modelHash) in CacheTab # still not in: not available
+
+import std / sha1
 proc meanEffectiveEff*(ctx: LikelihoodContext, rnd: var Rand, model: string, fname: string,
                        ε: float): tuple[eff: float, sigma: float] =
   ## Computes the mean effective efficiency given target `ε` for `model` on the calibration
   ## file `fname`. Returns both the mean and standard deviation.
-  let df = ctx.evaluateEffectiveEfficiencyByFakeRunCutVal(
-    rnd,
-    model,
-    @[fname],
-    ε,
-    readEscapeData = false,
-    generatePlots = false
-  )
-  let effs = df["Eff", float]
-  result = (eff: effs.mean, sigma: effs.std)
+  let modelHash = $(model.readFile.secureHash)
+  let fnameFile = fname.extractFilename()
+  if fileAvailable(fnameFile, modelHash):
+    result = CacheTab[(fnameFile, modelHash)]
+  else:
+    let df = ctx.evaluateEffectiveEfficiencyByFakeRunCutVal(
+      rnd,
+      model,
+      @[fname],
+      ε,
+      readEscapeData = false,
+      generatePlots = false
+    )
+    let effs = df["Eff", float]
+    result = (eff: effs.mean, sigma: effs.std)
+    CacheTab[(fnameFile, modelHash)] = result
+    CacheTab.toH5(CacheTabFile)
 
 proc main(fnames: seq[string], model: string, ε: float,
           cdlFile: string = "",

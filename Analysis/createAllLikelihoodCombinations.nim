@@ -1,4 +1,4 @@
-import std / [sequtils, strformat, strutils, os, sets, algorithm]
+import std / [sequtils, strformat, strutils, os, sets, algorithm, sugar]
 from std / times import epochTime
 
 import shell
@@ -32,6 +32,7 @@ type
   ## aspects we care about
   FlagKind = enum
     fkLogL     # = "",
+    fkMLP      # = "--mlp"
     fkScinti   # = "--scintiveto"
     fkFadc     # = "--fadcveto"
     fkSeptem   # = "--septemveto"
@@ -54,11 +55,13 @@ type
   Combination = object
     fname: string
     calib: string
+    mlpPath: string # path to MLP model file (this really is part of a `Setting`, but for convenience here)
     settings: Settings
 
 proc toStr(fk: FlagKind): string =
   case fk
   of fkLogL:     "--lnL"
+  of fkMLP:      "" # must be filled with an argument!
   of fkScinti:   "--scintiveto"
   of fkFadc:     "--fadcveto"
   of fkSeptem:   "--septemveto"
@@ -84,9 +87,11 @@ iterator items(s: HashSet[Veto]): Veto =
   for x in vSeq:
     yield x
 
-proc genVetoStr(vetoes: set[FlagKind]): string =
+proc genVetoStr(vetoes: set[FlagKind], comb: Combination): string =
   for v in vetoes:
     result = result & " " & v.toStr()
+  if fkMLP in vetoes:
+    result = result & " --mlp " & comb.mlpPath
 
 template yieldFadc(comb, cfg: untyped): untyped {.dirty.} =
   if fkFadc in flags and fadcVetoPercentiles.len > 0: # if FADC contained, yield all percentiles after another
@@ -97,6 +102,16 @@ template yieldFadc(comb, cfg: untyped): untyped {.dirty.} =
   else:
     comb.settings = cfg
     yield comb
+
+template yieldLineVeto(comb, cfg: untyped): untyped {.dirty.} =
+  if (fkLineVeto in flags or fkExclusiveLineVeto in flags) and eccCutoffs.len > 0:
+    for ecc in eccCutoffs:
+      cfg.eccentricityCutoff = ecc
+      comb.settings = cfg
+      yieldFadc(comb, cfg)
+  else:
+    yieldFadc(comb, cfg)
+
 
 template yieldVetoes(): untyped {.dirty.} =
   for vSet in vetoSets:
@@ -109,6 +124,8 @@ template yieldVetoes(): untyped {.dirty.} =
         flags.excl fkLineVeto # don't need line veto anymore
       if veto.additional: # in this case we *do not* yield, e.g. `+fkScinti` won't run with scinti only, accumulate
         continue
+      if fkLogL in flags and fkMLP in flags:
+        raise newException(ValueError, "lnL and NN cuts cannot be combined!")
       var cfg = Settings(year: year,
                          region: region,
                          signalEff: eff,
@@ -117,18 +134,19 @@ template yieldVetoes(): untyped {.dirty.} =
                          eccentricityCutoff: 1.0)
       var comb = Combination(fname: fname, calib: calib,
                              settings: cfg)
-      if (fkLineVeto in flags or fkExclusiveLineVeto in flags) and eccCutoffs.len > 0:
-        for ecc in eccCutoffs:
-          cfg.eccentricityCutoff = ecc
-          comb.settings = cfg
-          yieldFadc(comb, cfg)
+      if fkMLP in flags and mlpPaths.len == 0:
+        raise newException(ValueError, "If `fkMLP` desired please provide at least one `mlpPath`.")
+      elif fkMLP in flags:
+        for mlpPath in mlpPaths:
+          comb.mlpPath = mlpPath
+          yieldLineVeto(comb, cfg)
       else:
-        yieldFadc(comb, cfg)
-
+        yieldLineVeto(comb, cfg)
 
 iterator genCombinations(f2017, f2018: string,
                          c2017, c2018: string,
                          regions: set[ChipRegion],
+                         mlpPaths: seq[string],
                          signalEff: seq[float],
                          vetoSets: seq[HashSet[Veto]],
                          fadcVetoPercentiles: seq[float],
@@ -147,24 +165,26 @@ iterator genCombinations(f2017, f2018: string,
 
 proc buildFilename(comb: Combination, outpath: string): string =
   let cfg = comb.settings
-  let runPeriod = if cfg.year == 2017: "Run2" else: "Run3"
-  result = &"{outpath}/likelihood_cdl2018_{runPeriod}_{cfg.region}"
+  let runPeriod = if cfg.year == 2017: "R2" else: "R3"
+  result = &"{outpath}/lhood_c18_{runPeriod}_{cfg.region}"
   if cfg.signalEff > 0.0:
-    result.add &"_signalEff_{cfg.signalEff}"
+    result.add &"_sEff_{cfg.signalEff}"
   for v in cfg.vetoes:
     let vetoStr = (v.toStr).replace("--", "").replace("veto", "")
     if vetoStr.len > 0: # avoid double `_`
       result = result & "_" & vetoStr
+  if fkMLP in cfg.vetoes:
+    result = result & "_mlp_" & comb.mlpPath.extractFilename.dup(removeSuffix(".pt"))
   if cfg.vetoPercentile >= 0.0:
-    result = result & "_vetoPercentile_" & $cfg.vetoPercentile
+    result = result & "_vQ_" & $cfg.vetoPercentile
   if cfg.eccentricityCutoff > 1.0:
-    result = result & "_eccCutoff_" & $cfg.eccentricityCutoff
+    result = result & "_ecc_" & $cfg.eccentricityCutoff
   result = result & ".h5"
 
 proc runCommand(comb: Combination, cdlFile, outpath: string,
                 cdlYear: int, dryRun: bool, readOnly: bool) =
   let cfg = comb.settings
-  let vetoStr = genVetoStr(cfg.vetoes)
+  let vetoStr = genVetoStr(cfg.vetoes, comb)
   let outfile = buildFilename(comb, outpath)
   let regionStr = &"--region={cfg.region}"
   let cdlYear = &"--cdlYear={cdlYear}"
@@ -173,7 +193,8 @@ proc runCommand(comb: Combination, cdlFile, outpath: string,
                   else: ""
   let vetoPerc = if cfg.vetoPercentile > 0.0: &"--vetoPercentile={cfg.vetoPercentile}" else: ""
   let readOnly = if readOnly: "--readOnly" else: ""
-  let signalEff = if cfg.signalEff > 0.0: &"--signalEfficiency={cfg.signalEff}" else: ""
+  let sigPrefix = if comb.mlpPath.len > 0: "nnSignalEff" else: "signalEfficiency"
+  let signalEff = if cfg.signalEff > 0.0: &"--{sigPrefix}={cfg.signalEff}" else: ""
   let eccCutoff = if cfg.eccentricityCutoff > 1.0: &"--eccLineVetoCut={cfg.eccentricityCutoff}" else: ""
   let fname = comb.fname
   if not dryRun:
@@ -192,8 +213,9 @@ proc runCommand(comb: Combination, cdlFile, outpath: string,
 
 type
   InputData = object
-    fname: array[512, char] # fixed array for the data filename
-    calib: array[512, char] # fixed array for filename of calibration file
+    fname:   array[512, char] # fixed array for the data filename
+    calib:   array[512, char] # fixed array for filename of calibration file
+    mlpPath: array[512, char] # fixed array for the path to the (optional) MLP
     settings: Settings
 
 proc toArray(s: string): array[512, char] = # could mem copy, but well
@@ -208,15 +230,17 @@ proc fromArray(ar: array[512, char]): string =
     result.add ar[i]
 
 proc `$`(id: InputData): string =
-  $(fname: id.fname.fromArray(), calib: id.calib.fromArray(),
+  $(fname: id.fname.fromArray(), calib: id.calib.fromArray(), mlpPath: id.mlpPath.fromArray(),
     settings: id.settings)
 
 proc toInputData(comb: Combination): InputData =
   result = InputData(fname: comb.fname.toArray(), calib: comb.calib.toArray(),
+                     mlpPath: comb.mlpPath.toArray(),
                      settings: comb.settings)
 
 proc toCombination(data: InputData): Combination =
   result = Combination(fname: data.fname.fromArray(), calib: data.calib.fromArray(),
+                       mlpPath: data.mlpPath.fromArray(),
                        settings: data.settings)
 
 proc main(f2017, f2018: string = "", # paths to the Run-2 and Run-3 data files
@@ -228,6 +252,7 @@ proc main(f2017, f2018: string = "", # paths to the Run-2 and Run-3 data files
           cdlYear = 2018,
           dryRun = false,
           multiprocessing = false,
+          mlpPaths: seq[string] = @[], # which MLP models to run with
           fadcVetoPercentiles: seq[float] = @[],
           signalEfficiency: seq[float] = @[],
           eccentricityCutoff: seq[float] = @[],
@@ -239,11 +264,11 @@ proc main(f2017, f2018: string = "", # paths to the Run-2 and Run-3 data files
     doAssert false, "When using the FADC veto the corresponding calibration file to the background " &
       "data file is required."
   if not multiprocessing: # run all commands in serial
-    for comb in genCombinations(f2017, f2018, c2017, c2018, regions, signalEfficiency, vetoSets, fadcVetoPercentiles, eccentricityCutoff):
+    for comb in genCombinations(f2017, f2018, c2017, c2018, regions, mlpPaths, signalEfficiency, vetoSets, fadcVetoPercentiles, eccentricityCutoff):
       runCommand(comb, cdlFile, outpath, cdlYear, dryRun, readOnly = false)
   else:
     var cmds = newSeq[InputData]()
-    for comb in genCombinations(f2017, f2018, c2017, c2018, regions, signalEfficiency, vetoSets, fadcVetoPercentiles, eccentricityCutoff):
+    for comb in genCombinations(f2017, f2018, c2017, c2018, regions, mlpPaths, signalEfficiency, vetoSets, fadcVetoPercentiles, eccentricityCutoff):
       cmds.add comb.toInputData()
 
     for cmd in cmds:

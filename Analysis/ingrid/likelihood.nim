@@ -144,6 +144,7 @@ proc writeLikelihoodData(h5f: var H5File,
                          group: var H5Group,
                          chipNumber: int,
                          cutTab: CutValueInterpolator,
+                         nnCutTab: CutValueInterpolator,
                          passedInds: OrderedSet[int],
                          fadcVetoCount, scintiVetoCount: int, flags: set[LogLFlagKind],
                          ctx: LikelihoodContext
@@ -329,9 +330,10 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
                      centerData: CenterClusterData,
                      gainVals: seq[float],
                      calibTuple: tuple[b, m: float], ## contains the parameters required to perform energy calibration
+                     σT: float, # diffusion of the run this cluster is part of
                      ctx: LikelihoodContext,
                      flags: set[LogLFlagKind]
-                    ): tuple[logL, energy: float, lineVetoPassed: bool] =
+                    ): tuple[logL, nnPred, energy: float, lineVetoPassed: bool] =
   ## XXX: add these to config.toml and as a cmdline argument in addition
   # total charge for this cluster
   let clusterId = clTup[0]
@@ -372,11 +374,17 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
   let (b, m) = calibTuple
   let energy = totCharge * linearFunc(@[b, m], rs.mean) * 1e-6
 
-  #let energy = cl.hits.float * 26.0
   let logL = ctx.calcLikelihoodForEvent(energy, # <- TODO: hack for now!
                                         cl.geometry.eccentricity,
                                         cl.geometry.lengthDivRmsTrans,
                                         cl.geometry.fractionInTransverseRms)
+  # build single row DF from cluster
+  let clusterDf = clusterToDf(cl, logL, energy, totCharge, σT)
+  # forward it through the network
+  ## XXX: Potentially we need to load the model only once. Might be costly?
+  doAssert clusterDf.len == 1, "More than 1 row in cluster DF. How?"
+  let nnPred = ctx.vetoCfg.nnModelPath.predict(clusterDf)[0]
+
   ## Check if the current cluster is in input chip region. If it is, either it is part of something
   ## super big that makes the center still fall into the gold region or it remains unchanged.
   ## In the unchanged case, let's compare the energy and cluster pixels
@@ -425,6 +433,7 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
       lineVetoPassed = false
     septemGeometry.lines.add (m: orthSlope, b: centerInter)
   result = (logL: logL,
+            nnPred: nnPred,
             energy: energy,
             lineVetoPassed: lineVetoPassed) ## No line veto is equivalent to passing the line veto.
                                             ## Init to `true`, just use variable
@@ -454,14 +463,20 @@ proc readCenterChipData(h5f: H5File, group: H5Group, ctx: LikelihoodContext): Ce
   result.hits     = h5f[chpGrp / "hits", int]
   result.rmsT     = h5f[chpGrp / "rmsTransverse", float]
   result.rmsL     = h5f[chpGrp / "rmsLongitudinal", float]
+  if ctx.vetoCfg.useNeuralNetworkCut: # get NN prediction for center chip if needed
+    result.nnPred = ctx.predict(h5f, chpGrp)
 
 proc buildSeptemEvent(evDf: DataFrame,
-                      lhoodCenter, energies: seq[float],
+                      valToCut, energies: seq[float],
                       cutTab: CutValueInterpolator,
                       allChipData: AllChipData,
                       centerChip: int,
                       useRealLayout: bool): SeptemFrame =
-  ## Given a
+  ## Given a sub DF containing the indices for the clusters of a given event
+  ## number assembles the full septemboard frame using `allChipData`.
+  ##
+  ## `valToCut` is either the `logL` data or the NN prediction for all clusters on
+  ## the center chip. `cutTab` is the corresponding helper containing the cut values.
   result = SeptemFrame(centerEvIdx: -1, numRecoPixels: 0)
   # assign later to avoid indirection for each pixel
   var chargeTensor = zeros[float]([YSizePix, XSizePix])
@@ -478,7 +493,7 @@ proc buildSeptemEvent(evDf: DataFrame,
     let pixData = getPixels(allChipData, chip, idx, chargeTensor)
     pixels.add pixData
 
-    if chip == centerChip and lhoodCenter[idx.int] < cutTab[energies[idx.int]]:
+    if chip == centerChip and valToCut[idx.int] < cutTab[energies[idx.int]]:
       # assign center event index if this is the cluster that passes logL cut
       result.centerEvIdx = idx.int
       # in this case assign `pixData` to the result as a reference for data of original cluster
@@ -567,10 +582,12 @@ proc bootstrapFakeEvents(septemDf, centerDf: DataFrame,
   # finally reset the `passedEvs` to all events we just faked
   passedEvs = toSeq(0 ..< numBootstrap).toOrderedSet
 
+
+from ../../Tools/determineDiffusion/determineDiffusion import getDiffusionForRun
 proc applySeptemVeto(h5f, h5fout: var H5File,
                      runNumber: int,
                      passedInds: var OrderedSet[int],
-                     cutTab: CutValueInterpolator,
+                     cutTab: CutValueInterpolator, ## Important: `cutTab` can either be for LogL or NN!
                      ctx: LikelihoodContext,
                      flags: set[LogLFlagKind]) =
   ## Applies the septem board veto to the given `passedInds` in `runNumber` of `h5f`.
@@ -607,6 +624,10 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
   let useSeptemVeto = fkSeptem in flags
   fout.write(&"Septem events before: {passedEvs.len} (S,L,F) = ({$useSeptemVeto}, {$useLineVeto}, {estimateRandomCoinc})\n")
 
+
+  # use diffusion cache to get diffusion for this run
+  let σT = getDiffusionForRun(runNumber)
+
   let chips = toSeq(0 ..< ctx.vetoCfg.numChips)
   let gains = chips.mapIt(h5f[(group.name / "chip_" & $it / "gasGainSlices"), GasGainIntervalResult])
   let septemHChips = chips.mapIt(getSeptemHChip(it))
@@ -620,7 +641,8 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
     let evNum = pair[0][1].toInt
     if evNum in passedEvs:
       # then grab all chips for this event
-      var septemFrame = buildSeptemEvent(evGroup, centerData.lhoodCenter, centerData.energies,
+      let valsToCut = if ctx.vetoCfg.useNeuralNetworkCut: centerData.nnPred else: centerData.logL
+      var septemFrame = buildSeptemEvent(evGroup, valsToCut, centerData.energies,
                                          cutTab, allChipData, ctx.vetoCfg.centerChip, ctx.vetoCfg.useRealLayout)
       if septemFrame.centerEvIdx == -1:
         echo "Broken event! ", evGroup.pretty(-1)
@@ -660,12 +682,14 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
           passedEvs.excl evNum
           continue # skip to next iteration
       for clusterTup in pairs(recoEv.cluster):
-        let (logL, energy, lineVetoPassed) = evaluateCluster(clusterTup, rs, septemFrame, septemGeometry,
-                                                             centerClusterData,
-                                                             gainVals,
-                                                             calibTuple,
-                                                             ctx,
-                                                             flags)
+        let (logL, nnPred, energy, lineVetoPassed) = evaluateCluster(
+          clusterTup, rs, septemFrame, septemGeometry,
+          centerClusterData,
+          gainVals,
+          calibTuple,
+          σT,
+          ctx,
+          flags)
 
         let cX = toXPix(clusterTup[1].centerX)
         let cY = toYPix(clusterTup[1].centerY)
@@ -674,8 +698,26 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
           chipClusterCenter = (x: cX, y: cY, ch: 0).determineRealChip(allowOutsideChip = true)
         else:
           chipClusterCenter = (x: cX, y: cY, ch: 0).determineChip(allowOutsideChip = true)
+
+        var # start vetoes at true, as we check for true-ness below and only one veto is on at a time
+          lnLVeto = true
+          nnVeto = true
+
+        ## IMPORTANT: the following code relies on the fact that only *one* branch (lnL or NN)
+        ## is being used. The `cutTab` corresponds to the CutValueInterpolator for *that* branch.
+        ## NN cut
+        when defined(cpp):
+          if ctx.vetoCfg.useNeuralNetworkCut and nnPred < cutTab[energy]:
+            # more background like if smaller than cut value, -> veto it
+            nnVeto = false
+        ## LnL cut
+        if ctx.vetoCfg.useLnLCut and logL > cutTab[energy]:
+          # more background like if larger than cut value, -> veto it
+          lnLVeto = false
+        # needs to be on center chip & pass both cuts. Then septem veto does *not* remove it
         if chipClusterCenter == ctx.vetoCfg.centerChip and # this cluster's center is on center chip
-           logL < cutTab[energy]:              # cluster passes logL cut
+           lnLVeto and # passes lnL veto cut
+           nnVeto: # passes NN veto cut
           septemVetoPassed = true
 
         if not lineVetoRejected and not lineVetoPassed:
@@ -971,9 +1013,10 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
         # If there's no events left, then we don't care about
         if (fkSeptem in flags or fkLineVeto in flags) and chipNumber == centerChip:
           # read all data for other chips ``iff`` chip == 3 (centerChip):
+          let cutTabLoc = if ctx.vetoCfg.useNeuralNetworkCut: nnCutTab else: cutTab # hand correct CutValueInterpolator
           h5f.applySeptemVeto(h5fout, num,
                               passedInds,
-                              cutTab = cutTab,
+                              cutTab = cutTabLoc,
                               ctx = ctx,
                               flags = flags)
 
@@ -982,6 +1025,7 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
                                   mgrp,
                                   chipNumber,
                                   cutTab,
+                                  nnCutTab,
                                   passedInds,
                                   fadcVetoCount, scintiVetoCount, flags,
                                   ctx)

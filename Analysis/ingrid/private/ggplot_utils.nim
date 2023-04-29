@@ -16,6 +16,25 @@ macro echoType(x: typed): untyped =
 
 type SupportedRead = float | int | string | bool | Value
 
+proc clusterToDf*(cl: ClusterObject[PixInt], logL, energy, totalCharge, σT: float): DataFrame =
+  ## Convertsa given `ClusterObject` into a single row DataFrame for consumption in a
+  ## NN that uses its properties as an input.
+  ##
+  ## Require the diffusion value and total charge for the current run this event corresponds to.
+  result = newDataFrame()
+  for dset in TPADatasets - {igNumClusters}:
+    result[dset.toDset] = newColumn(colFloat, 1)
+  result["σT"] = newColumn(colFloat, 1)
+  result[igHits.toDset][0]             = cl.hits
+  result[igCenterX.toDset][0]          = cl.centerX
+  result[igCenterY.toDset][0]          = cl.centerY
+  result[igEnergyFromCharge.toDset][0] = energy
+  result[igTotalCharge.toDset][0]      = totalCharge
+  result[igLikelihood.toDset][0]       = logL
+  result["σT"][0]                      = σT / 1000.0 # from μm/√cm to mm/√cm
+  for field, val in fieldPairs(cl.geometry):
+    result[field][0] = val
+
 proc getDf*(h5f: H5File, path: string, keys: varargs[string]): DataFrame =
   ## read the datasets form `path` in the `h5f` file and combine them to a single
   ## DataFrame

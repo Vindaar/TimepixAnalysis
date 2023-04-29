@@ -792,6 +792,7 @@ when not defined(pure) and not defined(js):
     ## for which the septem veto is applied
     CenterChipData* = object
       logL*: seq[float]
+      nnPred*: seq[float] ## Neural network prediction (may be empty if no network used)
       energies*: seq[float]
       cX*: seq[float]
       cY*: seq[float]
@@ -802,6 +803,7 @@ when not defined(pure) and not defined(js):
     ## Equivalent of the above, but for a single event.
     CenterClusterData* = object
       logL*: float
+      nnPred*: float ## Neural network prediction for cluster (may be empty if no network used)
       energy*: float
       cX*: float
       cY*: float

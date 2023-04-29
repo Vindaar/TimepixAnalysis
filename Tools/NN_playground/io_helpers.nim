@@ -44,7 +44,8 @@ proc readCdlDset*(h5f: H5File, cdlPath, dset: string): DataFrame =
       passData[d].add data[d][i]
   for d in dsets:
     result[d.toDset(fkTpa)] = passData[d]
-  result["σT"] = getDiffusion(result) / 1000.0 # convert from μm/√cm to mm/√cm
+  doAssert false, "This is currently not sane to use! Diffusion missing and mixing of runs!"
+  #result["σT"] = getDiffusion(result) / 1000.0 # convert from μm/√cm to mm/√cm
 
 proc readRaw*(h5f: H5File, grpName: string, idxs: seq[int] = @[]): DataFrame =
   ## XXX: Need to implement filtering to suitable data for CDL data!
@@ -85,6 +86,8 @@ proc readValidDsets*(h5f: H5File, path: string, readRaw = false,
   ##
   ## `subsetPerRun` is an integer which if given only returns this many entries (random)
   ## from each run.
+  # get run number from parent group. This group is a chip group
+  let runNumber = h5f[path.parentDir.grp_str].attrs["runNumber", int]
   let dsets = toSeq(validDsets)
   let evNumDset = igEventNumber.toDset(fkTpa)
   let grp = h5f[path.grp_str]
@@ -104,7 +107,8 @@ proc readValidDsets*(h5f: H5File, path: string, readRaw = false,
   if subsetPerRun > 0:
     result = result.randomHead(subsetPerRun)
   #result["Idx"] = toSeq(0 ..< result.len)
-  result["σT"] = getDiffusion(result) / 1000.0 # convert from μm/√cm to mm/√cm
+  # here we only use the cached diffusion values!
+  result["σT"] = getDiffusionForRun(run = runNumber, isBackground = (typ == dtBack)) / 1000.0
 
 proc prepareData*(h5f: H5File, run: int, readRaw: bool,
                   typ = dtBack,

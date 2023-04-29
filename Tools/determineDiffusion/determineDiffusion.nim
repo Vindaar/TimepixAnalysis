@@ -360,7 +360,9 @@ proc runAvailable(run: int): bool =
         CacheTab[k] = v # overwrite possible existing keys in table
     result = run in CacheTab # still not in: not available
 
-proc getDiffusionForRun*(run: int): float =
+
+const BackgroundDiffusionCorrection = 40.0
+proc getDiffusionForRun*(run: int, isBackground: bool): float =
   ## Attempts to return the diffusion determined for run `run`. If the CacheTab
   ## does not contain the run yet, it raises an exception.
   if run in CacheTab:
@@ -368,6 +370,8 @@ proc getDiffusionForRun*(run: int): float =
   else:
     raise newException(ValueError, "Diffusion for run " & $run & " not determined yet. Please " &
       "generate the cache table of diffusion values using `determineDiffusion`.")
+  if isBackground:
+    result = result - BackgroundDiffusionCorrection
 
 proc getDiffusion*(rmsT: seq[float],
                    isBackground: bool,
@@ -402,7 +406,7 @@ proc getDiffusion*(rmsT: seq[float],
     ## All our background determinations have a bias to about ~30 larger than their closest 5.9 keV
     ## calibration run. Hence for now just subtract that to get the ~likely correct~ value.
     ## Run this file as a standalone on all data files and see the generated plot.
-    result[0] = result[0] - 40.0
+    result[0] = result[0] - BackgroundDiffusionCorrection
 
   echo "USED RESULT: ", result
   if run > 0:
@@ -419,10 +423,14 @@ proc getDiffusion*(rmsT: seq[float],
     echo "RRESULT COMSE OUT TO ", result, " from fit parameters? ? ", pRes, " FOR RUN: ", run
   #if true: quit()
 
-proc getDiffusion*(df: DataFrame): float =
-  ## DataFrame must contain `rmsTransverse` column!
-  let (df, pRes, _) = fitRmsTransverse(df["rmsTransverse", float], 100)
-  result = (pRes[1] + Scale * abs(pRes[2])) / sqrt(MaxZ) * 1000.0
+## XXX: THIS IS OUTDATED and dangerous! It gives the wrong numbers to use for the
+## DF containing the real data read via `readValidDsets`, i.e. give the wrong inputs
+## to the NN when evaluating the effective efficiency (or anything working with network
+## prediction of real data!)
+#proc getDiffusion*(df: DataFrame): float =
+#  ## DataFrame must contain `rmsTransverse` column!
+#  let (df, pRes, _) = fitRmsTransverse(df["rmsTransverse", float], 100)
+#  result = (pRes[1] + Scale * abs(pRes[2])) / sqrt(MaxZ) * 1000.0
 
 proc determineDiffusion(df: DataFrame) =
   var dfAll = newDataFrame()

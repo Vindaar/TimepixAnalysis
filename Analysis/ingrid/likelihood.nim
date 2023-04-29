@@ -1368,7 +1368,7 @@ proc main(
   useTeX = false,
   # NN cut
   nnSignalEff = 0.0,
-  nnCutKind = nkLocal,
+  nnCutKind = nkRunBasedLocal,
   # lnL cut
   signalEfficiency = 0.0,
   # line veto

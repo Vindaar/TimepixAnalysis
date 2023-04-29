@@ -8,14 +8,13 @@ import ./geometry
 proc getCenterClusterData*(centerData: CenterChipData, idx: int): CenterClusterData =
   ## Returns the data of the center cluster from the `centerData` and the event index.
   result = CenterClusterData(
-    lhood: centerData.lhoodCenter[idx],
+    logL: centerData.logL[idx],
     energy: centerData.energies[idx],
-    energyCenter: centerData.energyCenter[idx],
-    cX: centerData.cXCenter[idx] + 14.0, # assign X, Y but convert to global septem coordinates
-    cY: centerData.cYCenter[idx] + 14.0,
-    hits: centerData.hitsCenter[idx],
-    rmsT: centerData.rmsTCenter[idx],
-    rmsL: centerData.rmsLCenter[idx]
+    cX: centerData.cX[idx] + 14.0, # assign X, Y but convert to global septem coordinates
+    cY: centerData.cY[idx] + 14.0,
+    hits: centerData.hits[idx],
+    rmsT: centerData.rmsT[idx],
+    rmsL: centerData.rmsL[idx]
   )
 
 proc containsOriginal*(cl: ClusterObject[PixInt], septemFrame: SeptemFrame): bool =
@@ -56,9 +55,8 @@ proc getCenterClusterData*(septemFrame: SeptemFrame,
       if cl.containsOriginal(septemFrame):
         # found it, fill result
         result = CenterClusterData(
-          lhood: Inf,        # irrelevant and not used!
+          logL: Inf,        # irrelevant and not used!
           energy: Inf,       # irrelevant and not used!
-          energyCenter: Inf, # irrelevant and not used!
           cX: cl.centerX,
           cY: cl.centerY,
           hits: cl.data.len,

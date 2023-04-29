@@ -791,20 +791,18 @@ when not defined(pure) and not defined(js):
     ## Stores information about the clusters that pass the lnL cut on the center chip
     ## for which the septem veto is applied
     CenterChipData* = object
-      lhoodCenter*: seq[float]
+      logL*: seq[float]
       energies*: seq[float]
-      energyCenter*: seq[float]
-      cXCenter*: seq[float]
-      cYCenter*: seq[float]
-      hitsCenter*: seq[int]
-      rmsTCenter*: seq[float]
-      rmsLCenter*: seq[float]
+      cX*: seq[float]
+      cY*: seq[float]
+      hits*: seq[int]
+      rmsT*: seq[float]
+      rmsL*: seq[float]
 
     ## Equivalent of the above, but for a single event.
     CenterClusterData* = object
-      lhood*: float
+      logL*: float
       energy*: float
-      energyCenter*: float
       cX*: float
       cY*: float
       hits*: int

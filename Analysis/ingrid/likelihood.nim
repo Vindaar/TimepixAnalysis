@@ -443,17 +443,17 @@ proc readAllChipData(h5f: H5File, group: H5Group, numChips: int): AllChipData =
     result.ToT[i] =    h5f[group.name / "chip_" & $i / "ToT", vlenCh, uint16]
     result.charge[i] = h5f[group.name / "chip_" & $i / "charge", vlenCh, float]
 
-proc readCenterChipData(h5f: H5File, group: H5Group, energyDset: InGridDsetKind): CenterChipData =
+proc readCenterChipData(h5f: H5File, group: H5Group, ctx: LikelihoodContext): CenterChipData =
   ## Read all data of this run for the center chip that we need in the rest of
   ## the septem veto logic
-  result.lhoodCenter = h5f[group.name / "chip_3" / "likelihood", float]
-  result.energies = h5f[group.name / "chip_3" / energyDset.toDset, float]
-  result.energyCenter = h5f[group.name / "chip_3" / energyDset.toDset, float]
-  result.cXCenter = h5f[group.name / "chip_3" / "centerX", float]
-  result.cYCenter = h5f[group.name / "chip_3" / "centerY", float]
-  result.hitsCenter = h5f[group.name / "chip_3" / "hits", int]
-  result.rmsTCenter = h5f[group.name / "chip_3" / "rmsTransverse", float]
-  result.rmsLCenter = h5f[group.name / "chip_3" / "rmsLongitudinal", float]
+  let chpGrp = group.name / "chip_3"
+  result.logL     = h5f[chpGrp / "likelihood", float]
+  result.energies = h5f[chpGrp / ctx.energyDset.toDset, float]
+  result.cX       = h5f[chpGrp / "centerX", float]
+  result.cY       = h5f[chpGrp / "centerY", float]
+  result.hits     = h5f[chpGrp / "hits", int]
+  result.rmsT     = h5f[chpGrp / "rmsTransverse", float]
+  result.rmsL     = h5f[chpGrp / "rmsLongitudinal", float]
 
 proc buildSeptemEvent(evDf: DataFrame,
                       lhoodCenter, energies: seq[float],
@@ -597,7 +597,7 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
 
   ## Read all the pixel data for all chips
   let allChipData = readAllChipData(h5f, group, ctx.vetoCfg.numChips)
-  var centerData = readCenterChipData(h5f, group, ctx.energyDset)
+  var centerData = readCenterChipData(h5f, group, ctx)
   let estimateRandomCoinc = fkEstRandomCoinc in flags
   if estimateRandomCoinc:
     septemDf = bootstrapFakeEvents(septemDf, centerDf, passedEvs, passedInds, fkEstRandomFixedEvent in flags)

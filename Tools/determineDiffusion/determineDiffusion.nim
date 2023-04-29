@@ -360,6 +360,15 @@ proc runAvailable(run: int): bool =
         CacheTab[k] = v # overwrite possible existing keys in table
     result = run in CacheTab # still not in: not available
 
+proc getDiffusionForRun*(run: int): float =
+  ## Attempts to return the diffusion determined for run `run`. If the CacheTab
+  ## does not contain the run yet, it raises an exception.
+  if run in CacheTab:
+    result = CacheTab[run][0]
+  else:
+    raise newException(ValueError, "Diffusion for run " & $run & " not determined yet. Please " &
+      "generate the cache table of diffusion values using `determineDiffusion`.")
+
 proc getDiffusion*(rmsT: seq[float],
                    isBackground: bool,
                    run = -1,

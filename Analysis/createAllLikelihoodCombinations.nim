@@ -189,7 +189,7 @@ proc runCommand(comb: Combination, cdlFile, outpath: string,
   let regionStr = &"--region={cfg.region}"
   let cdlYear = &"--cdlYear={cdlYear}"
   let cdlFile = &"--cdlFile={cdlFile}"
-  let calibFile = if fkFadc in cfg.vetoes: &"--calibFile={comb.calib}"
+  let calibFile = if fkFadc in cfg.vetoes or fkMLP in cfg.vetoes: &"--calibFile={comb.calib}"
                   else: ""
   let vetoPerc = if cfg.vetoPercentile > 0.0: &"--vetoPercentile={cfg.vetoPercentile}" else: ""
   let readOnly = if readOnly: "--readOnly" else: ""

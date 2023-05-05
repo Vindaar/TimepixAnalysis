@@ -263,6 +263,9 @@ proc main(f2017, f2018: string = "", # paths to the Run-2 and Run-3 data files
      (f2018.len > 0 and c2018.len == 0)):
     doAssert false, "When using the FADC veto the corresponding calibration file to the background " &
       "data file is required."
+  # potentially create the output directory
+  discard existsOrCreateDir(outpath)
+
   if not multiprocessing: # run all commands in serial
     for comb in genCombinations(f2017, f2018, c2017, c2018, regions, mlpPaths, signalEfficiency, vetoSets, fadcVetoPercentiles, eccentricityCutoff):
       runCommand(comb, cdlFile, outpath, cdlYear, dryRun, readOnly = false)

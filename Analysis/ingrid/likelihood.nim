@@ -877,20 +877,18 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
       scinti1Trigger: seq[int64]
       scinti2Trigger: seq[int64]
     if fkFadc in flags:
-      try:
+      if group / "fadc/riseTime" in h5f:
         fadcTrigger = h5f[group / "fadcReadout", int64]
         fadcRise = h5f[group / "fadc/riseTime", uint16]
         fadcFall = h5f[group / "fadc/fallTime", uint16]
         fadcSkew = h5f[group / "fadc/skewness", float]
         fadcEvNum = h5f[group / "fadc/eventNumber", int64]
-      except KeyError as e:
-        echo "Run ", num, " has no FADC datasets!. Exception: ", e.msg
+      else:
+        echo "Run ", num, " has no FADC datasets!"
         useFadcVeto = false # turn off for ``this run``
     if fkScinti in flags:
       scinti1Trigger = h5f[group / "szint1ClockInt", int64]
       scinti2Trigger = h5f[group / "szint2ClockInt", int64]
-
-
     when defined(cpp):
       # generate fake data for each CDL target and determine the local cut values for this run
       ## XXX: currently using center chip!!

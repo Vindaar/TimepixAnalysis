@@ -645,9 +645,10 @@ proc evaluateEffectiveEfficiencyByFakeRunCutVal*(
 
 const CacheTabFile = "/dev/shm/cacheTab_effective_eff.h5"
 type
-  TabKey = (string, string)
+  TabKey = (string, string, float)
   #         ^-- calibration filename
   #                 ^-- sha1 hash of the NN model `.pt` file
+  #                         ^-- target efficiency
   TabVal = (float, float)
   #         ^-- mean of effective effs
   #                ^-- σ of effective effs
@@ -657,8 +658,8 @@ var CacheTab =
     deserializeH5[CacheTabTyp](CacheTabFile)
   else:
     initTable[TabKey, TabVal]()
-proc fileAvailable(fname, modelHash: string): bool =
-  if (fname, modelHash) in CacheTab:
+proc fileAvailable(fname, modelHash: string, ε: float): bool =
+  if (fname, modelHash, ε) in CacheTab:
     result = true
   else:
     # try rereading & updating file
@@ -667,7 +668,7 @@ proc fileAvailable(fname, modelHash: string): bool =
       # merge `tab` and `CacheTab`
       for k, v in tab:
         CacheTab[k] = v # overwrite possible existing keys in table
-    result = (fname, modelHash) in CacheTab # still not in: not available
+    result = (fname, modelHash, ε) in CacheTab # still not in: not available
 
 import std / sha1
 proc meanEffectiveEff*(ctx: LikelihoodContext, rnd: var Rand, model: string, fname: string,
@@ -676,8 +677,8 @@ proc meanEffectiveEff*(ctx: LikelihoodContext, rnd: var Rand, model: string, fna
   ## file `fname`. Returns both the mean and standard deviation.
   let modelHash = $(model.readFile.secureHash)
   let fnameFile = fname.extractFilename()
-  if fileAvailable(fnameFile, modelHash):
-    result = CacheTab[(fnameFile, modelHash)]
+  if fileAvailable(fnameFile, modelHash, ε):
+    result = CacheTab[(fnameFile, modelHash, ε)]
   else:
     let df = ctx.evaluateEffectiveEfficiencyByFakeRunCutVal(
       rnd,
@@ -689,7 +690,7 @@ proc meanEffectiveEff*(ctx: LikelihoodContext, rnd: var Rand, model: string, fna
     )
     let effs = df["Eff", float]
     result = (eff: effs.mean, sigma: effs.std)
-    CacheTab[(fnameFile, modelHash)] = result
+    CacheTab[(fnameFile, modelHash, ε)] = result
     CacheTab.toH5(CacheTabFile)
 
 proc main(fnames: seq[string], model: string, ε: float,

@@ -471,7 +471,8 @@ proc buildSeptemEvent(evDf: DataFrame,
                       cutTab: CutValueInterpolator,
                       allChipData: AllChipData,
                       centerChip: int,
-                      useRealLayout: bool): SeptemFrame =
+                      useRealLayout: bool,
+                      isNNcuts: bool): SeptemFrame =
   ## Given a sub DF containing the indices for the clusters of a given event
   ## number assembles the full septemboard frame using `allChipData`.
   ##
@@ -493,7 +494,9 @@ proc buildSeptemEvent(evDf: DataFrame,
     let pixData = getPixels(allChipData, chip, idx, chargeTensor)
     pixels.add pixData
 
-    if chip == centerChip and valToCut[idx.int] < cutTab[energies[idx.int]]:
+    let passCut = if isNNCuts: valToCut[idx.int] > cutTab[energies[idx.int]]
+                  else: valToCut[idx.int] < cutTab[energies[idx.int]]
+    if chip == centerChip and passCut:
       # assign center event index if this is the cluster that passes logL cut
       result.centerEvIdx = idx.int
       # in this case assign `pixData` to the result as a reference for data of original cluster
@@ -641,9 +644,11 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
     let evNum = pair[0][1].toInt
     if evNum in passedEvs:
       # then grab all chips for this event
-      let valsToCut = if ctx.vetoCfg.useNeuralNetworkCut: centerData.nnPred else: centerData.logL
+      let isNNcut = ctx.vetoCfg.useNeuralNetworkCut
+      let valsToCut = if isNNcut: centerData.nnPred else: centerData.logL
       var septemFrame = buildSeptemEvent(evGroup, valsToCut, centerData.energies,
-                                         cutTab, allChipData, ctx.vetoCfg.centerChip, ctx.vetoCfg.useRealLayout)
+                                         cutTab, allChipData, ctx.vetoCfg.centerChip, ctx.vetoCfg.useRealLayout,
+                                         isNNcut)
       if septemFrame.centerEvIdx == -1:
         echo "Broken event! ", evGroup.pretty(-1)
         quit(1)

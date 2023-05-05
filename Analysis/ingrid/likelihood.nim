@@ -624,9 +624,9 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
   let useSeptemVeto = fkSeptem in flags
   fout.write(&"Septem events before: {passedEvs.len} (S,L,F) = ({$useSeptemVeto}, {$useLineVeto}, {estimateRandomCoinc})\n")
 
-
   # use diffusion cache to get diffusion for this run
-  let σT = getDiffusionForRun(runNumber)
+  let runType = parseEnum[RunTypeKind](group.attrs["runType", string])
+  let σT = getDiffusionForRun(runNumber, isBackground = (runType == rtBackground))
 
   let chips = toSeq(0 ..< ctx.vetoCfg.numChips)
   let gains = chips.mapIt(h5f[(group.name / "chip_" & $it / "gasGainSlices"), GasGainIntervalResult])

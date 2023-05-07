@@ -182,7 +182,7 @@ proc buildFilename(comb: Combination, outpath: string): string =
   result = result & ".h5"
 
 proc runCommand(comb: Combination, cdlFile, outpath: string,
-                cdlYear: int, dryRun: bool, readOnly: bool) =
+                cdlYear: int, dryRun: bool, readOnly: bool): int =
   let cfg = comb.settings
   let vetoStr = genVetoStr(cfg.vetoes, comb)
   let outfile = buildFilename(comb, outpath)
@@ -204,9 +204,9 @@ proc runCommand(comb: Combination, cdlFile, outpath: string,
     let logOutput = outfile.extractFilename.replace(".h5", ".log")
     writeFile(&"{outpath}/{logOutput}", res)
     # then check error code. That way  we have the log at least!
-    doAssert err == 0, "The last command returned error code: " & $err
     if err != 0:
       writeFile(&"{outpath}/{logOutput}.error", "This command failed! Check its log.")
+    result = err
   else:
     shellEcho:
       "likelihood -f" ($fname) "--h5out" ($outfile) ($regionStr) ($cdlYear) ($vetoStr) ($cdlFile) ($readOnly) ($calibFile) ($vetoPerc) ($signalEff) ($eccCutoff)
@@ -243,6 +243,12 @@ proc toCombination(data: InputData): Combination =
                        mlpPath: data.mlpPath.fromArray(),
                        settings: data.settings)
 
+proc errorReport(errors: seq[string]): string =
+  result = "=== Error summary ===\n"
+  result.add "\tThe following errors were encountered during the process of all jobs:"
+  for i, err in errors:
+    result.add &"Error #{i}: {err}\n"
+
 proc main(f2017, f2018: string = "", # paths to the Run-2 and Run-3 data files
           c2017, c2018: string = "", # paths to the Run-2 and Run-3 calibration files (needed for FADC veto)
           regions: set[ChipRegion], # which chip regions to compute data for
@@ -267,8 +273,18 @@ proc main(f2017, f2018: string = "", # paths to the Run-2 and Run-3 data files
   discard existsOrCreateDir(outpath)
 
   if not multiprocessing: # run all commands in serial
+    var errors = newSeq[string]()
     for comb in genCombinations(f2017, f2018, c2017, c2018, regions, mlpPaths, signalEfficiency, vetoSets, fadcVetoPercentiles, eccentricityCutoff):
-      runCommand(comb, cdlFile, outpath, cdlYear, dryRun, readOnly = false)
+      var err = -1
+      while err != 0:
+        err = runCommand(comb, cdlFile, outpath, cdlYear, dryRun, readOnly = false)
+        if err != 0:
+          let errMsg = "[ERROR] The command `{cmd}` failed. Retrying now."
+          errors.add errMsg
+          # remove the generated output file (who knows what went wrong!
+          removeFile(buildFilename(comb, outpath))
+    if errors.len > 0:
+      echo errorReport(errors)
   else:
     var cmds = newSeq[InputData]()
     for comb in genCombinations(f2017, f2018, c2017, c2018, regions, mlpPaths, signalEfficiency, vetoSets, fadcVetoPercentiles, eccentricityCutoff):
@@ -290,10 +306,22 @@ proc main(f2017, f2018: string = "", # paths to the Run-2 and Run-3 data files
           let i = open(r)
           var o = open(w, fmWrite)
           var cmd: InputData
+          var errors = newSeq[string]()
           while i.uRd(cmd):
             echo "Running value: ", cmd
-            runCommand(cmd.toCombination(), cdlFile, outpath, cdlYear, dryRun, readOnly = true)
+            var err = -1
+            while err != 0:
+              let comb = cmd.toCombination()
+              err = runCommand(comb, cdlFile, outpath, cdlYear, dryRun, readOnly = true)
+              if err != 0:
+                let errMsg = "[ERROR] The command `{cmd}` failed. Retrying now."
+                errors.add errMsg
+                # remove the generated output file (who knows what went wrong!
+                removeFile(buildFilename(comb, outpath))
             discard w.wrLine "INFO: Finished input pair: " & $cmd
+          if errors.len > 0:
+            let errRep = errorReport(errors)
+            writeFile(&"/home/basti/Sync/error_report_job_r_{r}_w_{w}.txt", errRep)
       ), framesLines, jobs)
 
       proc prn(m: MSlice) = echo m

@@ -8,14 +8,20 @@ proc ctrlc() {.noconv.} =
   echo "Check the `processed.txt` file in the output path to see which files were processed successfully!"
   quit()
 
-proc main(path = "/t/lhood_outputs_adaptive_fadc/",
-          outpath = "/t/lhood_outputs_adaptive_fadc_limits/",
-          prefix = "likelihood_cdl2018_Run2_crAll",
+proc main(path, # = "/t/lhood_outputs_adaptive_fadc/",
+          outpath, # = "/t/lhood_outputs_adaptive_fadc_limits/",
+          prefix: string, # = "likelihood_cdl2018_Run2_crAll",
           nmc = 2000,
+          runPrefix = "R",
           dryRun = false) =
   setControlCHook(ctrlc)
   let t0 = epochTime()
-  let alreadyProcessed = readFile(outpath / "processed.txt").splitLines.mapIt(it.extractFilename)
+  discard existsOrCreateDir(outpath)
+  let alreadyProcessed =
+    if existsFile(outpath / "processed.txt"):
+      readFile(outpath / "processed.txt").splitLines.mapIt(it.extractFilename)
+    else:
+      newSeq[string]()
   var processed = open(outpath / "processed.txt", fmAppend)
   echo "Limit calculation will be performed for the following files:"
   for file in walkFiles(path / prefix & "*.h5"):
@@ -34,7 +40,7 @@ proc main(path = "/t/lhood_outputs_adaptive_fadc/",
     let t1 = epochTime()
     let fRun2 = file
     # construct Run3 file
-    let fRun3 = file.replace("_Run2_", "_Run3_")
+    let fRun3 = file.replace(&"_{runPrefix}2_", &"_{runPrefix}3_")
     # construct suffix
     let suffixArg = file.extractFilename.dup(removePrefix(prefix)).dup(removeSuffix(".h5"))
     let suffix = "--suffix=" & suffixArg

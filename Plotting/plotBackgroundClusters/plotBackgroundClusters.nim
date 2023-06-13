@@ -120,17 +120,19 @@ when false:
 
 proc readClusters(file: string, cTab: var CountTable[(int, int)],
                   filterNoisyPixels: bool,
-                  filterEnergy: float,
+                  energyMin, energyMax: float,
                   chip: int): int =
   ## Fills the `cTab` of those pixels that are hit and also returns the total number of
   ## clusters on the target chip.
+  echo "reading: ", file
   var h5f = H5open(file, "r")
   func toPixel(s: float): int = min((255.0 * s / 14.0).round.int, 255)
   for totalNum, centerX, centerY, energy in extractClusters(h5f, chip):
     result += totalNum # count total number of events
     for (cX, cY, cE) in zipEm(centerX, centerY, energy):
       # drop clusters with energy too large
-      if filterEnergy > 0.0 and cE > filterEnergy: continue
+      if   energyMin > 0.0 and cE < energyMin: continue
+      elif energyMax > 0.0 and cE > energyMax: continue
 
       let (pX, pY) = (cX.toPixel, cY.toPixel)
       #echo (pX, pY) in noisyPixels, " pos ", (pX, pY)
@@ -141,17 +143,17 @@ proc readClusters(file: string, cTab: var CountTable[(int, int)],
   doAssert h5f.close() >= 0
 
 proc readClusters(file: string, filterNoisyPixels: bool,
-                  filterEnergy: float, chip: int): (int, CountTable[(int, int)]) =
+                  energyMin, energyMax: float, chip: int): (int, CountTable[(int, int)]) =
   var cTab = initCountTable[(int, int)]()
-  let totalNum = file.readClusters(cTab, filterNoisyPixels, filterEnergy, chip)
+  let totalNum = file.readClusters(cTab, filterNoisyPixels, energyMin, energyMax, chip)
   result = (totalNum, cTab)
 
 proc readClusters(files: seq[string], filterNoisyPixels: bool,
-                  filterEnergy: float, chip: int): (int, CountTable[(int, int)]) =
+                  energyMin, energyMax: float, chip: int): (int, CountTable[(int, int)]) =
   var cTab = initCountTable[(int, int)]()
   var totalNum = 0
   for f in files:
-    totalNum += f.readClusters(cTab, filterNoisyPixels, filterEnergy, chip)
+    totalNum += f.readClusters(cTab, filterNoisyPixels, energyMin, energyMax, chip)
   result = (totalNum, cTab)
 
 proc toDf(cTabTup: (int, CountTable[(int, int)])): DataFrame =
@@ -279,7 +281,7 @@ proc main(
   files: seq[string], suffix = "", title = "",
   names: seq[string] = @[], # can be used to create facet plot. All files with same names will be stacked
   filterNoisyPixels = false,
-  filterEnergy = 0.0,
+  energyMin = 0.0, energyMax = 0.0,
   useTikZ = false,
   writeNoisyClusters = false,
   zMax = 5.0,
@@ -288,7 +290,7 @@ proc main(
   tiles = 7,
   outpath = "") =
 
-  let (totalNum, cTab) = readClusters(files, filterNoisyPixels, filterEnergy, chip)
+  let (totalNum, cTab) = readClusters(files, filterNoisyPixels, energyMin, energyMax, chip)
   if writeNoisyClusters:
     cTab.writeNoisyClusters(threshold)
 
@@ -300,7 +302,7 @@ proc main(
   else:
     doAssert names.len == files.len, "Need same number of names as input files!"
     for i in 0 ..< names.len:
-      var dfLoc = readClusters(@[files[i]], filterNoisyPixels, filterEnergy, chip).toDf()
+      var dfLoc = readClusters(@[files[i]], filterNoisyPixels, energyMin, energyMax, chip).toDf()
       dfLoc["Type"] = names[i]
       df.add dfLoc
     # now sort all again

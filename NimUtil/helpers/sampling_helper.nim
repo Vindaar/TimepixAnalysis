@@ -41,7 +41,7 @@ proc sample*(rnd: var Rand, cdf: seq[float], xs, ys: seq[float]): float =
 proc sample*(rnd: var Rand, s: Sampler): float =
   result = rnd.sample(s.edf, s.xs, s.ys)
 
-proc expFn(x: float, λ: float): float =
+proc expFn*(x: float, λ: float): float =
   result = 1.0 / λ * exp(- x / λ)
 
 proc sampler*(

@@ -755,7 +755,7 @@ proc overwriteRandomCoinc(readData: ReadData,
 proc initContext(path: string, yearFiles: seq[(int, string)],
                  useConstantBackground: bool, # decides whether to use background interpolation or not
                  radius, sigma: float, energyRange: keV, nxy, nE: int,
-                 backgroundTime, trackingTime: Hour, ## XXX: input times are ignored now! Not reflected in calling code yet!
+                 backgroundTime, trackingTime: Hour, ## Can be used to ``*overwrite*`` time from input files!
                  windowRotation = 30.°,
                  σ_sig = 0.0, σ_back = 0.0, # depending on which `σ` is given as > 0, determines uncertainty
                  σ_p = 0.0,
@@ -841,8 +841,12 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
       t[x, y] = (z / zSum * pixPerArea).float #zMax / 784.597 # / zSum # TODO: add telescope efficiency abs. * 0.98
     newBilinearSpline(t, (0.0, 255.0), (0.0, 255.0)) # bicubic produces negative values!
 
-  let backTime = readData.totalTime
-  let trackTime = backTime / TrackingBackgroundRatio
+  var backTime = readData.totalTime
+  var trackTime = backTime / TrackingBackgroundRatio
+  if trackingTime > 0.Hour and backgroundTime > 0.Hour: ## In this case overwrite time and use user input!
+    backTime = backgroundTime
+    trackTime = trackingTime
+
 
   result = Context(
     # general information and input parameters
@@ -852,8 +856,6 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
     totalBackgroundClusters: readData.df.len,
     totalBackgroundTime: backTime,
     totalTrackingTime: trackTime,
-    #totalBackgroundTime: backgroundTime,
-    #totalTrackingTime: trackingTime,
     # axion model
     g_aγ²: 1e-12 * 1e-12, ## reference axion photon coupling
     axionModel: axData,
@@ -3824,6 +3826,7 @@ proc limit(
     lineVetoRandomCoinc = 0.8601764705882353,   # lvRegular based on bootstrapped fake data
     septemLineVetoRandomCoinc = 0.732514705882353, # lvRegularNoHLC based on bootstrapped fake data
     energyMin = 0.0.keV, energyMax = 12.0.keV,
+    trackingTime = -1.Hour, backgroundTime = -1.Hour,
     limitKind = lkBayesScan,
     computeLimit = false,
     scanSigmaLimits = false,
@@ -3837,11 +3840,9 @@ proc limit(
     outpath = "/tmp/",
     suffix = "",
     jobs = 0
-     ): int =
-  ## dummy return an `int`, otherwise run into some cligen bug
-  let backgroundTime = 3318.Hour ## TODO: FIX ME GET FROM FILES
-  let trackingTime = 169.Hour ## TODO: FIX ME GET FROM FILES
-
+     ): int = # dummy return an `int`, otherwise run into some cligen bug
+  ## XXX: For expected limit we need the ratio of tracking to non tracking time. Currently hardcoded.
+  echo "files ", files
   let files = if files.len == 0:
                 @[(2017, "lhood_2017_all_chip_septem_dbscan.h5"),
                   (2018, "lhood_2018_all_chip_septem_dbscan.h5")]

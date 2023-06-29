@@ -678,7 +678,6 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
                              runNumber, searchRadius = ctx.vetoCfg.searchRadius,
                              dbscanEpsilon = ctx.vetoCfg.dbscanEpsilon,
                              clusterAlgo = ctx.vetoCfg.clusterAlgo)
-
       let centerClusterData = getCenterClusterData(septemFrame, centerData, recoEv, ctx.vetoCfg.lineVetoKind)
 
       # extract the correct gas gain slices for this event
@@ -782,6 +781,7 @@ proc copyOverAttrs(h5f, h5fout: H5File) =
 
 proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
                             ctx: var LikelihoodContext,
+                            run: int,
                             flags: set[LogLFlagKind]) =
   ## Filters all clusters based on our background suppression methods consisting
   ## of neural networks, a likelihood cut method and different additional detector
@@ -836,16 +836,17 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
   let fileInfo = getFileInfo(h5f)
   let capacitance = fileInfo.timepix.getCapacitance()
 
+  var processedRuns = initHashSet[int]()
   for num, group in runs(h5f):
+    processedRuns.incl num
+    if run > 0 and num != run: continue
 
     ## Only a for run setting so that if we set it to false due to missing data
     ## in one run, we don't do that for all!
     var useFadcVeto = fkFadc in flags
     var useScintiVeto = fkScinti in flags
 
-    ## XXX: turn the following into a proper feature
-    #if num != 261: continue
-    echo &"Start logL cutting of run {group}"
+    echo &"Start logL cutting of run {group}. Processed: {processedRuns.card} / {fileInfo.runs.len}"
     # get number of chips from attributes
     var mgrp = h5f[group.grp_str]
     var run_attrs = mgrp.attrs
@@ -1415,7 +1416,8 @@ proc main(
   fadcScaleCutoff = 1.45,
   # misc
   rngSeed = 299_792_458,
-  version = false
+  version = false,
+  run = -1, # If given only analyze this run
      ) =
   docCommentAdd(versionStr)
   ## InGrid likelihood calculator. This program is run after reconstruction is finished.
@@ -1533,7 +1535,7 @@ proc main(
 
     # now perform the cut on the logL values stored in `h5f` and write
     # the results to h5fout
-    h5f.filterClustersByVetoes(h5fout, ctx, flags)
+    h5f.filterClustersByVetoes(h5fout, ctx, run, flags)
     # given the cut values and the likelihood values for all events
     # based on the X-ray reference distributions, we can now cut away
     # all events not passing the cuts :)

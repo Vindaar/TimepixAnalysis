@@ -1,3 +1,4 @@
+
 import os, nimhdf5, datamancer, strutils, sugar
 import ingrid / ingrid_types
 
@@ -19,7 +20,10 @@ type
   Efficiency = object
     totalEff: float # total efficiency multiplier based on signal efficiency of lnL cut, FADC & veto random coinc rate
     signalEff: float # the lnL cut signal efficiency used in the inputs
-    eccLineVetoCut: float # the eccentricity cut used for the line veto
+    nnSignalEff: float # target signal efficiency of MLP
+    nnEffectiveEff: float # effective efficiency based on
+    nnEffectiveEffStd: float
+    eccLineVetoCut: float # the eccentricity cutoff for the line veto (affects random coinc.)
     vetoPercentile: float # if FADC veto used, the percentile used to generate the cuts
     septemVetoRandomCoinc: float # random coincidence rate of septem veto
     lineVetoRandomCoinc: float # random coincidence rate of line veto
@@ -61,6 +65,8 @@ proc readLimit(fname: string): LimitData =
 proc asDf(limit: LimitData): DataFrame =
   ## Calling it `toDf` causes issues...
   result = toDf({ "ε_lnL" : limit.eff.signalEff,
+                  "MLP" : limit.eff.nnSignalEff,
+                  "MLP_eff" : limit.eff.nnEffectiveEff,
                   "Scinti" : fkScinti in limit.vetoes,
                   "FADC" : fkFadc in limit.vetoes,
                   "ε_FADC" : 1.0 - (1.0 - limit.eff.vetoPercentile) * 2.0,
@@ -78,6 +84,7 @@ proc main(path = "/t/lhood_outputs_adaptive_fadc_limits/",
           prefix = "mc_limit_lkMCMC_skInterpBackground_nmc_1000") =
   var df = newDataFrame()
   for f in walkFiles(path / prefix & "*.h5"):
+    echo "File: ", f
     let limit = readLimit(f)
     df.add asDf(limit)
   echo df.arrange("Expected Limit").toOrgTable()

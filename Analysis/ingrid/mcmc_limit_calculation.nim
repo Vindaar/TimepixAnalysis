@@ -116,6 +116,8 @@ type
     totalBackgroundClusters: int # total number of background clusters in non-tracking time
     totalBackgroundTime: Hour # total time of background data taking
     totalTrackingTime: Hour # total time of solar tracking
+    # energy information
+    energyMin, energyMax: keV
     # axion signal info
     axionModel: DataFrame
     integralBase: float # integral of axion flux using base coupling constants
@@ -413,7 +415,8 @@ proc compareVetoCfg(c1, c2: VetoSettings): bool =
         echo "Comparison failed in field: ", field, " is ", v1, " and ", v2
         return
 
-proc readFiles(path: string, s: seq[string], noiseFilter: NoiseFilter): ReadData =
+proc readFiles(path: string, s: seq[string], noiseFilter: NoiseFilter,
+               energyMin, energyMax: keV): ReadData =
   var h5fs = newSeq[datatypes.H5File]()
   echo path
   echo s
@@ -432,7 +435,7 @@ proc readFiles(path: string, s: seq[string], noiseFilter: NoiseFilter): ReadData
   ## The candidates are drawn in a range defined by `EnergyCutoff`. The kd tree just has to be
   ## able to provide points for the interpolation up to the `EnergyCutoff`. That's why the
   ## `t.sum()` does not change if we change the energy filter here.
-  df = df.filter(f{`Energy` < 12.0})
+  df = df.filter(f{float -> bool: `Energy`.keV <= energyMax and `Energy`.keV > energyMin})
   var
     first = true
     lastFlags: set[LogLFlagKind]
@@ -726,22 +729,26 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
                  σ_sig = 0.0, σ_back = 0.0, # depending on which `σ` is given as > 0, determines uncertainty
                  σ_p = 0.0,
                  rombergIntegrationDepth = 5,
-                 septemVetoRandomCoinc = 1.0,    # random coincidence rate of the septem veto
-                 lineVetoRandomCoinc = 1.0,      # random coincidence rate of the line veto
-                 septemLineVetoRandomCoinc = 1.0 # random coincidence rate of the septem + line veto
+                 septemVetoRandomCoinc = 1.0,     # random coincidence rate of the septem veto
+                 lineVetoRandomCoinc = 1.0,       # random coincidence rate of the line veto
+                 septemLineVetoRandomCoinc = 1.0, # random coincidence rate of the septem + line veto
+                 energyMin = 0.0.keV,
+                 energyMax = 12.0.keV
                 ): Context =
   let samplingKind = if useConstantBackground: skConstBackground else: skInterpBackground
 
   let files = yearFiles.mapIt(it[1])
   let noiseFilter = initNoiseFilter(yearFiles)
   # read data including vetoes & FADC percentile
-  let readData = readFiles(path, files, noiseFilter)
+  let readData = readFiles(path, files, noiseFilter, energyMin, energyMax)
 
   let kdeSpl = block:
-    let dfLoc = readData.df.toKDE(true)
+    let dfLoc = readData.df.toKDE(energyMin, energyMax, true)
     newCubicSpline(dfLoc["Energy", float].toSeq1D, dfLoc["KDE", float].toSeq1D)
   let backgroundInterp = toNearestNeighborTree(readData.df)
-  let energies = linspace(0.071, 9.999, 10000).mapIt(it) # cut to range valid in interpolation
+  let energies = linspace(max(0.071.keV, energyMin).float, #InterpMin.float,
+                          energyMax.float, #InterpMax.float,
+                          10000).mapIt(it) # cut to range valid in interpolation
   let backgroundCdf = energies.mapIt(kdeSpl.eval(it)).toCDF()
 
   let axData = readAxModel()
@@ -3780,6 +3787,7 @@ proc limit(
     septemVetoRandomCoinc = 0.7841029411764704, # only septem veto random coinc based on bootstrapped fake data
     lineVetoRandomCoinc = 0.8601764705882353,   # lvRegular based on bootstrapped fake data
     septemLineVetoRandomCoinc = 0.732514705882353, # lvRegularNoHLC based on bootstrapped fake data
+    energyMin = 0.0.keV, energyMax = 12.0.keV,
     limitKind = lkBayesScan,
     computeLimit = false,
     scanSigmaLimits = false,
@@ -3817,7 +3825,8 @@ proc limit(
     σ_p = σ_p,
     septemVetoRandomCoinc = septemVetoRandomCoinc,
     lineVetoRandomCoinc = lineVetoRandomCoinc,
-    septemLineVetoRandomCoinc = septemLineVetoRandomCoinc
+    septemLineVetoRandomCoinc = septemLineVetoRandomCoinc,
+    energyMin = energyMin, energyMax = energyMax
   ) # from sqrt(squared sum of x / 7) position uncertainties
     # large values of σ_sig cause NaN and grind some integrations to a halt!
     ## XXX: σ_sig = 0.3)

@@ -2227,8 +2227,8 @@ proc plotMCLimitHistogram(
 
   # First write a H5 file of the context and limits
   let baseOutfile = genOutfile(limitKind, ctx.samplingKind, nmc, ufSuff, pufSuff, suffix)
-  ctx.writeLimitOutput(outpath, baseOutfile, nmc, limitKind, limitNoSignal, limits, candsInSens)
   dfL.writeCsv(&"{outpath}/{baseOutfile}.csv")
+  ctx.writeLimitOutput(outpath, baseOutfile, nmc, limitKind, limitNoSignal, limits, candsInSens)
 
   let maxVal = if xlimit[1] > 0.0: xLimit[1] else: 3e-20
   dfL = dfL

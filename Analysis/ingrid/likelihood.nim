@@ -17,6 +17,9 @@ from std / envvars import getEnv # for some additional config, plotSeptem cutoff
 when defined(cpp):
   ## What do we need? Flambeau ? NN submodule?
   import ../../Tools/NN_playground/nn_predict
+  from flambeau/flambeau_nn import Device, DeviceKind, Torch, cuda_is_available, init, to, load, NoGradGuard
+  var Model: MLP
+  var Desc: MLPDesc
 
 when defined(linux):
   const commitHash = staticExec("git rev-parse --short HEAD")
@@ -336,6 +339,16 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
                     ): tuple[logL, nnPred, energy: float, lineVetoPassed: bool] =
   ## XXX: add these to config.toml and as a cmdline argument in addition
   # total charge for this cluster
+  when defined(cpp): # initialize the Device
+    var device_type: DeviceKind
+    if Torch.cuda_is_available():
+      #echo "CUDA available! Training on GPU."
+      device_type = kCuda
+    else:
+      #echo "Training on CPU."
+      device_type = kCPU
+    let Dev = Device.init(device_type)
+
   let clusterId = clTup[0]
   let cl = clTup[1]
   let clData = cl.data
@@ -383,7 +396,10 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
   # forward it through the network
   ## XXX: Potentially we need to load the model only once. Might be costly?
   doAssert clusterDf.len == 1, "More than 1 row in cluster DF. How?"
-  let nnPred = ctx.vetoCfg.nnModelPath.predict(clusterDf)[0]
+  var nnPred: float
+  when defined(cpp):
+    if ctx.vetoCfg.useNeuralNetworkCut:
+      nnPred = Model.predict(Dev, Desc, clusterDf)[0]  #ctx.vetoCfg.nnModelPath.predict(clusterDf)[0]
 
   ## Check if the current cluster is in input chip region. If it is, either it is part of something
   ## super big that makes the center still fall into the gold region or it remains unchanged.
@@ -494,18 +510,20 @@ proc buildSeptemEvent(evDf: DataFrame,
     let pixData = getPixels(allChipData, chip, idx, chargeTensor)
     pixels.add pixData
 
-    let passCut = if isNNCuts: valToCut[idx.int] > cutTab[energies[idx.int]]
-                  else: valToCut[idx.int] < cutTab[energies[idx.int]]
-    if chip == centerChip and passCut:
-      # assign center event index if this is the cluster that passes logL cut
-      result.centerEvIdx = idx.int
-      # in this case assign `pixData` to the result as a reference for data of original cluster
-      if useRealLayout:
-        result.centerCluster = newSeq[PixInt](pixData.len)
-        for i in 0 ..< pixData.len:
-          result.centerCluster[i] = septemPixToRealPix(pixData[i])
-      else:
-        result.centerCluster = pixData
+    if chip == centerChip:
+      # NOTE: Index `idx` is `*only valid*` for `valToCut` when we look at the center chip!
+      let passCut = if isNNCuts: valToCut[idx.int] > cutTab[energies[idx.int]]
+                    else: valToCut[idx.int] < cutTab[energies[idx.int]]
+      if passCut:
+        # assign center event index if this is the cluster that passes logL cut
+        result.centerEvIdx = idx.int
+        # in this case assign `pixData` to the result as a reference for data of original cluster
+        if useRealLayout:
+          result.centerCluster = newSeq[PixInt](pixData.len)
+          for i in 0 ..< pixData.len:
+            result.centerCluster[i] = septemPixToRealPix(pixData[i])
+        else:
+          result.centerCluster = pixData
 
   result.charge = chargeTensor
   result.pixels = pixels
@@ -585,7 +603,6 @@ proc bootstrapFakeEvents(septemDf, centerDf: DataFrame,
   # finally reset the `passedEvs` to all events we just faked
   passedEvs = toSeq(0 ..< numBootstrap).toOrderedSet
 
-
 from ../../Tools/determineDiffusion/determineDiffusion import getDiffusionForRun
 proc applySeptemVeto(h5f, h5fout: var H5File,
                      runNumber: int,
@@ -608,7 +625,6 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
   echo "Passed indices before septem veto ", passedInds.card
   let group = h5f[(recoBase() & $runNumber).grp_str]
   var septemDf = h5f.getSeptemEventDF(runNumber)
-
   # now filter events for `centerChip` from and compare with `passedInds`
   let centerDf = septemDf.filter(f{int: `chipNumber` == ctx.vetoCfg.centerChip})
   # The `passedEvs` simply maps the *indices* to the *event numbers* that pass *on the
@@ -704,25 +720,27 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
         else:
           chipClusterCenter = (x: cX, y: cY, ch: 0).determineChip(allowOutsideChip = true)
 
-        var # start vetoes at true, as we check for true-ness below and only one veto is on at a time
-          lnLVeto = true
-          nnVeto = true
-
+        var
+          lnLVeto = false
+          nnVeto = false
         ## IMPORTANT: the following code relies on the fact that only *one* branch (lnL or NN)
         ## is being used. The `cutTab` corresponds to the CutValueInterpolator for *that* branch.
         ## NN cut
         when defined(cpp):
-          if ctx.vetoCfg.useNeuralNetworkCut and nnPred < cutTab[energy]:
+          if ctx.vetoCfg.useNeuralNetworkCut and
+             (classify(nnPred) == fcNaN or # some clusters are NaN due to certain bad geometry, kick those out!
+                                           # -> clusters of sparks on edge of chip
+              nnPred < cutTab[energy]):
             # more background like if smaller than cut value, -> veto it
-            nnVeto = false
+            nnVeto = true
         ## LnL cut
         if ctx.vetoCfg.useLnLCut and logL > cutTab[energy]:
           # more background like if larger than cut value, -> veto it
-          lnLVeto = false
+          lnLVeto = true
         # needs to be on center chip & pass both cuts. Then septem veto does *not* remove it
         if chipClusterCenter == ctx.vetoCfg.centerChip and # this cluster's center is on center chip
-           lnLVeto and # passes lnL veto cut
-           nnVeto: # passes NN veto cut
+           not lnLVeto and # passes lnL veto cut
+           not nnVeto: # passes NN veto cut
           septemVetoPassed = true
 
         if not lineVetoRejected and not lineVetoPassed:
@@ -786,7 +804,9 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
   ## XXX: add NN support
   let cutTab = calcCutValueTab(ctx)
   when defined(cpp):
-    var nnCutTab = calcNeuralNetCutValueTab(ctx)
+    var nnCutTab: CutValueInterpolator
+    if ctx.vetoCfg.useNeuralNetworkCut:
+      nnCutTab = calcNeuralNetCutValueTab(ctx)
   # get the likelihood and energy datasets
   # get the group from file
   when false:
@@ -892,8 +912,9 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
     when defined(cpp):
       # generate fake data for each CDL target and determine the local cut values for this run
       ## XXX: currently using center chip!!
-      nnCutTab = ctx.calcLocalNNCutValueTab(ctx.rnd, h5f, fileInfo.runType, num, centerChip, fileInfo.centerChipName, capacitance)
-      echo "NN CUT TAB::: ", nnCutTab
+      if ctx.vetoCfg.useNeuralNetworkCut:
+        nnCutTab = ctx.calcLocalNNCutValueTab(ctx.rnd, h5f, fileInfo.runType, num, centerChip, fileInfo.centerChipName, capacitance)
+        echo "NN CUT TAB::: ", nnCutTab
     for (_, chipNumber, chipGroup) in chipGroups(h5f, group):
       if ctx.energyDset.toDset notin h5f[chipGroup.grp_str]:
         raise newException(IOError, "The input file " & $h5f.name & " does not contain the dataset " &
@@ -928,8 +949,8 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
         centerY = h5f[(chipGroup / "centerY"), float64]
         rmsTrans = h5f[(chipGroup / "rmsTransverse"), float64]
         evNumbers = h5f[(chipGroup / "eventNumber"), int64].asType(int)
+      var nnPred: seq[float]
       when defined(cpp):
-        var nnPred: seq[float]
         if ctx.vetoCfg.useNeuralNetworkCut:
           nnPred = ctx.predict(h5f, chipGroup)
 
@@ -963,7 +984,10 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
           rmsCleaningVeto = false # smaller than RMS cleaning cut
         ## NN cut (smaller means "more background like")
         when defined(cpp):
-          if ctx.vetoCfg.useNeuralNetworkCut and nnPred[ind] < nnCutTab[energy[ind]]:
+          if ctx.vetoCfg.useNeuralNetworkCut and
+             (classify(nnPred[ind]) == fcNaN or # some clusters are NaN due to certain bad geometry, kick those out!
+                                                # -> clusters of sparks on edge of chip
+              nnPred[ind] < nnCutTab[energy[ind]]):
             # vetoed if larger than prediction
             nnVeto = true  #ctx.isVetoedByNeuralNetwork()
         ## LnL cut
@@ -1336,6 +1360,13 @@ proc fillEffectiveEff(ctx: var LikelihoodContext) =
     let (eff, std) = meanEffectiveEff(ctx, ctx.rnd, ctx.vetoCfg.nnModelPath, ctx.vetoCfg.calibFile, ctx.vetoCfg.nnSignalEff)
     ctx.vetoCfg.nnEffectiveEff = eff
     ctx.vetoCfg.nnEffectiveEffStd = std
+
+    # now assign `Model` and `MLPDesc`
+    Desc = initDesc(ctx.vetoCfg.nnModelPath)
+    Model = MLP.init(Desc)
+    Model.to(kCuda)
+    var noGrad: NoGradGuard
+    Model.load(ctx.vetoCfg.nnModelPath)
 
 # switch to cligen (DONE), then do (STILL TODO):
 ## runs: seq[int] = @[]) = # `runs` allows to overwrite whihc run is logL cut'd

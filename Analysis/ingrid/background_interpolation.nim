@@ -8,12 +8,14 @@ from seqmath import gauss, linspace
 const TrackingBackgroundRatio* = 19.605 ## TODO: replace by actual time!!
 const EnergyCutoff* = 12.0
 
-proc toKDE*(df: DataFrame, toPlot = false,
+proc toKDE*(df: DataFrame,
+            energyMin = 0.0.keV, energyMax = 12.0.keV,
+            toPlot = false,
             outname = ""): DataFrame =
   echo "[KDE] Number of clusters in DF: ", df
   echo "[KDE] Number of clusters in DF < ", EnergyCutoff, " keV: ", df.filter(f{`Energy` <= EnergyCutoff})
-  let dfFiltered = df.filter(f{`Energy` <= 12.0},
-                         f{float -> bool: `centerX` in 4.5 .. 9.5 and `centerY` in 4.5 .. 9.5}
+  let dfFiltered = df.filter(f{float -> bool: `Energy`.keV >= energyMin and `Energy`.keV <= energyMax},
+                             f{float -> bool: `centerX` in 4.5 .. 9.5 and `centerY` in 4.5 .. 9.5}
   )
   let energy = dfFiltered["Energy", float]
   #dfFiltered.showBrowser()
@@ -39,7 +41,9 @@ proc toKDE*(df: DataFrame, toPlot = false,
   kde = kde.map_inline:
     x * scale.float
   #echo kde[0 .. 500]
-  result = toDf({"Energy" : xs, "KDE" : kde})
+
+  result = toDf({ "Energy" : concat(@[energyMin.float], xs, @[energyMax.float]),
+                  "KDE" : concat([kde[0]].toTensor, kde, [kde[kde.size - 1]].toTensor, axis = 0) })
 
   let integral = simpson(result["KDE", float].toSeq1D,
                          result["Energy", float].toSeq1D)

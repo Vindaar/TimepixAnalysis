@@ -32,7 +32,7 @@ import unchained except Time
 when not defined(pure):
   import nimhdf5
 
-import ingrid/tos_helpers
+import ingrid/[tos_helpers, projectDefs]
 
 type
   TrackingKind* = enum
@@ -327,8 +327,11 @@ proc print_slow_control_logs(logs: seq[SlowControlLog], magnetField = 8.0) =
 
 when not defined(pure):
   proc print_mapped_tracking_logs(logs: seq[TrackingLog], map: Table[TrackingLog, int],
-                                  startTime, endTime: string) =
+                                  startTime, endTime: string,
+                                  outfile: string) =
     let logs = sortAndFilter(logs, startTime, endTime)
+    # 0. construct a DF to write a CSV of the tracking information
+    var df = newDataFrame()
     # 1. first print the *mapped* tracking logs:
     echo "========== Logs mapped to trackings in the output file: =========="
     for log in logs.filterIt(it in map): ## filter and get the run to output in sorted order!
@@ -337,6 +340,8 @@ when not defined(pure):
       echo "<$#>    <$#>  for run: $#" % [formatAsOrgDate(log.tracking_start),
                                           formatAsOrgDate(log.tracking_stop),
                                           $run]
+      df.add (&"<{formatAsOrgDate(log.tracking_start)}>", &"<{formatAsOrgDate(log.tracking_stop)}>", run)
+
     # 2. print those runs *not* mapped to anything:
     echo "==================================================================\n"
     echo "========== Logs *not* mapped to a run ============================"
@@ -344,7 +349,12 @@ when not defined(pure):
       doAssert log.kind == rkTracking
       echo "<$#>    <$#>" % [formatAsOrgDate(log.tracking_start),
                              formatAsOrgDate(log.tracking_stop)]
+      df.add (&"<{formatAsOrgDate(log.tracking_start)}>", &"<{formatAsOrgDate(log.tracking_stop)}>", -1)
     echo "=================================================================="
+
+    df = df.rename(f{"Tracking start" <- "Field0"}, f{"Tracking stop" <- "Field1"}, f{"Run" <- "Field2"})
+    df.writeCsv(outfile)
+    writeFile(outfile.replace(".csv", ".org"), df.toOrgTable())
 
   proc map_log_to_run(logs: seq[TrackingLog], h5file: string,
                       startTime, endTime: string): Table[TrackingLog, int] =
@@ -401,7 +411,9 @@ when not defined(pure):
     # in addition print the information about all logs we found. Both the
     # logs that _are_ mapped (and which runs they are mapped to), but also those
     # that are _not_ mapped, i.e. runs that we missed!
-    print_mapped_tracking_logs(logs, result, startTime, endTime)
+    const outpath = TpxDir / "resources"
+    let outfile = h5file.extractFilename.replace(".h5", "_tracking_times.csv")
+    print_mapped_tracking_logs(logs, result, startTime, endTime, outpath / outfile)
 
   proc deleteTrackingAttributes(h5file: string) =
     ## proc to delete all tracking related attributes in a H5 file

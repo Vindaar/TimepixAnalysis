@@ -277,6 +277,7 @@ proc predictSingle*(model: MLP, input: RawTensor, device: Device, desc: MLPDesc)
   # predict the output for the single input event
   no_grad_mode:
     # Running input through the network, get the 0th neuron output
+    var noGrad: NoGradGuard
     result = model.forward(desc, input.to(device))[_, 0].item(float)
 
 from ./io_helpers import toNimSeq
@@ -289,6 +290,7 @@ proc forward*(model: AnyModel,
   let dataset_size = input.size(0)
   result = newSeqOfCap[float](dataset_size)
   no_grad_mode:
+    var noGrad: NoGradGuard
     for batch_id in 0 ..< (dataset_size.float / bsz.float).ceil.int:
       # minibatch offset in the Tensor
       let offset = batch_id * bsz
@@ -306,6 +308,7 @@ proc modelPredict*(model: AnyModel,
   let dataset_size = input.size(0)
   result = newSeqOfCap[float](dataset_size)
   no_grad_mode:
+    var noGrad: NoGradGuard
     for batch_id in 0 ..< (dataset_size.float / bsz.float).ceil.int:
       # minibatch offset in the Tensor
       let offset = batch_id * bsz

@@ -746,8 +746,8 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
     let dfLoc = readData.df.toKDE(energyMin, energyMax, true)
     newCubicSpline(dfLoc["Energy", float].toSeq1D, dfLoc["KDE", float].toSeq1D)
   let backgroundInterp = toNearestNeighborTree(readData.df)
-  let energies = linspace(max(0.071.keV, energyMin).float, #InterpMin.float,
-                          energyMax.float, #InterpMax.float,
+  let energies = linspace(max(0.071.keV, energyMin).float,
+                          energyMax.float,
                           10000).mapIt(it) # cut to range valid in interpolation
   let backgroundCdf = energies.mapIt(kdeSpl.eval(it)).toCDF()
 

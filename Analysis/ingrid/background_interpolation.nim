@@ -384,7 +384,7 @@ proc toNearestNeighborTree*(df: DataFrame): KDTree[float] =
                      df["centerY", float].map_inline(toIdx(x).float),
                      df["Energy", float].map_inline(x)], axis = 1)
                      #df["Energy", float].map_inline(x * 25.6)], axis = 1)
-  result = kdTree(tTree, leafSize = 16, balancedTree = true)
+  result = kdTree(tTree, leafSize = 64, balancedTree = true)
 
 proc studyBackgroundInterpolation*(df: DataFrame, toPlot = false): DataFrame =
   ## generates a kd tree based on the data and generates multiple plots

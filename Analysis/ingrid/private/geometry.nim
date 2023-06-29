@@ -655,6 +655,7 @@ proc findClusterDBSCAN*[T: SomePix](pixels: seq[T], eps: float = 65.0,
   for i, tup in pixels:
     pT[i, _] = [tup.x.float, tup.y.float].toTensor.unsqueeze(axis = 0)
   if pixels.len == 0: return
+
   let clusterIdxs = wrapDbscan(pT, eps, minSamples)
   for i, clIdx in clusterIdxs:
     if clIdx == -1: continue

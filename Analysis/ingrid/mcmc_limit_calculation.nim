@@ -101,6 +101,9 @@ type
   Efficiency = object
     totalEff: float # total efficiency multiplier based on signal efficiency of lnL cut, FADC & veto random coinc rate
     signalEff: float # the lnL cut signal efficiency used in the inputs
+    nnSignalEff: float # target signal efficiency of MLP
+    nnEffectiveEff: float # effective efficiency based on
+    nnEffectiveEffStd: float
     eccLineVetoCut: float # the eccentricity cutoff for the line veto (affects random coinc.)
     vetoPercentile: float # if FADC veto used, the percentile used to generate the cuts
     septemVetoRandomCoinc: float # random coincidence rate of septem veto
@@ -406,7 +409,7 @@ proc readFileData(h5f: H5File):
 proc compareVetoCfg(c1, c2: VetoSettings): bool =
   result = true
   for field, v1, v2 in fieldPairs(c1, c2):
-    if field notin ["fadcVetoes", "calibFile"]:
+    if field notin ["fadcVetoes", "calibFile", "nnEffectiveEff", "nnEffectiveEffStd"]:
       when typeof(v1) is float:
         result = result and value.almostEqual(v1, v2)
       else:
@@ -556,10 +559,21 @@ proc setupBackgroundInterpolation(kd: KDTree[float],
 
 proc initSystematics(
   σ_sig = 0.0, σ_back = 0.0, σ_p = 0.0,
+  eff: Efficiency = Efficiency(),
   uncertainty = none[UncertaintyKind](),
-  uncertaintyPos = none[PositionUncertaintyKind]()
+  uncertaintyPos = none[PositionUncertaintyKind](),
      ): Systematics =
   ## Constructs the correct `Systematics` given the desired values.
+
+  ## Update the signal uncertainty using the given `Efficiency`, i.e. add
+  ## the impact of the uncertainty on the software efficiency either from
+  ## LnL or MLP
+  # Note: `eff` must be given as fraction of 1
+  proc calcNewSig(x: float, ε: float): float = sqrt( x^2 + ε^2 )
+  let softEff = if eff.nnEffectiveEffStd > 0.0: eff.nnEffectiveEffStd
+                else: 0.02 # else use default 2% for LnL. Recovers `σ_sig = 0.04692492913207222`
+  let σ_sig = calcNewSig(σ_sig, softEff)
+
   let uncertain = if uncertainty.isSome: uncertainty.get
                   elif σ_sig == 0.0 and σ_back == 0.0: ukCertain
                   elif σ_sig == 0.0: ukUncertainBack
@@ -695,9 +709,15 @@ proc calcVetoEfficiency(readData: ReadData,
   elif fkLineVeto in readData.flags:
     result *= lineVetoRandomCoinc
 
-  # now multiply by lnL cut efficiency
-  doAssert readData.vetoCfg.signalEfficiency > 0.0
-  result *= readData.vetoCfg.signalEfficiency
+  # now multiply by lnL or MLP cut efficiency. LnL efficiency is likely always defined, but NN
+  # only if NN veto was used
+  if readData.vetoCfg.nnEffectiveEff > 0.0:
+    result *= readData.vetoCfg.nnEffectiveEff
+  elif readData.vetoCfg.signalEfficiency > 0.0:
+    result *= readData.vetoCfg.signalEfficiency
+  else:
+    raise newException(ValueError, "Input has neither a well defined NN signal efficiency nor a regular likelihood " &
+      "signal efficiency. Stopping.")
 
 proc overwriteRandomCoinc(readData: ReadData,
                           lineVetoRandomCoinc, septemLineVetoRandomCoinc: float): (float, float) =
@@ -770,6 +790,9 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
     eccLineVetoCut: readData.vetoCfg.eccLineVetoCut,
     vetoPercentile: readData.vetoCfg.vetoPercentile,
     signalEff: readData.vetoCfg.signalEfficiency,
+    nnSignalEff: readData.vetoCfg.nnSignalEff,
+    nnEffectiveEff: readData.vetoCfg.nnEffectiveEff,
+    nnEffectiveEffStd: readData.vetoCfg.nnEffectiveEffStd,
     septemVetoRandomCoinc: septemVetoRandomCoinc,
     lineVetoRandomCoinc: lineVetoRandomCoinc,
     septemLineVetoRandomCoinc: septemLineVetoRandomCoinc,
@@ -832,7 +855,7 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
     backgroundDf: readData.df,
     backgroundCDF: backgroundCdf,
     energyForBCDF: energies,
-    systematics: initSystematics(σ_sig, σ_back, σ_p),
+    systematics: initSystematics(σ_sig, σ_back, σ_p, eff),
     noiseFilter: noiseFilter,
     rombergIntegrationDepth: rombergIntegrationDepth,
     # misc
@@ -1877,7 +1900,7 @@ template fullUncertainFn(): untyped {.dirty.} =
   for i, c in cands:
     let sig = ctx.detectionEff(c.energy) * ctx.axionFlux(c.energy) * conversionProbability()
     cSigBack[i] = (sig.float,
-                ctx.background(c.energy, c.pos).float)
+                   ctx.background(c.energy, c.pos).float)
 
   proc fn(x: seq[float]): float =
     ctx.g_ae² = x[0]
@@ -3781,7 +3804,7 @@ proc limit(
     path = "/home/basti/CastData/ExternCode/TimepixAnalysis/resources/LikelihoodFiles/",
     useConstantBackground = false,
     radius = 40.0, σ = 40.0 / 3.0, energyRange = 0.6.keV, nxy = 10, nE = 20,
-    σ_sig = 0.04692492913207222,
+    σ_sig = 0.04244936953654317, ## <- is the value *without* uncertainty on signal efficiency! # 0.04692492913207222 <- incl 2%
     σ_back = 0.002821014576353691,
     σ_p = 0.05,
     septemVetoRandomCoinc = 0.7841029411764704, # only septem veto random coinc based on bootstrapped fake data

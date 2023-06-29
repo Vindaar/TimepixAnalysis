@@ -77,6 +77,7 @@ proc toIdx(x: float): int = (x / 14.0 * 256.0).round.int.clamp(0, 255)
 proc readFiles(files: seq[string], names: seq[string], region: ChipRegion,
                energyDset: string,
                centerChip: int,
+               energyMin, energyMax: float,
                readToA: bool,
                toaCutoff: seq[float],
                verbose: bool): seq[LogLFile] =
@@ -95,7 +96,9 @@ proc readFiles(files: seq[string], names: seq[string], region: ChipRegion,
     let h5f = H5open(file, "r")
     var df = h5f.readDsets(likelihoodBase(), some((centerChip, DsetNames)), verbose = verbose)
     df = df
+      .rename(f{Ecol <- energyDset})
       .filter(f{float -> bool: (`centerX`.toIdx, `centerY`.toIdx) notin noiseSet })
+      .filter(f{float: idx(Ecol) >= energyMin and idx(Ecol) <= energyMax})
     if readToA:
       let toaC = toaCutoff[idx]
       log(verbose):
@@ -106,8 +109,6 @@ proc readFiles(files: seq[string], names: seq[string], region: ChipRegion,
 
     doAssert not df.isNil, "Read DF is nil. Likely you gave a non existant chip number. Is " &
       $centerChip & " really the center chip in your input file?"
-    df = df
-      .rename(f{Ecol <- energyDset})
     let fname = if names.len > 0: names[idx]
                 else: file.extractFilename
     df["File"] = constantColumn(fname, df.len)
@@ -290,9 +291,10 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
                         useTeX, showPreliminary, genTikZ: bool,
                         showNumClusters, showTotalTime: bool,
                         topMargin,
-                        yMax, xMax: float,
+                        yMax: float,
+                        energyMin, energyMax: float,
                         logPlot: bool) =
-  var df = df.filter(f{c"Energy" < 12.0})
+  var df = df # mutable copy
   var titleSuff = if title.len > 0: title
                   elif show2014:
                     "Background rate of Run 2 & 3 (2017/18) compared to 2014/15"
@@ -314,9 +316,6 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
   if logPlot:
     # make sure to remove 0 entries if we do a log plot
     df = df.filter(f{idx(Rcol) > 0.0})
-
-  if xMax > 0.0:
-    df = df.filter(f{idx(Ecol) <= xMax})
 
   if showTotalTime:
     if numDsets > 1:
@@ -351,9 +350,8 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
                   errorBarKind = ebLines)
   # force y continuous scales & set limit
   if not logPlot:
-    let xMax = if xMax > 0.0: xMax else: 12.0
     plt = plt + scale_y_continuous() +
-      xlim(0, xMax)
+      xlim(0, energyMax)
   else:
     plt = plt + scale_y_log10()
 
@@ -446,7 +444,7 @@ proc main(files: seq[string], log = false, title = "",
           readToA = false,
           topMargin = 1.0,
           yMax = -1.0,
-          xMax = -1.0,
+          energyMin = 0.0, energyMax = 12.0,
           useTeX = false,
           showPreliminary = false,
           showNumClusters = false,
@@ -467,7 +465,7 @@ proc main(files: seq[string], log = false, title = "",
 
   let verbose = not quiet
 
-  let logLFiles = readFiles(files, names, region, energyDset, centerChip, readToA, toaCutoff, verbose)
+  let logLFiles = readFiles(files, names, region, energyDset, centerChip, energyMin, energyMax, readToA, toaCutoff, verbose)
   let fnameSuffix = logLFiles.mapIt($it.year).join("_") & "_show2014_" & $show2014 & "_separate_" & $separateFiles & "_" & suffix.replace(" ", "_")
 
   let factor = if log: 1.0 else: 1e5
@@ -546,13 +544,13 @@ proc main(files: seq[string], log = false, title = "",
             &"\t Integrated background rate in range: {energyRange}: {intBackRate:.4e} cm⁻²·s⁻¹"
           log(true):
             &"\t Integrated background rate/keV in range: {energyRange}: {intBackRate / size:.4e} keV⁻¹·cm⁻²·s⁻¹"
-      intBackRate(df, factor, 0.0 .. 12.0)
-      intBackRate(df, factor, 0.5 .. 2.5)
-      intBackRate(df, factor, 0.5 .. 5.0)
-      intBackRate(df, factor, 0.0 .. 2.5)
-      intBackRate(df, factor, 4.0 .. 8.0)
-      intBackRate(df, factor, 0.0 .. 8.0)
-      intBackRate(df, factor, 2.0 .. 8.0)
+      intBackRate(df, factor, max(energyMin, 0.0) .. 12.0)
+      intBackRate(df, factor, max(energyMin, 0.5) .. 2.5)
+      intBackRate(df, factor, max(energyMin, 0.5) .. 5.0)
+      intBackRate(df, factor, max(energyMin, 0.0) .. 2.5)
+      intBackRate(df, factor, max(energyMin, 4.0) .. 8.0)
+      intBackRate(df, factor, max(energyMin, 0.0) .. 8.0)
+      intBackRate(df, factor, max(energyMin, 2.0) .. 8.0)
 
     plotBackgroundRate(
       df, fnameSuffix, title,
@@ -561,7 +559,7 @@ proc main(files: seq[string], log = false, title = "",
       hidePoints = hidePoints, hideErrors = hideErrors, fill = fill,
       useTeX = useTeX, showPreliminary = showPreliminary, genTikZ = genTikZ,
       showNumClusters = showNumClusters, showTotalTime = showTotalTime,
-      topMargin = topMargin, yMax = yMax, xMax = xMax,
+      topMargin = topMargin, yMax = yMax, energyMin = energyMin, energyMax = energyMax,
       logPlot = logPlot
     )
 
@@ -593,7 +591,8 @@ of the logL cut, creates a comparison plot.""",
     "readToA" : "If set will also read ToA related datasets. Required for `toaCutoff.",
     "topMargin" : "Margin at the top of the plot for long titles.",
     "yMax" : "If any given, limit the y axis to this value.",
-    "xMax" : "If any given, limit the x axis to this value.",
+    "energyMax" : "If any given, limit the energy & x axis to this maximum value.",
+    "energyMin" : "If any given, limit the energy to this minimum value (x axis remains unchanged).",
     "useTeX" : "Generate a plot using TeX",
     "showPreliminary" : "If set shows a big 'Preliminary' message in the center.",
     "showNumClusters" : "If set adds number of input clusters to title.",

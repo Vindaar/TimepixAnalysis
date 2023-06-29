@@ -346,7 +346,7 @@ type
 ## the RMS data of this run
 var CacheTab =
   if fileExists(CacheTabFile):
-    deserializeH5[CacheTabTyp](CacheTabFile)
+    tryDeserializeH5[CacheTabTyp](CacheTabFile)
   else:
     initTable[TabKey, TabVal]()
 proc runAvailable(run: int): bool =
@@ -354,10 +354,12 @@ proc runAvailable(run: int): bool =
     result = true
   else:
     if fileExists(CacheTabFile):
-      let tab = deserializeH5[CacheTabTyp](CacheTabFile)
+      let tab = tryDeserializeH5[CacheTabTyp](CacheTabFile)
       # merge `tab` and `CacheTab`
       for k, v in tab:
         CacheTab[k] = v # overwrite possible existing keys in table
+      # write merged file
+      CacheTab.tryToH5(CacheTabFile)
     result = run in CacheTab # still not in: not available
 
 
@@ -400,7 +402,7 @@ proc getDiffusion*(rmsT: seq[float],
     if useCache and run > 0:
       CacheTab[run] = result
       # serialize file
-      CacheTab.toH5(CacheTabFile)
+      CacheTab.tryToH5(CacheTabFile)
   #result = arg / sqrt(MaxZ) * 1000.0
   if isBackground:
     ## All our background determinations have a bias to about ~30 larger than their closest 5.9 keV

@@ -2961,7 +2961,7 @@ proc sanityCheckBackground(ctx: Context, log: Logger) =
                          0.5.cm * 0.5.cm)
 
   # read data files without removing noisy pixels
-  let readData = readFiles(ctx.filePath, ctx.files, NoiseFilter())
+  let readData = readFiles(ctx.filePath, ctx.files, NoiseFilter(), 0.0.keV, 12.0.keV)
 
   log.infos("Background"):
     &"Number of background clusters = {ctx.backgroundDf.len}"

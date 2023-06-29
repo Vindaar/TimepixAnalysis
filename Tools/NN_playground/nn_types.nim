@@ -68,6 +68,8 @@ type
     datasets*: seq[string] # Not `InGridDsetKind` to support arbitrary new columns
     subsetPerRun*: int
     rngSeed*: int
+    backgroundRegion*: ChipRegion
+    nFake*: int # number of fake events per run period to generate
     #
     activationFunction*: ActivationFunction
     outputActivation*: OutputActivation
@@ -193,7 +195,9 @@ proc initMLPDesc*(calib, back, datasets: seq[string],
                   learningRate: float,
                   subsetPerRun: int,
                   simulatedData: bool,
-                  rngSeed: int): MLPDesc =
+                  rngSeed: int,
+                  backgroundRegion: ChipRegion,
+                  nFake: int): MLPDesc =
   result = MLPDesc(version: MLPVersion,
                    calibFiles: calib,
                    backFiles: back,
@@ -210,7 +214,9 @@ proc initMLPDesc*(calib, back, datasets: seq[string],
                    learningRate: learningRate,
                    subsetPerRun: subsetPerRun,
                    simulatedData: simulatedData,
-                   rngSeed: rngSeed)
+                   rngSeed: rngSeed,
+                   backgroundRegion: backgroundRegion,
+                   nFake: nFake)
 
 from pkg / nimhdf5 import deserializeH5
 from std / strutils import startsWith, parseEnum

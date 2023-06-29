@@ -165,10 +165,10 @@ proc generateFakeEvents(rnd: var Rand,
                         ctx: LikelihoodContext,
                         calibInfo: CalibInfo,
                         gains: seq[float],
-                        diffusion: seq[float]): DataFrame =
+                        diffusion: seq[float],
+                        nFake = 100_000): DataFrame =
   #let fakeEvs = generateAndReconstruct(rnd, 1000,
   #result = toDf(
-  const nFake = 100_000
   var count = 0
   var fakeEvs = newSeqOfCap[FakeEvent](nFake)
   # Note: tfKind and nFake irrelevant for us!
@@ -216,11 +216,12 @@ proc prepareSimDataframe(mlpDesc: MLPDesc, readRaw: bool): DataFrame =
   for c in mlpDesc.calibFiles:
     withH5(c, "r"):
       let calibInfo = h5f.initCalibInfo()
-      dfSim.add rnd.generateFakeEvents(ctx, calibInfo, gains, diffusion)
+      dfSim.add rnd.generateFakeEvents(ctx, calibInfo, gains, diffusion, mlpDesc.nFake)
 
   var dfBack = newDataFrame()
   for b in mlpDesc.backFiles:
-    dfBack.add prepareAllBackground(b, readRaw, subsetPerRun = mlpDesc.subsetPerRun * 6) # .drop(["centerX", "centerY"])
+    dfBack.add prepareAllBackground(b, readRaw, subsetPerRun = mlpDesc.subsetPerRun * 6,
+                                    region = mlpDesc.backgroundRegion) # .drop(["centerX", "centerY"])
   echo "Simulated: ", dfSim
   echo "Back: ", dfBack
   result = newDataFrame()
@@ -765,7 +766,9 @@ proc initDesc(calib, back: seq[string], # data
               learningRate: float,
               subsetPerRun: int,
               simulatedData: bool,
-              rngSeed: int): MLPDesc =
+              rngSeed: int,
+              backgroundRegion: ChipRegion,
+              nFake: int): MLPDesc =
   if numHidden.len == 0:
     raise newException(ValueError, "Please provide a number of neurons for the hidden layers.")
   # 1. initialize the MLPDesc from the given parameters
@@ -777,7 +780,9 @@ proc initDesc(calib, back: seq[string], # data
                        learningRate,
                        subsetPerRun,
                        simulatedData,
-                       rngSeed)
+                       rngSeed,
+                       backgroundRegion,
+                       nFake)
 
   # 2. check if such a file already exists to possibly merge it or just return that
   let outfile = result.modelDir / MLPDescName
@@ -913,7 +918,9 @@ proc main(calib, back: seq[string] = @[],
           printDefaultDatasets = false,
           simulatedData = false,
           continueAfterEpoch = -1,
-          rngSeed = 1337) =
+          rngSeed = 1337,
+          backgroundRegion = crAll,
+          nFake = 100_000) =
   # 1. set up the model
   if printDefaultDatasets:
     echo "Total default datasets: ", CurrentDsets.len
@@ -928,7 +935,9 @@ proc main(calib, back: seq[string] = @[],
                       learningRate,
                       subsetPerRun,
                       simulatedData,
-                      rngSeed)
+                      rngSeed,
+                      backgroundRegion,
+                      nFake)
 
   ClampOutput = clampOutput
 

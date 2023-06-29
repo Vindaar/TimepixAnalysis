@@ -655,7 +655,7 @@ type
   CacheTabTyp = Table[TabKey, TabVal]
 var CacheTab =
   if fileExists(CacheTabFile):
-    deserializeH5[CacheTabTyp](CacheTabFile)
+    tryDeserializeH5[CacheTabTyp](CacheTabFile)
   else:
     initTable[TabKey, TabVal]()
 proc fileAvailable(fname, modelHash: string, ε: float): bool =
@@ -664,10 +664,12 @@ proc fileAvailable(fname, modelHash: string, ε: float): bool =
   else:
     # try rereading & updating file
     if fileExists(CacheTabFile):
-      let tab = deserializeH5[CacheTabTyp](CacheTabFile)
+      let tab = tryDeserializeH5[CacheTabTyp](CacheTabFile)
       # merge `tab` and `CacheTab`
       for k, v in tab:
         CacheTab[k] = v # overwrite possible existing keys in table
+      # write merged table
+      CacheTab.tryToH5(CacheTabFile)
     result = (fname, modelHash, ε) in CacheTab # still not in: not available
 
 import std / sha1
@@ -691,7 +693,7 @@ proc meanEffectiveEff*(ctx: LikelihoodContext, rnd: var Rand, model: string, fna
     let effs = df["Eff", float]
     result = (eff: effs.mean, sigma: effs.std)
     CacheTab[(fnameFile, modelHash, ε)] = result
-    CacheTab.toH5(CacheTabFile)
+    CacheTab.tryToH5(CacheTabFile)
 
 proc main(fnames: seq[string], model: string, ε: float,
           cdlFile: string = "",

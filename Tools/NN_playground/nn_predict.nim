@@ -18,7 +18,7 @@ proc readEvent(h5f: H5File, run, idx: int, path = recoBase()): DataFrame =
     result[dsetName] = dset.readAs(@[idx], float)
   result["Type"] = $dtBack
 
-proc initDesc(model: string): MLPDesc =
+proc initDesc*(model: string): MLPDesc =
   result = initMLPDesc(model, "")
   CurrentDsets = result.datasets
 
@@ -93,12 +93,14 @@ proc calcNeuralNetCutValueTab*(modelPath: string, cutKind: NeuralNetCutKind, ε:
   if modelPath.len == 0:
     raise newException(ValueError, "Cannot predict events without a path to a trained model!")
 
-  loadModelMakeDevice(modelPath)
-
   result = initCutValueInterpolator(cutKind)
   case cutKind
-  of nkGlobal: result.cut = determineCutValue(model, device, desc, ε, readRaw = false)
-  of nkLocal: result.nnCutTab = determineLocalCutValue(model, device, desc, ε, readRaw = false)
+  of nkGlobal:
+    loadModelMakeDevice(modelPath)
+    result.cut = determineCutValue(model, device, desc, ε, readRaw = false)
+  of nkLocal:
+    loadModelMakeDevice(modelPath)
+    result.nnCutTab = determineLocalCutValue(model, device, desc, ε, readRaw = false)
   of nkRunBasedLocal:
     echo "[INFO]: nkRunBasedLocal requires run based determination of the local cut values ",
      "using the rmsTransverse data for a reference of the diffusion."
@@ -112,6 +114,48 @@ proc calcNeuralNetCutValueTab*(ctx: LikelihoodContext): CutValueInterpolator =
 import ingrid / fake_event_generator
 from pkg / unchained import FemtoFarad
 from std / random import Rand
+const CacheTabFile = "/dev/shm/cacheTab_runLocalCutVals.h5"
+type
+  TabKey = (int, string, float)
+  #         ^-- run number
+  #              ^-- sha1 hash of the NN model `.pt` file
+  #                      ^-- target signal efficiency
+  TabVal = seq[(string, float)]
+  #             ^-- CDL target
+  #                     ^-- MLP cut value
+  CacheTabTyp = Table[TabKey, TabVal]
+var CacheTab =
+  if fileExists(CacheTabFile):
+    tryDeserializeH5[CacheTabTyp](CacheTabFile)
+  else:
+    initTable[TabKey, TabVal]()
+proc fileAvailable(run: int, modelHash: string, ε: float): bool =
+  if (run, modelHash, ε) in CacheTab:
+    result = true
+  else:
+    # try rereading & updating file
+    if fileExists(CacheTabFile):
+      let tab = tryDeserializeH5[CacheTabTyp](CacheTabFile)
+      # merge `tab` and `CacheTab`
+      for k, v in tab:
+        CacheTab[k] = v # overwrite possible existing keys in table
+      # write merged table
+      CacheTab.tryToH5(CacheTabFile)
+    result = (run, modelHash, ε) in CacheTab # still not in: not available
+
+import std / sha1
+
+proc fromSeq(s: TabVal): CutValueInterpolator =
+  result = initCutValueInterpolator(nkRunBasedLocal)
+  for x in s:
+    let (target, cutVal) = x
+    result.nnCutTab[target] = cutVal
+
+proc toSeq(cutTab: CutValueInterpolator): TabVal =
+  result = newSeq[(string, float)]()
+  for target, cutVal in cutTab.nnCutTab.pairs:
+    result.add (target, cutVal)
+
 proc calcLocalNNCutValueTab*(ctx: LikelihoodContext,
                              rnd: var Rand,
                              h5f: H5File,
@@ -120,20 +164,29 @@ proc calcLocalNNCutValueTab*(ctx: LikelihoodContext,
                              chipName: string,
                              capacitance: FemtoFarad
                             ): CutValueInterpolator =
-  loadModelMakeDevice(ctx.vetoCfg.nnModelPath)
-  var dfFake = newDataFrame()
-  for tf in TargetFilterKind:
-    let fakeDesc = FakeDesc(nFake: 5000,
-                            tfKind: tf,
-                            kind: fkGainDiffusion)
-    var dfLoc = generateRunFakeData(rnd, h5f, run, chipNumber, chipName, capacitance, fakeDesc, runType, DataFrame, some(ctx))
-    dfLoc["Target"] = $tf
-    dfFake.add dfLoc
-
-  # now use fake data to determine cuts
+  let model = ctx.vetoCfg.nnModelPath
+  let modelHash = $(model.readFile.secureHash)
   let ε = ctx.vetoCfg.nnSignalEff
-  result = initCutValueInterpolator(nkRunBasedLocal)
-  result.nnCutTab = determineRunLocalCutValue(model, device, desc, dfFake, ε)
+  if fileAvailable(run, modelHash, ε):
+    let data = CacheTab[(run, modelHash, ε)]
+    result = data.fromSeq()
+  else:
+    loadModelMakeDevice(model)
+    var dfFake = newDataFrame()
+    for tf in TargetFilterKind:
+      let fakeDesc = FakeDesc(nFake: 5000,
+                              tfKind: tf,
+                              kind: fkGainDiffusion)
+      var dfLoc = generateRunFakeData(rnd, h5f, run, chipNumber, chipName, capacitance, fakeDesc, runType, DataFrame, some(ctx))
+      dfLoc["Target"] = $tf
+      dfFake.add dfLoc
+
+    # now use fake data to determine cuts
+    result = initCutValueInterpolator(nkRunBasedLocal)
+    result.nnCutTab = determineRunLocalCutValue(model, device, desc, dfFake, ε)
+
+    CacheTab[(run, modelHash, ε)] = result.toSeq()
+    CacheTab.tryToH5(CacheTabFile)
 
 proc main(calib, back: seq[string] = @[],
           model: string,

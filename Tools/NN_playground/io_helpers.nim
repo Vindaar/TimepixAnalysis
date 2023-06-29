@@ -235,7 +235,8 @@ proc prepareBackground*(fname: string, run: int, readRaw: bool, subsetPerRun = 0
   discard h5f.close()
 
 proc prepareAllBackground*(fname: string, readRaw: bool, subsetPerRun = 0,
-                           validDsets: set[InGridDsetKind] = ValidReadDsets - { igLikelihood }
+                           validDsets: set[InGridDsetKind] = ValidReadDsets - { igLikelihood },
+                           region = crAll
                           ): DataFrame =
   var h5f = H5open(fname, "r")
   for run, grp in runs(h5f):
@@ -244,8 +245,9 @@ proc prepareAllBackground*(fname: string, readRaw: bool, subsetPerRun = 0,
     df["runNumber"] = run
     result.add df
 
-  # filter gold region
-  result = result.filter(f{float -> bool: inRegion(`centerX`, `centerY`, crGold)})
+  # filter to desired region
+  if region != crAll:
+    result = result.filter(f{float -> bool: inRegion(`centerX`, `centerY`, region)})
   discard h5f.close()
 
 when defined(cpp):

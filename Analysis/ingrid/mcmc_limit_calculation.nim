@@ -181,12 +181,12 @@ type
     limitKind: LimitKind
     expectedLimit: float # expected limit as `g_ae · g_aγ` with `g_aγ = 1e-12 GeV⁻¹`
 
-
 proc toH5(h5f: H5File, x: InterpolatorType[float], name = "", path = "/") =
   ## Serialize the interpolators we use. They all take energies in a fixed range,
   ## namely `(0.071, 9.999)` (based on the inputs, one of which is only defined
   ## in this range unfortunately).
-  let energies = linspace(0.071, 9.999, 10000).mapIt(it) # cut to range valid in interpolation
+  let energies = linspace(x.X.min, x.X.max, 10000) # cut to range valid in interpolation
+  echo "Serializing Interpolator by evaluating ", energies.min, " to ", energies.max, " of name: ", name
   let ys = energies.mapIt(x.eval(it))
   let dset = h5f.create_dataset(path / name,
                                 energies.len,
@@ -207,6 +207,17 @@ proc toH5(h5f: H5File, interp: Interpolator2DType[float], name = "", path = "/")
                                 float,
                                 filter = H5Filter(kind: fkZLib, zlibLevel: 4))
   dset.unsafeWrite(zs.toUnsafeView, zs.size.int)
+
+proc toH5(h5f: H5File, kd: KDTree[float], name = "", path = "/") =
+  ## Serialize the 2D interpolator we use. Interpolator of the raytracing image
+  ## as a 2D grid defined for each pixel (in theory higher, but practically not
+  ## relevant).
+  let size = kd.data.size.int
+  let dset = h5f.create_dataset(path / name,
+                                kd.data.shape.toSeq,
+                                float,
+                                filter = H5Filter(kind: fkZLib, zlibLevel: 4))
+  dset.unsafeWrite(kd.data.toUnsafeView, size)
 
 proc pretty(s: Systematics): string =
   result = "("

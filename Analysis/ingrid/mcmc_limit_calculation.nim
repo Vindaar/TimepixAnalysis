@@ -2491,12 +2491,14 @@ when true:
          echo "Bytes: ", w.wrLenSeq results)
 
   proc computeParallelLimits(ctx: Context, limitKind: LimitKind, nmc, jobs: int): seq[(float, int)] =
-    let nJobs = if jobs > 0: jobs else: countProcessors() - 2
+    var nJobs = if jobs > 0: jobs else: countProcessors() - 2
+    if nmc < nJobs:
+      nJobs = nmc
     var pp = initProcPool(limitsWorker, framesLenPfx, jobs = nJobs)
 
     var work = newSeq[ProcData]()
     for i in 0 ..< nJobs:
-      work.add ProcData(id: i, nmc: nmc div nJobs)
+      work.add ProcData(id: i, nmc: max(1, nmc div nJobs))
 
     var limits = newSeq[tuple[limit: float, cInSens: int]]()
     var getRes = proc(s: MSlice) =

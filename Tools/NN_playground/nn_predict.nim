@@ -59,7 +59,7 @@ proc predict*(h5f: H5File, modelPath: string, grp: string): seq[float] =
 
   loadModelMakeDevice(modelPath)
   # 1. read all required data
-  let data = h5f.readValidDsets(grp)
+  let data = h5f.readValidDsets(grp, filterNan = false)
   # 2. convert to torch tensor
   let inp = toTorchTensor(data)
   # 3. forward pass through network

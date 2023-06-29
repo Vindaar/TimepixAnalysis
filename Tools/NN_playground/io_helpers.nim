@@ -81,7 +81,8 @@ proc randomHead*(df: DataFrame, head: int): DataFrame =
 proc readValidDsets*(h5f: H5File, path: string, readRaw = false,
                      typ = dtBack,
                      subsetPerRun = 0,
-                     validDsets: set[InGridDsetKind] = ValidReadDsets - { igLikelihood } ): DataFrame =
+                     validDsets: set[InGridDsetKind] = ValidReadDsets - { igLikelihood },
+                     filterNan = true): DataFrame =
   ## Reads all data for the given run `path` (must be a chip path)
   ##
   ## `subsetPerRun` is an integer which if given only returns this many entries (random)
@@ -99,6 +100,10 @@ proc readValidDsets*(h5f: H5File, path: string, readRaw = false,
     result[evNumDset] = h5f.readAs(grp.name / evNumDset, int)
   else:
     result = h5f.readRaw(grp.name)
+  if filterNan:
+    for d in dsets:
+      let dset = d.toDset()
+      result = result.filter(f{float: classify(idx(dset)) in {fcNormal, fcSubnormal, fcZero, fcNegZero}})
   ## XXX: Add run number?
   #result["runNumber
   result["Type"] = $typ

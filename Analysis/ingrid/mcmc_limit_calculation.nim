@@ -824,7 +824,7 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
     #let hmap = readCsv("/home/basti/org/resources/axion_image_heatmap_2017.csv")
     #let hmap = readCsv("/home/basti/org/resources/axion_image_30deg_1485mm.csv")
     let hmap = readCsv("/home/basti/org/resources/axion_image_no_window_1470mm_plus_12_2mm_updated_cone_tracing.csv")
-    ggplot(hmap, aes("x", "y", fill = "z")) +
+    #ggplot(hmap, aes("x", "y", fill = "z")) +
     let zCol = if "z" in hmap: "z" else: "photon flux"
     ggplot(hmap, aes("x", "y", fill = zCol)) +
       geom_raster() + ggsave("/tmp/raster_what_old.pdf")

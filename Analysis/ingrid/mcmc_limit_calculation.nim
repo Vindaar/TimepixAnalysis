@@ -475,14 +475,27 @@ defUnit(keV⁻¹•m⁻²•yr⁻¹)
 defUnit(cm⁻²)
 defUnit(keV⁻¹•cm⁻²)
 proc readAxModel(f: string): DataFrame =
-  let upperBin = 10.0
   proc convert(x: float): float =
     result = x.keV⁻¹•m⁻²•yr⁻¹.to(keV⁻¹•cm⁻²•s⁻¹).float
   result = readCsv(f)
-    .mutate(f{"Energy [keV]" ~ c"Energy / eV" / 1000.0},
-            f{"Flux [keV⁻¹•cm⁻²•s⁻¹]" ~ convert(idx("Flux / keV⁻¹ m⁻² yr⁻¹"))})
-    .filter(f{float: c"Energy [keV]" <= upperBin})
-    .drop(["Energy / eV", "Flux / keV⁻¹ m⁻² yr⁻¹"])
+  if "type" in result:
+    result = result.filter(f{`type` == "Total flux"}) # only use the total flux part of the CSV!
+
+  if "Energy / eV" in result:
+    result = result
+      .mutate(f{"Energy [keV]" ~ c"Energy / eV" / 1000.0})
+  elif "Energy" in result:
+    result = result.rename(f{"Energy [keV]" <- "Energy"}) # without name is keV
+
+  if "diffFlux" in result:
+    result = result.mutate(f{"Flux [keV⁻¹•cm⁻²•s⁻¹]" ~ convert(idx("diffFlux"))})
+  elif "Flux / keV⁻¹ m⁻² yr⁻¹" in result:
+    result = result.mutate(f{"Flux [keV⁻¹•cm⁻²•s⁻¹]" ~ convert(idx("Flux / keV⁻¹ m⁻² yr⁻¹"))})
+
+  if "Energy / eV" in result:
+    result = result.drop(["Energy / eV"])
+  if "Flux / keV⁻¹ m⁻² yr⁻¹" in result:
+    result = result.drop(["Flux / keV⁻¹ m⁻² yr⁻¹"])
 
 proc detectionEff(ctx: Context, energy: keV): UnitLess {.gcsafe.}
 
@@ -781,7 +794,7 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
     newCubicSpline(dfLoc["Energy", float].toSeq1D, dfLoc["KDE", float].toSeq1D)
   let backgroundInterp = toNearestNeighborTree(readData.df)
   let energies = linspace(max(0.071.keV, energyMin).float,
-                          energyMax.float,
+                          min(9.999.keV, energyMax).float,
                           10000).mapIt(it) # cut to range valid in interpolation
   let backgroundCdf = energies.mapIt(kdeSpl.eval(it)).toCDF()
 
@@ -880,6 +893,8 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
     filePath: path,
     files: files)
   let ctx = result # XXX: hack to workaround bug in formula macro due to `result` name!!!
+  # Note: evaluating `detectionEff` at > 10 keV is fine, just returns 0. Not fully correct, because our
+  # eff. there would be > 0, but flux is effectively 0 there anyway and irrelevant for limit
   let axModel = axData
     .mutate(f{"Flux" ~ idx("Flux [keV⁻¹•cm⁻²•s⁻¹]") * detectionEff(ctx, idx("Energy [keV]").keV) })
   echo axModel

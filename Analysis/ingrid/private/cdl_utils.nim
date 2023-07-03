@@ -4,7 +4,7 @@ import pkg / nimhdf5
 import ../ingrid_types
 import hdf5_utils, cdl_cuts, cut_utils
 
-proc removeSuffix*(s, suff: string): string =
+proc removeSuff*(s, suff: string): string =
   result = s
   result.removeSuffix(suff)
 
@@ -13,7 +13,7 @@ proc toTarget*(tfKind: TargetFilterKind): TargetKind = ($tfKind).split("-")[0].p
 proc toFilter*(tfKind: TargetFilterKind): FilterKind = ($tfKind).split("-")[1].parseEnum[:FilterKind]()
 proc toHV*(tfKind: TargetFilterKind, withSuffix = true): string =
   if withSuffix: ($tfKind).split("-")[2]
-  else: ($tfKind).split("-")[2].removeSuffix("kV")
+  else: ($tfKind).split("-")[2].removeSuff("kV")
 
 proc toCutStr*(run: CdlRun): string =
   let hv = block:

@@ -3924,23 +3924,7 @@ proc limit(
 
 when isMainModule:
   import cligen/argcvt
-  proc argParse(dst: var keV, dfl: keV,
-                a: var ArgcvtParams): bool =
-    try:
-      let aStr = a.val
-      if aStr.endsWith("keV"):
-        proc removeSuffix(s, p: string): string =
-          result = s
-          result.removeSuffix(p)
-        dst = aStr.removeSuffix("keV").strip.parseFloat.keV
-      else:
-        dst = aStr.strip.parseFloat.keV
-      result = true
-    except:
-      result = false
-
-  proc argHelp*(dfl: keV; a: var ArgcvtParams): seq[string] =
-    result = @[ a.argKeys, "keV", $dfl ]
+  import unchained / cligenParseUnits
 
   # multi dispatch is broken atm
   dispatchMulti([limit], [sanity])

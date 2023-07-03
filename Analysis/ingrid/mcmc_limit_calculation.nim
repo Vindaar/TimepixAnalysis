@@ -474,11 +474,11 @@ defUnit(keV⁻¹•cm⁻²•s⁻¹)
 defUnit(keV⁻¹•m⁻²•yr⁻¹)
 defUnit(cm⁻²)
 defUnit(keV⁻¹•cm⁻²)
-proc readAxModel(): DataFrame =
+proc readAxModel(f: string): DataFrame =
   let upperBin = 10.0
   proc convert(x: float): float =
     result = x.keV⁻¹•m⁻²•yr⁻¹.to(keV⁻¹•cm⁻²•s⁻¹).float
-  result = readCsv("/home/basti/CastData/ExternCode/AxionElectronLimit/axion_diff_flux_gae_1e-13_gagamma_1e-12.csv")
+  result = readCsv(f)
     .mutate(f{"Energy [keV]" ~ c"Energy / eV" / 1000.0},
             f{"Flux [keV⁻¹•cm⁻²•s⁻¹]" ~ convert(idx("Flux / keV⁻¹ m⁻² yr⁻¹"))})
     .filter(f{float: c"Energy [keV]" <= upperBin})
@@ -758,6 +758,7 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
                  useConstantBackground: bool, # decides whether to use background interpolation or not
                  radius, sigma: float, energyRange: keV, nxy, nE: int,
                  backgroundTime, trackingTime: Hour, ## Can be used to ``*overwrite*`` time from input files!
+                 axionModel: string,
                  windowRotation = 30.°,
                  σ_sig = 0.0, σ_back = 0.0, # depending on which `σ` is given as > 0, determines uncertainty
                  σ_p = 0.0,
@@ -784,7 +785,7 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
                           10000).mapIt(it) # cut to range valid in interpolation
   let backgroundCdf = energies.mapIt(kdeSpl.eval(it)).toCDF()
 
-  let axData = readAxModel()
+  let axData = readAxModel(axionModel)
   ## TODO: use linear interpolator to avoid going to negative?
   let axSpl = newCubicSpline(axData["Energy [keV]", float].toSeq1D,
                              axData["Flux [keV⁻¹•cm⁻²•s⁻¹]", float].toSeq1D)
@@ -3728,7 +3729,8 @@ proc sanity(
   limitKind = lkMCMC, # for the sigma limits sanity check
   radius = 40.0, σ = 40.0 / 3.0, energyRange = 0.6.keV, nxy = 10, nE = 20,
   rombergIntegrationDepth = 5,
-  nmcSigmaLimits = 500
+  nmcSigmaLimits = 500,
+  axionModel = "/home/basti/CastData/ExternCode/AxionElectronLimit/axion_diff_flux_gae_1e-13_gagamma_1e-12.csv",
      ) =
   ##
   ## TODO:
@@ -3759,6 +3761,7 @@ proc sanity(
     path, backFiles, useConstantBackground = useConstantBackground,
     radius = radius, sigma = σ, energyRange = energyRange,
     backgroundTime = backgroundTime, trackingTime = trackingTime,
+    axionModel = axionModel,
     nxy = nxy, nE = nE,
     σ_sig = 0.04692492913207222, # from sqrt(squared sum) of signal uncertainties
     σ_back = 0.002821014576353691,#, # from sqrt(square sum) of back uncertainties
@@ -3821,6 +3824,7 @@ proc limit(
     files: seq[string] = @[],
     years: seq[int] = @[],
     path = "/home/basti/CastData/ExternCode/TimepixAnalysis/resources/LikelihoodFiles/",
+    axionModel = "/home/basti/CastData/ExternCode/AxionElectronLimit/axion_diff_flux_gae_1e-13_gagamma_1e-12.csv",
     useConstantBackground = false,
     radius = 40.0, σ = 40.0 / 3.0, energyRange = 0.6.keV, nxy = 10, nE = 20,
     σ_sig = 0.02724743263827172, ## <- is the value *without* uncertainty on signal efficiency!
@@ -3860,6 +3864,7 @@ proc limit(
     path, files, useConstantBackground = useConstantBackground,
     radius = radius, sigma = σ, energyRange = energyRange,
     backgroundTime = backgroundTime, trackingTime = trackingTime,
+    axionModel = axionModel,
     nxy = nxy, nE = nE,
     σ_sig = σ_sig, # from sqrt(squared sum) of signal uncertainties
     σ_back = σ_back,#, # from sqrt(square sum) of back uncertainties

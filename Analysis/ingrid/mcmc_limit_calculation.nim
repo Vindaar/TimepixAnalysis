@@ -582,7 +582,9 @@ proc initSystematics(
   # Note: `eff` must be given as fraction of 1
   proc calcNewSig(x: float, ε: float): float = sqrt( x^2 + ε^2 )
   let softEff = if eff.nnEffectiveEffStd > 0.0: eff.nnEffectiveEffStd
-                else: 0.02 # else use default 2% for LnL. Recovers `σ_sig = 0.04692492913207222`
+                else: 0.01727 # else use default for LnL
+                              # this value recovers: `σ_sig = 0.04582795952309026`
+                              # previously we used 0.02 to get `σ_sig = 0.04692492913207222`
   let σ_sig = calcNewSig(σ_sig, softEff)
 
   let uncertain = if uncertainty.isSome: uncertainty.get

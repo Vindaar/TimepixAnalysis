@@ -3823,7 +3823,7 @@ proc limit(
     path = "/home/basti/CastData/ExternCode/TimepixAnalysis/resources/LikelihoodFiles/",
     useConstantBackground = false,
     radius = 40.0, σ = 40.0 / 3.0, energyRange = 0.6.keV, nxy = 10, nE = 20,
-    σ_sig = 0.04244936953654317, ## <- is the value *without* uncertainty on signal efficiency! # 0.04692492913207222 <- incl 2%
+    σ_sig = 0.02724743263827172, ## <- is the value *without* uncertainty on signal efficiency!
     σ_back = 0.002821014576353691,
     σ_p = 0.05,
     septemVetoRandomCoinc = 0.7841029411764704, # only septem veto random coinc based on bootstrapped fake data

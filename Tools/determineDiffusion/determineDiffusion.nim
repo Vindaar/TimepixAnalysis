@@ -391,13 +391,12 @@ proc getDiffusion*(rmsT: seq[float],
   #let scaleShift = 0.25
   var arg = pRes[1] + scaleShift # 0.15 #scaleShift
   #echo "Diffusion to use from pRes + 0.15 : ", arg / sqrt(MaxZ) * 1000.0
-  echo "Diffusion to use from pRes + scaleShift : ", arg / sqrt(MaxZ) * 1000.0
+  #echo "Diffusion to use from pRes + scaleShift : ", arg / sqrt(MaxZ) * 1000.0
   #arg = determineFromData(rmsT)
   if useCache and run > 0 and runAvailable(run):
     result = CacheTab[run] # potentially re-read, but now available
   else:
     # try to reload first, maybe available then
-    echo "ener@: ", energy, " and ba ", isBackground
     result = determineMonteCarlo(rmsT, energy, isBackground = isBackground, run = run)
     if useCache and run > 0:
       CacheTab[run] = result

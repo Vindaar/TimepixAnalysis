@@ -391,14 +391,14 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
                                         cl.geometry.eccentricity,
                                         cl.geometry.lengthDivRmsTrans,
                                         cl.geometry.fractionInTransverseRms)
-  # build single row DF from cluster
-  let clusterDf = clusterToDf(cl, logL, energy, totCharge, σT)
-  # forward it through the network
   ## XXX: Potentially we need to load the model only once. Might be costly?
-  doAssert clusterDf.len == 1, "More than 1 row in cluster DF. How?"
   var nnPred: float
   when defined(cpp):
     if ctx.vetoCfg.useNeuralNetworkCut:
+      # build single row DF from cluster
+      let clusterDf = clusterToDf(cl, logL, energy, totCharge, σT)
+      doAssert clusterDf.len == 1, "More than 1 row in cluster DF. How?"
+      # forward it through the network
       nnPred = Model.predict(Dev, Desc, clusterDf)[0]  #ctx.vetoCfg.nnModelPath.predict(clusterDf)[0]
 
   ## Check if the current cluster is in input chip region. If it is, either it is part of something
@@ -645,7 +645,8 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
 
   # use diffusion cache to get diffusion for this run
   let runType = parseEnum[RunTypeKind](group.attrs["runType", string])
-  let σT = getDiffusionForRun(runNumber, isBackground = (runType == rtBackground))
+  let σT = if ctx.vetoCfg.useNeuralNetworkCut: getDiffusionForRun(runNumber, isBackground = (runType == rtBackground))
+           else: -1.0 # irrelevant without NN!
 
   let chips = toSeq(0 ..< ctx.vetoCfg.numChips)
   let gains = chips.mapIt(h5f[(group.name / "chip_" & $it / "gasGainSlices"), GasGainIntervalResult])

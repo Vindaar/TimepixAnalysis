@@ -528,6 +528,9 @@ proc setupBackgroundInterpolation(kd: KDTree[float],
   Sigma = sigma # 11.1
   EnergyRange = energyRange # 0.3.keV
 
+  doAssert backgroundTime > 0.0.Hour
+  doAssert trackingTime > 0.0.Hour
+
   ## Need an offset to not start on edge, but rather within
   ## and stop half a step before
   let xyOffset = 14.0/(nxy).float / 2.0 ## XXX: fix this for real number ``within`` the chip
@@ -907,7 +910,7 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
     ## initialize the variables needed for the interpolation
     let interp = setupBackgroundInterpolation(
       backgroundInterp, radius, sigma, energyRange,
-      backgroundTime, trackingTime,
+      backTime, trackTime,
       nxy, nE
     )
     result.interp = interp

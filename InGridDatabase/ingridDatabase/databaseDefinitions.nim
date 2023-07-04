@@ -12,21 +12,19 @@ proc removeSuffix(s: string, rm: string): string {.compileTime.} =
 # TODO: this is way too complicated. For some reason I didn't realize yesterday
 # that `dirExists` DOES work at compile time :S Fix this
 
+from std / os import `/`
 const dbDir = "resources"
-const path1 = staticExec("nimble path ingridDatabase").strip / dbDir
-const path2 = staticExec("nimble path ingridDatabase").strip.removeSuffix("src") / dbDir
+const path1 = currentSourcePath() / "../.." / dbDir
 var tmpPath {.compileTime.} = ""
 # check whether path exists to check whether we need the `src` or not
 static:
   # needs to be in static, otherwise tmpPath won't be set
   when dirExists(path1):
     tmpPath = path1
-  elif dirExists(path2):
-    tmpPath = path2
   else:
     # else write a warning and put path to local folder
-    {.fatal: "Could not find valid path to ingridDatabase.h5 file! Did you forget" &
-      "to install the `ingridDatabase` nim module?".}
+    {.fatal: "Could not find valid path to ingridDatabase.h5 file! Did you forget " &
+      "to install the `ingridDatabase` nim module? Tried to look in: " & $path1 .}
 
 # if we haven't quit we found the path
 const ingridPath* = tmpPath

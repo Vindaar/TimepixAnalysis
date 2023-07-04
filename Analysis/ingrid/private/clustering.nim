@@ -5,7 +5,7 @@ This file contains the code used to perform the clustering of the
 ]#
 
 import std / sets
-import ingrid / [ingrid_types]
+import .. / ingrid_types
 
 type
   PixelSearch*[T: SomePix] = object

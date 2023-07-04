@@ -1,8 +1,8 @@
 import std / [math, stats, strutils, envvars]
-import ingrid / ingrid_types
+import .. / ingrid_types
 import helpers / utils
 import logging
-import ingrid / private / [pure, cdl_cuts, clustering]
+import pure, cdl_cuts, clustering
 
 import sequtils, nlopt
 import arraymancer # for tensor and dbscan

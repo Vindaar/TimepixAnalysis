@@ -8,7 +8,7 @@ import hdf5_utils
 import nimhdf5
 import arraymancer
 
-import ingrid / ingrid_types
+import .. / ingrid_types
 import geometry, arraymancer_utils, cdl_cuts, cut_utils, fadc_utils
 
 macro echoType(x: typed): untyped =

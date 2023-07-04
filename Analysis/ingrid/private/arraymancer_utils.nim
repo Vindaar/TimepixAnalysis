@@ -1,5 +1,5 @@
 import arraymancer
-import ingrid / ingrid_types
+import .. / ingrid_types
 
 proc initSeptemFrame*(): Tensor[float] {.noinit.} =
   result = zeros[float]([3 * 256, 3 * 256])

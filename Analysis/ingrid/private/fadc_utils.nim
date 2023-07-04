@@ -1,5 +1,5 @@
 from std / algorithm import lowerBound
-import ingrid / ingrid_types
+import .. / ingrid_types
 
 func toFadcSetting*(run: int): FadcSetting =
   ## Convert the given run number to the `FadcSetting` by the ordinal value

@@ -872,7 +872,8 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
     backTime = backgroundTime
     trackTime = trackingTime
 
-
+  echo "[INFO] Background time = ", backTime
+  echo "[INFO] Tracking time = ", trackTime
   result = Context(
     # general information and input parameters
     logLFlags: readData.flags,
@@ -908,7 +909,7 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
   # eff. there would be > 0, but flux is effectively 0 there anyway and irrelevant for limit
   let axModel = axData
     .mutate(f{"Flux" ~ idx("Flux [keV⁻¹•cm⁻²•s⁻¹]") * detectionEff(ctx, idx("Energy [keV]").keV) })
-  echo axModel
+  echo "[INFO]: Axion model: ", axModel
   let integralBase = simpson(axModel["Flux", float].toSeq1D,
                              axModel["Energy [keV]", float].toSeq1D)
   result.integralBase = integralBase

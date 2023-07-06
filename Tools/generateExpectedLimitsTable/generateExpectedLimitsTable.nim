@@ -58,7 +58,7 @@ proc readLimit(fname: string): LimitData =
   let vetoes = readVetoes(h5f)
   let effs = readEfficiencies(h5f)
   result = LimitData(expectedLimit: expLimit(limits),
-                     limitNoSignal: noCands,
+                     limitNoSignal: sqrt(noCands) * 1e-12,
                      vetoes: vetoes,
                      eff: effs)
 
@@ -80,8 +80,8 @@ proc asDf(limit: LimitData): DataFrame =
                   "ε_Line" : limit.eff.lineVetoRandomCoinc,
                   "ε_SeptemLine" : limit.eff.septemLineVetoRandomCoinc,
                   "Total eff." : limit.eff.totalEff,
-                  "Limit no signal" : limit.limitNoSignal,
-                  "Expected Limit" : limit.expectedLimit })
+                  "Limit no signal [GeV⁻¹]" : limit.limitNoSignal,
+                  "Expected limit [GeV⁻¹]" : limit.expectedLimit })
 
 proc main(path = @["/t/lhood_outputs_adaptive_fadc_limits/"],
           prefix = @["mc_limit_lkMCMC_skInterpBackground_nmc_1000"]) =
@@ -93,7 +93,7 @@ proc main(path = @["/t/lhood_outputs_adaptive_fadc_limits/"],
       echo "File: ", f
       let limit = readLimit(f)
       df.add asDf(limit)
-  echo df.arrange("Expected Limit").toOrgTable()
+  echo df.arrange("Expected limit [GeV⁻¹]").toOrgTable(precision = 4)
 
 when isMainModule:
   import cligen

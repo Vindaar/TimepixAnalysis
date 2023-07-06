@@ -64,9 +64,12 @@ proc readLimit(fname: string): LimitData =
 
 proc asDf(limit: LimitData): DataFrame =
   ## Calling it `toDf` causes issues...
-  result = toDf({ "ε_lnL" : limit.eff.signalEff,
-                  "MLP" : limit.eff.nnSignalEff,
-                  "MLP_eff" : limit.eff.nnEffectiveEff,
+  let typ = if fkMLP in limit.vetoes: "MLP"
+             else: "LnL"
+  let eff = if fkMLP in limit.vetoes: limit.eff.nnEffectiveEff
+            else: limit.eff.signalEff
+  result = toDf({ "ε" : eff,
+                  "Type" : typ,
                   "Scinti" : fkScinti in limit.vetoes,
                   "FADC" : fkFadc in limit.vetoes,
                   "ε_FADC" : 1.0 - (1.0 - limit.eff.vetoPercentile) * 2.0,
@@ -80,13 +83,16 @@ proc asDf(limit: LimitData): DataFrame =
                   "Limit no signal" : limit.limitNoSignal,
                   "Expected Limit" : limit.expectedLimit })
 
-proc main(path = "/t/lhood_outputs_adaptive_fadc_limits/",
-          prefix = "mc_limit_lkMCMC_skInterpBackground_nmc_1000") =
+proc main(path = @["/t/lhood_outputs_adaptive_fadc_limits/"],
+          prefix = @["mc_limit_lkMCMC_skInterpBackground_nmc_1000"]) =
   var df = newDataFrame()
-  for f in walkFiles(path / prefix & "*.h5"):
-    echo "File: ", f
-    let limit = readLimit(f)
-    df.add asDf(limit)
+  doAssert path.len == prefix.len, "Need one prefix for each path!"
+  for i, p in path:
+    let pref = prefix[i]
+    for f in walkFiles(p / pref & "*.h5"):
+      echo "File: ", f
+      let limit = readLimit(f)
+      df.add asDf(limit)
   echo df.arrange("Expected Limit").toOrgTable()
 
 when isMainModule:

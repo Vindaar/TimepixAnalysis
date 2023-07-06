@@ -122,6 +122,8 @@ type
     # energy information
     energyMin, energyMax: keV
     # axion signal info
+    axionModelFile: string # The filename we read for the differential solar axion flux
+    axionImageFile: string # The filename we read for the axion image (raytracing result)
     axionModel: DataFrame
     integralBase: float # integral of axion flux using base coupling constants
     # detector related
@@ -584,6 +586,30 @@ proc setupBackgroundInterpolation(kd: KDTree[float],
                          xyOffset: xyOffset, eOffset: eOffset,
                          expCounts: t)
 
+proc setupAxionImageInterpolation(axionImage: string): Interpolator2DType[float] =
+  let hmap = readCsv(axionImage)
+  # Some files may still use `z`, default now is `photon flux`
+  let zCol = if "z" in hmap: "z" else: "photon flux"
+  block Plot:
+    ggplot(hmap, aes("x", "y", fill = zCol)) +
+      geom_raster() + ggsave("/tmp/raster_what_old.pdf")
+
+  ## XXX: Real size is 1.41 cm no? Does it even matter? Real size is 14111μm
+  ## Well technically a larger chip improves the background rate. (but for S/B it shouldn't matter)
+  const area = 1.4.cm * 1.4.cm
+  const pixels = 256 * 256
+  const pixPerArea = pixels / area
+
+  var t = zeros[float]([256, 256])
+  let zSum = hmap[zCol, float].sum
+  for idx in 0 ..< hmap.len:
+    let x = hmap["x", int][idx]
+    let y = hmap["y", int][idx]
+    #echo "X ", x, " and ", y
+    let z = hmap[zCol, float][idx]
+    t[x, y] = (z / zSum * pixPerArea).float #zMax / 784.597 # / zSum # TODO: add telescope efficiency abs. * 0.98
+  result = newBilinearSpline(t, (0.0, 255.0), (0.0, 255.0)) # bicubic produces negative values!
+
 proc initSystematics(
   σ_sig = 0.0, σ_back = 0.0, σ_p = 0.0,
   eff: Efficiency = Efficiency(),
@@ -774,7 +800,8 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
                  useConstantBackground: bool, # decides whether to use background interpolation or not
                  radius, sigma: float, energyRange: keV, nxy, nE: int,
                  backgroundTime, trackingTime: Hour, ## Can be used to ``*overwrite*`` time from input files!
-                 axionModel: string,
+                 axionModel,         # differential solar axion flux
+                 axionImage: string, # axion image (raytracing)
                  windowRotation = 30.°,
                  σ_sig = 0.0, σ_back = 0.0, # depending on which `σ` is given as > 0, determines uncertainty
                  σ_p = 0.0,
@@ -836,29 +863,8 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
   # total efficiency is given detector efficiency times veto + lnL efficiency
   let totalEff  = detTelEff.map_inline(x * vetoEff).toSeq1D
   let effSpl = newCubicSpline(combEffDf["Energy [keV]", float].toSeq1D, totalEff)
-
-  let raySpl = block:
-    #let hmap = readCsv("/home/basti/org/resources/axion_image_heatmap_2017.csv")
-    #let hmap = readCsv("/home/basti/org/resources/axion_image_30deg_1485mm.csv")
-    let hmap = readCsv("/home/basti/org/resources/axion_image_no_window_1470mm_plus_12_2mm_updated_cone_tracing.csv")
-    #ggplot(hmap, aes("x", "y", fill = "z")) +
-    let zCol = if "z" in hmap: "z" else: "photon flux"
-    ggplot(hmap, aes("x", "y", fill = zCol)) +
-      geom_raster() + ggsave("/tmp/raster_what_old.pdf")
-    var t = zeros[float]([256, 256])
-
-    let area = 1.4.cm * 1.4.cm
-    let pixels = 256 * 256
-    let pixPerArea = pixels / area
-
-    let zSum = hmap[zCol, float].sum
-    for idx in 0 ..< hmap.len:
-      let x = hmap["x", int][idx]
-      let y = hmap["y", int][idx]
-      #echo "X ", x, " and ", y
-      let z = hmap[zCol, float][idx]
-      t[x, y] = (z / zSum * pixPerArea).float #zMax / 784.597 # / zSum # TODO: add telescope efficiency abs. * 0.98
-    newBilinearSpline(t, (0.0, 255.0), (0.0, 255.0)) # bicubic produces negative values!
+  # set up the raytracing interpolation for the axion image
+  let raySpl = setupAxionImageInterpolation(axionImage)
 
   var backTime = readData.totalTime
   var trackTime = backTime / TrackingBackgroundRatio
@@ -877,6 +883,8 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
     totalTrackingTime: trackTime,
     # axion model
     g_aγ²: 1e-12 * 1e-12, ## reference axion photon coupling
+    axionModelFile: axionModel,
+    axionImageFile: axionImage,
     axionModel: axData,
     axionSpl: axSpl,
     # efficiency & signal ray tracing
@@ -3749,6 +3757,7 @@ proc sanity(
   rombergIntegrationDepth = 5,
   nmcSigmaLimits = 500,
   axionModel = "/home/basti/CastData/ExternCode/AxionElectronLimit/axion_diff_flux_gae_1e-13_gagamma_1e-12.csv",
+  axionImage = "/home/basti/org/resources/axion_images/axion_image_2018_1487_93_0.989AU.csv"
      ) =
   ##
   ## TODO:
@@ -3779,7 +3788,7 @@ proc sanity(
     path, backFiles, useConstantBackground = useConstantBackground,
     radius = radius, sigma = σ, energyRange = energyRange,
     backgroundTime = backgroundTime, trackingTime = trackingTime,
-    axionModel = axionModel,
+    axionModel = axionModel, axionImage = axionImage,
     nxy = nxy, nE = nE,
     σ_sig = 0.04692492913207222, # from sqrt(squared sum) of signal uncertainties
     σ_back = 0.002821014576353691,#, # from sqrt(square sum) of back uncertainties
@@ -3843,6 +3852,7 @@ proc limit(
     years: seq[int] = @[],
     path = "/home/basti/CastData/ExternCode/TimepixAnalysis/resources/LikelihoodFiles/",
     axionModel = "/home/basti/CastData/ExternCode/AxionElectronLimit/axion_diff_flux_gae_1e-13_gagamma_1e-12.csv",
+    axionImage = "/home/basti/org/resources/axion_images/axion_image_2018_1487_93_0.989AU.csv", ## Default corresponds to mean Sun-Earth distance during 2017/18 data taking & median conversion ~0.3cm behind window
     useConstantBackground = false,
     radius = 40.0, σ = 40.0 / 3.0, energyRange = 0.6.keV, nxy = 10, nE = 20,
     σ_sig = 0.02724743263827172, ## <- is the value *without* uncertainty on signal efficiency!
@@ -3882,7 +3892,7 @@ proc limit(
     path, files, useConstantBackground = useConstantBackground,
     radius = radius, sigma = σ, energyRange = energyRange,
     backgroundTime = backgroundTime, trackingTime = trackingTime,
-    axionModel = axionModel,
+    axionModel = axionModel, axionImage = axionImage,
     nxy = nxy, nE = nE,
     σ_sig = σ_sig, # from sqrt(squared sum) of signal uncertainties
     σ_back = σ_back,#, # from sqrt(square sum) of back uncertainties
@@ -3894,27 +3904,18 @@ proc limit(
   ) # from sqrt(squared sum of x / 7) position uncertainties
     # large values of σ_sig cause NaN and grind some integrations to a halt!
     ## XXX: σ_sig = 0.3)
-  #echo ctx.interp.expCounts
-  #if true: quit()
 
   var rnd = wrap(initMersenneTwister(299792458 + 2))
   # writeFile(&"/tmp/reference_candidates_{count}_s_{ctx.σsb_sig}_b_{ctx.σsb_back}.bin", cands.toFlatty())
   #let cands = newSeq[Candidate]() #fromFlatty(readFile("/tmp/reference_candidates_1001_s_0.3_b_0.05.bin"), seq[Candidate]) # drawCandidates(ctx, rnd, toPlot = true)
-  #echo cands
-  #plotCandidates(cands)
 
-  #echo ctx.computeLimit(cands, lkBayesScan)
-  #if true: quit()
   let cands = drawCandidates(ctx, rnd, toPlot = true)
   plotCandidates(cands)
   ctx.g_ae² = 1e-10 * 1e-10 #limit
-  #echo ctx.computeLimit(cands, lkBayesScan)
+  ## XXX: differentiate serial or parallel limits
   if computeLimit:
     echo ctx.monteCarloLimits(rnd, limitKind, nmc = nmc)
     return
-  #echo ctx.monteCarloLimits(rnd, lkMCMC)
-  #if true: quit()
-
   if plotFile.len > 0:
     echo "NOTE: Make sure the input parameters match the parameters used to generate the file ", plotFile
     let df = readCsv(plotFile)

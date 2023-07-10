@@ -248,18 +248,26 @@ proc sortAndFilter(logs: seq[TrackingLog], startTime, endTime: string): seq[Trac
   result = result.filterTrackingLogs(startDate, endDate)
 
 proc print_tracking_logs(logs: seq[TrackingLog], print_type: TrackingKind,
-                         startTime, endTime = "") =
+                         startTime, endTime = "",
+                         outfile = "") =
   ## proc to pretty print a seq of TrackingLogs using org date format
   ## inputs:
   ##    logs: seq[TrackingLog] = seq of (potentially mixed) tracking logs to be
   ##      printed using org mode date
   ##    print_type: TrackingKind = the kind of logs to be printed. Either tracking
   ##      no tracking
+  # 0. construct a DF to write a CSV of the tracking information
+  var df = newDataFrame()
+  # 1. first print the *mapped* tracking logs:
+  echo "========== Found trackings =========="
   let s_logs = logs.sortAndFilter(startTime, endTime)
   for log in s_logs:
     case log.kind
     of rkTracking:
       echo "<$#>    <$#>" % [formatAsOrgDate(log.tracking_start), formatAsOrgDate(log.tracking_stop)]
+      # 2. add fields to DF
+      let duration = (log.tracking_stop - log.tracking_start).inSeconds()
+      df.add (&"<{formatAsOrgDate(log.tracking_start)}>", &"<{formatAsOrgDate(log.tracking_stop)}>", duration)
     of rkNoTracking:
       echo "<$#>" % formatAsOrgDate(log.date)
 
@@ -274,6 +282,13 @@ proc print_tracking_logs(logs: seq[TrackingLog], print_type: TrackingKind,
     echo &"The total time of all trackings: {trackTime.inHours()} h (exact: {tracktime})"
   of rkNoTracking:
     echo &"There are {s_logs.len} runs without solar tracking found in the log file directory"
+
+  # 3. write out the output file if desired
+  if df.len > 0:
+    df = df.rename(f{"Tracking start" <- "Field0"}, f{"Tracking stop" <- "Field1"}, f{"Duration [s]" <- "Field2"})
+    if outfile.len > 0:
+      df.writeCsv(outfile)
+      writeFile(outfile.replace(".csv", ".org"), df.toOrgTable())
 
   # compute total time magnet was on
   when true:
@@ -1015,6 +1030,7 @@ proc process_log_folder(folder: string, logKind: LogFileKind,
                         schemaFile: VersionSchemaFile = VersionSchemaFile(),
                         magnetField = 8.0,
                         startTime, endTime = "",
+                        trackingLogOutfile = "",
                         dryRun = false) =
   case logKind
   of lkSlowControl:
@@ -1024,9 +1040,9 @@ proc process_log_folder(folder: string, logKind: LogFileKind,
       tracking_logs = read_tracking_log_folder(folder)
       (trk, notrk) = split_tracking_logs(tracking_logs)
     echo "No tracking days : "
-    print_tracking_logs(notrk, rkNoTracking, startTime = startTime, endTime = endTime)
+    print_tracking_logs(notrk, rkNoTracking, startTime = startTime, endTime = endTime, outfile = trackingLogOutfile)
     echo "Tracking days :"
-    print_tracking_logs(trk, rkTracking, startTime = startTime, endTime = endTime)
+    print_tracking_logs(trk, rkTracking, startTime = startTime, endTime = endTime, outfile = trackingLogOutfile)
 
     when not defined(pure):
       if h5file.len > 0:
@@ -1314,6 +1330,7 @@ proc sc(path: string, schemas: string, magnetField = 8.0) =
 
 proc tracking(path: string, h5out = "",
               startTime = "", endTime = "",
+              trackingLogOutfile = "",
               dryRun = false) =
   # check whether actual log file (extension fits)
   let (dir, fn, ext) = splitFile(path)
@@ -1326,7 +1343,9 @@ proc tracking(path: string, h5out = "",
     doAssert ext.len == 0, "Invalid tracking with extension " & $ext &
       ". Instead we expect .log"
     process_log_folder(path, lkTracking, h5out,
-                       startTime = startTime, endTime = endTime, dryRun = dryRun)
+                       startTime = startTime, endTime = endTime,
+                       trackingLogOutfile = trackingLogOutfile,
+                       dryRun = dryRun)
 
 proc h5file(file: string) =
   when not defined(pure):
@@ -1352,6 +1371,7 @@ proc main() =
 "fit into the given run file.""",
                                   "startTime" : "Date in YYYY/MM/dd format from which to print tracking information. This is inclusive.",
                                   "endTime" : "Date in YYYY/MM/dd format from which to print tracking information. This is exclusive.",
+                                  "trackingLogOutfile" : "Path to where a CSV & Org table of all found trackings should be written.",
                 }],
                 [allLogs, help={"path" : "A path to the location containing all logs in form of `.tar.gz` files is needed.",
                                 "schemas" : "The path to the `Versions.idx` schema file description is needed.",

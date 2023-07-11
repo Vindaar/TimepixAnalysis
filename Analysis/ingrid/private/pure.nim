@@ -204,11 +204,10 @@ proc getFilenameFromEventNumber*[T: SomeInteger](evNumber: T): string =
   ## returns the correct TOS filename for the given event number
   result = &"data{evNumber:06}.txt"
 
-proc formatAsOrgDate*(t: Time, org_format = "yyyy-MM-dd ddd H:mm"): string =
+proc formatAsOrgDate*(t: Time, org_format = "yyyy-MM-dd ddd H:mm", zone = utc()): string =
   ## this procedure formats the given Time object as an org-mode date
   ## by first converting it to a TimeInfo object
-  let ti = local(t)
-  result = format(ti, org_format)
+  result = format(t, org_format, zone)
 
 proc getTimeFromEvent*(file: string): Time =
   ## this procedure returns the time info from an event,

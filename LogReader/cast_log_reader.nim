@@ -503,7 +503,7 @@ proc tryParseTime(s: string, formatStrings: openArray[string]): Time =
   ## Attempts to parse the time string `s` using any of the `formatStrings`
   for fmt in formatStrings:
     try:
-      return toTime(parse(s.strip(chars = {'\0'}), fmt))
+      return toTime(parse(s.strip(chars = {'\0'}), fmt, tz = utc()))
     except TimeParseError:
       continue
   raise newException(TimeParseError, "Parsing of string: " & $s &
@@ -812,7 +812,7 @@ proc parse_tracking_logfile*(content: string, filename: string): TrackingLog =
     ## commissioning
     var date: Time
     if lineCnt > 1 and not date_set and count >= 22:
-      date = toTime(parse(d[date_i], "MM/dd/yy"))
+      date = toTime(parse(d[date_i], "MM/dd/yy", zone = utc()))
       # check whether this date is at the end of day from the log file or already past midnight
       if date.utc().hour > 23:
         continue
@@ -826,7 +826,7 @@ proc parse_tracking_logfile*(content: string, filename: string): TrackingLog =
     else:
       # now parse date to make sure we have it
       try:
-        date = toTime(parse(d[date_i], "MM/dd/yy"))
+        date = toTime(parse(d[date_i], "MM/dd/yy", zone = utc()))
       except:
         echo "d was ", d, " with count ", count
         raise

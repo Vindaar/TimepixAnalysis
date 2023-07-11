@@ -419,6 +419,7 @@ proc genGainDiffusionEvent(rnd: var Rand, gain: GainInfo,
       result = 0
   )
 
+  ## 6. Begin the generation of individual pixels in the cluster
   while totalCharge < targetCharge:
     # sample a charge from Pólya first (to know if to continue)
     #let ToT = rnd.sample(psampler)
@@ -551,7 +552,13 @@ proc generateSampler(fakeDesc: FakeDesc, targetEnergy: keV): Sampler =
                     result = expFn(x, λ.float)
   )
   # we want to be able to sample between 0 and 3 cm
+  ## IMPORTANT NOTE: The fact that we only sample between 0 and 3 cm means we do not
+  ## correctly recover the X-ray energy distributio one might expect for a given
+  ## energy assuming the absorption probability. For that we would have to sample above
+  ## 3 cm, too and simply treat it as an invalid cluster in case the sampled value is
+  ## above 3 cm (outside chamber). But we don't care about that here!
   echo "USING λ == ", λ, " to sample! Target energy ", targetEnergy, " and gasMix ", fakeDesc.gasMixture, " gives ", absorptionLengthCAST(fakeDesc.gasMixture, targetEnergy)
+
   result = sampler(fnSample, 0.0, 3.0, num = 1000)
 
 proc assignSampler(rnd: var Rand, fakeDesc: var FakeDesc, targetEnergy: keV, lines: seq[FluorescenceLine]): keV =

@@ -51,13 +51,14 @@ proc main(path, # = "/t/lhood_outputs_adaptive_fadc/",
     if energyMin > 0.0:
       energyStr.add "--energyMin " & $energyMin
     if energyMax > 0.0:
+      if energyStr.len > 0: energyStr.add " "
       energyStr.add "--energyMax " & $energyMax
     let axionStr = "--axionModel " & axionModel
     # construct command
     let (res, err) = shellVerbose:
       mcmc_limit_calculation limit -f ($fRun2) -f ($fRun3) --years 2017 --years 2018 --σ_p 0.05 --limitKind lkMCMC --nmc ($nmc) ($energyStr) ($axionStr) ($suffix) ($path) --outpath ($outpath)
     # write output to a log file
-    let logfile = outpath / "mcmc_limit_output_" & suffixArg & ".log"
+    let logfile = outpath / &"mcmc_limit_output_nmc_{nmc}_suffixArg.log"
     let command = &"shellCmd: mcmc_limit_calculation limit -f {fRun2} -f {fRun3} --years 2017 --years 2018 --σ_p 0.05 --limitKind lkMCMC --nmc {nmc} {energyStr} {axionStr} {suffix} {path} --outpath {outpath}\n"
     writeFile(logfile, command & res)
     # only continue if no error

@@ -2223,12 +2223,25 @@ proc plotMCLimitHistogram(
   xLabel = "Limit", yLabel = "Count",
   linesTo = 1000,
   outpath = "/tmp/",
-  suffix = "") =
+  suffix = "",
+  as_gae_gaγ = false
+     ) =
+  proc to_gaγ(x: float): float = sqrt(x * ctx.g_aγ²)
 
-  let expLimit = if classify(expLimit) == fcInf: expectedLimit limits
+  var defaultMaxLimit = 3e-20
+
+  var expLimit = if classify(expLimit) == fcInf: expectedLimit limits
                  else: expLimit
+  var limitNoSignal = limitNoSignal
   echo "Expected limit: ", expLimit
   var dfL = toDf(limits, candsInSens)
+  var xlimit = xlimit # mutable copy
+  if as_gae_gaγ:
+    ## Convert to g_ae · g_aγ
+    defaultMaxLimit = to_gaγ(defaultMaxLimit)
+    dfL["limits"] = dfL["limits", float].map_inline(to_gaγ(x))
+    xlimit = (to_gaγ(xlimit[0]), to_gaγ(xlimit[1]))
+
   var ufSuff: string
   var utSuff: string
   case ctx.uncertainty
@@ -2260,10 +2273,16 @@ proc plotMCLimitHistogram(
   dfL.writeCsv(&"{outpath}/{baseOutfile}.csv")
   ctx.writeLimitOutput(outpath, baseOutfile, nmc, limitKind, limitNoSignal, limits, candsInSens)
 
-  let maxVal = if xlimit[1] > 0.0: xLimit[1] else: 3e-20
+  let maxVal = if xlimit[1] > 0.0: xLimit[1] else: defaultMaxLimit
   dfL = dfL
-    #.filter(f{`limits` < 2e-19})
     .filter(f{`limits` < maxVal})
+  let noSigX = if as_gae_gaγ: to_gaγ(limitNoSignal - 0.2e-21)
+               else: limitNoSignal - 0.2e-21
+  let expLimX = if as_gae_gaγ: to_gaγ(expLimit + 0.01e-21)
+                else: expLimit + 0.01e-21
+  if as_gae_gaγ:
+    expLimit = to_gaγ(expLimit)
+    limitNoSignal = to_gaγ(limitNoSignal)
   var plt = ggplot(dfL, aes("limits", fill = factor("candsInSens"))) +
     geom_histogram(bins = bins, hdKind = hdOutline, position = "identity", alpha = some(0.5)) +
     geom_linerange(aes = aes(x = limitNoSignal, y = 0.0, yMin = 0.0, yMax = linesTo),
@@ -2271,14 +2290,14 @@ proc plotMCLimitHistogram(
     geom_linerange(aes = aes(x = expLimit, y = 0.0, yMin = 0.0, yMax = linesTo),
                    color = some(parseHex("0000FF"))) +
     annotate(text = "Limit w/o signal, only R_T",
-             x = limitNoSignal - 0.2e-21,
+             x = noSigX,
              y = linesTo.float,
              rotate = -90.0,
              font = font(color = parseHex("FF0000")),
              alignKind = taRight,
              backgroundColor = color(0.0, 0.0, 0.0, 0.0)) +
     annotate(text = "Expected limit",
-             x = expLimit + 0.01e-21,
+             x = expLimX,
              y = linesTo.float,
              rotate = -90.0,
              font = font(color = parseHex("0000FF")),
@@ -2289,10 +2308,12 @@ proc plotMCLimitHistogram(
     plt = plt + xlim(xlimit[0], xlimit[1])
   if ylimit[0] != ylimit[1]:
     plt = plt + ylim(ylimit[0], ylimit[1])
+  let expLimitSuffix = if not as_gae_gaγ: &"Expected limit g_ae² = {expLimit:.4e}"
+                       else: &"Expected limit g_ae·g_aγ = {expLimit:.4e}"
   plt +
     xlab(xLabel) + ylab(yLabel) +
     ggtitle(&"MC limit histogram of {nmc} toys using {ctx.samplingKind} and {limitKind}. {utSuff} " &
-            &"{putSuff}. Expected limit g_ae² = {expLimit:.4e}") +
+            &"{putSuff}. {expLimitSuffix}") +
     ggsave(&"{outpath}/mc_limit_{limitKind}_{ctx.samplingKind}_nmc_{nmc}_{ufSuff}_{pufSuff}{suffix}.pdf",
             width = 800, height = 480)
 
@@ -3874,6 +3895,7 @@ proc limit(
     yLow = 0.0, yHigh = 0.0,
     xLabel = "Limit", yLabel = "Count",
     linesTo = 1000,
+    as_gae_gaγ = false,
     outpath = "/tmp/",
     suffix = "",
     jobs = 0
@@ -3929,7 +3951,10 @@ proc limit(
                              xlimit = (xLow, xHigh),
                              ylimit = (yLow, yHigh),
                              xLabel = xLabel, yLabel = yLabel,
-                             linesTo = linesTo)
+                             linesTo = linesTo,
+                             outpath = outpath,
+                             suffix = suffix,
+                             as_gae_gaγ = as_gae_gaγ)
 
     return
 

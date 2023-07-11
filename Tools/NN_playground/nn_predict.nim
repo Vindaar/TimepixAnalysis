@@ -18,6 +18,8 @@ proc readEvent(h5f: H5File, run, idx: int, path = recoBase()): DataFrame =
     result[dsetName] = dset.readAs(@[idx], float)
   result["Type"] = $dtBack
 
+template readEventForMLP*(h5f: H5File, run, idx: int, path = recoBase()): DataFrame = readEvent(h5f, run, idx, path)
+
 proc initDesc*(model: string): MLPDesc =
   result = initMLPDesc(model, "")
   CurrentDsets = result.datasets

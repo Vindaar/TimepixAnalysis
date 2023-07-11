@@ -1,5 +1,4 @@
-
-import os, nimhdf5, datamancer, strutils, sugar
+import os, nimhdf5, datamancer, strutils, sugar, sequtils, stats
 import ingrid / ingrid_types
 
 #[
@@ -13,6 +12,8 @@ respective expected limits.
 type
   LimitData = object
     expectedLimit: float
+    expLimitVariance: float
+    expLimitStd: float
     limitNoSignal: float
     vetoes: set[LogLFlagKind]
     eff: Efficiency
@@ -31,6 +32,29 @@ type
 
 proc expLimit(limits: seq[float]): float =
   result = sqrt(limits.percentile(50)) * 1e-12
+
+
+import random
+
+template withBootstrap(rnd: var Rand, samples: seq[float], num: int, body: untyped): untyped =
+  let N = samples.len
+  for i in 0 ..< num:
+    # resample
+    var newSamples {.inject.} = newSeq[float](N)
+    for j in 0 ..< N:
+      newSamples[j] = samples[rnd.rand(0 ..< N)] # get an index and take its value
+    # compute our statistics
+    body
+
+proc expLimitVarStd(limits: seq[float]): (float, float) =
+  var rnd = initRand(12312)
+  let limits = limits.mapIt(sqrt(it) * 1e-12) # rescale limits
+  const num = 100
+  var medians = newSeqOfCap[float](num)
+  withBootstrap(rnd, limits, num):
+    medians.add median(newSamples, 50)
+  echo "Medians? ", medians
+  result = (variance(medians), standardDeviation(medians))
 
 proc readVetoes(h5f: H5File): set[LogLFlagKind] =
   let flags = h5f["/ctx/logLFlags", string]
@@ -57,7 +81,10 @@ proc readLimit(fname: string): LimitData =
   let noCands = h5f.attrs["limitNoSignal", float]
   let vetoes = readVetoes(h5f)
   let effs = readEfficiencies(h5f)
+  let (variance, std) = expLimitVarStd(limits)
   result = LimitData(expectedLimit: expLimit(limits),
+                     expLimitVariance: variance,
+                     expLimitStd: std,
                      limitNoSignal: sqrt(noCands) * 1e-12,
                      vetoes: vetoes,
                      eff: effs)
@@ -81,7 +108,9 @@ proc asDf(limit: LimitData): DataFrame =
                   "ε_SeptemLine" : limit.eff.septemLineVetoRandomCoinc,
                   "Total eff." : limit.eff.totalEff,
                   "Limit no signal [GeV⁻¹]" : limit.limitNoSignal,
-                  "Expected limit [GeV⁻¹]" : limit.expectedLimit })
+                  "Expected limit [GeV⁻¹]" : limit.expectedLimit,
+                  "Exp. limit variance [GeV⁻¹]" : limit.expLimitVariance,
+                  "Exp. limit σ [GeV⁻¹]" : limit.expLimitStd })
 
 proc main(path = @["/t/lhood_outputs_adaptive_fadc_limits/"],
           prefix = @["mc_limit_lkMCMC_skInterpBackground_nmc_1000"]) =

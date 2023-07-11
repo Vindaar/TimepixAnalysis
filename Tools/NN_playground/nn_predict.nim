@@ -177,7 +177,7 @@ proc calcLocalNNCutValueTab*(ctx: LikelihoodContext,
       let fakeDesc = FakeDesc(nFake: 5000,
                               tfKind: tf,
                               kind: fkGainDiffusion)
-      var dfLoc = generateRunFakeData(rnd, h5f, run, chipNumber, chipName, capacitance, fakeDesc, runType, DataFrame, some(ctx))
+      var dfLoc = generateRunFakeData(rnd, h5f, run, chipNumber, chipName, capacitance, fakeDesc, runType, DataFrame, ctx)
       dfLoc["Target"] = $tf
       dfFake.add dfLoc
 

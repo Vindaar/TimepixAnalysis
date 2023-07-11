@@ -1,4 +1,4 @@
-import std / [strformat, os, random, sequtils, stats, math, options, strutils]
+import std / [strformat, os, random, sequtils, stats, math, strutils]
 import pkg / [nimhdf5, ggplotnim, unchained, seqmath, xrayAttenuation]
 
 from ingrid / calibration / fit_functions import linearFunc, polyaImpl
@@ -86,12 +86,19 @@ proc computeEnergy(pix: Pixels, calibInfo: CalibInfo, gain: float): tuple[totalC
   # now calculate energy for all hits
   result = (totalCharge: totalCharge, energy: totalCharge * calibFactor)
 
-proc reconstructFakeEvent(pix: Pixels,
-                          σT: float,
-                          gasGain: float,
-                          runNumber: int,
-                          calibInfo: CalibInfo,
-                          ctx: LikelihoodContext): FakeEvent =
+type
+  Missing = object
+  MaybeContext = LikelihoodContext | Missing
+func missing(): Missing = discard
+
+proc reconstructFakeEvent[C: MaybeContext](
+  pix: Pixels,
+  σT: float,
+  gasGain: float,
+  runNumber: int,
+  calibInfo: CalibInfo,
+  ctx: C = missing()
+                                         ): FakeEvent =
   let inp = (pixels: pix, eventNumber: 0, toa: newSeq[uint16](), toaCombined: newSeq[uint64]())
   let recoEv = recoEvent(inp, -1,
                          runNumber, searchRadius = 50,
@@ -111,10 +118,13 @@ proc reconstructFakeEvent(pix: Pixels,
   let ecc = cluster.geometry.eccentricity
   let ldiv = cluster.geometry.lengthDivRmsTrans
   let frin = cluster.geometry.fractionInTransverseRms
-  let logL = ctx.calcLikelihoodForEvent(energy,
-                                        ecc,
-                                        ldiv,
-                                        frin)
+  when C isnot Missing:
+    let logL = ctx.calcLikelihoodForEvent(energy,
+                                          ecc,
+                                          ldiv,
+                                          frin)
+  else:
+    let logL = NaN
 
   result = FakeEvent(valid: true, runNumber: runNumber, cluster: cluster, σT: σT, gasGain: gasGain, logL: logL, totalCharge: totalCharge)
 
@@ -587,7 +597,7 @@ proc generateRemoveOrDiff(rnd: var Rand, fakeDesc: var FakeDesc, lines: seq[Fluo
 type
   ReturnType = DataFrame | seq[Pixels]
 
-proc generateFakeEvent[T: ReturnType](
+proc generateFakeEvent[T: ReturnType, C: MaybeContext](
   rnd: var Rand,
   fakeDesc: FakeDesc,
   runNumber: int,
@@ -595,7 +605,7 @@ proc generateFakeEvent[T: ReturnType](
   targetEnergy: keV, energyInput: seq[float],
   calibInfo: CalibInfo,
   _: typedesc[T],
-  ctx = none[LikelihoodContext]()
+  ctx: C = missing()
                                               ): T =
   ## Generates fake events based on the input data
   var count = 0
@@ -619,13 +629,12 @@ proc generateFakeEvent[T: ReturnType](
     else:
       # reconstruct event
       doAssert false, "THISCODENEEDS TO BE FIXED"
-      doAssert ctx.isSome
       let fakeEv = reconstructFakeEvent(pix,
                                         fakeDesc.σT,
                                         0.0, ## XXX: FIX ME FROM REAL DATA
                                         runNumber,
                                         calibInfo,
-                                        ctx.get)
+                                        ctx)
       if not fakeEv.valid:
         continue
       when false:
@@ -636,14 +645,14 @@ proc generateFakeEvent[T: ReturnType](
   when T is DataFrame:
     result = fakeToDf(fakeEvents)
 
-proc generateFakeFromData[T: ReturnType](
+proc generateFakeFromData[T: ReturnType, C: MaybeContext](
   rnd: var Rand, h5f: H5File,
   run, chipNumber: int,
   calibInfo: CalibInfo,
   fakeDesc: FakeDesc,
   runType: RunTypeKind,
   _: typedesc[T],
-  ctx = none[LikelihoodContext]()
+  ctx: C = missing()
                                        ): T =
   let group = (recoBase() & $run)
   let targetEnergy = fakeDesc.tfKind.toXrayLineEnergy().keV
@@ -709,13 +718,13 @@ proc generateGainDiffusion*(rnd: var Rand,
   let xps = result.mapIt(applyPitchConversion(it.x.float, 0.0, 256)[0])
   rms.add(xps.standardDeviation())
 
-proc generateAndReconstruct*(rnd: var Rand,
+proc generateAndReconstruct*[C: MaybeContext](rnd: var Rand,
                              fakeDesc: var FakeDesc,
                              lines: seq[FluorescenceLine],
                              gainInfo: GainInfo,
                              calibInfo: CalibInfo,
                              targetEnergy: keV,
-                             ctx: LikelihoodContext,
+                             ctx: C = missing(),
                              runNumber = -1): FakeEvent =
   let pix = generateGainDiffusion(rnd, fakeDesc, lines, gainInfo, calibInfo, targetEnergy, runNumber)
   if pix.len == 0:
@@ -729,14 +738,14 @@ proc generateAndReconstruct*(rnd: var Rand,
                                 calibInfo,
                                 ctx)
 
-proc generateAndReconstruct*(rnd: var Rand,
+proc generateAndReconstruct*[C: MaybeContext](rnd: var Rand,
                              fakeDesc: var FakeDesc,
                              nFake: int,
                              lines: seq[FluorescenceLine],
                              gain: GainInfo,
                              calibInfo: CalibInfo,
                              targetEnergy: keV,
-                             ctx: LikelihoodContext,
+                             ctx: C = missing(),
                              runNumber = -1): seq[FakeEvent] =
   ## XXX: ADD RUN NUMBER HERE!
   result = newSeqOfCap[FakeEvent](nFake)
@@ -769,7 +778,7 @@ proc generateRawGainDiff*(rnd: var Rand,
     result.add pix
     inc count
 
-proc generateFullFakeEvents[T: ReturnType](
+proc generateFullFakeEvents[T: ReturnType, C: MaybeContext](
   rnd: var Rand,
   fakeDesc: FakeDesc,
   runNumber: int,
@@ -777,7 +786,7 @@ proc generateFullFakeEvents[T: ReturnType](
   gains: seq[GasGainIntervalResult],
   calibInfo: CalibInfo,
   _: typedesc[T],
-  ctx = none[LikelihoodContext]()
+  ctx: C = missing()
                                          ): T =
   ## This proc generates fake events using the gas gain and diffusion determined by
   ## the `rmsTransverse` data as a starting point. The events
@@ -801,21 +810,20 @@ proc generateFullFakeEvents[T: ReturnType](
     let gainInfo = GainInfo(N: gain.N, G: gain.G, theta: gain.theta)
     let nFakeThisGain = fakeDesc.nFake div numSlices
     when T is DataFrame:
-      doAssert ctx.isSome
-      fakeEvents.add rnd.generateAndReconstruct(fakeDesc, nFakeThisGain, lines, gainInfo, calibInfo, targetEnergy, ctx.get, runNumber)
+      fakeEvents.add rnd.generateAndReconstruct(fakeDesc, nFakeThisGain, lines, gainInfo, calibInfo, targetEnergy, ctx, runNumber)
     else:
       result.add rnd.generateRawGainDiff(fakeDesc, nFakeThisGain, lines, gainInfo, calibInfo, targetEnergy, runNumber)
   when T is DataFrame:
     result = fakeToDf(fakeEvents)
 
-proc generateFakeFromGain[T: ReturnType](
+proc generateFakeFromGain[T: ReturnType, C: MaybeContext](
   rnd: var Rand, h5f: H5File,
   run, chipNumber: int,
   calibInfo: CalibInfo,
   fakeDesc: FakeDesc,
   runType: RunTypeKind,
   _: typedesc[T],
-  ctx = none[LikelihoodContext](),
+  ctx: C = missing(),
   useCache = true
                           ): T =
   ## Generates fake events for the desired CDL target using the diffusion and gas gains
@@ -859,7 +867,7 @@ proc generateFakeFromGain[T: ReturnType](
   # use existing data to generate fake data
   result = rnd.generateFullFakeEvents(fakeDesc, run, targetEnergy, gains, calibInfo, T, ctx)
 
-proc generateRunFakeData*[T: ReturnType](
+proc generateRunFakeData*[T: ReturnType, C: MaybeContext](
   rnd: var Rand, h5f: H5File,
   run, chipNumber: int,
   chipName: string,
@@ -867,7 +875,7 @@ proc generateRunFakeData*[T: ReturnType](
   fakeDesc: FakeDesc,
   runType: RunTypeKind,
   _: typedesc[T],
-  ctx = none[LikelihoodContext](),
+  ctx: C = missing(),
   useCache = true
                                        ): T =
   ## Generates fake data for the given `run` in the input file `h5f` using the
@@ -919,7 +927,7 @@ proc generateFakeData*(ctx: LikelihoodContext, rnd: var Rand, h5f: H5File,
                                     fakeDesc,
                                     fileInfo.runType,
                                     DataFrame,
-                                    some(ctx),
+                                    ctx,
                                     useCache)
     if dfRun.len > 0:
       result.add dfRun

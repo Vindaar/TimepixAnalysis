@@ -3794,25 +3794,29 @@ proc sanity(
   ## TODO:
   ## How do I make sure to use the exact same parameters as for the main code? Instead of copying here
   ## maybe define a dirty template that "defines" the parameters?
-  let path = "/home/basti/CastData/ExternCode/TimepixAnalysis/resources/LikelihoodFiles/"
-  let backFiles = @[(2017, "lhood_2017_all_chip_septem_dbscan.h5"),
-                    (2018, "lhood_2018_all_chip_septem_dbscan.h5")]
+  #let path = "/home/basti/CastData/ExternCode/TimepixAnalysis/resources/LikelihoodFiles/"
+  #let backFiles = @[(2017, "lhood_2017_all_chip_septem_dbscan.h5"),
+  #                  (2018, "lhood_2018_all_chip_septem_dbscan.h5")]
   #let path = "/tmp/"
   #let backFiles = @["lhood_2017_all_vetoes_dbscan_cdl_mapping_fixed.h5",
   #                  "lhood_2018_all_vetoes_dbscan_cdl_mapping_fixed.h5"]
 
-  let backgroundTime = 3318.Hour ## TODO: FIX ME GET FROM FILES
-  let trackingTime = 169.Hour ## TODO: FIX ME GET FROM FILES
+  let path = ""
+  let backFiles = @[(2017, "/home/basti/org/resources/lhood_limits_10_05_23_mlp_sEff_0.99/lhood_c18_R2_crAll_sEff_0.95_scinti_fadc_line_mlp_mlp_tanh300_msecheckpoint_epoch_485000_loss_0.0055_acc_0.9933_vQ_0.99.h5"),
+                    (2018, "/home/basti/org/resources/lhood_limits_10_05_23_mlp_sEff_0.99/lhood_c18_R3_crAll_sEff_0.95_scinti_fadc_line_mlp_mlp_tanh300_msecheckpoint_epoch_485000_loss_0.0055_acc_0.9933_vQ_0.99.h5")]
+
+
+  let backgroundTime = -1.Hour #3318.Hour ## TODO: FIX ME GET FROM FILES
+  let trackingTime = -1.Hour # 169.Hour ## TODO: FIX ME GET FROM FILES
 
   var log = newFileLogger("sanity.log", fmtStr = "[$date - $time] - $levelname: ")
+  var L = newConsoleLogger()
+  addHandler(L)
+  addHandler(log)
+
   log.infos("Input"):
     &"Input path: {path}"
     &"Input files: {backFiles}"
-
-  log.infos("Time"):
-    &"Total background time: {backgroundTime}"
-    &"Total tracking time: {trackingTime}"
-    &"Ratio of tracking to background time: {trackingTime / backgroundTime}"
 
   let useConstantBackground = false
   var ctx = initContext(
@@ -3821,10 +3825,14 @@ proc sanity(
     backgroundTime = backgroundTime, trackingTime = trackingTime,
     axionModel = axionModel, axionImage = axionImage,
     nxy = nxy, nE = nE,
-    σ_sig = 0.04692492913207222, # from sqrt(squared sum) of signal uncertainties
+    σ_sig = 0.02724743263827172, #0.04692492913207222, # from sqrt(squared sum) of signal uncertainties
     σ_back = 0.002821014576353691,#, # from sqrt(square sum) of back uncertainties
     σ_p = 0.05,
-    rombergIntegrationDepth = rombergIntegrationDepth
+    septemVetoRandomCoinc = 0.7841029411764704, # only septem veto random coinc based on bootstrapp
+    lineVetoRandomCoinc = 0.8601764705882353,   # lvRegular based on bootstrapped fake data
+    septemLineVetoRandomCoinc = 0.732514705882353, # lvRegularNoHLC based on bootstrapped fake data
+    rombergIntegrationDepth = rombergIntegrationDepth,
+    energyMin = 0.2.keV, energyMax = 12.0.keV
   ) # from sqrt(squared sum of x / 7) position uncertainties
 
   # 1. detection efficiency checks
@@ -3839,6 +3847,10 @@ proc sanity(
   # 3. background interpolation
   if backgroundInterp:
     ctx.sanityCheckBackgroundInterpolation(log)
+  log.infos("Time"):
+    &"Total background time: {ctx.totalBackgroundTime}"
+    &"Total tracking time: {ctx.totalTrackingTime}"
+    &"Ratio of tracking to background time: {trackingTime / backgroundTime}"
 
   # 4. background sampling
   ctx.sanityCheckBackgroundSampling(log)

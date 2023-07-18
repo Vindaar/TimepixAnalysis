@@ -1082,17 +1082,17 @@ proc detectionEfficiency(ctx: Context, energy: keV, pos: tuple[x, y: float]): cm
   ## the total detection efficiency
   result = ctx.detectionEff(energy) * ctx.raytracing(pos)
 
-func conversionProbability(): UnitLess =
+func conversionProbability(ctx: Context): UnitLess =
   ## the conversion probability in the CAST magnet (depends on g_aγ)
   ## simplified vacuum conversion prob. for small masses
   let B = 9.0.T
   let L = 9.26.m
-  let g_aγ = 1e-12.GeV⁻¹ # ``must`` be same as reference in Context
-  result = pow( (g_aγ * B.toNaturalUnit * L.toNaturalUnit / 2.0), 2.0 )
+  ## `Context` contains the product. Keep "unit" in `pow`, but value outside, multiply the square.
+  result = ctx.g_aγ² * pow( (1.GeV⁻¹ * B.toNaturalUnit * L.toNaturalUnit / 2.0), 2.0 )
 
 proc expectedSignal(ctx: Context, energy: keV, pos: tuple[x, y: float]): keV⁻¹•cm⁻² =
   ## TODO: conversion to detection area??
-  result = ctx.axionFlux(energy) * conversionProbability() * ctx.detectionEfficiency(energy, pos)
+  result = ctx.axionFlux(energy) * conversionProbability(ctx) * ctx.detectionEfficiency(energy, pos)
 
 proc toIntegrated(r: keV⁻¹•cm⁻²•s⁻¹, trackingTime: Hour): keV⁻¹•cm⁻² =
   ## Turns the background rate into an integrated rate over the tracking time
@@ -1155,7 +1155,7 @@ proc expRate(ctx: Context): UnitLess =
   let areaBore = π * (2.15 * 2.15).cm²
 
   let integral = ctx.integralBase.rescale(ctx.g_ae²)
-  result = integral.cm⁻²•s⁻¹ * areaBore * ctx.totalTrackingTime.to(s) * conversionProbability()
+  result = integral.cm⁻²•s⁻¹ * areaBore * ctx.totalTrackingTime.to(s) * conversionProbability(ctx)
 
 proc plotRaytracingImage(ctx: Context, log: Logger,
                          outname = "/tmp/axion_image_limit_calc.pdf",
@@ -1346,7 +1346,7 @@ proc logLPosUncertain(ctx: Context, candidates: seq[Candidate]): float =
   let σ_p = ctx.σ_p
   let s_tot = expRate(ctx)
   for i, c in candidates:
-    let sig = ctx.detectionEff(c.energy) * ctx.axionFlux(c.energy) * conversionProbability()
+    let sig = ctx.detectionEff(c.energy) * ctx.axionFlux(c.energy) * conversionProbability(ctx)
     cSigBack[i] = (sig.float,
                    ctx.background(c.energy, c.pos).float)
   proc likeX(θ_x: float, nc: NumContext[float, float]): float =
@@ -1383,7 +1383,7 @@ proc logLFullUncertain(ctx: Context, candidates: seq[Candidate]): float =
   let σ_b = ctx.σsb_back
   let σ_s = ctx.σsb_sig
   for i, c in candidates:
-    let sig = ctx.detectionEff(c.energy) * ctx.axionFlux(c.energy) * conversionProbability()
+    let sig = ctx.detectionEff(c.energy) * ctx.axionFlux(c.energy) * conversionProbability(ctx)
     cSigBack[i] = (sig.float,
                    ctx.background(c.energy, c.pos).float)
   echo "Romberg integration for ", ctx.g_ae²
@@ -1804,13 +1804,17 @@ proc plotChain(ctx: Context, cands: seq[Candidate], chainDf: DataFrame,
     dfA = toDf(coups, Ls)
       .mutate(f{"Ls" ~ `Ls` / Lmax * hMax})
 
-  #when false:
-  if limit > 1e-19:
-    echo zip(toSeq(0 ..< gs.len), gs).filterIt(it[1] > 1e-19)
-    echo "Number of states with L > 5e-20: ", zip(toSeq(0 ..< gs.len), gs).filterIt(it[1] > 5e-20).len
+  const g_ae²Ref = 1e-19 * 1e-12^2 ## This is the reference we want to keep constant!
+  let threshold_g_ae² = g_ae²Ref / ctx.g_aγ² ## Equivalent to g_ae² = 1e-21 if g_aγ = 1e-12 GeV⁻¹
 
-    echo "Number of elements below 2e-20: ", gs.filterIt(it <= 2e-20).len
-    echo "Number of elements above 2e-20: ", gs.filterIt(it > 2e-20).len
+  if limit > threshold_g_ae²:
+    echo zip(toSeq(0 ..< gs.len), gs).filterIt(it[1] > threshold_g_ae²)
+    let t2 = threshold_g_ae² / 2.0
+    let t5 = threshold_g_ae² / 5.0
+    echo &"Number of states with L > {t2}: ", zip(toSeq(0 ..< gs.len), gs).filterIt(it[1] > t2).len
+
+    echo &"Number of elements below {t5}: ", gs.filterIt(it <= t5).len
+    echo &"Number of elements above {t5}: ", gs.filterIt(it > t5).len
     let tr = color(0.0, 0.0, 0.0, 0.0)
     let bt = color(0.0, 0.0, 0.0, 0.5)
     if nPar > 4:
@@ -1943,7 +1947,7 @@ template fullUncertainFn(): untyped {.dirty.} =
 
   let σ_p = ctx.σ_p
   for i, c in cands:
-    let sig = ctx.detectionEff(c.energy) * ctx.axionFlux(c.energy) * conversionProbability()
+    let sig = ctx.detectionEff(c.energy) * ctx.axionFlux(c.energy) * conversionProbability(ctx)
     cSigBack[i] = (sig.float,
                    ctx.background(c.energy, c.pos).float)
 
@@ -1982,7 +1986,7 @@ template posUncertainFn(): untyped {.dirty.} =
 
   let σ_p = ctx.σ_p
   for i, c in cands:
-    let sig = ctx.detectionEff(c.energy) * ctx.axionFlux(c.energy) * conversionProbability()
+    let sig = ctx.detectionEff(c.energy) * ctx.axionFlux(c.energy) * conversionProbability(ctx)
     cSigBack[i] = (sig.float,
                    ctx.background(c.energy, c.pos).float)
 
@@ -2069,6 +2073,11 @@ proc build_MH_chain(ctx: Context, rnd: var Random, cands: seq[Candidate],
   ##
   ## Returns the built markov chain as a sequence of parameters (i.e. seq[seq[float]]).
   let t0 = getMonoTime()
+
+  ## Compute the starting range depending on the current axion photon coupling
+  const g_ae²Ref = 1e-21 * 1e-12^2 ## This is the reference we want to keep constant!
+  let new_g_ae² = g_ae²Ref / ctx.g_aγ² ## Equivalent to g_ae² = 1e-21 if g_aγ = 1e-12 GeV⁻¹
+
   case ctx.uncertaintyPosition
   of puUncertain:
     case ctx.uncertainty
@@ -2080,11 +2089,11 @@ proc build_MH_chain(ctx: Context, rnd: var Random, cands: seq[Candidate],
       const BurnIn = 50_000
       var totalChain = newSeq[seq[float]]()
       for i in 0 ..< nChains:
-        let start = @[rnd.rand(0.0 .. 5.0) * 1e-21, # g_ae²
+        let start = @[rnd.rand(0.0 .. 5.0) * new_g_ae², #1e-21, # g_ae²
                       rnd.rand(-0.4 .. 0.4), rnd.rand(-0.4 .. 0.4), # θs, θb
                       rnd.rand(-0.5 .. 0.5), rnd.rand(-0.5 .. 0.5)] # θx, θy
         echo "\t\tInitial chain state: ", start
-        let (chain, acceptanceRate) = rnd.build_MH_chain(start, @[3e-21, 0.025, 0.025, 0.05, 0.05], 150_000, fn)
+        let (chain, acceptanceRate) = rnd.build_MH_chain(start, @[3.0 * new_g_ae², 0.025, 0.025, 0.05, 0.05], 150_000, fn)
         echo "Acceptance rate: ", acceptanceRate, " with last two states of chain: ", chain[^2 .. ^1]
         totalChain.add chain[BurnIn .. ^1]
       ## TODO: not only return the limit, but also the acceptance rate!
@@ -2096,10 +2105,10 @@ proc build_MH_chain(ctx: Context, rnd: var Random, cands: seq[Candidate],
       const BurnIn = 50_000
       var totalChain = newSeq[seq[float]]()
       for i in 0 ..< nChains:
-        let start = @[rnd.rand(0.0 .. 5.0) * 1e-21, # g_ae²
+        let start = @[rnd.rand(0.0 .. 5.0) * new_g_ae², #1e-21, # g_ae²
                       rnd.rand(-0.5 .. 0.5), rnd.rand(-0.5 .. 0.5)] # θx, θy
         echo "\t\tInitial chain state: ", start
-        let (chain, acceptanceRate) = rnd.build_MH_chain(start, @[3e-21, 0.05, 0.05], 150_000, fn)
+        let (chain, acceptanceRate) = rnd.build_MH_chain(start, @[3.0 * new_g_ae², 0.05, 0.05], 150_000, fn)
         echo "Acceptance rate: ", acceptanceRate, " with last two states of chain: ", chain[^2 .. ^1]
         totalChain.add chain[BurnIn .. ^1]
       ## TODO: not only return the limit, but also the acceptance rate!
@@ -2114,12 +2123,12 @@ proc build_MH_chain(ctx: Context, rnd: var Random, cands: seq[Candidate],
       const BurnIn = 50_000
       var totalChain = newSeq[seq[float]]()
       for i in 0 ..< nChains:
-        let start = @[rnd.rand(0.0 .. 5.0) * 1e-21, # g_ae²
+        let start = @[rnd.rand(0.0 .. 5.0) * new_g_ae², #1e-21, # g_ae²
                       rnd.rand(-0.4 .. 0.4), rnd.rand(-0.4 .. 0.4)] # θs, θb
         echo "\t\tInitial chain state: ", start
 
         ## XXX: really seems to converge to a different minimum than the one found by the scan
-        let (chain, acceptanceRate) = rnd.build_MH_chain(start, @[5e-21, 0.01, 0.01], 200_000, fn)
+        let (chain, acceptanceRate) = rnd.build_MH_chain(start, @[5.0 * new_g_ae², 0.01, 0.01], 200_000, fn)
         echo "Acceptance rate: ", acceptanceRate, " with last two states of chain: ", chain[^2 .. ^1]
         totalChain.add chain[BurnIn .. ^1]
       ## TODO: not only return the limit, but also the acceptance rate!
@@ -2133,7 +2142,7 @@ proc build_MH_chain(ctx: Context, rnd: var Random, cands: seq[Candidate],
         result = chain
     of ukCertain:
       certainFn()
-      let (chain, acceptanceRate) = rnd.build_MH_chain(@[0.5e-21], @[1e-21], 100_000, fn)
+      let (chain, acceptanceRate) = rnd.build_MH_chain(@[0.5 * new_g_ae²], @[new_g_ae²], 100_000, fn)
       echo "Acceptance rate: ", acceptanceRate
       echo "Last ten states of chain: ", chain[^10 .. ^1]
       ## TODO: not only return the limit, but also the acceptance rate!
@@ -2987,7 +2996,7 @@ proc sanityCheckDetectionEff(ctx: Context, log: Logger) =
     xlab(margin = -0.25) +
     facetMargin(0.6) +
     ggtitle(&"Detection efficiency & axion flux (@ g_ae² = {coupling}²) in keV⁻¹ integrated over bore & tracking time.\n" &
-            &"P_a↦γ: {conversionProbability().float:.3e}") +
+            &"P_a↦γ: {conversionProbability(ctx).float:.3e}") +
     ggsave(sanityPlotPath, width = 1000, height = 480)
 
 proc sanityCheckBackground(ctx: Context, log: Logger) =
@@ -3505,7 +3514,7 @@ proc plotLikelihoodCurves(ctx: Context, candidates: seq[Candidate],
         var cSigBack = newSeq[(float, float)](candidates.len)
         let SQRT2 = sqrt(2.0)
         for i, c in candidates:
-          let sig = ctx.detectionEff(c.energy) * ctx.axionFlux(c.energy) * conversionProbability()
+          let sig = ctx.detectionEff(c.energy) * ctx.axionFlux(c.energy) * conversionProbability(ctx)
           cSigBack[i] = (sig.float,
                       ctx.background(c.energy, c.pos).float)
         let σ_p = ctx.σ_p
@@ -3536,7 +3545,7 @@ proc plotLikelihoodCurves(ctx: Context, candidates: seq[Candidate],
         var cSigBack = newSeq[(float, float)](candidates.len)
         let SQRT2 = sqrt(2.0)
         for i, c in candidates:
-          let sig = ctx.detectionEff(c.energy) * ctx.axionFlux(c.energy) * conversionProbability()
+          let sig = ctx.detectionEff(c.energy) * ctx.axionFlux(c.energy) * conversionProbability(ctx)
           cSigBack[i] = (sig.float,
                       ctx.background(c.energy, c.pos).float)
         let σ_p = ctx.σ_p
@@ -4048,7 +4057,7 @@ when isMainModule:
             let σ_p = ctx.σ_p
             let s_tot = expRate(ctx)
             for i, c in candidates:
-              let sig = ctx.detectionEff(c.energy) * ctx.axionFlux(c.energy) * conversionProbability()
+              let sig = ctx.detectionEff(c.energy) * ctx.axionFlux(c.energy) * conversionProbability(ctx)
               cands[i] = (sig.float,
                           ctx.background(c.energy, c.pos).float)
 

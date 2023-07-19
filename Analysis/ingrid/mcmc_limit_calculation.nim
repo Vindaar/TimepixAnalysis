@@ -3815,7 +3815,7 @@ proc `=~=`[T](x, y: T): bool =
 proc sanityCheckAxionPhoton(ctx: Context, log: Logger) =
   ##
   # 0. instantiate random number generator
-  var rnd = wrap(initMersenneTwister(0x1337))
+  var rnd = wrap(initMersenneTwister(0xaffe))
   # 1. draw a set of candidates
   let cands = drawCandidates(ctx, rnd, toPlot = false)
   # 1b. Check conversion probability is fine if `g_aγ²` unchanged. Should be about 1.7e-19
@@ -3839,6 +3839,41 @@ proc sanityCheckAxionPhoton(ctx: Context, log: Logger) =
     let g_ae = sqrt(limit)
     let g_aγ = sqrt(ctx.g_aγ²)
     log.info(&"Limit for g_aγ² = {ctx.g_aγ²}, yields = {limit} and as g_ae·g_aγ = {g_ae * g_aγ}")
+
+proc sanityCheckAxionElectronAxionPhoton(ctx: Context, log: Logger) =
+  ## Checks that computing limits for `g_ae²·g_aγ²` yields same limits as `g_ae²` only with fixed `g_aγ²`.
+  # 0. instantiate random number generator
+  var rnd = wrap(initMersenneTwister(0xaffe))
+  # 1. reset the `g_aγ²` value used as reference
+  ctx.g_aγ² = 1e-12 * 1e-12
+  # 2. set the coupling kind
+  ctx.couplingKind = ck_g_ae²·g_aγ²
+  # 3. reset the coupling reference!
+  ctx.initCouplingReference()
+  # 4. draw a set of candidates
+  let cands = drawCandidates(ctx, rnd, toPlot = false)
+  # 5. Check conversion probability is fine if `g_aγ²` unchanged. Should be about 1.7e-19
+  log.infos("Axion-electron · Axion-photon coupling constant limit"):
+    &"Coupling reference to rescale by {ctx.couplingReference} from g_ae² = {ctx.g_ae²} and g_aγ² = {ctx.g_aγ²}"
+  ## XXX: turn this into additional check that shows variance we expect for limits of ``same`` candidates
+  for _ in 0 ..< 10:
+    let limit = ctx.computeLimit(rnd, cands, lkMCMC)
+    let g_ae·g_aγ = sqrt(limit)
+    log.info(&"Limit for g_ae²·g_aγ² = {limit}, yields g_ae·g_aγ = {g_ae·g_aγ}")
+
+  ## XXX: Plot histogram of the g_ae²·g_aγ² samples!
+
+  #const lowerg_aγ = -13 ## Scan g_aγ values from 1e-13 to 1e-11 in log space. Note that in principle towards 1e-11 the axion
+  #const upperg_aγ = -11 ## photon flux would become non negligible coming from the Sun!
+  #let g_aγ²s = logspace(lowerg_aγ * 2, upperG_aγ * 2, 10)
+  #log.info(&"Computing limits for g_aγ² from g_aγ = {pow(10.0, lowerg_aγ)} to {pow(10.0, upperg_aγ)}. Variation of 1e-1 normal.")
+  #for g in g_aγ²s:
+  #  ctx.g_aγ² = g
+  #  let limit = ctx.computeLimit(rnd, cands, lkMCMC)
+  #  let g_ae = sqrt(limit)
+  #  let g_aγ = sqrt(ctx.g_aγ²)
+  #  log.info(&"Limit for g_aγ² = {ctx.g_aγ²}, yields = {limit} and as g_ae·g_aγ = {g_ae * g_aγ}")
+
 
 proc sanity(
   scanSigmaLimits = false, # can be disabled, as it's time consuming
@@ -3932,6 +3967,9 @@ proc sanity(
     ctx.sanityCheckSigmaLimits(log, limitKind, nmcSigmaLimits)
   # 9. check impact of g_aγ on limit
   ctx.sanityCheckAxionPhoton(log)
+
+  # 10. Sanity check MCMC for g_ae²·g_aγ² yields same as g_ae² only!
+  ctx.sanityCheckAxionElectronAxionPhoton(log)
 
   # 9. sanity checks for length of MCMC & starting parameters & allowed steps?
   # ?

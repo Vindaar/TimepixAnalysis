@@ -142,8 +142,13 @@ type
       interp: Interpolation ## A helper object to store all interpolation fields
     else: discard # skConstant doesn't need
     # limit related
-    g_aγ²: float # the reference g_aγ (squared)
-    g_ae²: float # the current g_ae value (squared)
+    g_aγ²: float # the ``reference`` g_aγ (squared)
+    g_ae²: float # the ``reference`` g_ae value (squared)
+    coupling: float # the ``current`` coupling constant in use. Can be a value of
+                    # `g_ae²`, `g_aγ²`, `g_ae²·g_aγ²` depending on use case!
+                    # Corresponds to first entry of MCMC chain vector!
+    couplingKind: CouplingKind # decides which coupling to modify
+    couplingReference: float # the full reference coupling. `g_ae²·g_aγ²` if `ck_g_ae²·g_aγ²`
     # systematics and noise
     systematics: Systematics
     noiseFilter: NoiseFilter
@@ -155,6 +160,12 @@ type
     #couplingStep: float # a step we take in the couplings during a scan
     #logLVals: Tensor[float] # the logL values corresponding to `couplings`
     #maxIdx: int # index of the maximum of the logL curve
+
+  CouplingKind = enum
+    ck_g_ae² ## We vary the `g_ae²` and leave `g_aγ²` fully fixed
+    ck_g_aγ² ## We vary the `g_aγ²` and leave `g_ae²` fully fixed (and effectively 'disabled'); for axion-photon searches
+    ck_g_ae²·g_aγ² ## We vary the *product* of `g_ae²·g_aγ²`, i.e. direct `g⁴` proportional search.
+                   ## Note that this is equivalent in terms of the limit!
 
   ## For now a noise filter only defines a single set of pixels that are applied to
   ## all files in `fnames`. In the future we could generalize to specific sets of pixels
@@ -796,6 +807,14 @@ proc overwriteRandomCoinc(readData: ReadData,
     echo "Updated line and septem line veto random coincidence numbers : ", lineVetoRandomCoinc, " and ", septemLineVetoRandomCoinc
   result = (lineVetoRandomCoinc, septemLineVetoRandomCoinc)
 
+proc initCouplingReference(ctx: Context) =
+  ## Sets the reference coupling values that are used to compute thresholds,
+  ## rescaling parameters and starting values for the MCMC.
+  case ctx.couplingKind
+  of ck_g_ae²: ctx.couplingReference = ctx.g_ae²
+  of ck_g_aγ²: ctx.couplingReference = ctx.g_aγ²
+  of ck_g_ae²·g_aγ²: ctx.couplingReference = ctx.g_ae² * ctx.g_aγ²
+
 proc initContext(path: string, yearFiles: seq[(int, string)],
                  useConstantBackground: bool, # decides whether to use background interpolation or not
                  radius, sigma: float, energyRange: keV, nxy, nE: int,
@@ -810,7 +829,8 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
                  lineVetoRandomCoinc = 1.0,       # random coincidence rate of the line veto
                  septemLineVetoRandomCoinc = 1.0, # random coincidence rate of the septem + line veto
                  energyMin = 0.0.keV,
-                 energyMax = 12.0.keV
+                 energyMax = 12.0.keV,
+                 couplingKind = ck_g_ae²
                 ): Context =
   let samplingKind = if useConstantBackground: skConstBackground else: skInterpBackground
 
@@ -883,11 +903,13 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
     totalBackgroundTime: backTime,
     totalTrackingTime: trackTime,
     # axion model
-    g_aγ²: 1e-12 * 1e-12, ## reference axion photon coupling
+    g_aγ²: 1e-12 * 1e-12, ## reference axion-photon coupling   (default conversion prob at this value)
+    g_ae²: 1e-13 * 1e-13, ## reference axion-electron coupling (input flux at this value)
     axionModelFile: axionModel,
     axionImageFile: axionImage,
     axionModel: axData,
     axionSpl: axSpl,
+    couplingKind: couplingKind,
     # efficiency & signal ray tracing
     windowRotation: windowRotation,
     efficiencySpl: effSpl,
@@ -904,6 +926,9 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
     # misc
     filePath: path,
     files: files)
+  ## Set the coupling reference value given the `couplingKind` and `g_ae²`, `g_aγ²`
+  initCouplingReference(result)
+
   let ctx = result # XXX: hack to workaround bug in formula macro due to `result` name!!!
   # Note: evaluating `detectionEff` at > 10 keV is fine, just returns 0. Not fully correct, because our
   # eff. there would be > 0, but flux is effectively 0 there anyway and irrelevant for limit
@@ -924,17 +949,10 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
     )
     result.interp = interp
 
-proc rescale(x: float, new: float): float =
-  ## `new` must already be squared!
-  let old = 1e-13 # initial value is always 1e-13
-  result = x * new / (old * old)
-
-proc rescale(s: seq[float], g_ae²: float): seq[float] =
-  ## rescaling version, which takes a `new` squared coupling constant
-  ## to allow for negative squares
-  result = newSeq[float](s.len)
-  for i, el in s:
-    result[i] = el.rescale(g_ae²)
+proc rescale(x: float, ctx: Context): float =
+  ## Rescales the input `x` by the correct new coupling constant using the
+  ## reference coupling.
+  result = x * ctx.coupling / ctx.couplingReference
 
 proc plotCandidates(cands: seq[Candidate],
                     outfile = "/tmp/candidates.pdf",
@@ -942,8 +960,8 @@ proc plotCandidates(cands: seq[Candidate],
                     topMargin = 1.0
                    ) =
   let dfC = toDf({ "x" : cands.mapIt(it.pos.x.float),
-                       "y" : cands.mapIt(it.pos.y.float),
-                       "E" : cands.mapIt(it.energy.float)})
+                   "y" : cands.mapIt(it.pos.y.float),
+                   "E" : cands.mapIt(it.energy.float)})
   ggplot(dfC, aes("x", "y", color = "E")) +
     geom_point() +
     ggtitle(title) +
@@ -1045,7 +1063,7 @@ proc axionFlux(ctx: Context, energy: keV): keV⁻¹ =
   ## telescope aperture within the tracking time)
   let areaBore = π * (2.15 * 2.15).cm² # area of bore in cm²
   if energy < 0.001.keV or energy > 10.0.keV: return 0.0.keV⁻¹
-  result = ctx.axionSpl.eval(energy.float).rescale(ctx.g_ae²).keV⁻¹•cm⁻²•s⁻¹ * # missing keV⁻¹
+  result = ctx.axionSpl.eval(energy.float).rescale(ctx).keV⁻¹•cm⁻²•s⁻¹ * # missing keV⁻¹
     areaBore *
     ctx.totalTrackingTime.to(s)
 
@@ -1085,10 +1103,10 @@ proc detectionEfficiency(ctx: Context, energy: keV, pos: tuple[x, y: float]): cm
 func conversionProbability(ctx: Context): UnitLess =
   ## the conversion probability in the CAST magnet (depends on g_aγ)
   ## simplified vacuum conversion prob. for small masses
-  let B = 9.0.T
-  let L = 9.26.m
-  ## `Context` contains the product. Keep "unit" in `pow`, but value outside, multiply the square.
-  result = ctx.g_aγ² * pow( (1.GeV⁻¹ * B.toNaturalUnit * L.toNaturalUnit / 2.0), 2.0 )
+  const B = 9.0.T
+  const L = 9.26.m
+  ## `Context` contains the product. Keep unit of GeV⁻¹ in `pow` for conversion, but value outside, multiply the square.
+  result = ctx.g_aγ² * (1.GeV⁻¹ * B.toNaturalUnit * L.toNaturalUnit / 2.0)^2
 
 proc expectedSignal(ctx: Context, energy: keV, pos: tuple[x, y: float]): keV⁻¹•cm⁻² =
   ## TODO: conversion to detection area??
@@ -1154,7 +1172,7 @@ proc expRate(ctx: Context): UnitLess =
   ## from heatmap by looking for ratio of sum inside gold / sum outside gold
   let areaBore = π * (2.15 * 2.15).cm²
 
-  let integral = ctx.integralBase.rescale(ctx.g_ae²)
+  let integral = ctx.integralBase.rescale(ctx)
   result = integral.cm⁻²•s⁻¹ * areaBore * ctx.totalTrackingTime.to(s) * conversionProbability(ctx)
 
 proc plotRaytracingImage(ctx: Context, log: Logger,
@@ -1767,6 +1785,19 @@ proc computeLimitFromMCMC(df: DataFrame): float =
   result = xCdf[c95Idx]
   echo "Limit at ", result
 
+proc setThreshold(ctx: Context, x: float): float =
+  ## Returns the given threshold value based on the target value `x`
+  ## and the coupling kind used in the Context.
+  ##
+  ## Assume `x` is some value in units ~g⁴, e.g. 1e-19 · 1e-12², then
+  ## this proc returns a value that recovers 1e-19 in case the coupling
+  ## kind is `ck_g_ae²` by dividing out the 1e-12² part that is equivalent
+  ## to the reference.
+  result = case ctx.couplingKind
+           of ck_g_ae²: x / ctx.g_aγ²
+           of ck_g_aγ²: x / ctx.g_ae²
+           of ck_g_ae²·g_aγ²: x
+
 proc plotChain(ctx: Context, cands: seq[Candidate], chainDf: DataFrame,
                limit: float, computeIntegral = false) =
   ## generates plots for the given context, candidates, limit and DF resulting from
@@ -1804,13 +1835,12 @@ proc plotChain(ctx: Context, cands: seq[Candidate], chainDf: DataFrame,
     dfA = toDf(coups, Ls)
       .mutate(f{"Ls" ~ `Ls` / Lmax * hMax})
 
-  const g_ae²Ref = 1e-19 * 1e-12^2 ## This is the reference we want to keep constant!
-  let threshold_g_ae² = g_ae²Ref / ctx.g_aγ² ## Equivalent to g_ae² = 1e-21 if g_aγ = 1e-12 GeV⁻¹
-
-  if limit > threshold_g_ae²:
-    echo zip(toSeq(0 ..< gs.len), gs).filterIt(it[1] > threshold_g_ae²)
-    let t2 = threshold_g_ae² / 2.0
-    let t5 = threshold_g_ae² / 5.0
+  const targetRef = 1e-19 * 1e-12^2 ## This is the reference we want to keep constant!
+  let threshold = setThreshold(ctx, targetRef)
+  if limit > threshold:
+    echo zip(toSeq(0 ..< gs.len), gs).filterIt(it[1] > threshold)
+    let t2 = threshold / 2.0
+    let t5 = threshold / 5.0
     echo &"Number of states with L > {t2}: ", zip(toSeq(0 ..< gs.len), gs).filterIt(it[1] > t2).len
 
     echo &"Number of elements below {t5}: ", gs.filterIt(it <= t5).len
@@ -1932,12 +1962,15 @@ proc build_MH_chain(rnd: var Random, init, stepsize: seq[float], nTotal: int,
   echo "Building chain of ", nTotal, " elements took ", epochTime() - t0, " s"
   result = (chain, nAccepted.float / nTotal.float)
 
+template resetCoupling(ctx: Context): untyped =
+  ctx.coupling = ctx.couplingReference
+
 ## The following 3 templates defining functions are dirty so that `cSigBack` is visible after
 ## the template was called.
 template fullUncertainFn(): untyped {.dirty.} =
   doAssert ctx.uncertaintyPosition == puUncertain
   doAssert ctx.uncertainty == ukUncertain, "Position uncertainty only implemented with s/b uncertainty so far"
-  ctx.g_ae² = 1e-13 * 1e-13 ## to have reference values to quickly rescale!
+  resetCoupling(ctx) ## to have reference value to quickly rescale
   var cSigBack = newSeq[(float, float)](cands.len)
   let
     SQRT2 = sqrt(2.0)
@@ -1952,15 +1985,14 @@ template fullUncertainFn(): untyped {.dirty.} =
                    ctx.background(c.energy, c.pos).float)
 
   proc fn(x: seq[float]): float =
-    ctx.g_ae² = x[0]
+    ctx.coupling = x[0]
     let (θ_s, θ_b, θ_x, θ_y) = (x[1], x[2], x[3], x[4])
     if x[0] < 0.0: return -1.0
     elif θ_b < -0.8 or θ_b > 1.0: return -1.0
     elif θ_s < -1.0 or θ_s > 1.0: return -1.0
     elif θ_x > 1.0  or θ_x < -1.0: return -1.0
     elif θ_y > 1.0  or θ_y < -1.0: return -1.0
-    let s_totg = s_tot.rescale(ctx.g_ae²)
-    #echo "rescaled ", s_tot, " to ", s_totg
+    let s_totg = s_tot.rescale(ctx)
     ctx.θ_x = θ_x
     ctx.θ_y = θ_y
     ## TODO: convert to logsumexp or similar?
@@ -1978,7 +2010,7 @@ template fullUncertainFn(): untyped {.dirty.} =
 template posUncertainFn(): untyped {.dirty.} =
   doAssert ctx.uncertaintyPosition == puUncertain
   doAssert ctx.uncertainty == ukCertain, "Position certainty required here"
-  ctx.g_ae² = 1e-13 * 1e-13 ## to have reference values to quickly rescale!
+  resetCoupling(ctx) ## to have reference value to quickly rescale
   var cSigBack = newSeq[(float, float)](cands.len)
   let
     SQRT2 = sqrt(2.0)
@@ -1991,12 +2023,12 @@ template posUncertainFn(): untyped {.dirty.} =
                    ctx.background(c.energy, c.pos).float)
 
   proc fn(x: seq[float]): float =
-    ctx.g_ae² = x[0]
+    ctx.coupling = x[0]
     let (θ_x, θ_y) = (x[1], x[2])
     if x[0] < 0.0: return -1.0
     elif θ_x > 1.0  or θ_x < -1.0: return -1.0
     elif θ_y > 1.0  or θ_y < -1.0: return -1.0
-    let s_totg = s_tot.rescale(ctx.g_ae²)
+    let s_totg = s_tot.rescale(ctx)
     #echo "rescaled ", s_tot, " to ", s_totg
     ctx.θ_x = θ_x
     ctx.θ_y = θ_y
@@ -2007,14 +2039,14 @@ template posUncertainFn(): untyped {.dirty.} =
     for i in 0 ..< cSigBack.len:
       let (s_init, b_c) = cSigBack[i]
       if b_c.float != 0.0:
-        let s_c = (s_init.rescale(ctx.g_ae²) * ctx.raytracing(cands[i].pos)).float
+        let s_c = (s_init.rescale(ctx) * ctx.raytracing(cands[i].pos)).float
         P3 *= (1 + s_c / b_c)
     result = abs(P1 * P2 * P3) # make positive if number comes out to `-0.0`
 
 template sbUncertainFn(): untyped {.dirty.} =
   doAssert ctx.uncertaintyPosition == puCertain
   doAssert ctx.uncertainty == ukUncertain
-  ctx.g_ae² = 1e-13 * 1e-13 ## to have reference values to quickly rescale!
+  resetCoupling(ctx) ## to have reference value to quickly rescale
   var cSigBack = newSeq[(float, float)](cands.len)
   let
     σ_s = ctx.σsb_sig
@@ -2024,19 +2056,17 @@ template sbUncertainFn(): untyped {.dirty.} =
     cSigBack[i] = (ctx.expectedSignal(c.energy, c.pos).float,
                    ctx.background(c.energy, c.pos).float)
   proc fn(x: seq[float]): float =
-    ctx.g_ae² = x[0]
-    #echo "Parameters: ", x
+    ctx.coupling = x[0]
     let g_ae = x[0]
     let θ_s = x[1]
     let θ_b = x[2]
     if g_ae < 0.0:
-      #echo "Invalid, return 0"
       return -1.0
     if θ_b < -0.8 or θ_b > 1.0: return -1.0
     if θ_s < -1.0 or θ_s > 2.0: return -1.0
-    let s_totg = s_tot.rescale(ctx.g_ae²)
+    let s_totg = s_tot.rescale(ctx)
     L(s_totg,
-      s_i.rescale(ctx.g_ae²) * (1 + θ_s),
+      s_i.rescale(ctx) * (1 + θ_s),
       b_i * (1 + θ_b),
       θ_s, σ_s,
       θ_b, σ_b)
@@ -2045,7 +2075,7 @@ template sbUncertainFn(): untyped {.dirty.} =
 template certainFn(): untyped {.dirty.} =
   doAssert ctx.uncertaintyPosition == puCertain
   doAssert ctx.uncertainty == ukCertain
-  ctx.g_ae² = 1e-13 * 1e-13 ## to have reference values to quickly rescale!
+  resetCoupling(ctx) ## to have reference value to quickly rescale
   var cSigBack = newSeq[(float, float)](cands.len)
   let s_tot = expRate(ctx)
   for i, c in cands:
@@ -2053,14 +2083,12 @@ template certainFn(): untyped {.dirty.} =
                    ctx.background(c.energy, c.pos).float)
 
   proc fn(x: seq[float]): float =
-    ctx.g_ae² = x[0]
-    #echo "Parameters: ", x
+    ctx.coupling = x[0]
     if x[0] < 0.0:
-      #echo "Invalid, return 0"
       return -1.0
-    let s_totg = s_tot.rescale(ctx.g_ae²)
+    let s_totg = s_tot.rescale(ctx)
     L(s_totg,
-      s_i.rescale(ctx.g_ae²),
+      s_i.rescale(ctx),
       b_i,
       0.0, 0.0,
       0.0, 0.0)
@@ -2076,7 +2104,9 @@ proc build_MH_chain(ctx: Context, rnd: var Random, cands: seq[Candidate],
 
   ## Compute the starting range depending on the current axion photon coupling
   const g_ae²Ref = 1e-21 * 1e-12^2 ## This is the reference we want to keep constant!
-  let new_g_ae² = g_ae²Ref / ctx.g_aγ² ## Equivalent to g_ae² = 1e-21 if g_aγ = 1e-12 GeV⁻¹
+  ## `couplingRef` acts as the boundary in which we want to be for the start of the
+  ## MCMC as well as relating the step size of each chain link.
+  let couplingRef = ctx.setThreshold(g_ae²Ref)
 
   case ctx.uncertaintyPosition
   of puUncertain:
@@ -2089,11 +2119,11 @@ proc build_MH_chain(ctx: Context, rnd: var Random, cands: seq[Candidate],
       const BurnIn = 50_000
       var totalChain = newSeq[seq[float]]()
       for i in 0 ..< nChains:
-        let start = @[rnd.rand(0.0 .. 5.0) * new_g_ae², #1e-21, # g_ae²
+        let start = @[rnd.rand(0.0 .. 5.0) * couplingRef, #1e-21, # g_ae²
                       rnd.rand(-0.4 .. 0.4), rnd.rand(-0.4 .. 0.4), # θs, θb
                       rnd.rand(-0.5 .. 0.5), rnd.rand(-0.5 .. 0.5)] # θx, θy
         echo "\t\tInitial chain state: ", start
-        let (chain, acceptanceRate) = rnd.build_MH_chain(start, @[3.0 * new_g_ae², 0.025, 0.025, 0.05, 0.05], 150_000, fn)
+        let (chain, acceptanceRate) = rnd.build_MH_chain(start, @[3.0 * couplingRef, 0.025, 0.025, 0.05, 0.05], 150_000, fn)
         echo "Acceptance rate: ", acceptanceRate, " with last two states of chain: ", chain[^2 .. ^1]
         totalChain.add chain[BurnIn .. ^1]
       ## TODO: not only return the limit, but also the acceptance rate!
@@ -2105,10 +2135,10 @@ proc build_MH_chain(ctx: Context, rnd: var Random, cands: seq[Candidate],
       const BurnIn = 50_000
       var totalChain = newSeq[seq[float]]()
       for i in 0 ..< nChains:
-        let start = @[rnd.rand(0.0 .. 5.0) * new_g_ae², #1e-21, # g_ae²
+        let start = @[rnd.rand(0.0 .. 5.0) * couplingRef, #1e-21, # g_ae²
                       rnd.rand(-0.5 .. 0.5), rnd.rand(-0.5 .. 0.5)] # θx, θy
         echo "\t\tInitial chain state: ", start
-        let (chain, acceptanceRate) = rnd.build_MH_chain(start, @[3.0 * new_g_ae², 0.05, 0.05], 150_000, fn)
+        let (chain, acceptanceRate) = rnd.build_MH_chain(start, @[3.0 * couplingRef, 0.05, 0.05], 150_000, fn)
         echo "Acceptance rate: ", acceptanceRate, " with last two states of chain: ", chain[^2 .. ^1]
         totalChain.add chain[BurnIn .. ^1]
       ## TODO: not only return the limit, but also the acceptance rate!
@@ -2123,12 +2153,12 @@ proc build_MH_chain(ctx: Context, rnd: var Random, cands: seq[Candidate],
       const BurnIn = 50_000
       var totalChain = newSeq[seq[float]]()
       for i in 0 ..< nChains:
-        let start = @[rnd.rand(0.0 .. 5.0) * new_g_ae², #1e-21, # g_ae²
+        let start = @[rnd.rand(0.0 .. 5.0) * couplingRef, #1e-21, # g_ae²
                       rnd.rand(-0.4 .. 0.4), rnd.rand(-0.4 .. 0.4)] # θs, θb
         echo "\t\tInitial chain state: ", start
 
         ## XXX: really seems to converge to a different minimum than the one found by the scan
-        let (chain, acceptanceRate) = rnd.build_MH_chain(start, @[5.0 * new_g_ae², 0.01, 0.01], 200_000, fn)
+        let (chain, acceptanceRate) = rnd.build_MH_chain(start, @[5.0 * couplingRef, 0.01, 0.01], 200_000, fn)
         echo "Acceptance rate: ", acceptanceRate, " with last two states of chain: ", chain[^2 .. ^1]
         totalChain.add chain[BurnIn .. ^1]
       ## TODO: not only return the limit, but also the acceptance rate!
@@ -2142,7 +2172,7 @@ proc build_MH_chain(ctx: Context, rnd: var Random, cands: seq[Candidate],
         result = chain
     of ukCertain:
       certainFn()
-      let (chain, acceptanceRate) = rnd.build_MH_chain(@[0.5 * new_g_ae²], @[new_g_ae²], 100_000, fn)
+      let (chain, acceptanceRate) = rnd.build_MH_chain(@[0.5 * couplingRef], @[couplingRef], 100_000, fn)
       echo "Acceptance rate: ", acceptanceRate
       echo "Last ten states of chain: ", chain[^10 .. ^1]
       ## TODO: not only return the limit, but also the acceptance rate!
@@ -4056,10 +4086,10 @@ when isMainModule:
             ctx.g_ae² = x[0]
             if x[1] < -0.8: return 0.0
 
-            let s_totg = s_tot.rescale(ctx.g_ae²)
+            let s_totg = s_tot.rescale(ctx)
             echo "rescaled ", s_tot, " to ", s_totg
             L(s_totg,
-              s_i.rescale(ctx.g_ae²),
+              s_i.rescale(ctx),
               b_i * (1 + x[1]),
               0.0, 0.0,
               x[1], σ_b)
@@ -4074,9 +4104,9 @@ when isMainModule:
             ctx.g_ae² = x[0]
             if x[1] < -0.8: return 0.0
 
-            let s_totg = s_tot.rescale(ctx.g_ae²)
+            let s_totg = s_tot.rescale(ctx)
             L(s_totg,
-              s_i.rescale(ctx.g_ae²) * (1 + x[2]),
+              s_i.rescale(ctx) * (1 + x[2]),
               b_i * (1 + x[1]),
               x[2], σ_s,
               x[1], σ_b)
@@ -4109,7 +4139,7 @@ when isMainModule:
           proc fn(x: seq[float]): float =
             ctx.g_ae² = x[0]
             if x[0] < 0.0: return 0.0
-            let s_totg = s_tot.rescale(ctx.g_ae²)
+            let s_totg = s_tot.rescale(ctx)
             #echo "rescaled ", s_tot, " to ", s_totg
             let θ_x = x[1]
             let θ_y = x[2]
@@ -4121,7 +4151,7 @@ when isMainModule:
             for i in 0 ..< cands.len:
               let (s_init, b_c) = cands[i]
               if b_c.float != 0.0:
-                let s_c = (s_init.rescale(ctx.g_ae²) * ctx.raytracing(candidates[i].pos)).float
+                let s_c = (s_init.rescale(ctx) * ctx.raytracing(candidates[i].pos)).float
                 P3 *= (1 + s_c / b_c)
             result = P1 * P2 * P3
 

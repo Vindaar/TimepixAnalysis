@@ -1954,7 +1954,7 @@ proc build_MH_chain(rnd: var Random, init, stepsize: seq[float], nTotal: int,
   for i in 0 ..< nTotal:
     (accept, state, logVal) = rnd.sample_MH(chain[i], stepsize, logVal, logProc)
     if state[0] < 0.0:# or state[4] > 2.0:
-      echo state, " at index ", i
+      echo state, " at index ", i, " is accept? ", accept
       quit()
     chain[i+1] = state
     if accept:

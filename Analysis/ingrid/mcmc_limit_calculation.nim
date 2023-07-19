@@ -194,6 +194,9 @@ type
     limitKind: LimitKind
     expectedLimit: float # expected limit as `g_ae · g_aγ` with `g_aγ = 1e-12 GeV⁻¹`
 
+## Mini helper to avoid `pow` calls and the issues with `^` precedence
+template square[T](x: T): T = x * x
+
 proc toH5(h5f: H5File, x: InterpolatorType[float], name = "", path = "/") =
   ## Serialize the interpolators we use. They all take energies in a fixed range,
   ## namely `(0.071, 9.999)` (based on the inputs, one of which is only defined
@@ -1236,15 +1239,15 @@ template L(s, s_c, b_c, θ_s, σ_s, θ_b, σ_b: untyped,
   result = exp(-s)
   #echo "-s ", s, " result ", result
   if σ_s > 0.0:
-    result *= exp(-pow(θ_s / (sqrt(2.0) * σ_s), 2)) ## FIXME the normalization of denominator is wrong missing √2
+    result *= exp(-square(θ_s / (sqrt(2.0) * σ_s))) ## FIXME the normalization of denominator is wrong missing √2
   elif σ_s == 0.0 and θ_s != 0.0:
     result = 0
   if σ_b > 0.0:
-    result *= exp(-pow(θ_b / (sqrt(2.0) * σ_b), 2))
+    result *= exp(-square(θ_b / (sqrt(2.0) * σ_b)))
   elif σ_b == 0.0 and θ_b != 0.0:
     result = 0
   if σ_xp > 0.0 and σ_yp > 0.0:
-    result *= exp(-pow(θ_x / (sqrt(2.0) * σ_xp), 2)) * exp(-pow(θ_y / (sqrt(2.0) * σ_yp), 2))
+    result *= exp(-square(θ_x / (sqrt(2.0) * σ_xp))) * exp(-square(θ_y / (sqrt(2.0) * σ_yp)))
 
   #echo "current result ", result
   for (s_i {.inject.}, b_i {.inject.}) in cSigBack:
@@ -1373,7 +1376,7 @@ proc logLPosUncertain(ctx: Context, candidates: seq[Candidate]): float =
     proc likeY(θ_y: float, nc: NumContext[float, float]): float =
       ctx.θ_y = θ_y
       let P1 = exp(-s_tot)
-      let P2 = exp(-pow(θ_x / (SQRT2 * σ_p), 2)) * exp(-pow(θ_y / (SQRT2 * σ_p), 2))
+      let P2 = exp(-square(θ_x / (SQRT2 * σ_p))) * exp(-square(θ_y / (SQRT2 * σ_p)))
       var P3 = 1.0
       for i in 0 ..< cSigBack.len:
         let (s_init, b_c) = cSigBack[i]
@@ -1414,8 +1417,8 @@ proc logLFullUncertain(ctx: Context, candidates: seq[Candidate]): float =
         proc likeBack(θ_b: float, nc: NumContext[float, float]): float =
           let s_tot_p = s_tot * (1 + θ_s)
           let P1 = exp(-s_tot_p)
-          let P2 = exp(-pow(θ_x / (SQRT2 * σ_p), 2)) * exp(-pow(θ_y / (SQRT2 * σ_p), 2)) *
-                   exp(-pow(θ_s / (SQRT2 * σ_s), 2)) * exp(-pow(θ_b / (SQRT2 * σ_b), 2))
+          let P2 = exp(-square(θ_x / (SQRT2 * σ_p))) * exp(-square(θ_y / (SQRT2 * σ_p))) *
+                   exp(-square(θ_s / (SQRT2 * σ_s))) * exp(-square(θ_b / (SQRT2 * σ_b)))
           var P3 = 1.0
           for i in 0 ..< cSigBack.len:
             let (s_init, b_i) = cSigBack[i]
@@ -1998,13 +2001,13 @@ template fullUncertainFn(): untyped {.dirty.} =
     ctx.θ_y = θ_y
     ## TODO: convert to logsumexp or similar?
     let P1 = exp(-s_totg)
-    let P2 = exp(-pow(θ_x / (SQRT2 * σ_p), 2)) * exp(-pow(θ_y / (SQRT2 * σ_p), 2)) *
-             exp(-pow(θ_s / (SQRT2 * σ_s), 2)) * exp(-pow(θ_b / (SQRT2 * σ_b), 2))
+    let P2 = exp(-square(θ_x / (SQRT2 * σ_p))) * exp(-square(θ_y / (SQRT2 * σ_p))) *
+             exp(-square(θ_s / (SQRT2 * σ_s))) * exp(-square(θ_b / (SQRT2 * σ_b)))
     var P3 = 1.0
     for i in 0 ..< cSigBack.len:
       let (s_init, b_c) = cSigBack[i]
       if b_c.float != 0.0:
-        let s_c = (s_init.rescale(ctx.g_ae²) * (1 + θ_s) * ctx.raytracing(cands[i].pos)).float
+        let s_c = (s_init.rescale(ctx) * (1 + θ_s) * ctx.raytracing(cands[i].pos)).float
         P3 *= (1 + s_c / (b_c * (1 + θ_b)))
     result = abs(P1 * P2 * P3) # make positive if number comes out to `-0.0`
 
@@ -2035,7 +2038,7 @@ template posUncertainFn(): untyped {.dirty.} =
     ctx.θ_y = θ_y
     ## TODO: convert to logsumexp or similar?
     let P1 = exp(-s_totg)
-    let P2 = exp(-pow(θ_x / (SQRT2 * σ_p), 2)) * exp(-pow(θ_y / (SQRT2 * σ_p), 2))
+    let P2 = exp(-square(θ_x / (SQRT2 * σ_p))) * exp(-square(θ_y / (SQRT2 * σ_p)))
     var P3 = 1.0
     for i in 0 ..< cSigBack.len:
       let (s_init, b_c) = cSigBack[i]
@@ -2202,7 +2205,7 @@ proc computeMCMCLimit(ctx: Context, rnd: var Random, cands: seq[Candidate]): flo
 proc candsInSens(ctx: Context, cands: seq[Candidate], cutoff = 0.5): int =
   var ctx = ctx
   # use a fixed g_ae² for the computation here
-  ctx.g_ae² = pow(8.1e-11, 2.0)
+  ctx.g_ae² = 8.1e-11^2
   for c in cands:
     let sig = ctx.expectedSignal(c.energy, c.pos)
     if ln(1 + sig / ctx.background(c.energy, c.pos)) >= cutoff:
@@ -2662,7 +2665,7 @@ proc integrateSignalOverImage(ctx: Context, log: Logger) =
   ## integrate the signal contribution over the whole image to see if we recover
   ## the ~O(10) axion induced signals
   var ctx = ctx
-  ctx.g_ae² = pow(8.1e-11, 2.0)
+  ctx.g_ae² = 8.1e-11^2
 
   log.infoHeader("Integrate signal over full chip")
   # flush the logger file to not duplicate output when logger called in multiproccessing context
@@ -2744,7 +2747,7 @@ proc plotSignalAtEnergy(ctx: Context, log: Logger, energy: keV, title, outfile: 
   ## Generate a plot of the signal component in units of `keV⁻¹•cm⁻²•s⁻¹` at the specified
   ## energy using a coupling constant of `g_ae = 8.1e-11`.
   var ctx = ctx
-  ctx.g_ae² = pow(8.1e-11, 2.0)
+  ctx.g_ae² = 8.1e-11^2
   var xs = newSeqOfCap[int](256*256)
   var ys = newSeqOfCap[int](256*256)
   var zs = newSeqOfCap[float](256*256)
@@ -2935,7 +2938,7 @@ proc plotCandsSigOverBack(ctx: Context, log: Logger, cands: seq[Candidate], outf
   ## for each candidate (at g_ae = 8.1e-11, g_aγ = 1e-12 GeV⁻¹)
   var ctx = ctx
   # use a fixed g_ae² for the computation here
-  ctx.g_ae² = pow(8.1e-11, 2.0)
+  ctx.g_ae² = 8.1e-11^2
   var sb = newSeq[float]()
   for c in cands:
     let sig = ctx.expectedSignal(c.energy, c.pos)
@@ -3554,7 +3557,7 @@ proc plotLikelihoodCurves(ctx: Context, candidates: seq[Candidate],
           proc likeY(θ_y: float, nc: NumContext[float, float]): float =
             ctx.θ_y = θ_y
             result = exp(-s_tot)
-            result *= exp(-pow(θ_x / (SQRT2 * σ_p), 2)) * exp(-pow(θ_y / (SQRT2 * σ_p), 2))
+            result *= exp(-square(θ_x / (SQRT2 * σ_p))) * exp(-square(θ_y / (SQRT2 * σ_p)))
             for i in 0 ..< cSigBack.len:
               let (s_init, b_c) = cSigBack[i]
               if b_c.float != 0.0:
@@ -3585,7 +3588,7 @@ proc plotLikelihoodCurves(ctx: Context, candidates: seq[Candidate],
           ctx.θ_x = θ_x
           ctx.θ_y = θ_y
           result = exp(-s_tot)
-          result *= exp(-pow(θ_x / (SQRT2 * σ_p), 2)) * exp(-pow(θ_y / (SQRT2 * σ_p), 2))
+          result *= exp(-square(θ_x / (SQRT2 * σ_p))) * exp(-square(θ_y / (SQRT2 * σ_p)))
           for i in 0 ..< cSigBack.len:
             let (s_init, b_c) = cSigBack[i]
             if b_c.float != 0.0:
@@ -4185,7 +4188,7 @@ when isMainModule:
             ctx.θ_x = θ_x
             ctx.θ_y = θ_y
             let P1 = exp(-s_totg)
-            let P2 = exp(-pow(θ_x / (SQRT2 * σ_p), 2)) * exp(-pow(θ_y / (SQRT2 * σ_p), 2))
+            let P2 = exp(-square(θ_x / (SQRT2 * σ_p))) * exp(-square(θ_y / (SQRT2 * σ_p)))
             var P3 = 1.0
             for i in 0 ..< cands.len:
               let (s_init, b_c) = cands[i]

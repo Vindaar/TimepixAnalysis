@@ -850,8 +850,8 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
 
   let axData = readAxModel(axionModel)
   ## TODO: use linear interpolator to avoid going to negative?
-  let axSpl = newCubicSpline(axData["Energy [keV]", float].toSeq1D,
-                             axData["Flux [keV⁻¹•cm⁻²•s⁻¹]", float].toSeq1D)
+  let axSpl = newLinear1D(axData["Energy [keV]", float].toSeq1D,
+                          axData["Flux [keV⁻¹•cm⁻²•s⁻¹]", float].toSeq1D)
 
   let combEffDf = readCsv("/home/basti/org/resources/combined_detector_efficiencies.csv")
   # calc the efficiency based on the given vetoes
@@ -882,7 +882,8 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
   let detTelEff = combEffDf["Efficiency", float] *. combEffDf["LLNL", float]
   # total efficiency is given detector efficiency times veto + lnL efficiency
   let totalEff  = detTelEff.map_inline(x * vetoEff).toSeq1D
-  let effSpl = newCubicSpline(combEffDf["Energy [keV]", float].toSeq1D, totalEff)
+  ## XXX: why do we use a cubic spline here? Shouldn't linear be enough? Linear should be faster.
+  let effSpl = newLinear1D(combEffDf["Energy [keV]", float].toSeq1D, totalEff)
   # set up the raytracing interpolation for the axion image
   let raySpl = setupAxionImageInterpolation(axionImage)
 

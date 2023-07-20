@@ -87,7 +87,7 @@ proc determineFromData(x: seq[float]): float =
 import ingrid / gas_physics
 import helpers / sampling_helper
 import xrayAttenuation
-import random
+import std / random
 
 proc toEdf(x: seq[float], bins: seq[float]): seq[float] =
   ## Computes the EDF of the input data `x` given some `bins`.

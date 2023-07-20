@@ -1,4 +1,4 @@
-from random import shuffle
+from std / random import shuffle
 import std / [sequtils, os, strutils, options]
 
 import ingrid / [tos_helpers, ingrid_types]

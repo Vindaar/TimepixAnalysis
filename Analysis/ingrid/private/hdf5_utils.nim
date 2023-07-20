@@ -657,7 +657,7 @@ proc getTrackingEvents*(h5f: H5File, group: H5Group,
     echo &"No tracking information in {group.name} found, use all clusters"
     result = @[]
 
-proc filterTrackingEvents*[T: SomeInteger](cluster_events: seq[T], eventsInTracking: seq[int]): seq[int] =
+proc filterTrackingEvents*[T: SomeInteger](cluster_events: seq[T], eventsInTracking: seq[int], tracking: bool): seq[int] =
   ## filters out all event numbers of a reconstructed run for one chip
   ## Need to remove all indices, which are within the tracking indices, but for which
   ## no cluster is found in the datasets, so that we can only read the clusters, which
@@ -668,16 +668,18 @@ proc filterTrackingEvents*[T: SomeInteger](cluster_events: seq[T], eventsInTrack
   # set result to the indices of tracking (non tracking), i.e.
   # all allowed events
   result = toSeq(0 .. cluster_events.high)
-  if eventsInTracking.len == 0:
+  if eventsInTracking.len == 0 and not tracking:
     # in case we are handed an empty seq, we simply use all cluster events
     discard
+  elif eventsInTracking.len == 0 and tracking:
+    result = newSeq[int]() ## Return empty seq if no events with a tracking
   else:
     # now given all indices describing the cluster event numbers, filter out
     # those, which are ``not`` part of `eventsInTracking``
     result = toSeq(0 ..< cluster_events.len)
       .filterIt(cluster_events[it].int in eventsInTracking)
 
-proc filterTrackingEvents*(h5f: H5File, group: H5Group, tracking_inds: seq[int]): seq[int] =
+proc filterTrackingEvents*(h5f: H5File, group: H5Group, tracking_inds: seq[int], tracking: bool): seq[int] =
   ## wrapper around the above proc, which reads the data about which events are allowed
   ## by itself
   ## inputs:
@@ -687,7 +689,7 @@ proc filterTrackingEvents*(h5f: H5File, group: H5Group, tracking_inds: seq[int])
   let
     # event numbers of clusters of this chip
     evNumbers = h5f[(group.name / "eventNumber").dset_str][int64]
-  result = filterTrackingEvents(evNumbers, tracking_inds)
+  result = filterTrackingEvents(evNumbers, tracking_inds, tracking)
 
 proc removePrefix(s: string, prefix: string): string =
   result = s

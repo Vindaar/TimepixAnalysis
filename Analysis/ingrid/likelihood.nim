@@ -957,7 +957,7 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
           nnPred = ctx.predict(h5f, chipGroup)
 
       # get all events part of tracking (non tracking)
-      let chipIdxsInTracking = filterTrackingEvents(evNumbers, eventsInTracking)
+      let chipIdxsInTracking = filterTrackingEvents(evNumbers, eventsInTracking, tracking)
       if chipNumber == centerChip:
         totalEvCount += chipIdxsInTracking.len
 

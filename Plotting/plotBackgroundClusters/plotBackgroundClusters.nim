@@ -1,4 +1,4 @@
-import nimhdf5, arraymancer, seqmath, chroma, cligen
+import nimhdf5, seqmath, chroma, cligen
 import std / [strformat, sequtils, strutils, os, sets]
 import helpers / utils
 import ingrid / tos_helpers
@@ -185,18 +185,34 @@ proc writeNoisyClusters(cTab: CountTable[(int, int)],
   f.close()
 
 proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
-                  suffix, title, outpath: string) =
+                  suffix, title, outpath, axionImage: string) =
   let outpath = if outpath.len > 0: outpath else: "plots"
   createDir(outpath)
   let fname = &"{outpath}/background_cluster_centers{suffix}.pdf"
   if names.len == 0 or names.deduplicate.len == 1:
     let totalEvs = df["count", int].sum()
-    let plt = ggplot(df, aes("x", "y", color = "count")) +
-      geom_point(size = some(1.0)) +
-      xlim(0, 256) + ylim(0, 256) +
+    let maxCount = df["count", int].max
+    var plt =
+      if maxCount < 10:
+        ggplot(df, aes("x", "y", color = factor("count")))
+      else:
+        ggplot(df, aes("x", "y", color = "count")) +
+        scale_color_continuous(scale = (low: 0.0, high: zMax))
+    plt = plt + xlim(0, 256) + ylim(0, 256) +
       xlab("x [Pixel]") + ylab("y [Pixel]") +
-      margin(top = 1.75) +
-      scale_color_continuous(scale = (low: 0.0, high: zMax))
+      margin(top = 1.75)
+
+    if axionImage.len > 0:
+      var customInferno = inferno()
+      customInferno.colors[0] = 0 # transparent
+      let rasterData = readCsv(axionImage)
+      plt = plt +
+        geom_raster(data = rasterData, aes = aes("x", "y", fill = "photon flux"), alpha = 0.3) +
+        minorGridLines() +
+        scale_fill_gradient(customInferno)
+
+    plt = plt + geom_point(size = some(1.0))
+
     if not useTikZ:
       echo "[INFO]: Saving plot to ", fname
       plt + ggtitle(title & &". Total # cluster = {totalEvs}") +
@@ -288,7 +304,9 @@ proc main(
   threshold = 2,
   chip = -1, # chip can be used to overwrite center chip reading
   tiles = 7,
-  outpath = "") =
+  outpath = "",
+  axionImage = "", # "/home/basti/org/resources/axion_images/axion_image_2018_1487_93_0.989AU.csv"
+     ) =
 
   let (totalNum, cTab) = readClusters(files, filterNoisyPixels, energyMin, energyMax, chip)
   if writeNoisyClusters:
@@ -308,7 +326,7 @@ proc main(
     # now sort all again
     df = df.arrange("count", order = SortOrder.Ascending)
 
-  plotClusters(df, names, useTikZ, zMax, suffix, title, outpath)
+  plotClusters(df, names, useTikZ, zMax, suffix, title, outpath, axionImage)
   plotSuppression(df, cTab, tiles, outpath)
 
   when false:

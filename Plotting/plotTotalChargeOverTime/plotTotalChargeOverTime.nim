@@ -10,7 +10,7 @@ import cligen
 
 type
   SupportedRead = SomeFloat | SomeInteger | string | bool | Value
-  ReadProc = proc(h5f: H5File, applyRegionCut: bool): DataFrame
+  ReadProc = proc(h5f: H5File, applyRegionCut: bool, chip: int): DataFrame
 
 const CommonDsets = { "energyFromCharge" : "energy",
                       "fractionInTransverseRms" : "fracRmsTrans",
@@ -65,7 +65,8 @@ proc splitDf(df: DataFrame,
   result = df
   result["RunPeriod"] = periodSeq
 
-proc readTstampDf(h5f: H5File, applyRegionCut: bool): DataFrame =
+proc readTstampDf(h5f: H5File, applyRegionCut: bool,
+                  chip = 3): DataFrame =
   const evNames = genNames()
   const allNames = ["timestamp", "eventNumber"]
 
@@ -81,7 +82,7 @@ proc readTstampDf(h5f: H5File, applyRegionCut: bool): DataFrame =
     var dfEv = newDataFrame()
     var dfAll = newDataFrame()
     let group = h5f[grp.grp_str]
-    readIt(evNames, grp / "chip_3", dfEv)
+    readIt(evNames, grp / &"chip_{chip}", dfEv)
     if applyRegionCut:
       # if we do not apply the region cut the slicing does not make any sense, because
       # the indices for the slices will be wrong!
@@ -95,9 +96,9 @@ proc readTstampDf(h5f: H5File, applyRegionCut: bool): DataFrame =
       # the same data points as in the 90 min case, just with energies that are worse
       # calibrated.
       ## XXX: do not try to read `90`, but rather try to read the version of the input time!
-      let gsname = if grp / "chip_3" / "gasGainSlices90" in h5f: "gasGainSlices90"
+      let gsname = if grp / &"chip_{chip}" / "gasGainSlices90" in h5f: "gasGainSlices90"
                    else: "gasGainSlices"
-      for (idx, slice) in iterGainSlicesIdx(h5f, grp / "chip_3", gsname):
+      for (idx, slice) in iterGainSlicesIdx(h5f, grp / &"chip_{chip}", gsname):
         sliceNum[slice] = repeat(idx, slice.len)
       dfEv["sliceNum"] = sliceNum
 
@@ -107,7 +108,7 @@ proc readTstampDf(h5f: H5File, applyRegionCut: bool): DataFrame =
 
     result.add dfJoined
 
-proc readPhotoEscapeDf(h5f: H5File, applyRegionCut: bool): DataFrame =
+proc readPhotoEscapeDf(h5f: H5File, applyRegionCut: bool, chip: int): DataFrame =
   ## These are the x positions (in charge) of the spectrum
   #const kalphaCharge = 4
   #const escapeCharge = 1
@@ -121,7 +122,7 @@ proc readPhotoEscapeDf(h5f: H5File, applyRegionCut: bool): DataFrame =
     dates: seq[float]
   for run, grp in runs(h5f, recoBase()):
     let group = h5f[(recoBase & $run).grp_str]
-    let chpGrpName = group.name / "chip_3"
+    let chpGrpName = group.name / &"chip_{chip}"
     let dset = h5f[(chpGrpName / "FeSpectrumCharge").dset_str]
     photoSeq.add dset.attrs[parPrefix & $kalphaCharge, float]
     escapeSeq.add dset.attrs[parPrefix & $escapeCharge, float]
@@ -153,18 +154,27 @@ proc readCdl(): DataFrame =
 
 proc readFiles(files: seq[string], runType: string,
                applyRegionCut: bool,
+               readAllChips: bool,
                readProc: ReadProc = readTstampDf): DataFrame =
   ## reads all H5 files given and stacks them to a single
   ## DF. An additional column is added, which corresponds to
   ## the filename. That way one can later differentiate which
   ## events belong to what and decide if data is supposed to
   ## be accumulated or not
+  result = newDataFrame()
   for file in files:
     let h5f = H5open(file, "r")
-    result.add readProc(h5f, applyRegionCut = applyRegionCut)
+    if readAllChips:
+      for chip in 0 ..< 6: ## XXX: assert correct number of chips!
+        var df = readProc(h5f, applyRegionCut = applyRegionCut, chip = chip)
+        df["chip"] = chip
+        result.add df
+    else:
+      result.add readProc(h5f, applyRegionCut = applyRegionCut, chip = 3)
     discard h5f.close()
-  result = result.arrange("timestamp")
-  result["runType"] = constantColumn(runType, result.len)
+  if result.len > 0:
+    result = result.arrange("timestamp")
+    result["runType"] = constantColumn(runType, result.len)
 
 template len[T](t: Tensor[T]): int = t.size.int
 
@@ -207,8 +217,14 @@ proc calcMean(df: DataFrame,
               n: string,
               interval: float,
               normBy: static string = "",
+              toCount: static bool = false,
               useMedian: static bool = false): seq[float] =
-  let data = df[n].toTensor(float)
+  ## If `toCount` is used it only counts the number of entries within a time interval.
+  ## If `normBy` uses the given dataset to normalize by (normalization by the
+  ## *sum* of that dataset in the interval)
+  ## If `useMedian` computes the median instead of the mean value.
+  when not toCount: ## do not need it when we count entries
+    let data = df[n].toTensor(float)
   const toNorm = normBy.len > 0
   when toNorm:
     let dataNorm = df[normBy].toTensor(float)
@@ -221,12 +237,16 @@ proc calcMean(df: DataFrame,
     numCluster = 0
     j = 0
     tStartIdx = 0
+    length = 0.0
   var timesToPlot = newSeq[float]()
   when useMedian:
     var vec = newSeq[float]()
   for i in 0 ..< tstamps.size:
     let inInterval = (tstamps[i] - tStart) < interval
     if not inInterval:
+      #if numCluster < 400:
+      #  echo "Jump from last to this: ", tstamps[i-1], " to ", tstamps[i], " = ", tstamps[i] - tstamps[i-1], " and numCluster= ", numCluster
+      #  echo "total time difference was: ", tstamps[i-1] - tStart, "\n"
       # run over bin range
       when toNorm:
         result[j] = current / norm
@@ -234,6 +254,9 @@ proc calcMean(df: DataFrame,
       elif useMedian:
         result[j] = vec.median(50)
         vec = newSeq[float]()
+      elif toCount:
+        if length > 3600: ## Want to exclude intervals that are too short!
+          result[j] = numCluster.float / length # normalize number of counts by length of this interval
       else:
         result[j] = current / numCluster.float
       numCluster = 0
@@ -246,7 +269,10 @@ proc calcMean(df: DataFrame,
       norm += dataNorm[i]
     when useMedian:
       vec.add data[i]
-    current += data[i]
+    # distinct from `when` above! else here needed for both above.
+    when not toCount:
+      current += data[i]
+    length = tstamps[i] - tStart
     inc numCluster
   let tt = timesToPlot.mapIt(it.int)
   let tstr = tt.mapIt($it.fromUnix)
@@ -292,7 +318,9 @@ proc computeStats(df: DataFrame): DataFrame =
 
 proc calculateMeanDf(df: DataFrame, interval: float,
                      periodTab: OrderedTable[int, string] = initOrderedTable[int, string](),
-                     useMedian = false): DataFrame =
+                     meanColumn = "meanCharge",
+                     useMedian = false,
+                     toCount = false): DataFrame =
   ## interval: time in minutes
   # we're going to do a rather crude approach. Given that we have to bin
   # a continuous variable, we're not well equipped using ggplotnim's dataframe
@@ -306,11 +334,13 @@ proc calculateMeanDf(df: DataFrame, interval: float,
   var means: seq[float]
   if useMedian:
     means = df.calcMean(tstamps, outLen, "totalCharge", interval, useMedian = true)
+  elif toCount:
+    means = df.calcMean(tstamps, outLen, "", interval, toCount = true)
   else:
     means = df.calcMean(tstamps, outLen, "totalCharge", interval, normBy = "hits")
 
-  result = toDf({"timestamp" : tmeanStamps, "sumCharge" : sums,
-                 "meanCharge" : means, "runPeriods" : runPeriods })
+  result = toDf({ "timestamp" : tmeanStamps, "sumCharge" : sums,
+                  meanColumn : means, "runPeriods" : runPeriods })
 
   template calcAndAdd(name, dfName: untyped): untyped =
     let tmp = df.calcMean(tstamps, outLen, name, interval, useMedian = true)
@@ -323,6 +353,10 @@ proc calculateMeanDf(df: DataFrame, interval: float,
   echo filterPeriods
   result = result.filter(f{string -> bool: `runPeriods` notin filterPeriods})
   result["runType"] = constantColumn(df["runType", 0].toStr, result.len)
+  if "chip" in df:
+    echo df
+    let chip = df["chip"].unique.item(int) ## The input should only have a single chip number!
+    result["chip"] = chip
   echo "Number of run periods with more than 1 entry: ", result["runPeriods"].unique
 
   let df2 = result.mutate(f{float -> int: "timestamp" ~ `timestamp`.int})
@@ -334,20 +368,25 @@ proc plotOverTime(df: DataFrame, interval: float, titleSuff: string,
                   useLog = true,
                   applyRegionCut = false,
                   useMedian = false,
+                  toCount = false,
                   normalizeMedian = true,
-                  outpath = "out") =
+                  colorBy = "runType",
+                  outpath = "out",
+                  cutoff = 0.0,
+                  ylabel = "", title = "") =
   let interval = interval / 60.0 # convert back to minutes for title
   createDir(outpath)
   var nameSuff = if titleSuff == "all data": "all" else: "filtered"
   if applyRegionCut:
     nameSuff.add "_crSilver"
+  ## XXX: adjust prefixes!
   let meanPrefix = if useMedian: "Median" else: "Mean"
   let normSuffix = if useMedian and normalizeMedian: " each run type normalized to 1"
                    else: ""
-  let title = &"{meanPrefix} of total charge within {interval:.1f} min{normSuffix}, {titleSuff}"
+  let title = if title.len > 0: title
+              else: &"{meanPrefix} of total charge within {interval:.1f} min{normSuffix}, {titleSuff}"
 
-
-  var pltSum = ggplot(df, aes("timestamp", "sumCharge", color = "runType")) +
+  var pltSum = ggplot(df, aes("timestamp", "sumCharge", color = factor(colorBy))) +
     facet_wrap("runPeriods", scales = "free") +
     geom_point(alpha = some(0.75)) +
     scale_x_continuous(labels = toPeriod) +
@@ -359,15 +398,24 @@ proc plotOverTime(df: DataFrame, interval: float, titleSuff: string,
                  f{float: `meanCharge` / max(col("meanCharge"))}
                else:
                  f{"meanCharge"}
+  let ylabel = if ylabel.len > 0: ylabel
+               elif useMedian: "Median value"
+               else: "Mean value"
+
+  var df = df
+  if toCount:
+    df = df.filter(f{float: `meanCharge` >= cutoff})
+
   var pltMean = ggplot(df, aes("timestamp",
                                yScale,
-                               color = "runType")) +
+                               color = factor(colorBy))) +
     facet_wrap("runPeriods", scales = "free") +
     scale_x_continuous(labels = toPeriod) +
     facetMargin(1.0, ukCentimeter) +
     margin(bottom = 1.5, right = 3) +
     legendPosition(0.92, 0.0) +
     xlab(rotate = -45, alignTo = "right", margin = 0.0) +
+    ylab(ylabel) +
     geom_point(alpha = some(0.75)) +
     ggtitle(title)
   if useLog:
@@ -520,63 +568,90 @@ proc main(files: seq[string],
           applyRegionCut = false,
           useLog = false,
           useMedian = false,
-          normalizeMedian = false) =
+          toCount = false,
+          readAllChips = false, ## Whether to only read center or all Septemboard chips
+          normalizeMedian = false,
+          outpath = "out",
+          ylabel = "", title = "",
+          countCutoff = 0.0
+         ) =
   ## Input should be both H5 `DataRuns*_reco.h5` data files
   ## `interval` is the time to average per bin in minutes
   ## `cutoffCharge` is a filter on an amount of charge each cluster must
   ## have to take part
   let interval = interval * 60.0 # convert to seconds
-  let dfBack = readFiles(files, "background", applyRegionCut = applyRegionCut)
-  let dfCalib = readFiles(calibFiles, "calibration", applyRegionCut = applyRegionCut)
+  let dfBack = readFiles(files, "background", applyRegionCut = applyRegionCut, readAllChips = readAllChips)
+  let dfCalib = readFiles(calibFiles, "calibration", applyRegionCut = applyRegionCut, readAllChips = readAllChips)
   ## check if there are additional files in the toml file
 
   if timeSeries:
-    template all(arg1, arg2: DataFrame): untyped =
+    template all(args: varargs[DataFrame]): untyped =
       #let all1 = arg1.splitDf.computeStats()
       #let all2 = arg2.splitDf(all1.uniquePeriods).computeStats()
-      let all1 = calculateMeanDf(arg1, interval, useMedian = useMedian)
-      let all2 = calculateMeanDf(arg2, interval, all1.getPeriods, useMedian = useMedian)
-      #if true: quit()
-      concat(all1, all2)
+      var df = calculateMeanDf(args[0], interval, useMedian = useMedian, toCount = toCount)
+      let periods = df.getPeriods
+      for i in 1 ..< args.len:
+        df.add calculateMeanDf(args[i], interval, periods, useMedian = useMedian, toCount = toCount)
+      df
     proc filt(arg: DataFrame): DataFrame =
       arg.filter(f{float -> bool: `totalCharge` > cutoffCharge},
                  f{float -> bool: `hits` < cutoffHits})
-    proc filtConc(arg1, arg2: DataFrame): DataFrame =
-      let all1 = filt(arg1).splitDf().computeStats()
-      let all2 = filt(arg2).splitDf(all1.uniquePeriods).computeStats()
+    proc filtConc(args: varargs[DataFrame]): DataFrame =
+      var df = filt(args[0]).splitDf().computeStats()
+      let periods = df.uniquePeriods
+      for i in 1 ..< args.len:
+        df.add filt(args[i]).splitDf(periods).computeStats()
       #let all1 = filt(arg1).calculateMeanDf(interval)
       #let all2 = filt(arg2).calculateMeanDf(interval, all1.getPeriods)
+      df
 
-      concat(all1, all2)
-
-    let dfAll = all(dfBack, dfCalib)
-    let dfFilter = filtConc(dfBack, dfCalib)
-    echo dfAll
+    let dfAll = if readAllChips:
+                  doAssert calibFiles.len == 0, "Currently not supported to use calibration files when reading all chips"
+                  ## Little hacky to get a sequence of dataframes
+                  var dfs = newSeq[DataFrame]()
+                  for (t, subDf) in groups(dfBack.group_by("chip")):
+                    var mdf = subDf
+                    mdf["chip"] = t[0][1].toInt
+                    dfs.add mdf
+                  all(dfs)
+                else:
+                  all(dfBack, dfCalib)
     echo dfAll.len
     #echo dfFilter
     let regionCut = if applyRegionCut: " cut to crSilver, 0.1 < rmsTrans < 1.5 "
                     else: ""
+
+    let colorBy = if readAllChips: "chip" else: "runType"
+    echo dfAll
     plotOverTime(dfAll, interval,
                  titleSuff = &"{regionCut}charge > {cutoffCharge}, hits < {cutoffHits:.0f} filtered out",
                  applyRegionCut = applyRegionCut,
                  useLog = useLog,
                  useMedian = useMedian,
-                 normalizeMedian = normalizeMedian)
-
-    plotHistos(dfFilter, interval,
-               titleSuff = &"{regionCut}charge > {cutoffCharge}, hits < {cutoffHits:.0f} filtered out",
-               applyRegionCut = applyRegionCut,
-               useLog = false)
+                 toCount = toCount,
+                 normalizeMedian = normalizeMedian,
+                 colorBy = colorBy,
+                 outpath = outpath,
+                 ylabel = ylabel, title = title,
+                 cutoff = countCutoff)
+    if not toCount:
+      let dfFilter = filtConc(dfBack, dfCalib)
+      plotHistos(dfFilter, interval,
+                 titleSuff = &"{regionCut}charge > {cutoffCharge}, hits < {cutoffHits:.0f} filtered out",
+                 applyRegionCut = applyRegionCut,
+                 useLog = false,
+                 outpath = outpath)
 
   if photoDivEscape:
     let dfBackMean = calculateMeanDf(dfBack, interval)
     let periods = dfBackMean.getPeriods
     let dfCalibMean = calculateMeanDf(dfCalib, interval, periods)
     let dfPhoto = readFiles(calibFiles, "Photo/Escape", applyRegionCut = applyRegionCut,
+                            readAllChips = readAllChips,
                             readProc = readPhotoEscapeDf)
     echo dfPhoto
 
-    plotPhotoDivEscape(dfPhoto, dfCalibMean, periods, interval)
+    plotPhotoDivEscape(dfPhoto, dfCalibMean, periods, interval, outpath = outpath)
 
   if createSpectra:
     var dfComb: DataFrame
@@ -584,7 +659,7 @@ proc main(files: seq[string],
     dfComb.add readCdl()
     let dfFilter = dfComb.filter(f{float -> bool: `totalCharge` > cutoffCharge},
                                   f{float -> bool: `hits` < cutoffHits})
-    plotFeSpectra(dfFilter)
+    plotFeSpectra(dfFilter, outpath = outpath)
 
 
 when isMainModule:

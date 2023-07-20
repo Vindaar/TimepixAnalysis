@@ -11,6 +11,23 @@ creates a heatmap of the cluster centers that still remain visible on the plot.
 In addition it highligths the gold region on the plot.
 """
 
+type
+  ## `ClusterTable` maps (x, y) positions to energies of all clusters at that pixel
+  ##
+  ## Can be converted to a pure `CountTable[(int, int)]`.
+  ClusterTable = Table[(int, int), seq[float]]
+
+  ColorBy = enum
+    count, energy
+
+proc initClusterTable(): ClusterTable = initTable[(int, int), seq[float]]()
+
+proc toCountTable(tab: ClusterTable): CountTable[(int, int)] =
+  result = initCountTable[(int, int)]()
+  for (k, v) in pairs(tab):
+    for i in 0 ..< v.len:
+      result.inc(k)
+
 iterator extractClusters(h5f: var H5File, chip: int): (int, seq[float], seq[float], seq[float]) =
   const attrName = "Total number of cluster"
   for num, grp in runs(h5f, likelihoodBase()):
@@ -118,7 +135,7 @@ when false:
     for y in 110 .. 120:
       noisyPixels.add (x, y)
 
-proc readClusters(file: string, cTab: var CountTable[(int, int)],
+proc readClusters(file: string, cTab: var ClusterTable,
                   filterNoisyPixels: bool,
                   energyMin, energyMax: float,
                   chip: int): int =
@@ -136,25 +153,43 @@ proc readClusters(file: string, cTab: var CountTable[(int, int)],
 
       let (pX, pY) = (cX.toPixel, cY.toPixel)
       #echo (pX, pY) in noisyPixels, " pos ", (pX, pY)
+      let pos = (cX.toPixel, cY.toPixel)
+
+      if pos notin cTab:
+        cTab[pos] = newSeq[float]()
+
       if filterNoisyPixels and (pX, pY) notin noisyPixels:
-        cTab.inc((cX.toPixel, cY.toPixel))
+        cTab[pos].add ce
       elif not filterNoisyPixels:
-        cTab.inc((cX.toPixel, cY.toPixel))
+        cTab[pos].add ce
   doAssert h5f.close() >= 0
 
 proc readClusters(file: string, filterNoisyPixels: bool,
-                  energyMin, energyMax: float, chip: int): (int, CountTable[(int, int)]) =
-  var cTab = initCountTable[(int, int)]()
+                  energyMin, energyMax: float, chip: int): (int, ClusterTable) =
+  var cTab = initClusterTable()
   let totalNum = file.readClusters(cTab, filterNoisyPixels, energyMin, energyMax, chip)
   result = (totalNum, cTab)
 
 proc readClusters(files: seq[string], filterNoisyPixels: bool,
-                  energyMin, energyMax: float, chip: int): (int, CountTable[(int, int)]) =
-  var cTab = initCountTable[(int, int)]()
+                  energyMin, energyMax: float, chip: int): (int, ClusterTable) =
+  var cTab = initClusterTable()
   var totalNum = 0
   for f in files:
     totalNum += f.readClusters(cTab, filterNoisyPixels, energyMin, energyMax, chip)
   result = (totalNum, cTab)
+
+proc toDf(cTabTup: (int, ClusterTable)): DataFrame =
+  let (totalNum, cTab) = cTabTup
+  var
+    cX, cY: seq[int]
+    cE: seq[float]
+  for (pos, energies) in pairs(cTab):
+    for E in energies:
+      cX.add pos[0]
+      cY.add pos[1]
+      cE.add E
+  ## XXX: `toDf` is broken here due to proc of same name!!!
+  result = seqsToDf({"x" : cX, "y" : cY, "Energy [keV]" : cE, "TotalNumber" : totalNum})
 
 proc toDf(cTabTup: (int, CountTable[(int, int)])): DataFrame =
   let (totalNum, cTab) = cTabTup
@@ -171,6 +206,9 @@ proc toDf(cTabTup: (int, CountTable[(int, int)])): DataFrame =
 proc toDf(cTab: CountTable[(int, int)]): DataFrame =
   result = (-1, cTab).toDf()
 
+proc toDf(cTab: ClusterTable): DataFrame =
+  result = (-1, cTab).toDf()
+
 proc writeNoisyClusters(cTab: CountTable[(int, int)],
                         threshold: int) =
   ## Writes a `noisyPixels` array to file with all pixels that have
@@ -185,18 +223,37 @@ proc writeNoisyClusters(cTab: CountTable[(int, int)],
   f.close()
 
 proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
+                  colorBy: ColorBy,
+                  energyText: bool,
+                  energyTextRadius: float,
                   suffix, title, outpath, axionImage: string) =
   let outpath = if outpath.len > 0: outpath else: "plots"
+  var colorCol: string
+  let totalEvs = df.len
+  var df = df
+  # Set the `color` aesthetic and potentially convert input DF to count form
+  case colorBy
+  of energy:
+    colorCol = "Energy [keV]"
+  else:
+    colorCol = "count"
+    # generate a version with unique positions but a `count` column
+    var countGroups = 0
+    for (tup, subDf) in groups(df.group_by(["x", "y"])):
+      inc countGroups
+    df = df.group_by(["x", "y"]).summarize(f{"count" << len(col("Energy [keV]"))})
+
   createDir(outpath)
   let fname = &"{outpath}/background_cluster_centers{suffix}.pdf"
   if names.len == 0 or names.deduplicate.len == 1:
-    let totalEvs = df["count", int].sum()
-    let maxCount = df["count", int].max
+    let maxCount = if colorBy == count: df[colorCol, int].max
+                   else: 0
+    echo df
     var plt =
-      if maxCount < 10:
-        ggplot(df, aes("x", "y", color = factor("count")))
+      if colorBy == count and  maxCount < 10:
+        ggplot(df, aes("x", "y", color = factor(colorCol)))
       else:
-        ggplot(df, aes("x", "y", color = "count")) +
+        ggplot(df, aes("x", "y", color = colorCol)) +
         scale_color_continuous(scale = (low: 0.0, high: zMax))
     plt = plt + xlim(0, 256) + ylim(0, 256) +
       xlab("x [Pixel]") + ylab("y [Pixel]") +
@@ -211,12 +268,22 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
         minorGridLines() +
         scale_fill_gradient(customInferno)
 
+    if colorBy == energy and energyText:
+      var dfText = df
+      if energyTextRadius > 0.0:
+        dfText = df.filter(f{float -> bool: (128.0 - `x`)^2 + (128.0 - `y`)^2 < energyTextRadius^2})
+      plt = plt + geom_text(data = dfText,
+                            aes = aes(y = f{`y` + 3}, text = "Energy [keV]"),
+                            font = font(8.0, alignKind = taLeft))
+
+
+    # Add the main point geom
     plt = plt + geom_point(size = some(1.0))
 
     if not useTikZ:
       echo "[INFO]: Saving plot to ", fname
       plt + ggtitle(title & &". Total # cluster = {totalEvs}") +
-        ggsave(fname)
+        ggsave(fname, width = 800, height = 640)
     else:
       #let fname = &"/home/basti/phd/Figs/backgroundClusters/background_cluster_centers{suffix}"
       echo "[INFO]: Saving plot to ", fname
@@ -225,12 +292,13 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
   else:
     var totalEvs = newSeq[string]()
     for tup, subDf in groups(df.group_by("Type")):
-      let numEvs = subDf["count", int].sum()
+      let numEvs = if colorBy == count: subDf[colorCol, int].sum()
+                   else: subDf.len
       totalEvs.add &"{tup[0][1]}: {numEvs}"
     #let fname = &"/home/basti/org/Figs/statusAndProgress/IAXO_TDR/background_cluster_centers{suffix}.pdf"
     echo "[INFO]: Saving plot to ", fname
     let ticks = arange(0, 260, 5).mapIt(it.float)
-    ggplot(df, aes("x", "y", color = "count")) +
+    ggplot(df, aes("x", "y", color = colorCol)) +
       facet_wrap("Type") +
       geom_point(size = some(1.0)) +
       #xlim(0, 256) + ylim(0, 256) +
@@ -244,7 +312,7 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
              width = 900, height = 480)
              #useTeX = true, standalone = true) # onlyTikZ = true)
 
-proc plotSuppression(df: DataFrame, cTab: CountTable[(int, int)], tiles: int,
+proc plotSuppression(cTab: CountTable[(int, int)], totalNum, tiles: int,
                      outpath: string) =
   ## Plots a tilemap of background suppressions. It uses `tiles` elements in each axis.
   proc toTensor(cTab: CountTable[(int, int)]): Tensor[int] =
@@ -255,7 +323,6 @@ proc plotSuppression(df: DataFrame, cTab: CountTable[(int, int)], tiles: int,
         y = tup[1]
       result[x, y] = val
   let countT = cTab.toTensor()
-  let totalNum = df["TotalNumber"].unique.toTensor(int)[0]
   let numPerTile = totalNum / (tiles * tiles) ## Note: This assumes the original background is homogeneous!
   let step = 256.0 / tiles.float
   var
@@ -300,6 +367,9 @@ proc main(
   energyMin = 0.0, energyMax = 0.0,
   useTikZ = false,
   writeNoisyClusters = false,
+  energyText = false,
+  energyTextRadius = -1.0, ## Radius in which around the center to print energy as text
+  colorBy: ColorBy = count,
   zMax = 5.0,
   threshold = 2,
   chip = -1, # chip can be used to overwrite center chip reading
@@ -308,26 +378,28 @@ proc main(
   axionImage = "", # "/home/basti/org/resources/axion_images/axion_image_2018_1487_93_0.989AU.csv"
      ) =
 
+  if energyText and colorBy == count:
+    raise newException(ValueError, "`energyText` incompatible with `colorBy = count`.")
+
+  # Read the data
   let (totalNum, cTab) = readClusters(files, filterNoisyPixels, energyMin, energyMax, chip)
   if writeNoisyClusters:
-    cTab.writeNoisyClusters(threshold)
+    cTab.toCountTable.writeNoisyClusters(threshold)
 
   var df = newDataFrame()
   if names.len == 0 or names.deduplicate.len == 1:
     echo files
     df = cTab.toDf()
-    df["TotalNumber"] = totalNum
   else:
     doAssert names.len == files.len, "Need same number of names as input files!"
     for i in 0 ..< names.len:
       var dfLoc = readClusters(@[files[i]], filterNoisyPixels, energyMin, energyMax, chip).toDf()
       dfLoc["Type"] = names[i]
       df.add dfLoc
-    # now sort all again
-    df = df.arrange("count", order = SortOrder.Ascending)
 
-  plotClusters(df, names, useTikZ, zMax, suffix, title, outpath, axionImage)
-  plotSuppression(df, cTab, tiles, outpath)
+  plotClusters(df, names, useTikZ, zMax, colorBy, energyText, energyTextRadius, suffix, title, outpath, axionImage)
+  # `df.len` is total number clusters
+  plotSuppression(cTab.toCountTable(), df.len, tiles, outpath)
 
   when false:
     # convert center positions to a 256x256 map

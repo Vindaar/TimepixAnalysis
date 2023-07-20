@@ -858,17 +858,10 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
 
     # get indices corresponding to tracking (or non tracking); indices needed to determine
     # total durations correctly
-    var indicesInTracking: seq[int]
-    if tracking:
-      indicesInTracking = h5f.getTrackingEvents(mgrp, tracking = true, returnEventNumbers = false)
-    else:
-      indicesInTracking = h5f.getTrackingEvents(mgrp, tracking = false, returnEventNumbers = false)
-    ## XXX: A test run for Run-3 using `--tracking` to check the time we recover yielded
-    ## 316176.977955 s and
-    ## 87.8269383208 h
-    ## as the tracking time. Our expectation is:
-    ## 74.2981 h total and 66.9231 h of active time.
-    ## Why? Debug that once it's time to unblind!
+    let indicesInTracking = h5f.getTrackingEvents(mgrp, tracking = tracking, returnEventNumbers = false)
+    if tracking and indicesinTracking.len == 0:
+      ## In this case there is no tracking in this run. Simply skip the entire run
+      continue
 
     # get the event numbers for safety
     let eventsInTracking = indicesInTracking.mapIt(eventNumbers[it].int)

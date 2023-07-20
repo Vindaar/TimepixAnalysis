@@ -604,7 +604,7 @@ proc getTrackingEvents*(h5f: H5File, group: H5Group,
   ## required, use `returnEventNumbers = true`.
   # attributes of this group
   var attrs = group.attrs
-  try:
+  if "num_trackings" in attrs:
     # try except for check of num_trackings
     let ntrackings = attrs["num_trackings", int]
     const date_syntax = getDateSyntax()
@@ -652,10 +652,14 @@ proc getTrackingEvents*(h5f: H5File, group: H5Group,
 
     if result.len > 0 and returnEventNumbers: # caller asks for event numbers, convert
       result = result.mapIt(evNums[it])
-  except KeyError:
-    # in this case there is no tracking information. Keep all indices
-    echo &"No tracking information in {group.name} found, use all clusters"
-    result = @[]
+  else:
+    # in this case there is no tracking information. Keep all indices (or skip run if tracking)
+    var msg = &"No tracking information in {group.name} found"
+    if tracking:
+      msg.add ", skipping run."
+    else:
+      msg.add ", use all clusters."
+    echo msg
 
 proc filterTrackingEvents*[T: SomeInteger](cluster_events: seq[T], eventsInTracking: seq[int], tracking: bool): seq[int] =
   ## filters out all event numbers of a reconstructed run for one chip

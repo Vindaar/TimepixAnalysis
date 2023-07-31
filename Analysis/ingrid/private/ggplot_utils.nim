@@ -204,7 +204,9 @@ proc readRunDsetsAllChips*(h5f: H5File, run: int, # path to specific run
 proc readDsets*(h5f: H5File, path = recoBase(),
                 chipDsets = none[tuple[chip: int, dsets: seq[string]]](),
                 commonDsets: openArray[string] = @[],
-                verbose = true): DataFrame =
+                verbose = true,
+                run = -1
+               ): DataFrame =
   ## reads all desired datasets `chipDsets, commonDsets` in the given `h5f`
   ## file of `chip` under the given `path`. The result is returned as a
   ## `DataFrame`.
@@ -215,8 +217,9 @@ proc readDsets*(h5f: H5File, path = recoBase(),
   ## are then joined using the eventNumber dataset (which thus will always be
   ## read).
   result = newDataFrame()
-  for run, grp in runs(h5f, path):
-    let df = h5f.readRunDsets(run = run, chipDsets = chipDsets, commonDsets = commonDsets,
+  for r, grp in runs(h5f, path):
+    if run > 0 and run != r: continue
+    let df = h5f.readRunDsets(run = r, chipDsets = chipDsets, commonDsets = commonDsets,
                               basePath = path,
                               verbose = verbose)
     if df.len > 0:

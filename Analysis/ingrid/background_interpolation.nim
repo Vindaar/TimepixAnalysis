@@ -338,8 +338,8 @@ proc compInterEnergy(t: var Tensor[float], kd: KDTree[float],
     if x == 128 and y == 128:
       echo "Rate at center: ", t[y, x]
 
-func toIdx*(arg: float): int = (arg / 14.0 * 256.0).round.int.clamp(0, 255)
-func toInch*(arg: float|int): float = (arg.float / 256.0 * 14.0).clamp(0.0, 14.0)
+func toIdx*(arg: float): int = (arg / 14.0 * 255.0).round.int.clamp(0, 255)
+func toInch*(arg: float|int): float = (arg.float / 255.0 * 14.0).clamp(0.0, 14.0)
 proc plotGoldRegionBackgroundRate(kd: KDTree[float], outfile: string,
                                   title: string,
                                   backgroundTime = 3318.Hour) =

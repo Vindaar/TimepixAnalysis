@@ -911,10 +911,13 @@ proc generateRunFakeData*[T: ReturnType, C: MaybeContext](
   else:
     result = generateFakeFromGain(rnd, h5f, run, chipNumber, calibInfo, fakeDesc, runType, T, ctx, useCache)
 
-proc generateFakeData*(ctx: LikelihoodContext, rnd: var Rand, h5f: H5File,
-                       fakeDesc: FakeDesc,
-                       run = -1,
-                       useCache = true): DataFrame =
+proc generateFakeData*[C: MaybeContext](
+  rnd: var Rand, h5f: H5File,
+  fakeDesc: FakeDesc,
+  run = -1,
+  useCache = true,
+  ctx: C = missing()
+                                      ): DataFrame =
   ## For each run generate `nFake` fake events
   ##
   ## XXX:
@@ -952,7 +955,7 @@ proc generateFakeData*(h5f: H5File, fakeDesc: FakeDesc,
                                   timepix = Timepix1,
                                   morphKind = mkLinear) # morphing to plot interpolation
   var rnd = initRand(seed)
-  result = ctx.generateFakeData(rnd, h5f, fakeDesc, run)
+  result = generateFakeData(rnd, h5f, fakeDesc, run, ctx = ctx)
 
 proc generateRawFakeData*(h5f: H5File, fakeDesc: FakeDesc,
                           run = -1,
@@ -980,3 +983,46 @@ proc generateRawFakeData*(h5f: H5File, fakeDesc: FakeDesc,
                                       fileInfo.runType,
                                       seq[Pixels],
                                       useCache = useCache)
+
+proc user(energy: seq[float], nmc: int,
+          gains: seq[float], diffusions: seq[float],
+          run = -1) = #tfKind = XXX
+  ## Either generate data like an existing run
+  ## or generate data according to gas gain, diffusion and energies
+  # 1. generate fake events according to input
+  discard
+
+proc like(path: string, ## Input file
+          run: int,
+          outpath: string,
+          outRun: int,
+          tfKind: TargetFilterKind,
+          nmc: int,
+          chip = 3) =
+  ## Generates fake data like `run` in `path` for chip `chip`
+  let fakeDesc = FakeDesc(nFake: nmc,
+                          tfKind: tfKind,
+                          kind: fkGainDiffusion)
+  let filter = H5Filter(kind: fkZlib, zlibLevel: 4)
+  var rnd = initRand(42)
+  withH5(path, "r"):
+    let dfFake = generateFakeData(rnd, h5f, fakeDesc, run)
+    #let dfFake = h5f.generateFakeData(fakeDesc, run = run)
+    var h5fout = H5open(outpath, "rw")
+
+    ggplot(dfFake, aes("energyFromCharge")) +
+      geom_histogram(bins = 100) +
+      ggsave("/tmp/energy_dist.pdf")
+    for c in getKeys(dfFake):
+      var dset = h5fout.create_dataset(
+        recoBase() & $outRun / "chip_" & $chip / c,
+        dfFake.len,
+        dtype = float,
+        chunksize = @[10000],
+        maxshape = @[int.high],
+        filter = filter)
+      dset.unsafeWrite(cast[ptr float](dfFake[c, float].unsafe_raw_offset()), dfFake.len)
+
+when isMainModule:
+  import cligen
+  dispatchMulti([like], [user])

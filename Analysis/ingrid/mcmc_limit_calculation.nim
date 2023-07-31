@@ -1,4 +1,4 @@
-import std / [os, math, random, strformat, times, stats, osproc, logging, monotimes, intsets]
+import std / [os, math, random, strformat, times, stats, osproc, logging, monotimes, sets]
 import pkg / [nimhdf5, unchained, seqmath, chroma, cligen, shell]
 
 import sequtils except repeat
@@ -413,14 +413,11 @@ proc flatten(dfs: seq[DataFrame]): DataFrame =
     result.add df.clone
 
 proc filterNoisyPixels(df: DataFrame, noiseFilter: NoiseFilter): DataFrame =
-  var xSet = initIntSet()
-  var ySet = initIntSet()
+  var pixSet = initHashSet[(int, int)]()
   for p in noiseFilter.pixels:
-    xSet.incl p[0]
-    ySet.incl p[1]
+    pixSet.incl p
   doAssert "centerX" in df and "centerY" in df, "centerX / centerY not found in input df. " & $df.getKeys()
-  result = df.filter(f{not (toIdx(`centerX`) in xSet and
-                            toIdx(`centerY`) in ySet)})
+  result = df.filter(f{float -> bool: (toIdx(`centerX`), toIdx(`centerY`)) notin pixSet})
 
 proc readFileData(h5f: H5File):
     tuple[totalTime: Hour, vetoCfg: VetoSettings, flags: set[LogLFlagKind]] =
@@ -465,7 +462,7 @@ proc readFiles(path: string, s: seq[string], noiseFilter: NoiseFilter,
   ## The candidates are drawn in a range defined by `EnergyCutoff`. The kd tree just has to be
   ## able to provide points for the interpolation up to the `EnergyCutoff`. That's why the
   ## `t.sum()` does not change if we change the energy filter here.
-  df = df.filter(f{float -> bool: `Energy`.keV <= energyMax and `Energy`.keV > energyMin})
+  df = df.filter(f{float -> bool: `Energy`.keV <= energyMax and `Energy`.keV >= energyMin})
   var
     first = true
     lastFlags: set[LogLFlagKind]

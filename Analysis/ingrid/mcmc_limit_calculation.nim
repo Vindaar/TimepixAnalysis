@@ -119,6 +119,8 @@ type
     totalBackgroundClusters: int # total number of background clusters in non-tracking time
     totalBackgroundTime: Hour # total time of background data taking
     totalTrackingTime: Hour # total time of solar tracking
+    # tracking related
+    trackingDf: DataFrame
     # energy information
     energyMin, energyMax: keV
     # axion signal info
@@ -156,6 +158,7 @@ type
     rombergIntegrationDepth: int ## only for case of logLFullUncertain integration!
     filePath: string   ## The path to the data files
     files: seq[string] ## The data files we read
+    tracking: seq[string] ## The H5 files containing the real tracking candidates
     # the following are old parameters that are not in use anymore (lkSimple, lkScan etc)
     #couplingStep: float # a step we take in the couplings during a scan
     #logLVals: Tensor[float] # the logL values corresponding to `couplings`
@@ -815,7 +818,9 @@ proc initCouplingReference(ctx: Context) =
   of ck_g_aγ²: ctx.couplingReference = ctx.g_aγ²
   of ck_g_ae²·g_aγ²: ctx.couplingReference = ctx.g_ae² * ctx.g_aγ²
 
-proc initContext(path: string, yearFiles: seq[(int, string)],
+proc initContext(path: string,
+                 yearFiles: seq[(int, string)],
+                 trackingYearFiles: seq[(int, string)],
                  useConstantBackground: bool, # decides whether to use background interpolation or not
                  radius, sigma: float, energyRange: keV, nxy, nE: int,
                  backgroundTime, trackingTime: Hour, ## Can be used to ``*overwrite*`` time from input files!
@@ -835,9 +840,13 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
   let samplingKind = if useConstantBackground: skConstBackground else: skInterpBackground
 
   let files = yearFiles.mapIt(it[1])
+  let tracking = trackingYearFiles.mapIt(it[1])
   let noiseFilter = initNoiseFilter(yearFiles)
   # read data including vetoes & FADC percentile
   let readData = readFiles(path, files, noiseFilter, energyMin, energyMax)
+  var readDataTracking: ReadData
+  if tracking.len > 0:
+    readDataTracking = readFiles(path, tracking, noiseFilter, energyMin, energyMax)
 
   let kdeSpl = block:
     let dfLoc = readData.df.toKDE(energyMin, energyMax, true)
@@ -888,7 +897,10 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
   let raySpl = setupAxionImageInterpolation(axionImage)
 
   var backTime = readData.totalTime
-  var trackTime = backTime / TrackingBackgroundRatio
+  var trackTime = if readDataTracking.totalTime > 0.Hour:
+                    readDataTracking.totalTime
+                  else:
+                    backTime / TrackingBackgroundRatio
   if trackingTime > 0.Hour and backgroundTime > 0.Hour: ## In this case overwrite time and use user input!
     backTime = backgroundTime
     trackTime = trackingTime
@@ -903,6 +915,8 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
     totalBackgroundClusters: readData.df.len,
     totalBackgroundTime: backTime,
     totalTrackingTime: trackTime,
+    # tracking
+    trackingDf: readDataTracking.df, # Note: might be nil!
     # axion model
     g_aγ²: 1e-12 * 1e-12, ## reference axion-photon coupling   (default conversion prob at this value)
     g_ae²: 1e-13 * 1e-13, ## reference axion-electron coupling (input flux at this value)
@@ -926,7 +940,8 @@ proc initContext(path: string, yearFiles: seq[(int, string)],
     rombergIntegrationDepth: rombergIntegrationDepth,
     # misc
     filePath: path,
-    files: files)
+    files: files,
+    tracking: tracking)
   ## Set the coupling reference value given the `couplingKind` and `g_ae²`, `g_aγ²`
   initCouplingReference(result)
 
@@ -1473,7 +1488,7 @@ proc logL(ctx: Context, candidates: seq[Candidate]): float =
     else: doAssert false, "Not implemented mixed uncertainties w/o all"
 
 template evalAt(ctx: Context, cands: seq[Candidate], val: untyped): untyped =
-  ctx.g_ae² = val
+  ctx.coupling = val
   ctx.logL(cands)
 
 type
@@ -1778,10 +1793,10 @@ proc extractFromChain(chain: seq[seq[float]], names: seq[string]): DataFrame =
   for i, name in names:
     result[name] = θs[i]
 
-proc computeLimitFromMCMC(df: DataFrame): float =
+proc computeLimitFromMCMC(df: DataFrame, col = "gs"): float =
   ## Given the DF conbtaining the markov chain, computes the limit according to a
   ## 95 percentile of the CDF (or technically empirical distribution fn. {EDF}).
-  let (xCdf, cdf) = unbinnedCdf(df["gs", float])
+  let (xCdf, cdf) = unbinnedCdf(df[col, float])
   let c95Idx = cdf.lowerBound(0.95)
   result = xCdf[c95Idx]
   echo "Limit at ", result
@@ -1800,10 +1815,19 @@ proc setThreshold(ctx: Context, x: float): float =
            of ck_g_ae²·g_aγ²: x
 
 proc plotChain(ctx: Context, cands: seq[Candidate], chainDf: DataFrame,
-               limit: float, computeIntegral = false) =
+               limit: float, computeIntegral = false,
+               mcmcHistoOutfile = "",
+               title = "",
+               as_gae_gaγ = false,
+               nBins = 200) =
   ## generates plots for the given context, candidates, limit and DF resulting from
   ## a markov chain. If `computeIntegral` is true it also computes a the likelihood
   ## values using numerical integration as a cross check.
+  let mcmcHistoOutfile = if mcmcHistoOutfile.len > 0: mcmcHistoOutfile
+                         else: "/tmp/mcmc_histo.pdf"
+  let title = if title.len > 0: title
+              else: "Determination of the limit for a single set of candidates"
+
   let nPar = chainDf.getKeys.len
 
   echo "Number of candidates: ", cands.len
@@ -1812,13 +1836,20 @@ proc plotChain(ctx: Context, cands: seq[Candidate], chainDf: DataFrame,
 
   # plotting
   ## XXX: replace operations using `gs` by something that can work on tensor!
+  var chainDf = chainDf
+  var limit = limit
+  if as_gae_gaγ:
+    # transform the `g_ae²` couplings to `g_ae·g_aγ` as well as the limit
+    chainDf = chainDf.mutate(f{"gs" ~ sqrt(`gs` * ctx.g_aγ²)})
+    limit = sqrt(limit * ctx.g_aγ²)
+
   let gs = chainDf["gs", float].toSeq1D
   var dfA: DataFrame
   if computeIntegral:
-    let nBins = 50
     let (hist, _) = histogram(gs, bins = nBins)
     let hMax = hist.max
     var Ls = newSeq[float]()
+    ## XXX: make adaptive for coupling kind!
     let coups = linspace(0.0, 1.4e-20, 20)
     if not fileExists("/tmp/likelihood.bin"):
       echo "Computing the integration"
@@ -1868,7 +1899,6 @@ proc plotChain(ctx: Context, cands: seq[Candidate], chainDf: DataFrame,
 
   #echo chainDf
   when true:
-    let nBins = 50
     let (hist, bins) = histogram(gs, bins = nBins)
     let c95IdxHisto = bins.lowerBound(limit)
     let dfSub = toDf({"Bins" : bins[c95IdxHisto ..< ^1], "Hist" : hist[c95IdxHisto .. ^1] })
@@ -1882,10 +1912,10 @@ proc plotChain(ctx: Context, cands: seq[Candidate], chainDf: DataFrame,
       annotate(x = bins[c95IdxHisto], y = hist[c95IdxHisto].float + 500.0,
                text = "Limit at 95% area") +
       xlab("g_ae²") + ylab("L (MCMC sampled)") +
-      ggtitle("Determination of the limit for a single set of candidates")
+      ggtitle(title)
     if computeIntegral:
       plt = plt + geom_line(data = dfA, aes = aes("coups", "Ls"), color = "orange")
-    plt + ggsave("/tmp/mcmc_histo.pdf", width = 800, height = 480)
+    plt + ggsave(mcmcHistoOutfile, width = 800, height = 480)
   when false:
     ## XXX: these would require information from the `computeLimitFromMCMC` procedure, i.e. the CDF / EDF
     ggplot(toDf({"Bins" : bins[0 .. ^2], "cdf" : cdfTC}), aes("Bins", "cdf")) +
@@ -2184,8 +2214,8 @@ proc build_MH_chain(ctx: Context, rnd: var Random, cands: seq[Candidate],
     log.info "Building MCMC with systematics " & ctx.systematics.pretty() &
       " of final length " & $result.len & " took " & $(t1 - t0) & " s"
 
-proc computeMCMCLimit(ctx: Context, rnd: var Random, cands: seq[Candidate]): float =
-  ## Builds the required MCMC and computes the limit based on it.
+proc computeMCMC(ctx: Context, rnd: var Random, cands: seq[Candidate]): DataFrame =
+  ## Builds the required MCMC and extracts it into a DF
   let chain = ctx.build_MH_chain(rnd, cands)
   let names = if ctx.systematics.uncertainty == ukUncertain and ctx.systematics.uncertaintyPosition == puUncertain:
                 @["θs_s", "θs_b", "θs_x", "θs_y"]
@@ -2195,14 +2225,25 @@ proc computeMCMCLimit(ctx: Context, rnd: var Random, cands: seq[Candidate]): flo
                 @["θs_x", "θs_y"]
               else:
                 @[]
-  let df = extractFromChain(chain, names)
-  result = computeLimitFromMCMC(df)
-  ctx.plotChain(cands, df, result, computeIntegral = false)
+  result = extractFromChain(chain, names)
+
+proc computeMCMCLimit(ctx: Context, rnd: var Random, cands: seq[Candidate],
+                      mcmcHistoOutfile = "",
+                      title = "",
+                      as_gae_gaγ = false): float =
+  ## Computes the MCMC via `computeMCMC` and uses it to determine the limit.
+  ## Additionally makes a plot of the data.
+  let chainDf = ctx.computeMCMC(rnd, cands)
+  result = computeLimitFromMCMC(chainDf)
+  ctx.plotChain(cands, chainDf, result, computeIntegral = false,
+                mcmcHistoOutfile = mcmcHistoOutfile, title = title,
+                as_gae_gaγ = as_gae_gaγ)
 
 proc candsInSens(ctx: Context, cands: seq[Candidate], cutoff = 0.5): int =
   var ctx = ctx
   # use a fixed g_ae² for the computation here
-  ctx.g_ae² = 8.1e-11^2
+  #ctx.g_ae² = 8.1e-11^2
+  ctx.coupling = 8.1e-11^2
   for c in cands:
     let sig = ctx.expectedSignal(c.energy, c.pos)
     if ln(1 + sig / ctx.background(c.energy, c.pos)) >= cutoff:
@@ -2211,13 +2252,19 @@ proc candsInSens(ctx: Context, cands: seq[Candidate], cutoff = 0.5): int =
 proc computeLimit(ctx: Context, rnd: var Random,
                   cands: seq[Candidate],
                   limitKind: LimitKind,
-                  toPlot: static bool = false): float =
+                  toPlot: static bool = false,
+                  mcmcHistoOutfile = "",
+                  title = "",
+                  as_gae_gaγ = false): float =
   #{.cast(gcsafe).}:
   case limitKind
   of lkBayesScan:
     result = ctx.bayesLimit(cands, toPlot = toPlot)
   of lkMCMC:
-    result = ctx.computeMCMCLimit(rnd, cands)
+    result = ctx.computeMCMCLimit(rnd, cands,
+                                  mcmcHistoOutfile = mcmcHistoOutfile,
+                                  title = title,
+                                  as_gae_gaγ = as_gae_gaγ)
   else:
     doAssert false, "Unsupported limit calculation type"
 
@@ -2380,6 +2427,78 @@ proc monteCarloLimits(ctx: Context, rnd: var Random, limitKind: LimitKind,
     ctx.plotMCLimitHistogram(limits, candsInSens, limitKind, nmc,
                              limitNoSignal = limitNoSignal, expLimit = result)
 
+proc toCandidates(df: DataFrame): seq[Candidate] =
+  ## Converts the given DataFrame, which contains the real candidates into
+  ## a `seq[Candidate]`
+  let xs = df["centerX", float]
+  let ys = df["centerY", float]
+  let Es = df["Energy", float]
+  result = newSeq[Candidate](xs.size)
+  for i in 0 ..< result.len:
+    result[i] = Candidate(energy: Es[i].keV, pos: (x: xs[i], y: ys[i]))
+
+const RealLimitPath = "/home/basti/org/Figs/statusAndProgress/trackingCandidates"
+proc plotCandsSigOverBack(ctx: Context, log: Logger, cands: seq[Candidate], outfile, title: string)
+proc computeRealLimit(ctx: Context, rnd: var Random, limitKind: LimitKind) =
+  ## Given the `tracking` files in `ctx` compute the real limit associated and make
+  ## multiple plots to showcase the candidate information and the limit.
+  var log = newFileLogger("real_candidates_limit.log", fmtStr = "[$date - $time] - $levelname: ")
+  var L = newConsoleLogger()
+  addHandler(L)
+  addHandler(log)
+
+  log.infos("Calculation of the real limit"):
+    &"Input tracking files: {ctx.tracking}"
+    &"Number of candidates: {ctx.trackingDf.len}"
+    &"Total tracking time: {ctx.totalTrackingTime}"
+  echo ctx.tracking
+  echo ctx.trackingDf
+  echo ctx.totalTrackingTime
+
+  let cands = ctx.trackingDf.toCandidates()
+  #echo cands
+  const outfile = RealLimitPath / "real_candidates_signal_over_background.pdf"
+
+  log.info(&"Number of candidates in sensitive region ln(1 + s/b) > 0.5 (=cutoff): {ctx.candsInSens(cands)}")
+  ctx.plotCandsSigOverBack(log, cands, outfile,
+                           "ln(1 + s/b) for the real candidates. " &
+                           &"g_ae = {sqrt(ctx.coupling)}, g_aγ = {sqrt(ctx.g_aγ²)}")
+
+  ## Here we manually compute the MCMC etc instead of using `computeLimit` to have the
+  ## entire MCMC on hand for further plots.
+  var chainDf = ctx.computeMCMC(rnd, cands)
+  let limit = computeLimitFromMCMC(chainDf, "gs") # limit from `g_ae²` directly
+  ## Now we will add a few columns to the MCMC DF to compute the limits via
+  ## other methods. It's a simple sanity check to see that in our case the
+  ## limit does not depend on `g_ae²`, `g_ae·g_aγ`, `g_ae²·g_aγ²` or whatever
+  ## we sample with. This is expected of course, because transforming between
+  ## them is a monotonic transformation and our limit is computed by getting
+  ## a specific quantile, which of course does not change by transforming monotonically!
+  chainDf = chainDf.mutate(f{"g_ae²·g_aγ²" ~ `gs` * ctx.g_aγ²},
+                           f{"g_ae·g_aγ" ~ sqrt(`gs` * ctx.g_aγ²)})
+  let limitG4 = computeLimitFromMCMC(chainDf, "g_ae²·g_aγ²")
+  let limitG2FromG4 = sqrt(limitG4)
+  let limitG2 = computeLimitFromMCMC(chainDf, "g_ae·g_aγ")
+
+  log.info(&"Real limit based on 3 150k long MCMCs: g_ae² = {limit}, g_ae·g_aγ = {sqrt(limit * ctx.g_aγ²)}")
+  log.info(&"Limits based on transformed data (sanity check; expectation: same limit due to monotonic " &
+    "transformation that does not change the quantiles.")
+  log.info(&"Limit g_ae²              = {limit}")
+  log.info(&"Limit g_ae²·g_aγ²        = {limitG4}")
+  log.info(&"Limit g_ae·g_aγ (via g⁴) = {limitG2FromG4}")
+  log.info(&"Limit g_ae·g_aγ (direct) = {limitG2}")
+
+  const likelihoodHisto = "/home/basti/org/Figs/statusAndProgress/trackingCandidates/mcmc_real_limit_likelihood"
+  ctx.plotChain(cands, chainDf, limit, computeIntegral = false,
+                mcmcHistoOutfile = likelihoodHisto & "_g_ae_gag.pdf",
+                title = "Likelihood of real candidates against g_ae·g_aγ",
+                as_gae_gaγ = true)
+  ctx.plotChain(cands, chainDf, limit, computeIntegral = true,
+                mcmcHistoOutfile = likelihoodHisto & "_g_ae2.pdf",
+                title = "Likelihood of real candidates against g_ae²",
+                as_gae_gaγ = false)
+
+
 
 when false:
   #import weave
@@ -2465,6 +2584,8 @@ when false:
       ctx.σsb_back = σ_b
       let res = ctx.monteCarloLimits(rnd, limitKind, nmc = 50)
       result.add (σ_s, σ_b, res)
+
+
 
 when false:
   #import weave
@@ -2618,7 +2739,8 @@ proc plotSignalOverBackground(ctx: Context, log: Logger, outfile: string) =
   ## creates a plot of the signal over background for each pixel on the chip.
   ## Uses a limit of 8.1e-23
   var ctx = ctx
-  ctx.g_ae² = 8.1e-11 * 8.1e-11
+  #ctx.g_ae² = 8.1e-11 * 8.1e-11
+  ctx.coupling = 8.1e-11 * 8.1e-11
   var xs = newSeq[float](256 * 256)
   var ys = newSeq[float](256 * 256)
   var sb = newSeq[float](256 * 256)
@@ -2662,7 +2784,8 @@ proc integrateSignalOverImage(ctx: Context, log: Logger) =
   ## integrate the signal contribution over the whole image to see if we recover
   ## the ~O(10) axion induced signals
   var ctx = ctx
-  ctx.g_ae² = 8.1e-11^2
+  #ctx.g_ae² = 8.1e-11^2
+  ctx.coupling = 8.1e-11^2
 
   log.infoHeader("Integrate signal over full chip")
   # flush the logger file to not duplicate output when logger called in multiproccessing context
@@ -2744,7 +2867,8 @@ proc plotSignalAtEnergy(ctx: Context, log: Logger, energy: keV, title, outfile: 
   ## Generate a plot of the signal component in units of `keV⁻¹•cm⁻²•s⁻¹` at the specified
   ## energy using a coupling constant of `g_ae = 8.1e-11`.
   var ctx = ctx
-  ctx.g_ae² = 8.1e-11^2
+  #ctx.g_ae² = 8.1e-11^2
+  ctx.coupling = 8.1e-11^2
   var xs = newSeqOfCap[int](256*256)
   var ys = newSeqOfCap[int](256*256)
   var zs = newSeqOfCap[float](256*256)
@@ -2935,7 +3059,8 @@ proc plotCandsSigOverBack(ctx: Context, log: Logger, cands: seq[Candidate], outf
   ## for each candidate (at g_ae = 8.1e-11, g_aγ = 1e-12 GeV⁻¹)
   var ctx = ctx
   # use a fixed g_ae² for the computation here
-  ctx.g_ae² = 8.1e-11^2
+  #ctx.g_ae² = 8.1e-11^2
+  ctx.coupling = 8.1e-11^2
   var sb = newSeq[float]()
   for c in cands:
     let sig = ctx.expectedSignal(c.energy, c.pos)
@@ -3012,7 +3137,8 @@ proc sanityCheckDetectionEff(ctx: Context, log: Logger) =
     &"Average detection efficiency (0.5-4 keV) = {averageEffto4}"
 
   const coupling = 8.1e-11
-  ctx.g_ae² = coupling * coupling
+  #ctx.g_ae² = coupling * coupling
+  ctx.coupling = coupling * coupling
   let df = toDf({ "Energy [keV]" : energies,
                   "Efficiency [%]" : eff,
                   "Axion flux [keV⁻¹]" : energies.mapIt(ctx.axionFlux(it.keV).float) })
@@ -3322,7 +3448,7 @@ proc sanityCheckLikelihoodNoSystematics(ctx: Context, log: Logger) =
       cands,
       SanityPath / "candidates_signal_over_background_few_sens.pdf",
       "ln(1 + s/b) for case with <= 1 candidates in sens. region. " &
-        &"g_ae = {sqrt(ctx.g_ae²)}, g_aγ = {sqrt(ctx.g_aγ²)} (no systematics)"
+        &"g_ae = {sqrt(ctx.coupling)}, g_aγ = {sqrt(ctx.g_aγ²)} (no systematics)"
     )
     # 2c. likelihood scan w/ set of candidates (few in signal region)
     ctx.plotCandsLikelihood(
@@ -3346,7 +3472,7 @@ proc sanityCheckLikelihoodNoSystematics(ctx: Context, log: Logger) =
       cands,
       SanityPath / "candidates_signal_over_background_many_sens.pdf",
       "ln(1 + s/b) for case with > 4 candidates in sens. region. " &
-        &"g_ae = {sqrt(ctx.g_ae²)}, g_aγ = {sqrt(ctx.g_aγ²)} (no systematics)"
+        &"g_ae = {sqrt(ctx.coupling)}, g_aγ = {sqrt(ctx.g_aγ²)} (no systematics)"
     )
     # 3c. likelihood scan w/ set of candidates (few in signal region)
     ctx.plotCandsLikelihood(
@@ -3643,7 +3769,7 @@ proc calcSigBack(ctx: Context, rnd: var Random, log: Logger, cands: seq[Candidat
         geom_line(size = 0.5) + geom_point(size = 1.0, alpha = 0.1) +
         ggsave(SanityPath / &"mcmc_lines_thetas_sb_sigma_{σ}_{suffix}.png", width = 2400, height = 2000)
       # also plot L against θb
-      ctx.g_ae² = 8.1e-11 * 8.1e-11
+      ctx.coupling = 8.1e-11 * 8.1e-11
       plotLikelihoodCurves(ctx, cands, SanityPath / &"likelihood_sigma_{σ}_{suffix}")
     dfMCMC.add dfMLoc
   plotCompareSystLikelihood(
@@ -3689,7 +3815,7 @@ proc calcPosition(ctx: Context, rnd: var Random, log: Logger, cands: seq[Candida
         geom_line(size = 0.5) + geom_point(size = 1.0, alpha = 0.1) +
         ggsave(SanityPath / &"mcmc_lines_thetas_xy_sigma_{σ}_{suffix}.png", width = 2400, height = 2000)
       # also plot L against θb
-      ctx.g_ae² = 8.1e-11 * 8.1e-11
+      ctx.coupling = 8.1e-11 * 8.1e-11
       plotLikelihoodCurves(ctx, cands, SanityPath / &"likelihood_sigma_{σ}_{suffix}")
 
     dfMCMC.add dfMLoc
@@ -3734,7 +3860,7 @@ proc calcRealSystematics(ctx: Context, rnd: var Random, log: Logger,
     ggsave(SanityPath / &"mcmc_lines_thetas_xy_real_syst_{suffix}.png", width = 2400, height = 2000)
 
   # also plot L against θb
-  ctx.g_ae² = 8.1e-11 * 8.1e-11
+  ctx.coupling = 8.1e-11 * 8.1e-11
   plotLikelihoodCurves(ctx, cands, SanityPath / &"likelihood_real_syst_{suffix}")
 
   plotCompareSystLikelihood(
@@ -3916,7 +4042,7 @@ proc sanity(
 
   let useConstantBackground = false
   var ctx = initContext(
-    path, backFiles, useConstantBackground = useConstantBackground,
+    path, backFiles, @[], useConstantBackground = useConstantBackground,
     radius = radius, sigma = σ, energyRange = energyRange,
     backgroundTime = backgroundTime, trackingTime = trackingTime,
     axionModel = axionModel, axionImage = axionImage,
@@ -3991,8 +4117,15 @@ proc sanity(
 
   # 11. anything else?
 
+proc readYearFiles(years: seq[int], files: seq[string]): seq[(int, string)] =
+  doAssert files.len == years.len, "Every file must be given an associated year!"
+  result = newSeq[(int, string)]()
+  for i in 0 ..< files.len:
+    result.add (years[i], files[i])
+
 proc limit(
     files: seq[string] = @[],
+    tracking: seq[string] = @[], # H5 files containing real tracking candidates!
     years: seq[int] = @[],
     path = "/home/basti/CastData/ExternCode/TimepixAnalysis/resources/LikelihoodFiles/",
     axionModel = "/home/basti/CastData/ExternCode/AxionElectronLimit/axion_diff_flux_gae_1e-13_gagamma_1e-12.csv",
@@ -4028,13 +4161,11 @@ proc limit(
                 @[(2017, "lhood_2017_all_chip_septem_dbscan.h5"),
                   (2018, "lhood_2018_all_chip_septem_dbscan.h5")]
               else:
-                doAssert files.len == years.len, "Every file must be given an associated year!"
-                var f = newSeq[(int, string)]()
-                for i in 0 ..< files.len:
-                  f.add (years[i], files[i])
-                f
+                readYearFiles(years, files)
+  let tracking = readYearFiles(years, tracking)
+
   var ctx = initContext(
-    path, files, useConstantBackground = useConstantBackground,
+    path, files, tracking, useConstantBackground = useConstantBackground,
     radius = radius, sigma = σ, energyRange = energyRange,
     backgroundTime = backgroundTime, trackingTime = trackingTime,
     axionModel = axionModel, axionImage = axionImage,
@@ -4056,10 +4187,14 @@ proc limit(
 
   let cands = drawCandidates(ctx, rnd, toPlot = true)
   plotCandidates(cands)
-  ctx.g_ae² = 1e-10 * 1e-10 #limit
+  ctx.coupling = 1e-10 * 1e-10 #limit
   ## XXX: differentiate serial or parallel limits
   if computeLimit:
     echo ctx.monteCarloLimits(rnd, limitKind, nmc = nmc)
+    return
+
+  if tracking.len > 0:
+    ctx.computeRealLimit(rnd, limitKind)
     return
   if plotFile.len > 0:
     echo "NOTE: Make sure the input parameters match the parameters used to generate the file ", plotFile

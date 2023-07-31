@@ -143,7 +143,7 @@ proc histogram(df: DataFrame): DataFrame =
   ## Calculates the histogam of the energy data in the `df` and returns
   ## a histogram of the binned data
   ## TODO: allow to do this by combining different `File` values
-  let (hist, bins) = histogram(df[Ecol].toTensor(float).toRawSeq,
+  let (hist, bins) = histogram(df[Ecol].toTensor(float).toSeq1D,
                                range = (0.0, 20.0), bins = 100)
   result = toDf({ Ecol : bins, Ccol : concat(hist, @[0]) })
 
@@ -232,13 +232,13 @@ proc calcIntegratedBackgroundRate(df: DataFrame, factor: float,
   let df = df.filter(f{float: `Energy` >= energyRange.a and `Energy` <= energyRange.b})
   let energies = df[Ecol].toTensor(float)
   let rate = df[Rcol].toTensor(float)
-  result = trapz(rate.toRawSeq, energies.toRawSeq) / factor
+  result = trapz(rate.toSeq1D, energies.toSeq1D) / factor
 
 proc computeMedianBools(df: DataFrame): DataFrame =
   var df = df
   var medianNames = newSeq[string]()
   proc computeMedianBool(dset: string) =
-    let medianVal = df[dset, float].toRawSeq.median(50)
+    let medianVal = df[dset, float].toSeq1D.median(50)
     let nameStr = $dset & "<" & $dset & "_median"
     medianNames.add nameStr
     df = df.mutate(f{float -> bool: nameStr ~ df[dset][idx] < medianVal})

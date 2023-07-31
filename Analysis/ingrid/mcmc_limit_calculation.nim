@@ -1119,7 +1119,7 @@ proc detectionEfficiency(ctx: Context, energy: keV, pos: tuple[x, y: float]): cm
 func conversionProbability(ctx: Context): UnitLess =
   ## the conversion probability in the CAST magnet (depends on g_aγ)
   ## simplified vacuum conversion prob. for small masses
-  const B = 9.0.T
+  const B = 8.8.T #9.0.T
   const L = 9.26.m
   ## `Context` contains the product. Keep unit of GeV⁻¹ in `pow` for conversion, but value outside, multiply the square.
   result = ctx.g_aγ² * (1.GeV⁻¹ * B.toNaturalUnit * L.toNaturalUnit / 2.0)^2

@@ -397,6 +397,7 @@ proc genGainDiffusionEvent(rnd: var Rand, gain: GainInfo,
                     893.4812944899318] # Run-3
   let cutoff = cutoffs[1] * 1.15
 
+  ## XXX: for the time being we simply always accept any ToT value above cutoff!
   let actSampler = (proc(rnd: var Rand, x: float): bool =
                       let activateThreshold = expShift(x, gainToUse, cutoff, 0.3)
                       result = x > cutoff # and rnd.rand(1.0) < activateThreshold

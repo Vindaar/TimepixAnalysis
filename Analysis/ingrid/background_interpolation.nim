@@ -5,7 +5,7 @@ import numericalnim except linspace
 from seqmath import gauss, linspace
 #from ingrid / tos_helpers import geometry
 
-const TrackingBackgroundRatio* = 19.605 ## TODO: replace by actual time!!
+const TrackingBackgroundRatio* = 19.75 ## TODO: replace by actual time!!
 const EnergyCutoff* = 12.0
 
 proc toKDE*(df: DataFrame,

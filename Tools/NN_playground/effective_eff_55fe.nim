@@ -276,10 +276,11 @@ proc handleFakeData(ctx: LikelihoodContext, rnd: var Rand, fname: string, typ: s
   ## Override `nFake`
   var fakeDesc = fakeDesc
   fakeDesc.nFake = nmc
-  var data = generateFakeData(ctx, rnd, h5f,
+  var data = generateFakeData(rnd, h5f,
                               fakeDesc = fakeDesc,
                               run = run,
-                              useCache = true)
+                              useCache = true,
+                              ctx = ctx)
     .cutXrayCleaning(fakeDesc.tfKind)
 
   result = data

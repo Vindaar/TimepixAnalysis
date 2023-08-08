@@ -888,28 +888,50 @@ proc getFileInfo*(fname: string): FileInfo =
   withH5(fname, "r"):
     result = getFileInfo(h5f)
 
-proc parseTracking(grp: H5Group, idx: int): RunTimeInfo =
+proc parseTracking(h5f: H5File, grp: H5Group, idx: int): RunTimeInfo =
+  const date_syntax = getDateSyntax()
   let
     start = grp.attrs[&"tracking_start_{idx}", string]
     stop = grp.attrs[&"tracking_stop_{idx}", string]
-  result = RunTimeInfo(t_start: start.parseTime("yyyy-MM-dd\'T\'HH:mm:sszzz", utc()),
-                       t_end: stop.parseTime("yyyy-MM-dd\'T\'HH:mm:sszzz", utc()))
+  result = RunTimeInfo(t_start: start.parse(date_syntax).toTime,
+                       t_end: stop.parse(date_syntax).toTime)
   # t_end for a tracking does not take into account length of an event, as it is decoupled
   # from actual events
   result.t_length = result.t_end - result.t_start
+  result.indices = h5f.getTrackingEvents(grp, idx)
+  result.durations = h5f[grp.name / "eventDuration", result.indices, float]
 
 proc `*`(d: Duration, f: float): Duration =
   result = initDuration(
     microSeconds = (d.inMicroSeconds().float * f).round.int
   )
 
+proc determineDeadTime(h5f: H5File, run: int, basePath: string): float =
+  ## In one run, 89, of the Run-2 CAST Septemboard dataset, there is a time interval
+  ## of about 10.3 hours from the evening of 2017/11/12 to the morning of 2017/11/13
+  ## in which the terminal running the TOS process was paused.
+  ## While we could manually reduce the time, we'll instead remove time when there
+  ## is a large difference between two timestamps in a given run.
+  let tstamps = h5f[basePath & $run / "timestamp", int]
+  var t = tstamps[0]
+  for i in 1 ..< tstamps.len:
+    if tstamps[i] - t > 7200: # 2 hours catches our problematic case & ignores cases of
+                              # DST switching that is unfortuantely also present in two runs
+                              # of TOS (180 and 182) due to some funky stuff.
+      result += (tstamps[i] - t).float
+    t = tstamps[i]
+
+proc secondsAsDuration(s: float): Duration =
+  result = initDuration(microseconds = (s * 1e6).round.int)
+
 proc getExtendedRunInfo*(h5f: H5File, runNumber: int,
                          runType: RunTypeKind,
-                         rfKind: RunFolderKind = rfNewTos): ExtendedRunInfo =
+                         rfKind: RunFolderKind = rfNewTos,
+                         basePath = recoBase()): ExtendedRunInfo =
   ## reads the extended run info from a H5 file for `runNumber`
   result.runNumber = runNumber
   let
-    grp = h5f[(recoBase() & $runNumber).grp_str]
+    grp = h5f[(basePath & $runNumber).grp_str]
     tstamp = h5f[grp.name / "timestamp", int64]
     evDuration = h5f[grp.name / "eventDuration", float64]
     nEvents = h5f[(grp.name / "eventNumber").dset_str].shape[0]
@@ -922,7 +944,9 @@ proc getExtendedRunInfo*(h5f: H5File, runNumber: int,
   result.nFadcEvents = nFadcEvents
   var tInfo = RunTimeInfo(t_start: tstamp[0].fromUnix,
                           t_end: (tstamp[^1].float + evDuration[^1]).fromUnixFloat) # end is last tstamp + duration of that event!
-  tInfo.t_length = tInfo.t_end - tInfo.t_start
+  let deadTime = determineDeadTime(h5f, runNumber, basePath)
+
+  tInfo.t_length = tInfo.t_end - tInfo.t_start # - deadTime.secondsAsDuration()
   result.timeInfo = tInfo
   result.totalTime = tInfo.t_length
   result.activeRatio = result.activeTime.inSeconds.float / result.totalTime.inSeconds.float
@@ -934,12 +958,12 @@ proc getExtendedRunInfo*(h5f: H5File, runNumber: int,
   if "num_trackings" in grp.attrs:
     numTracking = grp.attrs["num_trackings", int]
   for i in 0 ..< numTracking:
-    let tracking = parseTracking(grp, i)
+    let tracking = h5f.parseTracking(grp, i)
     result.trackings.add tracking
     trackingDuration = trackingDuration + tracking.t_length
 
   result.trackingDuration = trackingDuration
-  result.activeTrackingTime = result.trackingDuration * result.activeRatio
+  result.activeTrackingTime = secondsAsDuration(result.trackings.mapIt(it.durations.sum).sum) ## Total sum of all event durations during tracking
   result.nonTrackingDuration = result.timeInfo.t_length - result.trackingDuration
   result.activeNonTrackingTime = result.nonTrackingDuration * result.activeRatio
 

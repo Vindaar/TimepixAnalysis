@@ -137,6 +137,9 @@ when not defined(js):
       t_start*: Time
       t_end*: Time
       t_length*: Duration # total duration of the run / tracking, from first to last event!
+      indices*: seq[int] # The indices corresponding to this run/tracking. If it is a tracking
+                         # it will contain the indices of all events in the tracking.
+      durations*: seq[float] # Durations of the corresponding indices in seconds
 
     # an object which stores general information about a run
     RunInfo* = object

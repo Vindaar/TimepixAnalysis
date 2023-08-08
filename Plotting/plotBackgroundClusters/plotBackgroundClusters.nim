@@ -151,14 +151,12 @@ proc readClusters(file: string, cTab: var ClusterTable,
       if   energyMin > 0.0 and cE < energyMin: continue
       elif energyMax > 0.0 and cE > energyMax: continue
 
-      let (pX, pY) = (cX.toPixel, cY.toPixel)
       #echo (pX, pY) in noisyPixels, " pos ", (pX, pY)
       let pos = (cX.toPixel, cY.toPixel)
-
       if pos notin cTab:
         cTab[pos] = newSeq[float]()
 
-      if filterNoisyPixels and (pX, pY) notin noisyPixels:
+      if filterNoisyPixels and pos notin noisyPixels:
         cTab[pos].add ce
       elif not filterNoisyPixels:
         cTab[pos].add ce

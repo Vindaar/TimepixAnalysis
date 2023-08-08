@@ -295,6 +295,10 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
                         energyMin, energyMax: float,
                         logPlot: bool) =
   var df = df # mutable copy
+  if logPlot:
+    # make sure to remove 0 entries if we do a log plot
+    df = df.filter(f{idx(Rcol) > 0.0})
+
   var titleSuff = if title.len > 0: title
                   elif show2014:
                     "Background rate of Run 2 & 3 (2017/18) compared to 2014/15"
@@ -304,7 +308,7 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
   let fname = if outfile.len > 0: outpath / outfile
               else: &"{outpath}/background_rate_{fnameSuffix}.pdf"
   log(true): # always write this!
-    df
+    df.pretty(-1, precision = 8)
     &"INFO: storing plot in {fname}"
   var plt: GgPlot
   let numDsets = df.unique("Dataset").len
@@ -313,9 +317,6 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
   ##if showNumClusters:
   ##  titleSuff.add &" #clusters={}"
 
-  if logPlot:
-    # make sure to remove 0 entries if we do a log plot
-    df = df.filter(f{idx(Rcol) > 0.0})
 
   if showTotalTime:
     if numDsets > 1:

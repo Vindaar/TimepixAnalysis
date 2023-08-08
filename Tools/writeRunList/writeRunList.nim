@@ -55,10 +55,10 @@ func determineType(runInfo: RunInfo): RunTypeKind =
     result = rtNone
 
 proc createRunList(fname: string, runType: RunTypeKind): RunList =
-  var h5f = H5open(fname, "r")
-  let fInfo = getFileInfo(h5f)
-  for r in fInfo.runs:
-    result.add getExtendedRunInfo(h5f, r, runType)
+  withH5(fname, "r"):
+    let fInfo = getFileInfo(h5f)
+    for r in fInfo.runs:
+      result.add getExtendedRunInfo(h5f, r, runType)
 
 proc `<`(a, b: ExtendedRunInfo): bool =
   result = a.timeInfo.t_start < b.timeInfo.t_start
@@ -99,11 +99,16 @@ proc writeSummary(runs: RunList, runType: RunTypeKind) =
   var activeNonTrackingTime = initDuration()
   var totalTime = initDuration()
   var activeTime = initDuration()
+  var activeFromIndices = initDuration()
   for r in runs:
     trackingDuration += r.trackingDuration
     nonTrackingDuration += r.nonTrackingDuration
     activeTrackingTime += r.activeTrackingTime
     activeNonTrackingTime += r.activeNonTrackingTime
+    echo "Run: ", r.runNumber, " activeTrackingTime = ", r.activeTrackingTime.inSeconds(), " compare tracking: ", r.trackingDuration.inSeconds()
+    for i, tr in r.trackings:
+      echo "Tracking: ", i, " duration from eventDuration = ", tr.durations.sum
+      activeFromIndices += initDuration(microseconds = (tr.durations.sum * 1e6).round.int)
     totalTime += r.totalTime
     activeTime += r.activeTime
 
@@ -117,12 +122,14 @@ proc writeSummary(runs: RunList, runType: RunTypeKind) =
   echo "\t trackingDuration: ", trackingDuration
   echo "\t   In hours: ", trackingDuration.asHours()
   echo "\t   active tracking duration: ", activeTrackingTime.asHours()
+  echo "\t   active tracking duration from event durations: ", activeFromIndices.asHours()
   echo "\t nonTrackingDuration: ", nonTrackingDuration
   echo "\t   In hours: ", nonTrackingDuration.asHours()
   echo "\t   active background duration: ", activeNonTrackingTime.asHours()
   let df = toDf({ "Solar tracking [h]" : trackingDuration.asHours(),
                   "Background [h]" : nonTrackingDuration.asHours(),
                   "Active tracking [h]" : activeTrackingTime.asHours(),
+                  "Active tracking (eventDuration) [h]" : activeFromIndices.asHours(),
                   "Active background [h]" : activeNonTrackingTime.asHours(),
                   "Total time [h]" : totalTime.asHours(),
                   "Active time [h]" : activeTime.asHours() })

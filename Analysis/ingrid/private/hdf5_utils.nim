@@ -847,6 +847,8 @@ proc getFileInfo*(h5f: H5File): FileInfo =
   case result.tpaFileKind
   of tpkTpx3Raw:
     result.timepix = Timepix3
+    for runNumber, group in runs(h5f, data_basename = baseGroup.string / "run_"):
+      result.runs.add runNumber
   of tpkCDL:
     result.timepix = Timepix1
     result.runType = rtCalibration # of a special kind...

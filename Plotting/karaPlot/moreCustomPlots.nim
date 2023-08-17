@@ -62,9 +62,10 @@ proc moreCustom(fileInfo: FileInfo, config: Config): seq[PlotDescriptor] =
           ch.add h5f.readVlen(fileInfo, r, "ToT", selector, chipNumber = pd.chip, dtype = uint16).flatten
 
         let dfP = toDf({"x" : x.mapIt(it.int), "y" : y.mapIt(it.int), "ch" : ch.mapIt(it.int)})
+        let outpath = fileDir ## Global in `plotData.nim`
         ggplot(dfP, aes("x", "y", color = "ch")) +
           geom_point() +
-          ggsave("/t/pixels_after_background_rate.pdf")
+          ggsave(&"{outpath}/pixels_after_background_rate.pdf")
         # now build set of pixels
         var pixTab = initCountTable[(uint8, uint8)]()
         var pixTotTab = initCountTable[string]() # string to later read easier

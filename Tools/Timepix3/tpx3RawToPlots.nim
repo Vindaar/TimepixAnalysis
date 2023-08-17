@@ -127,7 +127,7 @@ proc main(
     if energy or all:
       walkFiles(cfg.recoPrefix, ""):
         shell:
-          reconstruction -i ($inName) "--only_energy 26.0" ($cfgPath)
+          reconstruction -i ($inName) "--only_energy=26.0" ($cfgPath)
     if plot or all:
       var files = newSeq[string]()
       walkFiles(cfg.recoPrefix, ""):

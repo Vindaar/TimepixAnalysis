@@ -113,7 +113,7 @@ proc main(
     if tpx3 or all:
       walkFiles("", cfg.tpxPrefix):
         shell:
-          parse_raw_tpx3 -f ($fname) "-o" ($outname)
+          parse_raw_tpx3 -p ($fname) "-o" ($outname)
     let cfgPath = if cfg.rawRecoConfig.len > 0: "--config " & cfg.rawRecoConfig
                   else: ""
     if raw or all:

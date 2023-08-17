@@ -5,6 +5,8 @@ import ingrid / tos_helpers
 import ggplotnim
 import ggplotnim / [ggplot_vegatex]
 
+from ginger import transparent
+
 const docStr = """
 Given some Likelihood File (the output of the likelihood.nim), this script
 creates a heatmap of the cluster centers that still remain visible on the plot.
@@ -224,7 +226,8 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
                   colorBy: ColorBy,
                   energyText: bool,
                   energyTextRadius: float,
-                  suffix, title, outpath, axionImage: string) =
+                  suffix, title, outpath, axionImage: string,
+                  preliminary: bool) =
   let outpath = if outpath.len > 0: outpath else: "plots"
   var colorCol: string
   let totalEvs = df.len
@@ -277,6 +280,13 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
 
     # Add the main point geom
     plt = plt + geom_point(size = some(1.0))
+
+    if preliminary:
+      let red = color(1.0, 0.0, 0.0)
+      plt = plt + annotate("Preliminary",
+                           backgroundColor = transparent,
+                           x = 25, y = 70, rotate = 45.0,
+                           font = font(32.0, color = red))
 
     if not useTikZ:
       echo "[INFO]: Saving plot to ", fname
@@ -374,6 +384,7 @@ proc main(
   tiles = 7,
   outpath = "",
   axionImage = "", # "/home/basti/org/resources/axion_images/axion_image_2018_1487_93_0.989AU.csv"
+  preliminary = false
      ) =
 
   if energyText and colorBy == count:
@@ -395,7 +406,7 @@ proc main(
       dfLoc["Type"] = names[i]
       df.add dfLoc
 
-  plotClusters(df, names, useTikZ, zMax, colorBy, energyText, energyTextRadius, suffix, title, outpath, axionImage)
+  plotClusters(df, names, useTikZ, zMax, colorBy, energyText, energyTextRadius, suffix, title, outpath, axionImage, preliminary)
   # `df.len` is total number clusters
   plotSuppression(cTab.toCountTable(), df.len, tiles, outpath)
 

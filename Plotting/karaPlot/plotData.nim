@@ -2104,7 +2104,8 @@ proc handleToTPerPixel(h5f: H5File,
                                   dtype = uint16))
   # if tots longer than `10_000_000`, compute in batches
   const batchSize = 10_000_000
-  if tots.len > batchSize:
+  if true: # tots.len > batchSize: ## XXX: given that we want to compare plots, it's saner to always have the same
+           #                       ## code path. Otherwise we might have different data for different input files!
     var hist: seq[float]
     var bins: seq[float]
     for batch in 0 ..< (tots.len.float / batchSize).ceil.int:

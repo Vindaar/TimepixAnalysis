@@ -56,6 +56,7 @@ proc toName(path, prefix, suffix: string): string = path / prefix & suffix & ".h
 proc main(
   fnames: seq[string], names: seq[string] = @[],
   tpx3 = false, raw = false, reco = false, energy = false, plot = false,
+  plotFeSpec = false,
   outpath = "", config = "", runType = "rtCalibration",
   rawRecoConfig = "",
   plotDataSuffix = "",
@@ -132,21 +133,30 @@ proc main(
       walkFiles(cfg.recoPrefix, ""):
         shell:
           reconstruction -i ($inName) "--only_energy=26.0" ($cfgPath)
-    if plot or all:
+    if plot or plotFeSpec or all:
       var files = newSeq[string]()
       walkFiles(cfg.recoPrefix, ""):
         files.add inName
       let inf = files[0]
-      let cmps = files[1 .. ^1].mapIt("--h5Compare " & $it).join(" ")
-      let plotParams = cfg.plotDataSuffix
-      shell:
-        plotData --h5file ($inf) ($cmps) --runType ($runType) ($plotParams)
-      let plotParamsPerTime = cfg.plotDataSuffixPerTime
-      let splitPer = if splitPerSec > 0: "--splitPerSec " & $splitPerSec else: ""
-      shell:
-        plotData --h5file ($inf) ($cmps) --runType ($runType) ($plotParamsPerTime) ($splitPer)
+      var outpaths = newSeq[string]()
+      if plot or all:
+        let cmps = files[1 .. ^1].mapIt("--h5Compare " & $it).join(" ")
+        let plotParams = cfg.plotDataSuffix
+        let (res, err) = shellVerbose:
+          plotData --h5file ($inf) ($cmps) --runType ($runType) ($plotParams)
+        outpaths.add res.splitLines[^1]
+      if plotFeSpec or all:
+        let inf = files[0]
+        let plotParamsPerTime = cfg.plotDataSuffixPerTime
+        let splitPer = if splitPerSec > 0: "--splitPerSec " & $splitPerSec else: ""
+        let (res, err) = shellVerbose:
+          plotData --h5file ($inf) --runType ($runType) ($plotParamsPerTime) ($splitPer)
+        outpaths.add res.splitLines[^1]
 
-
+      if outpaths.len > 0:
+        echo "[INFO] Plots outpath paths:"
+      for p in outpaths:
+        echo "\t", p
 
 when isMainModule:
   dispatch(main, help = {

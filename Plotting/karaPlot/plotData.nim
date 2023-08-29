@@ -596,6 +596,48 @@ proc determineNumBatches(length: int, pd: PlotDescriptor): int =
       inc result
       useLastBatch = true
 
+proc readDsets*(h5f: H5File,
+                pd: PlotDescriptor,
+                fileInfo: FileInfo,
+                runNumber: int,
+                dsets: seq[string],
+                selector: DataSelector,
+                separateRuns: bool,
+                chipNumber = 0,
+                isFadc = false,
+                idx: seq[int] = @[]): DataFrame =
+  ## Reads multiple datasets `dsets` applying the filtering and potentially splitting them by
+  ## time intervals.
+  ## Need: actual dset, timestamp, joined by event number
+  var df = newDataFrame()
+  for dset in dsets:
+    let data = h5f.read(fileInfo, runNumber, dset, pd.selector, pd.chip, dtype = float, idx = idx)
+    df[dset] = data
+  if pd.splitBySec > 0:
+    df["eventNumber"] = h5f.read(fileInfo, runNumber, "eventNumber", pd.selector, pd.chip, dtype = int)
+    let path = fileInfo.dataPath(runNumber, chipNumber).string.parentDir
+    let evNum = h5f[path / "eventNumber", int]
+    let tstamp = h5f[path / "timestamp", int]
+    let dfEv = toDf({ "eventNumber" : evNum, "timestamp" : tstamp })
+    # merge them together by the event number so we have the timestamp
+    df = innerJoin(df, dfEv, by = "eventNumber")
+    # Now split them by `splitBySec` (assign run + index)
+    let tstampF = df["timestamp", float]
+    var batchIdx = newSeq[int](df.len)
+    var tStart = tstampF[0] # start of the current slice
+    var cur = 0
+    for i in 0 ..< tstampF.len: # go over filtered timestamps
+      if tstampF[i] - tStart >= pd.splitBySec.float:
+        inc cur # increas curent batch index
+        tStart = tstampF[i] # update starting timestamp
+      batchIdx[i] = cur
+    df["batch"] = batchIdx
+    df["runs"] = df["batch", int].map_inline($runNumber & "_" & $x)
+  elif separateRuns:
+    df["runs"] = runNumber
+  # else no runs column
+  result = df
+
 proc readVlen(h5f: H5File,
               fileInfo: FileInfo,
               runNumber: int,

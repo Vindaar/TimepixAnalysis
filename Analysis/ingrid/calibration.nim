@@ -575,129 +575,135 @@ proc deleteAllAttrStartingWith(dset: H5DataSet, start: string) =
       echo "Deleting ", key
       discard dset.deleteAttribute(key)
 
+proc gasGainDfAndCharges(h5f: H5File, group: string): (DataFrame, seq[seq[float]]) =
+  ## Reads the relevant fields to compute the indices participating in the gas gain
+  ## calculation, applies the cuts and returns the DF as well as the correct charge
+  ## values of all events passing the cuts.
+  ## The charge data is *not* flattened, as to allow extracting correct slices for the
+  ## gas gain slicing!
+  let df = h5f.readGasGainDf(group, @["centerX", "centerY", "rmsTransverse", "hits"])
+    .applyGasGainCut()
+  let chargeDset = h5f[(group / "charge").dset_str]
+  let chFull = chargeDset.readVlen(float)
+  var ch = newSeq[seq[float]](df.len) # nested seq of all charge values
+  for i in 0 ..< df.len:
+    ch[i] = chFull[df["passIdx", i, int]] # extract passing event `i`
+  result = (df, ch)
+
+proc handleGasGainFullRun*(h5f: H5File,
+                           runNumber, chipNumber: int,
+                           bin_edges: seq[float], group, plotPath: string): seq[GasGainIntervalResult] =
+  let cutFormula = $getGasGainCutFormula()
+  let (df, chs) = h5f.gasGainDfAndCharges(group)
+  let (binned, fitResult) = gasGainHistoAndFit(chs.flatten, bin_edges, #totBins,
+                                                                       # chipName,
+                                               chipNumber, runNumber,
+                                               plotPath)
+  var grp = h5f[group.grp_str]
+  let runGroup = h5f[group.parentDir.grp_str]
+  let tstampDset = h5f[(group.parentDir / "timestamp").dset_str]
+  let tStart = if "runStart" in grp.attrs: grp.attrs["runStart", string].parseTOSDateString()
+               else: tstampDset[0, int].fromUnix()
+  let tStop = if "runStop" in grp.attrs: grp.attrs["runStop", string].parseTOSDateString()
+               else: tstampDset[tstampDset.shape[0],
+                                int].fromUnix()
+  let gasGainSingle = GasGainIntervalData(idx: 0, interval: 0.0, tStart: tStart.toUnix().int,
+                                          tStop: tStop.toUnix().int)
+  let ggRes = initGasGainIntervalResult(gasGainSingle, fitResult,
+                                        binned, bin_edges,
+                                        0 ..< df["passIdx", int].max,
+                                        0, runGroup.attrs["numEventsStored", int])
+  let chargeDset = h5f[(group / "charge").dset_str]
+  h5f.writePolyaDsets(grp, chargeDset, binned, bin_edges, fitResult, cutFormula)
+  result = @[ggRes]
+
+  #h5f.writeGasGainSliceData(group, @[ggRes], cutFormula)
+  #
+  ## write gas gain slice attribute
+  #h5f.writeGasGainAttributes(group, sliceCount = 0, interval = 0)
+
+proc handleGasGainSlice*(h5f: H5File,
+                         runNumber, chipNumber: int,
+                         interval, minInterval: float,
+                         bin_edges: seq[float],
+                         group, plotPath: string): seq[GasGainIntervalResult] =
+  # read required data for gas gain cuts & to map clusters to timestamps
+  let cutFormula = $getGasGainCutFormula()
+  let (df, chs) = h5f.gasGainDfAndCharges(group)
+  var sliceCount = 0
+  for (gasGainInterval, slice) in iterGainSlices(df, interval, minInterval):
+    echo $gasGainInterval
+    let chSlice = chs[slice].flatten
+    let (binned, fitResult) = gasGainHistoAndFit(
+      chSlice, bin_edges, #totBins, # chipName,
+      chipNumber, runNumber,
+      plotPath,
+      gasGainInterval = some(gasGainInterval))
+
+    let grp = h5f[group.grp_str]
+    let chargeDset = h5f[(group / "charge").dset_str]
+    h5f.writePolyaDsets(grp, chargeDset, binned, bin_edges, fitResult,
+                        cutFormula, some(gasGainInterval))
+
+    result.add initGasGainIntervalResult(gasGainInterval, fitResult,
+                                         binned, bin_edges,
+                                         slice,
+                                         df["eventNumber", slice.a, int],
+                                         df["eventNumber", slice.b, int])
+    inc sliceCount
+
+proc calcGasGain*(h5f: H5File, grp: string,
+                  runNumber, chipNumber: int,
+                  fileInfo: FileInfo,
+                  fullRunGasGain: bool,
+                  interval, minInterval: float, plotPath: string) =
+  ## Handles gas gain calculation for `runNumber`, given by `grp` (different chips!)
+  const
+    hitLow = 2 # start at 2 to avoid noisy pixels w/ 1 hit
+    hitHigh = 302
+    binWidth = 3
+  let totBins = arange(hitLow, hitHigh, binWidth).mapIt(it.float + 0.5)
+
+  # now can start reading, get the group containing the data for this chip
+  var group = h5f[grp.grp_str]
+  let chipName = group.attrs["chipName", string]
+  let (a, b, c, t) = getTotCalibParameters(chipName, runNumber)
+  # get bin edges by calculating charge values for all TOT values at TOT's bin edges
+  let capacitance = fileInfo.timepix.getCapacitance()
+  let bin_edges = mapIt(totBins, calibrateCharge(it, capacitance, a, b, c, t))
+  block Cleanup: # delete old indices for intervals
+    let chargeDset = h5f[(grp / "charge").dset_str]
+    chargeDset.deleteAllAttrStartingWith("interval_")
+  # get all charge values as seq[seq[float]], ``then`` apply the `passIdx`
+  # and only flatten ``after`` that
+  var gasGainSliceData: seq[GasGainIntervalResult]
+  if not fullRunGasGain:
+    gasGainSliceData = h5f.handleGasGainSlice(runNumber, chipNumber,
+                                              interval, minInterval,
+                                              bin_edges, grp, plotPath)
+  else:
+    gasGainSliceData = h5f.handleGasGainFullRun(runNumber, chipNumber,
+                                                bin_edges, grp, plotPath)
+  # write gas gain slice data and attributes
+  let cutFormula = $getGasGainCutFormula()
+  h5f.writeGasGainSliceData(group, gasGainSliceData, cutFormula)
+  h5f.writeGasGainAttributes(group, gasGainSliceData.len, interval.round.int)
+
 proc calcGasGain*(h5f: H5File, runNumber: int,
                   interval, minInterval: float, fullRunGasGain: bool) =
   ## fits the polya distribution to the charge values and writes the
   ## fit parameters (including the gas gain) to the H5 file
   ## `interval` is the time interval width on which we apply the binning
   ## of each run in minutes
-  const
-    hitLow = 2 # start at 2 to avoid noisy pixels w/ 1 hit
-    hitHigh = 302
-    binWidth = 3
-  let totBins = arange(hitLow, hitHigh, binWidth).mapIt(it.float + 0.5)
   var chipBase = recoDataChipBase(runNumber)
   let plotPath = h5f.attrs[PlotDirPrefixAttr, string]
-
-  ## TODO:
-  ## - 1. make sure histogram works well with unequal bin widths (write test
-  ##      comparing the output using ToT and charge!
-  ##     DONE
-  ## - 2. compute bins needed for unequal from totBins and applying calibrateCharge
-  ##     DONE in test / above proc
-  ## - 3. use readDsets to read the totalCharge dataset and hits, divide one another
-  ##     cannot really do that, need individual pixel charge for more statistics
-
-  ## - have to filter by gas gain cuts
-  ## - need to merge timestamps and charge datasets (at least event number + indices)
-  ## -
-
-  ## TODO: make sure to delete all iterGainSlice attributes first? overwriting is super slow!
   # get the group from file
   info "Calulating gas gain for run: ", runNumber
   let fileInfo = h5f.getFileInfo()
   for run, chip, grp in chipGroups(h5f):
     if chipBase in grp:
-      # now can start reading, get the group containing the data for this chip
       doAssert run == runNumber
-      var group = h5f[grp.grp_str]
-      # get the chip number from the attributes of the group
-      let chipNumber = group.attrs["chipNumber", int]
-      doAssert chip == chipNumber
-      let chipName = group.attrs["chipName", string]
-      let (a, b, c, t) = getTotCalibParameters(chipName, runNumber)
-      # get bin edges by calculating charge values for all TOT values at TOT's bin edges
-      let capacitance = fileInfo.timepix.getCapacitance()
-      let bin_edges = mapIt(totBins, calibrateCharge(it, capacitance, a, b, c, t))
-      # get dataset of hits
-      let chargeDset = h5f[(grp / "charge").dset_str]
-      chargeDset.deleteAllAttrStartingWith("interval_")
-      # get all charge values as seq[seq[float]], ``then`` apply the `passIdx`
-      # and only flatten ``after`` that
-      let chFull = chargeDset.readVlen(float)
-      if not fullRunGasGain:
-        # read required data for gas gain cuts & to map clusters to timestamps
-        let cutFormula = $getGasGainCutFormula()
-        let df = h5f.readGasGainDf(grp, @["centerX", "centerY", "rmsTransverse", "hits"])
-          .applyGasGainCut()
-        let passIdx = df["passIdx"].toTensor(int).toRawSeq
-        let chs = passIdx.mapIt(chFull[it])
-
-        ## TODO
-        ## instead of returning sliced data.
-        ## - return only valid indices of the full dataset (a HSlice)
-        ## - keep passed indices around as a hashset
-        ## - walk hslice as a sequence, extract the data from the slice that is in
-        ##   passed seq set as the data we will use
-        ## CANNOT work, cause we end up with empty last sequence
-
-        ## alternative: we have to just use the timestamps from the attributes instead
-        ## and fill up the last timestamp to the end of the run
-        ## need iterator which is similar, but returns slices based on attributes
-        ## in gas gain calc have to add an attribute for the number of slices in total
-        ##
-
-        var sliceCount = 0
-        var gasGainSliceData: seq[GasGainIntervalResult]
-        for (gasGainInterval, slice) in iterGainSlices(df, interval, minInterval):
-          echo $gasGainInterval
-          let chSlice = chs[slice].flatten
-          let (binned, fitResult) = gasGainHistoAndFit(
-            chSlice, bin_edges, #totBins, # chipName,
-            chipNumber, runNumber,
-            plotPath,
-            gasGainInterval = some(gasGainInterval))
-
-          h5f.writePolyaDsets(group, chargeDset, binned, bin_edges, fitResult,
-                              cutFormula, some(gasGainInterval))
-
-          gasGainSliceData.add initGasGainIntervalResult(gasGainInterval, fitResult,
-                                                         binned, bin_edges,
-                                                         slice,
-                                                         df["eventNumber", slice.a, int],
-                                                         df["eventNumber", slice.b, int])
-          inc sliceCount
-
-        # write gas gain slice data and attributes
-        h5f.writeGasGainSliceData(group, gasGainSliceData, cutFormula)
-        h5f.writeGasGainAttributes(group, sliceCount, interval.round.int)
-      else:
-        let cutFormula = "No formula available, due to usage of `cutOnProperties`"
-        let passIdx = applyGasGainCut(h5f, group)
-        let chs = passIdx.mapIt(chFull[it]).flatten
-        let (binned, fitResult) = gasGainHistoAndFit(chs, bin_edges, #totBins,
-                                                                     # chipName,
-                                                     chipNumber, runNumber,
-                                                     plotPath)
-
-        let runGroup = h5f[group.name.parentDir.grp_str]
-        let tstampDset = h5f[(group.name.parentDir / "timestamp").dset_str]
-        let tStart = if "runStart" in group.attrs: group.attrs["runStart", string].parseTOSDateString()
-                     else: tstampDset[0, int].fromUnix()
-        let tStop = if "runStop" in group.attrs: group.attrs["runStop", string].parseTOSDateString()
-                     else: tstampDset[tstampDset.shape[0],
-                                      int].fromUnix()
-        let gasGainSingle = GasGainIntervalData(idx: 0, interval: 0.0, tStart: tStart.toUnix().int,
-                                                tStop: tStop.toUnix().int)
-        let ggRes = initGasGainIntervalResult(gasGainSingle, fitResult,
-                                              binned, bin_edges,
-                                              0 ..< passIdx.max,
-                                              0, runGroup.attrs["numEventsStored", int])
-        h5f.writePolyaDsets(group, chargeDset, binned, bin_edges, fitResult, cutFormula)
-        h5f.writeGasGainSliceData(group, @[ggRes], cutFormula)
-
-        # write gas gain slice attribute
-        h5f.writeGasGainAttributes(group, sliceCount = 0, interval = 0)
+      h5f.calcGasGain(grp, run, chip, fileInfo, fullRunGasGain, interval, minInterval, plotPath)
 
 proc writeFeFitParameters(dset: var H5DataSet,
                           popt, popt_E: seq[float],

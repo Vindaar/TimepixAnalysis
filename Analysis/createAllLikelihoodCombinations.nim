@@ -182,7 +182,7 @@ proc buildFilename(comb: Combination, outpath: string): string =
   result = result & ".h5"
 
 proc runCommand(comb: Combination, cdlFile, outpath: string,
-                cdlYear: int, dryRun: bool, readOnly: bool): int =
+                cdlYear: int, dryRun, readOnly, tracking: bool): int =
   let cfg = comb.settings
   let vetoStr = genVetoStr(cfg.vetoes, comb)
   let outfile = buildFilename(comb, outpath)
@@ -196,10 +196,11 @@ proc runCommand(comb: Combination, cdlFile, outpath: string,
   let sigPrefix = if comb.mlpPath.len > 0: "nnSignalEff" else: "signalEfficiency"
   let signalEff = if cfg.signalEff > 0.0: &"--{sigPrefix}={cfg.signalEff}" else: ""
   let eccCutoff = if cfg.eccentricityCutoff > 1.0: &"--eccLineVetoCut={cfg.eccentricityCutoff}" else: ""
+  let trackingStr = if tracking: "--tracking" else: ""
   let fname = comb.fname
   if not dryRun:
     let (res, err) = shellVerbose:
-      "likelihood -f" ($fname) "--h5out" ($outfile) ($regionStr) ($cdlYear) ($vetoStr) ($cdlFile) ($readOnly) ($calibFile) ($vetoPerc) ($signalEff) ($eccCutoff)
+      "likelihood -f" ($fname) "--h5out" ($outfile) ($regionStr) ($cdlYear) ($vetoStr) ($cdlFile) ($readOnly) ($calibFile) ($vetoPerc) ($signalEff) ($eccCutoff) ($trackingStr)
     # first write log file
     let logOutput = outfile.extractFilename.replace(".h5", ".log")
     writeFile(&"{outpath}/{logOutput}", res)
@@ -209,7 +210,7 @@ proc runCommand(comb: Combination, cdlFile, outpath: string,
     result = err
   else:
     shellEcho:
-      "likelihood -f" ($fname) "--h5out" ($outfile) ($regionStr) ($cdlYear) ($vetoStr) ($cdlFile) ($readOnly) ($calibFile) ($vetoPerc) ($signalEff) ($eccCutoff)
+      "likelihood -f" ($fname) "--h5out" ($outfile) ($regionStr) ($cdlYear) ($vetoStr) ($cdlFile) ($readOnly) ($calibFile) ($vetoPerc) ($signalEff) ($eccCutoff) ($trackingStr)
 
 type
   InputData = object
@@ -262,7 +263,8 @@ proc main(f2017, f2018: string = "", # paths to the Run-2 and Run-3 data files
           fadcVetoPercentiles: seq[float] = @[],
           signalEfficiency: seq[float] = @[],
           eccentricityCutoff: seq[float] = @[],
-          jobs = 8
+          jobs = 8,
+          tracking = false,
          ) =
   if vetoSets.anyIt(fkFadc in it) and ( # stop if FADC veto used but calibration file missing
      (f2017.len > 0 and c2017.len == 0) or
@@ -277,7 +279,7 @@ proc main(f2017, f2018: string = "", # paths to the Run-2 and Run-3 data files
     for comb in genCombinations(f2017, f2018, c2017, c2018, regions, mlpPaths, signalEfficiency, vetoSets, fadcVetoPercentiles, eccentricityCutoff):
       var err = -1
       while err != 0:
-        err = runCommand(comb, cdlFile, outpath, cdlYear, dryRun, readOnly = false)
+        err = runCommand(comb, cdlFile, outpath, cdlYear, dryRun, readOnly = false, tracking = tracking)
         if err != 0:
           let errMsg = "[ERROR] The command `{cmd}` failed. Retrying now."
           errors.add errMsg
@@ -312,7 +314,7 @@ proc main(f2017, f2018: string = "", # paths to the Run-2 and Run-3 data files
             var err = -1
             while err != 0:
               let comb = cmd.toCombination()
-              err = runCommand(comb, cdlFile, outpath, cdlYear, dryRun, readOnly = true)
+              err = runCommand(comb, cdlFile, outpath, cdlYear, dryRun, readOnly = true, tracking = tracking)
               if err != 0:
                 let errMsg = "[ERROR] The command `{cmd}` failed. Retrying now."
                 errors.add errMsg

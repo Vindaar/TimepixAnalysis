@@ -13,6 +13,7 @@ type
     outpath: string    # outpath for the currently processed file
     fileSuffix: string # suffix for the currently processed file
     plotDataSuffix: string # suffix controlling which plots to create etc
+    plotDataSuffixPerTime: string
 
 const SourcePath = currentSourcePath().parentDir
 
@@ -33,12 +34,14 @@ proc readConfig(path: string, outpath = "", rawRecoConfig = "", plotDataSuffix =
   let recoCfg = if rawRecoConfig.len > 0: rawRecoConfig else: cfg["General"]["rawRecoConfigFile"].getStr
   let plotSuffix = if plotDataSuffix.len > 0: plotDataSuffix
                    else: cfg["General"]["plotDataSuffix"].getStr
+  let plotSuffixPerTime = cfg["General"]["plotDataSuffixPerTime"].getStr
   result = Config(tpxPrefix: cfg["General"]["tpx3Prefix"].getStr,
                   rawPrefix: cfg["General"]["rawPrefix"].getStr,
                   recoPrefix: cfg["General"]["recoPrefix"].getStr,
                   outpath: outpath,
                   rawRecoConfig: recoCfg,
-                  plotDataSuffix: plotSuffix)
+                  plotDataSuffix: plotSuffix,
+                  plotDataSuffixPerTime: plotSuffixPerTime)
 
 proc setDefaults(cfg: var Config, fname, suffix: string) =
   ## Updates the outpath & suffix fields to defaults based on the input filename,
@@ -55,7 +58,8 @@ proc main(
   tpx3 = false, raw = false, reco = false, energy = false, plot = false,
   outpath = "", config = "", runType = "rtCalibration",
   rawRecoConfig = "",
-  plotDataSuffix = ""
+  plotDataSuffix = "",
+  splitPerSec = -1,
      ) =
   ## Performs data parsing, reconstruction and plotting of the input Timepix3 files.
   ##
@@ -137,6 +141,11 @@ proc main(
       let plotParams = cfg.plotDataSuffix
       shell:
         plotData --h5file ($inf) ($cmps) --runType ($runType) ($plotParams)
+      let plotParamsPerTime = cfg.plotDataSuffixPerTime
+      let splitPer = if splitPerSec > 0: "--splitPerSec " & $splitPerSec else: ""
+      shell:
+        plotData --h5file ($inf) ($cmps) --runType ($runType) ($plotParamsPerTime) ($splitPer)
+
 
 
 when isMainModule:
@@ -153,4 +162,6 @@ when isMainModule:
     "outpath" : "The path in which all generated H5 files will be stored.",
     "config" : "The path to the config file for this tool.",
     "runType" : "The run type of the input files {rtCalibration : ⁵⁵Fe, rtBackground : background data}.",
-    "plotDataSuffix" : "The command handed to `plotData` to control which plots are generated."})
+    "plotDataSuffix" : "The command handed to `plotData` to control which plots are generated.",
+    "splitPerSec" : "The time in seconds in which Fe spectra & their fit parameters should be split. Default: full runs."
+  })

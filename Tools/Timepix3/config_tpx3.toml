@@ -9,3 +9,4 @@ rawRecoConfigFile = "" # default: "" (uses config `Analysis/ingrid/config.toml`)
 
 # parameters that control the plots to be created from the `plotData` call
 plotDataSuffix = "--ingrid --occupancy --totPerPixel --compiledCustom --backend bGgPlot"
+plotDataSuffixPerTime = "--feSpec --feVsTime --backend bGgPlot"

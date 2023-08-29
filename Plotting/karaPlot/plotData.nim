@@ -1997,7 +1997,7 @@ proc handleFeVsTime(h5f: H5File,
       if subDf.len < 30: ## XXX: ARBITRARY CUTOFF
         echo "[WARNING]: Skipping batch ", tup, " due to only ", subDf.len, " events."
         continue
-      let fitRes = fitFeSpec(df, pd.plotKind, dset)
+      let fitRes = fitFeSpec(subDf, pd.plotKind, dset)
       let kalphaLoc = fitRes.kalpha
       let tstamp = (subDf["timestamp", float].max + subDf["timestamp", float].min) / 2.0
       pixSeq.add kalphaLoc

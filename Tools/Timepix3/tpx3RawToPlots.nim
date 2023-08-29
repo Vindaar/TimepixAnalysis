@@ -60,7 +60,7 @@ proc main(
   outpath = "", config = "", runType = "rtCalibration",
   rawRecoConfig = "",
   plotDataSuffix = "",
-  splitPerSec = -1,
+  splitBySec = -1,
      ) =
   ## Performs data parsing, reconstruction and plotting of the input Timepix3 files.
   ##
@@ -148,7 +148,7 @@ proc main(
       if plotFeSpec or all:
         let inf = files[0]
         let plotParamsPerTime = cfg.plotDataSuffixPerTime
-        let splitPer = if splitPerSec > 0: "--splitPerSec " & $splitPerSec else: ""
+        let splitPer = if splitBySec > 0: "--splitBySec " & $splitBySec else: ""
         let (res, err) = shellVerbose:
           plotData --h5file ($inf) --runType ($runType) ($plotParamsPerTime) ($splitPer)
         outpaths.add res.splitLines[^1]
@@ -173,5 +173,5 @@ when isMainModule:
     "config" : "The path to the config file for this tool.",
     "runType" : "The run type of the input files {rtCalibration : ⁵⁵Fe, rtBackground : background data}.",
     "plotDataSuffix" : "The command handed to `plotData` to control which plots are generated.",
-    "splitPerSec" : "The time in seconds in which Fe spectra & their fit parameters should be split. Default: full runs."
+    "splitBySec" : "The time in seconds in which Fe spectra & their fit parameters should be split. Default: full runs."
   })

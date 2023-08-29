@@ -1626,7 +1626,7 @@ proc readPlotFit(h5f: H5File, fileInfo: FileInfo, pd: PlotDescriptor):
   ## reads the `plot` and `Fit` datasets for all runs in
   ## `pd`, stacks it and returns bins, counts for both
   ## This is currently used for:
-  ## - ploya + polyaFit
+  ## - polya + polyaFit
   ## - FeSpectrum + FeSpectrumFit
   ## - FeSpectrumCharge + FeSpectrumChargeFit
   let plotSet = {pkPolya, pkCombPolya, pkFeSpec, pkFeSpecCharge}
@@ -1645,9 +1645,9 @@ proc readPlotFit(h5f: H5File, fileInfo: FileInfo, pd: PlotDescriptor):
       echo "WARN: Cutting on fit datasets. This may have unintended consequences!"
     let
       data = h5f.read(fileInfo, r, pd.name, pd.selector, pd.chip,
-                       dtype = seq[float])
+                      dtype = seq[float])
       dataFit = h5f.read(fileInfo, r, pd.name & "Fit", pd.selector, pd.chip,
-                          dtype = seq[float])
+                         dtype = seq[float])
     let nbins = data.shape[0]
     let (bins, counts) = data.split(SplitSeq.Seq2Col)
     let (binsFit, countsFit) = dataFit.split(SplitSeq.Seq2Col)
@@ -1659,8 +1659,9 @@ proc readPlotFit(h5f: H5File, fileInfo: FileInfo, pd: PlotDescriptor):
     lastBinsFit = binsFit
     if countsFull.len > 0:
       doAssert countsFull.len == counts.len
-      countsFull = zip(countsFull, counts) --> map(it[0] + it[1])
-      countsFitFull = zip(countsFitFull, countsFit) --> map(it[0] + it[1])
+      for i in 0 ..< counts.len:
+        countsFull[i] += counts[i]
+        countsFitFull[i] += countsFit[i]
     else:
       countsFull = counts
       countsFitFull = countsFit

@@ -1386,17 +1386,17 @@ proc feSpecVsTime(h5f: H5File, runType: RunTypeKind,
                                      splitBySec: config.splitBySec,
                                      lastSliceError: config.lastSliceError,
                                      dropLastSlice: config.dropLastSlice)
-  let phPixDivChVsTime = PlotDescriptor(runType: runType,
-                                        name: "PhotoPixDivChVsTime",
-                                        xlabel: "Time / unix",
-                                        selector: selector,
-                                        runs: fileInfo.runs,
-                                        chip: fileInfo.centerChip,
-                                        isCenterChip: true,
-                                        plotKind: pkFePixDivChVsTime,
-                                        splitBySec: config.splitBySec,
-                                        lastSliceError: config.lastSliceError,
-                                        dropLastSlice: config.dropLastSlice)
+  #let phPixDivChVsTime = PlotDescriptor(runType: runType,
+  #                                      name: "PhotoPixDivChVsTime",
+  #                                      xlabel: "Time / unix",
+  #                                      selector: selector,
+  #                                      runs: fileInfo.runs,
+  #                                      chip: fileInfo.centerChip,
+  #                                      isCenterChip: true,
+  #                                      plotKind: pkFePixDivChVsTime,
+  #                                      splitBySec: config.splitBySec,
+  #                                      lastSliceError: config.lastSliceError,
+  #                                      dropLastSlice: config.dropLastSlice)
   #let photoVsTimeHalfH = PlotDescriptor(runType: runType,
   #                                      name: "PhotoPeakVsTimeHalfHour",
   #                                      xlabel: "Time / unix",
@@ -1431,7 +1431,8 @@ proc feSpecVsTime(h5f: H5File, runType: RunTypeKind,
   #                                           lastSliceError: 0.2,
   #                                           dropLastSlice: false)
   #
-  result.add @[photoVsTime, phPixDivChVsTime, photoChVsTime]
+  result.add @[photoVsTime, photoChVsTime]
+               #phPixDivChVsTime]
                #photoChVsTimeHalfH, photoVsTimeHalfH, phPixDivChVsTimeHalfH]
 
 proc fePhotoDivEscape(h5f: H5File, runType: RunTypeKind,
@@ -1978,17 +1979,15 @@ proc handleFeVsTime(h5f: H5File,
   const dateStr = "yyyy-MM-dd'.'HH:mm:ss" # example: 2017-12-04.13:39:45
   var
     pixSeq: seq[float]
-    dates: seq[float] #string]#Time]
+    dates: seq[float]
 
   ## Get DF of all the hits / charge data
-  var dfs = newSeq[DataFrame]()
-  let separate = pd.splitBySec > 0 or config.separateRuns
   for r in pd.runs:
     let dsets = @["centerX", "centerY", "rmsTransverse", "eccentricity", dset]
     if fileInfo.dataPath(r, pd.chip).string / dset notin h5f:
       echo "[WARNING] Skipping run ", r, " for dataset: ", dset, " to produce: ", pd.name, " as it does not exist in the file."
       return initPlotResult(created = true)
-    let df = h5f.readDsets(pd, fileInfo, r, dsets, pd.selector, separateRuns = config.separateRuns, chipNumber = pd.chip)
+    let df = h5f.readDsets(pd, fileInfo, r, dsets, pd.selector, separateRuns = true, chipNumber = pd.chip)
       .cutFeSpectrum() # Apply the cut to only have indices for Fe spectrum!
     # perform the fits either by run or by batch index
     for (tup, subDf) in groups(df.group_by("runs")):

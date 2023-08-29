@@ -63,11 +63,16 @@ proc moreCustom(fileInfo: FileInfo, config: Config): seq[PlotDescriptor] =
           y.add h5f.readVlen(fileInfo, r, "y", selector, chipNumber = pd.chip, dtype = uint8).flatten
           ch.add h5f.readVlen(fileInfo, r, "ToT", selector, chipNumber = pd.chip, dtype = uint16).flatten
 
-        let dfP = toDf({"x" : x.mapIt(it.int), "y" : y.mapIt(it.int), "ch" : ch.mapIt(it.int)})
-        let outpath = fileDir ## Global in `plotData.nim`
-        ggplot(dfP, aes("x", "y", color = "ch")) +
-          geom_point() +
-          ggsave(&"{outpath}/pixels_after_background_rate.pdf")
+        if x.len < 1_000_000:
+          let dfP = toDf({"x" : x.mapIt(it.int), "y" : y.mapIt(it.int), "ch" : ch.mapIt(it.int)})
+          let outpath = fileDir ## Global in `plotData.nim`
+          ggplot(dfP, aes("x", "y", color = "ch")) +
+            geom_point() +
+            ggsave(&"{outpath}/pixels_after_background_rate.pdf")
+          echo "produced pixels plot"
+        else:
+          echo "[WARNING] Skipping scatter plot of all pixels, as there are ", x.len, " pixels!"
+
         # now build set of pixels
         var pixTab = initCountTable[(uint8, uint8)]()
         var pixTotTab = initCountTable[string]() # string to later read easier

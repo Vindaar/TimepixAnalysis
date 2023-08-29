@@ -108,6 +108,8 @@ proc main(
         let fname {.inject.} = fnames[i]
         if names.len > 0:
           cfg.setDefaults(fname, names[i])
+        else:
+          cfg.setDefaults(fname, "")
         let inName {.inject.} = toName(cfg.outpath, inPrefix, cfg.fileSuffix)
         let outName {.inject.} = toName(cfg.outpath, outPrefix, cfg.fileSuffix)
         body
@@ -136,7 +138,14 @@ proc main(
     if plot or plotFeSpec or all:
       var files = newSeq[string]()
       walkFiles(cfg.recoPrefix, ""):
-        files.add inName
+        if existsFile(inName):
+          files.add inName
+        elif existsFile(fname) and fname.extractFilename.startsWith(cfg.recoPrefix):
+          files.add fname
+        else:
+          raise newException(IOError, "Input file: " & $inName & " does not exist. Did you forget to run the " &
+            "full chain before hand?")
+
       let inf = files[0]
       var outpaths = newSeq[string]()
       if plot or all:

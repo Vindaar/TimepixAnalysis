@@ -72,6 +72,14 @@ else:
       compareDensity*: bool ## Decides whether comparison plots show density or count histograms
       binningTab*: Table[string, BinInfo] ## Stores the bin ranges and bin sizes for histograms as
                                           ## configured in `config.toml` (previously `dataset_helpers.nim`)
+      ## Time splitting fields allowing data to be split into time chunks. Applied to all plots
+      ## where it makes sense.
+      splitBySec*: int
+      # allowed divergence of last slice's length in percent
+      lastSliceError*: float
+      # if splitBySec doesn't fit into splitBySec within `lastSliceError` decide if to drop
+      # that slice or keep it
+      dropLastSlice*: bool
 
     BinRange* = tuple[low, high: float]
     BinInfo* = tuple[binSize: float, binRange: BinRange]
@@ -169,12 +177,21 @@ type
     ylabel*: kstring
     title*: kstring
     selector*: DataSelector
+    suffix*: string ## An optional suffix for the output file name
     # bKind: BackendKind <- to know which backend to use for interactive plot creation
     case plotKind*: PlotKind
-    of pkInGridDset, pkFadcDset, pkToTPerPixel:
+    of pkInGridDset, pkFadcDset, pkToTPerPixel, pkFeVsTime, pkFeChVsTime, pkFePixDivChVsTime, pkFeSpec, pkFeSpecCharge, pkPolya:
       # optional fields for bin size and range
       binSize*: float
       binRange*: BinRange
+      # If unequal to 0 will create the plot not just split by runs, but rather split the
+      # calib data for each run in pieces of `splitBySec` seconds of time slices.
+      splitBySec*: int
+      # allowed divergence of last slice's length in percent
+      lastSliceError*: float
+      # if splitBySec doesn't fit into splitBySec within `lastSliceError` decide if to drop
+      # that slice or keep it
+      dropLastSlice*: bool
     of pkCustomPlot:
       # read any dataset as X and plot it against Y
       customPlot*: CustomPlot
@@ -202,15 +219,6 @@ type
       event*: int # the current event being plotted
       fullSeptemboard*: bool # if true will read and plot full septemboard
       useRealLayout*: bool # if true and if plotting septemboard, use the real layout
-    of pkFeVsTime, pkFeChVsTime, pkFePixDivChVsTime:
-      # If unequal to 0 will create the plot not just split by runs, but rather split the
-      # calib data for each run in pieces of `splitBySec` seconds of time slices.
-      splitBySec*: int
-      # allowed divergence of last slice's length in percent
-      lastSliceError*: float
-      # if splitBySec doesn't fit into splitBySec within `lastSliceError` decide if to drop
-      # that slice or keep it
-      dropLastSlice*: bool
     of pkSubPlots, pkInGridFadcEvent:
       # a way to combine several plots into a single plot of subplots
       plots*: seq[PlotDescriptor]

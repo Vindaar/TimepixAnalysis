@@ -189,7 +189,10 @@ proc initConfig*(chips: set[uint16],
                  zDset: string = "",
                  cdlDset: string = "",
                  compareDensity: bool = false,
-                 separateRuns: bool = false
+                 separateRuns: bool = false,
+                 splitBySec: int = -1,
+                 lastSliceError: float = 0.2,
+                 dropLastSlice = true
                 ): Config =
   let fType = tomlConfig["General"]["filetype"].getStr
   let outputType = tomlConfig["General"]["outputFormat"].getStr
@@ -243,7 +246,10 @@ proc initConfig*(chips: set[uint16],
                   cdlGroup: cdlDset,
                   compareDensity: compareDensity,
                   separateRuns: separateRuns,
-                  binningTab: binningTab)
+                  binningTab: binningTab,
+                  splitBySec: splitBySec,
+                  lastSliceError: lastSliceError,
+                  dropLastSlice: dropLastSlice)
 
 proc initSelector(config: Config, cuts: seq[GenericCut] = @[],
                   applyAll: Option[bool] = none[bool]()
@@ -901,7 +907,10 @@ proc histograms(h5f: H5File, runType: RunTypeKind,
                                     chip: ch,
                                     isCenterChip: fileInfo.centerChip == ch,
                                     binSize: binSize,
-                                    binRange: binRange)
+                                    binRange: binRange,
+                                    splitBySec: config.splitBySec,
+                                    lastSliceError: config.lastSliceError,
+                                    dropLastSlice: config.dropLastSlice)
     if cfFadc in config.flags:
       for dset in FadcDsets:
         let (binSize, binRange) = config.getBinSizeAndBinRange(dset)
@@ -911,7 +920,10 @@ proc histograms(h5f: H5File, runType: RunTypeKind,
                                   runs: fileInfo.runs,
                                   plotKind: pkFadcDset,
                                   binSize: binSize,
-                                  binRange: binRange)
+                                  binRange: binRange,
+                                  splitBySec: config.splitBySec,
+                                  lastSliceError: config.lastSliceError,
+                                  dropLastSlice: config.dropLastSlice)
 
 proc calcOccupancy[T](x, y: seq[T]): Tensor[float] =
   ## calculates the occupancy of the given x and y datasets
@@ -1079,7 +1091,6 @@ proc plotFadcEvent(df, dfProps: DataFrame, title, name, outfile: string): PlotV 
       result.theme # just add the theme directly
   else:
     warn &"Unsupported backend kind: {BKind}"
-
 
 proc plotCustomScatter(x, y: seq[float],
                        pd: PlotDescriptor,
@@ -1253,7 +1264,10 @@ proc polya(h5f: H5File, runType: RunTypeKind,
                               runs: fileInfo.runs,
                               chip: ch,
                               isCenterChip: fileInfo.centerChip == ch,
-                              plotKind: pkPolya)
+                              plotKind: pkPolya,
+                              splitBySec: config.splitBySec,
+                              lastSliceError: config.lastSliceError,
+                              dropLastSlice: config.dropLastSlice)
   if fileInfo.chips.len > 1:
     result.add PlotDescriptor(runType: runType,
                               name: "polya",
@@ -1279,7 +1293,10 @@ proc totPerPixel(h5f: H5File, runType: RunTypeKind,
                               isCenterChip: fileInfo.centerChip == ch,
                               plotKind: pkToTPerPixel,
                               binSize: binSize,
-                              binRange: binRange)
+                              binRange: binRange,
+                              splitBySec: config.splitBySec,
+                              lastSliceError: config.lastSliceError,
+                              dropLastSlice: config.dropLastSlice)
 
 proc plotDates[T, U](x: seq[U], y: seq[T],
                      title, xlabel, outfile: string,
@@ -3145,7 +3162,10 @@ proc plotData*(
   cdlDset: float = -1.0,
   compareDensity: bool = false,
   separateRuns: bool = false,
-  events: seq[int] = @[]
+  events: seq[int] = @[],
+  splitBySec = -1,
+  lastSliceError = 0.2,
+  dropLastSlice = true
               ) =
   ## the main workhorse of the server end
   if version:
@@ -3193,7 +3213,10 @@ proc plotData*(
                        zDset = z,
                        cdlDset = if cdlDset > 0.0: toRefDset(cdlDset).cdlPath() else: "",
                        compareDensity = compareDensity,
-                       separateRuns = separateRuns
+                       separateRuns = separateRuns,
+                       splitBySec = splitBySec,
+                       lastSliceError = lastSliceError,
+                       dropLastSlice = dropLastSlice
   )
 
   info &"Flags are:\n  {flags}"
@@ -3319,6 +3342,10 @@ in the future if needed.""",
     "head" : "Only process the first this many elements (mainly useful for event display).",
     "compareDensity" : "If true all histograms in comparison plots will be densities and not counts",
     "separateRuns" : "If true all histograms will be split by runs",
+
+    "splitBySec" : "Split plots not only by runs, but also by time intervals of this length in seconds",
+    "lastSliceError" : "Minimum fractional length of `splitBySec` of last batch in a run",
+    "dropLastSlice" : "If true will drop last batch if smaller than `lastSliceError",
 
     "config" : "Path to the TOML config file.",
     "version" : "Show the version number"})

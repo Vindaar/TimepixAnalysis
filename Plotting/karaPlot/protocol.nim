@@ -72,10 +72,10 @@ const OccupancyFnameTemplate* = "occupancy_run$1_chip$2_$3"
 const OccupancyTitleTemplate* = "Occupancy of chip $1 for run $2, $3"
 const OccClusterFnameTemplate* = "occupancy_clusters_run$1_chip$2_$3"
 const OccClusterTitleTemplate* = "Occupancy of cluster centers for run $1, chip $2, $3"
-const FeSpecFnameTemplate* = "fe_pixel_spectrum_run$1"
-const FeSpecChargeFnameTemplate* = "fe_charge_spectrum_run$1"
-const FeSpecTitleTemplate* = "Fe pixel spectrum of run $1 for chip $2"
-const FeSpecChargeTitleTemplate* = "Fe charge spectrum of run $1 for chip $2"
+const FeSpecFnameTemplate* = "fe_pixel_spectrum_run$1_$2"
+const FeSpecChargeFnameTemplate* = "fe_charge_spectrum_run$1_$2"
+const FeSpecTitleTemplate* = "Fe pixel spectrum of run $1 for chip $2, $3"
+const FeSpecChargeTitleTemplate* = "Fe charge spectrum of run $1 for chip $2, $3"
 const EnergyCalibFnameTemplate* = "fe_energy_calib_run$1"
 const PhotoVsTimeFnameTemplate* = "photopeak_vs_time_runs$1_$2"
 const PhotoChargeVsTimeFnameTemplate* = "photopeak_charge_vs_time_runs$1_$2"
@@ -424,9 +424,9 @@ proc buildOutfile*(pd: PlotDescriptor, prefix, filetype: string): kstring =
   of pkCombPolya:
     name = CombPolyaFnameTemplate %% [runsStr]
   of pkFeSpec:
-    name = FeSpecFnameTemplate %% [runsStr]
+    name = FeSpecFnameTemplate %% [runsStr, pd.suffix]
   of pkFeSpecCharge:
-    name = FeSpecChargeFnameTemplate %% [runsStr]
+    name = FeSpecChargeFnameTemplate %% [runsStr, pd.suffix]
   of pkFeVsTime:
     name = PhotoVsTimeFnameTemplate %% [runsStr,
                                         $pd.splitBySec]
@@ -499,10 +499,12 @@ proc buildTitle*(pd: PlotDescriptor): kstring =
     result = CombPolyaTitleTemplate %% [runsStr]
   of pkFeSpec:
     result = FeSpecTitleTemplate %% [runsStr,
-                                    $pd.chip]
+                                     $pd.chip,
+                                     pd.suffix]
   of pkFeSpecCharge:
     result = FeSpecChargeTitleTemplate %% [runsStr,
-                                          $pd.chip]
+                                           $pd.chip,
+                                           pd.suffix]
   of pkFeVsTime:
     result = PhotoVsTimeTitleTemplate %% [runsStr]
   of pkFePixDivChVsTime:

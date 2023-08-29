@@ -57,7 +57,7 @@ proc computeTpx3RunParameters*(data: seq[Tpx3Data], startIdx, clusterTimeCutoff,
     startT = 0.0
     lastT = 0.0
     occ = zeros[int64]([1, 256, 256])
-    eventIdx = 0
+    eventIdx = startIdx
     numOverflows = 0
     # mutable local copy to assign to output
     totCut = totCut

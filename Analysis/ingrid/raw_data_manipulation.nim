@@ -1149,6 +1149,7 @@ proc processAndWriteSingleRunTpx3(h5f: H5File, h5fout: var H5File,
   let pixNum = dset.shape[0]
   let batches = ceil(pixNum.float / tpx3Buf.float).int
   var oldIdx = 0
+  var eventsProcessed = 0
   var countIdx = min(tpx3Buf, pixNum)
   var ingridInit = false
   for idx in 0 ..< batches:
@@ -1158,10 +1159,11 @@ proc processAndWriteSingleRunTpx3(h5f: H5File, h5fout: var H5File,
     oldIdx += countIdx
     countIdx = if oldIdx + tpx3Buf < pixNum: tpx3Buf
                else: pixNum - oldIdx
-    let r = createProcessedTpx3Run(data, oldIdx, cutoff = clusterCutoff,
+    let r = createProcessedTpx3Run(data, eventsProcessed, cutoff = clusterCutoff,
                                    runNumber = runNumber,
                                    totCut = totCut,
                                    runConfig = runConfig)
+    eventsProcessed += r.events.len
     if r.events.len > 0:
       if not ingridInit:
         #runNumber = r.runNumber

@@ -233,6 +233,12 @@ type
 proc initPlotResult*(outfile: string, plot: PlotV, created = false): PlotResult =
   result = PlotResult(outfile: outfile, plot: plot, created: created)
 
+proc initPlotResult*(created: bool): PlotResult =
+  if not created: raise newException(ValueError, "Constructing an empty result plot " &
+    "only allowed to indicated 'created = true' and thus nothing to do.")
+  result = PlotResult(created: true)
+
+
 proc `==`*(s1, s2: DataSelector): bool =
   result = s1.region == s2.region and
      s1.cuts == s2.cuts and

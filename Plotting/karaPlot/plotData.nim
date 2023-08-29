@@ -1914,6 +1914,9 @@ proc handleFeSpec(h5f: H5File,
   let separate = pd.splitBySec > 0 or config.separateRuns
   for r in pd.runs:
     let dsets = @["centerX", "centerY", "rmsTransverse", "eccentricity", pd.name]
+    if fileInfo.dataPath(r, pd.chip).string / pd.name notin h5f:
+      echo "[WARNING] Skipping run ", r, " for dataset: ", pd.name, " as it does not exist in the file."
+      return initPlotResult(created = true)
     let df = h5f.readDsets(pd, fileInfo, r, dsets, pd.selector, separateRuns = config.separateRuns, chipNumber = pd.chip)
       .cutFeSpectrum() # Apply the cut to only have indices for Fe spectrum!
     # perform the fits either by run or by batch index

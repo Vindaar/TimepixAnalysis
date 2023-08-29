@@ -94,7 +94,7 @@ proc main(
   ##
   ## `outpath` (either via CL argument or in config file) controls the path where the H5
   ## files will be stored.
-  if not existsOrCreateDir(outpath):
+  if outpath.len > 0 and not existsOrCreateDir(outpath):
     raise newException(IOError, "Could not create desired output directory `" & $outpath & "`. Quitting.")
   var cfg = readConfig(config, outpath, rawRecoConfig, plotDataSuffix)
   if fnames.len > 1 and names.len != fnames.len:

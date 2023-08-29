@@ -530,7 +530,6 @@ proc fitFeSpectrumFadcImpl(hist, binning: seq[float]): FeSpecFitData =
                           chiSq = chiSq,
                           nDof = nDof)
 
-
 proc fitFeSpectrum*[T: SomeInteger](data: seq[T]): FeSpecFitData =
   const binSize = 1.0
   let low = -0.5

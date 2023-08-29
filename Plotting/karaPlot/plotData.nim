@@ -1867,19 +1867,23 @@ proc handleBarScatter(h5f: H5File,
   plot.plotScatter(binsFit, countsFit, nameFit, outfile)
   result = initPlotResult(outfile, plot)
 
+proc fitFeSpec(df: DataFrame,
+               plotKind: PlotKind,
+               dset: string): FeSpecFitData =
+  case plotKind
+  of pkFeSpec, pkFeVsTime:
+    let data = df[dset, int].toSeq1D
+    result = fitFeSpectrum(data)
+  of pkFeSpecCharge, pkFeChVsTime:
+    let data = df[dset, float].toSeq1D
+    result = fitFeSpectrumCharge(data)
+  else: doAssert false, "not possible"
+
 proc fitAndPlotFeSpec(df: DataFrame,
                       plotKind: PlotKind,
                       dset: string,
                       xlabel, outfile, title: string): PlotResult =
-  var res: FeSpecFitData
-  case plotKind
-  of pkFeSpec:
-    let data = df[dset, int].toSeq1D
-    res = fitFeSpectrum(data)
-  of pkFeSpecCharge:
-    let data = df[dset, float].toSeq1D
-    res = fitFeSpectrumCharge(data)
-  else: doAssert false, "not possible"
+  let res = fitFeSpec(df, plotKind, dset)
   # plot histogram + scatter for fit
   var plot = plotBar(@[res.binning], @[res.hist], title, xlabel, @[dset], outfile)
   # now add fit to the existing plot
@@ -1965,10 +1969,10 @@ proc handleFeVsTime(h5f: H5File,
   case pd.plotKind
   of pkFeVsTime:
     kalphaIdx = kalphaPix
-    dset = "FeSpectrum"
+    dset = "hits"
   of pkFeChVsTime:
     kalphaIdx = kalphaCharge
-    dset = "FeSpectrumCharge"
+    dset = "totalCharge"
   else: doAssert false, "Invalid for handle fe vs time!"
   const parPrefix = "p"
   const dateStr = "yyyy-MM-dd'.'HH:mm:ss" # example: 2017-12-04.13:39:45
@@ -1976,63 +1980,29 @@ proc handleFeVsTime(h5f: H5File,
     pixSeq: seq[float]
     dates: seq[float] #string]#Time]
 
+  ## Get DF of all the hits / charge data
+  var dfs = newSeq[DataFrame]()
+  let separate = pd.splitBySec > 0 or config.separateRuns
+  for r in pd.runs:
+    let dsets = @["centerX", "centerY", "rmsTransverse", "eccentricity", dset]
+    if fileInfo.dataPath(r, pd.chip).string / dset notin h5f:
+      echo "[WARNING] Skipping run ", r, " for dataset: ", dset, " to produce: ", pd.name, " as it does not exist in the file."
+      return initPlotResult(created = true)
+    let df = h5f.readDsets(pd, fileInfo, r, dsets, pd.selector, separateRuns = config.separateRuns, chipNumber = pd.chip)
+      .cutFeSpectrum() # Apply the cut to only have indices for Fe spectrum!
+    # perform the fits either by run or by batch index
+    for (tup, subDf) in groups(df.group_by("runs")):
+      if subDf.len < 30: ## XXX: ARBITRARY CUTOFF
+        echo "[WARNING]: Skipping batch ", tup, " due to only ", subDf.len, " events."
+        continue
+      let fitRes = fitFeSpec(df, pd.plotKind, dset)
+      let kalphaLoc = fitRes.kalpha
+      let tstamp = (subDf["timestamp", float].max + subDf["timestamp", float].min) / 2.0
+      pixSeq.add kalphaLoc
+      dates.add tstamp
+
   let title = buildTitle(pd)
   let outfile = buildOutfile(pd, fileDir, fileType)
-  for r in pd.runs:
-    let group = h5f[(fileInfo.dataBase & $r).grp_str]
-    let chpGrpName = group.name / "chip_" & $pd.chip
-    if pd.splitBySec == 0:
-      pixSeq.add h5f[(chpGrpName / dset).dset_str].attrs[
-        parPrefix & $kalphaIdx, float
-      ]
-      dates.add parseTime(group.attrs["dateTime", string],
-                          dateStr,
-                          utc()).toUnix.float
-    else:
-      ## XXX: MERGE THIS with `pkFeSpec` logic now!
-      # split `FeSpectrum` hits by `splitBySec` and perform fit
-      let joined = createFeVsTimeDataFrame(h5f, group, pd)
-
-      let (tStart, tStop) = determineStartStopTime(joined)
-      let length = (tStop - tStart).int
-      let nBatches = determineNumBatches(length, pd)
-
-      for i in 0 ..< nBatches:
-        # extract the correct data
-        let slStart = i * pd.splitBySec + tStart
-        let slStop = if (i + 1) == nBatches:
-                       i * pd.splitBySec + length mod pd.splitBySec + tStart
-                     else:
-                       (i + 1) * pd.splitBySec + tStart
-        if slStop - slStart < 300:
-          echo "Skipping last batch of less than 5 min length: ",
-            (slStop - slStart), " seconds."
-          continue
-        echo "Run: ", r, " in batch ", i
-        echo "Starting from ", slStart
-        echo "Stopping at ", slStop
-
-        let hitsTensor = joined.filter(fn {int: `timestamp` >= slStart and
-                                                `timestamp` < slStop})[dset]
-          .toTensor(int)
-        var hits: seq[int]
-        if hitsTensor.size > 0:
-          hits = hitsTensor.toSeq1D
-        else:
-          # skip this batch
-          echo "WARNING: Skipping empty batch!"
-          continue
-
-        var res: FeSpecFitData
-        case pd.plotKind
-        of pkFeVsTime: res = fitFeSpectrum(hits)
-        of pkFeChVsTime: res = fitFeSpectrumCharge(hits)
-        else: doAssert false, "not possible"
-        let kalphaLoc = res.kalpha
-        let tstamp = (slStop + slStart).float / 2.0
-        pixSeq.add kalphaLoc
-        dates.add tstamp
-
   # calculate mean and STD of peak location
   let
     stdPeak = standardDeviation(pixSeq)

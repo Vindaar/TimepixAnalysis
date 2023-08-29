@@ -151,8 +151,13 @@ type
   Domain* = tuple
     left, bottom, width, height: float
 
+  PlotResult* = object
+    outfile*: string
+    plot*: PlotV
+    created*: bool
+
   ## The type corresponding to the procedures that
-  PlotHandlerProc = proc(h5f: H5File, fileInfo: FileInfo, pd: PlotDescriptor, config: Config): (string, PlotV)
+  PlotHandlerProc = proc(h5f: H5File, fileInfo: FileInfo, pd: PlotDescriptor, config: Config): PlotResult
 
   PlotDescriptor* = object
     runType*: RunTypeKind
@@ -215,6 +220,9 @@ type
       outerChips*: seq[int] # seq of all chips considered "outer"
     else:
       discard
+
+proc initPlotResult*(outfile: string, plot: PlotV, created = false): PlotResult =
+  result = PlotResult(outfile: outfile, plot: plot, created: created)
 
 proc `==`*(s1, s2: DataSelector): bool =
   result = s1.region == s2.region and

@@ -346,8 +346,10 @@ proc showPlot(p: PlotV, config: Config, fname: string) =
   else:
     discard # nothing to show / already showing (plotly)
 
-proc savePlot(p: PlotV, outfile: string, config: Config, fullPath = false) =
+proc savePlot(plt: PlotResult, config: Config, fullPath = false) =
   # TODO: move elsewhere!!!
+  if plt.created: return # Already created this plot
+  let (p, outfile) = (plt.plot, plt.outfile)
   var fname = outfile
   if not fullPath:
     fname = "figs" / outfile & ".svg"
@@ -1735,9 +1737,9 @@ proc determineNumBatchesFeVsTime(length: int, pd: PlotDescriptor): int =
 proc handleInGridDset(h5f: H5File,
                       fileInfo: FileInfo,
                       pd: PlotDescriptor,
-                      config: Config): (string, PlotV) =
   var allData: seq[float]
   var runs: seq[int]
+                      config: Config): PlotResult =
   for r in pd.runs:
     let data = h5f.read(fileInfo, r, pd.name, pd.selector, pd.chip, dtype = float)
     allData.add data
@@ -1753,7 +1755,7 @@ proc handleInGridDset(h5f: H5File,
 proc handleFadcDset(h5f: H5File,
                     fileInfo: FileInfo,
                     pd: PlotDescriptor,
-                    config: Config): (string, PlotV) =
+                    config: Config): PlotResult =
   # get the center chip group
   var allData: seq[float]
   for r in pd.runs:
@@ -1765,14 +1767,16 @@ proc handleFadcDset(h5f: H5File,
     let idxFadc = (toSeq(0 .. evNumFadc.high)) --> filter(evNumFadc[it] in inGridSet)
     let data = h5f.read(fileInfo, r, pd.name, pd.selector, pd.chip, isFadc = true, dtype = float)
     allData.add idxFadc --> map(data[it])
-  result[0] = buildOutfile(pd, fileDir, fileType)
+  let outfile = buildOutfile(pd, fileDir, fileType)
   let title = buildTitle(pd)
-  result[1] = plotHist(allData, title, pd.name, result[0], pd.binSize, pd.binRange)
+  let df = toDf({"xs" : allData})
+  let plot = plotHist(df, title, pd.name, outfile, pd.binSize, pd.binRange)
+  result = initPlotResult(outfile, plot)
 
 proc handleOccupancy(h5f: H5File,
                      fileInfo: FileInfo,
                      pd: PlotDescriptor,
-                     config: Config): (string, PlotV) =
+                     config: Config): PlotResult =
   # get x and y datasets, stack and get occupancies
   let vlenDtype = special_type(uint8)
   var occFull = newTensor[float]([NPix, NPix])
@@ -1786,13 +1790,14 @@ proc handleOccupancy(h5f: H5File,
   # now perform clamping
   occFull = clampedOccupancy(occFull, pd)
   let title = buildTitle(pd)
-  result[0] = buildOutfile(pd, fileDir, fileType)
-  result[1] = plotHist2D(occFull, title, result[0])
+  let outfile = buildOutfile(pd, fileDir, fileType)
+  let plot = plotHist2D(occFull, title, outfile)
+  result = initPlotResult(outfile, plot)
 
 proc handleOccCluster(h5f: H5File,
                       fileInfo: FileInfo,
                       pd: PlotDescriptor,
-                      config: Config): (string, PlotV) =
+                      config: Config): PlotResult =
   # plot center positions
   var occFull = newTensor[float]([NPix, NPix])
   for r in pd.runs:
@@ -1809,32 +1814,33 @@ proc handleOccCluster(h5f: H5File,
   # now perform clamping
   occFull = clampedOccupancy(occFull, pd)
   let title = buildTitle(pd)
-  result[0] = buildOutfile(pd, fileDir, fileType)
-  result[1] = plotHist2D(occFull, title, result[0])
+  let outfile = buildOutfile(pd, fileDir, fileType)
+  let plot = plotHist2D(occFull, title, outfile)
+  result = initPlotResult(outfile, plot)
 
 proc handleBarScatter(h5f: H5File,
                       fileInfo: FileInfo,
                       pd: PlotDescriptor,
-                      config: Config): (string, PlotV) =
-  result[0] = buildOutfile(pd, fileDir, fileType)
+                      config: Config): PlotResult =
+  let outfile = buildOutfile(pd, fileDir, fileType)
   let xlabel = pd.xlabel
   let title = buildTitle(pd)
   let (bins, counts, binsFit, countsFit) = h5f.readPlotFit(fileInfo, pd)
-  result[1] = plotBar(@[bins], @[counts], title, xlabel, @[title], result[0])
+  var plot = plotBar(@[bins], @[counts], title, xlabel, @[title], outfile)
   # now add fit to the existing plot
-  let nameFit = &"Fit of chip {pd.chip}"
-  result[1].plotScatter(binsFit, countsFit, nameFit, result[0])
+  plot.plotScatter(binsFit, countsFit, nameFit, outfile)
+  result = initPlotResult(outfile, plot)
 
 proc handleCombPolya(h5f: H5File,
                      fileInfo: FileInfo,
                      pd: PlotDescriptor,
-                     config: Config): (string, PlotV) =
+                     config: Config): PlotResult =
   var
     binsSeq: seq[seq[float]]
     countsSeq: seq[seq[float]]
     dsets: seq[string]
   let title = buildTitle(pd)
-  result[0] = buildOutfile(pd, fileDir, fileType)
+  let outfile = buildOutfile(pd, fileDir, fileType)
   for ch in pd.chipsCP:
     # get a local PlotDescriptor, which has this chip number
     let localPd = block:
@@ -1846,12 +1852,13 @@ proc handleCombPolya(h5f: H5File,
     countsSeq.add counts
     dsets.add "Chip " & $ch
   let xlabel = "Number of electrons"
-  result[1] = plotBar(binsSeq, countsSeq, title, xlabel, dsets, result[0])
+  let plot = plotBar(binsSeq, countsSeq, title, xlabel, dsets, outfile)
+  result = initPlotResult(outfile, plot)
 
 proc handleFeVsTime(h5f: H5File,
                     fileInfo: FileInfo,
                     pd: PlotDescriptor,
-                    config: Config): (string, PlotV) =
+                    config: Config): PlotResult =
   const kalphaPix = 10
   const kalphaCharge = 4
   var kalphaIdx: int
@@ -1871,7 +1878,7 @@ proc handleFeVsTime(h5f: H5File,
     dates: seq[float] #string]#Time]
 
   let title = buildTitle(pd)
-  result[0] = buildOutfile(pd, fileDir, fileType)
+  let outfile = buildOutfile(pd, fileDir, fileType)
   for r in pd.runs:
     let group = h5f[(fileInfo.dataBase & $r).grp_str]
     let chpGrpName = group.name / "chip_" & $pd.chip
@@ -1960,17 +1967,18 @@ proc handleFeVsTime(h5f: H5File,
   case BKind
   of bPlotly:
     # now plot
-    result[1] = plotDates(dates, pixSeq,
+    var plot = plotDates(dates, pixSeq,
                           title = title,
                           xlabel = pd.xlabel,
-                          outfile = result[0])
+                          outfile = outfile)
     let stdAnn = plotly.Annotation(x: xloc,
                                    y: yloc,
                                    text: &"Peak variation σ: {stdPeak:.2f}")
     let meanAnn = replace(stdAnn):
       y = yloc - (yloc - min(pixSeq)) * 0.05
       text = &"Mean location µ: {meanPeak:.2f}"
-    result[1].plPlot.layout.annotations.add [stdAnn, meanAnn]
+    plot.plPlot.layout.annotations.add [stdAnn, meanAnn]
+    result = initPlotResult(outfile, plot)
   of bGgPlot:
     let stdAnn = ggplotnim.Annotation(x: some(xloc),
                                       y: some(yloc),
@@ -1979,17 +1987,18 @@ proc handleFeVsTime(h5f: H5File,
       x = some(yloc - (yloc - min(pixSeq)) * 0.05)
       text = &"Mean location µ: {meanPeak:.2f}"
     # now plot
-    result[1] = plotDates(dates, pixSeq,
+    var plot = plotDates(dates, pixSeq,
                           title = title,
                           xlabel = pd.xlabel,
-                          outfile = result[0])
-    result[1].pltGg.annotations.add @[stdAnn, meanAnn]
+                          outfile = outfile)
+    plot.pltGg.annotations.add @[stdAnn, meanAnn]
+    result = initPlotResult(outfile, plot)
   else: echo "WARNING: annotations unsupported on backend: " & $BKind
 
 proc handleFePixDivChVsTime(h5f: H5File,
                             fileInfo: FileInfo,
                             pd: PlotDescriptor,
-                            config: Config): (string, PlotV) =
+                            config: Config): PlotResult =
   const kalphaPix = 10
   const kalphaCharge = 4
   const parPrefix = "p"
@@ -1999,7 +2008,7 @@ proc handleFePixDivChVsTime(h5f: H5File,
     chSeq: seq[float]
     dates: seq[float] #string]#Time]
   let title = buildTitle(pd)
-  result[0] = buildOutfile(pd, fileDir, fileType)
+  let outfile = buildOutfile(pd, fileDir, fileType)
   for r in pd.runs:
     let group = h5f[(fileInfo.dataBase & $r).grp_str]
     let chpGrpName = group.name / "chip_" & $pd.chip
@@ -2016,16 +2025,17 @@ proc handleFePixDivChVsTime(h5f: H5File,
   # calculate ratio and convert to string to workaround plotly limitation of
   # only one type for Trace
   let ratio = zip(pixSeq, chSeq) --> map(it[0] / it[1])
-  result[1] = plotDates(dates, ratio,
+  let plot = plotDates(dates, ratio,
                         title = title,
                         xlabel = pd.xlabel,
-                        outfile = result[0])
+                        outfile = outfile)
                         #ylabel = "# pix / charge in e^-")
+  result = initPlotResult(outfile, plot)
 
 proc handleFePhotoDivEscape(h5f: H5File,
                             fileInfo: FileInfo,
                             pd: PlotDescriptor,
-                            config: Config): (string, PlotV) =
+                            config: Config): PlotResult =
   const kalphaCharge = 3 # for the ``amplitude``! not the mean position
   const escapeCharge = 0
   const parPrefix = "p"
@@ -2035,7 +2045,7 @@ proc handleFePhotoDivEscape(h5f: H5File,
     escapeSeq: seq[float]
     dates: seq[float] #string]#Time]
   let title = buildTitle(pd)
-  result[0] = buildOutfile(pd, fileDir, fileType)
+  let outfile = buildOutfile(pd, fileDir, fileType)
   for r in pd.runs:
     let group = h5f[(fileInfo.dataBase & $r).grp_str]
     let chpGrpName = group.name / "chip_" & $pd.chip
@@ -2049,10 +2059,11 @@ proc handleFePhotoDivEscape(h5f: H5File,
   # calculate ratio and convert to string to workaround plotly limitation of
   # only one type for Trace
   let ratio = zip(photoSeq, escapeSeq) --> map(it[0] / it[1])
-  result[1] = plotDates(dates, ratio,
+  let plot = plotDates(dates, ratio,
                         title = title,
                         xlabel = pd.xlabel,
-                        outfile = result[0])
+                        outfile = outfile)
+  result = initPlotResult(outfile, plot)
 
 ## XXX: Outer chip is broken, as our `DataSelector` doesn't yet allow to select data
 ## on *another* chip!
@@ -2060,7 +2071,7 @@ proc handleFePhotoDivEscape(h5f: H5File,
 #proc handleOuterChips(h5f: H5File,
 #                      fileInfo: FileInfo,
 #                      pd: PlotDescriptor,
-#                      config: Config): (string, PlotV) =
+#                      config: Config): PlotResult =
 #  var data: seq[int]
 #  const
 #    rmsTransHigh = 1.2
@@ -2084,17 +2095,17 @@ proc handleFePhotoDivEscape(h5f: H5File,
 #      for i, ev in evNumAll:
 #        if ev in evNumCenter and hitsAll[i] > 3:
 #          data.add hitsAll[i]
-#  result[0] = pd.title
+#  let outfile = pd.title
 #  const binSize = 3.0
 #  const binRange = (0.0, 400.0)
 #  let outfile = buildOutfile(pd, fileDir, fileType)
-#  result[1] = plotHist(data, pd.title, pd.name, pd.title, binSize, binRange)
+#  let plot = plotHist(data, pd.title, pd.name, pd.title, binSize, binRange)
 
 proc handleToTPerPixel(h5f: H5File,
                        fileInfo: FileInfo,
                        pd: PlotDescriptor,
-                       config: Config): (string, PlotV) =
-  result[0] = buildOutfile(pd, fileDir, fileType)
+                       config: Config): PlotResult =
+  let outfile = buildOutfile(pd, fileDir, fileType)
   let xlabel = pd.xlabel
   let title = buildTitle(pd)
   var tots: seq[uint16]
@@ -2119,7 +2130,8 @@ proc handleToTPerPixel(h5f: H5File,
         hist = newSeq[float](bins.len)
       for i, el in h:
         hist[i] += el.float
-    result[1] = plotBar(@[bins], @[hist], title, xlabel, @[pd.name], result[0])
+    let plot = plotBar(@[bins], @[hist], title, xlabel, @[pd.name], outfile)
+    result = initPlotResult(outfile, plot)
   else:
     result[1] = plotHist(tots.mapIt(it.int), title, pd.name, result[0],
                          binS = pd.binSize, binR = pd.binRange)
@@ -2138,7 +2150,7 @@ iterator ingridEventIter(h5f: H5File,
                          fileInfo: FileInfo,
                          #pds: seq[PlotDescriptor],
                          pd: PlotDescriptor,
-                         config: Config): (string, int, PlotV) {.closure.} =
+                         config: Config): (PlotResult, int) {.closure.} =
   ## The integer returned is the *event number* of the returned plot.
   let run = pd.runs[0]
   let chip = pd.chip
@@ -2209,23 +2221,24 @@ iterator ingridEventIter(h5f: H5File,
     pltV.annotations = texts
 
     echo "Plot has annotations: ", pltV.annotations
-    yield (outfile, event, pltV)
+    let res = initPlotResult(outfile, pltV)
+    yield (res, event)
 
 proc ingridEventIterator(h5f: H5File,
                          fileInfo: FileInfo,
                          pd: PlotDescriptor,
-                         config: Config): iterator(): (string, int, PlotV) =
+                         config: Config): iterator(): (PlotResult, int) =
   ## Just for convenience.
-  result = iterator(): (string, int, PlotV) =
-    for outfile, eventNumber, pltV in ingridEventIter(h5f, fileInfo, pd, config):
+  result = iterator(): (PlotResult, int) =
+    for res, eventNumber in ingridEventIter(h5f, fileInfo, pd, config):
       # only a single pd
-      yield (outfile, eventNumber, pltV)
+      yield (res, eventNumber)
 
 iterator fadcEventIter(h5f: H5File,
                        fileInfo: FileInfo,
                        pd: PlotDescriptor,
                        config: Config
-                      ): (string, PlotV) {.closure.} =
+                      ): PlotResult {.closure.} =
   ## `eventNumbers` can be used to preselect individual events
   var events: seq[int]
   # all PDs are guaranteed to be from  the same run!
@@ -2254,7 +2267,7 @@ iterator fadcEventIter(h5f: H5File,
 
     if pd.event notin evTab:
       let pltV = initPlotV("No FADC event", "FADC", "V")
-      yield (outfile, pltV)
+      yield initPlotResult(outfile, pltV)
       continue
     let idx = evTab[pd.event]
     var dfProps = newDataFrame()
@@ -2308,30 +2321,33 @@ iterator fadcEventIter(h5f: H5File,
       echo "FADC property annotations not supported on Matplotlib backend yet!"
     # remove the event so that at some point we actually finish!
     evTab.del(pd.event)
-    yield (outfile, pltV)
+
+    let plotResult = initPlotResult(outfile, pltV)
+    yield plotResult
 
 proc fadcEventIterator(h5f: H5File,
                        fileInfo: FileInfo,
                        pd: PlotDescriptor,
-                       config: Config): iterator(): (string, PlotV) =
-  result = iterator(): (string, PlotV) =
-    for outfile, pltV in fadcEventIter(h5f, fileInfo, pd, config):
+                       config: Config): iterator(): PlotResult =
+  result = iterator(): PlotResult =
+    for res in fadcEventIter(h5f, fileInfo, pd, config):
       # only a single pd
-      yield (outfile, pltV)
+      yield res
 
 proc handleIngridEvent(h5f: H5File,
                        fileInfo: FileInfo,
                        pd: PlotDescriptor,
-                       config: Config): (string, PlotV) =
+                       config: Config): PlotResult =
   doAssert pd.plotKind == pkInGridEvent
-  for outfile, eventNumber, pltV in ingridEventIter(h5f, fileInfo, pd, config):
+  for res, eventNumber in ingridEventIter(h5f, fileInfo, pd, config):
     # result will be last event, HACK
-    result = (outfile, pltV)
+    result = res
+    result.created = true
     # call save here
     ## XXX: HACK!!!
-    info &"Calling savePlot for {pd.plotKind} with filename {result[0]}"
+    info &"Calling savePlot for {pd.plotKind} with filename {res.outfile}"
     try:
-      savePlot(result[1], result[0], config, fullPath = true)
+      savePlot(res, config, fullPath = true)
     except Exception as e:
       echo "Failed to generate plot with error ", e.msg
       continue
@@ -2367,8 +2383,9 @@ proc handleCustomPlot(h5f: H5File,
           allZ.add h5f.read(fileInfo, r, cPlt.color, pd.selector, dtype = float,
                             chipNumber = fileInfo.centerChip)
       let title = buildTitle(pd)
-      result[0] = buildOutfile(pd, fileDir, fileType)
-      result[1] = plotCustomScatter(allX, allY, pd, title, allZ)
+      let outfile = buildOutfile(pd, fileDir, fileType)
+      let plot = plotCustomScatter(allX, allY, pd, title, allZ)
+      result = initPlotResult(outfile, plot)
     of cpHistogram:
       var allX: seq[float]
       var allZ: seq[float]
@@ -2385,12 +2402,12 @@ proc handleCustomPlot(h5f: H5File,
     result = pd.processData(h5f, fileInfo, pd, config)
 
 proc createPlot*(h5f: H5File, fileInfo: FileInfo,
-                 pd: PlotDescriptor, config: Config): (string, PlotV)
+                 pd: PlotDescriptor, config: Config): PlotResult
 
 proc handleIngridFadcEvents(h5f: H5File,
                             fileInfo: FileInfo,
                             pd: PlotDescriptor,
-                            config: Config): (string, PlotV) =
+                            config: Config): PlotResult =
   doAssert pd.plotKind == pkInGridFadcEvent
   let iPd = pd.plots[0]
   var fPd = pd.plots[1]
@@ -2400,22 +2417,23 @@ proc handleIngridFadcEvents(h5f: H5File,
   let outdir = buildOutfile(pd, fileDir, fileType).parentDir
   var dummyFadcPlt = initPlotV("No FADC event", "FADC", "U")
   createDir(outdir)
-  for outfile, eventNumber, pltV in ingridEventIter(h5f, fileInfo, iPd, config):
+  for res, eventNumber in ingridEventIter(h5f, fileInfo, iPd, config):
     # given event number, create the FADC plot. Overwrite its event number to get the correct plot
     fPd.event = eventNumber
-    let (outFadc, pltFadc) = fadcIter(h5f, fileInfo, fPd, config)
+    let resFadc = fadcIter(h5f, fileInfo, fPd, config)
 
     # now combine plots
     pd.name = $eventNumber # assign event number as name for output file
-    result[0] = buildOutfile(pd, fileDir, fileType)
-    info &"Calling savePlot for {pd.plotKind} with filename {result[0]}"
+    let outfile = buildOutfile(pd, fileDir, fileType)
+    info &"Calling savePlot for {pd.plotKind} with filename {outfile}"
 
-    echo pltV.kind, " and ", pltFadc.kind, "\n\n"
+    echo res.plot.kind, " and ", resFadc.plot.kind, "\n\n"
 
     try:
-      let plts = if pltFadc.kind != bNone: @[pltV, pltFadc]
-                 else: @[pltV, dummyFadcPlt]
-      result[1] = makeSubplot(pd, plts, result[0])
+      let plts = if resFadc.plot.kind != bNone: @[res.plot, resFadc.plot]
+                 else: @[res.plot, dummyFadcPlt]
+      let plot = makeSubplot(pd, plts, outfile)
+      result = initPlotResult(outfile, plot)
     except Exception as e:
       echo "Failed to generate plot with error ", e.msg
       raise
@@ -2423,7 +2441,7 @@ proc handleIngridFadcEvents(h5f: H5File,
 proc handleSubPlots(h5f: H5File,
                     fileInfo: FileInfo,
                     pd: PlotDescriptor,
-                    config: Config): (string, PlotV) =
+                    config: Config): PlotResult =
 #    result.add PlotDescriptor(runType: runType,
 #                              name: "Event display InGrid + FADC",
 #                              runs: @[run],
@@ -2435,9 +2453,9 @@ proc handleSubPlots(h5f: H5File,
   var fnames: seq[string]
   var plts: seq[PlotV]
   for p in pd.plots:
-    let (outfile, pltV) = createPlot(h5f, fileInfo, p, config)
-    fnames.add outfile
-    plts.add pltV
+    let res = createPlot(h5f, fileInfo, p, config)
+    fnames.add res.outfile
+    plts.add res.plot
 
   # now combine plots
   let plt = makeSubplot(pd, plts, "/tmp/test.pdf")
@@ -2447,7 +2465,7 @@ proc createPlot*(h5f: H5File,
                  fileInfo: FileInfo,
                  pd: PlotDescriptor,
                  config: Config
-                ): (string, PlotV) =
+                ): PlotResult =
   ## creates a plot of kind `plotKind` for the data from all runs in `runs`
   ## for chip `chip`
   # TODO: think: have createPlot return the `PlotV` object. Then we could
@@ -2502,10 +2520,9 @@ proc createPlot*(h5f: H5File,
       discard
 
     # finally call savePlot if we actually created a plot
-    #if not result[1].plPlot.isNil:
-    if pd.plotKind != pkInGridFadcEvent:
-      info &"Calling savePlot for {pd.plotKind} with filename {result[0]}"
-      savePlot(result[1], result[0], config, fullPath = true)
+    if not result.created:
+      info &"Calling savePlot for {pd.plotKind} with filename {result.outfile}"
+      savePlot(result, config, fullPath = true)
   except KeyError as e:
     echo "WARNING: Could not generate the plot: " & $pd & ". Skipping it."
     echo "Exception message: ", e.msg
@@ -2623,13 +2640,13 @@ proc plotsFromPds(h5f: H5File,
   ## calls `createPlot` for each PD and saves filename to
   ## `imageSet` if necessary
   for p in pds:
-    let (fileF, pltV) = h5f.createPlot(fileInfo, p, config)
+    let res = h5f.createPlot(fileInfo, p, config)
     case BKind
     of bPlotly:
       if config.plotlySaveSvg:
-        imageSet.incl fileF
+        imageSet.incl res.outfile
     of bGgPlot:
-      imageSet.incl fileF
+      imageSet.incl res.outfile
     else: discard
 
 
@@ -2952,22 +2969,23 @@ proc createComparePlots(h5file: string, h5Compare: seq[string],
     pdComp[i] = genPds(h5fs[i], rt, config.flags)
 
   for pd in pds:
-    var (outfile, plt) = createPlot(h5f, fileInfo, pd, config)
-    if outfile.len == 0: continue # apparantly failed to create plot, skipping
+    var res = createPlot(h5f, fileInfo, pd, config)
+    if res.outfile.len == 0: continue # apparantly failed to create plot, skipping
     var validCompare = false # start at false, to check if we find something ever
     for i in 0 ..< h5Compare.len:
       let pdc = pdComp[i].find(pd)
       if pdc.isSome:
-        let (_, cPlt) = createPlot(h5fs[i], fInfos[i], pdc.get, config)
+        let cRes = createPlot(h5fs[i], fInfos[i], pdc.get, config)
         # add to `plt`
-        if cPlt.kind != bNone:
-          plt.add(cPlt, h5f.name.extractFilename, h5fs[i].name.extractFilename & "_" & $i,
-                  compareDensity = config.compareDensity)
+        if cRes.plot.kind != bNone:
+          res.plot.add(cRes.plot, h5f.name.extractFilename, h5fs[i].name.extractFilename & "_" & $i,
+                      compareDensity = config.compareDensity)
           validCompare = true
     # now generate the plot
     if validCompare:
-      let outf = outfile & "_combined.pdf"
-      plt.savePlot(outf, config, fullPath = true)
+      let outf = res.outfile & "_combined.pdf"
+      res.created = false
+      res.savePlot(config, fullPath = true)
 
 proc parseBackendType(backend: string): PlottingBackendKind =
   ## given a string describing a run type, return the correct

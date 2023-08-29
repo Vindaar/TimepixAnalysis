@@ -1,5 +1,5 @@
 template plotHandler(body: untyped): untyped {.dirty.} =
-  (proc(h5f: H5FileObj, fileInfo: FileInfo, pd: PlotDescriptor, config: Config): (string, PlotV) =
+  (proc(h5f: H5FileObj, fileInfo: FileInfo, pd: PlotDescriptor, config: Config): PlotResult =
      body)
 
 proc moreCustom(fileInfo: FileInfo, config: Config): seq[PlotDescriptor] =
@@ -18,21 +18,23 @@ proc moreCustom(fileInfo: FileInfo, config: Config): seq[PlotDescriptor] =
                               plotKind: pkCustomPlot,
                               customPlot: customPlot)
     pd.processData = plotHandler:
-      var allData = newSeq[int32]()
+      var allData = newSeq[int]()
       echo "Reading all TOA"
       for r in pd.runs:
         echo "Reading toa of run ", r
         let toas = h5f.readVlen(fileInfo, r, "ToA", pd.selector, fileInfo.centerChip, dtype = uint16)
         # shift all ToA values to start at 0 in each cluster
         for toa in toas:
-          let toaInt = toa.mapIt(it.int32)
+          let toaInt = toa.mapIt(it.int)
           let minToa = toaInt.min()
           allData.add toaInt.mapIt(it - minToa)
-      result[0] = buildOutfile(pd, fileDir, fileType)
+      let outfile = buildOutfile(pd, fileDir, fileType)
       let title = buildTitle(pd)
       echo "Plotting hist now"
-      result[1] = plotHist(allData, title, pd.name, result[0], binS = 1.0,
-                           binR = (-0.5, 100.0))
+      let df = toDf({"xs" : allData})
+      let plot = plotHist(df, title, pd.name, outfile, binS = 1.0,
+                          binR = (-0.5, 100.0))
+      result = initPlotResult(outfile, plot)
     result.add pd
   block PixelBarChart:
 
@@ -87,11 +89,11 @@ proc moreCustom(fileInfo: FileInfo, config: Config): seq[PlotDescriptor] =
         df.writeCsv("pixel_occurence.csv")
         echo df
         df = df.filter(f{int -> bool: `counts` > 9})
-        result[0] = buildOutfile(pd, fileDir, fileType)
+        let outfile = buildOutfile(pd, fileDir, fileType)
         let title = pd.title & ", # active pixel: " & $totalCount
         var plt = initPlotV(title, pd.xlabel, "#", width = 1600, height = 1200)
         body
-        result[1] = plt
+        result = initPlotResult(outfile, plt)
       result.add pd
     block:
       barChart("pix_bar_chart", "Bar chart of occurences of pixels"):

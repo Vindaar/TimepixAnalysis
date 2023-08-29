@@ -1358,6 +1358,45 @@ proc feSpectrum(h5f: H5File, runType: RunTypeKind,
     #  ylabel = "Energy / keV"
     #  plotKind = pkEnergyCalibCharge
     result.add @[basePd, feChargePd] #, energyPd, feChargePd, energyChargePd]
+
+proc feSpecVsTime(h5f: H5File, runType: RunTypeKind,
+                  fileInfo: FileInfo,
+                  config: Config): seq[PlotDescriptor] =
+  ## Creates plots comparing the fit Fe spectrum fit results with
+  let selector = initSelector(config)
+  let photoVsTime = PlotDescriptor(runType: runType,
+                                   name: "PhotoPeakVsTime",
+                                   xlabel: "Time / unix",
+                                   selector: selector,
+                                   runs: fileInfo.runs,
+                                   chip: fileInfo.centerChip,
+                                   isCenterChip: true,
+                                   plotKind: pkFeVsTime,
+                                   splitBySec: config.splitBySec,
+                                   lastSliceError: config.lastSliceError,
+                                   dropLastSlice: config.dropLastSlice)
+  let photoChVsTime = PlotDescriptor(runType: runType,
+                                     name: "PhotoPeakChargeVsTime",
+                                     xlabel: "Time / unix",
+                                     selector: selector,
+                                     runs: fileInfo.runs,
+                                     chip: fileInfo.centerChip,
+                                     isCenterChip: true,
+                                     plotKind: pkFeChVsTime,
+                                     splitBySec: config.splitBySec,
+                                     lastSliceError: config.lastSliceError,
+                                     dropLastSlice: config.dropLastSlice)
+  let phPixDivChVsTime = PlotDescriptor(runType: runType,
+                                        name: "PhotoPixDivChVsTime",
+                                        xlabel: "Time / unix",
+                                        selector: selector,
+                                        runs: fileInfo.runs,
+                                        chip: fileInfo.centerChip,
+                                        isCenterChip: true,
+                                        plotKind: pkFePixDivChVsTime,
+                                        splitBySec: config.splitBySec,
+                                        lastSliceError: config.lastSliceError,
+                                        dropLastSlice: config.dropLastSlice)
   #let photoVsTimeHalfH = PlotDescriptor(runType: runType,
   #                                      name: "PhotoPeakVsTimeHalfHour",
   #                                      xlabel: "Time / unix",
@@ -1392,9 +1431,8 @@ proc feSpectrum(h5f: H5File, runType: RunTypeKind,
   #                                           lastSliceError: 0.2,
   #                                           dropLastSlice: false)
   #
-  #result.add @[photoVsTime, phPixDivChVsTime,
-  #             photoChVsTime, photoChVsTimeHalfH,
-  #             photoVsTimeHalfH, phPixDivChVsTimeHalfH]
+  result.add @[photoVsTime, phPixDivChVsTime, photoChVsTime]
+               #photoChVsTimeHalfH, photoVsTimeHalfH, phPixDivChVsTimeHalfH]
 
 proc fePhotoDivEscape(h5f: H5File, runType: RunTypeKind,
                       fileInfo: FileInfo,
@@ -2525,7 +2563,9 @@ proc createPlot*(h5f: H5File,
       result = handleOccupancy(h5f, fileInfo, pd, config)
     of pkOccCluster:
       result = handleOccCluster(h5f, fileInfo, pd, config)
-    of pkPolya, pkFeSpec, pkFeSpecCharge:
+    of pkFeSpec, pkFeSpecCharge:
+      result = handleFeSpec(h5f, fileInfo, pd, config)
+    of pkPolya: # For now as was
       result = handleBarScatter(h5f, fileInfo, pd, config)
     of pkCombPolya:
       result = handleCombPolya(h5f, fileInfo, pd, config)
@@ -2806,6 +2846,8 @@ proc genCalibrationPlotPDs(h5f: H5File,
     result.add totPerPixel(h5f, runType, fInfoConfig, config)
   if cfFeSpectrum in config.flags:
     result.add feSpectrum(h5f, runType, fInfoConfig, config)
+  if cfFeVsTime in config.flags:
+    result.add feSpecVsTime(h5f, runType, fInfoConfig, config)
   #result.add fePhotoDivEscape(h5f, runType, fInfoConfig, config)
   # energyCalib(h5f) # ???? plot of gas gain vs charge?!
   if cfIngrid in config.flags:
@@ -3186,7 +3228,7 @@ proc plotData*(
   h5Compare: seq[string] = @[], # additional files to compare against
   compareRunTypes: seq[RunTypeKind] = @[],
   server = false, fadc = false, ingrid = false, occupancy = false,
-  polya = false, totPerPixel = false, fe_spec = false,
+  polya = false, totPerPixel = false, fe_spec = false, feVsTime = false,
   compiledCustom = false, config = "",
   version = false,
   chips: set[uint16] = {},
@@ -3232,6 +3274,8 @@ proc plotData*(
     flags.incl cfPolya
   if fe_spec:
     flags.incl cfFeSpectrum
+  if feVsTime:
+    flags.incl cfFeVsTime
   if totPerPixel:
     flags.incl cfTotPerPixel
   if server:
@@ -3363,7 +3407,8 @@ generated!""",
     "occupancy" : "If set occupancy plots will be created.",
     "polya" : "If set polya plots will be created.",
     "totPerPixel" : "If set totPerPixel plots will be created.",
-    "fe_spec" : "If set Fe spectrum will be created.",
+    "feSpec" : "If set Fe spectrum will be created.",
+    "feVsTime" : "If set produces plot showing Fe fit parameters against time",
     "cutFePeak" : "If set will create plots cut to Photo & Escape peak for calibration data",
     "compiledCustom" : "If set will create the custom plots that require recompilation (moreCustomPlots.nim)",
 

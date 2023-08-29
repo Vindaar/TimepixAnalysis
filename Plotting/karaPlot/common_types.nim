@@ -37,7 +37,8 @@ else:
       ftPng = "png"
 
     ConfigFlagKind* = enum
-      cfNone, cfFadc, cfInGrid, cfOccupancy, cfPolya, cfFeSpectrum, cfTotPerPixel, cfProvideServer, cfShow,
+      cfNone, cfFadc, cfInGrid, cfOccupancy, cfPolya, cfFeSpectrum, cfFeVsTime, cfTotPerPixel,
+      cfProvideServer, cfShow,
       cfApplyAllCuts,  # if true, will apply all cuts to all datasets. If not given (default) a cut on
                        # a single dataset will only apply on that dataset
       cfCutFePeak,     # if true and input is calibration, will create plots cut to Photopeak & Escape peak

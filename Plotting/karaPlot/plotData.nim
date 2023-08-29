@@ -636,18 +636,13 @@ proc appliedConfig(fileInfo: FileInfo, config: Config): FileInfo =
   if fileInfo.tpaFileKind == tpkCDL:
     result.cdlGroup = config.cdlGroup
 
-proc plotHist[T](xIn: seq[T], title, dset, outfile: string,
-                 binS: float, binR: (float, float),
-                 runs: seq[int] = @[]): PlotV =
+proc plotHist(df: DataFrame, title, dset, outfile: string,
+              binS: float, binR: (float, float)
+             ): PlotV =
+  ## XXX: use `dset` as the column name!
   ## plots the data in `x` as a histogram
-  if xIn.len == 0: return
-  var df = newDataFrame()
-  if runs.len == 0:
-    df = toDf({"xs" : xIn.mapIt(it.float)})
-  else:
-    doAssert xIn.len == runs.len, " xs " & $xIn.len & " vs " & $runs.len
-    df = toDf({"xs" : xIn.mapIt(it.float), "runs" : runs})
-  df = df.filter(fn {float: classify(`xs`) notin {fcInf, fcNegInf, fcNaN}})
+  if df.len == 0: return
+  var df = df.filter(fn {float: classify(`xs`) notin {fcInf, fcNegInf, fcNaN}})
   let xs = df["xs", float].toSeq1D
   var binRange = binR
   var binSize = binS
@@ -2071,8 +2066,10 @@ proc handleToTPerPixel(h5f: H5File,
     let plot = plotBar(@[bins], @[hist], title, xlabel, @[pd.name], outfile)
     result = initPlotResult(outfile, plot)
   else:
-    result[1] = plotHist(tots.mapIt(it.int), title, pd.name, result[0],
-                         binS = pd.binSize, binR = pd.binRange)
+    let df = toDf({"xs" : tots.mapIt(it.int)})
+    let plot = plotHist(df, title, pd.name, outfile,
+                        binS = pd.binSize, binR = pd.binRange)
+    result = initPlotResult(outfile, plot)
 
 proc getThisClusterEvent(df: DataFrame, event: int): DataFrame =
   ## Helper to work around "environment misses `event`"
@@ -2334,8 +2331,10 @@ proc handleCustomPlot(h5f: H5File,
           allZ.add h5f.read(fileInfo, r, cPlt.color, pd.selector, dtype = float,
                             chipNumber = fileInfo.centerChip)
       let title = buildTitle(pd)
-      result[0] = buildOutfile(pd, fileDir, fileType)
-      result[1] = plotHist(allX, title, cPlt.x, result[0], binS = 1.0, binR = (0.0, 0.0))
+      let outfile = buildOutfile(pd, fileDir, fileType)
+      let df = toDf({"xs" : allX})
+      let plot = plotHist(df, title, cPlt.x, outfile, binS = 1.0, binR = (0.0, 0.0))
+      result = initPlotResult(outfile, plot)
   else:
     result = pd.processData(h5f, fileInfo, pd, config)
 

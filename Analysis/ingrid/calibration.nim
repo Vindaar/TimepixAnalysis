@@ -1,4 +1,5 @@
-import std / [sequtils, strutils, strformat, os, tables, math, times]
+import std / [sequtils, strutils, strformat, tables, math, times]
+import std / os except FileInfo
 import seqmath, fenv
 import nimhdf5
 import mpfit
@@ -88,7 +89,7 @@ proc cutFeSpectrum(pos_x, pos_y, ecc, rms_trans: seq[float], eventNum, hits: seq
                       (ecc, -Inf, cut_ecc_high),
                       (rms_trans, -Inf, cut_rms_trans_high))
 
-proc cutFeSpectrum(df: DataFrame): DataFrame =
+proc cutFeSpectrum*(df: DataFrame): DataFrame =
   ## proc which receives the data for the cut, performs the cut and returns tuples of
   ## event numbers, number of hits and the indices of the passing elements
   ## inputs:

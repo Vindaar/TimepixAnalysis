@@ -1364,9 +1364,9 @@ proc feSpecVsTime(h5f: H5File, runType: RunTypeKind,
                   config: Config): seq[PlotDescriptor] =
   ## Creates plots comparing the fit Fe spectrum fit results with
   let selector = initSelector(config)
-  ## Note: we need `splitPerSec` to get the `timestamp` from `readDsets`. So if
+  ## Note: we need `splitBySec` to get the `timestamp` from `readDsets`. So if
   ## none given, we simply set it to int.high.
-  let splitPerSec = if config.splitPerSec <= 0: int.high else: config.splitPerSec
+  let splitBySec = if config.splitBySec <= 0: int.high else: config.splitBySec
   let photoVsTime = PlotDescriptor(runType: runType,
                                    name: "PhotoPeakVsTime",
                                    xlabel: "Time / unix",

@@ -1329,55 +1329,35 @@ proc feSpectrum(h5f: H5File, runType: RunTypeKind,
   ## creates the plot of the Fe spectrum
   let selector = initSelector(config)
   for r in fileInfo.runs:
+    ## XXX: `FeSpectrumPlot` for the prebinned data!
     let basePd = PlotDescriptor(runType: runType,
-                                name: "FeSpectrumPlot",
+                                #name: "FeSpectrumPlot",
+                                name: "hits",
                                 selector: selector,
                                 xlabel: "# pixels",
                                 runs: @[r],
                                 chip: fileInfo.centerChip,
                                 isCenterChip: true,
-                                plotKind: pkFeSpec)
+                                plotKind: pkFeSpec,
+                                splitBySec: config.splitBySec,
+                                lastSliceError: config.lastSliceError,
+                                dropLastSlice: config.dropLastSlice)
     #let energyPd = replace(basePd):
     #  name = "EnergyCalib"
     #  xlabel = "# pixels"
     #  ylabel = "Energy / keV"
     #  plotKind = pkEnergyCalib
-    #let feChargePd = replace(basePd):
-    #  name = "FeSpectrumChargePlot"
-    #  xlabel = "Charge / 10^3 electrons"
-    #  plotKind = pkFeSpecCharge
+    let feChargePd = replace(basePd):
+      #name = "FeSpectrumChargePlot"
+      name = "totalCharge"
+      xlabel = "Charge / 10^3 electrons"
+      plotKind = pkFeSpecCharge
     #let energyChargePd = replace(basePd):
     #  name = "EnergyCalibCharge"
     #  xlabel = "Charge / 10^3 electrons"
     #  ylabel = "Energy / keV"
     #  plotKind = pkEnergyCalibCharge
-    result.add @[basePd] #, energyPd, feChargePd, energyChargePd]
-
-  ## TODO: turn these into a separate thing from the `feSpectrum`
-  #let photoVsTime = PlotDescriptor(runType: runType,
-  #                                 name: "PhotoPeakVsTime",
-  #                                 xlabel: "Time / unix",
-  #                                 selector: selector,
-  #                                 runs: fileInfo.runs,
-  #                                 chip: fileInfo.centerChip,
-  #                                 isCenterChip: true,
-  #                                 plotKind: pkFeVsTime)
-  #let photoChVsTime = PlotDescriptor(runType: runType,
-  #                                   name: "PhotoPeakChargeVsTime",
-  #                                   xlabel: "Time / unix",
-  #                                   selector: selector,
-  #                                   runs: fileInfo.runs,
-  #                                   chip: fileInfo.centerChip,
-  #                                   isCenterChip: true,
-  #                                   plotKind: pkFeChVsTime)
-  #let phPixDivChVsTime = PlotDescriptor(runType: runType,
-  #                                 name: "PhotoPixDivChVsTime",
-  #                                 xlabel: "Time / unix",
-  #                                 selector: selector,
-  #                                 runs: fileInfo.runs,
-  #                                 chip: fileInfo.centerChip,
-  #                                 isCenterChip: true,
-  #                                 plotKind: pkFePixDivChVsTime)
+    result.add @[basePd, feChargePd] #, energyPd, feChargePd, energyChargePd]
   #let photoVsTimeHalfH = PlotDescriptor(runType: runType,
   #                                      name: "PhotoPeakVsTimeHalfHour",
   #                                      xlabel: "Time / unix",
@@ -1753,26 +1733,25 @@ template createFeVsTimeDataFrame(h5f: H5File,
 proc handleInGridDset(h5f: H5File,
                       fileInfo: FileInfo,
                       pd: PlotDescriptor,
-  var allData: seq[float]
-  var runs: seq[int]
                       config: Config): PlotResult =
+  var dfs = newSeq[DataFrame]()
   for r in pd.runs:
-    let data = h5f.read(fileInfo, r, pd.name, pd.selector, pd.chip, dtype = float)
-    allData.add data
-    if config.separateRuns:
-      runs.add(repeat(r, data.len))
-    # perform cut on range
-  result[0] = buildOutfile(pd, fileDir, fileType)
+    dfs.add h5f.readDsets(pd, fileInfo, r, @[pd.name], pd.selector, separateRuns = config.separateRuns, chipNumber = pd.chip)
+  var df = dfs.assignStack()
+
+  let outfile = buildOutfile(pd, fileDir, fileType)
   let title = buildTitle(pd)
-  result[1] = plotHist(allData, title, pd.name, result[0],
-                       pd.binSize, pd.binRange,
-                       runs)
+  df = df.rename(f{"xs" <- pd.name})
+  let plot = plotHist(df, title, pd.name, outfile,
+                      pd.binSize, pd.binRange)
+  result = initPlotResult(outfile, plot)
 
 proc handleFadcDset(h5f: H5File,
                     fileInfo: FileInfo,
                     pd: PlotDescriptor,
                     config: Config): PlotResult =
   # get the center chip group
+  ## XXX: make use of `readDsets` to support `splitBySec`!
   var allData: seq[float]
   for r in pd.runs:
     let group = h5f[fileInfo.dataPath(r, fileInfo.centerChip)]
@@ -1838,14 +1817,77 @@ proc handleBarScatter(h5f: H5File,
                       fileInfo: FileInfo,
                       pd: PlotDescriptor,
                       config: Config): PlotResult =
+  const UseBinnedData = true ## For `FeSpectrum` can be determined based on the `Plot` suffix
   let outfile = buildOutfile(pd, fileDir, fileType)
   let xlabel = pd.xlabel
   let title = buildTitle(pd)
+  # read data for `dset`
+  let nameFit = &"Fit of chip {pd.chip}"
   let (bins, counts, binsFit, countsFit) = h5f.readPlotFit(fileInfo, pd)
   var plot = plotBar(@[bins], @[counts], title, xlabel, @[title], outfile)
   # now add fit to the existing plot
   plot.plotScatter(binsFit, countsFit, nameFit, outfile)
   result = initPlotResult(outfile, plot)
+
+proc fitAndPlotFeSpec(df: DataFrame,
+                      plotKind: PlotKind,
+                      dset: string,
+                      xlabel, outfile, title: string): PlotResult =
+  var res: FeSpecFitData
+  case plotKind
+  of pkFeSpec:
+    let data = df[dset, int].toSeq1D
+    res = fitFeSpectrum(data)
+  of pkFeSpecCharge:
+    let data = df[dset, float].toSeq1D
+    res = fitFeSpectrumCharge(data)
+  else: doAssert false, "not possible"
+  # plot histogram + scatter for fit
+  var plot = plotBar(@[res.binning], @[res.hist], title, xlabel, @[dset], outfile)
+  # now add fit to the existing plot
+  plot.plotScatter(res.xFit, res.yFit, "Fit", outfile)
+  result = initPlotResult(outfile, plot)
+
+proc plotByRunsFeSpec(df: DataFrame, pd: PlotDescriptor, runNumber: int, config: Config): PlotResult =
+  for (tup, subDf) in groups(df.group_by("runs")):
+    if subDf.len < 30: ## XXX: ARBITRARY CUTOFF
+      echo "[WARNING]: Skipping batch ", tup, " due to only ", subDf.len, " events."
+      continue
+    var pd = pd
+    pd.runs = @[runNumber]
+    pd.suffix = tup[0][1].toStr
+    let outfile = buildOutfile(pd, fileDir, fileType)
+    let title = buildTitle(pd)
+    result = fitAndPlotFeSpec(subDf, pd.plotKind, pd.name, pd.xlabel, outfile, title)
+    try:
+      savePlot(result, config, fullPath = true)
+      result.created = true
+    except Exception as e:
+      echo "Failed to generate plot with error ", e.msg
+      continue
+
+proc handleFeSpec(h5f: H5File,
+                  fileInfo: FileInfo,
+                  pd: PlotDescriptor,
+                  config: Config): PlotResult =
+  # read data for `dset`
+  ## Get DF of all the hits / charge data
+  var dfs = newSeq[DataFrame]()
+  let separate = pd.splitBySec > 0 or config.separateRuns
+  for r in pd.runs:
+    let dsets = @["centerX", "centerY", "rmsTransverse", "eccentricity", pd.name]
+    let df = h5f.readDsets(pd, fileInfo, r, dsets, pd.selector, separateRuns = config.separateRuns, chipNumber = pd.chip)
+      .cutFeSpectrum() # Apply the cut to only have indices for Fe spectrum!
+    # perform the fits either by run or by batch index
+    if separate:
+      result = plotByRunsFeSpec(df, pd, r, config)
+    else:
+      dfs.add df
+  if not separate:
+    let df = dfs.assignStack()
+    let outfile = buildOutfile(pd, fileDir, fileType)
+    let title = buildTitle(pd)
+    result = fitAndPlotFeSpec(df, pd.plotKind, pd.name, pd.xlabel, outfile, title)
 
 proc handleCombPolya(h5f: H5File,
                      fileInfo: FileInfo,

@@ -575,6 +575,27 @@ proc read*(h5f: H5File,
   let (idxs, res) = readFull(h5f, fileInfo, runNumber, dsetName, selector, chipNumber, isFadc, dtype, idx)
   result = res
 
+proc determineStartStopTime(df: DataFrame): (BiggestInt, BiggestInt) =
+  ## returns the start and stop times of a dataframe with timestamps
+  # now get timeslice from dataframe
+  let tStart = df["timestamp"][0, int]
+  let tStop = df["timestamp"][df.high, int]
+  result = (tStart.BiggestInt, tStop.BiggestInt)
+
+proc determineNumBatches(length: int, pd: PlotDescriptor): int =
+  result = length div pd.splitBySec
+  var useLastBatch = false
+  if not pd.dropLastSlice:
+    inc result
+    useLastBatch = true
+  else:
+    # get size of last batch
+    let lastBatch = length mod pd.splitBySec
+    if lastBatch > (length.float * (1.0 - pd.lastSliceError)).round.int:
+      # then also take it
+      inc result
+      useLastBatch = true
+
 proc readVlen(h5f: H5File,
               fileInfo: FileInfo,
               runNumber: int,
@@ -724,8 +745,8 @@ proc plotBar[T](binsIn, countsIn: seq[seq[T]], title: string,
     # stack all data frames
     for i in 0 .. bins.high:
       let ldf = toDf({ "bins" : binsIn[i],
-                           "counts" : countsIn[i],
-                           "dset" : constantColumn(dsets[i], binsIn[i].len) })
+                       "counts" : countsIn[i],
+                       "dset" : constantColumn(dsets[i], binsIn[i].len) })
       df.add ldf
     if bins.len > 1:
       result.pltGg = ggplot(df, aes("bins", "counts")) +
@@ -1659,80 +1680,20 @@ template createFeVsTimeDataFrame(h5f: H5File,
   ## Nor can it be a normal template due to a `cannot instantiate DynamicStackArray`
   ## from the joinTheta call for the 3rd argument.
   ## Put everything in a block to manually create some hygiene
-  when false:
-    const feSchema = [
-      intCol("FeSpectrum"),
-      intCol("FeSpectrumEvents")
-    ]
-    const evSchema = [
-      intCol("eventNumber"),
-      intCol("timestamp")
-    ]
-    type feType = schemaType(feSchema)
-    type evType = schemaType(evSchema)
-    let dfFe = fromHDF5[feType](DF, h5f, h5f.name,
-                                group.name / "chip_" & $pd.chip).cache()
-    let dfFeRenamed = dfFe.map(x => (
-      FeSpectrum: x.FeSpectrum,
-      eventNumber: x.FeSpectrumEvents
-    ))
-    let dfEv = fromHDF5[evType](DF, h5f, h5f.name,
-                                group.name).cache()
-    let joined = joinTheta(
-      dfFeRenamed,
-      dfEv,
-      (a, b) => a.eventNumber == b.eventNumber,
-      (a, b) => mergeTuple(a, b, ["eventNumber"])
-    )
-    joined
-  else:
-    # implement ggplotnim DF usage
-    var path = group.name
-    let evNum = h5f[path / "eventNumber", int]
-    let tstamp = h5f[path / "timestamp", int]
-    let dfEv = toDf({ "eventNumber" : evNum, "timestamp" : tstamp })
-    path &= "/chip_" & $pd.chip
-    let feSpec = h5f[path / "FeSpectrum", int]
-    let feSpecCh = h5f[path / "FeSpectrumCharge", float]
-    let feSpecEvNum = h5f[path / "FeSpectrumEvents", int]
-    let dfFeSpec = toDf({ "eventNumber" : feSpecEvNum,
-                              "FeSpectrum" : feSpec,
-                              "FeSpectrumCharge" : feSpecCh})
-    # return the joined df from template
-    inner_join(dfEv, dfFeSpec, by = "eventNumber")
-
-proc determineStartStopFeVsTime(df: DataFrame): (BiggestInt, BiggestInt) =
-  ## returns the start and stop times of a dataframe with timestamps
-  # now get timeslice from dataframe
-  when false:
-    let tStopDf = joined.sort(x => x.timestamp, SortOrder.Descending)
-      .take(1)
-      .collect()
-    let tStop = tStopDf[0].timestamp
-
-    let tStartDf = joined.sort(x => x.timestamp, SortOrder.Ascending)
-      .take(1)
-      .collect()
-    let tStart = tStartDf[0].timestamp
-  else:
-    #let cc = df.collect()
-    let tStart = df["timestamp"][0, int]
-    let tStop = df["timestamp"][df.high, int]
-  result = (tStart.BiggestInt, tStop.BiggestInt)
-
-proc determineNumBatchesFeVsTime(length: int, pd: PlotDescriptor): int =
-  result = length div pd.splitBySec
-  var useLastBatch = false
-  if not pd.dropLastSlice:
-    inc result
-    useLastBatch = true
-  else:
-    # get size of last batch
-    let lastBatch = length mod pd.splitBySec
-    if lastBatch > (length.float * (1.0 - pd.lastSliceError)).round.int:
-      # then also take it
-      inc result
-      useLastBatch = true
+  # implement ggplotnim DF usage
+  var path = group.name
+  let evNum = h5f[path / "eventNumber", int]
+  let tstamp = h5f[path / "timestamp", int]
+  let dfEv = toDf({ "eventNumber" : evNum, "timestamp" : tstamp })
+  path &= "/chip_" & $pd.chip
+  let feSpec = h5f[path / "FeSpectrum", int]
+  let feSpecCh = h5f[path / "FeSpectrumCharge", float]
+  let feSpecEvNum = h5f[path / "FeSpectrumEvents", int]
+  let dfFeSpec = toDf({ "eventNumber" : feSpecEvNum,
+                            "FeSpectrum" : feSpec,
+                            "FeSpectrumCharge" : feSpecCh})
+  # return the joined df from template
+  inner_join(dfEv, dfFeSpec, by = "eventNumber")
 
 proc handleInGridDset(h5f: H5File,
                       fileInfo: FileInfo,
@@ -1890,13 +1851,13 @@ proc handleFeVsTime(h5f: H5File,
                           dateStr,
                           utc()).toUnix.float
     else:
+      ## XXX: MERGE THIS with `pkFeSpec` logic now!
       # split `FeSpectrum` hits by `splitBySec` and perform fit
-      #let pyFitFe = pyImport("ingrid.fit_fe_spectrum")
       let joined = createFeVsTimeDataFrame(h5f, group, pd)
 
-      let (tStart, tStop) = determineStartStopFeVsTime(joined)
+      let (tStart, tStop) = determineStartStopTime(joined)
       let length = (tStop - tStart).int
-      let nBatches = determineNumBatchesFeVsTime(length, pd)
+      let nBatches = determineNumBatches(length, pd)
 
       for i in 0 ..< nBatches:
         # extract the correct data
@@ -1913,45 +1874,22 @@ proc handleFeVsTime(h5f: H5File,
         echo "Starting from ", slStart
         echo "Stopping at ", slStop
 
-        when false:
-          let hits = joined.map(x => x.projectTo(FeSpectrum, timestamp))
-            .filter(x => (x.timestamp >= slStart and x.timestamp < slStop))
-            .map(x => x.FeSpectrum.int)
-            .collect()
+        let hitsTensor = joined.filter(fn {int: `timestamp` >= slStart and
+                                                `timestamp` < slStop})[dset]
+          .toTensor(int)
+        var hits: seq[int]
+        if hitsTensor.size > 0:
+          hits = hitsTensor.toSeq1D
         else:
-          let hitsTensor = joined.filter(fn {int: `timestamp` >= slStart and
-                                                  `timestamp` < slStop})[dset]
-            .toTensor(int)
-          var hits: seq[int]
-          if hitsTensor.size > 0:
-            hits = hitsTensor.clone.toRawSeq
-          else:
-            # skip this batch
-            echo "WARNING: Skipping empty batch!"
-            continue
+          # skip this batch
+          echo "WARNING: Skipping empty batch!"
+          continue
 
         var res: FeSpecFitData
         case pd.plotKind
         of pkFeVsTime: res = fitFeSpectrum(hits)
         of pkFeChVsTime: res = fitFeSpectrumCharge(hits)
         else: doAssert false, "not possible"
-        #let res0 = res[0].mapIt(it.float)
-        #let res1 = res[1].mapIt(it.float)
-
-        #let kalphaLoc = res[0].popt.toNimSeq(float)[kalphaPix]
-
-        #let ppp = barPlot(res0, res1)
-        #ppp.traces[0].autowidth = true
-        #
-        ## now create fit from fit results, add to plot
-        #let popt = res[2]
-        #let countFit = res0.mapIt(feSpectrumFunc(popt, it))
-        #let p2 = scatterPlot(res0, countFit).mode(PlotMode.Lines)
-        #ppp.traces.add p2.traces[0]
-        #ppp.show()
-
-        #let pyRes = pyFitFe.fitAndPlotFeSpectrum([hits], "", ".", r,
-        #                                         true)
         let kalphaLoc = res.kalpha
         let tstamp = (slStop + slStart).float / 2.0
         pixSeq.add kalphaLoc

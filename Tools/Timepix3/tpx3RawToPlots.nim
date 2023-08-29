@@ -113,7 +113,7 @@ proc main(
         body
 
     # If all arguments are `false`, set `all` flag
-    let all = not tpx3 and not raw and not reco and not energy and not plot
+    let all = not tpx3 and not raw and not reco and not energy and not plot and not plotFeSpec
 
     if tpx3 or all:
       walkFiles("", cfg.tpxPrefix):

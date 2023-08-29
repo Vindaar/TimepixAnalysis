@@ -1364,6 +1364,9 @@ proc feSpecVsTime(h5f: H5File, runType: RunTypeKind,
                   config: Config): seq[PlotDescriptor] =
   ## Creates plots comparing the fit Fe spectrum fit results with
   let selector = initSelector(config)
+  ## Note: we need `splitPerSec` to get the `timestamp` from `readDsets`. So if
+  ## none given, we simply set it to int.high.
+  let splitPerSec = if config.splitPerSec <= 0: int.high else: config.splitPerSec
   let photoVsTime = PlotDescriptor(runType: runType,
                                    name: "PhotoPeakVsTime",
                                    xlabel: "Time / unix",
@@ -1372,7 +1375,7 @@ proc feSpecVsTime(h5f: H5File, runType: RunTypeKind,
                                    chip: fileInfo.centerChip,
                                    isCenterChip: true,
                                    plotKind: pkFeVsTime,
-                                   splitBySec: config.splitBySec,
+                                   splitBySec: splitBySec,
                                    lastSliceError: config.lastSliceError,
                                    dropLastSlice: config.dropLastSlice)
   let photoChVsTime = PlotDescriptor(runType: runType,
@@ -1383,7 +1386,7 @@ proc feSpecVsTime(h5f: H5File, runType: RunTypeKind,
                                      chip: fileInfo.centerChip,
                                      isCenterChip: true,
                                      plotKind: pkFeChVsTime,
-                                     splitBySec: config.splitBySec,
+                                     splitBySec: splitBySec,
                                      lastSliceError: config.lastSliceError,
                                      dropLastSlice: config.dropLastSlice)
   #let phPixDivChVsTime = PlotDescriptor(runType: runType,
@@ -1394,7 +1397,7 @@ proc feSpecVsTime(h5f: H5File, runType: RunTypeKind,
   #                                      chip: fileInfo.centerChip,
   #                                      isCenterChip: true,
   #                                      plotKind: pkFePixDivChVsTime,
-  #                                      splitBySec: config.splitBySec,
+  #                                      splitBySec: splitBySec,
   #                                      lastSliceError: config.lastSliceError,
   #                                      dropLastSlice: config.dropLastSlice)
   #let photoVsTimeHalfH = PlotDescriptor(runType: runType,

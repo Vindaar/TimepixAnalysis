@@ -2350,16 +2350,17 @@ proc handleIngridEvent(h5f: H5File,
 proc handleFadcEvent(h5f: H5File,
                      fileInfo: FileInfo,
                      pd: PlotDescriptor,
-                     config: Config): (string, PlotV) =
+                     config: Config): PlotResult =
   doAssert pd.plotKind == pkFadcEvent
-  for outfile, pltV in fadcEventIter(h5f, fileInfo, pd, config):
+  for res in fadcEventIter(h5f, fileInfo, pd, config):
     # only a single pd
-    result = (outfile, pltV)
+    ## XXX: save plot here as well?
+    result = res
 
 proc handleCustomPlot(h5f: H5File,
                       fileInfo: FileInfo,
                       pd: PlotDescriptor,
-                      config: Config): (string, PlotV) =
+                      config: Config): PlotResult =
   doAssert pd.plotKind == pkCustomPlot
   if pd.processData.isNil:
     ## Assume this is a scatter plot

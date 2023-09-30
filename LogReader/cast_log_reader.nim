@@ -988,6 +988,28 @@ proc plotTemperatures(scLogs: seq[SlowControlLog]) =
     ggtitle("Temperatures in CAST hall & outside") +
     ggsave("/tmp/temperatures_cast.png", width = 1200, height = 800)
 
+import ggplotnim / ggplot_sdl2
+proc plotAngles(scLogs: seq[SlowControlLog]) =
+  ## Plots the angles horizontal (TODO) and vertical of the magnet from the slow control files.
+  let df = seqstoDf({ "Time" : scLogs.mapIt(it.timestamps).flatten,
+                      "Vertical [°]" : scLogs.mapIt(it.v_angle).flatten })
+    .arrange("Time")
+    .filter(f{idx("Vertical [°]") <= 8.0 and idx("Vertical [°]") > -8.0})
+  let num = 4 * 16
+  let breaks = linspace(-8.0, 8.0, num + 1)
+  ggplot(df, aes("Time", "Vertical [°]")) +
+    geom_line() +
+    scale_x_date(name = "Date", isTimestamp = true,
+                 dateSpacing = initDuration(weeks = 12),
+                 formatString = "yyyy-MM") +
+                        #dateSpacing = initDuration(weeks = 26), dateAlgo = dtaAddDuration) +
+    scale_y_continuous(breaks = breaks) +
+    ggtitle("Vertical angles of the CAST magnet") +
+    ggshow("/tmp/angles_cast.pdf", width = 1200, height = 800)
+    #ggsave("/tmp/angles_cast.pdf", width = 1200, height = 800)
+
+proc fileValid(sc: SlowControlLog): bool = sc.filename.len > 0 and sc.timestamps.len > 0
+
 proc read_sc_log_folder(log_folder: string,
                         schemaFile: VersionSchemaFile,
                         magnetField = 8.0) =
@@ -1040,7 +1062,9 @@ proc read_sc_log_folder(log_folder: string,
 
   print_slow_control_logs(scLogs, magnetField)
   # plot the temperature data
-  plotTemperatures(scLogs)
+  # plotTemperatures(scLogs)
+  # plot angles
+  plotAngles(scLogs)
 
 proc process_log_folder(folder: string, logKind: LogFileKind,
                         h5file = "",

@@ -156,7 +156,7 @@ proc parseVersionSchemaFile(path: string): VersionSchemaFile =
       inc col
     result[ver] = VersionSchema(version: ver, fTab: tab)
 
-proc getVersionSchema(schemaFile: VersionSchemaFile, fname: string): VersionSchema =
+proc getVersionSchema(schemaFile: VersionSchemaFile, fname: string): Option[VersionSchema] =
   let (dir, fn, ext) = splitFile(fname)
   if fn.startsWith("SCDV"):
     # should be a schema version file
@@ -165,15 +165,15 @@ proc getVersionSchema(schemaFile: VersionSchemaFile, fname: string): VersionSche
     inc idx, parseUntil(fn, verBuf, until = '_', idx)
     if idx != 8:
       # failed to parse
-      raise newException(IOError, "Could not parse version number from filename: " & $fn)
+      echo "[WARNING] Could not parse version number from filename: ", fn, ". Skipping file."
     elif Version(verBuf) notin schemaFile:
       # bad version
-      raise newException(IOError, "Could not find version " & $verBuf & " in table of version numbers.")
+      echo "[WARNING] Could not find version ", verBuf, " in table of version numbers. Skipping file."
     else:
-      result = schemaFile[Version(verBuf)]
+      result = some(schemaFile[Version(verBuf)])
   else:
     # bad file
-    raise newException(IOError, "Input file " & $fn & " does not follow convention.")
+    echo "[WARNING] Input file ", fn, " does not follow convention. Skipping file."
 
 proc newSlowControlLog(name: string): SlowControlLog =
   result.filename = name
@@ -571,9 +571,13 @@ proc splitMinTwo(lineData: var seq[string],
   if not isHeaderLine and count != expected and lineCnt != 0:
     echo "parsed : ", lineData.mapIt(it.strip(chars = {' ', '\0'}))
     echo "in line: ", lineCnt
+    return 0 # invalid file!
   elif not isHeaderLine:
-    doAssert count == expected, " Count " & $count & " but expected " & $expected
-    validData = true
+    if count != expected:
+      echo "[Warning] Count " & $count & " but expected " & $expected
+      return 0
+    else:
+      validData = true
   result = count
 
 proc parse_sc_logfile(content: string,
@@ -615,13 +619,10 @@ proc parse_sc_logfile(content: string,
   var lineCnt = 0
   var badLineCount = 0
 
-  #for line in content.splitLines():
   var lineStart = 0
   var lineBuf = newString(5000)
   var d = newSeqWith(schema.len, newString(100))
   var i = 0
-  #var fVal: float
-  #var iVal: int16
   var isHeader = false
   var validData = false
   while i < content.len:
@@ -701,21 +702,30 @@ proc parse_sc_logfile(content: string,
         if arg.isSome:
           let idx {.inject.} = arg.unsafeGet
           body
+      template addIfAvailable(arg, col, toAdd, fn: untyped): untyped =
+        if arg.isSome:
+          let idx {.inject.} = arg.unsafeGet
+          if idx > col.high:
+            echo "[WARNING] Bad file: ", filename, ". Skipping it."
+            return
+          toAdd.add fn(col[idx])
+
       template getIf(arg: untyped): untyped =
         if arg.isSome:
           let idx = arg.unsafeGet
           parseFloat d[idx]
         else:
           0.0
-      addIfAvailable(pmm_i, result.pmm.add parseFloat(d[idx]))
-      addIfAvailable(p3_i, result.p3.add parseFloat(d[idx]))
-      addIfAvailable(p3_ba_i, result.p3_ba.add parseFloat(d[idx]))
-      addIfAvailable(Imag_i, result.B_magnet.add parseFloat(d[idx]))
-      addIfAvailable(humid_i, result.humidity.add parseFloat(d[idx]))
-      addIfAvailable(hang_i, result.h_angle.add parseFloat(d[idx]))
-      addIfAvailable(vang_i, result.v_angle.add parseFloat(d[idx]))
-      addIfAvailable(hme_i, result.h_encoder.add uint16(parseInt(d[idx])))
-      addIfAvailable(vme_i, result.v_encoder.add uint16(parseInt(d[idx])))
+      #addIfAvailable(pmm_i, result.pmm.add parseFloat(d[idx]))
+      addIfAvailable(pmm_i,   d, result.pmm,       parseFloat)
+      addIfAvailable(p3_i,    d, result.p3,        parseFloat)
+      addIfAvailable(p3_ba_i, d, result.p3_ba,     parseFloat)
+      addIfAvailable(Imag_i,  d, result.B_magnet,  parseFloat)
+      addIfAvailable(humid_i, d, result.humidity,  parseFloat)
+      addIfAvailable(hang_i,  d, result.h_angle,   parseFloat)
+      addIfAvailable(vang_i,  d, result.v_angle,   parseFloat)
+      addIfAvailable(hme_i,   d, result.h_encoder, proc(s: string): uint16 = uint16(parseInt(s)))
+      addIfAvailable(vme_i,   d, result.v_encoder, proc(s: string): uint16 = uint16(parseInt(s)))
       addIfAvailable(mm_gas_i):
         let mm_gas_b = d[idx][0] == '0'
         result.mm_gas.add mm_gas_b
@@ -732,10 +742,16 @@ proc parse_sc_logfile(content: string,
   result.badLineCount = badLineCount
 
 proc read_sc_logfile(filename: string,
-                               schemaFile: VersionSchemaFile): SlowControlLog =
+                     schemaFile: VersionSchemaFile): SlowControlLog =
   # get schema
   let schema = schemaFile.getVersionSchema(filename)
-  result = parse_sc_logfile(readFile(filename), schema, filename)
+  if schema.isSome:
+    try:
+      result = parse_sc_logfile(readFile(filename), schema.get, filename)
+    except ValueError as e:
+      echo "[WARNING] Encountered a `ValueError` trying to parse the file: ", filename
+      echo "\tException message: ", e.msg
+      echo "\tSkipping this file."
 
 proc splitWhitespaceBuf(data: var seq[string],
                         buf: var string,
@@ -993,8 +1009,9 @@ proc read_sc_log_folder(log_folder: string,
       echo "File ", log, " and ext ", ext
       if ext == ".daq" and not fn.endsWith(".OLD"): # some weird files with `OLD.daq`
         let sc = read_sc_logfile(log, schemaFile)
-        dfDir.add toDf(sc)
-        scLogs.add sc
+        if sc.fileValid(): # otherwise the file did not parse correctly!
+          dfDir.add toDf(sc)
+          scLogs.add sc
       else:
         # skipping files other than log files
         echo "Skipping file ", log_p
@@ -1181,7 +1198,8 @@ proc handleAllLogs(all_logs_path: string, schemaFile: VersionSchemaFile,
         var scLog: SlowControlLog
         try:
           let schema = schemaFile.getVersionSchema(fi.filename)
-          scLog = parse_sc_logfile(content, schema, fi.filename)
+          if schema.isSome:
+            scLog = parse_sc_logfile(content, schema.get, fi.filename)
         except Exception as e:
           echo "Exception: ", e.msg
           continue

@@ -248,10 +248,9 @@ defColumn(uint8, uint16)
 type
   SeptemDataTable = DataTable[colType(uint8, uint16)]
 
-
 proc getSeptemDataFrame*(h5f: H5File, runNumber: int, allowedChips: seq[int] = @[],
                          charge = true, ToT = false
-                        ): SeptemDataTable =
+                        ): DataFrame = #SeptemDataTable =
   ## Returns a subset data frame of the given `runNumber` and `chipNumber`, which
   ## contains only the zero suppressed event data
   var
@@ -293,9 +292,9 @@ proc getSeptemDataFrame*(h5f: H5File, runNumber: int, allowedChips: seq[int] = @
       evs.add(eventNumbers)
       chips = add(chips, chipNumCol)
       cls.add clusters
-  result = toDf({ "eventNumber" : evs, "x" : xs, "y" : ys, "chipNumber" : chips,
+  result = toDf({ "eventNumber" : evs, "x" : xs.mapIt(it.int), "y" : ys.mapIt(it.int), "chipNumber" : chips,
                   "cluster" : cls })
-    .to(SeptemDataTable)
+  #  .to(SeptemDataTable)
 
   if charge:
     result["charge"] = chs
@@ -323,10 +322,10 @@ proc getSeptemEventDF*(h5f: H5File, runNumber: int): DataFrame  =
 
   result = toDf({"eventIndex" : evIdx, "eventNumber" : evs, "chipNumber" : chips})
 
-iterator getSeptemDataFrame*(h5f: H5File): SeptemDataTable =
-  for num, group in runs(h5f):
-    let df = h5f.getSeptemDataFrame(num)
-    yield df
+#iterator getSeptemDataFrame*(h5f: H5File): SeptemDataTable =
+#  for num, group in runs(h5f):
+#    let df = h5f.getSeptemDataFrame(num)
+#    yield df
 
 proc getChipOutline*(maxVal: SomeNumber): DataFrame =
   ## returns a data frame with only the outline of a Timepix chip as active pixels

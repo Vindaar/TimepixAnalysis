@@ -157,7 +157,8 @@ proc addRunPeriod*(runs: seq[RunPeriod]) =
     grp.attrs[RunPeriodLastRun] = run.lastRun
     let dset = h5f.create_dataset(grp.name / RunPeriodRunDset,
                                   run.validRuns.len,
-                                  dtype = int)
+                                  dtype = int,
+                                  overwrite = true)
     dset[dset.all] = run.validRuns
     for key, val in run.additionalInfo:
       case val.kind

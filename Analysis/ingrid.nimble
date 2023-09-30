@@ -19,7 +19,7 @@ requires "ingridDatabase"
 requires "ggplotnim >= 0.6.1"
 requires "nimhdf5 >= 0.5.10"
 requires "unchained >= 0.3.9"
-requires "xrayAttenuation >= 0.2.1"
+requires "https://github.com/SciNim/xrayAttenuation >= 0.2.1"
 requires "datamancer >= 0.3.15"
 # optimization dependencies
 requires "mpfit >= 0.1.1"

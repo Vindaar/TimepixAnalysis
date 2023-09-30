@@ -27,6 +27,7 @@ requires "nlopt >= 0.3.1"
 # UI/UX deps and optional deps
 requires "docopt#head"
 requires "cligen"
+requires "adix"
 requires "parsetoml"
 requires "karax"
 # additional deps (these are on their way out)

@@ -1,6 +1,6 @@
 # Package
 
-version       = "0.3.4"
+version       = "0.3.5"
 author        = "Sebastian Schmidt"
 description   = "A selection of functions, which help during analysis etc. of InGrid related data files (created by TOS and other)"
 license       = "MIT"

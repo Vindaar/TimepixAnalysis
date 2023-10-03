@@ -342,7 +342,8 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
     plt = ggplot(df, aes(Ecol, Rcol)) +
       geom_histogram(stat = "identity", position = "identity",
                      alpha = 0.5, color = transparent, hdKind = hdOutline) +
-      scale_x_continuous(breaks = 20)
+      minorGridLines()
+      #scale_x_continuous(breaks = 20)
   if not hidePoints:
     plt = plt + geom_point(binPosition = "center", position = "identity")
   if not hideErrors:
@@ -369,13 +370,13 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
     xlab(r"Energy [\si{keV}]") +
     ylab(r"Rate [\SI{1e-5}{keV⁻¹ cm⁻² s⁻¹}]", margin = 1.6) +
     #minorGridLines() +
-    ggtitle(titleSuff) +
-    theme_latex()
+    ggtitle(titleSuff)
+    #theme_latex()
     #theme_transparent()
     if genTikZ:
-      plt + ggsave(fname.replace(".pdf", ".tex"), width = 800, height = 480, useTeX = true, onlyTikZ = true)
+      plt + ggsave(fname.replace(".pdf", ".tex"), width = 600, height = 360, useTeX = true, onlyTikZ = true)
     else:
-      plt + ggsave(fname, width = 800, height = 480, useTex = true, standalone = true)
+      plt + ggsave(fname, width = 600, height = 360, useTex = true, standalone = true)
   else:
     plt + xlab("Energy [keV]") +
     ylab("Rate [10⁻⁵ keV⁻¹ cm⁻² s⁻¹]") +

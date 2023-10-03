@@ -62,7 +62,7 @@ const InGridFnameTemplate* = "$1_run$2_chip$3_$4_binSize_binRange$5_$6"
 const InGridTitleTemplate* = "Dataset: $1 for run $2, chip $3 in range: $4"
 const CustomPlotFnameTemplate* = "$1_run$2_chip$3_$4"
 const CustomPlotTitleTemplate* = "$1, for run $2, chip $3"
-const FadcFnameTemplate* = "fadc_$1_run$2_$3_binSize$4_binRange$5_$6"
+const FadcFnameTemplate* = "fadc_$1_run$2_binSize$3_binRange$4_$5"
 const FadcTitleTemplate* = "Dataset: $1 for run $2, fadc in range: $3"
 const PolyaFnameTemplate* = "polya_run$1_chip$2"
 const PolyaTitleTemplate* = "Polya for run $1 of chip $2"
@@ -480,7 +480,8 @@ proc buildTitle*(pd: PlotDescriptor): kstring =
                                          pd.customPlot.toTitle]
   of pkFadcDset:
     result = FadcTitleTemplate %% [pd.name,
-                                  runsStr]
+                                   runsStr,
+                                   $pd.binRange]
 
   of pkOccupancy:
     let clampStr = cKindStr(pd, "@")

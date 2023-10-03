@@ -354,7 +354,7 @@ proc showPlot(p: PlotV, config: Config, fname: string) =
 
 proc savePlot(plt: PlotResult, config: Config, fullPath = false) =
   # TODO: move elsewhere!!!
-  if plt.created: return # Already created this plot
+  if plt.created or plt.invalid: return # Already created this plot or it's not valid
   let (p, outfile) = (plt.plot, plt.outfile)
   var fname = outfile
   if not fullPath:
@@ -1785,9 +1785,12 @@ proc handleInGridDset(h5f: H5File,
   let outfile = buildOutfile(pd, fileDir, fileType)
   let title = buildTitle(pd)
   df = df.rename(f{"xs" <- pd.name})
-  let plot = plotHist(df, title, pd.name, outfile,
-                      pd.binSize, pd.binRange)
-  result = initPlotResult(outfile, plot)
+  if df.len > 0:
+    let plot = plotHist(df, title, pd.name, outfile,
+                        pd.binSize, pd.binRange)
+    result = initPlotResult(outfile, plot)
+  else:
+    result = initInvalidPlotResult()
 
 proc handleFadcDset(h5f: H5File,
                     fileInfo: FileInfo,
@@ -1808,8 +1811,11 @@ proc handleFadcDset(h5f: H5File,
   let outfile = buildOutfile(pd, fileDir, fileType)
   let title = buildTitle(pd)
   let df = toDf({"xs" : allData})
-  let plot = plotHist(df, title, pd.name, outfile, pd.binSize, pd.binRange)
-  result = initPlotResult(outfile, plot)
+  if df.len > 0:
+    let plot = plotHist(df, title, pd.name, outfile, pd.binSize, pd.binRange)
+    result = initPlotResult(outfile, plot)
+  else:
+    result = initInvalidPlotResult()
 
 proc handleOccupancy(h5f: H5File,
                      fileInfo: FileInfo,
@@ -2183,9 +2189,12 @@ proc handleToTPerPixel(h5f: H5File,
     result = initPlotResult(outfile, plot)
   else:
     let df = toDf({"xs" : tots.mapIt(it.int)})
-    let plot = plotHist(df, title, pd.name, outfile,
-                        binS = pd.binSize, binR = pd.binRange)
-    result = initPlotResult(outfile, plot)
+    if df.len > 0:
+      let plot = plotHist(df, title, pd.name, outfile,
+                          binS = pd.binSize, binR = pd.binRange)
+      result = initPlotResult(outfile, plot)
+    else:
+      result = initInvalidPlotResult()
 
 proc getThisClusterEvent(df: DataFrame, event: int): DataFrame =
   ## Helper to work around "environment misses `event`"
@@ -2450,8 +2459,11 @@ proc handleCustomPlot(h5f: H5File,
       let title = buildTitle(pd)
       let outfile = buildOutfile(pd, fileDir, fileType)
       let df = toDf({"xs" : allX})
-      let plot = plotHist(df, title, cPlt.x, outfile, binS = 1.0, binR = (0.0, 0.0))
-      result = initPlotResult(outfile, plot)
+      if df.len > 0:
+        let plot = plotHist(df, title, cPlt.x, outfile, binS = 1.0, binR = (0.0, 0.0))
+        result = initPlotResult(outfile, plot)
+      else:
+        result = initInvalidPlotResult()
   else:
     result = pd.processData(h5f, fileInfo, pd, config)
 

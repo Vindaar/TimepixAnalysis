@@ -164,6 +164,7 @@ type
     outfile*: string
     plot*: PlotV
     created*: bool
+    invalid*: bool = true
 
   ## The type corresponding to the procedures that
   PlotHandlerProc = proc(h5f: H5File, fileInfo: FileInfo, pd: PlotDescriptor, config: Config): PlotResult
@@ -231,13 +232,16 @@ type
       discard
 
 proc initPlotResult*(outfile: string, plot: PlotV, created = false): PlotResult =
-  result = PlotResult(outfile: outfile, plot: plot, created: created)
+  result = PlotResult(outfile: outfile, plot: plot, created: created, invalid: false)
 
 proc initPlotResult*(created: bool): PlotResult =
   if not created: raise newException(ValueError, "Constructing an empty result plot " &
     "only allowed to indicated 'created = true' and thus nothing to do.")
-  result = PlotResult(created: true)
+  result = PlotResult(created: true, invalid: false)
 
+proc initInvalidPlotResult*(): PlotResult =
+  ## Creates a plot result that is invalid.
+  result = PlotResult(invalid: true)
 
 proc `==`*(s1, s2: DataSelector): bool =
   result = s1.region == s2.region and

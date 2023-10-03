@@ -2594,7 +2594,7 @@ proc createPlot*(h5f: H5File,
   except KeyError as e:
     echo "WARNING: Could not generate the plot: " & $pd & ". Skipping it."
     echo "Exception message: ", e.msg
-    raise
+    #raise
 
 proc createOrg(outfile, fileType: string) =
   ## creates a simple org file consisting of headings and images

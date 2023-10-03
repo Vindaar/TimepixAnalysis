@@ -193,7 +193,8 @@ proc initConfig*(chips: set[uint16],
                  separateRuns: bool = false,
                  splitBySec: int = -1,
                  lastSliceError: float = 0.2,
-                 dropLastSlice = true
+                 dropLastSlice = true,
+                 quiet = false
                 ): Config =
   let fType = tomlConfig["General"]["filetype"].getStr
   let outputType = tomlConfig["General"]["outputFormat"].getStr
@@ -250,7 +251,8 @@ proc initConfig*(chips: set[uint16],
                   binningTab: binningTab,
                   splitBySec: splitBySec,
                   lastSliceError: lastSliceError,
-                  dropLastSlice: dropLastSlice)
+                  dropLastSlice: dropLastSlice,
+                  quiet: quiet)
 
 proc initSelector(config: Config, cuts: seq[GenericCut] = @[],
                   applyAll: Option[bool] = none[bool]()
@@ -2543,7 +2545,8 @@ proc createPlot*(h5f: H5File,
   # TODO: think: have createPlot return the `PlotV` object. Then we could
   # call this proc recursively and add other plots to the existing figure
   let test = % pd
-  info "Generating plot for: ", test.pretty
+  if not config.quiet:
+    info "Generating plot for: ", test.pretty
   # test reverse
   #let test2 = parsePd(test)
   #doAssert test2 == pd
@@ -3244,7 +3247,8 @@ proc plotData*(
   events: seq[int] = @[],
   splitBySec = -1,
   lastSliceError = 0.2,
-  dropLastSlice = true
+  dropLastSlice = true,
+  quiet = false
               ) =
   ## the main workhorse of the server end
   if version:
@@ -3297,7 +3301,8 @@ proc plotData*(
                        separateRuns = separateRuns,
                        splitBySec = splitBySec,
                        lastSliceError = lastSliceError,
-                       dropLastSlice = dropLastSlice
+                       dropLastSlice = dropLastSlice,
+                       quiet = quiet
   )
 
   info &"Flags are:\n  {flags}"

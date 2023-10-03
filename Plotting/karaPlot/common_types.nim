@@ -81,6 +81,7 @@ else:
       # if splitBySec doesn't fit into splitBySec within `lastSliceError` decide if to drop
       # that slice or keep it
       dropLastSlice*: bool
+      quiet*: bool # whether to print a lot of output
 
     BinRange* = tuple[low, high: float]
     BinInfo* = tuple[binSize: float, binRange: BinRange]

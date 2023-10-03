@@ -24,10 +24,11 @@ proc cutOnProperties*(h5f: H5File,
   ## For usage with FADC data, be careful to extract the event numbers using the
   ## indices first, before applying the indices on InGrid data.
   # first get data
-  var dsets = newSeqOfCap[seq[float]](cuts.len)
+  #var dsets = newSeqOfCap[seq[float]](cuts.len)
   # for the chip data we always need the event number information!
   var dfChip = toDf({"eventNumber" : h5f.readAs(group.name / "eventNumber", int)})
   var dfFadc = newDataFrame()
+  var dfCommon = newDataFrame()
   for c in cuts:
     if c.isFadc:
       let fadcGrp = group.name.parentDir / "fadc"
@@ -38,6 +39,10 @@ proc cutOnProperties*(h5f: H5File,
       else:
         # if we _have_ an FADC group, but no FADC data, return empty seq as we filter _everything_
         return @[]
+    elif ".." in c.dset:
+      if dfCommon.len == 0:
+        dfCommon = toDf({"eventNumber" : h5f.readAs(group.name.parentDir / "eventNumber", int)})
+      dfCommon[c.dset] = h5f.readAs(group.name / c.dset, float)
     else:
       dfChip[c.dset] = h5f.readAs(group.name / c.dset, float)
 
@@ -51,19 +56,10 @@ proc cutOnProperties*(h5f: H5File,
   ## XXX: current problem: the inner join removes data, but we want to return the
   ## INDICES. Therefore need indices in input.
   ## FIXED WITH INDEX, but currently hardcoded for dfChip
-  var index: Tensor[int]
-  if dfChip.len > 0 and dfFadc.len > 0:
-    let dfComb = innerJoin(dfChip, dfFadc, by = "eventNumber")
-    dsets = dfComb.toDsets(@cuts)
-    index = dfComb["Index", int]
-  elif dfChip.len > 0:
-    dsets = dfChip.toDsets(@cuts)
-    index = dfChip["Index", int]
-  else:
-    doAssert false, "This should never happen!"
-    dsets = dfFadc.toDsets(@cuts)
-    index = dfFadc["Index", int] ##XXX: BROKEN AT THE MOMENT!!!
-
+  var dfs = @[dfChip, dfFadc, dfCommon].filterIt(it.len > 0)
+  let dfComb = innerJoin(dfs, by = "eventNumber")
+  let dsets = dfComb.toDsets(@cuts)
+  let index = dfComb["Index", int]
   # if chip region not all, get `posX` and `posY`
   var
     posX: seq[float]

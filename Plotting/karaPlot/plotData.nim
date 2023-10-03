@@ -527,17 +527,17 @@ proc readFull*(h5f: H5File,
   var dset: H5DataSet
   var selector = selector
   if isFadc:
-    let evNumDset = fileInfo.fadcDataPath(runNumber).string / dsetName
-    if evNumDset in h5f:
-      dset = h5f[(fileInfo.fadcDataPath(runNumber).string / dsetName).dset_str]
+    let dsetName = fileInfo.fadcDataPath(runNumber).string / dsetName
+    if dsetName in h5f:
+      dset = h5f[dsetName.dset_str]
     else:
       return # early, no such dataset. can happen e.g. if no FADC data in run
     # reset selector, we don't want cuts for FADC data
     selector = DataSelector(region: crAll, isFadc: true)
   else:
-    let evNumDset = fileInfo.dataPath(runNumber, chipNumber).string / dsetName
-    if evNumDset in h5f:
-      dset = h5f[(fileInfo.dataPath(runNumber, chipNumber).string / dsetName).dset_str]
+    let dsetName = fileInfo.dataPath(runNumber, chipNumber).string / dsetName
+    if dsetName in h5f:
+      dset = h5f[dsetName.dset_str]
     else:
       return # early, there is no such dataset! Can happen e.g. in likelihood output
 
@@ -618,6 +618,7 @@ proc readDsets*(h5f: H5File,
   var df = newDataFrame()
   for dset in dsets:
     let data = h5f.read(fileInfo, runNumber, dset, pd.selector, pd.chip, dtype = float, idx = idx)
+    if data.len == 0: continue # might be empty if run doesn't have dataset or cuts remove all!
     df[dset] = data
   if pd.splitBySec > 0:
     df["eventNumber"] = h5f.read(fileInfo, runNumber, "eventNumber", pd.selector, pd.chip, dtype = int)

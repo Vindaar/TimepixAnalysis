@@ -1,7 +1,7 @@
 import std / algorithm
 import arraymancer / tensor
 
-import ingrid / [ingrid_types]
+import ../ [ingrid_types]
 import ./geometry
 
 

@@ -52,7 +52,7 @@ const
                  "rmsLongitudinal", "rmsTransverse", "hits", "energyFromPixel",
                  "energyFromCharge", "likelihood", "centerX", "centerY"]
   ToADsets = ["toaLength", "toaRms", "toaMean", "toaMin", "toaSkewness", "toaKurtosis"]
-  FadcDsets = ["minVal", "fallTime", "riseTime"]
+  FadcDsets = ["minVal", "fallTime", "riseTime", "skewness"]
   AllFadcDsets = ["argMinval", "baseline", "eventNumber", "fallStop", "fallTime",
                   "minVal", "noisy", "riseStart", "riseTime", "skewness"]
 

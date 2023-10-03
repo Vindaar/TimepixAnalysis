@@ -1,4 +1,5 @@
 ## A tool to plot data from H5 files
+from std/sugar import dup
 import plotly
 import ggplotnim
 from ginger import initViewport, layout, embedAsRelative, addViewport, draw, quant, UnitKind
@@ -527,7 +528,7 @@ proc readFull*(h5f: H5File,
   var dset: H5DataSet
   var selector = selector
   if isFadc:
-    let dsetName = fileInfo.fadcDataPath(runNumber).string / dsetName
+    let dsetName = fileInfo.fadcDataPath(runNumber).string / dsetName.dup(removePrefix("fadc/"))
     if dsetName in h5f:
       dset = h5f[dsetName.dset_str]
     else:
@@ -2435,11 +2436,16 @@ proc handleCustomPlot(h5f: H5File,
       var allX: seq[float]
       var allY: seq[float]
       var allZ: seq[float]
+      let xFadc = "fadc/" in cPlt.x
+      let yFadc = "fadc/" in cPlt.y
       for r in pd.runs:
+        ## XXX: this does not handle the case where we plot data from different groups
+        ## against another, i.e. FADC against chip data! That is due to the cut logic
+        ## and how it handles separate calls etc.
         allX.add h5f.read(fileInfo, r, cPlt.x, pd.selector, dtype = float,
-                         chipNumber = fileInfo.centerChip)
+                          chipNumber = fileInfo.centerChip, isFadc = xFadc)
         allY.add h5f.read(fileInfo, r, cPlt.y, pd.selector, dtype = float,
-                         chipNumber = fileInfo.centerChip)
+                         chipNumber = fileInfo.centerChip, isFadc = yFadc)
         if cPlt.color.len > 0:
           allZ.add h5f.read(fileInfo, r, cPlt.color, pd.selector, dtype = float,
                             chipNumber = fileInfo.centerChip)

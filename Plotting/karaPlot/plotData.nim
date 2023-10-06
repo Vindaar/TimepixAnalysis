@@ -2240,24 +2240,24 @@ iterator ingridEventIter(h5f: H5File,
 
     var texts: seq[string]
     if pd.selector.cuts.len > 0:
-      texts.add &"{\" \":>15}Cuts used: "
+      texts.add &"|{\" \":>15}Cuts used: "
       for c in pd.selector.cuts:
-        texts.add &"{c.dset:>15}: [{c.min:.2f}, {c.max:.2f}]"
+        texts.add &"|{c.dset:>15}: [{c.min:.2f}, {c.max:.2f}]"
     let masks = getMasks(pd.selector, h5f.name, "")
     if masks.len > 0:
-      texts.add &"{\" \":>15}Masks used: "
+      texts.add &"|{\" \":>15}Masks used: "
       for m in masks:
-        texts.add &"    [x: ({m.x.min}, {m.x.max}), y: ({m.y.min}, {m.y.max})]"
+        texts.add &"|    [x: ({m.x.min}, {m.x.max}), y: ({m.y.min}, {m.y.max})]"
     for dset in concat(@InGridDsets, @ToADsets, @["eventNumber"]):
       try:
         let val = dfProps[dset, 0, float]
-        let s = &"{dset:>25}: {val:6.4f}"
+        let s = &"|{dset:>25}: {val:6.4f}"
         texts.add s
       except KeyError:
         echo "Ignoring missing key: ", dset, " for annotation!"
         continue # ignore this field
     if dfProps.len > 1: # more than 1 cluster, add number of found clusters
-      texts.add &"{\"numClusters\":>25}: {dfProps.len}"
+      texts.add &"|{\"numClusters\":>25}: {dfProps.len}"
     case BKind
     of bPlotly:
       for i, a in texts:
@@ -2270,7 +2270,7 @@ iterator ingridEventIter(h5f: H5File,
       # create a font to use using the `ggplotnim.font` helper
       let font = font(10.0, family = "monospace")
 
-      let leftLoc = if pd.fullSeptemboard: -0.6
+      let leftLoc = if pd.fullSeptemboard: -1.15
                     else: -0.3
 
       for i, a in texts:
@@ -2337,7 +2337,7 @@ iterator fadcEventIter(h5f: H5File,
     for d in AllFadcDsets:
       let val = h5f.read(fileInfo, run, d, pd.selector, isFadc = true,
                          dtype = float, idx = @[idx])[0]
-      let s = &"{d:15}: {val:6.4f}"
+      let s = &"|{d:>12}: {val:6.4f}"
       texts.add s
       dfProps[d] = @[val, val]
 
@@ -2372,7 +2372,7 @@ iterator fadcEventIter(h5f: H5File,
     of bGgPlot:
       let font = font(10.0, family = "monospace")
       for i, a in texts:
-        pltV.pltGg.annotations.add ggplotnim.Annotation(left: some(-0.35),
+        pltV.pltGg.annotations.add ggplotnim.Annotation(left: some(-0.425),
                                                         bottom: some(0.025 + i.float * 0.03),
                                                         font: font,
                                                         text: texts[i])

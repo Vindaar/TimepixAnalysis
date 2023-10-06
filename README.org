@@ -279,7 +279,7 @@ the gas gain. The Nim wrapper is found at
 [[https://github.com/vindaar/nimnlopt]]. To build the C library follow the
 following instructions, (taken from [[https://github.com/vindaar/nimnlopt/c_header][here]]):
 #+BEGIN_SRC sh
-git clone git://github.com/stevengj/nlopt # clone the repository
+git clone https://github.com/stevengj/nlopt # clone the repository
 cd nlopt
 mkdir build
 cd build

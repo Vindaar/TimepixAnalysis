@@ -227,6 +227,7 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
                   energyText: bool,
                   energyTextRadius: float,
                   suffix, title, outpath, axionImage: string,
+                  scale: float,
                   preliminary: bool) =
   let outpath = if outpath.len > 0: outpath else: "plots"
   var colorCol: string
@@ -257,8 +258,8 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
         ggplot(df, aes("x", "y", color = colorCol)) +
         scale_color_continuous(scale = (low: 0.0, high: zMax))
     plt = plt + xlim(0, 256) + ylim(0, 256) +
-      xlab("x [Pixel]") + ylab("y [Pixel]") +
-      margin(top = 1.75)
+      xlab("x [Pixel]") + ylab("y [Pixel]")
+      #margin(top = 1.75 * scale)
 
     if axionImage.len > 0:
       var customInferno = inferno()
@@ -277,9 +278,8 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
                             aes = aes(y = f{`y` + 3}, text = "Energy [keV]"),
                             font = font(8.0, alignKind = taLeft))
 
-
     # Add the main point geom
-    plt = plt + geom_point(size = some(1.0))
+    plt = plt + geom_point(size = some(scale * 1.0))
 
     if preliminary:
       let red = color(1.0, 0.0, 0.0)
@@ -290,13 +290,18 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
 
     if not useTikZ:
       echo "[INFO]: Saving plot to ", fname
-      plt + ggtitle(title & &". Total # cluster = {totalEvs}") +
-        ggsave(fname, width = 800, height = 640)
+      plt + theme_scale(scale, family = "serif") +
+        ggtitle(title & &". Total # clusters = {totalEvs}") +
+        ggsave(fname, width = 640.0 * scale, height = 480 * scale)
+        #ggsave(fname, width = 640, height = 480)#width = 1200, height = 800)
     else:
       #let fname = &"/home/basti/phd/Figs/backgroundClusters/background_cluster_centers{suffix}"
       echo "[INFO]: Saving plot to ", fname
-      plt + ggtitle(title & r". Total \# cluster = " & $totalEvs) +
-        ggvegatex(fname)
+      plt + ggtitle(title & r". Total \# clusters = " & $totalEvs) +
+        theme_scale(scale) +
+        ggsave(fname, width = 800, height = 600, useTeX = true, standalone = true)
+        #ggsave(fname, width = 600, height = 450, useTeX = true, standalone = true)
+        #ggvegatex(fname)
   else:
     var totalEvs = newSeq[string]()
     for tup, subDf in groups(df.group_by("Type")):
@@ -384,7 +389,8 @@ proc main(
   tiles = 7,
   outpath = "",
   axionImage = "", # "/home/basti/org/resources/axion_images/axion_image_2018_1487_93_0.989AU.csv"
-  preliminary = false
+  preliminary = false,
+  scale = 1.0 # Scale the output image and all texts etc. by this amount. Default is 640x480
      ) =
 
   if energyText and colorBy == count:
@@ -406,7 +412,7 @@ proc main(
       dfLoc["Type"] = names[i]
       df.add dfLoc
 
-  plotClusters(df, names, useTikZ, zMax, colorBy, energyText, energyTextRadius, suffix, title, outpath, axionImage, preliminary)
+  plotClusters(df, names, useTikZ, zMax, colorBy, energyText, energyTextRadius, suffix, title, outpath, axionImage, scale, preliminary)
   # `df.len` is total number clusters
   plotSuppression(cTab.toCountTable(), df.len, tiles, outpath)
 

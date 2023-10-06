@@ -1009,7 +1009,7 @@ proc processSrsEventScanf*(data: ProtoFile): SrsEvent =
   var date: Time
   let fname = filepath.extractFilename
   if scanf(fname, SrsEventScanfNoPath, runNumber, evNumber, date):
-    e_header["dateTime"] = $date
+    e_header["dateTime"] = date.format(TosDateString)
     e_header["timestamp"] = $(date.toUnix)
     e_header["eventNumber"] = $evNumber
     e_header["runNumber"] = $runNumber

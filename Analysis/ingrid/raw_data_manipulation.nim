@@ -647,7 +647,7 @@ proc writeRunGrpAttrs*(h5f: var H5File, group: var H5Group,
     group.attrs["runStop"]  = stop
     # NOTE: the run length will be wrong by the duration of the last event!
     group.attrs["totalRunDuration"] = (parseTOSDateString(stop) -
-                                      parseTOSDateString(start)).inSeconds
+                                       parseTOSDateString(start)).inSeconds
   else:
     doAssert "timestamp" in first.evHeader, "Neither `dateTime` nor `timestamp` found in " &
       "event header. Invalid!"

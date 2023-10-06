@@ -2511,6 +2511,7 @@ proc handleIngridFadcEvents(h5f: H5File,
     except Exception as e:
       echo "Failed to generate plot with error ", e.msg
       raise
+  result = initPlotResult(created = true)
 
 proc handleSubPlots(h5f: H5File,
                     fileInfo: FileInfo,

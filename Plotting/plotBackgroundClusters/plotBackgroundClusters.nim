@@ -370,7 +370,7 @@ proc plotSuppression(cTab: CountTable[(int, int)], totalNum, tiles: int,
     xlim(0, 256) + ylim(0, 256) +
     xlab("x [Pixel]") + ylab("y [Pixel]") +
     margin(top = 1.75) +
-    ggtitle("Local background suppression compared to 1.5·10⁶ raw clusters") +
+    ggtitle(&"Local background suppression compared to {totalNum.float:.2g} raw clusters") +
     ggsave(outfile, useTeX = true, standalone = true)
 
 proc main(
@@ -390,6 +390,7 @@ proc main(
   outpath = "",
   axionImage = "", # "/home/basti/org/resources/axion_images/axion_image_2018_1487_93_0.989AU.csv"
   preliminary = false,
+  backgroundSuppression = false,
   scale = 1.0 # Scale the output image and all texts etc. by this amount. Default is 640x480
      ) =
 
@@ -414,7 +415,9 @@ proc main(
 
   plotClusters(df, names, useTikZ, zMax, colorBy, energyText, energyTextRadius, suffix, title, outpath, axionImage, scale, preliminary)
   # `df.len` is total number clusters
-  plotSuppression(cTab.toCountTable(), df.len, tiles, outpath)
+  if backgroundSuppression:
+    doAssert names.len == 0, "Suppression plot when handing multiple files that are not combined not supported."
+    plotSuppression(cTab.toCountTable(), totalNum, tiles, outpath)
 
   when false:
     # convert center positions to a 256x256 map

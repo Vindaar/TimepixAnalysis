@@ -1039,6 +1039,15 @@ proc `==`*[T: SomePix](r1, r2: RecoEvent[T]): bool =
   for name, f1, f2 in fieldPairs(r1, r2):
     result = result and f1 == f2
 
+from std / algorithm import sortedByIt
+from std / sequtils import zip, toSeq
+proc sorted*(s: SCurveSeq): SCurveSeq =
+  let curvesSorted = zip(toSeq(0 ..< s.curves.len), s.curves).sortedByIt(it[1].voltage)
+  for i in 0 ..< curvesSorted.len:
+    let idx = curvesSorted[i][0]
+    result.files.add s.files[idx]
+    result.curves.add s.curves[idx]
+
 when false:
   ## XXX:  write some macro code to clean up the whole int / float dataset debacle
   macro objFields*(t: typed): untyped =

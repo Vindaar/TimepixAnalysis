@@ -83,11 +83,11 @@ proc createThlAnnotation*(res: FitResult, charge, thl, thlErr: seq[float], useTe
   ## to show on the plot. Otherwise it's confusing.
   let m = res.pRes[1] ± res.pErr[1]
   let b = res.pRes[0] ± res.pErr[0]
-  result.add &"m = {m} THL/e⁻" & Newline
-  result.add &"1/m = {1.0/m} e⁻/THL" & Newline
+  result.add &"$m = {m}$ THL/$e⁻$" & Newline
+  result.add &"$1/m = {1.0/m} e⁻$/THL" & Newline
   let fy0 = charge[0] - (thl[0] ± thlErr[0]) * (1.0 / m)
-  result.add &"f(0) = {b} e⁻" & Newline
-  result.add &"f⁻¹(y=0) = {fy0} THL" & Newline
+  result.add &"$f(0) = {b} e⁻$" & Newline
+  result.add &"$f⁻¹(y=0) = {fy0}$ THL" & Newline
   if useTeX:
     result.add "$χ²/\\text{dof} = " & &"{res.redChiSq:.2f}$"
   else:
@@ -165,7 +165,7 @@ proc plotCharge*(a, b, c, t: float, capacitance: FemtoFarad, chip: int, chipName
   ggplot(df, aes("ToT", "Q")) +
     geom_line() +
     xlab(r"ToT [clock cycles]") +
-    ylab(r"Charge [e⁻]") +
+    ylab(r"Charge [$e⁻$]") +
     ggtitle(title) +
     #theme_latex() +
     ggsave(&"{outpath}/charge_calib_{chip}.pdf", width = 600, height = 450, useTex = true, standalone = true)

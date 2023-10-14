@@ -89,17 +89,13 @@ proc readToTFileTpx1*(filename: string,
   try:
     pulses = dataLines.mapIt(it.splitWhitespace[1].parseFloat)
     mean   = dataLines.mapIt(it.splitWhitespace[5].parseFloat)
-    # convert RMS (that's the value in the column) to one standard deviation by
-    # STD = RMS / sqrt( 4 * 256 * 256 ) = RMS / 512
-    std    = dataLines.mapIt(it.splitWhitespace[7].parseFloat / 512.0)
+    std    = dataLines.mapIt(it.splitWhitespace[7].parseFloat)
   except IndexError:
     # in this case we're *probably* reading a file, which does not contain any alphabetical
     # characters, so try 0, 1, 2 as indices
     pulses = dataLines.mapIt(it.splitWhitespace[0].parseFloat)
     mean   = dataLines.mapIt(it.splitWhitespace[1].parseFloat)
-    # convert RMS (that's the value in the column) to one standard deviation by
-    # STD = RMS / sqrt( 4 * 256 * 256 ) = RMS / 512
-    std    = dataLines.mapIt(it.splitWhitespace[2].parseFloat / 512.0)
+    std    = dataLines.mapIt(it.splitWhitespace[2].parseFloat)
 
   # get the number of TOT calibration "starts", i.e. 20mV is the starting
   # pulse height, so search for number of these

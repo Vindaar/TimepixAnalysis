@@ -56,7 +56,7 @@ proc scurveToDf(s: SCurve): DataFrame =
 
 proc plotSCurves*(df: DataFrame, annotation: string, runPeriod, chip = "",
                   legendX = -1.0, legendY = -1.0,
-                  useTeX = true) =
+                  useTeX = true, outpath = "out") =
   let dfData = df.filter(f{`Type` == "Data"})
   let dfFit = df.filter(f{`Type` == "Fit"})
   let lX = if legendX > 0.0: legendX else: 250.0
@@ -70,7 +70,7 @@ proc plotSCurves*(df: DataFrame, annotation: string, runPeriod, chip = "",
     #xlab(r"$U_\text{injected} / \si{mV}$") +
     #ylab("Counts [\#]") +
     #theme_latex() +
-    ggsave(&"out/s_curves_{chip}.pdf", useTex = useTeX, standalone = true)
+    ggsave(&"{outpath}/s_curves_{chip}.pdf", width = 600, height = 450, useTex = useTeX, standalone = true)
 
 import measuremancer
 proc createThlAnnotation*(res: FitResult, charge, thl, thlErr: seq[float]): string =
@@ -89,7 +89,7 @@ proc createThlAnnotation*(res: FitResult, charge, thl, thlErr: seq[float]): stri
 
 proc plotThlCalib*(thlCalib: FitResult, charge, thl, thlErr: seq[float], chip = "",
                    legendX = -1.0, legendY = -1.0,
-                   useTeX = true) =
+                   useTeX = true, outpath = "out") =
   # flip the plot, i.e. show THL on x instead of y as done for the fit to
   # include the errors
   let dfData = toDf({"THL" : thl, "Charge [e⁻]": charge, "thlError" : thlErr, "Type" : "Data"})
@@ -110,7 +110,7 @@ proc plotThlCalib*(thlCalib: FitResult, charge, thl, thlErr: seq[float], chip = 
     annotate(annot, x = lX, y = lY, font = font(10.0, family = "monospace"),
              backgroundColor = color(0,0,0,0)) +
     ggtitle(&"THL calibration of chip {chip}") +
-    ggsave(&"out/thl_calibration_chip_{chip}.pdf",
+    ggsave(&"{outpath}/thl_calibration_chip_{chip}.pdf", width = 600, height = 450,
             useTeX = useTeX, standalone = true)
 
 proc plotToTCalib*(totCalib: FitResult, tot: Tot, chip = 0, chipName = "",
@@ -136,10 +136,10 @@ proc plotToTCalib*(totCalib: FitResult, tot: Tot, chip = 0, chipName = "",
     ylab("ToT / clock cycles") +
     ggtitle(title) +
     #theme_latex() +
-    ggsave(&"out/tot_calib_{chip}.pdf", useTex = useTeX, standalone = true)
+    ggsave(&"{outpath}/tot_calib_{chip}.pdf", width = 600, height = 450, useTex = useTeX, standalone = true)
 
 proc plotCharge*(a, b, c, t: float, capacitance: FemtoFarad, chip: int, chipName = "",
-                 useTeX = false) =
+                 useTeX = false, outpath = "out") =
   let tots = linspace(0.0, 150.0, 1000)
 
   let charges = tots.mapIt(calibrateCharge(it, capacitance, a, b, c, t))
@@ -152,7 +152,7 @@ proc plotCharge*(a, b, c, t: float, capacitance: FemtoFarad, chip: int, chipName
     ylab(r"Charge [e⁻]") +
     ggtitle(title) +
     #theme_latex() +
-    ggsave(&"out/charge_calib_{chip}.pdf", useTex = true, standalone = true)
+    ggsave(&"{outpath}/charge_calib_{chip}.pdf", width = 600, height = 450, useTex = true, standalone = true)
 
 iterator sCurves(file, folder, chip, runPeriod: string): SCurve =
   ## yields the traces of the correct argument given to
@@ -174,11 +174,11 @@ iterator sCurves(file, folder, chip, runPeriod: string): SCurve =
       yield curve
 
 proc sCurve(file, folder, chip, runPeriod: string,
-            legendX, legendY: float, useTeX: bool) =
+            legendX, legendY: float, useTeX: bool,
+            outpath: string) =
   ## perform plotting and fitting of SCurves
   var
     voltages: set[int16]
-    traces: seq[Trace[float]] = @[]
     curve: SCurve
 
     # calibration seqs
@@ -214,7 +214,7 @@ proc sCurve(file, folder, chip, runPeriod: string,
       thlErr.add (fitRes.pErr[1])
 
   if dfScurve.len > 0:
-    plotSCurves(dfScurve, annotation, runPeriod, chip, legendX, legendY, useTeX)
+    plotSCurves(dfScurve, annotation, runPeriod, chip, legendX, legendY, useTeX, outpath)
 
   # now fit the calibration function
   # however, the voltage data is in a wrong order. need to sort it, before
@@ -230,7 +230,7 @@ proc sCurve(file, folder, chip, runPeriod: string,
     thlErrSort = sortedChThl.mapIt(it[1][1] * 100)
   if chSort.len > 0:
     let thlCalib = fitThlCalib(chSort, thlSort, thlErrSort)
-    plotThlCalib(thlCalib, chSort, thlSort, thlErrSort, chip, legendX, legendY, useTeX)
+    plotThlCalib(thlCalib, chSort, thlSort, thlErrSort, chip, legendX, legendY, useTeX, outpath)
 
 proc parseTotInput(file, folder, chip, runPeriod: string,
                    startTot = 0.0): (int, string, Tot) =
@@ -252,7 +252,7 @@ proc parseTotInput(file, folder, chip, runPeriod: string,
   result = (chipNum, chipName, tot)
 
 proc totCalib(file, folder, chip, runPeriod: string, startFit, startTot: float,
-              useTeX: bool) =
+              useTeX: bool, outpath: string) =
   ## perform plotting and analysis of ToT calibration
   var
     bins: seq[float]
@@ -260,9 +260,9 @@ proc totCalib(file, folder, chip, runPeriod: string, startFit, startTot: float,
 
   let (chip, chipName, tot) = parseTotInput(file, folder, chip, runPeriod, startTot)
   let totCalib = fitToTCalib(tot, startFit)
-  plotToTCalib(totCalib, tot, chip, chipName, useTeX)
+  plotToTCalib(totCalib, tot, chip, chipName, useTeX, outpath)
 
-proc chargeCalib(chip, runPeriod: string, useTeX: bool) =
+proc chargeCalib(chip, runPeriod: string, useTeX: bool, outpath: string) =
   ## perform plotting and analysis of charge calibration (inverse of ToT)
   var chipName = ""
   if chip.len > 0:
@@ -273,7 +273,7 @@ proc chargeCalib(chip, runPeriod: string, useTeX: bool) =
 
   let (a, b, c, t) = getTotCalibParameters(chipName, runPeriod)
   let capacitance = getTimepixVersion(chipName, runPeriod).getCapacitance()
-  plotCharge(a, b, c, t, capacitance, chip.parseInt, chipName, useTeX)
+  plotCharge(a, b, c, t, capacitance, chip.parseInt, chipName, useTeX, outpath)
 
 import cligen / macUt
 proc main(
@@ -281,7 +281,8 @@ proc main(
   chip = "", runPeriod = "", file = "", folder = "", startFit = 0.0, startTot = 0.0,
   legendX = -1.0, legendY = -1.0,
   version = false,
-  useTeX = false) =
+  useTeX = false,
+  outpath = "out") =
   docCommentAdd(doc)
   ## A simple tool to plot SCurves or ToT calibrations.
 
@@ -290,11 +291,11 @@ proc main(
       quit("Cannot import InGrid database. --chip option not supported.")
 
   if scurve:
-    sCurve(file, folder, chip, runPeriod, legendX, legendY, useTeX)
+    sCurve(file, folder, chip, runPeriod, legendX, legendY, useTeX, outpath)
   elif tot:
-    totCalib(file, folder, chip, runPeriod, startFit, startTot, useTeX)
+    totCalib(file, folder, chip, runPeriod, startFit, startTot, useTeX, outpath)
   elif charge:
-    chargeCalib(chip, runPeriod, useTeX)
+    chargeCalib(chip, runPeriod, useTeX, outpath)
 
 when isMainModule:
   import cligen

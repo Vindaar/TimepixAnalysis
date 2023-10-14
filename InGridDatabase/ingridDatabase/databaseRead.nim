@@ -85,6 +85,7 @@ proc getScurveSeq*(chipName: string, run: int | string): SCurveSeq =
       let curve = h5f.getSCurve(chipName, runPeriod, voltage)
       result.files.add dset.name
       result.curves.add curve
+  result = result.sorted()
 
 proc getThreshold*(chipName: string, runPeriod: string): Threshold =
   ## reads the threshold matrix of `chipName`

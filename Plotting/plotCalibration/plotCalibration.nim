@@ -70,22 +70,28 @@ proc plotSCurves*(df: DataFrame, annotation: string, runPeriod, chip = "",
     #xlab(r"$U_\text{injected} / \si{mV}$") +
     #ylab("Counts [\#]") +
     #theme_latex() +
-    ggsave(&"{outpath}/s_curves_{chip}.pdf", width = 600, height = 450, useTex = useTeX, standalone = true)
+    ggsave(&"{outpath}/s_curves_{chip}_lX_{legendX}_lY_{legendY}.pdf", width = 600, height = 450, useTex = useTeX, standalone = true)
 
 import measuremancer
-proc createThlAnnotation*(res: FitResult, charge, thl, thlErr: seq[float]): string =
+
+var Newline = "\n"
+
+proc createThlAnnotation*(res: FitResult, charge, thl, thlErr: seq[float], useTeX: bool): string =
   ## Inverts the fit parameters given for the THL calibration. We perform the fit as
   ## x = Charge, y = THL, yErr = THL_Err
   ## but plot it as x = THL and y = Charge. Therefore we should invert the fit parameters
   ## to show on the plot. Otherwise it's confusing.
   let m = res.pRes[1] ± res.pErr[1]
   let b = res.pRes[0] ± res.pErr[0]
-  result.add &"m = {m} THL/e⁻\n"
-  result.add &"1/m = {1.0/m} e⁻/THL\n"
+  result.add &"m = {m} THL/e⁻" & Newline
+  result.add &"1/m = {1.0/m} e⁻/THL" & Newline
   let fy0 = charge[0] - (thl[0] ± thlErr[0]) * (1.0 / m)
-  result.add &"f(0) = {b} e⁻\n"
-  result.add &"f⁻¹(y=0) = {fy0} THL\n"
-  result.add &"χ²/dof = {res.redChiSq:.2f}"
+  result.add &"f(0) = {b} e⁻" & Newline
+  result.add &"f⁻¹(y=0) = {fy0} THL" & Newline
+  if useTeX:
+    result.add "$χ²/\\text{dof} = " & &"{res.redChiSq:.2f}$"
+  else:
+    result.add &"χ²/dof = {res.redChiSq:.2f}"
 
 proc plotThlCalib*(thlCalib: FitResult, charge, thl, thlErr: seq[float], chip = "",
                    legendX = -1.0, legendY = -1.0,
@@ -99,22 +105,30 @@ proc plotThlCalib*(thlCalib: FitResult, charge, thl, thlErr: seq[float], chip = 
   df.add dfFit
   let lX = if legendX > 0.0: legendX else: 440.0
   let lY = if legendY > 0.0: legendY else: 3900.0
-  let annot = createThlAnnotation(thlCalib, charge, thl, thlErr)
+  let annot = createThlAnnotation(thlCalib, charge, thl, thlErr, useTeX)
+  let family = if useTeX: "" else: "monospace"
   ggplot(dfData, aes("THL", "Charge [e⁻]")) +
     geom_line(data = dfFit, color = parseHex"FF00FF") +
+    ylab("Charge [$e⁻$]") +
     geom_point() +
     geom_errorbar(aes = aes(
                     xMin = f{`THL` - `thlError`},
                     xMax = f{`THL` + `thlError`}
                   )) +
-    annotate(annot, x = lX, y = lY, font = font(10.0, family = "monospace"),
-             backgroundColor = color(0,0,0,0)) +
+    annotate(annot, x = lX, y = lY, font = font(10.0, family = family),
+                                backgroundColor = color(0,0,0,0)) +
     ggtitle(&"THL calibration of chip {chip}") +
-    ggsave(&"{outpath}/thl_calibration_chip_{chip}.pdf", width = 600, height = 450,
+    ggsave(&"{outpath}/thl_calibration_chip_{chip}_lX_{legendX}_lY_{legendY}.pdf", width = 600, height = 450,
             useTeX = useTeX, standalone = true)
 
+proc createToTAnnotation*(res: FitResult): string =
+  result.add "$χ²/\\text{dof} " & &" = {res.redChiSq:.2f}$" & Newline
+  let n = ["a", "b", "c", "t"]
+  for i, name in n:
+    result.add &"${name} = {(res.pRes[i] ± res.pErr[i])}$" & Newline
+
 proc plotToTCalib*(totCalib: FitResult, tot: Tot, chip = 0, chipName = "",
-                   useTeX = false) =
+                   useTeX = false, outpath = "out") =
   let dfData = toDf({ "U / mV" : tot.pulses.mapIt(it.float),
                       "ToT" : tot.mean,
                       "std" : tot.std.mapIt(if classify(it) == fcNaN: 0.0 else: it) })
@@ -126,14 +140,16 @@ proc plotToTCalib*(totCalib: FitResult, tot: Tot, chip = 0, chipName = "",
   else:
     title = &"ToT calibration of Chip {chip}"
 
+  let annot = createToTAnnotation(totCalib) # totCalib.resText
   ggplot(dfData, aes("U / mV", "ToT")) +
+    geom_line(data = dfFit, color = some(color(1.0, 0.0, 1.0))) +
     geom_point() +
     geom_errorbar(aes = aes(yMin = f{`ToT` - `std`}, yMax = f{`ToT` + `std`})) +
-    geom_line(data = dfFit, color = some(color(1.0, 0.0, 1.0))) +
-    annotate(totCalib.resText, x = 50.0, y = 150.0, font = font(10.0, family = "monospace"),
+    annotate(annot, x = 51.0, y = 165.0, font = font(10.0),
              backgroundColor = color(0.0, 0.0, 0.0, 0.0)) +
-    xlab(r"$U_\text{injected} / \si{mV}$") +
-    ylab("ToT / clock cycles") +
+    xlab(r"$U_\text{injected}$ [$\si{mV}$]") +
+    ylab("$\\mathtt{ToT}$ [clock cycles]") +
+    ylim(0, 250) +
     ggtitle(title) +
     #theme_latex() +
     ggsave(&"{outpath}/tot_calib_{chip}.pdf", width = 600, height = 450, useTex = useTeX, standalone = true)
@@ -203,7 +219,10 @@ proc sCurve(file, folder, chip, runPeriod: string,
                          "Type" : "Fit" })
       dfScurve.add df
       dfScurve.add dfFit
-      annotation.add &"fit {pretty(curve.voltage.mV, 3, short = true):>6} χ²/dof {fitRes.redChiSq:.2f}\n"
+      if useTeX:
+        annotation.add &"fit {pretty(curve.voltage.mV, 3, short = true):>6} " & "$χ²/\\text{dof} = " & &"{fitRes.redChiSq:.2f}$" & Newline
+      else:
+        annotation.add &"fit {pretty(curve.voltage.mV, 3, short = true):>6} χ²/dof {fitRes.redChiSq:.2f}" & Newline
 
       # given `fitRes`, add fit parameters to calibration seqs
       # multiply by 50 to take into account capacitance of test pulse injection
@@ -285,6 +304,9 @@ proc main(
   outpath = "out") =
   docCommentAdd(doc)
   ## A simple tool to plot SCurves or ToT calibrations.
+
+  if useTeX:
+    Newline = "\\\\"
 
   if chip.len > 0:
     when not declared(ingridDatabase):

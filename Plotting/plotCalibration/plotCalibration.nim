@@ -1,5 +1,5 @@
 import std / [os, strutils, strformat, sequtils, algorithm, math]
-import pkg / [mpfit, zero_functional, seqmath, chroma, plotly, ggplotnim, unchained]
+import pkg / [mpfit, zero_functional, seqmath, chroma, ggplotnim, unchained]
 import ingrid / [ingrid_types, tos_helpers]
 import ingrid / calibration / calib_fitting
 import ingrid / calibration
@@ -48,30 +48,11 @@ func parseDbChipArg(dbArg: string): string =
     # not a valid chip number. Interpret as chip name
     result = dbArg
 
-proc getTrace[T](thl, hits: seq[T], voltage: string): Trace[float] =
-  result = Trace[float](`type`: PlotType.Scatter)
-  # filter out clock cycles larger 300 and assign to `Trace`
-  result.xs = thl.asType(float)
-  result.ys = hits.asType(float)
-  result.name = &"Voltage {voltage}"
-
 proc scurveToDf(s: SCurve): DataFrame =
   result = toDf({ "THL" : s.thl.asType(float),
                   "Counts" : s.hits.asType(float),
                   "Voltage" : s.voltage,
                   "Type" : "Data" })
-
-proc plotHist*[T](traces: seq[Trace[T]], voltages: set[int16], chip = "") =
-  ## given a seq of traces (SCurves and their fits), plot
-  let
-    layout = Layout(title: &"SCurve of Chip {chip} for voltage {voltages}",
-                    width: FigWidth.int, height: FigHeight.int,
-                    xaxis: Axis(title: "Threshold value"),
-                    yaxis: Axis(title: "# hits$"),
-                    autosize: false)
-    p = Plot[float](layout: layout, traces: traces)
-  let filename = &"out/scurves_{chip}.svg"
-  p.saveImage(filename)
 
 proc plotSCurves*(df: DataFrame, annotation: string, runPeriod, chip = "",
                   legendX = -1.0, legendY = -1.0,
@@ -109,9 +90,6 @@ proc createThlAnnotation*(res: FitResult, charge, thl, thlErr: seq[float]): stri
 proc plotThlCalib*(thlCalib: FitResult, charge, thl, thlErr: seq[float], chip = "",
                    legendX = -1.0, legendY = -1.0,
                    useTeX = true) =
-  let
-    data = Trace[float](mode: PlotMode.Markers, `type`: PlotType.Scatter)
-    fit = Trace[float](mode: PlotMode.Lines, `type`: PlotType.Scatter)
   # flip the plot, i.e. show THL on x instead of y as done for the fit to
   # include the errors
   let dfData = toDf({"THL" : thl, "Charge [e⁻]": charge, "thlError" : thlErr, "Type" : "Data"})

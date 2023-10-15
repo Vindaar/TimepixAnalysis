@@ -2258,6 +2258,8 @@ iterator ingridEventIter(h5f: H5File,
         continue # ignore this field
     if dfProps.len > 1: # more than 1 cluster, add number of found clusters
       texts.add &"|{\"numClusters\":>25}: {dfProps.len}"
+    let maxLen = texts.mapIt(it.len).max
+    texts = texts.mapIt(it.alignLeft(maxLen + 1) & "|")
     case BKind
     of bPlotly:
       for i, a in texts:
@@ -2340,6 +2342,9 @@ iterator fadcEventIter(h5f: H5File,
       let s = &"|{d:>12}: {val:6.4f}"
       texts.add s
       dfProps[d] = @[val, val]
+
+    let maxLen = texts.mapIt(it.len).max
+    texts = texts.mapIt(it.alignLeft(maxLen + 1) & "|")
 
     proc addAdditionalFields(df: var DataFrame, minVal: float) =
       let baseline = df["baseline", float][0]

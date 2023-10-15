@@ -2,7 +2,6 @@
 from std/sugar import dup
 import plotly
 import ggplotnim
-from ginger import initViewport, layout, embedAsRelative, addViewport, draw, quant, UnitKind
 import os except FileInfo
 import strutils, strformat, times, sequtils, math, macros, algorithm, sets, stats, base64
 import options, logging, typeinfo, json
@@ -24,6 +23,9 @@ import ingrid / calibration / calib_fitting
 import helpers/utils
 #import ingridDatabase / [databaseDefinitions, databaseRead]
 import protocol, common_types
+
+import std / envvars
+
 
 template canImport(x: untyped): bool =
   compiles:
@@ -1012,11 +1014,15 @@ proc plotSparseEvent(df: DataFrame, title, outfile: string,
       result.theme # just add the theme directly
     if fullSeptemboard:
       result.pltGg.addSeptemboardOutline(useRealLayout)
+      let mLeft = getEnv("L_MARGIN", "10.0").parseFloat
+      let mRight = getEnv("R_MARGIN", "4.0").parseFloat
       if not useRealLayout:
-        result.pltGg = result.pltGg + margin(left = 7.5, right = 3, top = 2) +
-          xlim(0, 3 * NPix) + ylim(0, 3 * NPix)
+        result.pltGg = result.pltGg + margin(left = mLeft, right = mRight, top = 2) +
+          xlim(0, 3 * NPix) + ylim(0, 3 * NPix) +
+          theme_scale(getEnv("SCALE", "1.0").parseFloat)
       else:
-        result.pltGg = result.pltGg + margin(left = 7.5, right = 3, top = 2) + xlim(0, 800) + ylim(0, 900)
+        result.pltGg = result.pltGg + margin(left = mLeft, right = mRight, top = 2) + xlim(0, 800) + ylim(0, 900) +
+          theme_scale(getEnv("SCALE", "1.0").parseFloat)
     else:
       result.pltGg = result.pltGg + margin(left = 9.0, right = 3, top = 2) +
         xlim(0, NPix) + ylim(0, NPix)
@@ -1092,6 +1098,7 @@ proc plotFadcEvent(df, dfProps: DataFrame, title, name, outfile: string): PlotV 
       geom_line(data = dfProps, aes = aes("minEdges", y = "minVal"),
                        color = "purple") +
       margin(top = 2) +
+      theme_scale(getEnv("SCALE", "1.0").parseFloat) +
       result.theme # just add the theme directly
   else:
     warn &"Unsupported backend kind: {BKind}"
@@ -1167,23 +1174,16 @@ proc makeSubplot(pd: PlotDescriptor, plts: seq[PlotV],
     else: echo "Subplots currently only supported for 2 plots!"
   of bGgPlot:
     ## XXX: this should really be fitting better into the whole code!
-    var img = initViewport(wImg = 1400, hImg = 600, backend = bkCairo)
-    let numPlots = plts.len
-    doAssert numPlots == 2
-    img.layout(numPlots, rows = 1, colWidths = @[quant(0.6, ukRelative), quant(0.4, ukRelative)])
-    if plts[0].pltGg.geoms.len > 0: # only add them if they have data!
-      img.embedAsRelative(0, ggcreate(plts[0].pltGg).view)
-    if plts[1].pltGg.geoms.len > 0:
-      img.embedAsRelative(1, ggcreate(plts[1].pltGg).view)
-
-    var area = img.addViewport()
-    ## XXX: if we use subplots for more in future, adapt
-    #let title = &"Septemboard event and FADC signal for event {eventNumber}"
-    #let text = area.initText(c(0.5, 0.05, ukRelative), title, goText, taCenter, font = some(font(16.0)))
-    #area.addObj text
-    #img.children.add area
-    echo "DRAWING ", outfile
-    img.draw(outfile)
+    let w1 = getEnv("W1", "825").parseInt
+    let w2 = getEnv("W2", "675").parseInt
+    let tex = getEnv("USE_TEX", "false").parseBool
+    ggmulti([plts[0].pltGg,
+             plts[1].pltGg],
+            outfile,
+            widths = @[w1, w2],
+            width = w1 + w2, height = 600,
+            useTeX = tex,
+            standalone = tex)
   else:
     doAssert false, "Unsupported on backend " & $BKind
 
@@ -2270,7 +2270,7 @@ iterator ingridEventIter(h5f: H5File,
       # create a font to use using the `ggplotnim.font` helper
       let font = font(10.0, family = "monospace")
 
-      let leftLoc = if pd.fullSeptemboard: -1.15
+      let leftLoc = if pd.fullSeptemboard: -getEnv("G_LEFT", "0.65").parseFloat
                     else: -0.3
 
       for i, a in texts:
@@ -2371,8 +2371,9 @@ iterator fadcEventIter(h5f: H5File,
       pltV.annotations = texts
     of bGgPlot:
       let font = font(10.0, family = "monospace")
+      let leftPos = getEnv("F_LEFT", "0.3").parseFloat
       for i, a in texts:
-        pltV.pltGg.annotations.add ggplotnim.Annotation(left: some(-0.425),
+        pltV.pltGg.annotations.add ggplotnim.Annotation(left: some(-leftPos),
                                                         bottom: some(0.025 + i.float * 0.03),
                                                         font: font,
                                                         text: texts[i])

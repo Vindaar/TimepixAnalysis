@@ -1,9 +1,6 @@
-
-import nimhdf5, seqmath, sequtils, parsetoml
-import tables
-import times
-import strformat, strutils, ospaths
-import arraymancer
+import std / [sequtils, tables, times, strformat, strutils, ospaths]
+from std / options import isSome, get
+import nimhdf5, seqmath, parsetoml, arraymancer
 
 import databaseDefinitions, databaseUtils
 
@@ -126,6 +123,10 @@ proc addChipToH5*(chip: Chip,
                                tot.std).mapIt(@[it[0][0],
                                                 it[0][1],
                                                 it[1]])
+
+  # if Tpx3 and `tot.fit` exists already write the ToT fit
+  if tot.fit.isSome:
+    h5f.writeTotCalibAttrs(chipGroup, tot.fit.get)
 
   if threshold.shape == @[256, 256]:
     h5f.writeThreshold(threshold, chipGroup.name)

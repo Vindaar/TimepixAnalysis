@@ -145,13 +145,11 @@ proc parseScurveFolder(folder: string): SCurveSeq =
 proc parseTotFile(filename: string): Tot =
   ## checks for the existence of a TOT calibration file, reads it
   ## and returns a `Tot` object
-  if existsFile(filename) == true:
+  if existsFile(filename):
     let (chip, tot) = readToTFile(filename,
                                   startRead = StartTotRead,
                                   totPrefix = TotPrefix)
-    result.pulses = tot.pulses
-    result.mean = tot.mean
-    result.std = tot.std
+    result = tot
 
 proc parseThresholdFile(filename: string): Threshold =
   ## parses a Threshold(Means) file and returns it

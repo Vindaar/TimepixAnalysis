@@ -258,6 +258,14 @@ proc addRunPeriod(name: string) =
   ##
   ## The name of the file is unimportant, but it is recommended to
   ## call it runPeriod.toml
+  ##
+  ## You have the option to ignore `validRuns`. In that case all runs between `firstRun`
+  ## and `lastRun` will be used. If both `firstRun` and `lastRun` is equal to `-1` (or
+  ## any negative run), _any_ run will match for the chip. Be careful though, because
+  ## this disallows one chip to be contained in multiple run periods and/or can cause
+  ## picking the wrong calibration if a chip appears in a regular run period and in one
+  ## that allows any run.
+  ##
   ## As mentioned in the comment on the example, the file requires a set of run
   ## numbers to be handed. These will be used to perform a lookup on the correct run
   ## period in combination with the chip name. Alternatively a lookup can be done using
@@ -302,7 +310,10 @@ runPeriods = ["Run123"]
       else:
         runP.additionalInfo[key] = v
     if runP.validRuns.len == 0:
-      runP.validRuns = toSeq(runP.firstRun .. runP.lastRun)
+      if runP.firstRun < 0 or runP.lastRun < 0: # in this case indicate any run is fine
+        runP.validRuns = @[-1]
+      else:
+        runP.validRuns = toSeq(runP.firstRun .. runP.lastRun)
     elif runP.firstRun == runP.lastRun:
       runP.firstRun = min(runP.validRuns)
       runP.lastRun = max(runP.validRuns)

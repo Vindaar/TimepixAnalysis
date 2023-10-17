@@ -43,8 +43,11 @@ proc inRunPeriod(chip: string, grp: H5Group): bool =
     result = false # means no chips in this period so far
 
 proc inRunPeriod(run: int, grp: H5Group): bool =
+  ## Note: Either the `run` is contained in the valid runs for the
+  ## current chips *or* any run is valid indicated by the `runs` just
+  ## being a dataset with only `-1`.
   let runs = grp[RunPeriodRunDset.dset_str][int]
-  result = run in runs
+  result = run in runs or runs == @[-1]
 
 proc findRunPeriodFor*(h5f: H5FileObj, chipName: string, run: int): string =
   ## returns the ``first`` run period that matches the condition
@@ -92,5 +95,3 @@ proc checkAndGetInt*(it: TomlValueRef): int =
   if not (it.kind == TomlValueKind.Int):
     raise newException(ValueError, "Runs in `runsAvailable` have to be integers!")
   result = it.getInt
-  if result < 0:
-    raise newException(ValueError, "Runs in `runsAvailable` have to positive numbers!")

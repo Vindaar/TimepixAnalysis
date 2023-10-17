@@ -1,0 +1,15 @@
+title = "Run period for data taking with a GridPix Timepix3 detector for polarimetry measurements."
+# list of the run periods defined in the file
+runPeriods = ["GridPix3RomePreliminary"]
+
+# The numbers here may be adjusted at a later date when new calibration data
+# is added.
+[GridPix3RomePreliminary]
+start = 2023-01-01
+stop = 2100-12-31
+# runs for this period for now, say from
+firstRun = 0
+# to 1000. Gives plenty of runs and if desired one could number runs for a
+# new run period to be added later from 1001 onwards.
+lastRun = 1000
+useCase = "This preliminary calibration is intended to be used for a measurement campaign in Rome by Markus."

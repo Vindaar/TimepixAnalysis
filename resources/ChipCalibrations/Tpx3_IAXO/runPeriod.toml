@@ -1,4 +1,4 @@
-title = "Run period for data taking with prototype Timepix3 detector"
+title = "Run period for data taking with IAXO prototype Timepix3 detector"
 # list of the run periods defined in the file
 runPeriods = ["RunPrototypeSurface", "RunPrototypeUnderground"]
 
@@ -10,12 +10,14 @@ validRuns = []
 # or as simply a range given as start and stop values
 firstRun = 0
 lastRun = 46
+useCase = "These runs correspond to data taken at the regular surface level laboratory."
 
 [RunPrototypeUnderground]
 start = 2022-07-01
 stop = 2022-10-01
 # either as a sequence of run numbers
 validRuns = []
-# or as simply a range given as start and stop values
+# These numbers need to be updated :)
 firstRun = 47
 lastRun = 120
+useCase = "These runs correspond to data taken at the underground laboratory in the FTD."

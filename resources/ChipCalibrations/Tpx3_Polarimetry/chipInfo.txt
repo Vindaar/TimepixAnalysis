@@ -1,0 +1,6 @@
+chipName: G6 W15
+runPeriod: GridPix3RomePreliminary
+timepixVersion: Timepix3
+board: GridPix3CastLike
+chipNumber: 0
+Info: This chip is a GridPix3 installed in a CAST like detector from Markus to be used - among other things - for measurements in Rome for polarimetry.

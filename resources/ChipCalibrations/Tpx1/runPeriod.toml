@@ -1,0 +1,19 @@
+title = "Run period for Tpx1 simulation and real data"
+# list of the run periods defined in the file
+runPeriods = ["Tpx1Simulation", "Tpx1LabData"]
+
+[Tpx1Simulation]
+start = 2023-01-01
+# why not?
+stop = 2100-12-31
+# any run is fine
+firstRun = -1
+lastRun = -1
+
+[Tpx1LabData]
+start = 2023-01-01
+# why not?
+stop = 2100-12-31
+# any run is fine
+firstRun = -1
+lastRun = -1

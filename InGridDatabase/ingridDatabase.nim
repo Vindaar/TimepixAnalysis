@@ -122,7 +122,7 @@ proc parseFsr(filename: string): FSR =
   ## parses the contents of a (potential) given FSR file
   ## uses regex `FsrContentReg` to parse the file
   echo "Filename is ", filename
-  if existsFile(filename) == true:
+  if existsFile(filename):
     let fLines = readFile(filename).splitLines
     var dacVal: array[2, string]
     result = initTable[string, int]()
@@ -201,7 +201,7 @@ proc addChip(folder: string) =
 
   # check for SCurves
   var scurves: SCurveSeq
-  if dirExists(joinPath(folder, SCurveFolder)) == true:
+  if dirExists(joinPath(folder, SCurveFolder)):
     scurves = parseScurveFolder(joinPath(folder, SCurveFolder))
 
   # check for TOT
@@ -210,7 +210,6 @@ proc addChip(folder: string) =
     tot = parseTotFile(f)
   for f in walkFiles(joinPath(folder, TotPatternTpx3)):
     tot = parseTotFile(f)
-
 
   # check for threshold / threshold means
   var

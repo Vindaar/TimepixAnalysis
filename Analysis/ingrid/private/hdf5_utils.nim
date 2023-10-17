@@ -2,8 +2,8 @@ import ../ingrid_types
 import helpers/utils
 import os except FileInfo
 import std / [strutils, times, strformat, sequtils, tables, re, algorithm, sets, strscans, typetraits]
+from std / options import some
 import nimhdf5, arraymancer
-import macros
 import pure
 
 #####################################################
@@ -1158,6 +1158,11 @@ type
     tot: float32
     totError: float32
 
+  Tpx3TotFit = object
+    param: array[1, char] # data is fixed length (HDF5) string of length 1
+    value: float32
+    stddev: float32
+
 import unchained
 proc readToTFileTpx3*(filename: string,
                       startRead = 0.0,
@@ -1188,6 +1193,12 @@ proc readToTFileTpx3*(filename: string,
       tot.mean.add data[i].tot
       tot.std.add data[i].totError
       tot.pulses.add toMilliVolt(vtpCoarse.int, vtps[i]).float
+
+  let dataFit = h5f["interpreted/fit_params", Tpx3TotFit]
+  let params = dataFit.mapIt($it.param[0])
+  doAssert params == @["a", "b", "c", "t"], "The fit parameters do not match `a`, `b`, `c`, `t`, but are: " & $params
+  tot.fit = some(FitResult(pRes: dataFit.mapIt(it.value.float),
+                           pErr: dataFit.mapIt(it.stddev.float)))
   result = (0, tot) # chip assume 0 for now
 
 when isMainModule:

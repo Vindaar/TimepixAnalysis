@@ -71,6 +71,8 @@ type
     pulses*: seq[float]
     mean*: seq[float]
     std*: seq[float]
+    fit*: Option[FitResult] # optional fit result for Tpx3 ToT calibrations, where the fit is already
+                            # performed and stored in the HDF5 file
 
   SCurve* = object
     name*: string
@@ -130,50 +132,9 @@ type
 
   TemperatureLog* = seq[TemperatureLogEntry]
 
-when not defined(js):
-  type
-    # an object, which stores information about a run's start, end and length
-    RunTimeInfo* = object
-      t_start*: Time
-      t_end*: Time
-      t_length*: Duration # total duration of the run / tracking, from first to last event!
-      indices*: seq[int] # The indices corresponding to this run/tracking. If it is a tracking
-                         # it will contain the indices of all events in the tracking.
-      durations*: seq[float] # Durations of the corresponding indices in seconds
-
-    # an object which stores general information about a run
-    RunInfo* = object
-      timeInfo*: RunTimeInfo
-      runNumber*: int
-      rfKind*: RunFolderKind
-      runType*: RunTypeKind
-      path*: string
-      nEvents*: int
-      nFadcEvents*: int
-
-    # extension of the above read from H5 file, including effective
-    # run times, possible trackings etc
-    ExtendedRunInfo* = object
-      timeInfo*: RunTimeInfo
-      runNumber*: int
-      rfKind*: RunFolderKind
-      runType*: RunTypeKind
-      nEvents*: int
-      nFadcEvents*: int
-      totalTime*: Duration # total time from beginning of each run to endy
-      activeTime*: Duration # total time shutter was open
-      activeRatio*: float # ratio of total time the shutter was open
-      # reuse `RunTimeInfo` to store possible tracking starts / ends
-      trackings*: seq[RunTimeInfo]
-      nonTrackingDuration*: Duration
-      activeNonTrackingTime*: Duration # total time shutter was open during no tracking
-      trackingDuration*: Duration
-      activeTrackingTime*: Duration # total time shutter was open during tracking
-
   ################################
   # Reconstruction related types #
   ################################
-type
 
   ## The base element for a single event to be reconstructed
   RecoInputEvent*[T: SomePix] = tuple
@@ -552,6 +513,47 @@ type
   ## A helper distinct version of an unchecked array. Mainly used in the septem veto related
   ## handling of all chip data
   DataView*[T] = distinct ptr UncheckedArray[T]
+
+when not defined(js):
+  type
+    # an object, which stores information about a run's start, end and length
+    RunTimeInfo* = object
+      t_start*: Time
+      t_end*: Time
+      t_length*: Duration # total duration of the run / tracking, from first to last event!
+      indices*: seq[int] # The indices corresponding to this run/tracking. If it is a tracking
+                         # it will contain the indices of all events in the tracking.
+      durations*: seq[float] # Durations of the corresponding indices in seconds
+
+    # an object which stores general information about a run
+    RunInfo* = object
+      timeInfo*: RunTimeInfo
+      runNumber*: int
+      rfKind*: RunFolderKind
+      runType*: RunTypeKind
+      path*: string
+      nEvents*: int
+      nFadcEvents*: int
+
+    # extension of the above read from H5 file, including effective
+    # run times, possible trackings etc
+    ExtendedRunInfo* = object
+      timeInfo*: RunTimeInfo
+      runNumber*: int
+      rfKind*: RunFolderKind
+      runType*: RunTypeKind
+      nEvents*: int
+      nFadcEvents*: int
+      totalTime*: Duration # total time from beginning of each run to endy
+      activeTime*: Duration # total time shutter was open
+      activeRatio*: float # ratio of total time the shutter was open
+      # reuse `RunTimeInfo` to store possible tracking starts / ends
+      trackings*: seq[RunTimeInfo]
+      nonTrackingDuration*: Duration
+      activeNonTrackingTime*: Duration # total time shutter was open during no tracking
+      trackingDuration*: Duration
+      activeTrackingTime*: Duration # total time shutter was open during tracking
+
 
 ## Accessor and converter of a `ptr` to a `DataView` (all we need)
 func `[]`*[T](dv: DataView[T], idx: int): T = cast[ptr UncheckedArray[T]](dv)[idx]

@@ -575,7 +575,8 @@ proc parseInputFile(h5fout: H5File, # file we write to
                          batchSize, meta.len)
     # increase slice index
     inc i
-  dset.add all
+  if all.len > 0: # if anything left, write the remainder
+    dset.add all
 
   ## Write some attributes
   h5fout.writeAttributes(runType, run, badSliceCount, badBatchCount, batchSize)

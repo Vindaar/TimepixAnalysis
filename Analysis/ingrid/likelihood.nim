@@ -763,6 +763,11 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
           septemFrame.pixels.setLen(septemFrame.numRecoPixels)
           if not useLineVeto: # if no line veto, don't draw lines
             septemGeometry.lines = newSeq[tuple[m, b: float]]()
+          ## XXX: it might be a good idea to extend the plotting to include cluster information
+          ## that affects the line veto. We could hand eccentricity & the eccentricity cut to make
+          ## it clearer why a cluster was (not) cut (add the ecc. as text next to cluster center?)
+          ## Ideally for that we would change the code to hand some object instead of centers, lines, ...
+          ## and all that jazz. Instead have one object per cluster.
           plotSeptemEvent(septemFrame.pixels, runNumber, evNum,
                           lines = septemGeometry.lines,
                           centers = septemGeometry.centers,

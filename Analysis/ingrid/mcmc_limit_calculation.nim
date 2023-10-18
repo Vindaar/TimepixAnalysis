@@ -4117,6 +4117,11 @@ proc sanity(
     energyMin = 0.2.keV, energyMax = 12.0.keV
   ) # from sqrt(squared sum of x / 7) position uncertainties
 
+  log.infos("Time"):
+    &"Total background time: {ctx.totalBackgroundTime}"
+    &"Total tracking time: {ctx.totalTrackingTime}"
+    &"Ratio of tracking to background time: {trackingTime / backgroundTime}"
+
   # 1. detection efficiency checks
   ctx.sanityCheckDetectionEff(log)
 
@@ -4128,11 +4133,7 @@ proc sanity(
 
   # 3. background interpolation
   if backgroundInterp:
-    ctx.sanityCheckBackgroundInterpolation(log)
-  log.infos("Time"):
-    &"Total background time: {ctx.totalBackgroundTime}"
-    &"Total tracking time: {ctx.totalTrackingTime}"
-    &"Ratio of tracking to background time: {trackingTime / backgroundTime}"
+   ctx.sanityCheckBackgroundInterpolation(log)
 
   # 4. background sampling
   ctx.sanityCheckBackgroundSampling(log)
@@ -4149,16 +4150,17 @@ proc sanity(
   # 7. compute likelihood behavior when applying systematics
   ctx.sanityCheckLikelihoodSyst(log)
 
-  # 8.
+  # 8. check for limit behavior for different systematics
   if scanSigmaLimits:
     ctx.sanityCheckSigmaLimits(log, limitKind, nmcSigmaLimits)
+
   # 9. check impact of g_aγ on limit
   ctx.sanityCheckAxionPhoton(log)
 
   # 10. Sanity check MCMC for g_ae²·g_aγ² yields same as g_ae² only!
   ctx.sanityCheckAxionElectronAxionPhoton(log)
 
-  # 9. sanity checks for length of MCMC & starting parameters & allowed steps?
+  # 11. sanity checks for length of MCMC & starting parameters & allowed steps?
   # ?
   # random starting parameters in each case, but fixed for comparison of different chain lengths
   # i.e. we can just cut off the chain at N and use only first N, M, O, ... thousand entries and compare
@@ -4169,13 +4171,13 @@ proc sanity(
   # Note: let's compute the real systematics case first so we know how slow the "real integral" approach
   # actually is. Then we know whether it makes sense to use the real systematics for this study or not.
 
-  # 10. compute likelihood examples for realistic systematics. Comparison to numerical integration
+  # 12. compute likelihood examples for realistic systematics. Comparison to numerical integration
   # will either be rather imprecise or take a long while.. Hm.
   ## XXX: note this will be used only for *calls to real procedures*. the general systematics
   ## are also handled in `saniyCheckLikelihoodSyst`
-  #ctx.sanityCheckRealSystematics(log)
+  ctx.sanityCheckRealSystematics(log)
 
-  # 11. anything else?
+  # 13. anything else?
 
 proc readYearFiles(years: seq[int], files: seq[string]): seq[(int, string)] =
   doAssert files.len == years.len, "Every file must be given an associated year!"

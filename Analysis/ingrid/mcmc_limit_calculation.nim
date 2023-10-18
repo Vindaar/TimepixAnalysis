@@ -481,6 +481,7 @@ proc readFiles(path: string, s: seq[string], noiseFilter: NoiseFilter,
         h.name & " has settings: " & $vetoCfg & ", but last file: " & $lastCfg)
     totalTime += time
     lastCfg = vetoCfg
+    echo "Veto settings of input file: ", h.name, " are: ", vetoCfg, " and flags: ", flags
     lastFlags = flags
     first = false
     discard h.close()
@@ -906,7 +907,7 @@ proc initContext(path: string,
     trackTime = trackingTime
 
   echo "[INFO] Background time = ", backTime
-  echo "[INFO] Tracking time = ", trackTime
+  echo "[INFO] Tracking time = ", trackTime, " and readDataTracking = ", readDataTracking.totalTime
   result = Context(
     # general information and input parameters
     logLFlags: readData.flags,
@@ -2012,6 +2013,9 @@ template fullUncertainFn(): untyped {.dirty.} =
   let σ_p = ctx.σ_p
   for i, c in cands:
     let sig = ctx.detectionEff(c.energy) * ctx.axionFlux(c.energy) * conversionProbability(ctx)
+    if sig.float < 0.0:
+      echo "WHAT THE FUCK: ", sig, " from det = ", ctx.detectionEff(c.energy), " axFl = ", ctx.axionFlux(c.energy), " Paγ = ", conversionProbability(ctx), " at energy ", c.energy
+      quit()
     cSigBack[i] = (sig.float,
                    ctx.background(c.energy, c.pos).float)
 
@@ -2037,6 +2041,36 @@ template fullUncertainFn(): untyped {.dirty.} =
         let s_c = (s_init.rescale(ctx) * (1 + θ_s) * ctx.raytracing(cands[i].pos)).float
         P3 *= (1 + s_c / (b_c * (1 + θ_b)))
     result = abs(P1 * P2 * P3) # make positive if number comes out to `-0.0`
+
+    when false: ## log branch!!
+      let P1 = -s_totg
+      let P2 = -square(θ_x / (SQRT2 * σ_p)) + -square(θ_y / (SQRT2 * σ_p)) +
+               -square(θ_s / (SQRT2 * σ_s)) + -square(θ_b / (SQRT2 * σ_b))
+      var P3 = 0.0
+      for i in 0 ..< cSigBack.len:
+        let (s_init, b_c) = cSigBack[i]
+        if b_c.float != 0.0:
+          let s_c = (s_init.rescale(ctx) * (1 + θ_s) * ctx.raytracing(cands[i].pos)).float
+          #echo "yeah fick"
+          #if true: quit()
+
+          P3 += ln(1 + s_c / (b_c * (1 + θ_b)))
+      result = abs((P1 + P2 + P3)) # make positive if number comes out to `-0.0`
+      #echo "RESULT= ", result, " from ", P1, " = ", P2, " = ", P3
+    if classify(result) == fcNan:
+      echo "RESULT IS NAN!!! "
+      echo "Inputs (vector) = ", x
+      echo "P1 = ", P1
+      echo "P2 = ", P2
+      echo "P3 = ", P3
+      P3 = 0.0
+      for i in 0 ..< cSigBack.len:
+        let (s_init, b_c) = cSigBack[i]
+        if b_c.float != 0.0:
+          let s_c = (s_init.rescale(ctx) * (1 + θ_s) * ctx.raytracing(cands[i].pos)).float
+          let t = ln(1 + s_c / (b_c * (1 + θ_b)))
+          P3 += t
+          echo "P3 = ", P3, " from t ", t, " and s_c ", s_c, " and before rescale = ", s_init, " and g_ae²·g_aγ² = ", ctx.couplingReference, " and b_c = ", b_c
 
 template posUncertainFn(): untyped {.dirty.} =
   doAssert ctx.uncertaintyPosition == puUncertain

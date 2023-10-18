@@ -1,7 +1,11 @@
+# Ignore all files
+*
+# Unignore all with extensions in recipes
+!*.*
+# Unignore all directories
+!*/
 **/nimcache/*
 *~
-/Analysis/ingrid/raw_data_manipulation
-/Analysis/ingrid/reconstruction
 /Analysis/ingrid/data/*
 /Analysis/nim.cfg
 /InGrid-Python/InGrid.egg-info/*
@@ -37,3 +41,13 @@ Tests/reconstruction/*.pdf
 /Plotting/plotOuterChips/*.svg
 /Plotting/plotOuterChips/*.pdf
 /Tools/DebugCkDiff/*.svg
+# ignore common files that we generally don't want to commit. Might want to stage
+# manually in some cases
+**/*.h5
+**/*.aux
+**/*.log
+**/*.tex
+**/*.pdf
+**/*.svg
+**/*.png
+**/*.html

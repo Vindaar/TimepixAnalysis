@@ -276,17 +276,23 @@ func cdlToXrayBinning2018Map(): Table[InGridDsetKind, tuple[bins: int, min, max:
   ## Maps the names of the `XrayReferenceDataSet.h5` (2019) to the
   ## number of bins and min, max values that must be given to the histogram function
   ## to arrive at the result equivalent to the `calibration-cdl.h5` (2019) file.
+  #
+  ## XXX: this is an ugly solution and we should replace it by something better.
   result = { igSkewnessLongitudinal : (bins: 100, min: -5.050000190734863, max: 4.849999904632568),
              igSkewnessTransverse : (bins: 100, min: -5.050000190734863, max: 4.849999904632568),
              igRmsTransverse : (bins: 150, min: -0.01666666753590107, max: 4.949999809265137),
-             igEccentricity : (bins: 150, min: 0.9700000286102295, max: 9.909999847412109),
+             #igEccentricity : (bins: 150, min: 0.9700000286102295, max: 9.909999847412109),
+             # XXX: !!!
+             igEccentricity : (bins: 300, min: 0.9700000286102295, max: 9.909999847412109),
              igHits : (bins: 250, min: -0.5, max: 497.5),
              igKurtosisLongitudinal : (bins: 100, min: -5.050000190734863, max: 4.849999904632568),
              igKurtosisTransverse : (bins: 100, min: -5.050000190734863, max: 4.849999904632568),
              igLength : (bins: 200, min: -0.05000000074505806, max: 19.85000038146973),
              igWidth : (bins: 100, min: -0.05000000074505806, max: 9.850000381469727),
              igRmsLongitudinal : (bins: 150, min: -0.01666666753590107, max: 4.949999809265137),
-             igLengthDivRmsTrans : (bins: 150, min: -0.1000000014901161, max: 29.70000076293945),
+             #igLengthDivRmsTrans : (bins: 150, min: -0.1000000014901161, max: 29.70000076293945),
+             # XXX: !!!
+             igLengthDivRmsTrans : (bins: 300, min: -0.1000000014901161, max: 29.70000076293945),
              igRotationAngle : (bins: 100, min: -0.0157079640775919, max: 3.094468832015991),
              igEnergyFromCharge : (bins: 100, min: -0.05000000074505806, max: 9.850000381469727),
              igLikelihood : (bins: 200, min: -40.125, max: 9.625),

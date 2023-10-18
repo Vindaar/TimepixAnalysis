@@ -2391,6 +2391,12 @@ iterator fadcEventIter(h5f: H5File,
     # remove the event so that at some point we actually finish!
     evTab.del(pd.event)
 
+    when false:
+      ggplot(toDf(yFadc), aes("yFadc")) +
+        geom_histogram(bins = 50) +
+        ggtitle("Run " & $run & " event " & $pd.event & " skewness: " & $(skewness(yFadc.toSeq1D))) +
+        ggsave("/tmp/" & outfile.extractFilename & ".pdf")
+
     let plotResult = initPlotResult(outfile, pltV)
     yield plotResult
 

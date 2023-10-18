@@ -144,7 +144,7 @@ proc main(back, calib: string) =
   let pltCalib = createRunList(calib, rtCalibration)
 
   let sortedRuns = sortRuns(pltBack, pltCalib)
-  echo sortedRuns
+  #echo sortedRuns
 
   writeSummary(pltBack, rtBackground)
   writeSummary(pltCalib, rtCalibration)

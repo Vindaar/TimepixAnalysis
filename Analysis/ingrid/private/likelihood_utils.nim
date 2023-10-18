@@ -141,6 +141,9 @@ template withCdlData*(cdlFile, dset: string,
     var cuts {.inject.} = cutsTab[dset]
     let xrayCuts {.inject.} = xrayCutsTab[dset]
     var data {.inject.}: array[InGridDsetKind, seq[float]]
+
+    ## XXX: make gain an InGridDsetKind and insert it here based on the gas gain slices?
+
     for s in mitems(data):
       s = newSeqOfCap[float](50_000)
     if fitByRun:

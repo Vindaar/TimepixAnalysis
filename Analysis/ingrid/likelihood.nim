@@ -668,6 +668,8 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
                                          isNNcut)
       if septemFrame.centerEvIdx == -1:
         echo "Broken event! ", evGroup.pretty(-1)
+        echo "The event is: ", pair
+        #continue # skip "broken" events for now (i.e. NaN)
         quit(1)
       # given the full frame run through the full reconstruction for this cluster
       # here we give chip number as -1, indicating "Septem"
@@ -771,6 +773,8 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
                           radius = septemGeometry.centerRadius,
                           energyCenter = centerData.energies[septemFrame.centerEvIdx],
                           useTeX = ctx.useTeX)
+    #if evNum == 12435:
+    #  quit()
   echo "Passed indices after septem veto ", passedEvs.card
   fout.write("Septem events after fake cut: " & $passedEvs.len & "\n")
   fout.close()

@@ -67,7 +67,6 @@ func findDrop(thl: seq[int], count: seq[float]): (float, int, int) =
   # index is thl of ind
   result = (pCenter, minIndex, maxIndex)
 
-
 proc fitToTCalib*(tot: Tot, startFit = 0.0): FitResult =
   var
     # local mutable variables to potentially remove unwanted data for fit

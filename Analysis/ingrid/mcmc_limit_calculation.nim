@@ -3331,6 +3331,66 @@ proc sanityCheckBackgroundInterpolation(ctx: Context, log: Logger) =
   sliceAt(3.0.keV)
   sliceAt(8.0.keV)
 
+  proc plotInterpolatedClusters(energy: keV, x, y: int) =
+    ## Creates a few plots that showcase the background interpolation showing the clusters
+    ## involved in computing a value.
+    # 1. plot of the chip where:
+    #  - all clusters (within allowed energy?) shown in grey or with an alpha
+    #  - around one particular point show the interpolation radius
+    #  - circle of the radius
+    #  - color scale of clusters showing the computed value (metric)
+    proc kdToDf(kd: KdTree[float], idxs: seq[int] = @[]): DataFrame =
+      let idxs = if idxs.len > 0: idxs else: arange(0, kd.data.shape[0])
+      let num = idxs.len
+      var
+        xs = newSeqOfCap[float](num)
+        ys = newSeqOfCap[float](num)
+        zs = newSeqOfCap[float](num)
+      for i in idxs:
+        xs.add kd.data[i, 0]
+        ys.add kd.data[i, 1]
+        zs.add kd.data[i, 2]
+      result = toDf({"x" : xs, "y" : ys, "E" : zs})
+    # 1. get cluster positions and energies from `interp.kd.data` as a DF
+    let dfC = kdToDf(interp.kd)
+
+    # 2. get a DF for all clusters around `x, y`
+    let (dists, idxs) = interp.kd.query_ball_point([x.float, y.float, energy.float].toTensor,
+                                                   radius = interp.radius,
+                                                   metric = CustomMetric)
+    # 2.1 get positions of all `idxs`
+    var dfI = kdToDf(interp.kd, idxs.toSeq1D)
+    # 2.2 get weight for each
+    proc getMetricWeight(d: float): float =
+      # weigh by distance using gaussian of radius being 3 sigma
+      result = seqmath.gauss(d, mean = 0.0, sigma = Sigma)
+    dfI["weight"] = dists.map_inline(getMetricWeight(x))
+
+    # 3. define helper to draw circle around position of interest
+    proc circle(center: (float, float), radius: float): DataFrame =
+      let φs = linspace(0.0, 2.0 * PI, 1000)
+      var xs = newSeq[float]()
+      var ys = newSeq[float]()
+      for φ in φs:
+        let x = radius * cos(φ) + center[0]
+        let y = radius * sin(φ) + center[1]
+        xs.add x
+        ys.add y
+      result = toDf({"x" : xs, "y" : ys})
+
+    ggplot(dfC, aes("x", "y")) +
+      geom_point(size = 1.5, marker = mkRotCross, alpha = 0.75) +
+      geom_point(data = dfI, aes = aes(color = "weight"), size = 2.0, alpha = 0.8) +
+      geom_line(data = circle((x.float, y.float), Radius), color = "red") +
+      xlim(0, 256) + ylim(0, 256) +
+      ggtitle(&"Clusters participating in background interpolation at {energy} around x = {x}, y = {y}") +
+      margin(top = 1.5) +
+      ggsave(SanityPath / &"interpolation_clusters_E_{energy.float}_keV_x_{x}_y_{y}.pdf", width = 640, height = 480)
+
+  plotInterpolatedClusters(3.0.keV, 110, 80)
+  plotInterpolatedClusters(1.0.keV, 110, 80)
+  plotInterpolatedClusters(1.5.keV, 170, 128)
+
   # finally compute background rate from interpolation
   ctx.plotBackgroundRateFromInterpolation(
     log,

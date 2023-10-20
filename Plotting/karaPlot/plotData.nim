@@ -2299,6 +2299,13 @@ proc ingridEventIterator(h5f: H5File,
       # only a single pd
       yield (res, eventNumber)
 
+proc initDummyFadc(event = -1): PlotV =
+  result = initPlotV("No FADC event", "FADC", "V")
+  result.pltGg = ggplot(toDf({"x" : @[1200], "y" : @[0.0], "t" : "No FADC event available for #event " & $event}),
+                       aes("x", "y", text = "t"), backend = bkCairo) +
+   geom_text(font = font(16.0)) +
+   result.theme
+
 iterator fadcEventIter(h5f: H5File,
                        fileInfo: FileInfo,
                        pd: PlotDescriptor,
@@ -2331,7 +2338,7 @@ iterator fadcEventIter(h5f: H5File,
     var texts: seq[string]
 
     if pd.event notin evTab:
-      let pltV = initPlotV("No FADC event", "FADC", "V")
+      let pltV = initDummyFadc(pd.event)
       yield initPlotResult(outfile, pltV)
       continue
     let idx = evTab[pd.event]
@@ -2501,7 +2508,7 @@ proc handleIngridFadcEvents(h5f: H5File,
   pd.name = $0
   var fadcIter = fadcEventIter
   let outdir = buildOutfile(pd, fileDir, fileType).parentDir
-  var dummyFadcPlt = initPlotV("No FADC event", "FADC", "U")
+  var dummyFadcPlt = initDummyFadc()
   createDir(outdir)
   for res, eventNumber in ingridEventIter(h5f, fileInfo, iPd, config):
     # given event number, create the FADC plot. Overwrite its event number to get the correct plot

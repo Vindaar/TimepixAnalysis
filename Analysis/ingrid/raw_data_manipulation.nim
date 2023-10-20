@@ -11,7 +11,8 @@
 
 # standard lib
 import std / [os, osproc, logging, sequtils, sugar, algorithm, tables, times,
-              strutils, strformat, rdstdin]
+              strutils, strformat, rdstdin, tempfiles]
+
 
 # InGrid-module
 import fadc_helpers
@@ -25,6 +26,9 @@ import nimhdf5
 import arraymancer
 import parsetoml
 import cligen / macUt
+
+# We don't use `zippy` for now due to it failing for archives e.g. for run 186 (> int32 in bytes)
+# from zippy/tarballs import extractAll # to handle `.tar.gz` archives
 
 type
   RawFlagKind = enum
@@ -1323,6 +1327,8 @@ proc handleTimepix3(h5file: string, runType: RunTypeKind,
 proc main(path: string, runType: RunTypeKind,
           `out` = "", nofadc = false, ignoreRunList = false,
           config = "", overwrite = false, tpx3 = false,
+          keepExtracted = false,
+          extractTo = getTempDir()
          ) =
   docCommentAdd(versionStr)
   var flags: set[RawFlagKind]
@@ -1340,7 +1346,22 @@ proc main(path: string, runType: RunTypeKind,
   let t0 = epochTime()
 
   if rfTpx3 notin flags:
-    handleTimepix1(path, runType, outfile, flags, config)
+    if path.endsWith(".tar.gz"):
+      # extract the data to a temporary directory and continue from there
+      #let tmpDir = genTempPath("tmp_", "_extraction")
+      let newPath = extractTo / path.extractFilename.dup(removeSuffix(".tar.gz"))
+      info "Extracting input archive: ", path
+      #extractAll(path, tmpDir)
+      let tmpDir = createTempDir("tmp_", "_extraction")
+      discard untarFile(path, tmpDir)
+      moveDir(tmpDir, extractTo)
+      info "Extracted run archive `", path, "` to: `", tmpDir, "` and moved it to `", extractTo, "`. Now will process: ", newPath
+      handleTimepix1(newPath, runType, outfile, flags, config)
+      if not keepExtracted:
+        info "Removing: ", newPath
+        removeDir(newPath)
+    else:
+      handleTimepix1(path, runType, outfile, flags, config)
   else:
     handleTimepix3(path, runType, outfile, flags, config)
 
@@ -1374,4 +1395,7 @@ HOWEVER: overwriting is assumed, if you only hand a
 run folder!""",
     "config" : """Path to the configuration file to use. Default is `config.toml`
 in directory of this source file.""",
+    "keepExtracted" : """If a `.tar.gz` archive is given for a run folder and this flag is true
+we won't remove the extracted archive afterwards.""",
+    "extractTo" : """If a `.tar.gz` archive is given extract the data to this directory.""",
     "version" : "Print the version of the binary."})

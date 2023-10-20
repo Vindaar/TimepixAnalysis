@@ -263,19 +263,19 @@ proc sortReadInGridData(rawInGrid: seq[Event],
     # - sort tuples by `EventNumber`
     # - add elements to result taken from `AtIndex` in `Events`
     let
-      numEvents = raw_ingrid.len
+      numEvents = rawInGrid.len
       # get event numbers
-      numList = mapIt(raw_ingrid, it.evHeader["eventNumber"].parseInt)
-      # zip event numbers with indices in raw_ingrid (unsorted!)
+      numList = mapIt(rawInGrid, it.evHeader["eventNumber"].parseInt)
+      # zip event numbers with indices in rawInGrid (unsorted!)
       zipped = zip(numList, toSeq(0 ..< numEvents))
       # sort tuples by event numbers (indices thus mangled, but in "correct" order
       # for insertion)
       sortedNums = zipped.sortedByIt(it[0])
     info &"Min event number {min(numList)} and max number {max(numList)}"
     # insert elements into result
-    result = newSeqOfCap[Event](raw_ingrid.len)
+    result = newSeqOfCap[Event](rawInGrid.len)
     for i in sortedNums:
-      result.add raw_ingrid[i[1]]
+      result.add rawInGrid[i[1]]
   else:
     # we'll never end up here with rfUnknown, unless something bad happens
     logging.fatal("Unkown error. Ended up with unknown run folder kind " &
@@ -285,7 +285,7 @@ proc sortReadInGridData(rawInGrid: seq[Event],
   let t1 = epochTime()
   info &"...Sorting done, took {$(t1 - t0)} seconds"
 
-proc processRawInGridData(run: Run, totCut: TotCut): ProcessedRun =
+proc processRawInGridData(run: Run, totCut: ToTCut): ProcessedRun =
   ## procedure to process the raw data read from the event files by readRawInGridData
   ## inputs:
   ##    ch: seq[Event]] = seq of Event objects, which each store raw data of a single event.
@@ -529,44 +529,36 @@ proc initInGridInH5*(h5f: var H5File, runNumber, nChips,
   let chipGroups = createChipGroups(h5f, runNumber, nChips)
   let (ev_type_xy, ev_type_ch, eventHeaderKeys) = specialTypesAndEvKeys()
 
-  template datasetCreation(h5f: untyped, name: untyped, `type`: untyped): untyped =
-    ## inserts the correct data set creation parameters
-    h5f.create_dataset(name,
-                       0,
-                       dtype = `type`,
-                       chunksize = @[batchsize],
-                       maxshape = @[int.high],
-                       filter = filter)
+  template datasetCreation(h5f: untyped, name: untyped, `type`: untyped) =
+    ## inserts the correct data set creation parameters and creates the dataset.
+    ## As we do not need it here, discard it and use for its side effect
+    discard h5f.create_dataset(name,
+                               0,
+                               dtype = `type`,
+                               chunksize = @[batchsize],
+                               maxshape = @[int.high],
+                               filter = filter)
 
-  var
+  for chp in chipGroups:
     # datasets are chunked in the batchsize we read. Size originally 0
-    x_dsets  = mapIt(chip_groups, h5f.datasetCreation(it.name & "/raw_x", ev_type_xy))
-    y_dsets  = mapIt(chip_groups, h5f.datasetCreation(it.name & "/raw_y", ev_type_xy))
-    ch_dsets = mapIt(chip_groups, h5f.datasetCreation(it.name & "/raw_ch", ev_type_ch))
-
-    # datasets to store the header information for each event
-    evHeadersDsetTab = eventHeaderKeys.mapIt(
-      (it,
-       h5f.datasetCreation(groupName & "/" & it, int))
-    ).toTable
-    # TODO: add string of datetime as well
-    #dateTimeDset = h5f.create_dataset(joinPath(group_name, "dateTime"), nEvents, string)
-
-    # other single column data
-    durationDset = h5f.datasetCreation(joinPath(groupName, "eventDuration"), float)
-  if createToADset:
-    var toa_dsets = chip_groups.mapIt(
-      h5f.datasetCreation(it.name & "/raw_toa", ev_type_ch)
-    )
-    var toa_combined_dsets = chip_groups.mapIt(
-      h5f.datasetCreation(it.name & "/raw_toa_combined", special_type(uint64))
-    )
-  let names = chipGroups.mapIt(it.name)
-  var
-    totDset = mapIt(names, h5f.datasetCreation(it & "/ToT", uint16))
-    hitDset = mapIt(names, h5f.datasetCreation(it & "/Hits", uint16))
+    h5f.datasetCreation(chp.name & "/raw_x", ev_type_xy)
+    h5f.datasetCreation(chp.name & "/raw_y", ev_type_xy)
+    h5f.datasetCreation(chp.name & "/raw_ch", ev_type_ch)
+    h5f.datasetCreation(chp.name & "/ToT", uint16)
+    h5f.datasetCreation(chp.name & "/Hits", uint16)
     # use normal dataset creation proc, due to static size of occupancies
-    occDset = mapIt(names, h5f.create_dataset(it & "/Occupancy", (256, 256), int, filter = filter))
+    discard h5f.create_dataset(chp.name & "/Occupancy", (256, 256), int, filter = filter)
+    if createToADset:
+      h5f.datasetCreation(chp.name & "/raw_toa", ev_type_ch)
+      h5f.datasetCreation(chp.name & "/raw_toa_combined", special_type(uint64))
+
+  # datasets to store the header information for each event
+  for key in eventHeaderKeys:
+    h5f.datasetCreation(groupName & "/" & key, int)
+  # TODO: add string of datetime as well
+  #dateTimeDset = h5f.create_dataset(joinPath(group_name, "dateTime"), nEvents, string)
+  # other single column data
+  h5f.datasetCreation(joinPath(groupName, "eventDuration"), float)
 
 proc getCenterChipAndName(run: ProcessedRun): (int, string) =
   ## returns the chip number and the name of the center chip
@@ -910,7 +902,7 @@ proc writeProcessedRunToH5*(h5f: var H5File, run: ProcessedRun) =
     # occupancy on it and finally write the result
     # TODO: this does not seem to make sense to me. We're iterating over all chips in a whole run.
     # Why would there be data in the occupancy dataset for us to read?
-    let stackOcc = occDset[int64].toTensor.reshape([256, 256]) .+ occ
+    let stackOcc = occDset[int64].toTensor.reshape([256, 256]) +. occ
     occDset.unsafeWrite(stackOcc.get_data_ptr, stackOcc.size)
 
 #proc linkRawToReco(h5f: var H5File, runNumber, nChips: int) =

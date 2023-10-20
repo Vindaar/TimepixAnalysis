@@ -318,7 +318,7 @@ proc createSortedInodeTable*(list_of_files: seq[string]): OrderedTable[int, stri
   sortInodeTable(result)
 
 
-proc untarFile*(filepath: string): string =
+proc untarFile*(filepath: string, outdir = ""): string =
   # this procedure extracts the given *.tar.gz file of a run to the folder, in
   # which it is located, by making a system call to tar -xzf
   # inputs:
@@ -333,7 +333,9 @@ proc untarFile*(filepath: string): string =
   # .tar, which we need to remove
   let name = split(name_tar, ".tar")[0]
   # # given the directory, make system call to tar and extract the folder
-  let cmd_tar = "tar -xzf " & filepath & " --directory " & dir
+  let outdir = if outdir.len > 0: outdir else: dir
+
+  let cmd_tar = "tar -xzf " & filepath & " --directory " & outdir
 
   echo "System call to tar:\n\t", cmd_tar
   var (x, y) = execCmdEx(cmd_tar)
@@ -343,8 +345,7 @@ proc untarFile*(filepath: string): string =
   else:
     # in this case tar returned 0 (== success)
     # now that we have extracted the folder, get list of files in run folder
-    result = joinPath(dir, name)
-
+    result = joinPath(outdir, name)
 
 proc removeFolder*(folderpath: string): bool =
   # this procedure removes the folder with the given path, by making a system call to

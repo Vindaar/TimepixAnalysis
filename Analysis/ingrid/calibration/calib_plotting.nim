@@ -60,6 +60,9 @@ proc plotGasGain*[T](charge, counts: seq[T],
             intTitle) +
     ggsave(&"{pathPrefix}/gas_gain_run_{runNumber}_chip_{chipNumber}{suffix}.pdf")
 
+proc escapeLatex(s: string): string =
+  result = s.multiReplace([("e^-", r"$e^-$"), ("\n", r"\\")])
+
 proc plotFeSpectrum*(feSpec: FeSpecFitData,
                      runNumber: int, chipNumber: int,
                      texts: seq[string],
@@ -79,17 +82,19 @@ proc plotFeSpectrum*(feSpec: FeSpecFitData,
     titleSuffix: string
   if isPixel:
     xLabel = "# of pixels"
-    yLabel = "counts"
+    yLabel = "Counts"
   elif isFadc:
-    xLabel = "FADC signal U [V]"
-    yLabel = "counts"
+    xLabel = if not useTeX: "FADC signal U [V]" else: r"FADC signal U [$\si{V}$]"
+    yLabel = "Counts"
     suffix = "_fadc"
     titleSuffix = " for FADC data"
   else:
-    xLabel = "charge / 10^3 e¯"
-    yLabel = "counts"
+    xLabel = if not useTeX: "Charge [10³ e¯]" else: r"Charge [$\SI{1e3}{e^-}$]"
+    yLabel = "Counts"
     suffix = "_charge"
 
+  let annot = if not useTeX: texts.join("\n")
+              else: texts.join("\n").escapeLatex()
   ggplot(df, aes("bins")) +
     geom_histogram(aes(y = "hist"), stat = "identity",
                    hdKind = hdOutline) +
@@ -97,9 +102,10 @@ proc plotFeSpectrum*(feSpec: FeSpecFitData,
               color = some(parseHex("FF00FF"))) +
     xlab(xlabel) +
     ylab(ylabel) +
-    annotate(texts.join("\n"),
+    annotate(annot,
              left = 0.02,
-             bottom = 0.175) +
+             bottom = 0.175,
+             font = font(12.0, family = "monospace")) +
     ggtitle(&"Fe spectrum for run: {runNumber}{titleSuffix}") +
     ggsave(&"{pathPrefix}/fe_spec_run_{runNumber}_chip_{chipNumber}{suffix}.pdf",
            width = 800, height = 480,
@@ -124,11 +130,11 @@ proc plotFeEnergyCalib*(ecData: EnergyCalibFitData,
   if isPixel:
     yLabel = "# of primary electrons"
   elif isFadc:
-    yLabel = "FADC signal U [V]"
+    yLabel = if not useTeX: "FADC signal U [V]" else: r"FADC signal U [$\si{V}$]"
     suffix = "_fadc"
     titlePrefix = "FADC"
   else:
-    yLabel = "Total charge / 10^3 e-"
+    yLabel = if not useTeX: "Total charge [10³ e⁻]" else: r"Total charge [$\SI{1e3}{e^-}$]"
     suffix = "_charge"
 
   ggplot(dfEC, aes("E", "H", color = "type")) +

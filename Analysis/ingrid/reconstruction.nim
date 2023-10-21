@@ -480,7 +480,7 @@ proc createAndFitFeSpec(h5f: H5File,
          "more chips. Exception message:\n" & e.msg
   h5f.fitToFeSpectrum(runNumber, centerChip, fittingOnly)
 
-proc initRecoFadcInH5(h5f, h5fout: H5File, runNumber, batchsize: int) =
+proc initRecoFadcInH5(h5f, h5fout: H5File, runNumber, batchSize: int) =
   # proc to initialize the datasets etc in the HDF5 file for the FADC. Useful
   # since we don't want to do this every time we call the write function
 
@@ -496,7 +496,7 @@ proc initRecoFadcInH5(h5f, h5fout: H5File, runNumber, batchsize: int) =
   template datasetCreation(h5f, name, shape, `type`: untyped): untyped =
     ## inserts the correct data set creation parameters
     when typeof(shape) is tuple:
-      let chnkS = @[batchsize, shape[1]]
+      let chnkS = @[batchSize, shape[1]]
       let mxS = @[int.high, shape[1]]
     else:
       let chnkS = @[batchSize]
@@ -683,7 +683,7 @@ proc reconstructRunsInFile(h5f: H5File,
   ##   `flags`: stores the command line arguments
   ##   `runNumberArg`: optional run number, if given only this run is reconstructed
   ##   `h5fout`: output file to which the reconstructed data is written
-  const batchsize = 5000
+  const batchSize = 5000
   var reco_run: seq[RecoEvent[Pix]] = @[]
   let showPlots = if cfShowPlots in cfgFlags: true else: false
   # read the timepix version from the input file
@@ -710,7 +710,7 @@ proc reconstructRunsInFile(h5f: H5File,
       doAssert (flags * {rfOnlyFeSpec .. rfOnlyEnergyElectrons}).card == 0
       # initialize groups in `h5fout`
       if inputHasFadc:
-        initRecoFadcInH5(h5f, h5fout, runNumber, batchsize)
+        initRecoFadcInH5(h5f, h5fout, runNumber, batchSize)
       copyOverDataAttrs(h5f, h5fout, runNumber)
 
       writeRecoAttrs(h5fout, runNumber, clusterAlgo, searchRadius, dbscanEpsilon, ingridInit)

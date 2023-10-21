@@ -16,6 +16,8 @@ singleRun = "run"
 mulitpleRun = "runs"
 # template to use for files with multiple runs
 nameTmpl = "$type$runs$year_$step.h5"
+# plot related
+useTeX = false
 
 [Calibration]
 showPlots = false

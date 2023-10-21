@@ -104,11 +104,11 @@ proc plotFeSpectrum*(feSpec: FeSpecFitData,
     ylab(ylabel) +
     annotate(annot,
              left = 0.02,
-             bottom = 0.175,
+             bottom = 0.25,
              font = font(12.0, family = "monospace")) +
     ggtitle(&"Fe spectrum for run: {runNumber}{titleSuffix}") +
     ggsave(&"{pathPrefix}/fe_spec_run_{runNumber}_chip_{chipNumber}{suffix}.pdf",
-           width = 800, height = 480,
+           width = 600, height = 360,
            useTeX = useTeX, standalone = useTeX)
 
 proc plotFeEnergyCalib*(ecData: EnergyCalibFitData,
@@ -119,8 +119,8 @@ proc plotFeEnergyCalib*(ecData: EnergyCalibFitData,
                         useTeX: bool) =
   discard existsOrCreateDir(pathPrefix)
   let dfEnergy = toDf({ "E" : ecData.energies,
-                            "H" : ecData.peaks,
-                            "H_err" : ecData.peaksErr })
+                        "H" : ecData.peaks,
+                        "H_err" : ecData.peaksErr })
   let dfEFit = toDf({ "E" : ecData.xFit, "H" : ecData.yFit })
   let dfEC = bind_rows(("Data", dfEnergy), ("Fit", dfEFit), id = "type")
   var
@@ -136,6 +136,7 @@ proc plotFeEnergyCalib*(ecData: EnergyCalibFitData,
   else:
     yLabel = if not useTeX: "Total charge [10³ e⁻]" else: r"Total charge [$\SI{1e3}{e^-}$]"
     suffix = "_charge"
+  let xLabel = if not useTeX: "E [keV]" else: r"E [$\si{keV}$]"
 
   ggplot(dfEC, aes("E", "H", color = "type")) +
      geom_line(data = dfEC.filter(fn {`type` == "Fit"})) +
@@ -143,11 +144,12 @@ proc plotFeEnergyCalib*(ecData: EnergyCalibFitData,
                    aes = aes(x = "E", yMin = fn {`H` - `H_err`}, yMax = fn {`H` + `H_err`})) +
      geom_point(data = dfEC.filter(fn {`type` == "Data"})) +
      scale_y_continuous() +
-     xlab("E / keV") +
+     xlab(xLabel) +
      ylab(yLabel) +
+     margin(right = 3) +
      ggtitle(&"{titlePrefix} response to X-rays of energies `E` for run: {runNumber}") +
      ggsave(&"{pathPrefix}/energy_calib_run_{runNumber}{suffix}.pdf",
-            width = 800, height = 480,
+            width = 600, height = 360,
             useTeX = useTeX, standalone = useTeX)
 
 proc plotGasGainVsChargeCalib*(gainVals, calib, calibErr: seq[float],

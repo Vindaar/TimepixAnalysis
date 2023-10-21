@@ -781,7 +781,8 @@ proc buildTextForFeSpec*(feSpec: FeSpecFitData,
   result.add &"χ²/dof = {feSpec.chiSq / feSpec.nDof.float:.2f}"
 
 proc fitToFeSpectrum*(h5f: H5File, runNumber, chipNumber: int,
-                      fittingOnly = false, outfiles: seq[string] = @[],
+                      fittingOnly = false, useTeX = false,
+                      outfiles: seq[string] = @[],
                       writeToFile = true) =
   ## (currently) calls Python functions from `ingrid` Python module to
   ## perform fit to the `FeSpectrum` dataset in the given run number
@@ -804,10 +805,12 @@ proc fitToFeSpectrum*(h5f: H5File, runNumber, chipNumber: int,
   info "Plot pixel spectrum of run: " & $runNumber & " and chip: " & $chipNumber
   plotFeSpectrum(feSpec, runNumber, chipNumber,
                  texts, isPixel = true,
-                 pathPrefix = plotPath)
+                 pathPrefix = plotPath,
+                 useTeX = useTeX)
   info "Plot energy calibration of run: " & $runNumber & " and chip: " & $chipNumber
   plotFeEnergyCalib(ecData, runNumber, isPixel = true,
-                    pathPrefix = plotPath)
+                    pathPrefix = plotPath,
+                    useTeX = useTeX)
 
   proc extractAndWriteAttrs(h5f: H5File,
                             dset: var H5DataSet,
@@ -855,10 +858,12 @@ proc fitToFeSpectrum*(h5f: H5File, runNumber, chipNumber: int,
     info "Plot charge spectrum of run: " & $runNumber & " and chip: " & $chipNumber
     plotFeSpectrum(feSpecCharge, runNumber, chipNumber,
                    textsCharge, isPixel = false,
-                   pathPrefix = plotPath)
+                   pathPrefix = plotPath,
+                   useTeX = useTeX)
     info "Plot charge energy calibration of run: " & $runNumber & " and chip: " & $chipNumber
     plotFeEnergyCalib(ecDataCharge, runNumber, isPixel = false,
-                      pathPrefix = plotPath)
+                      pathPrefix = plotPath,
+                      useTeX = useTeX)
 
     # given resCharge, need to write the result of that fit to H5 file, analogous to
     # `writeFitParametersH5` in Python
@@ -889,11 +894,13 @@ proc fitToFeSpectrum*(h5f: H5File, runNumber, chipNumber: int,
     let textsFadc = buildTextForFeSpec(feSpecFadc, ecDataFadc, isPixel = false, isFadc = true)
     info "Plot FADC spectrum of run: " & $runNumber
     plotFeSpectrum(feSpecFadc, runNumber, 3, texts = textsFadc,
-                   isPixel = false, isFadc = true, pathPrefix = plotPath)
+                   isPixel = false, isFadc = true, pathPrefix = plotPath,
+                   useTeX = useTeX)
     info "Plot FADC energy calibration of run: " & $runNumber
     ## XXX: maybe fit with an offset in this case, due to high activation threshold?
     plotFeEnergyCalib(ecDataFadc, runNumber, isPixel = false, isFadc = true,
-                      pathPrefix = plotPath)
+                      pathPrefix = plotPath,
+                      useTeX = useTeX)
     if writeToFile:
       h5f.extractAndWriteAttrs(minValDset,
                                1e3, ## XXX: fix this number!

@@ -65,7 +65,8 @@ proc plotFeSpectrum*(feSpec: FeSpecFitData,
                      texts: seq[string],
                      isPixel = true,
                      isFadc = false,
-                     pathPrefix: string) =
+                     pathPrefix: string,
+                     useTeX: bool) =
   discard existsOrCreateDir(pathPrefix)
   doAssert feSpec.binning == feSpec.xFit
   let df = toDf({ "hist" : feSpec.hist,
@@ -101,13 +102,15 @@ proc plotFeSpectrum*(feSpec: FeSpecFitData,
              bottom = 0.175) +
     ggtitle(&"Fe spectrum for run: {runNumber}{titleSuffix}") +
     ggsave(&"{pathPrefix}/fe_spec_run_{runNumber}_chip_{chipNumber}{suffix}.pdf",
-           width = 800, height = 480)
+           width = 800, height = 480,
+           useTeX = useTeX, standalone = useTeX)
 
 proc plotFeEnergyCalib*(ecData: EnergyCalibFitData,
                         runNumber: int,
                         isPixel = true,
                         isFadc = false,
-                        pathPrefix: string) =
+                        pathPrefix: string,
+                        useTeX: bool) =
   discard existsOrCreateDir(pathPrefix)
   let dfEnergy = toDf({ "E" : ecData.energies,
                             "H" : ecData.peaks,
@@ -138,7 +141,8 @@ proc plotFeEnergyCalib*(ecData: EnergyCalibFitData,
      ylab(yLabel) +
      ggtitle(&"{titlePrefix} response to X-rays of energies `E` for run: {runNumber}") +
      ggsave(&"{pathPrefix}/energy_calib_run_{runNumber}{suffix}.pdf",
-             width = 800, height = 480)
+            width = 800, height = 480,
+            useTeX = useTeX, standalone = useTeX)
 
 proc plotGasGainVsChargeCalib*(gainVals, calib, calibErr: seq[float],
                                fitResult: FitResult,

@@ -38,11 +38,23 @@ type
 
   RecoConfig* = object
     flags*: set[RecoFlags] = {}
+    cfgFlags*: set[ConfigFlagKind] = {}
     runNumber*: Option[int] # possibly restrict to individual run number
-    calibFactor*: float # if `only_energy` in `flags` use this factor
+    calibFactor*: Option[float] # if `only_energy` in `flags` use this factor
     searchRadius* = 50
-    dbscanEpsilon* = 60
+    dbscanEpsilon* = 60.0
     clusterAlgo* = caDefault
+    # Charge calibration. Overwrite?
+    toDelete*: bool
+    # Gas gain settings
+    gasGainInterval*: float
+    minimumGasGainInterval*: float
+    fullRunGasGain*: bool
+    gasGainEnergyKind*: GasGainVsChargeCalibKind
+    # Plots
+    plotDirPrefix*: string
+    plotOutPath*: string
+    useTeX*: bool ## Whether to use `TeX` to produce plots
     # ???
 
   ConfigFlagKind = enum
@@ -76,8 +88,8 @@ when isMainModule:
 ################################################################################
 
 proc initRecoConfig*(flags: set[RecoFlags], runNumber: Option[int],
-                     calibFactor: float): RecoConfig =
-  RecoConfig(flags: flags, runNumber: runNumber, calibFactor: calibFactor)
+                     calibFactor: Option[float]): RecoConfig =
+  result = RecoConfig(flags: flags, runNumber: runNumber, calibFactor: calibFactor)
 
 template ch_len(): int = 2560
 template all_ch_len(): int = ch_len() * 4
@@ -468,7 +480,7 @@ proc reconstructSingleChip*(data: RecoInputData[Pix],
 
 proc createAndFitFeSpec(h5f: H5File,
                         runNumber: int,
-                        fittingOnly: bool) =
+                        fittingOnly, useTeX: bool) =
   ## create the Fe spectrum for the run, apply the charge calibration if possible
   ## and then fit to the Fe spectrum
   var centerChip = h5f.getCenterChip(runNumber)
@@ -478,7 +490,7 @@ proc createAndFitFeSpec(h5f: H5File,
   except KeyError as e:
     warn "No charge calibration possible for current one or " &
          "more chips. Exception message:\n" & e.msg
-  h5f.fitToFeSpectrum(runNumber, centerChip, fittingOnly)
+  h5f.fitToFeSpectrum(runNumber, centerChip, fittingOnly, useTeX)
 
 proc initRecoFadcInH5(h5f, h5fout: H5File, runNumber, batchSize: int) =
   # proc to initialize the datasets etc in the HDF5 file for the FADC. Useful
@@ -658,7 +670,7 @@ template recordIterRuns*(base: string, body: untyped): untyped =
     runNumbersDone.incl runNumber.uint16
 
   info "Reconstruction of all runs in $# with flags: $# took $# seconds" % [$h5f.name,
-                                                                            $flags,
+                                                                            $recoCfg.flags,
                                                                             $(epochTime() - t0)]
   info "Performed reconstruction of the following runs:"
   info $runNumbersDone
@@ -668,24 +680,17 @@ template recordIterRuns*(base: string, body: untyped): untyped =
 
 proc reconstructRunsInFile(h5f: H5File,
                            h5fout: H5File,
-                           flags: set[RecoFlags],
-                           cfgFlags: set[ConfigFlagKind],
-                           searchRadius: int,
-                           dbscanEpsilon: float,
-                           clusterAlgo: ClusteringAlgorithm,
-                           runNumberArg: Option[int] = none[int]()) =
+                           recoCfg: RecoConfig) =
   ## proc which performs reconstruction of runs in a given file (all by default). It only takes
   ## care of the general purpose conversion from raw data to reconstructed ingrid clusters
   ## plus FADC data. More complicated calibrations are handled by `applyCalibrationSteps` below.
   ## inputs:
   ##   `h5f`: the file from which we read the raw data
   ##   `h5fout`: the file to which we write the reconstructed data. May be the same file
-  ##   `flags`: stores the command line arguments
-  ##   `runNumberArg`: optional run number, if given only this run is reconstructed
-  ##   `h5fout`: output file to which the reconstructed data is written
+  ##   `cfg`: Stores all command line / config file options and flags.
   const batchSize = 5000
   var reco_run: seq[RecoEvent[Pix]] = @[]
-  let showPlots = if cfShowPlots in cfgFlags: true else: false
+  let showPlots = cfShowPlots in recoCfg.cfgFlags
   # read the timepix version from the input file
   let timepixVersion = h5f.timepixVersion()
   var ingridInit = false
@@ -704,16 +709,16 @@ proc reconstructRunsInFile(h5f: H5File,
     let runType = parseEnum[RunTypeKind](
       h5f[(rawDataBase() & $runNumber).grp_str].attrs["runType", string]
     )
-    if (runNumberArg.isSome and runNumber == runNumberArg.get) or
-       rfReadAllRuns in flags:
+    if (recoCfg.runNumber.isSome and runNumber == recoCfg.runNumber.get) or
+       rfReadAllRuns in recoCfg.flags:
       # intersection of `flags` with all `"only flags"` has to be empty
-      doAssert (flags * {rfOnlyFeSpec .. rfOnlyEnergyElectrons}).card == 0
+      doAssert (recoCfg.flags * {rfOnlyFeSpec .. rfOnlyEnergyElectrons}).card == 0
       # initialize groups in `h5fout`
       if inputHasFadc:
         initRecoFadcInH5(h5f, h5fout, runNumber, batchSize)
       copyOverDataAttrs(h5f, h5fout, runNumber)
 
-      writeRecoAttrs(h5fout, runNumber, clusterAlgo, searchRadius, dbscanEpsilon, ingridInit)
+      writeRecoAttrs(h5fout, runNumber, recoCfg.clusterAlgo, recoCfg.searchRadius, recoCfg.dbscanEpsilon, ingridInit)
       ingridInit = true
 
       var runGroupForAttrs = h5f[grp.grp_str]
@@ -730,7 +735,7 @@ proc reconstructRunsInFile(h5f: H5File,
         # events in ascending order of event number, i.e.
         # [0] -> eventNumber == 0 and so on
         reco_run.add reconstructSingleChip(pixdata, runNumber, chip,
-                                           searchRadius, dbscanEpsilon, clusterAlgo,
+                                           recoCfg.searchRadius, recoCfg.dbscanEpsilon, recoCfg.clusterAlgo,
                                            timepixVersion)
         info &"Reco run now contains {reco_run.len} elements"
       info "Reconstruction of run $# took $# seconds" % [$runNumber, $(epochTime() - t1)]
@@ -750,72 +755,48 @@ proc reconstructRunsInFile(h5f: H5File,
         h5fout.calcTriggerFractions(runNumber)
       # now check whether create iron spectrum flag is set
       # or this is a calibration run, then always create it
-      if rfCreateFe in flags or runType == rtCalibration:
-        createAndFitFeSpec(h5fout, runNumber, not showPlots)
+      if rfCreateFe in recoCfg.flags or runType == rtCalibration:
+        createAndFitFeSpec(h5fout, runNumber, not showPlots, recoCfg.useTeX)
 
       # add flag that this run is finished
       let h5grp = h5fout[(recoBase() & $runNumber).grp_str]
       h5grp.attrs["RawTransferFinished"] = "true"
 
-proc applyCalibrationSteps(h5f: H5File,
-                           flags: set[RecoFlags],
-                           cfgFlags: set[ConfigFlagKind],
-                           cfgTable: TomlValueRef,
-                           runNumberArg = none[int](),
-                           calib_factor = none[float]()) =
+proc applyCalibrationSteps(h5f: H5File, recoCfg: RecoConfig) =
   ## inputs:
   ##   `h5f`: the file from which we read the raw data
-  ##   `h5fout`: the file to which we write the reconstructed data. May be the same file
-  ##   `flags`: stores the command line arguments
-  ##   `runNumberArg`: optional run number, if given only this run is reconstructed
-  ##   `calib_factor`: optional factor to use to calculate energy of clusters based on number
-  ##     of pixels in the cluster.
-  ##   `h5fout`: optional file to which the reconstructed data is written instead
+  ##   `recoCfg`: Stores all command line / config file options and flags.
   ## NOTE: While the flags are called "--only*" the ``only`` portion simply refers to
   ## not converting raw data to reconstructed data. Different flags do not exclude one another!
-  let showPlots = if cfShowPlots in cfgFlags: true else: false
-  if rfOnlyEnergyElectrons in flags:
+  let showPlots = cfShowPlots in recoCfg.cfgFlags
+  if rfOnlyEnergyElectrons in recoCfg.flags:
     #h5fout.calcEnergyFromPixels(runNumber, calib_factor)
-    let interval = cfgTable["Calibration"]["gasGainInterval"].getFloat
-    let gcKind = parseEnum[GasGainVsChargeCalibKind](
-      cfgTable["Calibration"]["gasGainEnergyKind"].getStr
-    )
-    h5f.calcEnergyFromCharge(interval, gcKind)
-  if rfOnlyGainFit in flags:
-    let interval = cfgTable["Calibration"]["gasGainInterval"].getFloat
-    let gcKind = parseEnum[GasGainVsChargeCalibKind](
-      cfgTable["Calibration"]["gasGainEnergyKind"].getStr
-    )
-    h5f.performChargeCalibGasGainFit(interval, gcKind)
+    h5f.calcEnergyFromCharge(recoCfg.gasGainInterval, recoCfg.gasGainEnergyKind)
+  if rfOnlyGainFit in recoCfg.flags:
+    h5f.performChargeCalibGasGainFit(recoCfg.gasGainInterval, recoCfg.gasGainEnergyKind)
   recordIterRuns(recoBase()):
-    if (runNumberArg.isSome and runNumber == runNumberArg.get) or
-       rfReadAllRuns in flags:
+    if (recoCfg.runNumber.isSome and runNumber == recoCfg.runNumber.get) or
+       rfReadAllRuns in recoCfg.flags:
       # intersection of `flags` with all `"only flags"` must not be empty
-      doAssert (flags * {rfOnlyFeSpec .. rfOnlyEnergyElectrons}).card > 0
+      doAssert (recoCfg.flags * {rfOnlyFeSpec .. rfOnlyEnergyElectrons}).card > 0
       # only perform energy calibration of the reconstructed runs in file
       # check if reconstructed run exists
       if hasKey(h5f.groups, (recoBase & $runNumber)) == true:
-        if rfOnlyEnergy in flags:
-          # TODO: take this out
-          doAssert calib_factor.isSome, "Need calibration factor to calculate " &
-            "energy from number of pixels!"
-          h5f.calcEnergyFromPixels(runNumber, calib_factor.get)
-        if rfOnlyCharge in flags:
-          let toDelete = cfgTable["Calibration"]["deleteChargeDset"].getBool
-          h5f.applyChargeCalibration(runNumber, toDelete = toDelete)
-        if rfOnlyGasGain in flags:
-          let interval = cfgTable["Calibration"]["gasGainInterval"].getFloat
-          let minInterval = cfgTable["Calibration"]["minimumGasGainInterval"].getFloat
-          let fullRunGasGain = cfgTable["Calibration"]["fullRunGasGain"].getBool
-          h5f.calcGasGain(runNumber, interval, minInterval, fullRunGasGain)
-        if rfOnlyFadc in flags:
+        if rfOnlyEnergy in recoCfg.flags:
+          h5f.calcEnergyFromPixels(runNumber, recoCfg.calibFactor.get)
+        if rfOnlyCharge in recoCfg.flags:
+          h5f.applyChargeCalibration(runNumber, toDelete = recoCfg.toDelete)
+        if rfOnlyGasGain in recoCfg.flags:
+          h5f.calcGasGain(runNumber, recoCfg.gasGainInterval, recoCfg.minimumGasGainInterval, recoCfg.fullRunGasGain)
+        if rfOnlyFadc in recoCfg.flags:
           h5f.calcRiseAndFallTimes(runNumber)
-        if rfOnlyFeSpec in flags:
-          createAndFitFeSpec(h5f, runNumber, not showPlots)
+        if rfOnlyFeSpec in recoCfg.flags:
+          createAndFitFeSpec(h5f, runNumber, not showPlots, recoCfg.useTeX)
       else:
         warn "No reconstructed run found for $#" % $grp
 
-proc parseTomlConfig(configFile: string): (TomlValueRef, set[ConfigFlagKind]) =
+proc parseTomlConfig(h5f_name, configFile: string, runNumber: Option[int],
+                     calibFactor: Option[float]): RecoConfig =
   ## parses our config.toml file and returns a set of flags
   ## corresponding to different settings and the full toml table
   # TODO: concat together from `TpxDir`
@@ -826,10 +807,58 @@ proc parseTomlConfig(configFile: string): (TomlValueRef, set[ConfigFlagKind]) =
                      configFile
   info "Reading config file: ", configPath
   let config = parseToml.parseFile(configPath)
-  var flags: set[ConfigFlagKind]
+  var cfgFlags: set[ConfigFlagKind]
   if config["Calibration"]["showPlots"].getBool:
-    flags.incl cfShowPlots
-  result = (config, flags)
+    cfgFlags.incl cfShowPlots
+
+  # plots
+  let plotOutPath = config["Calibration"]["plotDirectory"].getStr
+  var plotDirPrefix: string
+  withH5(h5f_name, "rw"):
+    plotDirPrefix = h5f.genPlotDirname(plotOutPath, PlotDirPrefixAttr)
+  let useTeX = config["General"]["useTeX"].getBool
+  # clustering
+  let searchRadius = config["Reconstruction"]["searchRadius"].getInt
+  let dbscanEpsilon = config["Reconstruction"]["epsilon"].getFloat
+  let clusterAlgo = parseEnum[ClusteringAlgorithm](config["Reconstruction"]["clusterAlgo"].getStr)
+  # charge and gas gain
+  let toDelete = config["Calibration"]["deleteChargeDset"].getBool
+  let interval = config["Calibration"]["gasGainInterval"].getFloat
+  let minInterval = config["Calibration"]["minimumGasGainInterval"].getFloat
+  let fullRunGasGain = config["Calibration"]["fullRunGasGain"].getBool
+  let gcKind = parseEnum[GasGainVsChargeCalibKind](
+    config["Calibration"]["gasGainEnergyKind"].getStr
+  )
+
+  result = RecoConfig(cfgFlags: cfgFlags,
+                      runNumber: runNumber, calibFactor: calibFactor,
+                      clusterAlgo: clusterAlgo,
+                      searchRadius: searchRadius,
+                      dbscanEpsilon: dbscanEpsilon,
+                      toDelete: toDelete,
+                      gasGainInterval: interval, minimumGasGainInterval: minInterval,
+                      fullRunGasGain: fullRunGasGain,
+                      gasGainEnergyKind: gcKind,
+                      plotDirPrefix: plotDirPrefix,
+                      plotOutPath: plotOutPath,
+                      useTeX: useTeX)
+
+proc initRecoConfig*(h5f_name: string, flags: set[RecoFlags], configFile: string,
+                     runNumber = none(int), calibFactor = none(float),
+                     clusterAlgo = none(ClusteringAlgorithm),
+                     searchRadius = none(int),
+                     dbscanEpsilon = none(float),
+                     useTeX = none(bool)
+                    ): RecoConfig =
+  result = parseTomlConfig(h5f_name, configFile, runNumber, calibFactor)
+  result.flags = flags
+  template setIf(field: untyped): untyped =
+    result.field = if field.isSome: field.get else: result.field
+  # Overwrite by user arguments if any given
+  setIf(clusterAlgo)
+  setIf(searchRadius)
+  setIf(dbscanEpsilon)
+  setIf(useTeX)
 
 proc flagsValid(h5f: H5File, flags: set[RecoFlags]): bool =
   ## Checks whether the flags are actually valid for the given file
@@ -844,7 +873,7 @@ proc flagsValid(h5f: H5File, flags: set[RecoFlags]): bool =
 
 proc main(input: string,
           outfile = "",
-          runNumber = -1,
+          runNumber = none(int),
           create_fe_spec = false,
           only_fadc = false,
           only_fe_spec = false,
@@ -852,7 +881,11 @@ proc main(input: string,
           only_gas_gain = false,
           only_gain_fit = false,
           only_energy_from_e = false,
-          only_energy = NaN,
+          only_energy = none(float),
+          clusterAlgo = none(ClusteringAlgorithm),
+          searchRadius = none(int),
+          dbscanEpsilon = none(float),
+          useTeX = none(bool),
           config = ""
           ) =
   ## InGrid reconstruction and energy calibration.
@@ -868,17 +901,14 @@ proc main(input: string,
   var
     flags: set[RecoFlags]
     calibFactor: Option[float]
-    runNumberArg: Option[int]
-  if runNumber < 0:
+  if runNumber.isNone:
     flags.incl rfReadAllRuns
-  else:
-    runNumberArg = some(runNumber)
   if outfile.len > 0:
     info &"Set outfile to {outfile}"
   # fill `flags`
-  if classify(only_energy) != fcNaN:
+  if only_energy.isSome:
     flags.incl rfOnlyEnergy
-    calibFactor = some(only_energy)
+    calibFactor = only_energy
   if create_fe_spec:
     flags.incl rfCreateFe
   if onlyCharge:
@@ -895,32 +925,20 @@ proc main(input: string,
     flags.incl rfOnlyEnergyElectrons
 
   # parse config toml file
-  let (cfgTable, cfgFlags) = parseTomlConfig(config)
-
-  let plotOutPath = cfgTable["Calibration"]["plotDirectory"].getStr
-  var h5f = H5open(h5f_name, "rw")
-  let plotDirPrefix = h5f.genPlotDirname(plotOutPath, PlotDirPrefixAttr)
-  let searchRadius = cfgTable["Reconstruction"]["searchRadius"].getInt
-  let dbscanEpsilon = cfgTable["Reconstruction"]["epsilon"].getFloat
-  let clusterAlgo = parseEnum[ClusteringAlgorithm](cfgTable["Reconstruction"]["clusterAlgo"].getStr)
-
-  ## XXX: use `RecoConfig` here!!
-
+  let recoCfg = initRecoConfig(h5f_name, flags, config, runNumber, calibFactor,
+                               clusterAlgo, searchRadius, dbscanEpsilon, useTeX)
   if (flags * {rfOnlyFeSpec .. rfOnlyEnergyElectrons}).card == 0:
     # `reconstruction` call w/o `--only-*` flag
     # visit the whole file to read which groups exist
+    var h5f = H5open(h5f_name, "rw")
     h5f.visitFile
     var h5fout: H5File
-    if outfile != "None":
+    if outfile.len > 0:
       h5fout = H5open(outfile, "rw")
       h5fout.visitFile
       # copy over `PlotDirPrefixAttr` to h5fout
-      h5fout.attrs[PlotDirPrefixAttr] = plotDirPrefix
-      reconstructRunsInFile(h5f, h5fout, flags, cfgFlags,
-                            searchRadius = searchRadius,
-                            dbscanEpsilon = dbscanEpsilon,
-                            clusterAlgo = clusterAlgo,
-                            runNumberArg = runNumberArg)
+      h5fout.attrs[PlotDirPrefixAttr] = recoCfg.plotDirPrefix
+      reconstructRunsInFile(h5f, h5fout, recoCfg)
 
     var err = h5f.close()
     if err != 0:
@@ -931,19 +949,32 @@ proc main(input: string,
   else:
     var h5f = H5open(h5f_name, "rw")
     if flagsValid(h5f, flags):
-      applyCalibrationSteps(h5f, flags, cfgFlags, cfgTable,
-                            runNumberArg = runNumberArg,
-                            calibFactor = calibFactor)
+      applyCalibrationSteps(h5f, recoCfg)
     else:
       logging.warn &"Invalid flags given for file {h5f_name}: {flags}"
 
 when isMainModule:
+  import cligen/argcvt
+  ## Allow `Option` inputs
+  proc argParse[T](dst: var Option[T], dfl: Option[T],
+                   a: var ArgcvtParams): bool =
+    ## If this is being called it means we have _something_, so just
+    ## dispath to type `T`
+    var res: T
+    var dfl: T
+    result = argParse(res, dfl, a)
+    dst = some(res)
+
+  proc argHelp*[T](dfl: Option[T]; a: var ArgcvtParams): seq[string] =
+    result = @[ a.argKeys, $T, "none" ]
+
   import cligen
   dispatch(main, help = {
     "outfile"            : "Filename and path of output file",
     "runNumber"          : "Only work on this run",
     "create_fe_spec"     : """Toggle to create Fe calibration spectrum based on cuts
 Takes precedence over --calib_energy if set!""",
+    # calibration steps
     "only_fadc"          : """If this flag is set, the reconstructed FADC data is used to calculate
 FADC values such as rise and fall times among others, which are written
 to the H5 file.""",
@@ -962,6 +993,12 @@ the Fe charge spectrum vs gas gain calibration""",
 Takes precedence over --create_fe_spec if set.
 If no runNumber is given, performs energy calibration on all runs
 in the HDF5 file.""",
+
+    "clusterAlgo"        : "The clustering algorithm to use. Leave at `caDefault` unless you know what you're doing.",
+    "searchRadius"       : "The radius in pixels to use for the default clustering algorithm.",
+    "dbscanEpsilon"      : "The radius in pixels to use for the DBSCAN clustering algorithm.",
+    "useTeX"             : "Whether to use `TeX` to produce plots instead of Cairo.",
+
     "config"             : "Path to the configuration file to use.",
     "version"            : "Show version."
   })

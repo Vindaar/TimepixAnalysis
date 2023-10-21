@@ -783,7 +783,9 @@ proc buildTextForFeSpec*(feSpec: FeSpecFitData,
 proc fitToFeSpectrum*(h5f: H5File, runNumber, chipNumber: int,
                       fittingOnly = false, useTeX = false,
                       outfiles: seq[string] = @[],
-                      writeToFile = true) =
+                      writeToFile = true,
+                      plotPath = ""
+                     ) =
   ## (currently) calls Python functions from `ingrid` Python module to
   ## perform fit to the `FeSpectrum` dataset in the given run number
   ## NOTE: due to calling Python functions, this proc is *extremely*
@@ -795,7 +797,7 @@ proc fitToFeSpectrum*(h5f: H5File, runNumber, chipNumber: int,
   # get the fe spectrum for the run
   let groupName = recoDataChipBase(runNumber) & $chipNumber
   var feDset = h5f[(groupName / "FeSpectrum").dsetStr]
-  let plotPath = h5f.attrs[PlotDirPrefixAttr, string]
+  let plotPath = if plotPath.len == 0: h5f.attrs[PlotDirPrefixAttr, string] else: plotPath
   let feData = feDset[int64]
   info "Fit pixel spectrum of run: " & $runNumber & " and chip: " & $chipNumber
   let feSpec = fitFeSpectrum(feData)

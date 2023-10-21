@@ -480,7 +480,8 @@ proc reconstructSingleChip*(data: RecoInputData[Pix],
 
 proc createAndFitFeSpec(h5f: H5File,
                         runNumber: int,
-                        fittingOnly, useTeX: bool) =
+                        fittingOnly, useTeX: bool,
+                        plotPath: string) =
   ## create the Fe spectrum for the run, apply the charge calibration if possible
   ## and then fit to the Fe spectrum
   var centerChip = h5f.getCenterChip(runNumber)
@@ -490,7 +491,7 @@ proc createAndFitFeSpec(h5f: H5File,
   except KeyError as e:
     warn "No charge calibration possible for current one or " &
          "more chips. Exception message:\n" & e.msg
-  h5f.fitToFeSpectrum(runNumber, centerChip, fittingOnly, useTeX)
+  h5f.fitToFeSpectrum(runNumber, centerChip, fittingOnly, useTeX, plotPath = plotPath)
 
 proc initRecoFadcInH5(h5f, h5fout: H5File, runNumber, batchSize: int) =
   # proc to initialize the datasets etc in the HDF5 file for the FADC. Useful
@@ -756,7 +757,7 @@ proc reconstructRunsInFile(h5f: H5File,
       # now check whether create iron spectrum flag is set
       # or this is a calibration run, then always create it
       if rfCreateFe in recoCfg.flags or runType == rtCalibration:
-        createAndFitFeSpec(h5fout, runNumber, not showPlots, recoCfg.useTeX)
+        createAndFitFeSpec(h5fout, runNumber, not showPlots, recoCfg.useTeX, recoCfg.plotOutPath)
 
       # add flag that this run is finished
       let h5grp = h5fout[(recoBase() & $runNumber).grp_str]
@@ -791,7 +792,7 @@ proc applyCalibrationSteps(h5f: H5File, recoCfg: RecoConfig) =
         if rfOnlyFadc in recoCfg.flags:
           h5f.calcRiseAndFallTimes(runNumber)
         if rfOnlyFeSpec in recoCfg.flags:
-          createAndFitFeSpec(h5f, runNumber, not showPlots, recoCfg.useTeX)
+          createAndFitFeSpec(h5f, runNumber, not showPlots, recoCfg.useTeX, recoCfg.plotOutPath)
       else:
         warn "No reconstructed run found for $#" % $grp
 
@@ -812,11 +813,15 @@ proc parseTomlConfig(h5f_name, configFile: string, runNumber: Option[int],
     cfgFlags.incl cfShowPlots
 
   # plots
-  let plotOutPath = config["Calibration"]["plotDirectory"].getStr
+  var plotOutPath = getEnv("PLOT_OUTPATH", "")
+  if plotOutPath.len == 0:
+    plotOutPath = config["Calibration"]["plotDirectory"].getStr
+  createDir(plotOutPath)
   var plotDirPrefix: string
   withH5(h5f_name, "rw"):
     plotDirPrefix = h5f.genPlotDirname(plotOutPath, PlotDirPrefixAttr)
-  let useTeX = config["General"]["useTeX"].getBool
+  let useTeX = if config["General"]["useTeX"].getBool: true
+               else: getEnv("USE_TEX", "false").parseBool # allow overwriet via env var
   # clustering
   let searchRadius = config["Reconstruction"]["searchRadius"].getInt
   let dbscanEpsilon = config["Reconstruction"]["epsilon"].getFloat

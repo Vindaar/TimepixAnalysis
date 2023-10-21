@@ -9,6 +9,9 @@ import seqmath, sequtils, stats, strformat, fenv, times, algorithm
 import nlopt, mpfit
 import ggplotnim
 
+import std / envvars
+from std / strutils import parseFloat
+
 import .. / ingrid_types
 import fit_functions
 import .. / cdlFitting / cdlFitMacro
@@ -465,7 +468,10 @@ proc fitFeSpectrumChargeImpl(hist, binning: seq[float]): FeSpecFitData =
   let params = getFeSpectrumChargeParams(hist, binning)
   let bounds = getFeSpectrumChargeBounds(hist, binning)
   # created the histogram for a binning with width == 1 pixel per hit
-  let idx_tofit = toSeq(0 .. binning.high).filterIt(binning[it] >= 25 and binning[it] < 4000)
+  # filter to mean of photo peak * 1.75 to limit upper range
+  const idxKα = 4
+  let Scale = getEnv("PLOT_RANGE", "1.75").parseFloat
+  let idx_tofit = toSeq(0 .. binning.high).filterIt(binning[it] >= 25 and binning[it] < 4000 and binning[it] <= params[idxKα] * Scale)
   let data_tofit = idx_tofit.mapIt(hist[it])
   let bins_tofit = idx_tofit.mapIt(binning[it])
   let err = data_tofit.mapIt(if it > 0.0: sqrt(it) else: 1.0)
@@ -502,7 +508,10 @@ proc fitFeSpectrumFadcImpl(hist, binning: seq[float]): FeSpecFitData =
   let params = getFeSpectrumChargeParams(hist, binning)
   let bounds = getFeSpectrumChargeBounds(hist, binning)
   # created the histogram for a binning with width == 1 pixel per hit
-  let idx_tofit = toSeq(0 .. binning.high) # .filterIt(binning[it] < 0.6)
+  # filter to mean of photo peak * 1.75 to limit upper range
+  const idxKα = 4
+  let Scale = getEnv("PLOT_RANGE", "1.75").parseFloat
+  let idx_tofit = toSeq(0 .. binning.high).filterIt(binning[it] <= params[idxKα] * Scale)
   let data_tofit = idx_tofit.mapIt(hist[it])
   let bins_tofit = idx_tofit.mapIt(binning[it])
   let err = data_tofit.mapIt(if it > 0.0: sqrt(it) else: 1.0)
@@ -520,7 +529,7 @@ proc fitFeSpectrumFadcImpl(hist, binning: seq[float]): FeSpecFitData =
   let yFit = bins_to_fit.mapIt(feSpectrumChargeFunc(pRes, it))
   result = initFeSpecData(data_to_fit,
                           bins_to_fit,
-                          idx_kalpha = 4,
+                          idx_kalpha = idxKα,
                           idx_sigma = 5,
                           pRes = pRes,
                           pErr = res.error,

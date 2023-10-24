@@ -1062,7 +1062,7 @@ proc read_sc_log_folder(log_folder: string,
 
   print_slow_control_logs(scLogs, magnetField)
   # plot the temperature data
-  # plotTemperatures(scLogs)
+  plotTemperatures(scLogs)
   # plot angles
   plotAngles(scLogs)
 

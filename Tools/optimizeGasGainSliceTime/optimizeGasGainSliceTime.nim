@@ -165,7 +165,12 @@ proc fromFile(f: string): DataFrame =
 
 import fitl / gof
 import arraymancer / stats / kde
-proc plot(path: string) =
+
+let UseTeX = getEnv("USE_TEX", "false").parseBool
+let Width = getEnv("WIDTH", "1000").parseFloat
+let Height = getEnv("HEIGHT", "600").parseFloat
+let LineWidth = getEnv("LINE_WIDTH", "2.0").parseFloat
+proc plot(path, outpath: string) =
   var df = newDataFrame()
   for f in walkFiles(path / "*.csv"):
     df.add fromFile(f)
@@ -194,21 +199,23 @@ proc plot(path: string) =
                      hdKind = hdOutline,
                      position = "identity",
                      density = true,
-                     color = "black", lineWidth = 2.0) +
+                     color = "black", lineWidth = LineWidth) +
       #yMargin(0.2) +
       ggtitle(&"Different interval lengths for the gas gain computation in minutes, data starting {tup[0][1].toStr}") +
-      ggsave(&"/tmp/medianEnergy_ridges_{period}.pdf", width = 1200, height = 800)
+      ggsave(&"{outpath}/medianEnergy_ridges_{period}.pdf", width = Width, height = Height,
+             useTeX = UseTeX, standalone = UseTeX)
 
     ggplot(subDf, aes(xlab, color = factor("Interval"))) +
       geom_histogram(bins = 40,
-                     lineWidth = some(2.25),
+                     lineWidth = LineWidth,
                      alpha = some(0.0),
                      hdKind = hdOutline,
                      density = true,
                      position = "identity") +
       #xlim(2, 5) +
       ggtitle("Different interval lengths for the gas gain computation in minutes") +
-      ggsave(&"/tmp/medianEnergy_intervals_{period}.pdf", width = 1200, height = 800)
+      ggsave(&"{outpath}/medianEnergy_intervals_{period}.pdf", width = Width, height = Height,
+             useTeX = UseTeX, standalone = UseTeX)
 
   # and the individual plots
   for (tup, subDf) in groups(df.group_by("Interval")):
@@ -217,7 +224,8 @@ proc plot(path: string) =
       facet_wrap("RunPeriod", scales = "free") +
       geom_point(alpha = some(0.7)) +
       ggtitle(&"Median energy vs time {suff}") +
-      ggsave(&"/tmp/medianEnergy_vs_time_{suff}.pdf", width = 1200, height = 800)
+      ggsave(&"{outpath}/medianEnergy_vs_time_{suff}.pdf", width = Width, height = Height,
+             useTeX = UseTeX, standalone = UseTeX)
 
   # next plot the data as histograms in a facet
   let dfF = df.group_by("Interval")
@@ -226,14 +234,15 @@ proc plot(path: string) =
   ggplot(dfF, aes(xlab, color = factor("Interval"))) +
     facet_wrap("RunPeriod", scales = "free") +
     geom_histogram(bins = 30,
-                   lineWidth = some(2.0),
-                   alpha = some(0.0),
+                   lineWidth = LineWidth,
+                   alpha = 0.0,
                    hdKind = hdOutline,
                    density = true,
                    position = "identity") +
     xlim(2, 5) +
     ggtitle("Different interval lengths for the gas gain computation in minutes") +
-    ggsave("/tmp/medianEnergy_intervals.pdf", width = 1200, height = 800)
+    ggsave(&"{outpath}/medianEnergy_intervals.pdf", width = Width, height = Height,
+           useTeX = UseTeX, standalone = UseTeX)
 
   # and finally using a KDE approach
   ## XXX: replace by new `geom_density` in ggplotnim!
@@ -249,15 +258,17 @@ proc plot(path: string) =
     facet_wrap("RunPeriod", scales = "free") +
     geom_line() +
     ggtitle("Different interval lengths for the gas gain computation in minutes") +
-    ggsave("/tmp/medianEnergy_kde_intervals.pdf", width = 1200, height = 800)
+    ggsave(&"{outpath}/medianEnergy_kde_intervals.pdf", width = Width, height = Height,
+           useTeX = UseTeX, standalone = UseTeX)
 
   for (tup, subDf) in groups(dfK.group_by("RunPeriod")):
     let period = tup[0][1].toStr.replace("/", "_")
     ggplot(subDf, aes(xlab, "Density", fill = factor("Interval"))) +
       ggridges("Interval", overlap = 2.0) + # , labelOrder = labOrd) +
-      geom_line(color = "black", size = 2.0) +
+      geom_line(color = "black", size = LineWidth) +
       ggtitle(&"Different interval lengths for the gas gain computation in minutes, data starting {tup[0][1].toStr}") +
-      ggsave(&"/tmp/medianEnergy_kde_ridges_{period}.pdf", width = 1200, height = 800)
+      ggsave(&"{outpath}/medianEnergy_kde_ridges_{period}.pdf", width = Width, height = Height,
+             useTeX = UseTeX, standalone = UseTeX)
 
   # As a bonus compute GoF tests for the data in each case and create a comparison plot.
   block Tests:
@@ -281,9 +292,11 @@ proc plot(path: string) =
       geom_point() +
       scale_y_log10() +
       ggtitle("Goodness of fit tests for median energy data by period & interval length") +
-      ggsave("/t/gofs_for_different_binnings.pdf", width = 800, height = 600)
+      ggsave(&"{outpath}/gofs_for_different_binnings.pdf", width = 600, height = 360,
+             useTeX = UseTeX, standalone = UseTeX)
 
-proc main(path: string, genCsv: bool = false, plot: bool = false) =
+proc main(path: string, genCsv: bool = false, plot: bool = false,
+          outpath = "/tmp/") =
   ## The given `path` is either a path to a place that contains both `DataRuns` H5 files
   ## (potentially in 2017, 2018_2 subdirectories) or a path to a directory containing CSV
   ## files that are generated from the `genCsv` call. Note that in the latter case the
@@ -291,7 +304,7 @@ proc main(path: string, genCsv: bool = false, plot: bool = false) =
   if genCsv:
     generateCsv(path)
   if plot:
-    plot(path)
+    plot(path, outpath)
 
 import cligen
 when isMainModule:

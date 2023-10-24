@@ -12,6 +12,18 @@ type
   SupportedRead = SomeFloat | SomeInteger | string | bool | Value
   ReadProc = proc(h5f: H5File, applyRegionCut: bool, chip: int): DataFrame
 
+let RotAngle = getEnv("ROT_ANGLE", "-20.0").parseFloat
+let Width = getEnv("WIDTH", "1200").parseFloat
+let Height = getEnv("HEIGHT", "800").parseFloat
+let FacetMargin = getEnv("FACET_MARGIN", "0.5").parseFloat
+let Top = getEnv("TOP", "1.5").parseFloat
+let Left = getEnv("LEFT", "2.0").parseFloat
+let Bottom = getEnv("BOTTOM", "1.0").parseFloat
+let Right = getEnv("RIGHT", "2.0").parseFloat
+let LegendLeft = getEnv("LEGEND_LEFT", "0.5").parseFloat
+let LegendBottom = getEnv("LEGEND_BOTTOM", "0.175").parseFloat
+let UseTex = getEnv("USE_TEX", "false").parseBool
+
 const CommonDsets = { "energyFromCharge" : "energy",
                       "fractionInTransverseRms" : "fracRmsTrans",
                       "lengthDivRmsTrans" : "L_div_RMS_trans",
@@ -37,6 +49,13 @@ proc toPeriod(v: float): string =
 
 proc fromPeriod(s: string): float =
   result = s.parseTime("dd/MM/YYYY", utc()).toUnixFloat
+
+proc uniquePeriods(df: DataFrame): seq[string] =
+  ## Returns all run periods sorted in increasing order as strings
+  result = df["runPeriods"]
+    .unique.toTensor(string).toSeq1D
+    .mapIt(fromPeriod(it)).sorted(SortOrder.Ascending)
+    .mapIt(toPeriod(it))
 
 proc closestIdx(t: float, ts: seq[float]): int =
   ## returns the index of the time from `ts` which is closest to `t`
@@ -364,6 +383,20 @@ proc calculateMeanDf(df: DataFrame, interval: float,
   df2.writeCsv(&"/tmp/nov2017_mean_{num2}.csv")
   inc num2
 
+proc commonPlotFields(plt: GgPlot, periods: seq[Value]): GgPlot =
+  ## Adds all those geoms / scales etc. that are common between multiple plots in this script.
+  result = plt +
+    facet_wrap("runPeriods", scales = "free", order = periods) +
+    geom_point(alpha = some(0.75)) +
+    scale_x_continuous(labels = toPeriod) +
+    facetMargin(FacetMargin, ukCentimeter) +
+    margin(top = Top, bottom = Bottom, right = Right, left = Left) +
+    legendPosition(LegendLeft, LegendBottom) +
+    xlab("Date", rotate = RotAngle, alignTo = "right", margin = 0.0)
+  if UseTex:
+    result = result + theme_scale(1.2) +
+      facetHeaderText(font = font(14.0)) # readd otherwise overwritten
+
 proc plotOverTime(df: DataFrame, interval: float, titleSuff: string,
                   useLog = true,
                   applyRegionCut = false,
@@ -384,15 +417,12 @@ proc plotOverTime(df: DataFrame, interval: float, titleSuff: string,
   let normSuffix = if useMedian and normalizeMedian: " each run type normalized to 1"
                    else: ""
   let title = if title.len > 0: title
-              else: &"{meanPrefix} of total charge within {interval:.1f} min{normSuffix}, {titleSuff}"
+              else: &"{meanPrefix} total charge within {interval:.1f} min, {normSuffix}, {titleSuff}"
 
-  var pltSum = ggplot(df, aes("timestamp", "sumCharge", color = factor(colorBy))) +
-    facet_wrap("runPeriods", scales = "free") +
-    geom_point(alpha = some(0.75)) +
-    scale_x_continuous(labels = toPeriod) +
-    margin(bottom = 1.5, right = 3) +
-    legendPosition(0.92, 0.0) +
-    xlab(rotate = -45, alignTo = "right", margin = 0.0) +
+  let periods = uniquePeriods(df).mapIt(%~ ("runPeriods", it))
+
+  var pltSum = ggplot(df, aes("timestamp", "sumCharge", color = factor(colorBy)))
+    .commonPlotFields(periods) +
     ggtitle(&"Sum of total charge within {interval:.1f} min, {titleSuff}")
   let yScale = if useMedian and normalizeMedian:
                  f{float: `meanCharge` / max(col("meanCharge"))}
@@ -408,23 +438,21 @@ proc plotOverTime(df: DataFrame, interval: float, titleSuff: string,
 
   var pltMean = ggplot(df, aes("timestamp",
                                yScale,
-                               color = factor(colorBy))) +
-    facet_wrap("runPeriods", scales = "free") +
-    scale_x_continuous(labels = toPeriod) +
-    facetMargin(1.0, ukCentimeter) +
-    margin(bottom = 1.5, right = 3) +
-    legendPosition(0.92, 0.0) +
-    xlab(rotate = -45, alignTo = "right", margin = 0.0) +
+                               color = factor(colorBy)))
+    .commonPlotFields(periods) +
     ylab(ylabel) +
-    geom_point(alpha = some(0.75)) +
     ggtitle(title)
   if useLog:
     pltSum = pltSum + scale_y_log10()
     pltMean = pltMean + scale_y_log10()
   pltSum + ggsave(&"{outpath}/background_sum_charge_binned_{interval:.1f}_min_{nameSuff}.pdf",
-                   width = 1920, height = 1080)
+                  width = Width, height = Height,
+                  useTeX = UseTex, standalone = UseTex)
   pltMean + ggsave(&"{outpath}/background_{meanPrefix.toLowerAscii()}_charge_binned_{interval:.1f}_min_{nameSuff}.pdf",
-                    width = 1920, height = 1080)
+                   width = Width, height = Height,
+                   useTeX = UseTex, standalone = UseTex)
+
+
 
 proc plotHistos(df: DataFrame, interval: float, titleSuff: string,
                 useLog = true,
@@ -435,6 +463,9 @@ proc plotHistos(df: DataFrame, interval: float, titleSuff: string,
   var nameSuff = if titleSuff == "all data": "all" else: "filtered"
   if applyRegionCut:
     nameSuff.add "_crSilver"
+
+  # Get unique periods and turn into form needed for ggplotnim
+  let periods = uniquePeriods(df).mapIt(%~ ("runPeriods", it))
 
   for key in readKeys:
     if key == "timestamp": continue
@@ -448,15 +479,9 @@ proc plotHistos(df: DataFrame, interval: float, titleSuff: string,
       #  .filter(f{string -> bool: `runPeriods` == "30/10/2017"})
       #  .mutate(f{float -> float: "energy" ~ `energy` * 1e6})
       #let df = df.mutate(f{float -> float: "energy" ~ `energy` * 1e6})
-      var pltTmp = ggplot(df, aes("timestamp", name, color = "runType")) +
-        facet_wrap("runPeriods", scales = "free") +
-        facetMargin(1.0, ukCentimeter) +
-        scale_x_continuous(labels = toPeriod) +
-        geom_point(alpha = some(0.5)) +
-        ylim(2, 6.5) +
-        margin(bottom = 1.5, right = 3) +
-        legendPosition(0.92, 0.0) +
-        xlab("timestamp", rotate = -45, alignTo = "right", margin = 0.0) +
+      var pltTmp = ggplot(df, aes("timestamp", name, color = "runType"))
+        .commonPlotFields(periods) +
+        ylim(2.0, 6.5) +
         ggtitle(&"{adn} of cluster {key} within {interval:.1f} min, {titleSuff}")
       var pltTmpHisto = ggplot(df, aes(name, fill = "runType")) +
         facet_wrap("runPeriods", scales = "free") +
@@ -466,10 +491,12 @@ proc plotHistos(df: DataFrame, interval: float, titleSuff: string,
         pltTmp = pltTmp + scale_y_log10()
         pltTmpHisto = pltTmpHisto + scale_y_log10()
       pltTmp + ggsave(&"{outpath}/background_{adn.normalize}_{key}_{interval:.1f}_min_{nameSuff}.pdf",
-                       width = 1920, height = 1080)
+                      width = Width, height = Height,
+                      useTeX = UseTex, standalone = UseTex)
                        #width = 800, height = 480)
       pltTmpHisto + ggsave(&"{outpath}/background_histogram_{adn.normalize}_{key}_{interval:.1f}_min_{nameSuff}.pdf",
-                            width = 1920, height = 1080)
+                           width = Width, height = Height,
+                           useTeX = UseTex, standalone = UseTex)
       echo "created ", adn.normalize, " ", name
                             #width = 800, height = 480)
 
@@ -503,16 +530,14 @@ proc plotPhotoDivEscape(df, dfTime: DataFrame, periods: OrderedTable[int, string
   df = df.select(["timestamp", "val", "runPeriods", "runType"])
   dfTime = dfTime.select(["timestamp", "val", "runPeriods", "runType"])
   let dfPlot = bind_rows([("", df), ("", dfTime)])
-  ggplot(dfPlot, aes("timestamp", "val", color = "runType")) +
-    facet_wrap("runPeriods", scales = "freeX") +
-    geom_point(alpha = some(0.8)) +
-    scale_x_continuous(labels = toPeriod) +
-    xlab(rotate = -45, alignTo = "right") +
-    margin(top = 1.5) +
+  let periods = uniquePeriods(df).mapIt(%~ ("runPeriods", it))
+  ggplot(dfPlot, aes("timestamp", "val", color = "runType"))
+    .commonPlotFields(periods) +
     ggtitle("Normalized cmp of photo/escape peak in charge & median energy " &
             &"{interval/60.0:.1f} min, max photo/esc {maxPhotoEsc:.2f}, max " &
             &"median energy {maxEnergy:.2f} {titleSuff}") +
-    ggsave(&"{outpath}/photo_div_escape_vs_time.pdf", width = 1920, height = 1080)
+    ggsave(&"{outpath}/photo_div_escape_vs_time.pdf", width = Width, height = Height,
+           useTeX = UseTex, standalone = UseTex)
 
 proc plotFeSpectra(df: DataFrame,
                    outpath = "out") =
@@ -554,9 +579,6 @@ proc getPeriods(df: DataFrame): OrderedTable[int, string] =
   for (k, v) in zip(meanT, p):
     result[k] = v
   echo result
-
-proc uniquePeriods(df: DataFrame): seq[string] =
-  result = df["runPeriods"].unique.toTensor(string).toRawSeq
 
 proc main(files: seq[string],
           interval, cutoffHits: float,
@@ -618,13 +640,13 @@ proc main(files: seq[string],
                   all(dfBack, dfCalib)
     echo dfAll.len
     #echo dfFilter
-    let regionCut = if applyRegionCut: " cut to crSilver, 0.1 < rmsTrans < 1.5 "
-                    else: ""
+    let regionCut = if applyRegionCut: " cut to crSilver, 0.1 < rmsTrans < 1.5"
+                    else: "cut to "
 
     let colorBy = if readAllChips: "chip" else: "runType"
     echo dfAll
     plotOverTime(dfAll, interval,
-                 titleSuff = &"{regionCut}charge > {cutoffCharge}, hits < {cutoffHits:.0f} filtered out",
+                 titleSuff = &"{regionCut}, charge > {cutoffCharge}, hits < {cutoffHits.int}",
                  applyRegionCut = applyRegionCut,
                  useLog = useLog,
                  useMedian = useMedian,

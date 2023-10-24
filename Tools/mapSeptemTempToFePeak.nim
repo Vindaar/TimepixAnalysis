@@ -1,5 +1,6 @@
 import os except FileInfo
-import ggplotnim, seqmath, sequtils, tables, options, times
+import std / [sequtils, tables, options, times, strutils, strformat]
+import ggplotnim, seqmath
 import nimhdf5, cligen
 
 import ingrid / [tos_helpers, ingrid_types]
@@ -79,18 +80,33 @@ proc findTemp(d: int, dates: seq[int], temps: Tensor[float]): float =
               t1 * abs(totDiff - idxMoreDiff).float) /
       totDiff.float
 
-proc main(calibFiles: seq[string], inputs: set[FeFileKind]) =
+proc toPeriod(v: float): string =
+  result = v.int.fromUnix.format("dd/MM/YYYY")
+
+
+let Width = getEnv("WIDTH", "600").parseFloat
+let Height = getEnv("HEIGHT", "360").parseFloat
+let UseTex = getEnv("USE_TEX", "false").parseBool
+
+proc main(calibFiles: seq[string], inputs: set[FeFileKind],
+          outpath = "/tmp/") =
   var dfPeaks = newDataFrame()
   for input in inputs:
     var df = readFePeaks(calibFiles, input)
     ggplot(df, aes("Timestamp", Peak)) +
       geom_point() +
-      ggsave("/tmp/time_vs_peak_pos_$#.pdf" % $input)
+      ggsave(&"{outpath}/time_vs_peak_pos_{input}.pdf",
+             width = Width, height = Height, useTeX = UseTeX, standalone = UseTeX)
     dfPeaks.add df
   if inputs.card > 1:
+    let ylabel = if not UseTex: PeakNorm else: r"$μ / μ_{\text{max}}$"
     ggplot(dfPeaks, aes("Timestamp", PeakNorm, color = "Type")) +
       geom_point() +
-      ggsave("/tmp/time_vs_peak_pos.pdf")
+      scale_x_continuous(labels = toPeriod) +
+      ylab(ylabel) +
+      ggtitle("Normalized ⁵⁵Fe photopeak position in charge, pixels and FADC signal") +
+      ggsave(&"{outpath}/time_vs_peak_pos.pdf",
+             width = Width, height = Height, useTeX = UseTeX, standalone = UseTeX)
 
   let runs = dfTemp["Run number"].toTensor(int)
   let temps = dfTemp["Temp / °"].toTensor(float)
@@ -108,7 +124,8 @@ proc main(calibFiles: seq[string], inputs: set[FeFileKind]) =
   var df = toDf({ TempPeak : peakNorm, "Timestamp" : feDates })
   ggplot(df, aes(Timestamp, TempPeak)) +
     geom_point() +
-    ggsave("/tmp/time_vs_peak_norm_by_temp.pdf")
+    ggsave(&"{outpath}/time_vs_peak_norm_by_temp.pdf",
+           width = Width, height = Height, useTeX = UseTeX, standalone = UseTeX)
 
   # finally combine the twe into one plot
   dfPeaks = dfPeaks.mutate(f{Peak ~ df[Peak][idx] / max(df[Peak])})
@@ -119,7 +136,8 @@ proc main(calibFiles: seq[string], inputs: set[FeFileKind]) =
     ylab("Normalized ⁵⁵Fe peak position") +
     ggtitle("Variation of peak position of ⁵⁵Fe peak over time, normalized by temperature") +
     # ggsave("/tmp/time_vs_peak_temp_normed_comparison.pdf")
-    ggsave("/tmp/time_vs_peak_temp_normed_comparison.pdf", width = 800, height = 480)
+    ggsave(&"{outpath}/time_vs_peak_temp_normed_comparison.pdf",
+           width = Width, height = Height, useTeX = UseTeX, standalone = UseTeX)
 
 
 when isMainModule:

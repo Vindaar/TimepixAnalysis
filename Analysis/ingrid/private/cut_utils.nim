@@ -4,6 +4,8 @@ from algorithm import lowerBound
 
 import ../ingrid_types
 from ./geometry import inRegion
+import ./hdf5_utils
+
 
 ## XXX: replace at some point by handling this manually!
 converter toGenericCut*(x: tuple[dset: string, lower, upper: float]): GenericCut =
@@ -17,48 +19,66 @@ converter toGenericCut*(x: varargs[tuple[dset: string, lower, upper: float]]): s
 proc cutOnProperties*(h5f: H5File,
                       group: H5Group,
                       region: ChipRegion,
-                      cuts: varargs[GenericCut]): seq[int] =
+                      cuts: seq[GenericCut],
+                      fadcIndices = false): seq[int] =
   ## applies the cuts from `cuts` and returns a sequence of indices, which pass
   ## the cut.
   ## Any datasets given will be converted to float after reading.
   ## For usage with FADC data, be careful to extract the event numbers using the
   ## indices first, before applying the indices on InGrid data.
   # first get data
-  #var dsets = newSeqOfCap[seq[float]](cuts.len)
-  # for the chip data we always need the event number information!
-  var dfChip = toDf({"eventNumber" : h5f.readAs(group.name / "eventNumber", int)})
+  let runGroup = runGroupName(group.name)
+  let runNumber = getRunNumber(h5f[runGroup.grp_str])
+  let centerChip = h5f.getCenterChip(runNumber)
+
+  var dfChip = newDataFrame()
   var dfFadc = newDataFrame()
   var dfCommon = newDataFrame()
+  if not fadcIndices: # Need event numbers for chip data for sure
+    let chipGroup = recoPath(runNumber, centerChip)
+    dfChip = toDf({"eventNumber" : h5f.readAs(chipGroup.string / "eventNumber", int)})
+  else: # need FADC event numbers for sure
+    let fadcGrp = runGroup / "fadc"
+    dfFadc = toDf({"eventNumber" : h5f.readAs(fadcGrp / "eventNumber", int)})
+
   for c in cuts:
     if c.isFadc:
-      let fadcGrp = group.name.parentDir / "fadc"
+      let fadcGrp = runGroup / "fadc"
       if fadcGrp in h5f:
         if dfFadc.len == 0:
           dfFadc = toDf({"eventNumber" : h5f.readAs(fadcGrp / "eventNumber", int)})
-        dfFadc[c.dset] = h5f.readAs(group.name.parentDir / c.dset, float)
+        dfFadc[c.dset] = h5f.readAs(runGroup / c.dset, float)
       else:
         # if we _have_ an FADC group, but no FADC data, return empty seq as we filter _everything_
         return @[]
     elif ".." in c.dset:
       if dfCommon.len == 0:
-        dfCommon = toDf({"eventNumber" : h5f.readAs(group.name.parentDir / "eventNumber", int)})
-      dfCommon[c.dset] = h5f.readAs(group.name / c.dset, float)
+        dfCommon = toDf({"eventNumber" : h5f.readAs(runGroup / "eventNumber", int)})
+      dfCommon[c.dset] = h5f.readAs(runGroup / c.dset, float)
     else:
-      dfChip[c.dset] = h5f.readAs(group.name / c.dset, float)
+      let chipGroup = recoPath(runNumber, centerChip)
+      if dfChip.len == 0:
+        dfChip = toDf({"eventNumber" : h5f.readAs(chipGroup.string / "eventNumber", int)})
+      dfChip[c.dset] = h5f.readAs(chipGroup.string / c.dset, float)
 
-  ## XXX: this restritcs usage to only chips, but not only FADC!!!
-  dfChip["Index"] = toSeq(0 ..< dfChip.len)
+  # Assign `index` data to use
+  if not fadcIndices: # return indices for *chip* clusters
+    dfChip["Index"] = toSeq(0 ..< dfChip.len) # use the chip data
+  else: # return indices for *FADC* events
+    dfFadc["Index"] = toSeq(0 ..< dfFadc.len) # use the chip data
+  #  else: # only common!
+  #    dfCommon["Index"] = toSeq(0 ..< dfCommon.len) # use the chip data
 
   proc toDsets(df: DataFrame, cuts: seq[GenericCut]): seq[seq[float]] =
     for c in cuts:
       result.add df[c.dset, float].toSeq1d
 
-  ## XXX: current problem: the inner join removes data, but we want to return the
-  ## INDICES. Therefore need indices in input.
-  ## FIXED WITH INDEX, but currently hardcoded for dfChip
+  # combine all dataframes with any content by `eventNumber`
   var dfs = @[dfChip, dfFadc, dfCommon].filterIt(it.len > 0)
   let dfComb = innerJoin(dfs, by = "eventNumber")
+  # get all data for the input cuts
   let dsets = dfComb.toDsets(@cuts)
+  # get the indices
   let index = dfComb["Index", int]
   # if chip region not all, get `posX` and `posY`
   var
@@ -108,6 +128,12 @@ proc cutOnProperties*(h5f: H5File,
     if not skipThis:
       # else add this index
       result.add idx
+
+proc cutOnProperties*(h5f: H5File,
+                      group: H5Group,
+                      region: ChipRegion,
+                      cuts: varargs[GenericCut]): seq[int] =
+  result = h5f.cutOnProperties(group, region, @cuts)
 
 proc cutOnProperties*(h5f: H5File,
                       group: H5Group,

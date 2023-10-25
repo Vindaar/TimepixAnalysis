@@ -3,8 +3,8 @@ from std/sugar import dup
 import plotly
 import ggplotnim
 import os except FileInfo
-import strutils, strformat, times, sequtils, math, macros, algorithm, sets, stats, base64
-import options, logging, typeinfo, json
+import std / [strutils, strformat, times, sequtils, math, macros, algorithm, sets, stats, base64,
+              options, logging, typeinfo, json, intsets]
 import ws, asynchttpserver, asyncnet, asyncdispatch
 
 import shell
@@ -441,6 +441,16 @@ proc initPlotV(title: string, xlabel: string, ylabel: string, shape = ShapeKind.
 import sets
 
 proc toIdx(x: float): int = (x / 14.0 * 256.0).round.int.clamp(0, 255)
+
+proc eventIndices(h5f: H5File, group: string, evs: seq[int]): seq[int] =
+  ## Returns the indices corresponding to the event numbers given
+  let allEvs = h5f.readAs(group / "eventNumber", int)
+  result = newSeqOfCap[int](evs.len)
+  let evSet = evs.toIntSet()
+  for i, ev in allEvs:
+    if ev in evSet:
+      result.add i
+
 proc applyMaskRegion(h5f: H5File, selector: DataSelector, dset: string,
                      group: H5Group, idx: seq[int]): seq[int] =
   ## applies the masking region in `maskRegion` of `selector`
@@ -485,24 +495,25 @@ proc hasCuts(selector: DataSelector, file: string, dset: H5Dataset): bool =
       result = true
       break
 
-proc applyCuts(h5f: H5File, selector: DataSelector, dset: H5Dataset, idx: seq[int]): seq[int] =
+proc applyCuts(h5f: H5File, selector: DataSelector, dset: H5Dataset, idx: seq[int],
+               isFadc = false): seq[int] =
   ## Apply potential cut to this dataset
   result = idx
 
   let parentGrp = h5f[dset.parent.grp_str]
   var performedCut = false
-  if idx.len == 0 and not selector.isFadc: # only apply if no indices already specified
+  if idx.len == 0: # only apply if no indices already specified
     let cuts = selector.getCuts(h5f.name.extractFilename, dset.name)
     # now apply the correct cuts
     # get the cut indices to only read passing data
     if cuts.len > 0:
-      result = cutOnProperties(h5f, parentGrp, selector.region, cuts)
+      result = cutOnProperties(h5f, parentGrp, selector.region, cuts, fadcIndices = selector.fadcIndices) #useEventNumbers = true)
       performedCut = true
     elif cuts.len == 0 and selector.region != crAll:
-      result = cutOnProperties(h5f, parentGrp, selector.region)
+      result = cutOnProperties(h5f, parentGrp, selector.region, @[], fadcIndices = selector.fadcIndices) # useEventNumbers = true)
       performedCut = true
 
-  if selector.idxs.len > 0:
+  if selector.idxs.len > 0: ## XXX: fix for indices now being event numbers!
     if result.len == 0 and not performedCut:
       let maxIdx = min(selector.idxs.len, dset.shape[0])
       result = selector.idxs.filterIt(it < maxIdx)
@@ -517,6 +528,16 @@ proc applyCuts(h5f: H5File, selector: DataSelector, dset: H5Dataset, idx: seq[in
   elif not performedCut and result.len == 0:
     result = applyMaskRegion(h5f, selector, dset.name, parentGrp, @[])
   # else leave `idx` as it is
+
+proc readIndices[T](h5f: H5File, dset: H5Dataset, evs: seq[int], dtype: typedesc[T]): seq[T] =
+  ## Read only those indices corresponding to the given events `evs`
+  let idxs = h5f.eventIndices(dset.name.parentDir, evs)
+  result = dset.readAs(idxs, dtype)
+
+proc readIndices[T](h5f: H5File, dset: H5Dataset, vlenDtype: DatatypeID, evs: seq[int], dtype: typedesc[T]): seq[seq[T]] =
+  ## Read only those indices corresponding to the given events `evs`
+  let idxs = h5f.eventIndices(dset.name.parentDir, evs)
+  result = dset[vlenDtype, dtype, idxs]
 
 proc readFull*(h5f: H5File,
                fileInfo: FileInfo,
@@ -537,17 +558,12 @@ proc readFull*(h5f: H5File,
       dset = h5f[dsetName.dset_str]
     else:
       return # early, no such dataset. can happen e.g. if no FADC data in run
-    # reset selector, we don't want cuts for FADC data
-    selector = DataSelector(region: crAll, isFadc: true)
   else:
     let dsetName = fileInfo.dataPath(runNumber, chipNumber).string / dsetName
     if dsetName in h5f:
       dset = h5f[dsetName.dset_str]
     else:
       return # early, there is no such dataset! Can happen e.g. in likelihood output
-
-  ## XXX: Better handle FADC by working fully on DFs. So use our reading proc that reads
-  ## chip & fadc data together and apply cuts on those
 
   ## possibly set indices to a subset based on cuts
   let idx = h5f.applyCuts(selector, dset, idx)
@@ -556,7 +572,7 @@ proc readFull*(h5f: H5File,
       result[1] = dset.readAs(dtype)
     elif idx.len > 0:
       # manual conversion required
-      result[1] = dset.readAs(idx, dtype)
+      result[1] = dset.readAs(idx, dtype)  #h5f.readIndices(dset, idx, dtype)
     # else nothing to read, will remain empty
   else:
     type subtype = getInnerType(dtype)
@@ -570,7 +586,7 @@ proc readFull*(h5f: H5File,
         result[1] = dset.readAs(subtype).reshape2D(dset.shape)
       elif idx.len > 0:
         # manual conversion required
-        result[1] = dset[idx, subtype].reshape2D(dset.shape)
+        result[1] = dset[idx, subtype].reshape2D(dset.shape)#h5f.readIndices(dset, idx, subtype).reshape2D(dset.shape)
       # else nothing to read, will remain empty
   result[0] = idx
 
@@ -583,7 +599,7 @@ proc read*(h5f: H5File,
            isFadc = false,
            dtype: typedesc = float,
            idx: seq[int] = @[]): seq[dtype] =
-  let (idxs, res) = readFull(h5f, fileInfo, runNumber, dsetName, selector, chipNumber, isFadc, dtype, idx)
+  let (idx, res) = readFull(h5f, fileInfo, runNumber, dsetName, selector, chipNumber, isFadc, dtype, idx)
   result = res
 
 proc determineStartStopTime(df: DataFrame): (BiggestInt, BiggestInt) =
@@ -668,7 +684,7 @@ proc readVlen(h5f: H5File,
     if not selector.hasCuts(h5f.name.extractFilename, dset):
       result = dset[vlenDType, dtype]
     elif idx.len > 0:
-      result = dset[vlenDtype, dtype, idx]
+      result = dset[vlenDtype, dtype, idx] #h5f.readIndices(dset, vlenDtype, evs, dtype)
     # else nothing to read, remain empty
   else:
     return # early, no such data
@@ -2316,16 +2332,34 @@ iterator fadcEventIter(h5f: H5File,
   # all PDs are guaranteed to be from  the same run!
   let run = pd.runs[0] #pds[0].runs[0]
 
+  let onlyFadc = pd.event == -1 ## In this case we are only producing a standalone FADC plot
+  # If caller is Septemboard event display we want data to be read using
+  # indices for the center chip (because only those events will be plotted).
+  # For FADC only event displays we want only FADC indices.
+  var selector = pd.selector
+  if onlyFadc:
+    selector.fadcIndices = onlyFadc
+  else:
+    selector = DataSelector(region: crAll, fadcIndices: true) # If we read septemboard data, read everything
+
   var evNums: seq[int]
   var evTab: Table[int, int]
-  evNums = h5f.read(fileInfo, run, "eventNumber", pd.selector, dtype = int,
+
+  evNums = h5f.read(fileInfo, run, "eventNumber", selector, dtype = int,
                     isFadc = true)
 
-  evTab = initTable[int, int]()
-  for i, ev in evNums:
-    evTab[ev] = i
+  evNums.reverse() # reverse so that last element is lowest event number
+                   # (only needed for FADC event displays, but doesn't matter for septem)
 
-  if evTab.len == 0: return # the regular code path if there is FADC data in this file
+  evTab = initTable[int, int]()
+  # get corresponding indices and reverse them too
+  let evIdxs = h5f.eventIndices(fileInfo.fadcDataPath(run).string, evNums).reversed()
+
+  doAssert evIdxs.len == evNums.len
+  for (idx, ev) in zip(evIdxs, evNums):
+    evTab[ev] = idx
+
+  if evTab.len == 0: return # the regular code path if there is no FADC data in this file
   let
     dset = h5f[(fileInfo.fadcDataPath(run).string / "fadc_data").dset_str]
     fadc = dset[float64] #dset.read_hyperslab(float64, @[events[0], 0], @[events.len, 2560])
@@ -2333,6 +2367,9 @@ iterator fadcEventIter(h5f: H5File,
     fTensor = fadc.toTensor.reshape(fShape)
 
   while evTab.len > 0:
+    var pd = pd
+    if onlyFadc: ## caller is `not` Septemboard event display
+      pd.event = evNums.pop # get last element, i.e. lowest event number
     let title = buildTitle(pd)
     var outfile = buildOutfile(pd, fileDir, fileType)
     var texts: seq[string]
@@ -2343,8 +2380,8 @@ iterator fadcEventIter(h5f: H5File,
       continue
     let idx = evTab[pd.event]
     var dfProps = newDataFrame()
-    for d in AllFadcDsets:
-      let val = h5f.read(fileInfo, run, d, pd.selector, isFadc = true,
+    for d in AllFadcDsets: # read properties of _this_ event
+      let val = h5f.read(fileInfo, run, d, selector, isFadc = true,
                          dtype = float, idx = @[idx])[0]
       let s = &"|{d:>12}: {val:6.4f}"
       texts.add s
@@ -2441,8 +2478,15 @@ proc handleFadcEvent(h5f: H5File,
   doAssert pd.plotKind == pkFadcEvent
   for res in fadcEventIter(h5f, fileInfo, pd, config):
     # only a single pd
-    ## XXX: save plot here as well?
     result = res
+    info &"Calling savePlot for {pd.plotKind} with filename {res.outfile}"
+    try:
+      savePlot(res, config, fullPath = true)
+    except Exception as e:
+      echo "Failed to generate plot with error ", e.msg
+      continue
+    result.created = true
+
 
 proc handleCustomPlot(h5f: H5File,
                       fileInfo: FileInfo,
@@ -2818,7 +2862,7 @@ proc serve(h5f: H5File,
     stopChannel.send(true)
 
 proc eventDisplay(h5file: string,
-                  septemboard: bool,
+                  septemboard, fadc: bool,
                   runType: RunTypeKind,
                   bKind: PlottingBackendKind,
                   config: Config,
@@ -2832,6 +2876,8 @@ proc eventDisplay(h5file: string,
   for r in fInfoConfig.runs:
     if septemboard:
       pds.add createIngridFadcEvDisplay(h5f, r, runType, fInfoConfig, config, events)
+    elif fadc:
+      pds.add createFadcPlots(h5f, r, runType, fInfoConfig, config, events)
     else:
       pds.add createEventDisplayPlots(h5f, r, runType, fInfoConfig, config,
                                       fullSeptemboard = false, events = events)
@@ -2962,6 +3008,7 @@ proc handlePlotTypes(h5file: string,
                      config: Config,
                      eventDisplay = false,
                      septemboard = false,
+                     fadc = false,
                      events: seq[int] = @[]
                     ) =
   ## handles dispatch of the correct data type / kind / mode to be plotted
@@ -2970,7 +3017,7 @@ proc handlePlotTypes(h5file: string,
   ## TODO: what happens for SVG? Need to check too.
   var outfile = ""
   if eventDisplay:
-    outfile = eventDisplay(h5file, septemboard, runType, BKind, config, events)
+    outfile = eventDisplay(h5file, septemboard, fadc, runType, BKind, config, events)
   else:
     case runType
     of rtCalibration:
@@ -3342,6 +3389,7 @@ proc plotData*(
     handlePlotTypes(h5file, backend, runType, cfg,
                     eventDisplay = eventDisplay,
                     septemboard = septemboard,
+                    fadc = fadc,
                     events = events)
   else:
     createComparePlots(h5file, h5Compare, backend, runType, compareRunTypes, cfg)
@@ -3421,7 +3469,8 @@ generated!""",
     "runs" : """If any given overwrites the `config.toml` field of `allowedRuns`.
   That means only generate plots for the given runs.""",
 
-    "fadc" : "If set FADC plots will be created.",
+    "fadc" : """If set FADC plots will be created. If this is used with `--eventDisplay` it
+means create FADC event displays. Otherwise histograms of FADC properties are created.""",
     "ingrid" : "If set InGrid plots will be created.",
     "occupancy" : "If set occupancy plots will be created.",
     "polya" : "If set polya plots will be created.",

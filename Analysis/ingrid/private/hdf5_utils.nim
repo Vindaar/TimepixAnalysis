@@ -588,6 +588,21 @@ proc getCenterChip*(h5f: H5File, runNumber: int): int =
   ## `runNumber`
   result = h5f[recoRunGrpStr(runNumber)].attrs["centerChip", int]
 
+proc runGroupName*(n: string): string =
+  ## Returns the run group given a dataset or group name within a
+  ## run group.
+  result = n
+  while "chip_" in result:
+    result = n.parentDir
+  while "fadc" in result:
+    result = n.parentDir
+  if result == "/":
+    raise newException(ValueError, "The given input " & n & " was not a valid " &
+      "dataset or group inside of a run.")
+
+proc getRunNumber*(group: H5Group): int =
+  ## Returns the run number of this group
+  result = group.attrs["runNumber", int]
 
 ################################################################################
 ##################### HDF5 related helper functions ############################

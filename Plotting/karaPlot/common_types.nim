@@ -150,12 +150,12 @@ type
 
   ## Helper that is used to store combined cuts as well as a region
   DataSelector* = object
-    isFadc*: bool
+    fadcIndices*: bool ## Whether the data selector returns chip or FADC indices for events.
     region*: ChipRegion ## Region defaults to full chip
     cuts*: seq[GenericCut]
     maskRegion*: seq[MaskRegion]
     idxs*:  seq[int] ## Optional indices. If given we extract *these* indices from the
-                    ## resulting data after cuts are applied. Used to implement `head`, `tail`
+                     ## resulting data after cuts are applied. Used to implement `head`, `tail`
     applyAll*: bool ## set to indicate to apply all cuts instead of matching dataset names
 
   Domain* = tuple

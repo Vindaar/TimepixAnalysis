@@ -3412,12 +3412,17 @@ when isMainModule:
     if vals.len != 3: return false
     try:
       let dset = vals[0].strip(chars = {'"'})
+      let val1 = parseFloat(vals[1].strip)
+      let val2 = parseFloat(vals[2].strip)
+      if val2 < val1:
+        echo "[WARNING]: Your input cut `", a.val, "` has a second argument with ",
+         "a smaller cut value than the first. Reversing the order."
       dst = GenericCut(dset: dset,
                        isFadc: "fadc/" in dset,
                        inverted: inverted,
                        applyDset: @[dset], ## XXX: set this?
-                       min: parseFloat(vals[1].strip),
-                       max: parseFloat(vals[2].strip))
+                       min: min(val1, val2),
+                       max: max(val1, val2))
       result = true
     except:
       result = false

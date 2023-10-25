@@ -2421,10 +2421,13 @@ iterator fadcEventIter(h5f: H5File,
       pltV.annotations = texts
     of bGgPlot:
       let font = font(10.0, family = "monospace")
-      let leftPos = getEnv("F_LEFT", "0.3").parseFloat
+      let leftPos = if not onlyFadc: getEnv("F_LEFT", "-0.3").parseFloat
+                    else: getEnv("F_LEFT", "0.8").parseFloat
+      let bottom = if not onlyFadc: getEnv("F_BOTTOM", "0.025").parseFloat
+                   else: getEnv("F_BOTTOM", "0.5").parseFloat
       for i, a in texts:
-        pltV.pltGg.annotations.add ggplotnim.Annotation(left: some(-leftPos),
-                                                        bottom: some(0.025 + i.float * 0.03),
+        pltV.pltGg.annotations.add ggplotnim.Annotation(left: some(leftPos),
+                                                        bottom: some(bottom + i.float * 0.03),
                                                         font: font,
                                                         text: texts[i])
                                    #ggplotnim.Annotation(left: some(0.1),

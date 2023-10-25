@@ -154,7 +154,7 @@ proc plotFeEnergyCalib*(ecData: EnergyCalibFitData,
 
 proc plotGasGainVsChargeCalib*(gainVals, calib, calibErr: seq[float],
                                fitResult: FitResult,
-                               pathPrefix: string) =
+                               pathPrefix: string, useTeX = false) =
   # now that we have all, plot them first
   discard existsOrCreateDir(pathPrefix)
   let dfData = toDf({ "Gain" : gainVals,
@@ -178,6 +178,11 @@ proc plotGasGainVsChargeCalib*(gainVals, calib, calibErr: seq[float],
   # use the data to which we fit to create a hash value. That way we only overwrite the file
   # in case we plot the same data
   let fnameHash = concat(gainVals, calib).hash
+  let ylabel = if useTeX: r"Calibration factor $a⁻¹$ [$\SI{1e-6}{keV.e^-1}$]"
+               else: "Calibration factor a⁻¹ [10⁻⁶ keV / e]"
+  let width = getEnv("WIDTH", "800").parseFloat
+  let height = getEnv("HEIGHT", "480").parseFloat
+  let fontScale = getEnv("FONT_SCALE", "1.0").parseFloat
   ggplot(df, aes("Gain", "Calib")) +
     geom_point(data = df.filter(f{`Type` == "Data"})) +
     geom_errorbar(data = df.filter(f{`Type` == "Data"}),
@@ -185,11 +190,13 @@ proc plotGasGainVsChargeCalib*(gainVals, calib, calibErr: seq[float],
                             yMax = f{`Calib` + `CalibErr`})) +
     geom_line(data = dfFit, color = some(parseHex("FF00FF"))) +
     annotate(annotation.join("\n"), left = 0.65, bottom = 0.2, font = font(family = "monospace")) +
-    xlab("Gas gain G") +
-    ylab("Calibration factor a⁻¹ [10⁻⁶ keV / e]") +
+    xlab("Gas gain 'G'") +
+    ylab(ylabel) +
+    theme_font_scale(fontScale) +
     ggtitle("Energy calibration factors vs gas gain") +
     ggsave(&"{pathPrefix}/gasgain_vs_energy_calibration_factors_{fnameHash}.pdf",
-           width = 800, height = 480)
+           width = width, height = height,
+           useTeX = useTeX, standalone = useTeX)
 
 proc plotFeSpectrumInfoFacet*(pos_x, pos_y, ecc, rms_trans: seq[float],
                               hits: seq[int64],

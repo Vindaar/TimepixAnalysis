@@ -950,7 +950,9 @@ proc fitSpectraBySlices(h5f: H5File,
 
 proc performChargeCalibGasGainFit*(h5f: H5File,
                                    interval: float,
-                                   gcKind: GasGainVsChargeCalibKind = gcMean) =
+                                   gcKind: GasGainVsChargeCalibKind = gcMean,
+                                   useTeX = false,
+                                   plotPath = "") =
   ## performs the fit of the charge calibration factors vs gas gain fit
   ## Assumes:
   ## - h5f points to a h5 file of `runType == rtCalibration`
@@ -960,7 +962,7 @@ proc performChargeCalibGasGainFit*(h5f: H5File,
   ## NOTE: the `gcKind` only takes effect for input H5 files, which are already
   ## reconstructed using the new sliced gas gain calibration!
   # iterate over all runs, extract center chip grou
-  let plotPath = h5f.attrs[PlotDirPrefixAttr, string]
+  let plotPath = if plotPath.len > 0: plotPath else: h5f.attrs[PlotDirPrefixAttr, string]
   var
     calib = newSeq[float64]()
     calibErr = newSeq[float64]()
@@ -1046,7 +1048,7 @@ proc performChargeCalibGasGainFit*(h5f: H5File,
   # and create the plot
   info "Plot charge calibration vs gas gain for file: " & $h5f.name
   plotGasGainVsChargeCalib(gainVals, calib, calibErr, fitResult,
-                           pathPrefix = plotPath)
+                           pathPrefix = plotPath, useTeX = useTeX)
 
 proc calcEnergyFromPixels*(h5f: H5File, runNumber: int, calib_factor: float) =
   ## proc which applies an energy calibration based on the number of hit pixels in an event

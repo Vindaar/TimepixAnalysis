@@ -774,7 +774,7 @@ proc applyCalibrationSteps(h5f: H5File, recoCfg: RecoConfig) =
     #h5fout.calcEnergyFromPixels(runNumber, calib_factor)
     h5f.calcEnergyFromCharge(recoCfg.gasGainInterval, recoCfg.gasGainEnergyKind)
   if rfOnlyGainFit in recoCfg.flags:
-    h5f.performChargeCalibGasGainFit(recoCfg.gasGainInterval, recoCfg.gasGainEnergyKind)
+    h5f.performChargeCalibGasGainFit(recoCfg.gasGainInterval, recoCfg.gasGainEnergyKind, recoCfg.useTeX, recoCfg.plotOutpath)
   recordIterRuns(recoBase()):
     if (recoCfg.runNumber.isSome and runNumber == recoCfg.runNumber.get) or
        rfReadAllRuns in recoCfg.flags:
@@ -820,6 +820,10 @@ proc parseTomlConfig(h5f_name, configFile: string, runNumber: Option[int],
   var plotDirPrefix: string
   withH5(h5f_name, "rw"):
     plotDirPrefix = h5f.genPlotDirname(plotOutPath, PlotDirPrefixAttr)
+
+  # now take file specific dir name and merge with `plotOutPath`
+  plotOutPath = plotOutPath / plotDirPrefix.extractFilename
+
   let useTeX = if config["General"]["useTeX"].getBool: true
                else: getEnv("USE_TEX", "false").parseBool # allow overwriet via env var
   # clustering
@@ -853,6 +857,7 @@ proc initRecoConfig*(h5f_name: string, flags: set[RecoFlags], configFile: string
                      clusterAlgo = none(ClusteringAlgorithm),
                      searchRadius = none(int),
                      dbscanEpsilon = none(float),
+                     plotOutPath = none(string),
                      useTeX = none(bool)
                     ): RecoConfig =
   result = parseTomlConfig(h5f_name, configFile, runNumber, calibFactor)
@@ -864,6 +869,7 @@ proc initRecoConfig*(h5f_name: string, flags: set[RecoFlags], configFile: string
   setIf(searchRadius)
   setIf(dbscanEpsilon)
   setIf(useTeX)
+  setIf(plotOutPath)
 
 proc flagsValid(h5f: H5File, flags: set[RecoFlags]): bool =
   ## Checks whether the flags are actually valid for the given file
@@ -891,7 +897,8 @@ proc main(input: string,
           searchRadius = none(int),
           dbscanEpsilon = none(float),
           useTeX = none(bool),
-          config = ""
+          config = "",
+          plotOutPath = none(string),
           ) =
   ## InGrid reconstruction and energy calibration.
   ## NOTE: When calling `reconstruction` without any of the `--only_*` flags, the input file
@@ -931,7 +938,7 @@ proc main(input: string,
 
   # parse config toml file
   let recoCfg = initRecoConfig(h5f_name, flags, config, runNumber, calibFactor,
-                               clusterAlgo, searchRadius, dbscanEpsilon, useTeX)
+                               clusterAlgo, searchRadius, dbscanEpsilon, plotOutPath, useTeX)
   if (flags * {rfOnlyFeSpec .. rfOnlyEnergyElectrons}).card == 0:
     # `reconstruction` call w/o `--only-*` flag
     # visit the whole file to read which groups exist

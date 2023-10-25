@@ -1114,6 +1114,7 @@ proc plotFadcEvent(df, dfProps: DataFrame, title, name, outfile: string): PlotV 
       geom_line(data = dfProps, aes = aes("minEdges", y = "minVal"),
                        color = "purple") +
       margin(top = 2) +
+      xlim(0.0, 2560.0) + # no need to go further!
       theme_scale(getEnv("SCALE", "1.0").parseFloat) +
       result.theme # just add the theme directly
   else:

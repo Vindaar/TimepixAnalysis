@@ -383,7 +383,19 @@ proc savePlot(plt: PlotResult, config: Config, fullPath = false) =
     if p.kind == bGgPlot: # if plot was not initialized
       if not p.invalid:
         try:
-          p.pltGg.ggsave(fname, p.width, p.height)
+          let useTeX = getEnv("USE_TEX", "false").parseBool
+          let width = getEnv("WIDTH", $p.width).parseFloat
+          let height = getEnv("HEIGHT", $p.height).parseFloat
+          let fontScale = getEnv("FONT_SCALE", "1.0").parseFloat
+          let themeScale = getEnv("THEME_SCALE", "1.0").parseFloat
+          if fontScale != 1.0:
+            p.pltGg + theme_font_scale(fontScale) +
+              ggsave(fname, width, height, useTeX = useTeX, standalone = useTeX)
+          elif themeScale != 1.0:
+            p.pltGg + theme_scale(themeScale) +
+              ggsave(fname, width, height, useTeX = useTeX, standalone = useTeX)
+          else:
+            p.pltGg.ggsave(fname, width, height, useTeX = useTeX, standalone = useTeX)
         except AssertionError:
           # just continue here
           echo "WARNING: raised AssertionError trying to plot " & $fname
@@ -1025,7 +1037,7 @@ proc plotSparseEvent(df: DataFrame, title, outfile: string,
     discard
   of bGgPlot:
     let size = if fullSeptemboard: 1.0 else: 2.0
-    result.pltGg = ggplot(df, aes("x", "y"), backend = bkCairo) +
+    result.pltGg = ggplot(df, aes("x", "y")) +
       geom_point(aes = aes(color = "ch"), size = size) +
       result.theme # just add the theme directly
     if fullSeptemboard:
@@ -1070,7 +1082,7 @@ proc plotScatter(pltV: var PlotV, x, y: seq[float], name, outfile: string,
                   color = some(parseHex("FF00FF"))) +
         pltV.theme # just add the theme directly
     else:
-      pltV.pltGg = ggplot(df, aes("x", "y"), backend = bkCairo) +
+      pltV.pltGg = ggplot(df, aes("x", "y")) +
         geom_line() +
         margin(top = 2) +
         pltV.theme # just add the theme directly
@@ -1078,7 +1090,7 @@ proc plotScatter(pltV: var PlotV, x, y: seq[float], name, outfile: string,
     warn &"Unsupported backend kind: {BKind}"
 
 proc plotFadcEvent(df, dfProps: DataFrame, title, name, outfile: string): PlotV =
-  result = initPlotV(title, "FADC register", "U [V]", ShapeKind.Rectangle)
+  result = initPlotV(title, "FADC register [ns]", "U [V]", ShapeKind.Rectangle)
   case BKind # for plotly, mpl backends treat as line plot
   of bPlotly:
     # in this case plot is defined
@@ -1096,7 +1108,12 @@ proc plotFadcEvent(df, dfProps: DataFrame, title, name, outfile: string): PlotV 
                            label = name,
                            color = "r")
   of bGgPlot:
-    result.pltGg = ggplot(df, aes("x", "y"), backend = bkCairo) +
+    let mLeft = getEnv("L_MARGIN", "2.5").parseFloat
+    let mRight = getEnv("R_MARGIN", "1.0").parseFloat
+    let mTop = getEnv("T_MARGIN", "2.0").parseFloat
+    let mBottom = getEnv("B_MARGIN", "2.0").parseFloat
+
+    result.pltGg = ggplot(df, aes("x", "y")) +
       geom_line() +
       geom_point(color = color(0.1, 0.1, 0.1, 0.1)) +
       geom_line(data = dfProps, aes = aes("x", "baseline"),
@@ -1113,7 +1130,7 @@ proc plotFadcEvent(df, dfProps: DataFrame, title, name, outfile: string): PlotV 
                        color = "pink", lineType = ltDashed) +
       geom_line(data = dfProps, aes = aes("minEdges", y = "minVal"),
                        color = "purple") +
-      margin(top = 2) +
+      margin(left = mLeft, top = mTop, right = mRight, bottom = mBottom) +
       xlim(0.0, 2560.0) + # no need to go further!
       theme_scale(getEnv("SCALE", "1.0").parseFloat) +
       result.theme # just add the theme directly
@@ -2319,7 +2336,7 @@ proc ingridEventIterator(h5f: H5File,
 proc initDummyFadc(event = -1): PlotV =
   result = initPlotV("No FADC event", "FADC", "V")
   result.pltGg = ggplot(toDf({"x" : @[1200], "y" : @[0.0], "t" : "No FADC event available for #event " & $event}),
-                       aes("x", "y", text = "t"), backend = bkCairo) +
+                       aes("x", "y", text = "t")) +
    geom_text(font = font(16.0)) +
    result.theme
 
@@ -2490,7 +2507,11 @@ proc handleFadcEvent(h5f: H5File,
       echo "Failed to generate plot with error ", e.msg
       continue
     result.created = true
-
+    if pd.event != -1:
+      ## XXX: At the moment `pd` contains a single event, so we only produce one
+      ## event if specific events are selected. Return from this procedure
+      ## and enter again for next event
+      return
 
 proc handleCustomPlot(h5f: H5File,
                       fileInfo: FileInfo,

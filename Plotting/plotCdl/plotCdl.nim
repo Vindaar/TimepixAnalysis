@@ -32,7 +32,7 @@ proc readData(h5f: H5FileObj,
     readIt(evNames, grp / "chip_3", dfEv)
     readIt(allNames, grp, dfAll)
     var dfJoined = inner_join(dfEv, dfAll, "eventNumber")
-    dfJoined["runNumber"] = constantColumn(run, dfJoined.len)
+    dfJoined["runNumber"] = run
     result.add dfJoined
 
 proc classifyClusters(df: var DataFrame) =
@@ -49,8 +49,13 @@ proc readFiles(files: seq[string], runType: string,
     result.add readData(h5f, dsets)
     discard h5f.close()
   result = result.arrange("timestamp")
-  result["runType"] = constantColumn(runType, result.len)
+  result["runType"] = runType
   result.classifyClusters()
+
+proc readRefDf(ctx: LikelihoodContext): DataFrame =
+  ## Use existing logic in `likelihood_utils.nim`
+  result = readRefDsetsDf(ctx)
+  result["runType"] = "CDL"
 
 proc binIt(dfLoc: DataFrame, dset: string): (seq[int], seq[float]) =
   let (numBins, minVal, maxVal) = cdlToXrayBinning2018(dset)
@@ -63,9 +68,9 @@ proc binDf(df: DataFrame, dset: string): DataFrame =
   for tup, subDf in groups(df.group_by("Dset")):
     let (hist, bins) = binIt(subDf, dset)
     var dfToAdd = toDf({ "Bins" : bins[0 ..< ^1],
-                             "Hist" : hist })
-    dfToAdd["runType"] = constantColumn(df["runType", 0].toStr, dfToAdd.len)
-    dfToAdd["Dset"] = constantColumn(tup[0][1].toStr, dfToAdd.len)
+                         "Hist" : hist })
+    dfToAdd["runType"] = df["runType", 0].toStr
+    dfToAdd["Dset"] = tup[0][1].toStr
     result.add dfToAdd
 
 proc readRefDsets(refFile: string,
@@ -81,29 +86,30 @@ proc readRefDsets(refFile: string,
     var data = h5ref[(dset_name / dset).dset_str]
     tab[dset_name] = data.readAs(float64).reshape2D(data.shape).splitSeq(float64)
     var dfDset = toDf({ "Bins" : tab[dset_name].bins, "Hist" : tab[dset_name].hist })
-    dfDset["Dset"] = constantColumn(dset_name, dfDset.len)
+    dfDset["Dset"] = dset_name
     result.add dfDset
-  result["runType"] = constantColumn("CDL", result.len)
+  result["runType"] = "CDL"
 
 proc plotRef(df: DataFrame,
              dset: string,
-             refFile: string, yearKind: YearKind) =
+             refFile: string, yearKind: YearKind,
+             outpath: string) =
   #block RefPlots:
   #  ggplot(df, aes("Eccentricity", "Ecc #", fill = "Dset")) +
   #    geom_histogram(stat = "identity", position = "identity", alpha = some(0.5)) +
   #    ggtitle(&"Eccentricity of reference file, year: {yearKind}") +
-  #    ggsave(&"out/eccentricity_{refFile.extractFilename}_{yearKind}.pdf",
+  #    ggsave(&"{outpath}/eccentricity_{refFile.extractFilename}_{yearKind}.pdf",
   #            width = 800, height = 480)
   #  ggplot(df, aes("L / RMS_trans", "L / RMS_trans #", fill = "Dset")) +
   #    geom_histogram(stat = "identity", position = "identity", alpha = some(0.5)) +
   #    ggtitle(&"L / RMS_trans of reference file, year: {yearKind}") +
-  #    ggsave(&"out/lengthDivRmsTrans_{refFile.extractFilename}_{yearKind}.pdf",
+  #    ggsave(&"{outpath}/lengthDivRmsTrans_{refFile.extractFilename}_{yearKind}.pdf",
   #            width = 800, height = 480)
   #  ggplot(data = df.filter(f{Value: isNull(df["fracRmsTrans"][idx]) == (%~ false)}),
   #         aes("fracRmsTrans", "fracRmsTrans #", fill = "Dset")) +
   #    geom_histogram(stat = "identity", position = "identity", alpha = some(0.5)) +
   #    ggtitle(&"fracRmsTrans of reference file, year: {yearKind}") +
-  #    ggsave(&"out/fracRmsTrans_{refFile.extractFilename}_{yearKind}.pdf",
+  #    ggsave(&"{outpath}/fracRmsTrans_{refFile.extractFilename}_{yearKind}.pdf",
   #            width = 800, height = 480)
   let xrayRef = getXrayRefTable()
   var labelOrder = initTable[Value, int]()
@@ -116,7 +122,7 @@ proc plotRef(df: DataFrame,
     geom_histogram(stat = "identity", position = "identity",
                    alpha = some(0.5)) +
     ggtitle(&"{dset} of reference file, year: {yearKind}") +
-    ggsave(&"out/{dset}_ridgeline_{refFile.extractFilename}_{yearKind}.pdf",
+    ggsave(&"{outpath}/{dset}_ridgeline_{refFile.extractFilename}_{yearKind}.pdf",
             width = 800, height = 480)
 
 proc normalize(df: DataFrame, grp = "Dset", values = "Hist"): DataFrame =
@@ -124,21 +130,15 @@ proc normalize(df: DataFrame, grp = "Dset", values = "Hist"): DataFrame =
   result = result.group_by("Dset")
     .mutate(f{float -> float: "Hist" ~ `Hist` / sum(df["Hist"])})
 
-proc plotCdlFile(cdlFile: string) =
+proc plotCdlFile(ctx: LikelihoodContext, outpath: string) =
   var df = newDataFrame()
-  let ctx = initLikelihoodContext(cdlFile,
-                                  year = yr2018,
-                                  energyDset = igEnergyFromCharge,
-                                  region = crGold,
-                                  timepix = Timepix1,
-                                  morphKind = mkLinear) # morphing to plot interpolation
   let xrayTab = getXrayRefTable()
 
   var refDf = newDataFrame()
   for idx, key in xrayTab:
     let (logL, energies) = buildLogLHist(key, ctx)
     var dfLoc = toDf({"logL" : logL, "Energy" : energies})
-    dfLoc["Dset"] = constantColumn(key, dfLoc.len)
+    dfLoc["Dset"] = key
     df.add dfLoc
 
     ## read the data from the CDL file and generate the reference data using cuts
@@ -188,20 +188,20 @@ proc plotCdlFile(cdlFile: string) =
       geom_histogram(stat = "identity", position = "identity") +
       ggtitle(&"{dset} of reference file") +
       xlab(dset) +
-      ggsave(&"out/{dset}_facet_{cdlFile.extractFilename}.pdf",
+      ggsave(&"{outpath}/{dset}_facet_{ctx.cdlFile.extractFilename}.pdf",
               width = 1200, height = 1000)
 
   var area = img.addViewport()
   let text = area.initText(c(0.5, 0.05, ukRelative), title, goText, taCenter, font = some(font(16.0)))
   area.addObj text
   img.children.add area
-  img.draw("out/ridgeline_all_properties_side_by_side.pdf")
+  img.draw(&"{outpath}/ridgeline_all_properties_side_by_side.pdf")
 
   ggplot(refDf.filter(f{`Bins` <= 10.0 and `Bins` >= 0.0}), aes("Bins", "Counts", fill = "Dset")) +
     ggridges("tfKind", overlap = 1.5, labelOrder = labelOrder) +
     geom_histogram(position = "identity", stat = "identity", hdKind = hdOutline, color = "black", lineWidth = 1.0) +
     xlim(0, 10) +
-    ggsave("/t/test.pdf", width = 1000, height = 600)
+    ggsave(&"{outpath}/ridgeline_all_properties_same_ridge.pdf", width = 1000, height = 600)
 
 
   let breaks = linspace(0, 30.0, 201)
@@ -213,23 +213,23 @@ proc plotCdlFile(cdlFile: string) =
                    density = true) +
     xlab("-ln L") +
     ggtitle("-ln L distributions for each target/filter combination") +
-    ggsave(&"out/logL_ridgeline.pdf")
+    ggsave(&"{outpath}/logL_ridgeline.pdf")
 
   ggplot(df, aes("logL", color = "Dset")) +
     geom_histogram(binWidth = 0.15, position = "identity", alpha = some(0.0),
                    lineWidth = some(1.5),
                    hdKind = hdOutline) +
     ggtitle("LogL distributions from CDL data") +
-    ggsave(&"out/logL_outline.pdf")
+    ggsave(&"{outpath}/logL_outline.pdf")
 
   ## XXX: replace this by the version that we generate in `cdl_spectrum_creation`? We'd need to
   ## write the energies we calculate there to the output file though! Anyhow this plot is also
   ## useful to have.
-  ggplot(df, aes("Energy", fill = "Dset")) +
+  ggplot(df.filter(f{`Energy` < 20.0}), aes("Energy", fill = "Dset")) +
     geom_histogram(position = "identity", alpha = 0.5, bins = 300, hdKind = hdOutline) +
     xlab("Energy [keV]") + ylab("#") +
     ggtitle("Energy spectra of all GridPix Feb 2019 X-ray tube data") +
-    ggsave(&"out/cdl_energies.pdf")
+    ggsave(&"{outpath}/cdl_energies.pdf")
 
   # XXX: Well, it doesn't work in the way I thought, because obviously we cannot just compute
   # the likelihood distributions directly! We can compute *a* likelihood value for a cluster
@@ -242,32 +242,34 @@ proc plotCdlFile(cdlFile: string) =
   # let cutVs = ctx.calcCutValueTab()
 
 proc main(files: seq[string] = @[],
-          refFile: string = "/home/basti/CastData/data/CDL_2019/XrayReferenceFile2018.h5",
+          # refFile: string = "/home/basti/CastData/data/CDL_2019/XrayReferenceFile2018.h5", ## <-- deprecated
           cdlFile: string = "/home/basti/CastData/data/CDL_2019/calibration-cdl-2018.h5",
-          fkKind: FrameworkKind = fkTpa) =
-
+          fkKind: FrameworkKind = fkTpa,
+          outpath = "out") =
+  let ctx = initLikelihoodContext(cdlFile,
+                                  year = yr2018,
+                                  energyDset = igEnergyFromCharge,
+                                  region = crGold,
+                                  timepix = Timepix1,
+                                  morphKind = mkLinear) # morphing to plot interpolation
   if files.len == 0:
-    plotCdlFile(cdlFile)
+    ctx.plotCdlFile(outpath)
   else:
+    # If other input files given we produce a comparison ridge line plot of each property
+    # between the input and the reference data.
     let dfBack = readFiles(files,
                            "background",
                            concat(@CommonNames, @["eccentricity",
                                                   "fractionInTransverseRms",
                                                   "lengthDivRmsTrans"]))
     const dkKinds = [igEccentricity, igLengthDivRmsTrans, igFractionInTransverseRms]
+    let dfRefAll = ctx.readRefDf()
     for dkKind in dkKinds:
-      ## XXX: instead of reading ref use CDL data and cut
-      let dfRef = readRefDsets(refFile, dkKind, yr2018)
-      #echo dfRef.pretty(-1)
-
       let dset = dkKind.toDset(fkKind)
+      let dfRef = dfRefAll.filter(f{`Variable` == dset})
       let dfB = dfBack.binDf(dset)
-      var df: DataFrame
-      df.add dfRef.normalize
-      df.add dfB.normalize
-      plotRef(df,
-              dset,
-              refFile, yr2018)
+      let df = assignStack(@[dfRef.normalize, dfB.normalize])
+      plotRef(df, dset, ctx.cdlFile, yr2018, outpath)
 
 when isMainModule:
   dispatch main

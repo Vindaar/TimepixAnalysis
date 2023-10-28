@@ -20,9 +20,13 @@ proc morph*(df: DataFrame, energy: float, offset = 1): (Tensor[float], Tensor[fl
   let xrayRef = getXrayRefTable()
   let refLow = xrayRef[idx]
   let refHigh = xrayRef[idx+offset]
-  let refLowT = df.filter(f{string -> bool: `Dset` == refLow})["Hist", float]
-  let refHighT = df.filter(f{string -> bool: `Dset` == refHigh})["Hist", float]
-  let bins = df.filter(f{string -> bool: `Dset` == refLow})["Bins", float]
+  let dfRL = df.filter(f{string -> bool: `Dset` == refLow})
+  let dfRH = df.filter(f{string -> bool: `Dset` == refHigh})
+  let refLowT = dfRL["Hist", float]
+  let refHighT = dfRH["Hist", float]
+
+  doAssert dfRL.len == dfRH.len
+  let bins = dfRL["Bins", float]
   var res = zeros[float](refLowT.size.int)
   # walk over each bin and compute linear interpolation between
   let Ediff = abs(lineEnergies[idx] - lineEnergies[idx+offset])
@@ -392,7 +396,7 @@ proc genRefData*(dset: string, ctx: LikelihoodContext): tuple[ecc, ldivRms, frac
   (eccsR, ldivR, fracR) = fns.applyMutation(eccsR, ldivR, fracR)
   result = ctx.year.buildRefHistos(eccsR, ldivR, fracR)
 
-proc readRefDsetsDF(ctx: LikelihoodContext): DataFrame =
+proc readRefDsetsDF*(ctx: LikelihoodContext): DataFrame =
   ## reads the reference datasets from the `refFile` and returns them.
 
   ## TODO: implement proper handling of 55Fe distribution matching by replacing

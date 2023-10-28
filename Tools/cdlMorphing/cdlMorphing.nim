@@ -1,5 +1,5 @@
 import nimhdf5, ggplotnim, os, strformat, strutils, sequtils, algorithm, seqmath, arraymancer
-import ingrid / tos_helpers, times
+import ingrid / [tos_helpers, ingrid_types], times
 import helpers / utils
 
 import cligen
@@ -7,145 +7,155 @@ import cligen
 import numericalnim except linspace
 
 type
-  HistTuple = tuple[bins: seq[float64], hist: seq[float64]]
-
   YearKind = enum
     yr2014 = "2014"
     yr2018 = "2018"
 
-proc readRefDsets(refFile: string,
-                  dkKind: InGridDsetKind,
-                  yearKind: YearKind): DataFrame =
-  ## reads the reference datasets from the `refFile` and returns them.
-  var h5ref = H5open(refFile, "r")
-  # create a table, which stores the reference datasets from the ref file
-  let dset = dkKind.toDset(fkTpa)
-  var tab = initTable[string, HistTuple]()
-  let xrayRef = getXrayRefTable()
-  let energies = getXrayFluorescenceLines()
+  MorphTechnique = enum
+    mtNone, mtLinear, mtKde, mtSpline
+
+proc readRefDf(ctx: LikelihoodContext): DataFrame =
+  ## Get the full reference data as a DF with added `yMin` and `yMax`
+  ## containing the energy boundaries of each target / filter combination (`Dset`)
+  let df = readRefDsetsDf(ctx)
+  result = newDataFrame()
   let ranges = getEnergyBinning()
-  for idx in 0 ..< xray_ref.len:
-    let dset_name = xray_ref[idx]
-    var data = h5ref[(dset_name / dset).dset_str]
-    tab[dset_name] = data.readAs(float64).reshape2D(data.shape).splitSeq(float64)
-    var dfDset = toDf({ "Bins" : tab[dset_name].bins, "Hist" : tab[dset_name].hist })
-    dfDset["Dset"] = constantColumn(dset_name, dfDset.len)
-
-    dfDset["Energy"] = constantColumn(energies[idx], dfDset.len)
-    dfDset["yMin"] = if idx == 0: constantColumn(0, dfDset.len)
-                     else: constantColumn(ranges[idx-1], dfDset.len)
-    dfDset["yMax"] = if idx == ranges.high: constantColumn(10.0, dfDset.len)
-                     else: constantColumn(ranges[idx], dfDset.len)
-    result.add dfDset
-  result["runType"] = constantColumn("CDL", result.len)
-
-proc filterKdeMorph(df: DataFrame): DataFrame =
-  let xrayRef = getXrayRefTable()
-  let energies = getXrayFluorescenceLines()
-  let eKde = df.filter(f{`runType` == "Morph"})["Energy", float].toRawSeq
-  result = df
-  for idx, e in energies:
-    let eEx = eKde[min(eKde.lowerBound(e), eKde.high)]
-    var modDf = df.filter(f{`runType` == "Morph"}, f{float: `Energy` == eEx})
-      .mutate(f{float -> float: "Hist" ~ `Hist` / sum(df["Hist"])})
-    let name: string = xrayRef[idx]
-    modDf["Dset"] = constantColumn(name, modDf.len)
-    result.add modDf
-  result = result.filter(f{`Dset` != "Morph"})
-
-proc plotRef(df: DataFrame,
-             dset: string,
-             refFile: string, yearKind: YearKind,
-             isKde: static bool = false) =
-  let xrayRef = getXrayRefTable()
-  var labelOrder = initTable[Value, int]()
-  for idx, el in xrayRef:
-    labelOrder[%~ el] = idx
-  #labelOrder[%~ "Morph"] = labelOrder.len
-  ggplot(df.filter(f{string: `runType` == "Morph"}), aes("Bins", "Energy", fill = "Hist")) +
-    #ggridges("Dset", overlap = 1.0, labelOrder = labelOrder) +
-    #facet_wrap("Dset", scales = "free") +
-    geom_raster() +
-    #geom_histogram(stat = "identity", position = "identity",
-    #               alpha = some(0.5)) +
-    ggtitle(&"{dset} of reference file, year: {yearKind}") +
-    ggsave(&"out/{dset}_ridgeline_tile_{refFile.extractFilename}_{yearKind}.pdf",
-            width = 800, height = 480)
-
-  when isKde:
-    let df = filterKdeMorph(df)
-  #let df = df.filter(f{float: `Energy` in energies or `Energy` in eExctract})
-  #echo df.filter(f{float: `Energy` in energies}, f{string: `runType` == "Morph"}).pretty(-1)
-
-  ggplot(df, aes("Bins", "Hist", fill = "runType")) +
-    ggridges("Dset", overlap = 1.0, labelOrder = labelOrder) +
-    #facet_wrap("Dset", scales = "free") +
-    geom_histogram(stat = "identity", position = "identity",
-                   alpha = some(0.5)) +
-    ggtitle(&"{dset} of reference file, year: {yearKind}") +
-    ggsave(&"out/{dset}_ridgeline_{refFile.extractFilename}_{yearKind}.pdf",
-            width = 800, height = 480)
+  let tab = getInverseXrayRefTable()
+  for (tup, subDf) in groups(df.group_by("Dset")):
+    var dfLoc = subDf
+    let idx = tab[tup[0][1].toStr] # get energy index of this target / filter
+    dfLoc["yMin"] = if idx == 0: 0.0
+                    else: ranges[idx-1]
+    dfLoc["yMax"] = if idx == ranges.high: 10.0
+                    else: ranges[idx]
+    result.add dfLoc
+  result["runType"] = "CDL"
 
 proc normalize(df: DataFrame): DataFrame =
   result = df
   result = result.group_by("Dset")
     .mutate(f{float -> float: "Hist" ~ `Hist` / sum(df["Hist"])})
 
-import sugar
-proc morph(df: DataFrame, energy: float, offset = 1): Tensor[float] =
-  ## generates a distribution for `col` at `energy`
-  let lineEnergies = getXrayFluorescenceLines()
-  let idx = max(lineEnergies.lowerBound(energy) - 1, 0)
-  # need idx and idx+offset
-  dump idx
+proc morphDf(df: DataFrame, idx: int, energy: float, igDset: string): DataFrame =
+  ## returns morphed as added thing in df
+  #result = df# .select(@["Bins", "Hist", "Dset", "Energy", "runType"])
   let xrayRef = getXrayRefTable()
-  let refLow = xrayRef[idx]
-  let refHigh = xrayRef[idx+offset]
-  echo refLow, "  ", refHigh, " at ", energy
-  let refLowT = df.filter(f{string -> bool: `Dset` == refLow and `runType` == "CDL"})["Hist", float]
-  let refHighT = df.filter(f{string -> bool: `Dset` == refHigh and `runType` == "CDL"})["Hist", float]
-  let bins = df.filter(f{string -> bool: `Dset` == refLow and `runType` == "CDL"})["Bins", float]
-  result = zeros[float](refLowT.size.int)
-  # walk over each bin and compute linear interpolation between
-  let Ediff = abs(lineEnergies[idx] - lineEnergies[idx+offset])
-  dump Ediff
-  dump (abs(lineEnergies[idx] - energy)) / Ediff
-  dump (abs(lineEnergies[idx+offset] - energy)) / Ediff
-  for i in 0 ..< bins.size:
-    result[i] = refLowT[i] * (1 - (abs(lineEnergies[idx] - energy)) / Ediff) +
-      refHighT[i] * (1 - (abs(lineEnergies[idx+offset] - energy)) / Ediff)
+  let energies = getEnergyBinning()
+  ## NOTE: `morph` nowadays in `likelihood_utils.nim` because we want to check the code we actually
+  ## run in practice!
+  let (bins, res) = morph(df, energy, offset = 2)
+  result = toDf({"Bins" : bins, "Hist" : res})
+  result["Dset"] = xrayRef[idx]
+  result["runType"] = "Morph"
+  result["Energy"] = energy
+  result["yMin"] = energies[idx-1]
+  result["yMax"] = energies[idx]
+  result["Variable"] = igDset
+
+proc getMorphedDf(df: DataFrame, igDset: string): DataFrame =
+  let energies = getXrayFluorescenceLines()
+  result = df # keep `CDL` data
+  for idx in 1 ..< energies.high: # exclude first and last
+    result.add df.morphDf(idx, energies[idx], igDset)
+  result = result.filter(f{`Variable` == igDset})
 
 proc linKernel(x, x_i, bw: float): float {.inline.} =
   result = (1 - abs(x - x_i) / bw)
 
-proc morphKde(df: DataFrame, dset: string): DataFrame =
+proc morphedKde(df: DataFrame, exclude: int, igDset: string): DataFrame =
   ## morph the given df from the reference datasets bin by bin using a KDE
-  #let bins = df.filter(f{string -> bool: `Dset` == refLow and `runType` == "CDL"})["Bins", float]
-  #let df = df.filter(f{string: `Dset` == dset})
-  result = df.select(@["Bins", "Hist", "Dset", "Energy", "runType"])
+  ##
+  ## XXX: This entirey approach is pretty much broken.
+  ## When I came up with this I didn't have in mind that we would be working
+  ## with the distinct energies as inputs. What we should do to actually see
+  ## if a KDE approach can work is to
+  ##
+  ## 1. take the *raw* clusters that go into the reference DF
+  ## 2. split (but not histogram!) them into bins corresponding to the final bins
+  ##   of each reference histogram
+  ## 3. apply the KDE to all those clusters *along their energy* (their value
+  ##   in the property is irrelevant!)
+  ## 4. use the resulting KDE to 'predict' any point on the energy scale
+  ##
+  ## I assume this approach might work reasonably well actually, because then we
+  ## have statistics to use a KDE with.
+  ##
+  ## ```nim
+  ##   var eccs = newSeq[float]()
+  ##   var ldiv = newSeq[float]()
+  ##   var frac = newSeq[float]()
+  ##   var Es   = newSeq[float]()
+  ##   #withXrayRefCuts(cdlFile, dset, year, energyDset):
+  ##   withLogLFilterCuts(cdlFile, dset, year, energyDset, LogLCutDsets):
+  ##     # read filtered data
+  ##     eccs.add data[igEccentricity][i]
+  ##     ldiv.add data[igLengthDivRmsTrans][i]
+  ##     frac.add data[igFractionInTransverseRms][i]
+  ##     Es.add   data[igEnergyFromCharge][i]
+  ## ```
+  ##
+  ## to get the raw data. Then get the *bins* for each property and walk
+  ## all bins, get all clusters for each bin, apply KDE, done.
+  ## *However*, with this we still cannot 'exclude' an interval properly
+  ## as the KDE doesn't work like that (missing clusters 'in the middle' just
+  ## leads to a drop in density). And more importantly we would then
+  ## break an implicit assumption we make, namely that the actual cluster energy
+  ## is irrelevant, only the associated energy of the fluorescence line counts!
+  # Filter out only subset for this `IngridDsetKind`
+  let df = df.filter(f{string: `Variable` == igDset})
+  result = df.select(@["Bins", "Hist", "Dset", "Energy", "runType", "Variable"])
   for tup, subDf in groups(df.group_by("Bins")):
-    var energies = subDf["Energy", float]
-    var hist = subDf["Hist", float]
+    let subDf = subDf.arrange("Energy", SortOrder.Ascending)
+    var energies = newSeq[float]()
+    var hist = newSeq[float]()
 
-    let kd = kde(energies, weights = hist, bw = 0.3)#, kernel = linKernel, kernelKind = knCustom, cutoff = 3.0) #, bw = 0.3)
+    for idx in 0 ..< subDf.len:
+      if idx == exclude:
+        echo "Excluding index ", idx, " which is ", subDf["Energy", float][idx]
+        continue
+      energies.add subDf["Energy", float][idx]
+      hist.add subDf["Hist", float][idx]
+
+    let kd = kde(energies.toTensor, weights = hist.toTensor, bw = 0.3)#, kernel = linKernel, kernelKind = knCustom, cutoff = 3.0) #, bw = 0.3)
     let es = linspace(min(energies), max(energies), 1000)
     var dfLoc = toDf({"Energy" : es, "Hist" : kd })
     let bin = subDf["Bins", float][0]
-    dfLoc["Bins"] = constantColumn(bin, dfLoc.len)
-    dfLoc["Dset"] = constantColumn("Morph", dfLoc.len)
-    dfLoc["runType"] = constantColumn("Morph", dfLoc.len)
+    dfLoc["Dset"] = "None"
+    dfLoc["Bins"] = bin
+    dfLoc["Variable"] = igDset
+    dfLoc["runType"] = "Morph"
 
     when false:
       ggplot(dfLoc, aes("Energy", "Hist")) +
-        geom_line() + ggsave(&"out/line_{dset}_{bin}.pdf")
+        geom_line() + ggsave(&"out/line_{igDset}_{bin}.pdf")
 
     result.add dfLoc
 
-proc morphSpline(df: DataFrame, exclude: int): DataFrame =
+proc filterKdeMorph(df: DataFrame, idx: int): DataFrame =
+  let xrayRef = getXrayRefTable()
+  let energies = getXrayFluorescenceLines()
+  let energy = energies[idx]
+  let eKde = df.filter(f{`runType` == "Morph"})["Energy", float].toRawSeq
+  let eEx = eKde[min(eKde.lowerBound(energy), eKde.high)]
+  result = df.filter(f{`runType` == "Morph"}, f{float: `Energy` == eEx})
+    .mutate(f{float -> float: "Hist" ~ `Hist` / sum(df["Hist"])})
+  result["Dset"] = xrayRef[idx]
+  result["yMin"] = energies[idx-1]
+  result["yMax"] = energies[idx]
+
+proc getMorphedDfKde(df: DataFrame, igDset: string): DataFrame =
+  result = df
+  let energies = getXrayFluorescenceLines()
+  for idx in 1 ..< energies.high: # leave out first and last
+    let dfM = morphedKde(df, idx, igDset)
+      .filterKdeMorph(idx)
+    result.add dfM
+
+proc morphSpline(df: DataFrame, exclude: int, igDset: string): DataFrame =
   ## morph the given df from the reference datasets bin by bin using a spline interpolation
-  result = df.select(@["Bins", "Hist", "Dset", "Energy", "runType"])
+  result = df.select(@["Bins", "Hist", "Dset", "Energy", "runType", "Variable"])
   for tup, subDf in groups(df.group_by("Bins")):
-    let subDf = subDf.arrange("Energy")
+    let subDf = subDf.arrange("Energy", SortOrder.Ascending)
 
     var energies = newSeq[float]() # = subDf["Energy", float]
     var hist = newSeq[float]()# = subDf["Hist", float]
@@ -155,16 +165,14 @@ proc morphSpline(df: DataFrame, exclude: int): DataFrame =
         continue
       energies.add subDf["Energy", float][idx]
       hist.add subDf["Hist", float][idx]
-    echo energies
-    #echo hist
     let kd = newCubicSpline(energies, hist)
     let es = linspace(min(energies), max(energies), 1000)
     var dfLoc = toDf({"Energy" : es, "Hist" : es.mapIt(kd.eval(it)) })
     let bin = subDf["Bins", float][0]
-    dfLoc["Bins"] = constantColumn(bin, dfLoc.len)
-    dfLoc["Dset"] = constantColumn("Morph", dfLoc.len)
-    dfLoc["runType"] = constantColumn("Morph", dfLoc.len)
-
+    dfLoc["Bins"] = bin
+    dfLoc["Dset"] = "None" # spline interpolation in all energies. `Dset` filled in `filterSplineToEnergy`
+    dfLoc["runType"] = "Morph"
+    dfLoc["Variable"] = igDset
     when false:
       ggplot(dfLoc, aes("Energy", "Hist")) +
         geom_line() + ggsave(&"out/line_{dset}_{bin}.pdf")
@@ -178,40 +186,19 @@ proc filterSplineToEnergy(df: DataFrame, idx: int, E: float): DataFrame =
     .mutate(f{float -> float: "Hist" ~ `Hist` / sum(df["Hist"])})
   let xrayRef = getXrayRefTable()
   let name = xrayRef[idx]
-  result["Dset"] = constantColumn(name, result.len)
+  result["Dset"] = name
+  result["yMin"] = energies[idx-1]
+  result["yMax"] = energies[idx]
 
-proc getMorphedDfSpline(df: DataFrame): DataFrame =
+proc getMorphedDfSpline(df: DataFrame, igDset: string): DataFrame =
   let energies = getXrayFluorescenceLines()
   result = df
   for idx in 1 ..< energies.high: # exclude first and last
-    let dfSpl = morphSpline(df, idx)
+    let dfSpl = morphSpline(df, idx, igDset)
       .filterSplineToEnergy(idx, energies[idx])
     result.add dfSpl
 
-proc morphDf(df: DataFrame, idx: int, energy: float): DataFrame =
-  ## returns morphed as added thing in df
-  result = df
-  #const idx = 1
-  let xrayRef = getXrayRefTable()
-  let energies = getEnergyBinning()
-  let res = morph(df, energy, offset = 2)
-  let bins = df["Bins", float][0 ..< res.size]
-  var dfMorph = toDf({"Bins" : bins, "Hist" : res})
-  dfMorph["Dset"] = constantColumn(xrayRef[idx], dfMorph.len)
-  dfMorph["runType"] = constantColumn("Morph", dfMorph.len)
-  dfMorph["Energy"] = constantColumn(energy, dfMorph.len)
-  dfMorph["yMin"] = constantColumn(energies[idx-1], dfMorph.len)
-  dfMorph["yMax"] = constantColumn(energies[idx], dfMorph.len)
-  result.add dfMorph
-
-proc getMorphedDf(df: DataFrame): DataFrame =
-  let energies = getXrayFluorescenceLines()
-  result = df
-  for idx in 1 ..< energies.high: # exclude first and last
-    result = result.morphDf(idx, energies[idx])
-    echo result
-
-proc getInterpolatedDf(df: DataFrame, num = 1000): DataFrame =
+proc getLinearInterpolatedDf(df: DataFrame, num = 1000): DataFrame =
   ## returns a DF with `num` interpolated distributions using next neighbors
   ## for linear interpolation (to be used to plot as a raster)
   let energiesLines = getXrayFluorescenceLines()
@@ -220,21 +207,53 @@ proc getInterpolatedDf(df: DataFrame, num = 1000): DataFrame =
   let xrayRef = getXrayRefTable()
   #let energies = getEnergyBinning()
   var binWidth: float
+  var dfs = newSeq[DataFrame]()
   for idx, E in energies:
-    let res = morph(df, E, offset = 1)
-    let bins = df["Bins", float][0 ..< res.size]
+    let (bins, res) = morph(df, E, offset = 1)
     if binWidth == 0.0:
       binWidth = bins[1] - bins[0]
     var dfMorph = toDf({"Bins" : bins, "Hist" : res})
-    dfMorph["runType"] = constantColumn("Morph", dfMorph.len)
-    dfMorph["Energy"] = constantColumn(E, dfMorph.len)
-    dfMorph["Dset"] = constantColumn("None", dfMorph.len)
-    result.add dfMorph
-    echo result
-  result["binWidth"] = constantColumn(binWidth, result.len)
-  result["binHeight"] = constantColumn(energies[1] - energies[0], result.len)
+    dfMorph["runType"] = "Morph"
+    dfMorph["Energy"] = E
+    dfMorph["Dset"] = "None"
 
-proc plotTile(df: DataFrame, dset: string) =
+    dfs.add dfMorph
+  result = assignStack(dfs)
+  result["binWidth"] = binWidth
+  result["binHeight"] = energies[1] - energies[0]
+
+proc plotRef(df: DataFrame,
+             dset: string,
+             refFile: string, yearKind: YearKind,
+             mtKind: MorphTechnique,
+             outpath: string) =
+  let xrayRef = getXrayRefTable()
+  var labelOrder = initTable[Value, int]()
+  for idx, el in xrayRef:
+    labelOrder[%~ el] = idx
+  #labelOrder[%~ "Morph"] = labelOrder.len
+  #ggplot(df.filter(f{string: `runType` == "Morph"}), aes("Bins", "Energy", fill = "Hist")) +
+  #  #ggridges("Dset", overlap = 1.0, labelOrder = labelOrder) +
+  #  #facet_wrap("Dset", scales = "free") +
+  #  geom_raster() +
+  #  #geom_histogram(stat = "identity", position = "identity",
+  #  #               alpha = some(0.5)) +
+  #  ggtitle(&"{dset} of reference file, year: {yearKind}") +
+  #  ggsave(&"out/{dset}_ridgeline_tile_{refFile.extractFilename}_{yearKind}.pdf",
+  #          width = 800, height = 480)
+  #let df = df.filter(f{float: `Energy` in energies or `Energy` in eExctract})
+  #echo df.filter(f{float: `Energy` in energies}, f{string: `runType` == "Morph"}).pretty(-1)
+
+  ggplot(df, aes("Bins", "Hist", fill = "runType")) +
+    ggridges("Dset", overlap = 1.0, labelOrder = labelOrder) +
+    #facet_wrap("Dset", scales = "free") +
+    geom_histogram(stat = "identity", position = "identity",
+                   alpha = some(0.5)) +
+    ggtitle(&"{dset} of reference file, year: {yearKind}") +
+    ggsave(&"{outpath}/{dset}_ridgeline_morph_{mtKind}_{refFile.extractFilename}_{yearKind}.pdf",
+            width = 800, height = 480)
+
+proc plotTile(df: DataFrame, dset: string, mtKind: MorphTechnique, outpath: string) =
   let binWidth = block:
                    let t = df["Bins", float]
                    t[1] - t[0]
@@ -253,42 +272,59 @@ proc plotTile(df: DataFrame, dset: string) =
     let line = lines[idx]
     let minVal = bins.min - (bins.max - bins.min) * 0.05
     let maxVal = bins.min
-    echo minVal
-    echo maxval
     let lStr = &"{line:.3g}"
     plt = plt + geom_text(aes = aes(x = minVal, y = line, text = lStr),
-                          color = some(parseHex("FF0000")),
-                          size = some(4.0))
+                          color = "#FF0000",
+                          size = 4.0)
 
-  plt + ggsave(&"out/cdl_as_tile_{dset}.pdf")
+  plt + ggsave(&"{outpath}/cdl_as_tile_morph_{mtKind}_{dset}.pdf")
 
-proc plotInterpolatedRaster(df: DataFrame, dset: string, interpolated = false) =
+proc plotScatter(df: DataFrame, igDset: string, mtKind: MorphTechnique, outpath: string) =
+  ggplot(df, aes("Bins", "Energy", color = "Hist")) +
+    geom_point(size = 3.0) +
+    scale_y_continuous() +
+    ggtitle(&"Scatter plot of CDL data for {igDset}") +
+    ggsave(&"{outpath}/cdl_as_scatter_morph_{mtKind}_{igDset}.pdf")
+
+proc plotInterpolatedRaster(df: DataFrame, dset: string, mtKind: MorphTechnique, outpath: string) =
   var dfMorph: DataFrame
-  if not interpolated:
-    dfMorph = df.getInterpolatedDf.filter(f{string: `runType` == "Morph"})
-  else:
-    dfMorph = df.filter(f{string: `runType` == "Morph"})
-  var plt = ggplot(dfMorph, aes("Bins", "Energy", fill = "Hist")) +
-    geom_raster(aes = aes(width = "binWidth", height = "binHeight")) +
+  ## XXX: The morphing kind here is not really used / does not make much sense as it is.
+  ## (only `mtNone` does). If the input data is already morphed, it is not morphed in the
+  ## intended way:
+  ## we would want to fully interpolate. Instead of excluding one energy each, interpolate
+  ## between energies, which we don't do. To make that plot, need to change the `getMorphed*Df`
+  ## procs to have the option to fully interpolate in addition.
+  case mtKind
+  of mtNone: dfMorph = df.getLinearInterpolatedDf.filter(f{string: `runType` == "Morph"})
+  else: dfMorph = df.filter(f{string: `runType` == "Morph"})
+
+  let (f, t) = (dfMorph["Bins", float].min, dfMorph["Bins", float].max)
+  var dfE = newDataFrame()
+  let xrayRef = getXrayRefTable()
+  for idx, E in getXrayFluorescenceLines():
+    dfE.add toDf({"Bins" : @[f, t], "Energy": @[E, E], "Dset" : xrayRef[idx]})
+  var plt = ggplot(dfMorph, aes("Bins", "Energy")) +
+    geom_raster(aes = aes(fill = "Hist")) + # aes = aes(width = "binWidth", height = "binHeight")) +
+    geom_line(data = dfE, aes = aes("Bins", "Energy", color = "Dset")) +
     scale_y_continuous() +
     ylim(0, 10) +
+    ylab("Energy [keV]") + xlab(dset) +
     #xlim(0, 15) +
-    ggtitle(&"2D heatmap plot of linearly interpolated CDL data for {dset}")
-  when false:
-    let lines = getXrayFluorescenceLines()
-    var lineDf = newDataFrame()
-    for idx in 0 ..< lines.len:
-      var bins = df.filter(f{string -> bool: `Dset` == "Cu-Ni-15kV" and `runType` == "CDL"})["Bins", float]
-      let line = lines[idx]
-      let minVal = bins.min - (bins.max - bins.min) * 0.05
-      let maxVal = bins.min
-      let lStr = &"{line:.3g}"
-      plt = plt + geom_text(data = newDataFrame(), aes = aes(x = minVal, y = line, text = lStr),
-                            color = some(parseHex("FF0000")),
-                            size = some(4.0))
-  plt + ggsave(&"out/cdl_as_raster_interpolated_{dset}.pdf")
+    ggtitle(&"Linearly interpolated CDL data for {dset}")
+  let lines = getXrayFluorescenceLines()
+  var lineDf = newDataFrame()
+  for idx in 0 ..< lines.len:
+    var bins = df.filter(f{string -> bool: `Dset` == "Cu-Ni-15kV" and `runType` == "CDL"})["Bins", float]
+    let line = lines[idx]
+    let minVal = bins.min - (bins.max - bins.min) * 0.05
+    let maxVal = bins.min
+    let lStr = &"{line:.3g}"
+    plt = plt + geom_text(data = newDataFrame(), aes = aes(x = minVal, y = line, text = lStr),
+                          color = "#FF0000",
+                          size = 4.0)
+  plt + ggsave(&"{outpath}/cdl_as_raster_interpolated_morph_{mtKind}_{dset}.pdf")
 
-proc computeMorphingSysetmatics(df: DataFrame): Table[string, float] =
+proc computeMorphingSystematics(df: DataFrame): Table[string, float] =
   ## Computes statistics for the systematics introduced via morphing.
   ##
   ## We compute the sumo of squared differences between the real line & the morphed
@@ -316,38 +352,53 @@ proc computeMorphingSysetmatics(df: DataFrame): Table[string, float] =
   result = diffs
 
 proc main(#files: seq[string],
-          refFile: string = "/mnt/1TB/CAST/CDL_2019/XrayReferenceFile2018.h5",
-          fkKind: FrameworkKind = fkTpa) =
-
+          cdlFile: string = "/mnt/1TB/CAST/CDL_2019/calibration-cdl-2018.h5",
+          fkKind: FrameworkKind = fkTpa,
+          outpath = "out") =
   const dkKinds = [igEccentricity, igLengthDivRmsTrans, igFractionInTransverseRms]
+
+  # Read a likelihood context for convenience to access the reference data via the
+  # `calibration-cdl` file instead of the `XrayReferenceFile`. The former is saner,
+  # because we don't rely on some weird state in the reference file.
+  # We hand `morphKind = mkLinear` for no real reason. We don't use the morphed fields
+  # of the Context here in this code. But we need it to call `readRefDsetsDf`, which
+  # returns a DF of the reference data (replacing our previous `readRefDsets` proc.
+  let ctx = initLikelihoodContext(cdlFile,
+                                  year = yr2018,
+                                  energyDset = igEnergyFromCharge,
+                                  region = crSilver,
+                                  timepix = Timepix1,
+                                  morphKind = mkLinear)
+
   var df = newDataFrame()
   var diffTab = initTable[string, Table[string, float]]()
+  let dfRefAll = readRefDf(ctx)
   for dkKind in dkKinds:
-    let dfRef = readRefDsets(refFile, dkKind, yr2018)
+    let igDset = dkKind.toDset(fkKind)
+    let dfRef = dfRefAll.filter(f{`Variable` == igDset})
       .normalize
-    let dset = dkKind.toDset(fkKind)
-    #let res = morphKde(dfRef, dset)
-    #let res = getMorphedDfSpline(dfRef)
-    #echo res
-    var res = getMorphedDf(dfRef)
-    diffTab[$dkKind] = computeMorphingSysetmatics(res)
-    #res.showBrowser()
 
-    #plotRef(res,
-    #        dset,
-    #        refFile, yr2018, isKde = true)
-    #res["Variable"] = constantColumn(dset, res.len)
-    #
-    #ggplot(res, aes("Bins", "Energy", color = "Hist")) +
-    #  geom_point(size = some(3.0)) +
-    #  scale_y_continuous() +
-    #  ggtitle(&"Scatter plot of CDL data for {dset}") +
-    #  ggsave(&"out/cdl_as_scatter_{dset}.pdf")
-    #
-    ##plotTile(res, dset)
-    #plotInterpolatedRaster(dfRef, dset, interpolated = true)
+    ## "Interpolated" raster without interpolation
+    proc allPlots(df: DataFrame, igDset: string, mt: MorphTechnique) =
+      plotRef(df, igDset, cdlFile.extractFilename, yr2018, mt, outpath)
+      plotScatter(df, igDset, mt, outpath)
+      plotTile(df, igDset, mt, outpath)
+      if mt == mtNone:
+        plotInterpolatedRaster(dfRef, igDset, mt,outpath)
 
-  #echo df.pretty(-1)
+    allPlots(dfRef, igDset, mtNone)
+
+    let dfLinear = getMorphedDf(dfRef, igDset)
+    let dfSpline = getMorphedDfSpline(dfRef, igDset)
+    ## NOTE: KDE does not make sense, see docstring above
+    #let dfKde    = getMorphedDfKde(dfRef, igDset)
+
+    # for systematics we only care about what we actually use:
+    diffTab[$dkKind] = computeMorphingSystematics(dfLinear)
+
+    allPlots(dfLinear, igDset, mtLinear)
+    allPlots(dfSpline, igDset, mtSpline)
+    ## NOTE: KDE does not make sense, see docstring above
 
   # print info about morphing systematic differences
   let xrayRef = getXrayRefTable()

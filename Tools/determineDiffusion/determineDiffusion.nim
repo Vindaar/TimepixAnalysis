@@ -166,7 +166,8 @@ proc cramerVonMises(xIn, yIn: seq[float]): float =
 
 import os
 import arraymancer
-const HistoFile = "/home/basti/Sync/test_histo.pdf"
+var HistoPath = "/home/basti/Sync/"
+let HistoFile = "test_histo.pdf"
 proc simulateRmsTrans(rnd: var Rand, rmsReal: seq[float], gasMixture: GasMixture, σT: float, energy: keV,
                       isBackground: bool, run: int): float =
   ## 2. get absorption length for this energy
@@ -240,9 +241,15 @@ proc simulateRmsTrans(rnd: var Rand, rmsReal: seq[float], gasMixture: GasMixture
   ggplot(df, aes("rmsT", fill = "typ")) +
     geom_histogram(bins = 100, hdKind = hdOutline, alpha = 0.5, position = "identity", density = true) +
     ggtitle(&"Run: {run} with Cramér-von Mises = {result}") +
-    ggsave(HistoFile)
+    ggsave(HistoPath / HistoFile)
 
 proc determineMonteCarlo(rmsT: seq[float], energy: keV, isBackground = false, run = -1): (float, float) =
+  ## It determines the best diffusion constant, `D_T`. That is:
+  ##
+  ## `σ_T = D_T · √( drift distance )`
+  ##
+  ## and not the diffusion coefficient `σ_T`!
+  ##
   ## Determines the best diffusion matching the data using a MonteCarlo approach
   ## combined with a simple non linear optimization strategy that checks the
   ## improvement via Kolmogorov-Smirnov. We aim to reproduce the best possible
@@ -303,7 +310,7 @@ proc determineMonteCarlo(rmsT: seq[float], energy: keV, isBackground = false, ru
       numBad = 0
 
       # copy the last plot to one based on this run number
-      copyFile(HistoFile, HistoFile.parentDir / &"histo_sim_vs_real_run_{run}_loss_{bestLoss}_sigma_{bestEstimate}.pdf")
+      copyFile(HistoPath / HistoFile, HistoPath / &"histo_sim_vs_real_run_{run}_loss_{bestLoss}_sigma_{bestEstimate}.pdf")
     else:
       inc numBad
       if numBad > MaxConsBad div 2:
@@ -382,6 +389,12 @@ proc getDiffusion*(rmsT: seq[float],
                    useCache = true): (float, float) =
   ## DataFrame must contain `rmsTransverse` column!
   ##
+  ## It returns the diffusion constant, `D_T`. That is:
+  ##
+  ## `σ_T = D_T · √( drift distance )`
+  ##
+  ## and not the diffusion coefficient `σ_T`!
+  ##
   ## XXX: The `energy` argument here is a bit dangerous. We shouldn't use the
   ## energy of the target energy we want to simulate later for an NN cut value,
   ## because the energy that is needed is the one that actually reproduces the input
@@ -420,8 +433,9 @@ proc getDiffusion*(rmsT: seq[float],
       geom_linerange(aes = aes(x = arg, y = 0.0, yMin = 0.0, yMax = yMax), color = "green") +
       scale_y_continuous() +
       ylab("rmsT") +
-      ggsave(&"/home/basti/Sync/run_{run}_rmsTransverseFit.pdf")
-    echo "RRESULT COMSE OUT TO ", result, " from fit parameters? ? ", pRes, " FOR RUN: ", run
+      theme_font_scale(1.0, family = "serif") +
+      ggsave(&"{HistoPath}/run_{run}_rmsTransverseFit.pdf")
+    echo "RESULT COMES OUT TO ", result, " from fit parameters? ? ", pRes, " FOR RUN: ", run
   #if true: quit()
 
 ## XXX: THIS IS OUTDATED and dangerous! It gives the wrong numbers to use for the
@@ -454,7 +468,8 @@ proc determineDiffusion(df: DataFrame, outpath: string, useTeX: bool) =
   ggplot(dfAll, aes("run", "σT", color = "loss", shape = "isBackground")) +
     geom_point() +
     xlab("Run number") + ylab(ylabel) +
-    ggtitle("Determined diffusion of all CAST runs") +
+    ggtitle("Determined diffusion constant of all CAST runs") +
+    theme_font_scale(1.0, family = "serif") +
     ggsave(&"{outpath}/σT_per_run.pdf", useTeX = useTeX, standalone = useTeX)
 
 when isMainModule:
@@ -486,7 +501,15 @@ when isMainModule:
 
   proc main(fnames: seq[string],
             plotPath: string = "/home/basti/Sync",
+            histoPlotPath: string = "/home/basti/Sync",
             useTeX = false) =
+    ## `plotPath` is where the D_T for all runs plot will be placed.
+    ## `histoPlotPath` is the path for all the histograms of the distributions
+    ## created during optimization.
+
+    # Adjust the plotting path for the histograms
+    HistoPath = histoPlotPath
+
     var df = newDataFrame()
     for f in fnames:
       df.add readData(f)

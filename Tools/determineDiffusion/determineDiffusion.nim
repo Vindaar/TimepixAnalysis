@@ -433,7 +433,7 @@ proc getDiffusion*(rmsT: seq[float],
 #  let (df, pRes, _) = fitRmsTransverse(df["rmsTransverse", float], 100)
 #  result = (pRes[1] + Scale * abs(pRes[2])) / sqrt(MaxZ) * 1000.0
 
-proc determineDiffusion(df: DataFrame) =
+proc determineDiffusion(df: DataFrame, outpath: string, useTeX: bool) =
   var dfAll = newDataFrame()
   for (tup, subDf) in groups(df.group_by("run")):
     let run = tup[0][1].toInt
@@ -442,7 +442,7 @@ proc determineDiffusion(df: DataFrame) =
     let energy = if not isBackground: tfMnCr12.toXrayLineEnergy().keV
                  else: 0.keV
 
-    # or use cache ?
+    # or use cache ? At least if available :)
     let (σT, loss) = getDiffusion(subDf["rms", float].toSeq1D,
                                   isBackground = isBackground,
                                   run = run,
@@ -450,9 +450,12 @@ proc determineDiffusion(df: DataFrame) =
                                   useCache = true)
     dfAll.add toDf( {"run" : run, "σT" : σT, "loss" : loss, "isBackground" : isBackground })
 
+  let ylabel = if useTeX: r"$D_T$ [$\si{μm.cm^{1/2}}$]" else: "D_T [μm/√cm]"
   ggplot(dfAll, aes("run", "σT", color = "loss", shape = "isBackground")) +
     geom_point() +
-    ggsave("/home/basti/Sync/σT_per_run.pdf")
+    xlab("Run number") + ylab(ylabel) +
+    ggtitle("Determined diffusion of all CAST runs") +
+    ggsave(&"{outpath}/σT_per_run.pdf", useTeX = useTeX, standalone = useTeX)
 
 when isMainModule:
   import ../NN_playground/io_helpers
@@ -482,11 +485,12 @@ when isMainModule:
         result.add df
 
   proc main(fnames: seq[string],
-            plotPath: string = "") =
+            plotPath: string = "/home/basti/Sync",
+            useTeX = false) =
     var df = newDataFrame()
     for f in fnames:
       df.add readData(f)
-    determineDiffusion(df)
+    determineDiffusion(df, plotPath, useTeX)
 
   #when isMainModule:
   import cligen

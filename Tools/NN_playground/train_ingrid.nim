@@ -151,15 +151,6 @@ proc plotRocCurve(dfLnL, dfMLP: DataFrame, suffix = "_likelihood", plotPath = "/
   let dfRoc = calcRocCurve(logl, targets, preds, targetsMlp)
   rocCurve(dfRoc, suffix, plotPath)
 
-proc prepareDataframe(fname: string, run: int, readRaw: bool): DataFrame =
-  let dfCdl = prepareCdl(readRaw)
-  let dfBack = prepareBackground(fname, run, readRaw) # .drop(["centerX", "centerY"])
-  echo dfCdl
-  echo dfBack
-  result = newDataFrame()
-  result.add dfCdl
-  result.add dfBack
-
 import ingrid / [fake_event_generator, gas_physics]
 from pkg / xrayAttenuation import FluorescenceLine
 proc generateFakeEvents(rnd: var Rand,

@@ -104,7 +104,7 @@ proc plotPredictions(predictions: seq[float], targets: seq[int],
   var maxH = 0.0
   for (tup, subDf) in groups(dfPlt.group_by("isSignal")):
     let (hist, bins) = histogram(subDf["predictions", float].toSeq1D, bins = 100)
-    let dfH = toDf({"count" : hist, "predictions" : bins[0 .. ^2], "isSignal" : tup[0][1].toBool})
+    let dfH = toDf({"count" : hist.extend(0), "predictions" : bins, "isSignal" : tup[0][1].toBool})
     dfL.add dfH
     maxH = max(maxH, hist.max.float)
   try:

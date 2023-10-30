@@ -55,21 +55,28 @@ iterator extractClusters(h5f: var H5File, chip: int): (int, seq[float], seq[floa
     let totalClusters = chipGrp.attrs[attrName, int]
     yield (totalClusters, cX, cY, cE)
 
-proc goldRegionOutline(maxVal: int): Tensor[int] =
+proc goldRegionOutline(): DataFrame =
   ## returns the outline of the gold region
   let min = (256.0 * 4.5 / 14.0).round.int
   let max = (256.0 * 9.5 / 14.0).round.int
-  result = zeros[int]([256, 256])
-  for coord, val in result:
-    if (coord[0] in @[min, min + 1, min - 1] and
-        coord[1] in {min .. max}) or
-       (coord[0] in @[max, max + 1, max - 1] and
-        coord[1] in {min .. max}) or
-       (coord[1] in @[min, min + 1, min - 1] and
-        coord[0] in {min .. max}) or
-       (coord[1] in @[max, max + 1, max - 1] and
-        coord[0] in {min .. max}):
-      result[coord[0], coord[1]] = maxVal
+
+  let xs = [min, max, max, min, min]
+  let ys = [min, min, max, max, min]
+  result = toDf(xs, ys)
+
+  ## This was for the very old version using `plotly` that took a 256x256 tensor
+  when false:
+    result = zeros[int]([256, 256])
+    for coord, val in result:
+      if (coord[0] in @[min, min + 1, min - 1] and
+          coord[1] in {min .. max}) or
+         (coord[0] in @[max, max + 1, max - 1] and
+          coord[1] in {min .. max}) or
+         (coord[1] in @[min, min + 1, min - 1] and
+          coord[0] in {min .. max}) or
+         (coord[1] in @[max, max + 1, max - 1] and
+          coord[0] in {min .. max}):
+        result[coord[0], coord[1]] = maxVal
 
 ## XXX: Handle the noisy pixels better!
 when true:
@@ -228,7 +235,8 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
                   energyTextRadius: float,
                   suffix, title, outpath, axionImage: string,
                   scale: float,
-                  preliminary: bool) =
+                  preliminary: bool,
+                  showGoldRegion: bool) =
   let outpath = if outpath.len > 0: outpath else: "plots"
   var colorCol: string
   let totalEvs = df.len
@@ -251,13 +259,8 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
     let maxCount = if colorBy == count: df[colorCol, int].max
                    else: 0
     echo df
-    var plt =
-      if colorBy == count and  maxCount < 10:
-        ggplot(df, aes("x", "y", color = factor(colorCol)))
-      else:
-        ggplot(df, aes("x", "y", color = colorCol)) +
-        scale_color_continuous(scale = (low: 0.0, high: zMax))
-    plt = plt + xlim(0, 256) + ylim(0, 256) +
+    var plt = ggplot(df, aes("x", "y")) +
+      xlim(0, 256) + ylim(0, 256) +
       xlab("x [Pixel]") + ylab("y [Pixel]")
       #margin(top = 1.75 * scale)
 
@@ -279,7 +282,11 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
                             font = font(8.0, alignKind = taLeft))
 
     # Add the main point geom
-    plt = plt + geom_point(size = some(scale * 1.0))
+    if colorBy == count and  maxCount < 10:
+      plt = plt + geom_point(aes = aes(color = factor(colorCol)), size = some(scale * 1.0))
+    else:
+      plt = plt + geom_point(aes = aes(color = colorCol), size = some(scale * 1.0)) +
+        scale_color_continuous(scale = (low: 0.0, high: zMax))
 
     if preliminary:
       let red = color(1.0, 0.0, 0.0)
@@ -287,6 +294,9 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
                            backgroundColor = transparent,
                            x = 25, y = 70, rotate = 45.0,
                            font = font(32.0, color = red))
+
+    if showGoldRegion:
+      plt = plt + geom_line(data = goldRegionOutline(), aes = aes("xs", "ys"), color = "red")
 
     if not useTikZ:
       echo "[INFO]: Saving plot to ", fname
@@ -326,7 +336,8 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
              #useTeX = true, standalone = true) # onlyTikZ = true)
 
 proc plotSuppression(cTab: CountTable[(int, int)], totalNum, tiles: int,
-                     outpath: string) =
+                     outpath: string,
+                     showGoldRegion: bool) =
   ## Plots a tilemap of background suppressions. It uses `tiles` elements in each axis.
   proc toTensor(cTab: CountTable[(int, int)]): Tensor[int] =
     result = zeros[int]([256, 256])
@@ -364,6 +375,8 @@ proc plotSuppression(cTab: CountTable[(int, int)], totalNum, tiles: int,
   let size = step.ceil
   let outfile = if outpath.len > 0: outpath / "background_suppression_tile_map.pdf"
                 else: "plots/background_suppression_tile_map.pdf"
+  ## XXX: FIX UP title for TeX backend (unicode) & make # of total cluster dependent on code, not
+  ## hardcoded!
   ggplot(dfTile, aes("xI", "yI", fill = "sI", width = size, height = size)) +
     geom_tile() +
     geom_text(aes = aes(x = f{`xI` + size / 2.0}, y = f{`yI` + size / 2.0}, text = "sI"), color = "white") +
@@ -391,6 +404,7 @@ proc main(
   axionImage = "", # "/home/basti/org/resources/axion_images/axion_image_2018_1487_93_0.989AU.csv"
   preliminary = false,
   backgroundSuppression = false,
+  showGoldRegion = false,
   scale = 1.0 # Scale the output image and all texts etc. by this amount. Default is 640x480
      ) =
 
@@ -413,11 +427,11 @@ proc main(
       dfLoc["Type"] = names[i]
       df.add dfLoc
 
-  plotClusters(df, names, useTikZ, zMax, colorBy, energyText, energyTextRadius, suffix, title, outpath, axionImage, scale, preliminary)
+  plotClusters(df, names, useTikZ, zMax, colorBy, energyText, energyTextRadius, suffix, title, outpath, axionImage, scale, preliminary, showGoldRegion)
   # `df.len` is total number clusters
   if backgroundSuppression:
     doAssert names.len == 0, "Suppression plot when handing multiple files that are not combined not supported."
-    plotSuppression(cTab.toCountTable(), totalNum, tiles, outpath)
+    plotSuppression(cTab.toCountTable(), totalNum, tiles, outpath, showGoldRegion)
 
   when false:
     # convert center positions to a 256x256 map

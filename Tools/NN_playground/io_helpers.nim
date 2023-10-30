@@ -106,7 +106,8 @@ proc readValidDsets*(h5f: H5File, path: string, readRaw = false,
 proc prepareData*(h5f: H5File, run: int, readRaw: bool,
                   typ = dtBack,
                   subsetPerRun = 0,
-                  validDsets: set[InGridDsetKind] = ValidReadDsets - { igLikelihood } ): DataFrame
+                  validDsets: set[InGridDsetKind] = ValidReadDsets - { igLikelihood },
+                  chips: set[uint8] = {3'u8}): DataFrame
 proc readCalibData*(fname, calibType: string, eLow, eHigh: float,
                     subsetPerRun = 0,
                     tfKind = none[TargetFilterKind](),
@@ -216,26 +217,35 @@ proc prepareCdl*(readRaw: bool,
               # for other purposes order does not matter
 
 proc prepareData*(h5f: H5File, run: int, readRaw: bool, typ = dtBack, subsetPerRun = 0,
-                  validDsets: set[InGridDsetKind] = ValidReadDsets - { igLikelihood }
+                  validDsets: set[InGridDsetKind] = ValidReadDsets - { igLikelihood },
+                  chips: set[uint8] = {3'u8}
                  ): DataFrame =
-  let path = "/reconstruction/run_$#/chip_3" % $run
-  result = h5f.readValidDsets(path, readRaw, typ, subsetPerRun, validDsets)
+  var dfs = newSeq[DataFrame]()
+  for chip in chips:
+    let path = recoPath(run, chip.int).string
+    echo "Reading: ", path
+    dfs.add h5f.readValidDsets(path, readRaw, typ, subsetPerRun, validDsets)
+  result = assignStack(dfs)
 
 proc prepareBackground*(fname: string, run: int, readRaw: bool, subsetPerRun = 0,
-                        validDsets: set[InGridDsetKind] = ValidReadDsets - { igLikelihood }): DataFrame =
+                        validDsets: set[InGridDsetKind] = ValidReadDsets - { igLikelihood },
+                        chips: set[uint8]): DataFrame =
   var h5f = H5open(fname, "r")
   result = h5f.prepareData(run, readRaw, subsetPerRun = subsetPerRun,
-                           validDsets = validDsets)
+                           validDsets = validDsets,
+                           chips = chips)
   discard h5f.close()
 
 proc prepareAllBackground*(fname: string, readRaw: bool, subsetPerRun = 0,
                            validDsets: set[InGridDsetKind] = ValidReadDsets - { igLikelihood },
-                           region = crAll
+                           region = crAll,
+                           chips: set[uint8] = {3}
                           ): DataFrame =
   var h5f = H5open(fname, "r")
   for run, grp in runs(h5f):
     var df = h5f.prepareData(run, readRaw, subsetPerRun = subsetPerRun,
-                             validDsets = validDsets)
+                             validDsets = validDsets,
+                             chips = chips)
     df["runNumber"] = run
     result.add df
 

@@ -229,8 +229,12 @@ proc prepareSimDataframe(mlpDesc: MLPDesc, readRaw: bool, rnd: var Rand): DataFr
 
   var dfBack = newDataFrame()
   for b in mlpDesc.backFiles:
-    dfBack.add prepareAllBackground(b, readRaw, subsetPerRun = mlpDesc.subsetPerRun * 6,
-                                    region = mlpDesc.backgroundRegion) # .drop(["centerX", "centerY"])
+    ## NOTE: For all training runs before 2023/10/30 we multiplied `subsetPerRun` by 6.
+    ## As we never adjusted `subsetPerRun` by hand, to reproduce old trainings, use
+    ## `--subsetPerRun 6000`!
+    dfBack.add prepareAllBackground(b, readRaw, subsetPerRun = mlpDesc.subsetPerRun,
+                                    region = mlpDesc.backgroundRegion,
+                                    chips = mlpDesc.backgroundChips)
   echo "Simulated: ", dfSim
   echo "Back: ", dfBack
   result = newDataFrame()
@@ -246,7 +250,7 @@ proc prepareMixedDataframe(mlpDesc: MLPDesc, readRaw: bool): DataFrame =
     dfFe.add readCalibData(c, "photo", 5.0, 7.0, spr div 2)
   var dfBack = newDataFrame()
   for b in mlpDesc.backFiles:
-    dfBack.add prepareAllBackground(b, readRaw, subsetPerRun = spr * 6) # .drop(["centerX", "centerY"])
+    dfBack.add prepareAllBackground(b, readRaw, subsetPerRun = spr, chips = mlpDesc.backgroundChips) # .drop(["centerX", "centerY"])
   echo "CDL: ", dfCdl
   echo "55Fe: ", dfFe
   echo "Back: ", dfBack
@@ -777,7 +781,8 @@ proc initDesc(calib, back: seq[string], # data
               simulatedData: bool,
               rngSeed: int,
               backgroundRegion: ChipRegion,
-              nFake: int): MLPDesc =
+              nFake: int,
+              backgroundChips: set[uint8]): MLPDesc =
   if numHidden.len == 0:
     raise newException(ValueError, "Please provide a number of neurons for the hidden layers.")
   # 1. initialize the MLPDesc from the given parameters
@@ -791,7 +796,8 @@ proc initDesc(calib, back: seq[string], # data
                        simulatedData,
                        rngSeed,
                        backgroundRegion,
-                       nFake)
+                       nFake,
+                       backgroundChips)
 
   # 2. check if such a file already exists to possibly merge it or just return that
   let outfile = result.modelDir / MLPDescName
@@ -922,7 +928,8 @@ proc main(calib, back: seq[string] = @[],
           lossFunction: LossFunction = lfSigmoidCrossEntropy,
           optimizer: OptimizerKind = opSGD,
           learningRate = Inf,
-          subsetPerRun = 1000,
+          subsetPerRun = 1000, ## If multiple `backgroundChips` given, read `subsetPerRun` for *each chip!
+          backgroundChips = none(set[uint8]),
           plotPath = "",
           clampOutput = 50.0,
           printDefaultDatasets = false,
@@ -938,6 +945,7 @@ proc main(calib, back: seq[string] = @[],
       echo d
     return
 
+  let backgroundChips = if backgroundChips.isSome: backgroundChips.get else: {3'u8}
   let desc = initDesc(calib, back, modelOutpath, plotPath,
                       datasets,
                       numHidden,
@@ -947,7 +955,8 @@ proc main(calib, back: seq[string] = @[],
                       simulatedData,
                       rngSeed,
                       backgroundRegion,
-                      nFake)
+                      nFake,
+                      backgroundChips)
 
   ClampOutput = clampOutput
 
@@ -1002,5 +1011,28 @@ when isMainModule:
       raise newException(Exception, "Invalid enum value: " & $val)
   proc argHelp*(dfl: Hour; a: var ArgcvtParams): seq[string] =
     result = @[ a.argKeys, "<value>.Hour", $dfl ]
+
+  ## Allow `Option` inputs
+  proc argParse[T](dst: var Option[T], dfl: Option[T],
+                   a: var ArgcvtParams): bool =
+    ## If this is being called it means we have _something_, so just
+    ## dispath to type `T`
+    var res: T
+    var dfl: T
+    result = argParse(res, dfl, a)
+    # merge sets
+    when T is set:
+      if dst.isNone:
+        dst = some(res)
+      else:
+        var dest = dst.get
+        dest.incl res
+        dst = some(dest)
+    else:
+      dst = some(res)
+
+  proc argHelp*[T](dfl: Option[T]; a: var ArgcvtParams): seq[string] =
+    result = @[ a.argKeys, $T, "none" ]
+
   import cligen
   dispatch main

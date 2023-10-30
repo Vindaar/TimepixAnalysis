@@ -70,7 +70,11 @@ type
     backgroundChips*: set[uint8] ## Which chips to read 1·`subsetPerRun` from
     rngSeed*: int
     backgroundRegion*: ChipRegion
-    nFake*: int # number of fake events per run period to generate
+    nFake*: int # number of fake events per run period (!) to generate
+    nFakeTotal*: int # *total* number of fake events (train + test)
+    nBack*: int # number of total events in background dataset (train + test)
+    nTrain*: int # number of events in training set
+    nTest*: int # number of events in test set
     #
     activationFunction*: ActivationFunction
     outputActivation*: OutputActivation

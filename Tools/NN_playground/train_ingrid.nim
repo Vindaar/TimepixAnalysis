@@ -864,6 +864,18 @@ proc trainModel[T](_: typedesc[T],
   let (trainTup, testTup) = generateTrainTest(df, rnd)
   let (trainIn, trainTarg) = trainTup
   let (testIn, testTarg) = testTup
+
+  ## Get a mutable MLPDesc so that we can set the `nTrain/Test/...` fields
+  var mlpDesc = mlpDesc
+  proc assignNumbers(desc: var MLPDesc, df: DataFrame, nTrain, nTest: int) =
+    let dfS = df.filter(f{`Type` == $dtSignal})
+    desc.nFakeTotal = dfS.len
+    desc.nBack = df.len - dfS.len
+    desc.nTrain = nTrain
+    desc.nTest = nTest
+  echo trainIn.sizes
+  mlpDesc.assignNumbers(df, trainIn.sizes[0], testIn.sizes[0])
+
   # check if model already exists as trained file
   let lr = mlpDesc.learningRate
   if not fileExists(mlpDesc.path) or continueAfterEpoch > 0:

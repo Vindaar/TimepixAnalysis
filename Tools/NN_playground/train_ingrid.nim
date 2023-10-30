@@ -80,8 +80,8 @@ proc plotLikelihoodDist(df: DataFrame) =
     scale_x_continuous() +
     ggsave("/tmp/likelihood.pdf")
 
-proc plotTraining(predictions: seq[float], targets: seq[int],
-                  outfile = "/tmp/test.pdf") =
+proc plotPredictions(predictions: seq[float], targets: seq[int],
+                     outfile = "/tmp/test.pdf") =
   #echo "INPUT ", predictions.len
   #echo "TARG ", targets.len
   let dfPlt = toDf(predictions, targets)
@@ -96,6 +96,24 @@ proc plotTraining(predictions: seq[float], targets: seq[int],
       geom_histogram(bins = 100, position = "identity", alpha = some(0.5), hdKind = hdOutline) +
       scale_x_continuous() +
       ggsave(outfile)
+  except:
+    discard
+
+  # now a log10 version
+  var dfL = newDataFrame()
+  var maxH = 0.0
+  for (tup, subDf) in groups(dfPlt.group_by("isSignal")):
+    let (hist, bins) = histogram(subDf["predictions", float].toSeq1D, bins = 100)
+    let dfH = toDf({"count" : hist, "predictions" : bins[0 .. ^2], "isSignal" : tup[0][1].toBool})
+    dfL.add dfH
+    maxH = max(maxH, hist.max.float)
+  try:
+    ggplot(dfL, aes("predictions", "count", fill = "isSignal")) +
+      geom_histogram(stat = "identity", position = "identity", alpha = some(0.5), hdKind = hdOutline) +
+      scale_x_continuous() +
+      scale_y_log10() +
+      ylim(0.0, log10(maxH)) +
+      ggsave(outfile.replace(".pdf", "_log10.pdf"))
   except:
     discard
 
@@ -354,8 +372,8 @@ proc train(model: AnyModel, optimizer: var Optimizer,
       mlpDesc.toH5(mlpDesc.path.parentDir / MLPDescName)
 
       ## generate the plots
-      plotTraining(predictions, targets, outfile = &"{plotPath}/training_output.pdf")
-      plotTraining(tOut, tTarget, outfile = &"{plotPath}/validation_output.pdf")
+      plotPredictions(predictions, targets, outfile = &"{plotPath}/training_output.pdf")
+      plotPredictions(tOut, tTarget, outfile = &"{plotPath}/validation_output.pdf")
       plotType(mlpDesc.epochs, mlpDesc.accuracies, mlpDesc.testAccuracies, "Accuracy", outfile = &"{plotPath}/accuracy.pdf")
       plotType(mlpDesc.epochs, mlpDesc.losses, mlpDesc.testLosses, "Loss", outfile = &"{plotPath}/loss.pdf")
       let preds = predictions.mapIt(clamp(it, -ClampOutput, ClampOutput))
@@ -403,7 +421,7 @@ proc test(model: AnyModel,
 
   ## create output plot
   if toPlot:
-    plotTraining(predictions, targets, outfile = plotOutfile)
+    plotPredictions(predictions, targets, outfile = plotOutfile)
   # will fail probably...
   # doAssert target == targets
   let preds = predictions.mapIt(clamp(it, -ClampOutput, ClampOutput))
@@ -453,7 +471,7 @@ proc predict(model: AnyModel,
        &"| Accuracy: {predAcc:.4f}"
 
   ## create output plot
-  #plotTraining(predictions, targets, outfile = plotOutfile)
+  #plotPredictions(predictions, targets, outfile = plotOutfile)
   # will fail probably...
   # doAssert target == targets
   #let preds = predictions.mapIt(clamp(it, -50.0, 50.0))

@@ -1,4 +1,4 @@
-from std / random import shuffle
+from std / random import shuffle, Rand
 import std / [sequtils, os, strutils, options]
 
 import ingrid / [tos_helpers, ingrid_types]
@@ -25,10 +25,11 @@ type
     dtSignal = "signal"
     dtBack = "back"
 
-proc shuff*(x: seq[int]): seq[int] =
+proc shuff*(rnd: var Rand, x: seq[int]): seq[int] =
   ## Not in place shuffle
+  ## XXX: This should better receive an explicit RNG!
   result = x
-  result.shuffle()
+  rnd.shuffle(result)
 
 import ../../Tools/determineDiffusion/determineDiffusion
 proc readCdlDset*(h5f: H5File, cdlPath, dset: string): DataFrame =
@@ -64,19 +65,6 @@ proc readRaw*(h5f: H5File, grpName: string, idxs: seq[int] = @[]): DataFrame =
       ysAll.add ys[i][j].int
       evAll.add ev[i]
   result = toDf({"x" : xsAll, "y" : ysAll, "eventNumber" : evAll})
-
-proc shuffle*(df: DataFrame): DataFrame =
-  ## Shufles the input data frame
-  result = df.shallowCopy()
-  result["Idx"] = toSeq(0 .. df.high).shuff()
-  result = result.arrange("Idx")
-  result.drop("Idx")
-
-proc randomHead*(df: DataFrame, head: int): DataFrame =
-  ## Returns the `head` elements of the input data frame shuffled
-  #if head > df.len:
-  #  echo "Dataframe: ", df
-  result = df.shuffle().head(min(head, df.len))
 
 proc readValidDsets*(h5f: H5File, path: string, readRaw = false,
                      typ = dtBack,
@@ -224,7 +212,8 @@ proc prepareCdl*(readRaw: bool,
     df.add dfLoc
   discard h5f.close()
   df["Type"] = $dtSignal
-  result = df.shuffle()
+  result = df # we shuffled this in the past, but I see no point. Splitting to train/test shuffles.
+              # for other purposes order does not matter
 
 proc prepareData*(h5f: H5File, run: int, readRaw: bool, typ = dtBack, subsetPerRun = 0,
                   validDsets: set[InGridDsetKind] = ValidReadDsets - { igLikelihood }

@@ -16,7 +16,7 @@ var ClampOutput = 50.0
 ## XXX: a bit annoying that this is here...
 const CdlFile = "/home/basti/CastData/data/CDL_2019/calibration-cdl-2018.h5"
 
-proc generateTrainTest(df: var DataFrame):
+proc generateTrainTest(df: DataFrame, rnd: var Rand):
                       ((RawTensor, RawTensor), (RawTensor, RawTensor)) {.noInit.} =
   # - generate
   # - generate random numbers from 0 to df length
@@ -54,7 +54,8 @@ proc generateTrainTest(df: var DataFrame):
       if i >= nTrain + nTest: break
     result = (train: (data, target), test: (dataTest, targetTest))
   else:
-    df["Idx"] = toSeq(0 .. df.high).shuff()
+    var df = df # mutable copy
+    df["Idx"] = rnd.shuff(toSeq(0 .. df.high))
     df = df.arrange("Idx")
 
     let dfTrain = df[0 .. df.high div 2]
@@ -197,7 +198,7 @@ proc generateFakeEvents(rnd: var Rand,
   result["Type"] = $dtSignal
 
 import ingridDatabase / databaseRead
-proc prepareSimDataframe(mlpDesc: MLPDesc, readRaw: bool): DataFrame =
+proc prepareSimDataframe(mlpDesc: MLPDesc, readRaw: bool, rnd: var Rand): DataFrame =
   ## Generates a dataframe to train on that contains real background events and
   ## simulated X-rays. The calibration input files are only used to determine the
   ## boundaries of the gas gain and diffusion in which to generate events in!
@@ -211,7 +212,6 @@ proc prepareSimDataframe(mlpDesc: MLPDesc, readRaw: bool): DataFrame =
                                   region = crSilver,
                                   timepix = Timepix1,
                                   morphKind = mkLinear) # morphing to plot interpolation
-  var rnd = initRand(mlpDesc.rngSeed)
   var dfSim = newDataFrame()
   for c in mlpDesc.calibFiles:
     withH5(c, "r"):
@@ -838,14 +838,15 @@ proc trainModel[T](_: typedesc[T],
   else:
     const readRaw = true
   echo "Reading data"
+  var rnd = initRand(mlpDesc.rngSeed)
   var df = if mlpDesc.simulatedData:
              echo "Using simulated data."
-             prepareSimDataframe(mlpDesc, readRaw = readRaw)
+             prepareSimDataframe(mlpDesc, readRaw = readRaw, rnd = rnd)
            else:
              prepareMixedDataframe(mlpDesc, readRaw = readRaw)
   # get training & test dataset
   echo "Splitting data into train & test set"
-  let (trainTup, testTup) = generateTrainTest(df)
+  let (trainTup, testTup) = generateTrainTest(df, rnd)
   let (trainIn, trainTarg) = trainTup
   let (testIn, testTarg) = testTup
   # check if model already exists as trained file

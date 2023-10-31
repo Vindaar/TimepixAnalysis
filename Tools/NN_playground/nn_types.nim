@@ -55,7 +55,8 @@ type
   ## In addition it contains the datasets that are used for the input.
   MLPDesc* = object
     version*: int # Version of this MLPDesc object
-    path*: string # model path to the checkpoint files including the default model name!
+    path*: string # model path to the checkpoint final model checkpoint file
+    inputModel*: string # path to the model we read (to continue training)
     modelDir*: string # the parent directory of `path`
     plotPath*: string # path in which plots are placed
     calibFiles*: seq[string] ## Path to the calibration files
@@ -65,6 +66,7 @@ type
     numHidden*: seq[int]
     numLayers*: int
     learningRate*: float
+    pastLearningRates*: seq[tuple[lr: float, toEpoch: int]] # If learning rate changed during training, stored here
     datasets*: seq[string] # Not `InGridDsetKind` to support arbitrary new columns
     subsetPerRun*: int
     backgroundChips*: set[uint8] ## Which chips to read 1·`subsetPerRun` from
@@ -119,12 +121,10 @@ const MLPDescNameV1* = "mlp_desc.h5"
 const MLPDescNameV2* = "mlp_desc_v2.h5"
 # Points to the current name of the MLPDesc file
 const MLPDescName* = MLPDescNameV2
-const MLPVersion* = 2 #
+const MLPVersion* = 3 #
 const MLPDescFilenames* = [MLPDescNameV1, MLPDescNameV2]
 ## The batch size we use!
 const bsz = 8192 # batch size
-
-
 
 template withOptim*(model: AnyModel, mlpDesc: MLPDesc, body: untyped): untyped =
   let lr = mlpDesc.learningRate
@@ -190,8 +190,15 @@ proc init*(T: type MLP, numInput: int, numLayers: int, numHidden: seq[int], numO
 proc init*(T: type MLP, desc: MLPDesc): MLP =
   result = MLP.init(desc.numInputs, desc.numLayers, desc.numHidden)
 
+import std / strformat
+from std / os import `/`
+proc genModelFilename(desc: MLPDesc): string =
+  ## A simple default filename based on the main model layout parameters.
+  let hidden = if desc.numHidden.len > 0: desc.numHidden[0] else: 0
+  result = &"mlp_{desc.activationFunction}_{desc.outputActivation}_{desc.lossFunction}_{desc.optimizer}_{hidden}_{desc.numLayers}.pt"
+
 proc initMLPDesc*(calib, back, datasets: seq[string],
-                  modelPath: string, plotPath: string,
+                  modelFile, modelDir, plotPath: string,
                   numHidden: seq[int],
                   activation: ActivationFunction,
                   outputActivation: OutputActivation,
@@ -208,8 +215,7 @@ proc initMLPDesc*(calib, back, datasets: seq[string],
                    calibFiles: calib,
                    backFiles: back,
                    datasets: datasets,
-                   path: modelPath, plotPath: plotPath,
-                   modelDir: modelPath.parentDir,
+                   inputModel: modelFile, modelDir: modelDir, plotPath: plotPath,
                    numInputs: datasets.len,
                    numHidden: numHidden,
                    numLayers: numHidden.len,
@@ -224,6 +230,8 @@ proc initMLPDesc*(calib, back, datasets: seq[string],
                    backgroundRegion: backgroundRegion,
                    nFake: nFake,
                    backgroundChips: backgroundChips)
+  # Set the filename of the final checkpoint.
+  result.path = result.modelDir / genModelFilename(result)
 
 from pkg / nimhdf5 import deserializeH5
 from std / strutils import startsWith, parseEnum

@@ -269,7 +269,6 @@ proc genCheckpointName(s: string, epoch: int, loss, acc: float): string =
   result.removeSuffix(".pt")
   result.add &"checkpoint_epoch_{epoch}_loss_{loss:.4f}_acc_{acc:.4f}.pt"
 
-
 proc test(model: AnyModel,
           input, target: RawTensor,
           device: Device,
@@ -291,6 +290,7 @@ proc train(model: AnyModel, optimizer: var Optimizer,
            device: Device,
            readRaw: bool,
            desc: MLPDesc,
+           epochs: int,
            continueAfterEpoch = 0) =
   let dataset_size = input.size(0)
   var toPlot = false
@@ -300,7 +300,7 @@ proc train(model: AnyModel, optimizer: var Optimizer,
 
   const PlotEvery = 5000
   let start = continueAfterEpoch
-  let stop = start + 100000
+  let stop = start + epochs
   for epoch in start .. stop:
     var correct = 0
     if epoch mod 50 == 0:
@@ -768,8 +768,18 @@ proc generateRocCurves(model: AnyModel, device: Device, desc: MLPDesc) =
   # target specific roc curves
   targetSpecificRoc(dfLnL, dfMlp, desc.plotPath)
 
+proc modelDirFile(model, outpath: string): (string, string) =
+  if model.len == 0 and outpath.len == 0:
+    raise newException(ValueError, "`model` and `modelOutpath` cannot be empty both.")
+  elif model.len > 0 and outpath.len == 0: ## user gave a model, use that
+    result = (model, model.parentDir)
+  elif model.len > 0 and outpath.len > 0:
+    result = (model, outpath)
+  else:
+    result = ("", outpath)
+
 proc initDesc(calib, back: seq[string], # data
-              modelOutpath, plotPath: string,
+              model, modelOutpath, plotPath: string,
               datasets: seq[string], # datasets used as input neurons
               numHidden: seq[int], # number of neurons on each hidden layer
               activation: ActivationFunction,
@@ -787,8 +797,11 @@ proc initDesc(calib, back: seq[string], # data
     raise newException(ValueError, "Please provide a number of neurons for the hidden layers.")
   # 1. initialize the MLPDesc from the given parameters
   let plotPath = if plotPath.len == 0: "/tmp/" else: plotPath
+  # 2. check if `modelOutpath` is a file or a directory
+  let (modelFile, modelDir) = modelDirFile(model, modelOutpath)
+
   result = initMLPDesc(calib, back, datasets,
-                       modelOutpath, plotPath,
+                       modelFile, modelDir, plotPath,
                        numHidden,
                        activation, outputActivation, lossFunction, optimizer,
                        learningRate,
@@ -799,7 +812,7 @@ proc initDesc(calib, back: seq[string], # data
                        nFake,
                        backgroundChips)
 
-  # 2. check if such a file already exists to possibly merge it or just return that
+  # 3. check if such a file already exists to possibly merge it or just return that
   let outfile = result.modelDir / MLPDescName
   # potentially create the output paths
   discard existsOrCreateDir(result.plotPath)
@@ -829,9 +842,36 @@ proc initDesc(calib, back: seq[string], # data
     # write back the either modified new version MLPDesc object or initial file
     result.toH5(outfile)
   else:
-    ## is actually V2, just return it! This branch is
-    # Note: input parameters are ignored in this case!
+    ## is actually V2 or higher, just return it! This branch is
+    # Note: most input parameters are ignored in this case!
+    let input = result
     result = deserializeH5[MLPDesc](outfile)
+    # Update all fields user wishes to change (that are supported!)
+    var anySet = false
+    if input.inputModel.len > 0:
+      result.inputModel = input.inputModel
+      anySet = true
+    if input.path != result.path:
+      result.path = input.path
+      anySet = true
+    if input.plotPath != result.plotPath:
+      result.plotPath = input.plotPath
+      anySet = true
+    if input.modelDir != result.modelDir:
+      result.modelDir = input.modelDir
+      anySet = true
+    if input.learningRate != result.learningRate:
+      # user wishes to change learning rate, add last + epoch to rates
+      doAssert result.epochs.len > 0, "This should not happen. We did not train before?"
+      result.pastLearningRates.add (lr: result.learningRate, toEpoch: result.epochs[^1])
+      result.learningRate = input.learningRate
+      anySet = true
+    if input.version != result.version:
+      result.version = input.version
+      anySet = true
+    if anySet: # If anything changed due to input, write new H5 file
+      result.toH5(result.modelDir / MLPDescName)
+
   # update the global datasets!
   CurrentDsets = result.datasets
 
@@ -841,13 +881,17 @@ proc initDesc(calib, back: seq[string], # data
 proc trainModel[T](_: typedesc[T],
                    device: Device,
                    mlpDesc: MLPDesc,
-                   continueAfterEpoch = -1
+                   epochs = 100_000,
+                   skipTraining = false
                   ) =
   ## If we are training, construct a type appropriate to
   var model = T.init(mlpDesc)
   model.to(device)
-  if continueAfterEpoch > 0:
-    model.load(mlpDesc.path)
+  if mlpDesc.inputModel.len > 0:
+    model.load(mlpDesc.inputModel)
+  elif skipTraining:
+    raise newException(ValueError, "`skipTraining` only allowed if a trained input model is handed explicitly " &
+      "via the `--model` argument.")
   when T is MLP:
     const readRaw = false
   else:
@@ -873,12 +917,14 @@ proc trainModel[T](_: typedesc[T],
     desc.nBack = df.len - dfS.len
     desc.nTrain = nTrain
     desc.nTest = nTest
-  echo trainIn.sizes
   mlpDesc.assignNumbers(df, trainIn.sizes[0], testIn.sizes[0])
 
-  # check if model already exists as trained file
+
+  ## Continue training from the last epoch if any training already done
+  let continueAfterEpoch = if mlpDesc.epochs.len > 0: mlpDesc.epochs[^1] else: 0
+
   let lr = mlpDesc.learningRate
-  if not fileExists(mlpDesc.path) or continueAfterEpoch > 0:
+  if not skipTraining:
     template callTrain(arg: typed): untyped =
       model.train(arg,
                   trainIn.to(kFloat32).to(device),
@@ -888,13 +934,11 @@ proc trainModel[T](_: typedesc[T],
                   device,
                   readRaw,
                   mlpDesc,
+                  epochs,
                   continueAfterEpoch)
     withOptim(model, mlpDesc): # injects `optimizer` variable of correct type into body
       callTrain(optimizer)
     model.save(mlpDesc.path)
-  else:
-    # load the model
-    model.load(mlpDesc.path)
   # perform validation
   let (acc, loss, testPredict, testTargets) = model.test(testIn, testTarg, device, mlpDesc,
                                                          plotOutfile = mlpDesc.plotPath / "test_validation.pdf")
@@ -932,8 +976,9 @@ proc main(calib, back: seq[string] = @[],
           totalTime = -1.0.Hour, # total background rate time in hours. Normally read from input file
           rocCurve = false,
           predict = false,
-          model = "MLP", # MLP or ConvNet #model = mkMLP ## parsing an enum here causes weird CT error in cligen :/
-          modelOutpath = "/tmp/trained_model.pt",
+          model = "", ## Optional path to an existing model
+          modelKind = "MLP", # MLP or ConvNet #model = mkMLP ## parsing an enum here causes weird CT error in cligen :/
+          modelOutpath = "", ## Output path where to store the model. Can be empty if `model` given.
           numHidden: seq[int] = @[], ## number of neurons on the hidden layers. One number per layer.
           activation: ActivationFunction = afReLU,
           outputActivation: OutputActivation = ofLinear,
@@ -946,10 +991,12 @@ proc main(calib, back: seq[string] = @[],
           clampOutput = 50.0,
           printDefaultDatasets = false,
           simulatedData = false,
-          continueAfterEpoch = -1,
           rngSeed = 1337,
           backgroundRegion = crAll,
-          nFake = 100_000) =
+          nFake = 100_000,
+          epochs = 100_000,
+          skipTraining = false # If given only read a model and perform test validation
+         ) =
   # 1. set up the model
   if printDefaultDatasets:
     echo "Total default datasets: ", CurrentDsets.len
@@ -958,7 +1005,7 @@ proc main(calib, back: seq[string] = @[],
     return
 
   let backgroundChips = if backgroundChips.isSome: backgroundChips.get else: {3'u8}
-  let desc = initDesc(calib, back, modelOutpath, plotPath,
+  let desc = initDesc(calib, back, model, modelOutpath, plotPath,
                       datasets,
                       numHidden,
                       activation, outputActivation, lossFunction, optimizer,
@@ -982,12 +1029,13 @@ proc main(calib, back: seq[string] = @[],
     device_type = kCPU
   let device = Device.init(device_type)
 
-  let mKind = parseEnum[ModelKind](model)
+  let mKind = parseEnum[ModelKind](modelKind)
   if mKind == mkMLP:
     if not predict:
       MLP.trainModel(device,
                      desc,
-                     continueAfterEpoch)
+                     epochs,
+                     skipTraining)
     else:
       MLP.predictModel(device,
                        desc,

@@ -153,7 +153,7 @@ proc rocCurve(predictions: seq[float], targets: seq[int],
   rocCurve(dfRoc, suffix, plotPath)
 
 proc logLValues(df: DataFrame): (seq[float], seq[int]) =
-  let logl = df["likelihood", float].map_inline:
+  let logL = df["likelihood", float].map_inline:
     if classify(x) == fcInf:
       50.0
     else: x
@@ -164,9 +164,9 @@ proc logLValues(df: DataFrame): (seq[float], seq[int]) =
 
 proc plotRocCurve(dfLnL, dfMLP: DataFrame, suffix = "_likelihood", plotPath = "/tmp") =
   ## plots the ROC curve of the predictions vs the targets
-  let (logl, targets) = logLValues(dfLnL)
+  let (logL, targets) = logLValues(dfLnL)
   let (preds, targetsMlp) = logLValues(dfMlp) ## Note: dfMlp must have its dataset named `likelihood`! # .rename(f{"likelihood" <- "preds"}))
-  let dfRoc = calcRocCurve(logl, targets, preds, targetsMlp)
+  let dfRoc = calcRocCurve(logL, targets, preds, targetsMlp)
   rocCurve(dfRoc, suffix, plotPath)
 
 import ingrid / [fake_event_generator, gas_physics]

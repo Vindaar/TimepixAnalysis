@@ -621,6 +621,7 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
   ## variable `USE_TEX` can be adjusted to generate TikZ TeX plots.
   ## XXX: add these to config.toml and as a cmdline argument in addition
   let PlotCutEnergy = getEnv("PLOT_SEPTEM_E_CUTOFF", "5.0").parseFloat
+  let PlotEventNumber = getEnv("PLOT_SEPTEM_EVENT_NUMBER", "-1").parseInt # can be used to plot only a single event
 
   echo "Passed indices before septem veto ", passedInds.card
   let group = h5f[(recoBase() & $runNumber).grp_str]
@@ -757,7 +758,8 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
       if fkPlotSeptem in flags:
         if septemFrame.centerEvIdx < 0:
           doAssert false, "this cannot happen. it implies no cluster found in the given event"
-        if centerData.energies[septemFrame.centerEvIdx] < PlotCutEnergy:
+        if centerData.energies[septemFrame.centerEvIdx] < PlotCutEnergy and # only plot if below energy cut
+          (PlotEventNumber < 0 or PlotEventNumber == evNum): # and given event matches target event (or all)
           # shorten to actual number of stored pixels. Otherwise elements with ToT / charge values will remain
           # in the `septemFrame`
           septemFrame.pixels.setLen(septemFrame.numRecoPixels)

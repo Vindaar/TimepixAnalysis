@@ -481,10 +481,29 @@ proc plotSeptemEvent*(evData: PixelsInt, run, eventNumber: int,
   ## XXX: make an argument to this proc? Also config.toml and cmdline arg.
   let UseRealLayout = parseBool(getEnv("USE_REAL_LAYOUT", "true"))
 
+  let mTop = getEnv("T_MARGIN", "2.0").parseFloat
+  let mBottom = getEnv("B_MARGIN", "2.0").parseFloat
+  let mLeft = getEnv("L_MARGIN", "3.0").parseFloat
+  let mRight = getEnv("R_MARGIN", "4.0").parseFloat
+  let width = getEnv("WIDTH", "640").parseFloat
+  proc toPt(x: float): float = x / 2.54 * 72.0
+  ## Calculate sizes to have 1:1 aspect ratio of the actual plot.
+  ## Explanation:
+  ## Our data range is 800 wide, 900 high.
+  ## `h = m_T + m_B + p_h` (margins and plot height)
+  ## `w = m_L + m_R + p_w` (margins and plot width)
+  ## And we want
+  ## `p_h = 9 / 8 p_w`
+  ## so `p_w = w - m_L - m_R` yielding:
+  var height = mTop.topt + mBottom.topt + 9.0 / 8.0 * (width - mLeft.topt - mRight.topt)
+  ## If user really wants to overwrite the height as  well, let them
+  height = getEnv("HEIGHT", $height).parseFloat
+
   var plt = ggplot(df, aes(x, y)) +
     geom_point(aes = aes(color = factor("cluster ID")), size = 1.0) +
     xlim(0, 800) + ylim(0, 900) +
     scale_x_continuous() + scale_y_continuous() +
+    margin(top = mTop, bottom = mBottom, left = mLeft, right = mRight) +
     geom_line(data = dfCircle, aes = aes(x = "xCircle", y = "yCircle"))
   plt.addSeptemboardOutline(UseRealLayout)
   if dfLines.len > 0:
@@ -492,12 +511,8 @@ proc plotSeptemEvent*(evData: PixelsInt, run, eventNumber: int,
       geom_line(data = dfLines, aes = aes(x = "xs", y = "ys", color = factor("cluster ID"))) +
       geom_point(data = dfCenters, aes = aes(x = "x", y = "y", shape = factor("inside?")),
                  color = "red", size = 3.0)
-  if not useTeX:
-    plt +
-      margin(top = 1.5) +
-      ggtitle(&"Septem event of event {eventNumber} and run {run}. " &
-              &"Center cluster energy: {energyCenter:.2f}, passed: {passed}, lineVetoRejected: {lineVetoRejected}") +
-      ggsave(&"plots/septemEvents/septemEvent_run_{run}_event_{eventNumber}.pdf")
-  else:
-    plt + ggsave(&"plots/septemEvents/septemEvent_run_{run}_event_{eventNumber}.tex",
-                  useTeX = true, onlyTikZ = true)
+  plt + ggtitle(&"Septem event of event {eventNumber} and run {run}. " &
+                &"Center cluster energy: {energyCenter:.2f}, passed: {passed}, lineVetoRejected: {lineVetoRejected}") +
+    ggsave(&"plots/septemEvents/septemEvent_run_{run}_event_{eventNumber}.pdf",
+           useTeX = useTeX, standalone = useTeX, # onlyTikZ = useTeX,
+           width = width, height = height)

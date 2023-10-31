@@ -460,7 +460,7 @@ proc readCdlData(cdlFile: string,
     #  result.add subDf.filter(f{float -> bool: idx(E) >= frm and idx(E) <= to})
   let energy = toXrayLineEnergy(tfKind)
   result = filterAfter(
-    readRealCalib(cdlFile, $energy & $typeSuffix,
+    readRealCalib(cdlFile, &"{energy:g}{typeSuffix}",
                   NegInf, Inf, # deactivates energy cut in `cutXrayCleaning`
                   tfKind = tfKind,
                   validDsets = dsets),

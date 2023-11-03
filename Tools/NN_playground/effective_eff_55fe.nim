@@ -8,6 +8,15 @@ import ingrid / fake_event_generator
 
 import unchained
 
+#[
+Compile this program with
+
+`nim cpp -d:cuda -d:danger effective_eff_55fe.nim`
+
+It needs the C++ backennd due to its dependency on Flambeau and CUDA because we
+want to run libtorch on a GPU. `-d:danger` just to make it as fast as possible.
+]#
+
 
 ## XXX: a bit annoying that this is here...
 const CdlFile = "/home/basti/CastData/data/CDL_2019/calibration-cdl-2018.h5"
@@ -349,7 +358,8 @@ proc analyzeIntermediateEvents(model: string, df: DataFrame, simCutVal, realCutV
   plotDatasets(df, plotPath / "intermediate")
   let evs = df.filter(f{`DataType` == "intermediate"})["eventNumber"]
   echo "Event numbers that are intermediate: ", evs
-  echo "As arguments: ", evs.toTensor(int).toSeq1D.mapIt("--events " & $it).join(" ")
+  if evs.len > 0:
+    echo "As arguments: ", evs.toTensor(int).toSeq1D.mapIt("--events " & $it).join(" ")
 
 proc evaluateEffectiveEfficiency(model: string, df: DataFrame,
                                  cutTab: CutValueInterpolator,

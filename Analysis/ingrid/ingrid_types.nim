@@ -740,8 +740,6 @@ when not defined(pure) and not defined(js):
     ##    explicitly *not* considered.
     ## 3. 'checking the HLC' line veto: In this case *all* clusters check the
     ##    center of the HLC.
-    ## (From experience I would argue 3 in particular is bad and 1 is essentially a
-    ## bad version of the septem veto + the line veto. Best to just use 2)
     LineVetoKind* = enum
       lvNone, # the default, if none given (only for initialization)
       lvRegular,
@@ -889,6 +887,7 @@ when not defined(pure) and not defined(js):
       #when defined(cpp):
       flags*: set[LogLFlagKind]
       vetoCfg*: VetoSettings
+      septemLineVetoEfficiencyFile*: string
       rngSeed*: int = 299_792_458 # seed used for the RNG for fake event generation
       rnd*: Rand # the random number generator seeded by `rngSeed`
 

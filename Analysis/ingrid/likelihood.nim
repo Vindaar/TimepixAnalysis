@@ -639,7 +639,7 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
   if estimateRandomCoinc:
     septemDf = bootstrapFakeEvents(septemDf, centerDf, passedEvs, passedInds, fkEstRandomFixedEvent in flags)
     #echo septemDf.pretty(1000)
-  var fout = open("/tmp/septem_veto_before_after.txt", fmAppend)
+  var fout = open(ctx.septemLineVetoEfficiencyFile, fmAppend)
   let useLineVeto = fkLineVeto in flags
   let useSeptemVeto = fkSeptem in flags
   fout.write(&"Septem events before: {passedEvs.len} (S,L,F) = ({$useSeptemVeto}, {$useLineVeto}, {estimateRandomCoinc})\n")
@@ -1412,7 +1412,7 @@ proc main(
   # lnL cut
   signalEfficiency = 0.0,
   # line veto
-  lineVetoKind = lvNone,
+  lineVetoKind = lvNone, # lvNone here, but defaults to `lvRegular` if no septem veto (see likelihood_utils)
   eccLineVetoCut = 0.0,
   useRealLayout = true,
   # FADC veto (and NN veto for calib file)
@@ -1423,6 +1423,7 @@ proc main(
   rngSeed = 299_792_458,
   version = false,
   run = -1, # If given only analyze this run
+  septemLineVetoEfficiencyFile = "/tmp/septem_veto_before_after.txt" # Stores the number of events before & after veto (for efficiency / random coinc)
      ) =
   docCommentAdd(versionStr)
   ## InGrid likelihood calculator. This program is run after reconstruction is finished.
@@ -1513,6 +1514,7 @@ proc main(
                                   calibFile = calibFile,
                                   vetoPercentile = vetoPercentile,
                                   fadcScaleCutoff = fadcScaleCutoff,
+                                  septemLineVetoEfficiencyFile = septemLineVetoEfficiencyFile,
                                   rngSeed = rngSeed,
                                   flags = flags)
   ## fill the effective efficiency fields if a NN is used

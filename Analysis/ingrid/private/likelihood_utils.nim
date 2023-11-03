@@ -864,6 +864,7 @@ proc initLikelihoodContext*(
   calibFile: string = "",
   vetoPercentile: float = 0.0,
   fadcScaleCutoff: float = 0.0,
+  septemLineVetoEfficiencyFile = "/tmp/septem_veto_before_after.txt",
   rngSeed: int = 299_792_458,
   flags: set[LogLFlagKind] = {}
                            ): LikelihoodContext =
@@ -943,6 +944,7 @@ proc initLikelihoodContext*(
     useTeX: useTeX,
     flags: flags,
     vetoCfg: vetoCfg,
+    septemLineVetoEfficiencyFile: septemLineVetoEfficiencyFile,
     rngSeed: rngSeed,
     rnd: initRand(rngSeed)
   )

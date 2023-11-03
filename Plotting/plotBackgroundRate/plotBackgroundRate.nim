@@ -555,7 +555,8 @@ proc main(files: seq[string], log = false, title = "",
       intBackRate(df, factor, max(energyMin, 2.0) .. 8.0)
 
     plotBackgroundRate(
-      df, fnameSuffix, title,
+      df.filter(f{idx(Ecol) <= energyMax}), # filter histogram bins to target energy
+      fnameSuffix, title,
       outpath, outfile,
       show2014, suffix,
       hidePoints = hidePoints, hideErrors = hideErrors, fill = fill,

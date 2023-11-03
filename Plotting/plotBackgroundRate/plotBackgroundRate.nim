@@ -8,6 +8,9 @@ import ggplotnim / ggplot_vegatex
 
 import cligen
 
+# get serialization support for DataFrame and Tensor
+import datamancer / serialize
+
 const Data2014 = "../../resources/background-rate-gold.2014+2015.dat"
 const Ecol = "Energy"
 const Ccol = "Counts"
@@ -49,6 +52,43 @@ proc readTime(h5f: H5File): float =
   let lhGrp = h5f["/likelihood".grp_str]
   result = lhGrp.attrs["totalDuration", float]
 
+proc readVetoCfg(h5f: H5File): (set[LogLFlagKind], VetoSettings) =
+  let lhGrp = h5f[likelihoodGroupGrpStr]
+  let ctx = deserializeH5[LikelihoodContext](h5f, "logLCtx", lhGrp.name,
+                                             exclude = @["rnd", "refSetTuple", "refDf", "refDfEnergy"])
+  result = (ctx.flags, ctx.vetoCfg)
+
+proc calcVetoEfficiency(flags: set[LogLFlagKind], vetoCfg: VetoSettings): float =
+  ## Calculates the combined efficiency of the detector given the used vetoes, the
+  ## random coincidence rates of each and the FADC veto percentile used to compute
+  ## the veto cut.
+  const
+    septemVetoRandomCoinc = 0.7841029411764704    # only septem veto random coinc based on bootstrapp
+    lineVetoRandomCoinc = 0.8601764705882353      # lvRegular based on bootstrapped fake data
+    septemLineVetoRandomCoinc = 0.732514705882353 # lvRegularNoHLC based on bootstrapped fake data
+  result = 1.0 # starting efficiency
+  if fkFadc in flags:
+    doAssert vetoCfg.vetoPercentile > 0.5, "Veto percentile was below 0.5: " &
+      $vetoCfg.vetoPercentile # 0.5 would imply nothing left & have upper percentile
+    # input is e.g. `0.99` so: invert, multiply (both sided percentile cut), invert again
+    result = 1.0 - (1.0 - vetoCfg.vetoPercentile) * 2.0
+  if {fkSeptem, fkLineVeto} - flags == {}: # both septem & line veto
+    result *= septemLineVetoRandomCoinc
+  elif fkSeptem in flags:
+    result *= septemVetoRandomCoinc
+  elif fkLineVeto in flags:
+    result *= lineVetoRandomCoinc
+
+  # now multiply by lnL or MLP cut efficiency. LnL efficiency is likely always defined, but NN
+  # only if NN veto was used
+  if vetoCfg.nnEffectiveEff > 0.0:
+    result *= vetoCfg.nnEffectiveEff
+  elif vetoCfg.signalEfficiency > 0.0:
+    result *= vetoCfg.signalEfficiency
+  else:
+    raise newException(ValueError, "Input has neither a well defined NN signal efficiency nor a regular likelihood " &
+      "signal efficiency. Stopping.")
+
 proc scaleDset(h5f: H5File, data: Column, factor: float): Column =
   result = scaleDset(data, h5f.readTime(), factor)
 
@@ -80,6 +120,7 @@ proc readFiles(files: seq[string], names: seq[string], region: ChipRegion,
                energyMin, energyMax: float,
                readToA: bool,
                toaCutoff: seq[float],
+               applyEfficiencyNormalization: bool,
                verbose: bool): seq[LogLFile] =
   ## reads all H5 files given and stacks them to a single
   ## DF. An additional column is added, which corresponds to
@@ -107,6 +148,14 @@ proc readFiles(files: seq[string], names: seq[string], region: ChipRegion,
       log(verbose):
         &"df len now {df.len}"
 
+    let (flags, vetoCfg) = readVetoCfg(h5f)
+    var totalTime = readTime(h5f)
+    if applyEfficiencyNormalization:
+      # apply the total efficiency based on all vetoes to the data
+      let totalEff = calcVetoEfficiency(flags, vetoCfg)
+      # just multiply total time by efficiency to get 'effective background time'
+      totalTime *= totalEff
+
     doAssert not df.isNil, "Read DF is nil. Likely you gave a non existant chip number. Is " &
       $centerChip & " really the center chip in your input file?"
     let fname = if names.len > 0: names[idx]
@@ -119,7 +168,7 @@ proc readFiles(files: seq[string], names: seq[string], region: ChipRegion,
     log(verbose):
       &"Elements after cut: {df.len}"
     result.add LogLFile(name: fname,
-                        totalTime: readTime(h5f),
+                        totalTime: totalTime,
                         df: df,
                         year: extractYear(fname, verbose))
     discard h5f.close()
@@ -293,7 +342,9 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
                         topMargin,
                         yMax: float,
                         energyMin, energyMax: float,
-                        logPlot: bool) =
+                        logPlot: bool,
+                        applyEfficiencyNormalization: bool
+                       ) =
   var df = df # mutable copy
   if logPlot:
     # make sure to remove 0 entries if we do a log plot
@@ -325,6 +376,9 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
     else:
       let time = df["totalTime", float][0]
       titleSuff.add &" background time={time.Hour}"
+
+  if applyEfficiencyNormalization:
+    titleSuff.add &", normalized by efficiency"
 
   if numDsets > 1 and fill:
     plt = ggplot(df, aes(Ecol, Rcol, fill = "Dataset")) +
@@ -456,6 +510,7 @@ proc main(files: seq[string], log = false, title = "",
           logPlot = false,
           outpath = "plots",
           outfile = "",
+          applyEfficiencyNormalization = false,
           quiet = false
          ) =
   discard existsOrCreateDir(outpath)
@@ -467,7 +522,7 @@ proc main(files: seq[string], log = false, title = "",
 
   let verbose = not quiet
 
-  let logLFiles = readFiles(files, names, region, energyDset, centerChip, energyMin, energyMax, readToA, toaCutoff, verbose)
+  let logLFiles = readFiles(files, names, region, energyDset, centerChip, energyMin, energyMax, readToA, toaCutoff, applyEfficiencyNormalization, verbose)
   let fnameSuffix = logLFiles.mapIt($it.year).join("_") & "_show2014_" & $show2014 & "_separate_" & $separateFiles & "_" & suffix.replace(" ", "_")
 
   let factor = if log: 1.0 else: 1e5
@@ -563,7 +618,8 @@ proc main(files: seq[string], log = false, title = "",
       useTeX = useTeX, showPreliminary = showPreliminary, genTikZ = genTikZ,
       showNumClusters = showNumClusters, showTotalTime = showTotalTime,
       topMargin = topMargin, yMax = yMax, energyMin = energyMin, energyMax = energyMax,
-      logPlot = logPlot
+      logPlot = logPlot,
+      applyEfficiencyNormalization = applyEfficiencyNormalization
     )
 
 when isMainModule:

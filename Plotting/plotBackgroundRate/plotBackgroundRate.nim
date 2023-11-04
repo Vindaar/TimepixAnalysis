@@ -449,10 +449,12 @@ proc plotEfficiencyComparison(files: seq[LogLFile], outpath: string, verbose: bo
   ##   - for each bin:
   ##     - eff / sqrt(counts)
   ## plot geom_line + geom_point of these values
+  ##
+  ## XXX: clean this up?
   var df = newDataFrame()
   for f in files:
     doAssert "_eff_" in f.name
-    # ugly for now
+    # ugly for now ## <-- this can come from veto efficiency now!
     let eff = f.name.split("_")[^1].dup(removeSuffix(".h5")).parseFloat
     var dfFlat = flatScale(@[f], 1e5, verbose, dropCounts = false)
     dfFlat["ε/√B"] = dfFlat["Counts", float].map_inline:

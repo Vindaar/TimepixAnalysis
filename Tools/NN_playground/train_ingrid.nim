@@ -94,8 +94,10 @@ proc plotPredictions(predictions: seq[float], targets: seq[int],
   try:
     ggplot(dfPlt, aes("predictions", fill = "isSignal")) +
       geom_histogram(bins = 100, position = "identity", alpha = some(0.5), hdKind = hdOutline) +
+      xlab("Predictions") + ylab("Count") +
       scale_x_continuous() +
-      ggsave(outfile)
+      theme_font_scale(1.0, family = "serif") +
+      ggsave(outfile, width = 600, height = 420)
   except:
     discard
 
@@ -111,9 +113,11 @@ proc plotPredictions(predictions: seq[float], targets: seq[int],
     ggplot(dfL, aes("predictions", "count", fill = "isSignal")) +
       geom_histogram(stat = "identity", position = "identity", alpha = some(0.5), hdKind = hdOutline) +
       scale_x_continuous() +
+      xlab("Predictions") + ylab("Count") +
       scale_y_log10() +
       ylim(0.0, log10(maxH)) +
-      ggsave(outfile.replace(".pdf", "_log10.pdf"))
+      theme_font_scale(1.0, family = "serif") +
+      ggsave(outfile.replace(".pdf", "_log10.pdf"), width = 600, height = 420)
   except:
     discard
 
@@ -127,7 +131,8 @@ proc plotType(epochs: seq[int], data, testData: seq[float], typ: string,
     ggplot(df, aes("Epoch", typ, color = "Type")) +
       geom_line() +
       scale_y_log10() +
-      ggsave(outfile)
+      theme_font_scale(1.0, family = "serif") +
+      ggsave(outfile, width = 600, height = 420)
   except:
     discard
 

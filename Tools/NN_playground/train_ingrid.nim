@@ -945,6 +945,17 @@ proc trainModel[T](_: typedesc[T],
       callTrain(optimizer)
     model.save(mlpDesc.path)
   # perform validation
+  if skipTraining:
+    # reproduce the accuracy and loss plots
+    plotType(mlpDesc.epochs, mlpDesc.accuracies, mlpDesc.testAccuracies, "Accuracy", outfile = &"{mlpDesc.plotPath}/accuracy.pdf")
+    plotType(mlpDesc.epochs, mlpDesc.losses, mlpDesc.testLosses, "Loss", outfile = &"{mlpDesc.plotPath}/loss.pdf")
+    # reproduce the training validation plots by using `test` procedure & overriding the plot names
+    let (acc, loss, trainPredict, trainTargets) = model.test(trainIn, trainTarg, device, mlpDesc,
+                                                             plotOutfile = mlpDesc.plotPath / "train_validation.pdf")
+    echo "Train loss after training: ", loss, " with accuracy ", acc
+    let preds = trainPredict.mapIt(clamp(it, -ClampOutput, ClampOutput))
+    rocCurve(preds, trainTargets, plotPath = mlpDesc.plotPath)
+
   let (acc, loss, testPredict, testTargets) = model.test(testIn, testTarg, device, mlpDesc,
                                                          plotOutfile = mlpDesc.plotPath / "test_validation.pdf")
   echo "Test loss after training: ", loss, " with accuracy ", acc

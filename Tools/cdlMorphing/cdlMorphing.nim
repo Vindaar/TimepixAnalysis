@@ -368,7 +368,8 @@ proc main(#files: seq[string],
                                   energyDset = igEnergyFromCharge,
                                   region = crSilver,
                                   timepix = Timepix1,
-                                  morphKind = mkLinear)
+                                  morphKind = mkLineart,
+                                  useLnLCut = true)
 
   var df = newDataFrame()
   var diffTab = initTable[string, Table[string, float]]()

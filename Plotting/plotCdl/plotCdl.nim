@@ -251,7 +251,8 @@ proc main(files: seq[string] = @[],
                                   energyDset = igEnergyFromCharge,
                                   region = crGold,
                                   timepix = Timepix1,
-                                  morphKind = mkLinear) # morphing to plot interpolation
+                                  morphKind = mkLinear,
+                                  useLnLCut = true) # morphing to plot interpolation
   if files.len == 0:
     ctx.plotCdlFile(outpath)
   else:

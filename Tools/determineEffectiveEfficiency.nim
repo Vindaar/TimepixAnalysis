@@ -579,7 +579,8 @@ proc main(files: seq[string], fake = false, real = false, refPlots = false,
   ## given the input files of calibration runs, walks all files to determine the
   ## 'real' software efficiency for them & generates a plot
   let ctx = initLikelihoodContext(CdlFile, yr2018, crSilver, igEnergyFromCharge,
-                                  Timepix1, mkLinear)
+                                  Timepix1, mkLinear,
+                                  useLnLCut = true)
   let cutTab = ctx.calcCutValueTab()
   var df = newDataFrame()
   if real and not fake:

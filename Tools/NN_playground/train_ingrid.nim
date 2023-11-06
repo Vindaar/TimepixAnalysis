@@ -659,7 +659,8 @@ proc readAllData(model: AnyModel, device: Device,
                                     energyDset = igEnergyFromCharge,
                                     region = crSilver,
                                     timepix = Timepix1,
-                                    morphKind = mkLinear) # morphing to plot interpolation
+                                    morphKind = mkLinear,
+                                    useLnLCut = true) # morphing to plot interpolation
 
     template lnL(ctx, df: untyped): untyped =
       df[igLikelihood.toDset()] = ctx.calcLikelihood(df).mapIt(clamp(it, -ClampOutput, ClampOutput))

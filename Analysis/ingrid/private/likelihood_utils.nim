@@ -949,11 +949,12 @@ proc initLikelihoodContext*(
     rnd: initRand(rngSeed)
   )
 
-  case result.morph
-  of mkNone:
-    result.refSetTuple = result.readRefDsets()
-  of mkLinear:
-    result.refDf = result.readRefDsetsDF()
-      .getInterpolatedWideDf(num = result.numMorphedEnergies)
-    let lineEnergies = getXrayFluorescenceLines()
-    result.refDfEnergy = linspace(lineEnergies[0], lineEnergies[^1], result.numMorphedEnergies)
+  if useLnLCut:
+    case result.morph
+    of mkNone:
+      result.refSetTuple = result.readRefDsets()
+    of mkLinear:
+      result.refDf = result.readRefDsetsDF()
+        .getInterpolatedWideDf(num = result.numMorphedEnergies)
+      let lineEnergies = getXrayFluorescenceLines()
+      result.refDfEnergy = linspace(lineEnergies[0], lineEnergies[^1], result.numMorphedEnergies)

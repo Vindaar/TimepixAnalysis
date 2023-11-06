@@ -105,7 +105,7 @@ proc reconstructFakeEvent[C: MaybeContext](
                          dbscanEpsilon = 65,
                          clusterAlgo = caDefault)
   if recoEv.cluster.len > 1 or recoEv.cluster.len == 0:
-    echo "Found more than 1 or 0 cluster! Skipping. Number of clusters: ", recoEv.cluster.len
+    echo "Found more than 1 or 0 cluster! Skipping. Number of clusters: ", recoEv.cluster.len, ", diffusion value: ", σT
     return
 
   # get the actual cluster

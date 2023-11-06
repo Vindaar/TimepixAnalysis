@@ -693,7 +693,7 @@ proc readVlen(h5f: H5File,
   if name in h5f:
     let dset = h5f[name.dset_str]
     let idx = h5f.applyCuts(selector, dset, idx)
-    if not selector.hasCuts(h5f.name.extractFilename, dset):
+    if not selector.hasCuts(h5f.name.extractFilename, dset) and idx.len == 0:
       result = dset[vlenDType, dtype]
     elif idx.len > 0:
       result = dset[vlenDtype, dtype, idx] #h5f.readIndices(dset, vlenDtype, evs, dtype)
@@ -725,6 +725,7 @@ proc plotHist(df: DataFrame, title, dset, outfile: string,
   ## plots the data in `x` as a histogram
   if df.len == 0: return
   var df = df.filter(fn {float: classify(`xs`) notin {fcInf, fcNegInf, fcNaN}})
+  if df.len == 0: return # if empty *now*, return
   let xs = df["xs", float].toSeq1D
   var binRange = binR
   var binSize = binS
@@ -1546,6 +1547,7 @@ proc readEventsSparse*(h5f: H5File, fileInfo: FileInfo, run, chip: int, #idx: in
                       dtype = uint16,
                       idx = eventIdxs)
   result = newDataFrame()
+
   doAssert events.len == x.len, "Event indices are: " & $eventIdxs.len & " and x.len " & $x.len
   # eventIdxs can be empty if we read _all_ events in a run!
   var dfs = newSeq[DataFrame]()

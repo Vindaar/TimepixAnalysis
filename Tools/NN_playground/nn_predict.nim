@@ -115,7 +115,8 @@ proc calcNeuralNetCutValueTab*(ctx: LikelihoodContext): CutValueInterpolator =
 
 import ingrid / fake_event_generator
 from pkg / unchained import FemtoFarad
-from std / random import Rand
+from std / random import Rand, initRand
+import nimhdf5 / serialize_tables
 const CacheTabFile = "/dev/shm/cacheTab_runLocalCutVals.h5"
 type
   TabKey = (int, string, float)

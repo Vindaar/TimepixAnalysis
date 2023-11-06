@@ -654,6 +654,7 @@ proc evaluateEffectiveEfficiencyByFakeRunCutVal*(
       ggsave(&"{plotPath}/efficiency_based_on_fake_data_per_run_cut_val.pdf")
 
 
+import nimhdf5 / serialize_tables
 const CacheTabFile = "/dev/shm/cacheTab_effective_eff.h5"
 type
   TabKey = (string, string, float)

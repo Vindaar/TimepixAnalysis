@@ -339,6 +339,7 @@ when false:
 ## generally on the 'absolute' scale of sigma? using 2 sigma if sigma
 ## is huge is dumb!
 #const Scale = 2.0
+import nimhdf5 / serialize_tables
 const Scale = 1.65
 const MaxZ = 3.0
 const CacheTabFile = "/dev/shm/cacheTab_diffusion_runs.h5"

@@ -68,7 +68,9 @@ proc calcRocCurve*(logL: seq[float], logLTargets: seq[int], predict: seq[float],
   result = bind_rows([("LogL", dfLogLRoc), ("MLP", dfMLPRoc)],
                      "Type")
 
-proc determineCutValue*(model: AnyModel, device: Device, desc: MLPDesc, df: DataFrame, ε: float): float =
+proc determineCutValue*(model: AnyModel, device: Device, desc: MLPDesc, df: DataFrame, ε: float,
+                        target = ""
+                       ): float =
   let cdlInput = df.toTorchTensor()
   let cdlPredict = model.forward(cdlInput, device, desc)
 
@@ -78,6 +80,14 @@ proc determineCutValue*(model: AnyModel, device: Device, desc: MLPDesc, df: Data
   # we'd keep all background!). Times 100 as int because `percentile` takes an integer
   let εLocal = 1.0 - ε
   result = cdlPredict.percentile((εLocal * 100.0).round.int)
+
+  if target.len > 0:
+    let run = df["Run"].unique.item(int)
+    let dfP = toDf(cdlPredict)
+    ggplot(dfP, aes("cdlPredict")) +
+      geom_histogram(bins = 100, hdKind = hdOutline) +
+      ggtitle(&"Target: {target}, run: {run}") +
+      ggsave(&"/tmp/target_{target}_run_{run}.pdf")
 
   when false:
     ## XXX: this is not possible here anymore!
@@ -127,7 +137,7 @@ proc determineRunLocalCutValue*(model: AnyModel, device: Device, desc: MLPDesc,
   result = initOrderedTable[string, float]()
   for (tup, subDf) in groups(df.group_by("Target")):
     let target = tup[0][1].toStr
-    result[target] = model.determineCutValue(device, desc, subDf, ε)
+    result[target] = model.determineCutValue(device, desc, subDf, ε, target = target)
   echo "Local cut values: ", result
 
 proc calcCutValues*(model: AnyModel, device: Device, ε: float, readRaw: bool,

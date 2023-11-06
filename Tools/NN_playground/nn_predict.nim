@@ -180,8 +180,9 @@ proc calcLocalNNCutValueTab*(ctx: LikelihoodContext,
       let fakeDesc = FakeDesc(nFake: 5000,
                               tfKind: tf,
                               kind: fkGainDiffusion)
-      var dfLoc = generateRunFakeData(rnd, h5f, run, chipNumber, chipName, capacitance, fakeDesc, runType, DataFrame, ctx)
+      var dfLoc = generateRunFakeData(rnd, h5f, run, chipNumber, chipName, capacitance, fakeDesc, runType, DataFrame)
       dfLoc["Target"] = $tf
+      dfLoc["Run"] = run
       dfFake.add dfLoc
 
     # now use fake data to determine cuts
@@ -192,9 +193,26 @@ proc calcLocalNNCutValueTab*(ctx: LikelihoodContext,
     CacheTab.tryToH5(CacheTabFile)
 
 proc main(calib, back: seq[string] = @[],
+          cdlFile = "/home/basti/CastData/data/CDL_2019/CDL_2019_Reco.h5",
           model: string,
+          signalEff: float,
           subsetPerRun = 1000) =
-  discard
+  let ctx = initLikelihoodContext(cdlFile,
+                                  year = yr2018,
+                                  energyDset = igEnergyFromCharge,
+                                  region = crSilver,
+                                  timepix = Timepix1,
+                                  morphKind = mkLinear,
+                                  nnModelPath = model,
+                                  nnSignalEff = signalEff,
+                                  nnCutKind = nkRunBasedLocal)
+  var rnd = initRand(5433)
+  withH5(cdlFile, "r"):
+    let fileInfo = h5f.getFileInfo()
+    for r in fileInfo.runs:
+      discard ctx.calcLocalNNCutValueTab(rnd, h5f, rtCalibration, r, fileInfo.centerChip, fileInfo.centerChipName,
+                                         getCapacitance(fileInfo.timepix))
+
 
 when isMainModule:
   import cligen

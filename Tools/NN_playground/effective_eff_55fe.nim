@@ -277,7 +277,7 @@ proc plotCdlCutEffs(cutTab: CutValueInterpolator, cdlGainTab: Table[string, floa
     geom_point() +
     ggsave("/tmp/effective_cut_values_eff_div_gain.pdf")
 
-proc handleFakeData(ctx: LikelihoodContext, rnd: var Rand, fname: string, typ: string,
+proc handleFakeData(rnd: var Rand, fname: string, typ: string,
                     fakeDesc: FakeDesc,
                     run = -1,
                     nmc = 1000): DataFrame =
@@ -288,8 +288,7 @@ proc handleFakeData(ctx: LikelihoodContext, rnd: var Rand, fname: string, typ: s
   var data = generateFakeData(rnd, h5f,
                               fakeDesc = fakeDesc,
                               run = run,
-                              useCache = true,
-                              ctx = ctx)
+                              useCache = true)
     .cutXrayCleaning(fakeDesc.tfKind)
 
   result = data
@@ -549,7 +548,7 @@ proc studyRmsTransverseGasGain(df, dfEff: DataFrame, model, plotPath, suffix: st
       ggsave(&"{plotPath}/nn_cut_vs_quantiled_scatter_{dset}_{suffix}.pdf", width = 1200, height = 800)
 
 proc evaluateEffectiveEfficiencyByFakeRunCutVal*(
-  ctx: LikelihoodContext, rnd: var Rand, model: string, fnames: seq[string],
+  rnd: var Rand, model: string, fnames: seq[string],
   ε: float,
   cdlFile: string = "",
   plotPath: string = "",
@@ -611,7 +610,7 @@ proc evaluateEffectiveEfficiencyByFakeRunCutVal*(
                                   energyDset: energyDset,
                                   kind: fkGainDiffusion)
 
-    let dfFake = ctx.handleFakeData(
+    let dfFake = handleFakeData(
       rnd,
       file,
       "Fake" & $target,
@@ -685,7 +684,7 @@ proc fileAvailable(fname, modelHash: string, ε: float): bool =
     result = (fname, modelHash, ε) in CacheTab # still not in: not available
 
 import std / sha1
-proc meanEffectiveEff*(ctx: LikelihoodContext, rnd: var Rand, model: string, fname: string,
+proc meanEffectiveEff*(rnd: var Rand, model: string, fname: string,
                        ε: float): tuple[eff: float, sigma: float] =
   ## Computes the mean effective efficiency given target `ε` for `model` on the calibration
   ## file `fname`. Returns both the mean and standard deviation.
@@ -694,7 +693,7 @@ proc meanEffectiveEff*(ctx: LikelihoodContext, rnd: var Rand, model: string, fna
   if fileAvailable(fnameFile, modelHash, ε):
     result = CacheTab[(fnameFile, modelHash, ε)]
   else:
-    let df = ctx.evaluateEffectiveEfficiencyByFakeRunCutVal(
+    let df = evaluateEffectiveEfficiencyByFakeRunCutVal(
       rnd,
       model,
       @[fname],
@@ -717,13 +716,6 @@ proc main(fnames: seq[string], model: string, ε: float,
   let mlpDesc = initMLPDesc(model, plotPath)
   let gainTab = readGasGains(concat(fnames, @[cdlFile]))
 
-  let ctx = initLikelihoodContext(CdlFile,
-                                  year = yr2018,
-                                  energyDset = igEnergyFromCharge,
-                                  region = crSilver,
-                                  timepix = Timepix1,
-                                  morphKind = mkLinear) # morphing to plot interpolation
-
   #let cutTab = calcCutValueTab(ctx) #NeuralNetCutValueTab(model, nkLocal, ε)
   #let cutTab = calcNeuralNetCutValueTab(model, nkLocal, ε)
   let cdlGainTab = readCdlGains(cdlFile)
@@ -743,7 +735,7 @@ proc main(fnames: seq[string], model: string, ε: float,
   ## For each run, extract the diffusion, then generate fake data for that run,
   ## use it to compute a bespoke effective cut value for each run and then apply
   ## that to the real data and see what efficiencies we end up with!
-  discard ctx.evaluateEffectiveEfficiencyByFakeRunCutVal(rnd, mlpDesc.path, fnames, ε, cdlFile, mlpDesc.plotPath, gainTab, run)
+  discard evaluateEffectiveEfficiencyByFakeRunCutVal(rnd, mlpDesc.path, fnames, ε, cdlFile, mlpDesc.plotPath, gainTab, run)
   if true: quit()
   when false:
     # 2. evaluate effective efficiency of the real 55Fe CAST data
@@ -776,7 +768,7 @@ proc main(fnames: seq[string], model: string, ε: float,
       for c in fnames:
         let σTs = linspace(500.0, 700.0, 8)
         for σT in σTs:
-          df.add ctx.handleFakeData(rnd, c, $σT, FakeDesc(tfKind: tfMnCr12, kind: fkDiffusionFromData, σT: σT))
+          df.add handleFakeData(rnd, c, $σT, FakeDesc(tfKind: tfMnCr12, kind: fkDiffusionFromData, σT: σT))
       # now evaluate and plot
       let dfEff = evaluateEffectiveEfficiency(model, df, cutTab, gainTab, ε)
       # 3. plot (apparent) dependency of gas gain vs the cut value
@@ -790,7 +782,7 @@ proc main(fnames: seq[string], model: string, ε: float,
       let energies = getXrayFluorescenceLines()
       for c in fnames:
         for i, E in energies:
-          df.add ctx.handleFakeData(rnd, c, $E, FakeDesc(tfKind: E.toRefTfKind(), kind: fkDiffusionFromData))
+          df.add handleFakeData(rnd, c, $E, FakeDesc(tfKind: E.toRefTfKind(), kind: fkDiffusionFromData))
           # add CDL data of this tfKind
           let bins = concat(@[0.0], getEnergyBinning())
           df.add readCdlData(cdlFile, E.toRefTfKind(),
@@ -816,19 +808,19 @@ proc main(fnames: seq[string], model: string, ε: float,
       for c in fnames:
         # add 3 keV fake data
         # like real 3 keV X-rays
-        df.add ctx.handleFakeData(rnd, c, "3.0_Fake", FakeDesc(tfKind: tfAgAg6, kind: fkDiffusionFromData))
+        df.add handleFakeData(rnd, c, "3.0_Fake", FakeDesc(tfKind: tfAgAg6, kind: fkDiffusionFromData))
         # like escape photon events, i.e. absorption length of 5.9 keV as those are the origin
-        df.add ctx.handleFakeData(rnd, c, "3.0_Like5.9", FakeDesc(tfKind: tfAgAg6, kind: fkDiffusionFromData, λ: 2.2.cm))
+        df.add handleFakeData(rnd, c, "3.0_Like5.9", FakeDesc(tfKind: tfAgAg6, kind: fkDiffusionFromData, λ: 2.2.cm))
         # add 5.9 keV fake data
-        df.add ctx.handleFakeData(rnd, c, "5.9_Fake", FakeDesc(tfKind: tfMnCr12, kind: fkDiffusionFromData))
+        df.add handleFakeData(rnd, c, "5.9_Fake", FakeDesc(tfKind: tfMnCr12, kind: fkDiffusionFromData))
 
-        #df.add ctx.handleFakeData(rnd, c, "1.5_Fake", 1.5, FakeDesc(kind: fkDiffusionFromData))
+        #df.add handleFakeData(rnd, c, "1.5_Fake", 1.5, FakeDesc(kind: fkDiffusionFromData))
 
-        #df.add ctx.handleFakeData(rnd, c, "0.25_Fake", 0.254, FakeDesc(kind: fkDiffusionFromData))
+        #df.add handleFakeData(rnd, c, "0.25_Fake", 0.254, FakeDesc(kind: fkDiffusionFromData))
 
 
-      df.add ctx.handleFakeData(rnd, cdlFile, "5.9_CDL_Fake", FakeDesc(tfKind: tfMnCr12, kind: fkDiffusionFromData))
-      df.add ctx.handleFakeData(rnd, cdlFile, "3.0_CDL_Fake", FakeDesc(tfKind: tfAgAg6, kind: fkDiffusionFromData))
+      df.add handleFakeData(rnd, cdlFile, "5.9_CDL_Fake", FakeDesc(tfKind: tfMnCr12, kind: fkDiffusionFromData))
+      df.add handleFakeData(rnd, cdlFile, "3.0_CDL_Fake", FakeDesc(tfKind: tfAgAg6, kind: fkDiffusionFromData))
 
       echo df
       # now evaluate and plot
@@ -849,14 +841,14 @@ proc main(fnames: seq[string], model: string, ε: float,
       for c in fnames:
         ## add 3 keV fake data
         ## like real 3 keV X-rays
-        #df.add ctx.handleFakeData(rnd, c, "3.0_Fake", FakeDesc(tfKind: tfAgAg, kind: fkDiffusionFromData))
+        #df.add handleFakeData(rnd, c, "3.0_Fake", FakeDesc(tfKind: tfAgAg, kind: fkDiffusionFromData))
         ## like escape photon events, i.e. absorption length of 5.9 keV as those are the origin
-        #df.add ctx.handleFakeData(rnd, c, "3.0_Like5.9", FakeDesc(tfKind: tfAgAg6, kind: fkDiffusionFromData, λ: 2.2))
+        #df.add handleFakeData(rnd, c, "3.0_Like5.9", FakeDesc(tfKind: tfAgAg6, kind: fkDiffusionFromData, λ: 2.2))
         # add 5.9 keV fake data
 
         let absLengths = linspace(0.0, 4.0, 8)
         for l in absLengths:
-          df.add ctx.handleFakeData(rnd, c, $l, FakeDesc(tfKind: tfMnCr12, kind: fkDiffusionFromData, λ: l.cm))
+          df.add handleFakeData(rnd, c, $l, FakeDesc(tfKind: tfMnCr12, kind: fkDiffusionFromData, λ: l.cm))
 
       # now evaluate and plot
       let dfEff = evaluateEffectiveEfficiency(model, df, cutTab, gainTab, ε)
@@ -871,14 +863,14 @@ proc main(fnames: seq[string], model: string, ε: float,
       for c in fnames:
         ## add 3 keV fake data
         ## like real 3 keV X-rays
-        #df.add ctx.handleFakeData(rnd, c, "3.0_Fake", FakeDesc(tfKind: tfAgAg6, kind: fkDiffusionFromData))
+        #df.add handleFakeData(rnd, c, "3.0_Fake", FakeDesc(tfKind: tfAgAg6, kind: fkDiffusionFromData))
         ## like escape photon events, i.e. absorption length of 5.9 keV as those are the origin
-        #df.add ctx.handleFakeData(rnd, c, "3.0_Like5.9", FakeDesc(tfKind: tfAgAg6, kind: fkDiffusionFromData, λ: 2.2))
+        #df.add handleFakeData(rnd, c, "3.0_Like5.9", FakeDesc(tfKind: tfAgAg6, kind: fkDiffusionFromData, λ: 2.2))
         # add 5.9 keV fake data
 
         let σTs = linspace(450.0, 700.0, 8)
         for σT in σTs:
-          df.add ctx.handleFakeData(rnd, c, $σT, FakeDesc(tfKind: tfMnCr12, kind: fkDiffusionFromData, σT: σT))
+          df.add handleFakeData(rnd, c, $σT, FakeDesc(tfKind: tfMnCr12, kind: fkDiffusionFromData, σT: σT))
 
       # now evaluate and plot
       let dfEff = evaluateEffectiveEfficiency(model, df, cutTab, gainTab, ε)
@@ -891,16 +883,16 @@ proc main(fnames: seq[string], model: string, ε: float,
     #for c in fnames:
     #  # 3 keV
     #  df.add readRealCalib(c, "0_3.0", 2.5, 3.5, tfAgAg6)
-    #  df.add ctx.handleFakeData(rnd, c, "1_FakeRemove3.0", FakeDesc(tfKind: tfAgAg6, kind: fkRemovePixels))
-    #  df.add ctx.handleFakeData(rnd, c, "2_Fake3.0", FakeDesc(tfKind: tfAgAg6, kind: fkDiffusionFromData)) # , λ: 3.3))
+    #  df.add handleFakeData(rnd, c, "1_FakeRemove3.0", FakeDesc(tfKind: tfAgAg6, kind: fkRemovePixels))
+    #  df.add handleFakeData(rnd, c, "2_Fake3.0", FakeDesc(tfKind: tfAgAg6, kind: fkDiffusionFromData)) # , λ: 3.3))
     #  # 5.9 keV
     #  df.add readRealCalib(c, "4_5.9", 5.0, 7.0, tfMnCr12)
-    #  df.add ctx.handleFakeData(rnd, c, "5_FakeFixed5.9", FakeDesc(tfKind: tfMnCr12, kind: fkDiffusionFromDataFixedLoc, zDrift: 1.5))
-    #  df.add ctx.handleFakeData(rnd, c, "6_Fake5.9", FakeDesc(tfKind: tfMnCr12, kind: fkDiffusionFromData)) # , λ: 2.0))
+    #  df.add handleFakeData(rnd, c, "5_FakeFixed5.9", FakeDesc(tfKind: tfMnCr12, kind: fkDiffusionFromDataFixedLoc, zDrift: 1.5))
+    #  df.add handleFakeData(rnd, c, "6_Fake5.9", FakeDesc(tfKind: tfMnCr12, kind: fkDiffusionFromData)) # , λ: 2.0))
     #
     #  # 1 keV
-    #  df.add ctx.handleFakeData(rnd, c, "8_Fake1.0", FakeDesc(tfKind: tfCuEpic2, kind: fkDiffusionFromData))#, λ: 1.0 / 7.0))
-    #  df.add ctx.handleFakeData(rnd, c, "9_Fake0.7", 0.70, FakeDesc(tfKind: tfCuEpic2, kind: fkDiffusionFromData))#, λ: 1.0 / 7.0))
+    #  df.add handleFakeData(rnd, c, "8_Fake1.0", FakeDesc(tfKind: tfCuEpic2, kind: fkDiffusionFromData))#, λ: 1.0 / 7.0))
+    #  df.add handleFakeData(rnd, c, "9_Fake0.7", 0.70, FakeDesc(tfKind: tfCuEpic2, kind: fkDiffusionFromData))#, λ: 1.0 / 7.0))
 
 
 

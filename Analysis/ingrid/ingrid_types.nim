@@ -894,10 +894,16 @@ when not defined(pure) and not defined(js):
     ## Parameters needed to reconstruct an event for a chip and a specific
     ## run with `gain`
     CalibInfo* = object
+      run*: int ## Run number for which we read this (gain info!)
       a*, b*, c*, t*: float
       mL*, bL*: float
       capacitance*: FemtoFarad
       gain*: float # the mean gas gain of the run this corresponds to (or any gain to use!)
+      isCdl*: bool ## Whether the run number is a CDL run
+      calibFactor*: float ## If this refers to a CDL run, use this `calibFactor` instead of
+                          ## `let calibFactor = linearFunc(@[calibInfo.bL, calibInfo.mL], gain.G) * 1e-6`
+                          ## to get the correct energy / charge relation!
+      peak_σ*: float ## The 1σ width of the fit for CDL runs to get correct charge width distribution
 
 proc initFeSpecData*(hist: seq[float],
                      binning: seq[float],

@@ -333,7 +333,7 @@ proc initPolyaSampler(params: seq[float],
   # we want to be able to sample between 0 and 20k
   result = sampler(fnSample, frm, to, num = 1000)
 
-proc sampleTargetCharge(rnd: var Rand, targetEnergyCharge: float): float =
+proc sampleTargetCharge(rnd: var Rand, targetEnergyCharge: float, charge_σ: float): float =
   ## Samples a target charge for this event based on the given charge
   ## `targetEnergyCharge` which is the equivalent energy that corresponds
   ## to the desired taget energy in charge based on the gas gain of the
@@ -341,7 +341,9 @@ proc sampleTargetCharge(rnd: var Rand, targetEnergyCharge: float): float =
   ##
   ## We sample a normal distribution around the target with a sigma that
   ## corresponds to 10%.
-  result = rnd.gauss(mu = targetEnergyCharge, sigma = targetEnergyCharge * 0.075)
+
+  ## XXX: change to be 1/E with 35% at 0.5 keV and 10% above 2 keV
+  result = rnd.gauss(mu = targetEnergyCharge, sigma = charge_σ)
 
 proc genGainDiffusionEvent(rnd: var Rand, gain: GainInfo,
                            calibInfo: CalibInfo,
@@ -351,10 +353,13 @@ proc genGainDiffusionEvent(rnd: var Rand, gain: GainInfo,
   ##   with  `calibrationFactor = m · gain + b` with `m, b` determined by the gas gain vs energy calib fit.
   let gainToUse = gain.G * 0.9
 
-  let calibFactor = linearFunc(@[calibInfo.bL, calibInfo.mL], gain.G) * 1e-6
-  let targetEnergyCharge = energy.float / calibFactor
-  #echo "TARGET CHARGE: ", targetEnergyCharge
-  #echo "Calibration afctor: ", calibFactor, " for gain ", gain.G, " and energy ", energy, " is ", targetEnergyCharge
+  ## XXX: for CDL data overwrite the calibration factor and use from `GainInfo`
+  var targetEnergyCharge: float
+  if not calibInfo.isCdl:
+    let calibFactor = linearFunc(@[calibInfo.bL, calibInfo.mL], gain.G) * 1e-6
+    targetEnergyCharge = energy.float / calibFactor
+  else:
+    targetEnergyCharge = energy.float / calibInfo.calibFactor
   ## 1. Sample a conversion point and generate a sampler for diffused pixels for that point
   let P1 = block:
     # sample a *single* conversion point for this event
@@ -375,7 +380,11 @@ proc genGainDiffusionEvent(rnd: var Rand, gain: GainInfo,
 
   ## 2. Sample a target charge from the equivalent charge that corresponds to our
   ##   target energy
-  let targetCharge = rnd.sampleTargetCharge(targetEnergyCharge)
+  # get the width of the target
+  let charge_σ = if calibInfo.isCdl: calibInfo.peak_σ
+                 else: targetEnergyCharge * 0.075 # for 55Fe data this is about 10%
+                       # -> For better training data should change this to be energy dependent too!
+  let targetCharge = rnd.sampleTargetCharge(targetEnergyCharge, charge_σ)
   ## 3. Define a sampler to sample from the Pólya distribution required for the
   ##   current gain parameters
   #let gInv = invert(gain.G * 0.6, calibInfo)

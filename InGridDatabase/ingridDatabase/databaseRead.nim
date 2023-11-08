@@ -6,6 +6,7 @@ import databaseDefinitions
 
 import ingrid / ingrid_types
 import ingrid / private / [hdf5_utils, pure, timepix_utils]
+from ingrid / private / cdl_cuts import toXrayLineEnergy
 
 
 # procs to get data from the file
@@ -202,7 +203,26 @@ proc initCalibInfo*(h5f: H5File,
   # now compute gas gain to use here by computing mean of all gas gain slices in this run (most sensible)
   let group = basePath & $runNumber
   let gain = h5f[group / &"chip_{chipNumber}/gasGainSlices", GasGainIntervalResult].mapIt(it.G).mean
-  result = CalibInfo(a: a, b: b, c: c, t: t, mL: mL, bL: bL, capacitance: capacitance, gain: gain)
+
+  # check if run is a CDL run
+  let runGrp = h5f[group.grp_str]
+  let isCdl = "tfKind" in runGrp.attrs
+  # if so, calculate `calibFactor`
+  var calibFactor: float
+  var peak_σ: float ## the 1σ of the peak in the CDL data
+  if isCdl:
+    let tfKind = parseEnum[TargetFilterKind](runGrp.attrs["tfKind", string])
+    let chpGrp = h5f[(group / &"chip_{chipNumber}").grp_str]
+    doAssert "fit_μ" in chpGrp.attrs, "No fit_μ attribute in " & $chpGrp
+    let peak_μ = chpGrp.attrs["fit_μ", float]
+    let energy = toXrayLineEnergy(tfKind)
+    calibFactor = energy / peak_μ
+    # and now read the width of charge distribution
+    doAssert "fit_σ" in chpGrp.attrs, "No fit_σ attribute in " & $chpGrp
+    peak_σ = chpGrp.attrs["fit_σ", float]
+  result = CalibInfo(a: a, b: b, c: c, t: t, mL: mL, bL: bL, capacitance: capacitance, gain: gain,
+                     isCdl: isCdl, calibFactor: calibFactor,
+                     peak_σ: peak_σ)
 
 proc initCalibInfo*(h5f: H5File): CalibInfo =
   let fileInfo = h5f.getFileInfo()

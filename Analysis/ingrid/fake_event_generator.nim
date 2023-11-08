@@ -1001,6 +1001,44 @@ proc user(energy: seq[float], nmc: int,
   # 1. generate fake events according to input
   discard
 
+import flatBuffers
+proc debug(file: string, nmc = 5) =
+  ## Helper to debug `flatBuffers` + `seq[FakeEvent]`
+  var fakeDesc = FakeDesc(nFake: nmc,
+                          tfKind: tfAlAl4,
+                          kind: fkGainDiffusion)
+  let lines = @[FluorescenceLine(name: "fake", energy: 1.0.keV, intensity: 1.0)]
+  var rnd = initRand(42)
+  withH5(file, "r"):
+    let finfo = h5f.getFileInfo()
+    let gainInfo = GainInfo(N: 800_000, G: 3400.0, theta: 2.2)
+    let calibInfo = h5f.initCalibInfo()
+    block Single:
+      let evs = generateAndReconstruct(rnd, fakeDesc, lines, gainInfo, calibInfo, 1.0.keV)
+
+      echo "Converting evs to buffer:"
+      let buf = asFlat(evs)
+      echo "Converting to string"
+      writeBuffer(buf, "/tmp/single.dat")
+      let bufStr = buf.toString()
+      #echo "String: ", bufStr
+      echo "Got string, now back"
+      let fromBuf = flatTo[FakeEvent](fromString(bufStr))
+      echo fromBuf
+    block Multiple:
+      var evs = newSeq[FakeEvent](nmc)
+      for i in 0 ..< nmc:
+        evs[i] = generateAndReconstruct(rnd, fakeDesc, lines, gainInfo, calibInfo, 1.0.keV)
+      echo "Converting evs to buffer:"
+      let buf = asFlat(evs)
+      writeBuffer(buf, "/tmp/multiple.dat")
+      echo "Converting to string"
+      let bufStr = buf.toString()
+      #echo "String: ", bufStr
+      echo "Got string, now back"
+      let fromBuf = flatTo[seq[FakeEvent]](fromString(bufStr))
+      echo fromBuf
+
 proc like(path: string, ## Input file
           run: int,
           outpath: string,
@@ -1034,4 +1072,4 @@ proc like(path: string, ## Input file
 
 when isMainModule:
   import cligen
-  dispatchMulti([like], [user])
+  dispatchMulti([like], [user], [debug])

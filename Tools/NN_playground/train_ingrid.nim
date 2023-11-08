@@ -174,63 +174,25 @@ proc plotRocCurve(dfLnL, dfMLP: DataFrame, suffix = "_likelihood", plotPath = "/
   let dfRoc = calcRocCurve(logL, targets, preds, targetsMlp)
   rocCurve(dfRoc, suffix, plotPath)
 
-import ingrid / [fake_event_generator, gas_physics]
-from pkg / xrayAttenuation import FluorescenceLine
-proc generateFakeEvents(rnd: var Rand,
-                        ctx: LikelihoodContext,
-                        calibInfo: CalibInfo,
-                        gains: seq[float],
-                        diffusion: seq[float],
-                        nFake = 100_000): DataFrame =
-  #let fakeEvs = generateAndReconstruct(rnd, 1000,
-  #result = toDf(
-  var count = 0
-  var fakeEvs = newSeqOfCap[FakeEvent](nFake)
-  # Note: tfKind and nFake irrelevant for us!
-  var fakeDesc = FakeDesc(kind: fkGainDiffusion, gasMixture: initCASTGasMixture())
-  while count < nFake:
-    if count mod 5000 == 0:
-      echo "Generated ", count, " events."
-    # 1. sample an energy
-    let energy = rnd.rand(0.1 .. 10.0).keV
-    let lines = @[FluorescenceLine(name: "Fake", energy: energy, intensity: 1.0)]
-    # 2. sample a gas gain
-    let G = rnd.gauss(mu = (gains[1] + gains[0]) / 2.0, sigma = (gains[1] - gains[0]) / 4.0)
-    let gain = GainInfo(N: 100_000.0, G: G, theta: rnd.rand(0.4 .. 2.4))
-    # 3. sample a diffusion
-    let σT = rnd.gauss(mu = 660.0, sigma = (diffusion[1] - diffusion[0] / 4.0))
-    #let σT = rnd.rand(diffusion[0] .. diffusion[1])
-    # update σT field of FakeDesc
-    fakeDesc.σT = σT
-    # now generate and add
-    let fakeEv = rnd.generateAndReconstruct(fakeDesc, lines, gain, calibInfo, energy, ctx)
-    if not fakeEv.valid:
-      continue
-    fakeEvs.add fakeEv
-    inc count
-  result = fakeToDf( fakeEvs )
-  result["Type"] = $dtSignal
-
+import ./simulate_xrays
 import ingridDatabase / databaseRead
 proc prepareSimDataframe(mlpDesc: MLPDesc, readRaw: bool, rnd: var Rand): DataFrame =
   ## Generates a dataframe to train on that contains real background events and
   ## simulated X-rays. The calibration input files are only used to determine the
   ## boundaries of the gas gain and diffusion in which to generate events in!
   # for now we just define hardcoded bounds
-  let gains = @[2400.0, 4000.0]
-  let diffusion = @[550.0, 700.0] # μm/√cm, will be converted to `mm/√cm` when converted to DF
-  # the theta parameter describing the Pólya also needs to be varied somehow
-  let ctx = initLikelihoodContext(CdlFile,
-                                  year = yr2018,
-                                  energyDset = igEnergyFromCharge,
-                                  region = crSilver,
-                                  timepix = Timepix1,
-                                  morphKind = mkLinear) # morphing to plot interpolation
   var dfSim = newDataFrame()
-  for c in mlpDesc.calibFiles:
-    withH5(c, "r"):
-      let calibInfo = h5f.initCalibInfo()
-      dfSim.add rnd.generateFakeEvents(ctx, calibInfo, gains, diffusion, mlpDesc.nFake)
+  if mlpDesc.simFiles.len == 0:
+    let gains = @[2400.0, 4000.0]
+    let diffusion = @[550.0, 700.0] # μm/√cm, will be converted to `mm/√cm` when converted to DF
+    # the theta parameter describing the Pólya also needs to be varied somehow
+    var dfSim = newDataFrame()
+    for c in mlpDesc.calibFiles:
+      withH5(c, "r"):
+        let calibInfo = h5f.initCalibInfo()
+        dfSim.add rnd.generateFakeEventsDf(calibInfo, gains, diffusion, mlpDesc.nFake)
+  else:
+    dfSim.add readSimData(mlpDesc.simFiles)
 
   var dfBack = newDataFrame()
   for b in mlpDesc.backFiles:
@@ -243,7 +205,7 @@ proc prepareSimDataframe(mlpDesc: MLPDesc, readRaw: bool, rnd: var Rand): DataFr
   echo "Simulated: ", dfSim
   echo "Back: ", dfBack
   result = newDataFrame()
-  result.add dfSim.drop(["runNumber", "likelihood"])
+  result.add dfSim.drop(["runNumber", "eventNumber", "Target", "likelihood"])
   result.add dfBack.drop(["runNumber", "eventNumber", "Target"])
 
 proc prepareMixedDataframe(mlpDesc: MLPDesc, readRaw: bool): DataFrame =
@@ -303,14 +265,13 @@ proc train(model: AnyModel, optimizer: var Optimizer,
   var mlpDesc = desc # local mutable copy to store losses, accuracy etc in
   let plotPath = mlpDesc.plotPath
 
-  const PlotEvery = 5000
   let start = continueAfterEpoch
   let stop = start + epochs
   for epoch in start .. stop:
     var correct = 0
     if epoch mod 50 == 0:
       echo "Epoch is:" & $epoch
-    if epoch mod PlotEvery == 0:
+    if epoch mod desc.plotEvery == 0:
       toPlot = true
     var predictions = newSeqOfCap[float](dataset_size)
     var targets = newSeqOfCap[int](dataset_size)
@@ -606,7 +567,7 @@ proc determineCdlEfficiency(model: AnyModel, device: Device, desc: MLPDesc, ε: 
               else: cutValLocal[target]
     let effectiveEff = model.getEff(subDf, cut, &"{plotPath}/cdl_prediction_{target}.pdf")
     let suffix = if global: "global" else: "local"
-    echo "Target ", suffix, " ", target, " eff = ", effectiveEff
+    echo "Target ", suffix, " ", target, " cutValue = ", cut, " eff = ", effectiveEff
 
 proc predictBackground(model: AnyModel, device: Device, desc: MLPDesc, fname: string, ε: float, totalTime: Hour,
                        readRaw: bool, plotPath: string) =
@@ -784,7 +745,7 @@ proc modelDirFile(model, outpath: string): (string, string) =
   else:
     result = ("", outpath)
 
-proc initDesc(calib, back: seq[string], # data
+proc initDesc(calib, back, sim: seq[string], # data
               model, modelOutpath, plotPath: string,
               datasets: seq[string], # datasets used as input neurons
               numHidden: seq[int], # number of neurons on each hidden layer
@@ -798,6 +759,7 @@ proc initDesc(calib, back: seq[string], # data
               rngSeed: int,
               backgroundRegion: ChipRegion,
               nFake: int,
+              plotEvery: int,
               backgroundChips: set[uint8]): MLPDesc =
   if numHidden.len == 0:
     raise newException(ValueError, "Please provide a number of neurons for the hidden layers.")
@@ -806,7 +768,7 @@ proc initDesc(calib, back: seq[string], # data
   # 2. check if `modelOutpath` is a file or a directory
   let (modelFile, modelDir) = modelDirFile(model, modelOutpath)
 
-  result = initMLPDesc(calib, back, datasets,
+  result = initMLPDesc(calib, back, sim, datasets,
                        modelFile, modelDir, plotPath,
                        numHidden,
                        activation, outputActivation, lossFunction, optimizer,
@@ -816,6 +778,7 @@ proc initDesc(calib, back: seq[string], # data
                        rngSeed,
                        backgroundRegion,
                        nFake,
+                       plotEvery,
                        backgroundChips)
 
   # 3. check if such a file already exists to possibly merge it or just return that
@@ -852,19 +815,16 @@ proc initDesc(calib, back: seq[string], # data
     # Note: most input parameters are ignored in this case!
     let input = result
     result = deserializeH5[MLPDesc](outfile)
+    result.inputModel = result.inputModel.strip(chars = Whitespace + {'\0'})
     # Update all fields user wishes to change (that are supported!)
     var anySet = false
+    template setAny(field: untyped): untyped =
+      if input.field != result.field:
+        result.field = input.field
+        anySet = true
+
     if input.inputModel.len > 0:
       result.inputModel = input.inputModel
-      anySet = true
-    if input.path != result.path:
-      result.path = input.path
-      anySet = true
-    if input.plotPath != result.plotPath:
-      result.plotPath = input.plotPath
-      anySet = true
-    if input.modelDir != result.modelDir:
-      result.modelDir = input.modelDir
       anySet = true
     if input.learningRate != result.learningRate:
       # user wishes to change learning rate, add last + epoch to rates
@@ -872,9 +832,12 @@ proc initDesc(calib, back: seq[string], # data
       result.pastLearningRates.add (lr: result.learningRate, toEpoch: result.epochs[^1])
       result.learningRate = input.learningRate
       anySet = true
-    if input.version != result.version:
-      result.version = input.version
-      anySet = true
+    setAny(path)
+    setAny(plotPath)
+    setAny(modelDir)
+    setAny(path)
+    setAny(version)
+    setAny(plotEvery)
     if anySet: # If anything changed due to input, write new H5 file
       result.toH5(result.modelDir / MLPDescName)
 
@@ -894,6 +857,7 @@ proc trainModel[T](_: typedesc[T],
   var model = T.init(mlpDesc)
   model.to(device)
   if mlpDesc.inputModel.len > 0:
+    echo "Loading model file: `", mlpDesc.inputModel, "`"
     model.load(mlpDesc.inputModel)
   elif skipTraining:
     raise newException(ValueError, "`skipTraining` only allowed if a trained input model is handed explicitly " &
@@ -976,7 +940,8 @@ template predictModel(Typ: typedesc,
     const readRaw = true
 
   # load the model
-  model.load(desc.path)
+  echo "Loading model file: ", desc.inputModel
+  model.load(desc.inputModel)
   model.predictBackground(device, desc, desc.backFiles[0], ε, totalTime, readRaw, desc.plotPath)
   model.predictCalib(device, desc, desc.calibFiles[0], ε)
 
@@ -987,7 +952,7 @@ template predictModel(Typ: typedesc,
 
   model.generateRocCurves(device, desc)
 
-proc main(calib, back: seq[string] = @[],
+proc main(calib, back, simFiles: seq[string] = @[],
           datasets: seq[string] = @[],
           ε = 0.8, # signal efficiency for background rate prediction
           totalTime = -1.0.Hour, # total background rate time in hours. Normally read from input file
@@ -1012,6 +977,7 @@ proc main(calib, back: seq[string] = @[],
           backgroundRegion = crAll,
           nFake = 100_000,
           epochs = 100_000,
+          plotEvery = 5000,
           skipTraining = false # If given only read a model and perform test validation
          ) =
   # 1. set up the model
@@ -1022,7 +988,7 @@ proc main(calib, back: seq[string] = @[],
     return
 
   let backgroundChips = if backgroundChips.isSome: backgroundChips.get else: {3'u8}
-  let desc = initDesc(calib, back, model, modelOutpath, plotPath,
+  let desc = initDesc(calib, back, simFiles, model, modelOutpath, plotPath,
                       datasets,
                       numHidden,
                       activation, outputActivation, lossFunction, optimizer,
@@ -1032,6 +998,7 @@ proc main(calib, back: seq[string] = @[],
                       rngSeed,
                       backgroundRegion,
                       nFake,
+                      plotEvery,
                       backgroundChips)
 
   ClampOutput = clampOutput
@@ -1045,7 +1012,6 @@ proc main(calib, back: seq[string] = @[],
     echo "Training on CPU."
     device_type = kCPU
   let device = Device.init(device_type)
-
   let mKind = parseEnum[ModelKind](modelKind)
   if mKind == mkMLP:
     if not predict:

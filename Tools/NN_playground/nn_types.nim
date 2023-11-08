@@ -61,6 +61,7 @@ type
     plotPath*: string # path in which plots are placed
     calibFiles*: seq[string] ## Path to the calibration files
     backFiles*: seq[string] ## Path to the background data files
+    simFiles*: seq[string] ## Path to the simulated X-ray data files
     simulatedData*: bool
     numInputs*: int
     numHidden*: seq[int]
@@ -71,6 +72,7 @@ type
     subsetPerRun*: int
     backgroundChips*: set[uint8] ## Which chips to read 1·`subsetPerRun` from
     rngSeed*: int
+    plotEvery*: int = 5000 # after how many epochs we plot & create a snapshot
     backgroundRegion*: ChipRegion
     nFake*: int # number of fake events per run period (!) to generate
     nFakeTotal*: int # *total* number of fake events (train + test)
@@ -174,6 +176,7 @@ proc forward*(net: MLP, desc: MLPDesc, x: RawTensor): RawTensor =
   return net.classifier.forward(x).outFn(desc) #.squeeze(1)
 
 proc init*(T: type MLP, numInput: int, numLayers: int, numHidden: seq[int], numOutput = 2): MLP =
+  echo "Init MLP of : ", numInput, ", nL ", numLayers, ", nH: ", numHidden, ", nO: ", numOutput
   result = make_shared(MLPImpl)
   if numLayers != numHidden.len:
     raise newException(ValueError, "Number of layers does not match number of neurons given for each " &
@@ -197,7 +200,7 @@ proc genModelFilename(desc: MLPDesc): string =
   let hidden = if desc.numHidden.len > 0: desc.numHidden[0] else: 0
   result = &"mlp_{desc.activationFunction}_{desc.outputActivation}_{desc.lossFunction}_{desc.optimizer}_{hidden}_{desc.numLayers}.pt"
 
-proc initMLPDesc*(calib, back, datasets: seq[string],
+proc initMLPDesc*(calib, back, sim, datasets: seq[string],
                   modelFile, modelDir, plotPath: string,
                   numHidden: seq[int],
                   activation: ActivationFunction,
@@ -210,10 +213,12 @@ proc initMLPDesc*(calib, back, datasets: seq[string],
                   rngSeed: int,
                   backgroundRegion: ChipRegion,
                   nFake: int,
+                  plotEvery: int,
                   backgroundChips: set[uint8]): MLPDesc =
   result = MLPDesc(version: MLPVersion,
                    calibFiles: calib,
                    backFiles: back,
+                   simFiles: sim,
                    datasets: datasets,
                    inputModel: modelFile, modelDir: modelDir, plotPath: plotPath,
                    numInputs: datasets.len,
@@ -229,6 +234,7 @@ proc initMLPDesc*(calib, back, datasets: seq[string],
                    rngSeed: rngSeed,
                    backgroundRegion: backgroundRegion,
                    nFake: nFake,
+                   plotEvery: plotEvery,
                    backgroundChips: backgroundChips)
   # Set the filename of the final checkpoint.
   result.path = result.modelDir / genModelFilename(result)
@@ -262,6 +268,9 @@ proc initMLPDesc*(modelPath: string, plotPath = ""): MLPDesc =
     raise newException(IOError, "Required version: " & $MLPVersion & " of the MLPDesc H5 file does " &
       "not exist. Please rerun `train_ingrid` providing the needed parameters for the new MLPDesc version " &
       "to regenerate the new file.")
+
+  # Set the input model to the model that we actually want to load
+  result.inputModel = modelPath
 
 ## XXX: Defining two models in a single file is currently broken. When trying to use it
 ## the nim compiler assigns the wrong destructor to the second one (reusing the one

@@ -69,7 +69,7 @@ proc calcRocCurve*(logL: seq[float], logLTargets: seq[int], predict: seq[float],
                      "Type")
 
 proc determineCutValue*(model: AnyModel, device: Device, desc: MLPDesc, df: DataFrame, ε: float,
-                        target = ""
+                        target = "", plotPath = "/tmp/"
                        ): float =
   let cdlInput = df.toTorchTensor()
   let cdlPredict = model.forward(cdlInput, device, desc)
@@ -87,7 +87,7 @@ proc determineCutValue*(model: AnyModel, device: Device, desc: MLPDesc, df: Data
     ggplot(dfP, aes("cdlPredict")) +
       geom_histogram(bins = 100, hdKind = hdOutline) +
       ggtitle(&"Target: {target}, run: {run}") +
-      ggsave(&"/tmp/target_{target}_run_{run}.pdf")
+      ggsave(&"{plotPath}/target_{target}_run_{run}.pdf")
 
   when false:
     ## XXX: this is not possible here anymore!
@@ -127,7 +127,8 @@ proc determineLocalCutValue*(model: AnyModel, device: Device, desc: MLPDesc, ε:
   echo "Local cut values: ", result
 
 proc determineRunLocalCutValue*(model: AnyModel, device: Device, desc: MLPDesc,
-                                df: DataFrame, ε: float
+                                df: DataFrame, ε: float,
+                                plotPath = "/tmp/"
                                ): OrderedTable[string, float] =
   ## Returns the required cut value for a desired software efficiency `ε`, which
   ## will be calculated per target/filter combination based on the given run
@@ -137,7 +138,7 @@ proc determineRunLocalCutValue*(model: AnyModel, device: Device, desc: MLPDesc,
   result = initOrderedTable[string, float]()
   for (tup, subDf) in groups(df.group_by("Target")):
     let target = tup[0][1].toStr
-    result[target] = model.determineCutValue(device, desc, subDf, ε, target = target)
+    result[target] = model.determineCutValue(device, desc, subDf, ε, target = target, plotPath = plotPath)
   echo "Local cut values: ", result
 
 proc calcCutValues*(model: AnyModel, device: Device, ε: float, readRaw: bool,

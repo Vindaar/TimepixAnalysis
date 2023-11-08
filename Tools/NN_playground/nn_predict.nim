@@ -39,6 +39,7 @@ template loadModelMakeDevice*(modelPath: string): untyped {.dirty.} =
   var model = MLP.init(desc)
   Torch.manual_seed(1)
   model.to(device)
+  echo "Loading model: ", modelPath
   model.load(modelPath)
 
 proc predict*(h5f: H5File, modelPath: string, run, idx: int): float =
@@ -165,7 +166,8 @@ proc calcLocalNNCutValueTab*(ctx: LikelihoodContext,
                              runType: RunTypeKind,
                              run, chipNumber: int,
                              chipName: string,
-                             capacitance: FemtoFarad
+                             capacitance: FemtoFarad,
+                             plotPath = "/tmp/"
                             ): CutValueInterpolator =
   let model = ctx.vetoCfg.nnModelPath
   let modelHash = $(model.readFile.secureHash)
@@ -187,7 +189,7 @@ proc calcLocalNNCutValueTab*(ctx: LikelihoodContext,
 
     # now use fake data to determine cuts
     result = initCutValueInterpolator(nkRunBasedLocal)
-    result.nnCutTab = determineRunLocalCutValue(model, device, desc, dfFake, ε)
+    result.nnCutTab = determineRunLocalCutValue(model, device, desc, dfFake, ε, plotPath)
 
     CacheTab[(run, modelHash, ε)] = result.toSeq()
     CacheTab.tryToH5(CacheTabFile)
@@ -196,7 +198,9 @@ proc main(calib, back: seq[string] = @[],
           cdlFile = "/home/basti/CastData/data/CDL_2019/CDL_2019_Reco.h5",
           model: string,
           signalEff: float,
-          subsetPerRun = 1000) =
+          subsetPerRun = 1000,
+          plotPath = "/tmp/"
+         ) =
   let ctx = initLikelihoodContext(cdlFile,
                                   year = yr2018,
                                   energyDset = igEnergyFromCharge,
@@ -211,7 +215,8 @@ proc main(calib, back: seq[string] = @[],
     let fileInfo = h5f.getFileInfo()
     for r in fileInfo.runs:
       discard ctx.calcLocalNNCutValueTab(rnd, h5f, rtCalibration, r, fileInfo.centerChip, fileInfo.centerChipName,
-                                         getCapacitance(fileInfo.timepix))
+                                         getCapacitance(fileInfo.timepix),
+                                         plotPath = plotPath)
 
 
 when isMainModule:

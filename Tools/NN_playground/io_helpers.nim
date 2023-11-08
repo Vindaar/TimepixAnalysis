@@ -1,10 +1,10 @@
 from std / random import shuffle, Rand
-import std / [sequtils, os, strutils, options]
+import std / [sequtils, os, strutils, options, strformat]
 
 import ingrid / [tos_helpers, ingrid_types]
 import pkg / [nimhdf5, datamancer]
 
-const ValidReadDSets* = XrayReferenceDsets - { igNumClusters,
+const ValidReadDsets* = XrayReferenceDsets - { igNumClusters,
                                                igFractionInHalfRadius,
                                                igRadiusDivRmsTrans,
                                                igRadius, igBalance,
@@ -27,7 +27,6 @@ type
 
 proc shuff*(rnd: var Rand, x: seq[int]): seq[int] =
   ## Not in place shuffle
-  ## XXX: This should better receive an explicit RNG!
   result = x
   rnd.shuffle(result)
 
@@ -36,7 +35,7 @@ proc readCdlDset*(h5f: H5File, cdlPath, dset: string): DataFrame =
   ## Reads the given dataset (target/filter kind) `dset` according
   ## to the required cuts for X-rays for this target/filter.
   result = newDataFrame()
-  let dsets = concat(toSeq(ValidReadDsets - { igLikelihood } ), @[igEventNumber])
+  let dsets = concat(toSeq(ValidReadDsets - { igLikelihood, igGasGain } ), @[igEventNumber])
   var passData: array[InGridDsetKind, seq[float]]
   for s in mitems(passData):
     s = newSeqOfCap[float](50_000)
@@ -70,7 +69,9 @@ proc readValidDsets*(h5f: H5File, path: string, readRaw = false,
                      typ = dtBack,
                      subsetPerRun = 0,
                      validDsets: set[InGridDsetKind] = ValidReadDsets - { igLikelihood },
-                     filterNan = true): DataFrame =
+                     filterNan = true,
+                     skipDiffusion = false
+                    ): DataFrame =
   ## Reads all data for the given run `path` (must be a chip path)
   ##
   ## `subsetPerRun` is an integer which if given only returns this many entries (random)
@@ -101,7 +102,8 @@ proc readValidDsets*(h5f: H5File, path: string, readRaw = false,
     result = result.randomHead(subsetPerRun)
   #result["Idx"] = toSeq(0 ..< result.len)
   # here we only use the cached diffusion values!
-  result["σT"] = getDiffusionForRun(run = runNumber, isBackground = (typ == dtBack)) / 1000.0
+  if not skipDiffusion:
+    result["σT"] = getDiffusionForRun(run = runNumber, isBackground = (typ == dtBack)) / 1000.0
 
 proc prepareData*(h5f: H5File, run: int, readRaw: bool,
                   typ = dtBack,
@@ -184,16 +186,33 @@ proc readCalibData*(fname, calibType: string, eLow, eHigh: float,
   result["CalibType"] = calibType # Photo or escape peak
 
 proc prepareCdl*(readRaw: bool,
-                 cdlPath = "/home/basti/CastData/data/CDL_2019/calibration-cdl-2018.h5"
+                 cdlPath = "/home/basti/CastData/data/CDL_2019/CDL_2019_Reco.h5"  #calibration-cdl-2018.h5"
                ): DataFrame =
+  ## NOTE: this version of `prepareCdl` is currently broken, because we attempt to read the gas gain
+  ##
   var h5f = H5file(cdlPath, "r")
-  let tb = getXrayRefTable()
+  #let tb = getXrayRefTable()
+  let tb = getXrayTfKindTable()
   var df = newDataFrame()
-  for k, bin in tb:
+  for energyIdx, tfKind in tb:
     var dfLoc = newDataFrame()
     if not readRaw:
       # read dsets only returns those indices that pass
-      dfLoc = h5f.readCdlDset(cdlPath, bin)
+      const dsets = ValidReadDsets + {igEnergyFromCdlFit} - {igLikelihood}
+      const invTab = getInverseXrayRefTable()
+      let energy = toXrayLineEnergy(tfKind)
+      let bins = concat(@[0.0], getEnergyBinning())
+      let E = igEnergyFromCdlFit.toDset()
+      let (frm, to) = (bins[energyIdx], bins[energyIdx+1])
+      dfLoc = readCalibData(cdlPath, &"{energy:g}",
+                            NegInf, Inf, # deactivates energy cut in `cutXrayCleaning`
+                            tfKind = some(tfKind),
+                            validDsets = dsets)
+        .filter(f{float -> bool: idx(E) >= frm and idx(E) <= to})
+      when false:
+        ## NOTE: `readCdlDset` does not properly work for the purpose at the moment. It wants to use the
+        ## `calibration-cdl-2018.h5` data file, which lacks some data. We use the
+        dfLoc = h5f.readCdlDset(cdlPath, bin)
     else:
       doAssert false, "Raw data reading currently not supported!"
       when false:
@@ -208,8 +227,8 @@ proc prepareCdl*(readRaw: bool,
         for i, p in pass:
           if p:
             idxs.add i
-        dfLoc = h5f.readRaw(cdlPrefix($yr2018) & bin, idxs)
-    dfLoc["Target"] = bin
+        dfLoc = h5f.readRaw(cdlPrefix($yr2018) & $tfKind, idxs)
+    dfLoc["Target"] = $tfKind
     df.add dfLoc
   discard h5f.close()
   df["Type"] = $dtSignal
@@ -253,6 +272,22 @@ proc prepareAllBackground*(fname: string, readRaw: bool, subsetPerRun = 0,
   if region != crAll:
     result = result.filter(f{float -> bool: inRegion(`centerX`, `centerY`, region)})
   discard h5f.close()
+
+proc readSimData*(simFiles: seq[string]): DataFrame =
+  for f in simFiles:
+    echo "Reading sim file: ", f
+    withH5(f, "r"):
+      let path = recoBase() & "0" / "chip_3" ## For now input needs to be 0
+      var dfLoc = h5f.readValidDsets(path, readRaw = false,
+                                     typ = dtSignal,
+                                     subsetPerRun = 0,
+                                     validDsets = ValidReadDsets - { igLikelihood, igGasGain },
+                                     filterNan = true,
+                                     skipDiffusion = true)
+      dfLoc["σT"] = h5f[path / "σT", float]
+      dfLoc["gasGain"] = h5f[path / "gasGain", float]
+      echo dfLoc
+      result.add dfLoc
 
 when defined(cpp):
   {.experimental: "views".}

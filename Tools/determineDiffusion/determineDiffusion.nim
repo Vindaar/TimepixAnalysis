@@ -370,7 +370,6 @@ proc runAvailable(run: int): bool =
       CacheTab.tryToH5(CacheTabFile)
     result = run in CacheTab # still not in: not available
 
-
 const BackgroundDiffusionCorrection = 40.0
 proc getDiffusionForRun*(run: int, isBackground: bool): float =
   ## Attempts to return the diffusion determined for run `run`. If the CacheTab
@@ -448,13 +447,14 @@ proc getDiffusion*(rmsT: seq[float],
 #  let (df, pRes, _) = fitRmsTransverse(df["rmsTransverse", float], 100)
 #  result = (pRes[1] + Scale * abs(pRes[2])) / sqrt(MaxZ) * 1000.0
 
-proc determineDiffusion(df: DataFrame, outpath: string, useTeX: bool) =
+proc determineDiffusion(df: DataFrame, outpath: string, runInput: int, useCache, useTeX: bool) =
   var dfAll = newDataFrame()
   for (tup, subDf) in groups(df.group_by("run")):
     let run = tup[0][1].toInt
+    if runInput > 0 and run != runInput: continue
     let runType = parseEnum[RunTypeKind](subDf["typ"].unique.item(string))
     let isBackground = runType == rtBackground
-    let energy = if not isBackground: tfMnCr12.toXrayLineEnergy().keV
+    let energy = if not isBackground: subDf["energy"].unique.item(float).keV
                  else: 0.keV
 
     # or use cache ? At least if available :)
@@ -462,7 +462,7 @@ proc determineDiffusion(df: DataFrame, outpath: string, useTeX: bool) =
                                   isBackground = isBackground,
                                   run = run,
                                   energy = energy,
-                                  useCache = true)
+                                  useCache = useCache)
     dfAll.add toDf( {"run" : run, "σT" : σT, "loss" : loss, "isBackground" : isBackground })
 
   let ylabel = if useTeX: r"$D_T$ [$\si{μm.cm^{1/2}}$]" else: "D_T [μm/√cm]"
@@ -487,6 +487,11 @@ when isMainModule:
         # very weak cuts that should also apply well for background data that remove
         # obvious events that are noisy, and not well defined photons or tracks!
         ## NOTE: These do not apply to the CDL datasets!
+        # try to read attribute and if not given `tfKind` skip this run
+        var tfKind = tfMnCr12 ## Default we assume
+        let runGrp = h5f[group.grp_str]
+        if "tfKind" in runGrp.attrs:
+          tfKind = parseEnum[TargetFilterKind](runGrp.attrs["tfKind", string])
         let passIdx = h5f.cutOnProperties(
           grp,
           crSilver,
@@ -497,12 +502,16 @@ when isMainModule:
         let rms = h5f[group / &"chip_{chipNumber}/rmsTransverse", passIdx, float]
         let df = toDf({ "rms" : rms,
                         "run" : run,
-                        "typ" : $fileInfo.runType })
+                        "typ" : $fileInfo.runType,
+                        "energy" : toXrayLineEnergy(tfKind)
+        })
         result.add df
 
   proc main(fnames: seq[string],
             plotPath: string = "/home/basti/Sync",
             histoPlotPath: string = "/home/basti/Sync",
+            run = -1,
+            useCache = true,
             useTeX = false) =
     ## `plotPath` is where the D_T for all runs plot will be placed.
     ## `histoPlotPath` is the path for all the histograms of the distributions
@@ -514,7 +523,7 @@ when isMainModule:
     var df = newDataFrame()
     for f in fnames:
       df.add readData(f)
-    determineDiffusion(df, plotPath, useTeX)
+    determineDiffusion(df, plotPath, run, useCache, useTeX)
 
   #when isMainModule:
   import cligen

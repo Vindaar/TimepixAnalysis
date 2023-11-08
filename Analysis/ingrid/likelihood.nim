@@ -1363,7 +1363,7 @@ proc fillEffectiveEff(ctx: var LikelihoodContext) =
         "the effective efficiencies for the run period and given NN model and desired target signal " &
         "efficiency.")
     ## XXX: what to do with RNG? Make field of LikelihoodContext?
-    let (eff, std) = meanEffectiveEff(ctx, ctx.rnd, ctx.vetoCfg.nnModelPath, ctx.vetoCfg.calibFile, ctx.vetoCfg.nnSignalEff)
+    let (eff, std) = meanEffectiveEff(ctx.rnd, ctx.vetoCfg.nnModelPath, ctx.vetoCfg.calibFile, ctx.vetoCfg.nnSignalEff)
     ctx.vetoCfg.nnEffectiveEff = eff
     ctx.vetoCfg.nnEffectiveEffStd = std
 

@@ -735,7 +735,8 @@ proc main(fnames: seq[string], model: string, ε: float,
   ## For each run, extract the diffusion, then generate fake data for that run,
   ## use it to compute a bespoke effective cut value for each run and then apply
   ## that to the real data and see what efficiencies we end up with!
-  discard evaluateEffectiveEfficiencyByFakeRunCutVal(rnd, mlpDesc.path, fnames, ε, cdlFile, mlpDesc.plotPath, gainTab, run)
+  #echo meanEffectiveEff(rnd, mlpDesc.path,
+  discard evaluateEffectiveEfficiencyByFakeRunCutVal(rnd, mlpDesc.inputModel, fnames, ε, cdlFile, mlpDesc.plotPath, gainTab, run)
   if true: quit()
   when false:
     # 2. evaluate effective efficiency of the real 55Fe CAST data

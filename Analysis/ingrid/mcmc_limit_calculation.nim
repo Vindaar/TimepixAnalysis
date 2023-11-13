@@ -2774,7 +2774,10 @@ when true:
       let res = ctx.monteCarloLimits(rnd, limitKind, nmc = 50)
       result.add (σ_s, σ_b, res)
 
-const SanityPath = "/home/basti/org/Figs/statusAndProgress/limitSanityChecks/"
+## Will be adjusted based on argument given to `sanity`
+## XXX: turn into `Context` field, but requires in some cases more arguments
+## to some closures.
+var SanityPath = "/home/basti/org/Figs/statusAndProgress/limitSanityChecks/"
 
 proc plotSignalOverBackground(ctx: Context, log: Logger, outfile: string) =
   ## creates a plot of the signal over background for each pixel on the chip.
@@ -4112,7 +4115,8 @@ proc sanity(
   nmcSigmaLimits = 500,
   axionModel = "/home/basti/CastData/ExternCode/AxionElectronLimit/axion_diff_flux_gae_1e-13_gagamma_1e-12.csv",
   axionImage = "/home/basti/org/resources/axion_images/axion_image_2018_1487_93_0.989AU.csv",
-  switchAxes = false
+  switchAxes = false,
+  sanityPath = ""
      ) =
   ##
   ## TODO:
@@ -4124,6 +4128,10 @@ proc sanity(
   #let path = "/tmp/"
   #let backFiles = @["lhood_2017_all_vetoes_dbscan_cdl_mapping_fixed.h5",
   #                  "lhood_2018_all_vetoes_dbscan_cdl_mapping_fixed.h5"]
+
+  # Overwrite sanity path if any given
+  if sanityPath.len > 0:
+    SanityPath = sanityPath
 
   let path = ""
   let backFiles = @[(2017, "/home/basti/org/resources/lhood_limits_10_05_23_mlp_sEff_0.99/lhood_c18_R2_crAll_sEff_0.95_scinti_fadc_line_mlp_mlp_tanh300_msecheckpoint_epoch_485000_loss_0.0055_acc_0.9933_vQ_0.99.h5"),

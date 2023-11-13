@@ -147,7 +147,8 @@ when false:
 proc readClusters(file: string, cTab: var ClusterTable,
                   filterNoisyPixels: bool,
                   energyMin, energyMax: float,
-                  chip: int): int =
+                  chip: int,
+                  switchAxes: bool): int =
   ## Fills the `cTab` of those pixels that are hit and also returns the total number of
   ## clusters on the target chip.
   echo "reading: ", file
@@ -161,28 +162,33 @@ proc readClusters(file: string, cTab: var ClusterTable,
       elif energyMax > 0.0 and cE > energyMax: continue
 
       #echo (pX, pY) in noisyPixels, " pos ", (pX, pY)
-      let pos = (cX.toPixel, cY.toPixel)
+      # Need original position for noisy pixels!
+      let posOriginal = (cX.toPixel, cY.toPixel)
+      let pos = if not switchAxes: posOriginal
+                else: (cY.toPixel, cX.toPixel)
       if pos notin cTab:
         cTab[pos] = newSeq[float]()
 
-      if filterNoisyPixels and pos notin noisyPixels:
+      if filterNoisyPixels and posOriginal notin noisyPixels:
         cTab[pos].add ce
       elif not filterNoisyPixels:
         cTab[pos].add ce
   doAssert h5f.close() >= 0
 
 proc readClusters(file: string, filterNoisyPixels: bool,
-                  energyMin, energyMax: float, chip: int): (int, ClusterTable) =
+                  energyMin, energyMax: float, chip: int,
+                  switchAxes: bool): (int, ClusterTable) =
   var cTab = initClusterTable()
-  let totalNum = file.readClusters(cTab, filterNoisyPixels, energyMin, energyMax, chip)
+  let totalNum = file.readClusters(cTab, filterNoisyPixels, energyMin, energyMax, chip, switchAxes)
   result = (totalNum, cTab)
 
 proc readClusters(files: seq[string], filterNoisyPixels: bool,
-                  energyMin, energyMax: float, chip: int): (int, ClusterTable) =
+                  energyMin, energyMax: float, chip: int,
+                  switchAxes: bool): (int, ClusterTable) =
   var cTab = initClusterTable()
   var totalNum = 0
   for f in files:
-    totalNum += f.readClusters(cTab, filterNoisyPixels, energyMin, energyMax, chip)
+    totalNum += f.readClusters(cTab, filterNoisyPixels, energyMin, energyMax, chip, switchAxes)
   result = (totalNum, cTab)
 
 proc toDf(cTabTup: (int, ClusterTable)): DataFrame =
@@ -268,8 +274,9 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
       var customInferno = inferno()
       customInferno.colors[0] = 0 # transparent
       let rasterData = readCsv(axionImage)
+      let zCol = if "z" in rasterData: "z" else: "photon flux"
       plt = plt +
-        geom_raster(data = rasterData, aes = aes("x", "y", fill = "photon flux"), alpha = 0.3) +
+        geom_raster(data = rasterData, aes = aes("x", "y", fill = zCol), alpha = 0.3) +
         minorGridLines() +
         scale_fill_gradient(customInferno)
 
@@ -405,14 +412,15 @@ proc main(
   preliminary = false,
   backgroundSuppression = false,
   showGoldRegion = false,
-  scale = 1.0 # Scale the output image and all texts etc. by this amount. Default is 640x480
+  scale = 1.0, # Scale the output image and all texts etc. by this amount. Default is 640x480
+  switchAxes = false # if true, will replace X by Y (to effectively rotate the clusters into CAST setup)
      ) =
 
   if energyText and colorBy == count:
     raise newException(ValueError, "`energyText` incompatible with `colorBy = count`.")
 
   # Read the data
-  let (totalNum, cTab) = readClusters(files, filterNoisyPixels, energyMin, energyMax, chip)
+  let (totalNum, cTab) = readClusters(files, filterNoisyPixels, energyMin, energyMax, chip, switchAxes)
   if writeNoisyClusters:
     cTab.toCountTable.writeNoisyClusters(threshold)
 
@@ -423,7 +431,7 @@ proc main(
   else:
     doAssert names.len == files.len, "Need same number of names as input files!"
     for i in 0 ..< names.len:
-      var dfLoc = readClusters(@[files[i]], filterNoisyPixels, energyMin, energyMax, chip).toDf()
+      var dfLoc = readClusters(@[files[i]], filterNoisyPixels, energyMin, energyMax, chip, switchAxes).toDf()
       dfLoc["Type"] = names[i]
       df.add dfLoc
 

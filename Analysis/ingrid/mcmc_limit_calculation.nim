@@ -115,6 +115,8 @@ type
     # input file related information
     logLFlags: set[LogLFlagKind]
     eff: Efficiency
+    switchAxes: bool # If true will exchange X and Y positions of clusters, to view as detector installed at CAST
+                     # (see sec. `sec:limit:candidates:septemboard_layout_transformations` in thesis)
     # time information
     totalBackgroundClusters: int # total number of background clusters in non-tracking time
     totalBackgroundTime: Hour # total time of background data taking
@@ -446,7 +448,8 @@ proc compareVetoCfg(c1, c2: VetoSettings): bool =
         return
 
 proc readFiles(path: string, s: seq[string], noiseFilter: NoiseFilter,
-               energyMin, energyMax: keV): ReadData =
+               energyMin, energyMax: keV,
+               switchAxes: bool): ReadData =
   var h5fs = newSeq[datatypes.H5File]()
   echo path
   echo s
@@ -458,7 +461,10 @@ proc readFiles(path: string, s: seq[string], noiseFilter: NoiseFilter,
     .filterNoisyPixels(noiseFilter)
   ).flatten
   doAssert not df.isNil, "Our input data is nil. This should not happen!"
-
+  if switchAxes: # rename x ↦ y and y ↦ x columns
+    df = df.rename(f{"tmp" <- "centerX"}, # rename to temp name to not collide with y ↦ x
+                   f{"centerX" <- "centerY"},
+                   f{"centerY" <- "tmp"})
   echo "[INFO]: Read a total of ", df.len, " input clusters."
   ## NOTE: the energy cutoff used here does not matter much, because the background interpolation
   ## is of course energy dependent and only happens in an `EnergyRange` around the desired point.
@@ -836,7 +842,8 @@ proc initContext(path: string,
                  septemLineVetoRandomCoinc = 1.0, # random coincidence rate of the septem + line veto
                  energyMin = 0.0.keV,
                  energyMax = 12.0.keV,
-                 couplingKind = ck_g_ae²
+                 couplingKind = ck_g_ae²,
+                 switchAxes: bool
                 ): Context =
   let samplingKind = if useConstantBackground: skConstBackground else: skInterpBackground
 
@@ -844,10 +851,10 @@ proc initContext(path: string,
   let tracking = trackingYearFiles.mapIt(it[1])
   let noiseFilter = initNoiseFilter(yearFiles)
   # read data including vetoes & FADC percentile
-  let readData = readFiles(path, files, noiseFilter, energyMin, energyMax)
+  let readData = readFiles(path, files, noiseFilter, energyMin, energyMax, switchAxes)
   var readDataTracking: ReadData
   if tracking.len > 0:
-    readDataTracking = readFiles(path, tracking, noiseFilter, energyMin, energyMax)
+    readDataTracking = readFiles(path, tracking, noiseFilter, energyMin, energyMax, switchAxes)
 
   let kdeSpl = block:
     let dfLoc = readData.df.toKDE(energyMin, energyMax, true)
@@ -3212,7 +3219,7 @@ proc sanityCheckBackground(ctx: Context, log: Logger) =
                          0.5.cm * 0.5.cm)
 
   # read data files without removing noisy pixels
-  let readData = readFiles(ctx.filePath, ctx.files, NoiseFilter(), 0.0.keV, 12.0.keV)
+  let readData = readFiles(ctx.filePath, ctx.files, NoiseFilter(), 0.0.keV, 12.0.keV, ctx.switchAxes)
 
   log.infos("Background"):
     &"Number of background clusters = {ctx.backgroundDf.len}"
@@ -4104,7 +4111,8 @@ proc sanity(
   rombergIntegrationDepth = 5,
   nmcSigmaLimits = 500,
   axionModel = "/home/basti/CastData/ExternCode/AxionElectronLimit/axion_diff_flux_gae_1e-13_gagamma_1e-12.csv",
-  axionImage = "/home/basti/org/resources/axion_images/axion_image_2018_1487_93_0.989AU.csv"
+  axionImage = "/home/basti/org/resources/axion_images/axion_image_2018_1487_93_0.989AU.csv",
+  switchAxes = false
      ) =
   ##
   ## TODO:
@@ -4148,7 +4156,8 @@ proc sanity(
     lineVetoRandomCoinc = 0.8601764705882353,   # lvRegular based on bootstrapped fake data
     septemLineVetoRandomCoinc = 0.732514705882353, # lvRegularNoHLC based on bootstrapped fake data
     rombergIntegrationDepth = rombergIntegrationDepth,
-    energyMin = 0.2.keV, energyMax = 12.0.keV
+    energyMin = 0.2.keV, energyMax = 12.0.keV,
+    switchAxes = switchAxes
   ) # from sqrt(squared sum of x / 7) position uncertainties
 
   log.infos("Time"):
@@ -4249,7 +4258,9 @@ proc limit(
     as_gae_gaγ = false,
     outpath = "/tmp/",
     suffix = "",
-    jobs = 0
+    jobs = 0,
+    switchAxes = false # If true will exchange X and Y positions of clusters, to view as detector installed at CAST
+                       # (see sec. `sec:limit:candidates:septemboard_layout_transformations` in thesis)
      ): int = # dummy return an `int`, otherwise run into some cligen bug
   ## XXX: For expected limit we need the ratio of tracking to non tracking time. Currently hardcoded.
   echo "files ", files
@@ -4272,7 +4283,8 @@ proc limit(
     septemVetoRandomCoinc = septemVetoRandomCoinc,
     lineVetoRandomCoinc = lineVetoRandomCoinc,
     septemLineVetoRandomCoinc = septemLineVetoRandomCoinc,
-    energyMin = energyMin, energyMax = energyMax
+    energyMin = energyMin, energyMax = energyMax,
+    switchAxes = switchAxes
   ) # from sqrt(squared sum of x / 7) position uncertainties
     # large values of σ_sig cause NaN and grind some integrations to a halt!
     ## XXX: σ_sig = 0.3)

@@ -293,7 +293,7 @@ proc main(f2017, f2018: string = "", # paths to the Run-2 and Run-3 data files
       cmds.add comb.toInputData()
 
     for cmd in cmds:
-      echo "Command: ", cmd
+      echo "Command: ", cmd, ", tracking? ", tracking
       echo "As filename: ", buildFilename(cmd.toCombination(), outpath)
     if not dryRun:
       # run them using a procpool

@@ -1586,7 +1586,10 @@ proc insert(lh: var LimitHelper, c: float) =
 
 proc initLimitHelper(ctx: Context, cands: seq[Candidate],
                      couplings: seq[float]): LimitHelper =
-
+  ## XXX: The `SortedSeq` implementation now assumes then _last_ element is the
+  ## smallest element. Our calculation currently depends on it being the first.
+  ## This needs to be fixed for this code to work.
+  doAssert false, "The BayesLimit scan is currently partially broken, due to the SortedSeq implementation."
   var h = initSortedSeq[Likelihood]()
   result = LimitHelper(ctx: ctx, cands: cands, Ls: h,
                        dy: 0.005,

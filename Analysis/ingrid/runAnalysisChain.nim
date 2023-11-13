@@ -1,5 +1,5 @@
 import shell
-import std / [strutils, strformat, options, algorithm, sequtils, math]
+import std / [strutils, strformat, options, algorithm, sequtils, math, times]
 import std / os except FileInfo, getFileInfo
 from sequtils import toSeq
 import helpers / utils
@@ -419,6 +419,7 @@ proc main(
   ## 2. continuation of a "full run" setup based on a H5 file
   ## 3. reconstruction from a _single_ run folder
   ## 4. continuation of a single run file
+  let t0 = epochTime()
   case cfg.inputKind
   of ikDataFolder:
     for year in years:
@@ -430,6 +431,7 @@ proc main(
   else:
     doAssert cfg.runType != rtNone, "For individual runs a `runType` is required."
     runChain(cfg)
+  echo "The entire analysis chain took: ", (epochTime() - t0) / 60.0, " min"
 
 when isMainModule:
   import cligen

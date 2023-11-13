@@ -154,7 +154,9 @@ proc toRealXPos*(x: int|float): float =
 proc toRealYPos*(y: int|float): float =
   (float(y) + 0.5) * (YSize / YSizePix.float)
 
-# subtract from 768 as we do the same in `applyPitchConversion` (why?)
+# subtract from 768 as we do the same in `applyPitchConversion` to
+# invert the view from 'top down at' the detector to 'looking through'
+# the detector (like a camera)
 # normalize by full width (14 mm * 3 chips) and scale to all pixels
 proc toXPix*(x: float): int =
   clamp((768 - (x / (TimepixSize * 3.0)) * 768.0).int, 0, 767)
@@ -467,7 +469,10 @@ template distance*(x, y: float): float = sqrt(x * x + y * y)
 func applyPitchConversion*[T: (float | SomeInteger)](x, y: T, npix: int): (float, float) =
   ## template which returns the converted positions on a Timepix
   ## pixel position --> absolute position from pixel center in mm.
-  ## Note that the x axis is 'inverted'!
+  ## Note that the x axis is 'inverted'! This follows Christoph's code.
+  ## It essentially switches the data from a 'top down view' onto the detector
+  ## to a "camera-like" view 'through' the detector. I prefer the former, but
+  ## I only much thought about this in the context of the limit calculation.
   ((float(npix) - float(x) + 0.5) * PITCH, (float(y) + 0.5) * PITCH)
 
 func inRegion*(centerX, centerY: float, region: ChipRegion): bool {.inline.} =

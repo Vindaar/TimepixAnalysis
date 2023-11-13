@@ -129,17 +129,15 @@ proc generateFakeEvents(rnd: var Rand,
                                                         ctx.energySampler, ctx.gains,
                                                         ctx.diffusion)
           let buf = asFlat(ctx.events)
-          bufStr.writeBuffer(ctx.outfile)
+          buf.writeBuffer(ctx.outfile)
           ## NOTE: writing the buffer directly breaks for reasons I don't yet understand
           discard w.wrLenBuf("wrote buffer to " & $ctx.outfile & " of length: " & $buf.size)
     ),
                         framesLenPfx,
                         nJobs)
     let nums = toSeq(0 ..< nJobs)
-    var resData = newSeq[FakeEvent]()
     var readRes = proc(s: MSlice) = echo $s
     pp.evalOb nums, readRes
-    result = resData
     for ctx in ctxs:
       let dat = readFile(ctx.outfile)
       echo "Read data from ", ctx.outfile, " of len ", dat.len
@@ -226,7 +224,6 @@ proc simulate(calib: seq[string],
   var rnd = initRand(1349)
   let data = simulateEvents(calib, false, rnd, nFake, energyMin, energyMax,
                             yEnergyMin, yEnergyMax, outfile, note)
-  echo "time to write h5 file: ", data
   # now write to output file
   var dfFake = fakeToDf(data)
   dfFake["eventNumber"] = toSeq(0 ..< dfFake.len)

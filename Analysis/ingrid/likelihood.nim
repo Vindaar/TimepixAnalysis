@@ -1032,9 +1032,6 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
           # only those events that otherwise wouldn't have made it by logL only
           inc totalScintiRemovedNotLogRemoved
 
-      if fkReadOnly notin flags: # write to output if not in read only
-        h5f.writeInfos(chpGrp, ctx, fadcVetoCount, scintiVetoCount, flags)
-
       if chipNumber == centerChip:
         totalScintiRemoveCount += scintiVetoCount
 
@@ -1068,10 +1065,6 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
 
         when false:
           (totalDurationRun, totalDurationRunPassed)
-      elif fkReadOnly notin flags: # do not write if we're in read only mode
-        var mchpGrp = chpGrp
-        mchpGrp.attrs["LogLSpectrum"] = "No events passed cut"
-        echo "No clusters found passing logL cut"
 
       when false:
         # finally add totalDuration to total duration vars
@@ -1362,7 +1355,6 @@ proc fillEffectiveEff(ctx: var LikelihoodContext) =
       raise newException(ValueError, "Requires the calibration file for the data input to compute " &
         "the effective efficiencies for the run period and given NN model and desired target signal " &
         "efficiency.")
-    ## XXX: what to do with RNG? Make field of LikelihoodContext?
     let (eff, std) = meanEffectiveEff(ctx.rnd, ctx.vetoCfg.nnModelPath, ctx.vetoCfg.calibFile, ctx.vetoCfg.nnSignalEff)
     ctx.vetoCfg.nnEffectiveEff = eff
     ctx.vetoCfg.nnEffectiveEffStd = std
@@ -1429,6 +1421,9 @@ proc main(
   ## InGrid likelihood calculator. This program is run after reconstruction is finished.
   ## It calculates the likelihood values for each reconstructed cluster of a run and
   ## writes them back to the H5 file
+  if readOnly:
+    echo "[DeprecationWarning] The `readOnly` argument is deprecated. We stopped writing information about the classification " &
+      "to the output files. We open in write mode only for the calculation of the likelihood values."
 
   var flags: set[LogLFlagKind]
   var nnModelPath: string
@@ -1472,8 +1467,7 @@ proc main(
   doAssert energyDset != igInvalid, "Please enter a valid energy dataset. " &
     "Choices: {energyFromCharge, energyFromPixel}"
 
-  var h5f = if readOnly: H5open(file, "r")
-            else: H5open(file, "rw")
+  var h5f = H5open(file, "r")
   h5f.visitFile()
   let timepix = h5f.timepixVersion()
 
@@ -1530,8 +1524,14 @@ proc main(
     # perform likelihood calculation
     if readOnly:
       raise newException(ValueError, "Given flag `--readOnly` incompatible with `--computeLogL`!")
-    h5f.calcLogLikelihood(ctx)
-    h5f.flush() # flush so the data is written already
+    let err = h5f.close() # reopen in write mode!
+    if err >= 0:
+      withH5(file, "rw"):
+        h5f.calcLogLikelihood(ctx)
+        h5f.flush() # flush so the data is written already
+
+    echo "Calculation of all logL values done."
+    return # we do *not* want to do anything else in this case
   if extract.len == 0 and h5out.len > 0:
     var h5fout = H5open(h5out, "rw", {akTruncate})
 

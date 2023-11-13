@@ -377,7 +377,7 @@ proc main(
   let recoCfg = block:
     var
       recoFlags: set[RecoFlags]
-      calibFactor = NaN
+      calibFactor = none(float)
       runNumberArg: Option[int]
     #if runNumber < 0:
     #  recoFlags.incl rfReadAllRuns
@@ -385,7 +385,7 @@ proc main(
       runNumberArg = some(runNumber)
     if classify(only_energy) != fcNaN:
       recoFlags.incl rfOnlyEnergy
-      calibFactor = only_energy
+      calibFactor = some(only_energy)
     if create_fe_spec:
       recoFlags.incl rfCreateFe
     if onlyCharge:
@@ -422,7 +422,7 @@ proc main(
   case cfg.inputKind
   of ikDataFolder:
     for year in years:
-      doAssert year.uint16 in {2014, 2017, 2018}, "Years supported are 2014, 2017, 2018."
+      doAssert year.uint16 in [2014'u16, 2017, 2018], "Years supported are 2014, 2017, 2018."
       let dYear = DataYear(year)
 
       let dataFiles = fillDataFiles(cfg, dYear)

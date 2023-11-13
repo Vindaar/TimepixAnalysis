@@ -895,7 +895,7 @@ proc parse_tracking_logfile*(content: string, filename: string): TrackingLog =
     result.tracking_stop = tracking_stop
   result.name = filename
   result.badLineCount = badLineCount
-  if result.tracking_stop < parseTime("1975/01/01", "YYYY/MM/dd", utc()):
+  if result.kind == rkTracking and result.tracking_stop < parseTime("1975/01/01", "YYYY/MM/dd", utc()):
     echo "[ERROR]: Invalid tracking stop time parsed: ", result
     quit()
 

@@ -496,7 +496,10 @@ proc buildSeptemEvent(evDf: DataFrame,
   ## the center chip. `cutTab` is the corresponding helper containing the cut values.
   result = SeptemFrame(centerEvIdx: -1, numRecoPixels: 0)
   # assign later to avoid indirection for each pixel
-  var chargeTensor = zeros[float]([YSizePix, XSizePix])
+  ## XXX: only xsize pix, y size pix when dealing with real layout!!
+  let chargeSize = if useRealLayout: [YSizePix, XSizePix]
+                   else: [256 * 3, 256 * 3]
+  var chargeTensor = zeros[float](chargeSize)
   var pixels: PixelsInt = newSeqOfCap[PixInt](5000) # 5000 = 5k * 26eV = 130keV. Plenty to avoid reallocations
   let chipData = evDf["chipNumber", int] # get data as tensors and access to avoid `Value` wrapping
   let idxData = evDf["eventIndex", int]
@@ -507,7 +510,7 @@ proc buildSeptemEvent(evDf: DataFrame,
     let idx = idxData[i]
 
     # convert to septem coordinate and add to frame
-    let pixData = getPixels(allChipData, chip, idx, chargeTensor)
+    let pixData = getPixels(allChipData, chip, idx, chargeTensor, useRealLayout)
     pixels.add pixData
 
     if chip == centerChip:
@@ -681,7 +684,8 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
       let recoEv = recoEvent(inp, -1,
                              runNumber, searchRadius = ctx.vetoCfg.searchRadius,
                              dbscanEpsilon = ctx.vetoCfg.dbscanEpsilon,
-                             clusterAlgo = ctx.vetoCfg.clusterAlgo)
+                             clusterAlgo = ctx.vetoCfg.clusterAlgo,
+                             useRealLayout = ctx.vetoCfg.useRealLayout)
       let centerClusterData = getCenterClusterData(septemFrame, centerData, recoEv, ctx.vetoCfg.lineVetoKind)
 
       # extract the correct gas gain slices for this event

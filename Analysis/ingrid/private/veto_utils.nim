@@ -69,7 +69,8 @@ proc getCenterClusterData*(septemFrame: SeptemFrame,
     doAssert false, "This is not intended as a usable veto kind!"
 
 
-proc getPixels*(allChipData: AllChipData, chip, idx: int, chargeTensor: var Tensor[float]): PixelsInt =
+proc getPixels*(allChipData: AllChipData, chip, idx: int, chargeTensor: var Tensor[float],
+                useRealLayout: bool): PixelsInt =
   ## Use `idx` of this cluster & event to look up all x, y, ToT and charge data of the cluster
   let
     chX = allChipData.x[chip][idx].unsafeAddr.toDataView()
@@ -81,5 +82,7 @@ proc getPixels*(allChipData: AllChipData, chip, idx: int, chargeTensor: var Tens
   for j in 0 ..< numPix:
     let pix = (x: chX[j], y: chY[j], ch: chToT[j]).chpPixToSeptemPix(chip)
     # add current charge into full septem tensor
-    chargeTensor[pix.y, pix.x] += chCh[j]
+    let pC = if useRealLayout: septemPixToRealPix(pix)
+             else: pix
+    chargeTensor[pC.y, pC.x] += chCh[j]
     result[j] = pix

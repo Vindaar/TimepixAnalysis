@@ -715,7 +715,7 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
           ctx,
           flags)
 
-        let cX = toXPix(clusterTup[1].centerX)
+        let cX = toXPixNormal(clusterTup[1].centerX)
         let cY = toYPix(clusterTup[1].centerY)
         var chipClusterCenter: int
         if ctx.vetoCfg.useRealLayout:

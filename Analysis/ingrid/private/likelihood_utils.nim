@@ -866,7 +866,8 @@ proc initLikelihoodContext*(
   fadcScaleCutoff: float = 0.0,
   septemLineVetoEfficiencyFile = "/tmp/septem_veto_before_after.txt",
   rngSeed: int = 299_792_458,
-  flags: set[LogLFlagKind] = {}
+  flags: set[LogLFlagKind] = {},
+  readLogLData = false
                            ): LikelihoodContext =
   ## The configuration elements are generally picked according to the following priority:
   ## 1. command line argument
@@ -949,7 +950,7 @@ proc initLikelihoodContext*(
     rnd: initRand(rngSeed)
   )
 
-  if useLnLCut:
+  if useLnLCut or readLogLData: # if user wants the data, be explicit about `readLogLData`
     case result.morph
     of mkNone:
       result.refSetTuple = result.readRefDsets()

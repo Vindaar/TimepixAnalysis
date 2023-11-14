@@ -1510,7 +1510,8 @@ proc main(
                                   fadcScaleCutoff = fadcScaleCutoff,
                                   septemLineVetoEfficiencyFile = septemLineVetoEfficiencyFile,
                                   rngSeed = rngSeed,
-                                  flags = flags)
+                                  flags = flags,
+                                  readLogLData = true) # read logL data regardless of anything else!
   ## fill the effective efficiency fields if a NN is used
   ctx.fillEffectiveEff()
 

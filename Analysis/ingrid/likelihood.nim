@@ -372,6 +372,8 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
     inc pixIdx
   septemFrame.numRecoPixels = pixIdx
 
+  doAssert totCharge > 0.0, "Total charge of the cluster is 0. This should not happen. Lookup of charge buggy?"
+
   # determine parameters of the lines through the cluster centers
   # invert the slope
   let slope = tan(Pi - cl.geometry.rotationAngle)

@@ -695,8 +695,8 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
       # calculate log likelihood of all reconstructed clusters
       # Note: `septem` and `line` vetoes are "inverse" in their logic. Only a *single* line needed
       # to veto center cluster, but *any* cluster passing septem (hence passed vs rejected)
-      var septemVetoPassed = false
-      var lineVetoRejected = false
+      var septemVetoed = true
+      var lineVetoed   = false
       var septemGeometry: SeptemEventGeometry # no need for constructor. `default` is fine
       if fkAggressive in flags:
         # if there's more than 1 cluster, remove
@@ -744,11 +744,11 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
         if chipClusterCenter == ctx.vetoCfg.centerChip and # this cluster's center is on center chip
            not lnLVeto and # passes lnL veto cut
            not nnVeto: # passes NN veto cut
-          septemVetoPassed = true
+          septemVetoed = false # <-- not vetoed!
 
-        if not lineVetoRejected and not lineVetoPassed:
-          lineVetoRejected = true
-      if (useSeptemVeto and not septemVetoPassed) or (useLineVeto and lineVetoRejected):
+        if not lineVetoed and not lineVetoPassed:
+          lineVetoed = true
+      if (useSeptemVeto and not septemVetoed) or (useLineVeto and lineVetoed):
         ## If `passed` is still false, it means *no* reconstructed cluster passed the logL now. Given that
         ## the original cluster which *did* pass logL is part of the septem event, the conclusion is that
         ## it was now part of a bigger cluster that did *not* pass anymore.
@@ -773,8 +773,8 @@ proc applySeptemVeto(h5f, h5fout: var H5File,
           plotSeptemEvent(septemFrame.pixels, runNumber, evNum,
                           lines = septemGeometry.lines,
                           centers = septemGeometry.centers,
-                          passed = septemVetoPassed,
-                          lineVetoRejected = lineVetoRejected,
+                          septemVetoed = septemVetoed,
+                          lineVetoed = lineVetoed,
                           xCenter = septemGeometry.xCenter,
                           yCenter = septemGeometry.yCenter,
                           radius = septemGeometry.centerRadius,

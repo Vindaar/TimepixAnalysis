@@ -441,7 +441,7 @@ proc plotSeptemEvent*(evData: PixelsInt, run, eventNumber: int,
                       lines: seq[tuple[m, b: float]],
                       centers: seq[tuple[x, y: float]],
                       xCenter, yCenter: int, radius: float,
-                      passed, lineVetoRejected: bool, energyCenter: float,
+                      septemVetoed, lineVetoed: bool, energyCenter: float,
                       useTeX: bool) =
   ## plots a septem event of the input data for `eventNumber` of `run`.
   ## Shows outlines of the septem chips.
@@ -512,7 +512,7 @@ proc plotSeptemEvent*(evData: PixelsInt, run, eventNumber: int,
       geom_point(data = dfCenters, aes = aes(x = "x", y = "y", shape = factor("inside?")),
                  color = "red", size = 3.0)
   plt + ggtitle(&"Septem event of event {eventNumber} and run {run}. " &
-                &"Center cluster energy: {energyCenter:.2f}, passed: {passed}, lineVetoRejected: {lineVetoRejected}") +
+                &"Center cluster energy: {energyCenter:.2f}, septemVetoed: {septemVetoed}, lineVetoed: {lineVetoed}") +
     ggsave(&"plots/septemEvents/septemEvent_run_{run}_event_{eventNumber}.pdf",
            useTeX = useTeX, standalone = useTeX, # onlyTikZ = useTeX,
            width = width, height = height)

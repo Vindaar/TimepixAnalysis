@@ -854,9 +854,6 @@ proc recoEvent*[T: SomePix](dat: RecoInputEvent[T],
   ## I remember trying *some* kind of set based approach before which turned out
   ## slower, so gotta be careful.
 
-  ## XXX: add this also to the config.toml file and make it a cmdline arg!
-  let UseRealLayout = parseBool(getEnv("USE_REAL_LAYOUT", "true"))
-
   template recoClusterTmpl(typ, pixels: untyped): untyped {.dirty.} =
     var cluster: seq[Cluster[typ]]
     case clusterAlgo

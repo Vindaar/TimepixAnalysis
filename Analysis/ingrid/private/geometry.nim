@@ -333,6 +333,12 @@ proc septemPixToRealPix*(p: PixInt): PixInt =
   let chip = p.determineChip(allowOutsideChip = false)
   result = septemPixToChpPix(p, chip).chpPixToSeptemPix(chip, realLayout = true)
 
+proc septemPixToRealPix*(p: PixelsInt): PixelsInt =
+  ## Converts all given septemboard pixels (of the tight layout) to the real layout
+  result = newSeq[PixInt](p.len)
+  for i in 0 ..< p.len:
+    result[i] = septemPixToRealPix(p[i])
+
 proc tightToReal*(c: tuple[x, y: float]): tuple[x, y: float] =
   ## Converts a given set of x, y coordinates for the given chip number into
   ## coordinates on the real septemboard layout.
@@ -558,7 +564,7 @@ proc calcGeometry*[T: SomePix](cluster: Cluster[T],
       let (x, y) = applyPitchConversion(p.x, p.y, NPIX) # `useRealLayout` has no point here
     elif T is PixInt or T is PixIntTpx3:
       var x, y: float
-      if useRealLayout:
+      if useRealLayout: ## Assumes input is already in real septemboard coordinates
         (x, y) = (toRealXPos(p.x), toRealYPos(p.y))
       else:
         (x, y) = applyPitchConversion(p.x, p.y, NPIX * 3)
@@ -806,7 +812,12 @@ proc getPixels[T; U](dat: RecoInputEvent[U], _: typedesc[T],
   ## real Septemboard layout including spacing.
   when T is U:
     when T is PixInt:
-      if useRealLayout and T is PixInt:
+      if false: #  useRealLayout and T is PixInt:
+        ## XXX: WE GENERALLY DON'T WANT THIS.
+        ## If we were to use `getPixels` with `useRealLayout` from `likelihood` for the septem veto
+        ## this is *NOT* good. We want to perform the clustering logic *on the tight septemboard layout*
+        ## and *NOT* on the real layout. Irrespective of whether the user wants the real layout.
+        ## If anything this should become a *SEPARATE* option from the `likelihood` septem veto option!
         result = newSeq[PixInt](dat.pixels.len)
         for i in 0 ..< dat.pixels.len:
           ## XXX: use `tightToReal`?
@@ -828,7 +839,8 @@ proc recoEvent*[T: SomePix](dat: RecoInputEvent[T],
                             chip, run, searchRadius: int,
                             dbscanEpsilon: float,
                             clusterAlgo: ClusteringAlgorithm,
-                            timepixVersion = Timepix1): RecoEvent[T] {.gcsafe, hijackMe.} =
+                            timepixVersion = Timepix1,
+                            useRealLayout = false): RecoEvent[T] {.gcsafe, hijackMe.} =
   result.event_number = dat.eventNumber
   result.chip_number = chip
 
@@ -852,21 +864,25 @@ proc recoEvent*[T: SomePix](dat: RecoInputEvent[T],
     of caDBSCAN:  cluster = findClusterDBSCAN(pixels, dbscanEpsilon)
     result.cluster = newSeq[ClusterObject[T]](cluster.len)
     for i, cl in cluster:
-      result.cluster[i] = recoCluster(cl, timepixVersion, T, UseRealLayout)
+      when typ is PixInt: ## We convert pixels to the real layout *now*
+        let mcl = if useRealLayout: septemPixToRealPix(cl) else: cl
+        result.cluster[i] = recoCluster(mcl, timepixVersion, T, useRealLayout)
+      else:
+        result.cluster[i] = recoCluster(cl, timepixVersion, T, useRealLayout)
 
   if dat[0].len > 0:
     case timepixVersion
     of Timepix1:
       when T is PixInt or T is PixIntTpx3:
-        let pixels = getPixels(dat, PixInt, UseRealLayout)
+        let pixels = getPixels(dat, PixInt, useRealLayout)
         recoClusterTmpl(PixInt, pixels)
       else:
-        let pixels = getPixels(dat, Pix, UseRealLayout)
+        let pixels = getPixels(dat, Pix, useRealLayout)
         recoClusterTmpl(Pix, pixels)
     of Timepix3:
       when T is PixIntTpx3 or T is PixInt:
-        let pixels = getPixels(dat, PixIntTpx3, UseRealLayout)
+        let pixels = getPixels(dat, PixIntTpx3, useRealLayout)
         recoClusterTmpl(PixIntTpx3, pixels)
       else:
-        let pixels = getPixels(dat, PixTpx3, UseRealLayout)
+        let pixels = getPixels(dat, PixTpx3, useRealLayout)
         recoClusterTmpl(PixTpx3, pixels)

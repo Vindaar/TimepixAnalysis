@@ -1185,12 +1185,12 @@ proc getListOfEventFiles*(folder: string, eventType: EventType,
         names.add file
         numbers.add evNumber
   # finally sort the file names according to `sortType`
-  case sort_type
+  case sortType
   of fname:
     # sort by parsed event number from the above proc
     let evNumFiles = sortedByIt(zip(numbers, names), it[0])
-    # no need for the event numbers anymore
-    result.files = names
+    # no need for the event numbers anymore, get all sorted file names
+    result.files = evNumFiles.mapIt(it[1])
   of inode:
     result.files = sortByInode(names)
   result.eventNumbers = numbers

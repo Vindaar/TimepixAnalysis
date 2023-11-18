@@ -167,12 +167,13 @@ proc calcLocalNNCutValueTab*(ctx: LikelihoodContext,
                              run, chipNumber: int,
                              chipName: string,
                              capacitance: FemtoFarad,
-                             plotPath = "/tmp/"
+                             plotPath = "/tmp/",
+                             useCache = true
                             ): CutValueInterpolator =
   let model = ctx.vetoCfg.nnModelPath
   let modelHash = $(model.readFile.secureHash)
   let ε = ctx.vetoCfg.nnSignalEff
-  if fileAvailable(run, modelHash, ε):
+  if useCache and fileAvailable(run, modelHash, ε):
     let data = CacheTab[(run, modelHash, ε)]
     result = data.fromSeq()
   else:
@@ -199,7 +200,8 @@ proc main(calib, back: seq[string] = @[],
           model: string,
           signalEff: float,
           subsetPerRun = 1000,
-          plotPath = "/tmp/"
+          plotPath = "/tmp/",
+          useCache = false
          ) =
   let ctx = initLikelihoodContext(cdlFile,
                                   year = yr2018,
@@ -213,10 +215,12 @@ proc main(calib, back: seq[string] = @[],
   var rnd = initRand(5433)
   withH5(cdlFile, "r"):
     let fileInfo = h5f.getFileInfo()
+    echo fileInfo
     for r in fileInfo.runs:
       discard ctx.calcLocalNNCutValueTab(rnd, h5f, rtCalibration, r, fileInfo.centerChip, fileInfo.centerChipName,
                                          getCapacitance(fileInfo.timepix),
-                                         plotPath = plotPath)
+                                         plotPath = plotPath,
+                                         useCache = useCache)
 
 
 when isMainModule:

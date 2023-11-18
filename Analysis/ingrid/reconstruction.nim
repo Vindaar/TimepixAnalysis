@@ -422,8 +422,7 @@ proc reconstructSingleChip*(data: RecoInputData[Pix],
         result[event] = recoEvent(data[event], chip, run, searchRadius,
                                   dbscanEpsilon = dbscanEpsilon,
                                   clusterAlgo = clusterAlgo,
-                                  timepixVersion = timepixVersion,
-                                  index = event)
+                                  timepixVersion = timepixVersion)
       echoCount(count, 5000, msg = " clusters reconstructed")
   elif not defined(gcDestructors):
     let p = newThreadPool()

@@ -1,8 +1,4 @@
-import os
-import re
-import sequtils, sugar
-import memfiles
-import strutils, strscans
+import std / [os, re, sequtils, sugar, memfiles, strutils, strscans]
 import helpers/utils
 # import read list of files, to read FADC files in parallel
 

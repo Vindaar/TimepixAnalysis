@@ -159,6 +159,36 @@ iterator memLines*(ff: var MemFile, buf: var string, start = 0, stop = -1): stri
     copyMem(addr buf[0], slice.data, slice.size)
     yield buf
 
+iterator linesIter*(ff: string, buf: var string, start = 0, stop = -1): string {.inline.} =
+  var count = 0
+  var idx = 0
+  while true:
+    case ff[idx]
+    of '\n':
+      inc count
+      if count == stop:
+        break
+      elif count >= start:
+        yield buf
+      buf.setLen(0)
+    else:
+      buf.add ff[idx]
+    inc idx
+
+proc parseUint16*(x: string): uint16 =
+  var i = 0
+  var digits = 0
+  while i < x.len:
+    case x[i]
+    of ' ': discard
+    of '0' .. '9':
+      let val = uint16(ord(x[i]) - ord('0'))
+      result *= 10
+      result += val
+      inc digits
+    else:
+      raise newException(ValueError, "Unexpected character in uint16: " & $x[i] & ", full number: " & x)
+    inc i
 
 proc getNewBound*(ind, width, size: int, up_flag: bool = true): int {.inline.} =
   # procedure to select a new bound, either upper or lower for

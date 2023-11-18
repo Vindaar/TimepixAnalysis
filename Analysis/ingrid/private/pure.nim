@@ -1314,7 +1314,7 @@ when compileOption("threads"):
         let inputBuf = cast[ptr UncheckedArray[string]](list_of_files[0].unsafeAddr)
         parallelFor i in 0 ..< numFiles:
           # loop over each file and call work on data function
-          captures: {resBuf, inputBuf, rfKind}
+          captures: {resBuf, inputBuf}
           resBuf[i] = readFadcFileMem(inputBuf[i])
           echoCounted(i)
       syncRoot(Weave)

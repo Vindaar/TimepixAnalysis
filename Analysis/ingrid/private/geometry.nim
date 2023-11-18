@@ -137,8 +137,8 @@ const
   #           v--- size of tight layout in pixel
   #                       v--- size of chips in mm ('real size' of tight layout)
   #                                   v--- size in mm of the real layout
-  XSizePix* = ((256 * 3) / (14.1 * 3) * XSize).ceil.int
-  YSizePix* = ((256 * 3) / (14.1 * 3) * YSize).ceil.int
+  XSizePix* = ((256 * 3) / (Width * 3) * XSize).ceil.int
+  YSizePix* = ((256 * 3) / (Height * 3) * YSize).ceil.int
 
 # subtract from 768 as we do the same in `applyPitchConversion` (why?)
 # normalize by full width (14 mm * 3 chips) and scale to all pixels
@@ -158,10 +158,11 @@ proc toRealYPos*(y: int|float): float =
 # invert the view from 'top down at' the detector to 'looking through'
 # the detector (like a camera)
 # normalize by full width (14 mm * 3 chips) and scale to all pixels
-proc toXPix*(x: float): int =
+## XXX: this is not actually used! I think because inversion here is not needed. The
+proc toXPixAlt*(x: float): int = ## <- yeah, we don't use it.
   clamp((768 - (x / (TimepixSize * 3.0)) * 768.0).int, 0, 767)
 
-proc toXPixNormal*(x: float): int =
+proc toXPix*(x: float): int =
   clamp(((x / (TimepixSize * 3.0)) * 768.0).int, 0, 767)
 
 proc toYPix*(y: float): int =
@@ -342,7 +343,7 @@ proc septemPixToRealPix*(p: PixelsInt): PixelsInt =
 proc tightToReal*(c: tuple[x, y: float]): tuple[x, y: float] =
   ## Converts a given set of x, y coordinates for the given chip number into
   ## coordinates on the real septemboard layout.
-  let chipNumber = determineChip((x: c.x.toXPixNormal(), y: c.y.toYPix(), ch: 0))
+  let chipNumber = determineChip((x: c.x.toXPix(), y: c.y.toYPix(), ch: 0))
   let p = septemToChp(c, chipNumber)
   withRealSeptemXY(chipNumber):
     case chipNumber
@@ -471,7 +472,7 @@ template distance*(x, y: float): float = sqrt(x * x + y * y)
 # to mm from center of chip
 # constants are:
 # const NPIX = 256
-# const PITCH = 0.0055 (see ingrid_types)
+# const PITCH = 0.055 (see ingrid_types)
 func applyPitchConversion*[T: (float | SomeInteger)](x, y: T, npix: int): (float, float) =
   ## template which returns the converted positions on a Timepix
   ## pixel position --> absolute position from pixel center in mm.
@@ -479,6 +480,12 @@ func applyPitchConversion*[T: (float | SomeInteger)](x, y: T, npix: int): (float
   ## It essentially switches the data from a 'top down view' onto the detector
   ## to a "camera-like" view 'through' the detector. I prefer the former, but
   ## I only much thought about this in the context of the limit calculation.
+  ##
+  ## Note: this should really use `npix - 1`. `x` can be maximum 255, so we have
+  ## a shift off by 1 here. But this would require rerunning *everything* for a
+  ## absolute tiny difference. Hence I'll leave it for now.
+  ## Also: `PITCH` is currently `0.055`, but more correct would be something that
+  ## really uses the Timepix size.
   ((float(npix) - float(x) + 0.5) * PITCH, (float(y) + 0.5) * PITCH)
 
 func inRegion*(centerX, centerY: float, region: ChipRegion): bool {.inline.} =
@@ -559,19 +566,21 @@ proc calcGeometry*[T: SomePix](cluster: Cluster[T],
     x_max, x_min: float
     y_max, y_min: float
     i = 0
+  let rotAngle = if not useRealLayout: -rot_angle # for single chip we invert `x ↦ -x`. Thus need to invert angle too.
+                 else: rotAngle
   for p in cluster:
     when T is Pix or T is PixTpx3:
       let (x, y) = applyPitchConversion(p.x, p.y, NPIX) # `useRealLayout` has no point here
     elif T is PixInt or T is PixIntTpx3:
       var x, y: float
-      if useRealLayout: ## Assumes input is already in real septemboard coordinates
+      if useRealLayout: ## Assumes input is already in real septemboard (pixel) coordinates
         (x, y) = (toRealXPos(p.x), toRealYPos(p.y))
       else:
         (x, y) = applyPitchConversion(p.x, p.y, NPIX * 3)
     else:
       error("Invalid type: " & $T)
-    xRot[i] = cos(-rot_angle) * (x - pos_x) - sin(-rot_angle) * (y - pos_y)
-    yRot[i] = sin(-rot_angle) * (x - pos_x) + cos(-rot_angle) * (y - pos_y)
+    xRot[i] = cos(rotAngle) * (x - pos_x) - sin(rotAngle) * (y - pos_y)
+    yRot[i] = sin(rotAngle) * (x - pos_x) + cos(rotAngle) * (y - pos_y)
 
     # calculate distance from center
     let dist = distance(xRot[i], yRot[i])
@@ -610,7 +619,11 @@ proc calcGeometry*[T: SomePix](cluster: Cluster[T],
   result.skewnessTransverse   = takeIt(xSkew, ySkew, not takeX)
   result.kurtosisLongitudinal = takeIt(xKurt, yKurt, takeX)
   result.kurtosisTransverse   = takeIt(xKurt, yKurt, not takeX)
-  result.rotationAngle        = rot_angle
+  # We don't care about the sign of the angle. 0-180° covers all angle information
+  # we deduce based on nlopt fit anyway! This might be changed if we ever try to
+  # deduce the directionality of a track!
+  # This is important because our `rotAngle` modification above makes positive angles negative
+  result.rotationAngle        = abs(rotAngle)
   result.eccentricity         = result.rmsLongitudinal / result.rmsTransverse
 
   # get fraction of all pixels within the transverse RMS, by filtering all elements

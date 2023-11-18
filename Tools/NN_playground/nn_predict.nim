@@ -52,6 +52,11 @@ proc predict*(h5f: H5File, modelPath: string, run, idx: int): float =
   result = model.predictSingle(inp, device, desc)
 
 import ingrid / ingrid_types
+proc printRow(df: DataFrame) =
+  doAssert df.len == 1, "not 1 element"
+  for k in getKeys(df).sorted:
+    echo k, " = ", df[k, Value][0]
+
 proc predict*(h5f: H5File, modelPath: string, grp: string): seq[float] =
   ## Returns the prediction of the (globally declared!) network for the given run & event index, assuming the
   ## center chip, number 3

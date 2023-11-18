@@ -74,7 +74,7 @@ proc initSimContexts(num: int, nFake: int,
   let nFakeEach = nFake div num
   for i in 0 ..< num:
     let fakeDesc = FakeDesc(kind: fkGainDiffusion, gasMixture: initCASTGasMixture())
-    let rnd = initRand(baseSeed + num)
+    let rnd = initRand(baseSeed + i)
     let each = if i != num - 1: nFakeEach else: nFakeEach + nFake mod num
     result.add SimContext(rnd: rnd,
                           nFake: each,

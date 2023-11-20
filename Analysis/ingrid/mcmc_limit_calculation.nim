@@ -4235,7 +4235,7 @@ proc sanity(
   # 13. anything else?
 
 proc readYearFiles(years: seq[int], files: seq[string]): seq[(int, string)] =
-  doAssert files.len == years.len, "Every file must be given an associated year!"
+  doAssert files.len == years.len, "Every file must be given an associated year! Years: " & $years & ", Files: " & $files
   result = newSeq[(int, string)]()
   for i in 0 ..< files.len:
     result.add (years[i], files[i])
@@ -4276,15 +4276,17 @@ proc limit(
      ): int = # dummy return an `int`, otherwise run into some cligen bug
   ## XXX: For expected limit we need the ratio of tracking to non tracking time. Currently hardcoded.
   echo "files ", files
-  let files = if files.len == 0:
-                @[(2017, "lhood_2017_all_chip_septem_dbscan.h5"),
-                  (2018, "lhood_2018_all_chip_septem_dbscan.h5")]
-              else:
-                readYearFiles(years, files)
-  let tracking = readYearFiles(years, tracking)
+
+  let yFiles = readYearFiles(years, files)
+  if files.len == 0:
+    raise newException(ValueError, "Input files for the background data are required via the `--files` argument.")
+
+  var yTrackings: seq[(int, string)]
+  if tracking.len > 0:
+    yTrackings = readYearFiles(years, tracking)
 
   var ctx = initContext(
-    path, files, tracking, useConstantBackground = useConstantBackground,
+    path, yFiles, yTrackings, useConstantBackground = useConstantBackground,
     radius = radius, sigma = σ, energyRange = energyRange,
     backgroundTime = backgroundTime, trackingTime = trackingTime,
     axionModel = axionModel, axionImage = axionImage,

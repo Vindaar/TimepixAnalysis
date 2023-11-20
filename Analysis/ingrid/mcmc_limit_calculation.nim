@@ -933,6 +933,7 @@ proc initContext(path: string,
     axionModel: axData,
     axionSpl: axSpl,
     couplingKind: couplingKind,
+    switchAxes: switchAxes,
     # efficiency & signal ray tracing
     windowRotation: windowRotation,
     efficiencySpl: effSpl,

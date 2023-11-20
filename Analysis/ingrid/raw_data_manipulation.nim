@@ -202,40 +202,21 @@ template batchFiles(files: var seq[string], bufsize, actions: untyped): untyped 
     # sequtils.delete removes the element with ind_high as well!
     files.delete(0, ind_high)
 
-proc batchFileReading[T](files: var seq[string],
-                         rfKind: RunFolderKind = rfNewTos,
-                         bufsize: int = FILE_BUFSIZE):
-                          seq[T] {.inline.} =
-  # and removes all elements in the file list until all events have been read and the seq
-  # is empty
-  let
-    t0 = epochTime()
-    n_files = len(files)
-  var count = 0
-  # initialize sequence
-  result = @[]
-
-  var buf_seq: type(result)
-  batchFiles(files, bufsize):
-    # read files into buffer sequence, `ind_high` is an injected variable of the template
-    # after each iteration the `files` variable is modified. Read files are deleted.
-    when T is Event:
-      case rfKind
-      of rfOldTos, rfNewTos, rfSrsTos:
-        buf_seq = readListOfInGridFiles(files[0 .. ind_high], rfKind)
-      else:
-        raise newException(IOError, "Unknown run folder kind. Cannot read " &
-          "event files!")
-    elif T is FadcFile:
-      buf_seq = readListOfFadcFiles(files[0 .. ind_high])
-
-    info "... and concating buffered sequence to result"
-    result = concat(result, buf_seq)
-    count += bufsize
+proc readFileBatch[T](files: seq[string],
+                      rfKind: RunFolderKind = rfNewTos): seq[T] {.inline.} =
+  ## Reads the entire given batch of files
+  let t0 = epochTime()
+  when T is Event:
+    case rfKind
+    of rfOldTos, rfNewTos, rfSrsTos:
+      result = readListOfInGridFiles(files, rfKind)
+    else:
+      raise newException(IOError, "Unknown run folder kind. Cannot read " &
+        "event files!")
+  elif T is FadcFile:
+    result = readListOfFadcFiles(files)
   info "All files read. Number = " & $len(result)
   info "Reading took $# seconds" % $(epochTime() - t0)
-  info "Compared with starting files " & $n_files
-
 
 proc readRawInGridData*(listOfFiles: seq[string],
                         rfKind: RunFolderKind):
@@ -246,10 +227,10 @@ proc readRawInGridData*(listOfFiles: seq[string],
   ## inodes, which may be scramled, so we sort the data and get the FlowVar values.
   ## NOTE: this procedure does the reading of the data in parallel, thanks to
   ## using spawn
-  # get a sorted list of files, sorted by filename first
-  var files: seq[string] = sortByInode(listOfFiles)
-  # split the sorted files into batches, and sort each batch by inode
-  result = batchFileReading[Event](files, rfKind)
+  # Get data files sorted by inode for better performance (esp on HDDs)
+  let files = sortByInode(listOfFiles)
+  # read them
+  result = readFileBatch[Event](files, rfKind)
 
 proc sortReadInGridData(rawInGrid: seq[Event],
                         rfKind: RunFolderKind): seq[Event] =
@@ -491,10 +472,9 @@ proc readWriteFadcData(run_folder: string, runNumber: int, h5f: var H5File) =
   h5f.initFadcInH5(runNumber, batchsize, files[0])
   batchFiles(files, batchsize):
     # batch in 1000 file pieces
-    var mfiles = files[0 .. ind_high]
-    info "Starting with file $# and ending with file $#" % [$mfiles[0], $mfiles[^1]]
-    files_read = files_read.concat(mfiles)
-    raw_fadc_data = batchFileReading[FadcFile](mfiles)
+    info "Starting with file $# and ending with file $#" % [$files[0], $files[^1]]
+    files_read = files_read.concat(files)
+    raw_fadc_data = readFileBatch[FadcFile](files)
 
     # TODO: read FADC files also by inode and then sort the fadc
     # we just read here. NOTE: for that have to change the writeFadcDataToH5
@@ -1077,9 +1057,9 @@ proc processAndWriteSingleRun(h5f: var H5File, run_folder: string,
 
   let (_, runNumber, rfKind, _) = isTosRunFolder(runFolder)
   var dataFiles = getListOfEventFiles(run_folder,
-                                  EventType.InGridType,
-                                  rfKind,
-                                  EventSortType.fname)
+                                      EventType.InGridType,
+                                      rfKind,
+                                      EventSortType.fname)
   let plotDirPrefix = h5f.genPlotDirname(plotOutPath, PlotDirRawPrefixAttr)
   var batchNum = 0
 

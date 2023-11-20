@@ -1041,6 +1041,16 @@ proc processEventWrapper(data: ProtoFile, rfKind: RunFolderKind): Event =
   of rfUnknown:
     raise newException(IOError, "Unknown run folder kind. Unclear what files " &
       "are events!")
+  #resBuf[i] = asFlat result
+
+proc processEventWrapper(data: ProtoFile, rfKind: RunFolderKind,
+                         resBuf: ptr UncheckedArray[Buffer], i: int) =
+  let res = processEventWrapper(data, rfKind)
+  resBuf[i] = asFlat res
+
+proc processEventWrapper(file: string, rfKind: RunFolderKind): Event =
+  let pFile = readMemFileIntoBuffer(file)
+  result = processEventWrapper(pFile, rfKind)
 
 proc parseTemperatureFile*(file: string): TemperatureLog =
   ## Parses the temperature log file into a `TemperatureLog` object.
@@ -1213,26 +1223,69 @@ proc getSortedListOfFiles*(run_folder: string,
   result = getListOfEventFiles(run_folder, event_type, rfKind, sort_type).files
 
 when compileOption("threads"):
-  proc unwrapAndRemoveInvalid[T](res: var seq[T], flow: seq[FlowVar[T]]) =
-    ## assigns all valid events from `flow` into `res`
-    var validCount = 0
-    for i, x in mpairs(res):
-      when not defined(gcDestructors):
-        let ev = ^flow[i]
-      else:
-        let ev = sync flow[i] # taskpools
-      if ev.isValid:
-        x = ev
-        inc validCount
-    if validCount < res.len:
-      res.setLen(validCount)
-
   import std / cpuinfo
+
+  when true:
+    proc unwrapAndRemoveInvalid[T](res: var seq[T], flow: seq[FlowVar[T]]) =
+      ## assigns all valid events from `flow` into `res`
+      var validCount = 0
+      for i, x in mpairs(res):
+        when not defined(gcDestructors):
+          let ev = ^flow[i]
+        else:
+          let ev = sync flow[i] # taskpools
+        if ev.isValid:
+          x = ev
+          inc validCount
+      if validCount < res.len:
+        res.setLen(validCount)
+
+  ## lol, there's issues with every approach. The procpool version here has the problem,
+  ## that it gets insanely slow due to the HDF5 library somehow. It doesn't seem to like
+  ## the forks. :(
+  when false:
+    template parallelProcPool(files: seq[string], typ, fnCall: untyped): untyped =
+      createDir("/dev/shm/files")
+      var pp = initProcPool((
+        proc(r, w: cint) =
+          let i = open(r)
+          for file {.inject.} in getLenPfx[int](r.open):
+            let res = fnCall
+            let buf = asFlat(res)
+            let outfile = "/dev/shm/files/" & $file.extractFilename
+            buf.writeBuffer(outfile)
+            discard w.wrLenBuf(outfile)
+        ),
+                            framesLenPfx,
+                            countProcessors())
+      var res = newSeqOfCap[typ](files.len)
+      var readRes = proc(s: MSlice) =
+        let f = readFile($s)
+        echo "file : ", $s
+        let buf = fromString(f)
+        echo "buf from string: ", buf.size, " now convert"
+        res.add flatTo[typ](buf)
+        echo "convesrios done"
+        when false: # <- this crashes
+          let buf = fromString($s)
+          res.add flatTo[typ](buf)
+      echo "Starting procpool!"
+      pp.evalLenPfx files, readRes
+      echo "eval all done?"
+      res
+
   proc readListOfFiles*[T](list_of_files: seq[string],
                            rfKind: RunFolderKind = rfUnknown):
                              seq[T] = #{.inline.} =
     ## As this is to be called from a function specifying the datatype, see the calling functions
     ## for descriptions of input and output
+
+    ## XXX: At some point we should change the reading procs to use a flattened version of
+    ## the data we read. I.e. each thread can read data into regular nim types, but then
+    ## stores them in a flat buffer. The flat buffer when added to the result buffer is
+    ## moved there, meaning the memory allocated will be only freed after the data is
+    ## destroyed on the main thread. I suppose that should work in theory.
+
     # backward compatible flag to disable reading FADC files straight
     # from memory mapping
     const fadcMemFiles = true
@@ -1294,6 +1347,82 @@ when compileOption("threads"):
       p.syncAll()
       p.shutdown()
       echo "Done syncing and unwrapping"
+    elif false: # malebolgia <-- Also causes crashes. And needs change of code
+                # Here I guess I understand, because the allocated objects
+                # will go out of scope once the threads die.
+                # -> tried, still crashes for FADC data...
+      var buffers = newSeq[Buffer](nfiles)
+      var resBuf = cast[ptr UncheckedArray[Buffer]](buffers[0].addr)
+      when T is Event:
+        let protoFiles = readMemFilesIntoBuffer(list_of_files)
+        echo "...done reading"
+        let numFiles = protoFiles.len
+        var ppBuf = cast[ptr UncheckedArray[ProtoFile]](protoFiles[0].unsafeAddr)
+        var m = createMaster()
+        m.awaitAll:
+          for i in 0 ..< numFiles:
+            m.spawn processEventWrapper(ppBuf[i], rfKind, resBuf, i) # -> result[i] # resBuf[i]
+            echoCounted(i)
+        # convert back
+        for i, b in buffers:
+          result[i] = flatTo[Event](b)
+      else:
+        let numFiles = result.len
+        #let inputBuf = cast[ptr UncheckedArray[string]](list_of_files[0].unsafeAddr)
+        var m = createMaster()
+        echo list_of_files[0]
+        m.awaitAll:
+          for i in 0 ..< numFiles:
+            m.spawn readFadcFileMem(list_of_files[i], resBuf, i) # -> resBuf[i]
+            echoCounted(i)
+        # convert back
+        for i, b in buffers:
+          result[i] = flatTo[FadcFile](b)
+      echo "Malebolgia done"
+    elif false: # cligen procpool. Looks elegant, but slow due to H5 lib and forking
+      when T is Event:
+        result = parallelProcPool(list_of_files, T):
+          processEventWrapper(file, rfKind)
+      else:
+        result = parallelProcPool(list_of_files, T):
+          readFadcFileMem(file)
+    elif false: # weave + flat buffers
+               # -> Same problem as with malebolgia. Crash on fadc data. Why though?
+      ## Above 21 threads, bad things happen with weave. No idea why
+      putEnv("WEAVE_NUM_THREADS", $min(countProcessors(), 20))
+      init(Weave)
+      var buffers = newSeq[Buffer](nfiles)
+      var resBuf = cast[ptr UncheckedArray[Buffer]](buffers[0].addr)
+      when T is Event:
+        let protoFiles = readMemFilesIntoBuffer(list_of_files)
+        echo "...done reading"
+        let numFiles = protoFiles.len
+        var ppBuf = cast[ptr UncheckedArray[ProtoFile]](protoFiles[0].unsafeAddr)
+        parallelFor i in 0 ..< numFiles:
+          # loop over each file and call work on data function
+          captures: {resBuf, ppBuf, rfKind}
+          processEventWrapper(ppBuf[i], rfKind, resBuf, i) # -> result[i] # resBuf[i]
+          echoCounted(i)
+      else:
+        let numFiles = result.len
+        let inputBuf = cast[ptr UncheckedArray[string]](list_of_files[0].unsafeAddr)
+        parallelFor i in 0 ..< numFiles:
+          # loop over each file and call work on data function
+          captures: {resBuf, inputBuf, rfKind}
+          readFadcFileMem(inputBuf[i], resBuf, i) # -> resBuf[i]
+          echoCounted(i)
+      syncRoot(Weave)
+      exit(Weave)
+      when T is Event:
+        # convert back
+        for i, b in buffers:
+          result[i] = flatTo[Event](b)
+      else:
+        # convert back
+        for i, b in buffers:
+          result[i] = flatTo[FadcFile](b)
+      delEnv("WEAVE_NUM_THREADS")
+      echo "Exit Weave!"
     else:
       ## Above 21 threads, bad things happen with weave. No idea why
       putEnv("WEAVE_NUM_THREADS", $min(countProcessors(), 20))

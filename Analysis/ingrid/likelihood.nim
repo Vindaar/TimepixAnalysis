@@ -327,15 +327,21 @@ func isVetoedByScintis(eventNumber: int,
     # had a non trivial trigger, throw out
     result = true
 
+proc printRow(df: DataFrame) =
+  doAssert df.len == 1, "not 1 element"
+  for k in getKeys(df).sorted:
+    echo k, " = ", df[k, Value][0]
+
 proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
-                     rs: var RunningStat, septemFrame: var SeptemFrame,
+                     septemFrame: var SeptemFrame,
                      septemGeometry: var SeptemEventGeometry,
                      centerData: CenterClusterData,
                      gainVals: seq[float],
                      calibTuple: tuple[b, m: float], ## contains the parameters required to perform energy calibration
                      σT: float, # diffusion of the run this cluster is part of
                      ctx: LikelihoodContext,
-                     flags: set[LogLFlagKind]
+                     flags: set[LogLFlagKind],
+                     eventNumber: int
                     ): tuple[logL, nnPred, energy: float, lineVetoPassed: bool] =
   ## XXX: add these to config.toml and as a cmdline argument in addition
   # total charge for this cluster
@@ -353,7 +359,7 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
   let cl = clTup[1]
   let clData = cl.data
   # reset running stat for each cluster
-  rs.clear()
+  var rs: RunningStat
   var pixIdx = septemFrame.numRecoPixels
   var totCharge = 0.0
   for pix in clData:
@@ -609,6 +615,245 @@ proc bootstrapFakeEvents(septemDf, centerDf: DataFrame,
   passedEvs = toSeq(0 ..< numBootstrap).toOrderedSet
 
 from ../../Tools/determineDiffusion/determineDiffusion import getDiffusionForRun
+import std / cpuinfo
+import pkg / weave
+
+proc getBatchedIndices(septemDf: DataFrame, batchSize: int): seq[(int, int)] =
+  ## Returns a sequence of indices that the `septemDf` can be sliced at
+  ## to keep `batchSize` events together
+  ##
+  ## The slice is inclusive, to be used as `septemDf[slice[0] .. slice[1]]`
+  # # batch around events
+  var count = 0
+  var idx = 0
+  var lastIdx = 0
+  for (tup, subDf) in groups(septemDf.group_by("eventNumber")):
+    # increase counters first!
+    inc count
+    inc idx, subDf.len # increase by length
+    if count == batchSize:
+      result.add (lastIdx, idx - 1) # inclusive, so -1
+      lastIdx = idx
+      count = 0
+  if count > 0:
+    result.add (lastIdx, septemDf.high)
+
+  const sanity = false
+  if sanity:
+    var lastEv = -1
+    for slice in result:
+      let subDf = septemDf[slice[0] .. slice[1]]
+      #echo "Head::: ", subDf.head(10)
+      #echo "Tail::: ", subDf.tail(10)
+      #echo "slice", slice
+      let ev = subDf["eventNumber", int][0]
+      if lastEv > 0:
+        doAssert lastEv != ev, "Slice from " & $slice & " evnets " & $ev
+      lastEv = subDf["eventNumber", int][subDf.high]
+
+proc buildSeptemEvents(ctx: LikelihoodContext, septemDf: DataFrame,
+                       cutTab: CutValueInterpolator,
+                       allChipData: AllChipData,
+                       centerData: CenterChipData,
+                       passedInds, passedEvs: OrderedSet[int]
+                      ): (seq[SeptemFrame], seq[RecoInputEvent[PixInt]]) =
+  result[0] = newSeqOfCap[SeptemFrame](passedInds.len)
+  result[1] = newSeqOfCap[RecoInputEvent[PixInt]](passedInds.len)
+  let septemGrouped = septemDf.group_by("eventNumber")
+  for (pair, evGroup) in groups(septemGrouped):
+    let evNum = pair[0][1].toInt
+    #if evNum != 98659: continue
+    if evNum in passedEvs:
+      # then grab all chips for this event
+      let isNNcut = ctx.vetoCfg.useNeuralNetworkCut
+      let valsToCut = if isNNcut: centerData.nnPred else: centerData.logL
+      var septemFrame = buildSeptemEvent(evGroup, valsToCut, centerData.energies,
+                                         cutTab, allChipData, ctx.vetoCfg.centerChip, ctx.vetoCfg.useRealLayout,
+                                         isNNcut)
+      if septemFrame.centerEvIdx == -1:
+        echo "Broken event! ", evGroup.pretty(-1)
+        echo "The event is: ", pair
+        #continue # skip "broken" events for now (i.e. NaN)
+        quit(1)
+      # given the full frame run through the full reconstruction for this cluster
+      # here we give chip number as -1, indicating "Septem"
+      ## XXX: for full ToA support in Timepix3, need to also read the `toa` data and insert
+      ## it here!
+      result[0].add septemFrame
+      result[1].add (pixels: septemFrame.pixels, eventNumber: evNum.int,
+                     toa: newSeq[uint16](), toaCombined: newSeq[uint64]())
+
+proc reconstructSeptemEvents(ctx: LikelihoodContext, septemEvents: seq[RecoInputEvent[PixInt]],
+                             runNumber: int): seq[RecoEvent[PixInt]] =
+  result = newSeq[RecoEvent[PixInt]](septemEvents.len)
+  var resBuf = cast[ptr UncheckedArray[RecoEvent[PixInt]]](result[0].addr)
+  var dataBuf = cast[ptr UncheckedArray[RecoInputEvent[PixInt]]](septemEvents[0].addr)
+  ## XXX: I think this cannot work as `RecoEvent` contains a `seq[ClusterObject]`. Once we return
+  ## from this scope they will be freed as they were created on a different thread.
+  ## Update: or rather the issue is that a seq / tensor of `RecoEvent` is not a flat memory structure.
+  ## Therefore it's not memcopyable and we cannot get a ptr to it in a sane way?
+  ## Update 2: above 21 threads the code results in a segfault. This _seems_ reproducible.
+  putEnv("WEAVE_NUM_THREADS", $min(countProcessors(), 20))
+  init(Weave)
+  let
+    searchRadius = ctx.vetoCfg.searchRadius
+    dbscanEpsilon = ctx.vetoCfg.dbscanEpsilon
+    clusterAlgo = ctx.vetoCfg.clusterAlgo
+    useRealLayout = ctx.vetoCfg.useRealLayout
+  parallelFor event in 0 ..< septemEvents.len:
+    captures: {resBuf, dataBuf, runNumber, searchRadius, dbscanEpsilon, clusterAlgo, useRealLayout}
+    resBuf[event] = recoEvent(dataBuf[event], -1,
+                              runNumber, searchRadius,
+                              dbscanEpsilon = dbscanEpsilon,
+                              clusterAlgo = clusterAlgo,
+                              useRealLayout = useRealLayout)
+    echoCounted(event, 5000, msg = " clusters reconstructed")
+  syncRoot(Weave)
+  exit(Weave)
+  delEnv("WEAVE_NUM_THREADS")
+  # `result` modified via `resBuf`
+
+var eventCounter = 0
+proc performSeptemVeto(ctx: LikelihoodContext,
+                       runNumber: int,
+                       recoEvents: seq[RecoEvent[PixInt]],
+                       septemFrames: seq[SeptemFrame],
+                       cutTab: CutValueInterpolator,
+                       allChipData: AllChipData,
+                       centerData: CenterChipData,
+                       passedInds: var OrderedSet[int],
+                       passedEvs: var OrderedSet[int],
+                       gains: seq[seq[GasGainIntervalResult]],
+                       calibTuple: tuple[b, m: float], ## contains the parameters required to perform energy calibration
+                       σT: float,
+                       flags: set[LogLFlagKind]
+                      ) =
+  let PlotCutEnergyLow = getEnv("PLOT_SEPTEM_E_CUTOFF_LOW", "0.0").parseFloat
+  let PlotCutEnergyHigh = getEnv("PLOT_SEPTEM_E_CUTOFF", "5.0").parseFloat
+  let PlotEventNumber = getEnv("PLOT_SEPTEM_EVENT_NUMBER", "-1").parseInt # can be used to plot only a single event
+
+  let useLineVeto = fkLineVeto in flags
+  let useSeptemVeto = fkSeptem in flags
+
+  for i in 0 ..< recoEvents.len:
+    inc eventCounter
+    let recoEv = recoEvents[i]
+    var septemFrame = septemFrames[i] # <- will be modified
+    let evNum = recoEv.eventNumber
+    let centerClusterData = getCenterClusterData(septemFrame, centerData, recoEv, ctx.vetoCfg.lineVetoKind)
+
+    # extract the correct gas gain slices for this event
+    var gainVals: seq[float]
+    for chp in 0 ..< ctx.vetoCfg.numChips:
+      let gainSlices = gains[chp]
+      let gainEvs = gainSlices.mapIt(it.sliceStartEvNum)
+      let sliceIdx = gainEvs.lowerBound(evNum)
+      gainVals.add gainSlices[min(gainSlices.high, sliceIdx)].G # add the correct gas gain
+
+    # calculate log likelihood of all reconstructed clusters
+    # Note: `septem` and `line` vetoes are "inverse" in their logic. Only a *single* line needed
+    # to veto center cluster, but *any* cluster passing septem (hence passed vs rejected)
+    var septemVetoed = true
+    var lineVetoed   = false
+    var septemGeometry: SeptemEventGeometry # no need for constructor. `default` is fine
+    if fkAggressive in flags:
+      # if there's more than 1 cluster, remove
+      if recoEv.cluster.len > 1: # <- this is a very bad idea knowing something about random coincidence rates now!
+                                 # (anyhow this is not really ever used)
+        passedInds.excl septemFrame.centerEvIdx
+        passedEvs.excl evNum
+        continue # skip to next iteration
+    for clusterTup in pairs(recoEv.cluster):
+      let (logL, nnPred, energy, lineVetoPassed) = evaluateCluster(
+        clusterTup, septemFrame, septemGeometry,
+        centerClusterData,
+        gainVals,
+        calibTuple,
+        σT,
+        ctx,
+        flags,
+        evNum)
+
+      let cX = toXPix(clusterTup[1].centerX)
+      let cY = toYPix(clusterTup[1].centerY)
+      var chipClusterCenter: int
+      if ctx.vetoCfg.useRealLayout:
+        chipClusterCenter = (x: cX, y: cY, ch: 0).determineRealChip(allowOutsideChip = true)
+      else:
+        chipClusterCenter = (x: cX, y: cY, ch: 0).determineChip(allowOutsideChip = true)
+
+      var
+        lnLVeto = false
+        nnVeto = false
+      ## IMPORTANT: the following code relies on the fact that only *one* branch (lnL or NN)
+      ## is being used. The `cutTab` corresponds to the CutValueInterpolator for *that* branch.
+      ## NN cut
+      when defined(cpp):
+        if ctx.vetoCfg.useNeuralNetworkCut and
+           (classify(nnPred) == fcNaN or # some clusters are NaN due to certain bad geometry, kick those out!
+                                         # -> clusters of sparks on edge of chip
+            nnPred < cutTab[energy]):
+          # more background like if smaller than cut value, -> veto it
+          nnVeto = true
+      ## LnL cut
+      if ctx.vetoCfg.useLnLCut and logL > cutTab[energy]:
+        # more background like if larger than cut value, -> veto it
+        lnLVeto = true
+      # needs to be on center chip & pass both cuts. Then septem veto does *not* remove it
+      #if evNum == 21860:
+      #  echo "Chip center cluster: ", chipClusterCenter, " nnVeto? ", nnVeto
+      #  echo "== center? ", chipClusterCenter == ctx.vetoCfg.centerChip, " for center: ", ctx.vetoCfg.centerChip
+      #  echo "nnVeto : ", nnVeto, " for ", nnPred, " < ", cutTab[energy], " for energy: ", energy
+      #  echo "Index was: ", septemFrame.centerEvIdx
+      if chipClusterCenter == ctx.vetoCfg.centerChip and # this cluster's center is on center chip
+         not lnLVeto and # passes lnL veto cut
+         not nnVeto: # passes NN veto cut
+        #if evNum == 98659:
+        #  echo "SEPTEM VETOED, FALSE"
+        septemVetoed = false # <-- not vetoed!
+
+      if not lineVetoed and not lineVetoPassed:
+        lineVetoed = true
+      #if evNum == 98659:
+      #  echo "EVENT:::::: lnL ", lnLVeto, " nn ", nnVeto, " septem: ", septemVetoed
+
+    if (useSeptemVeto and septemVetoed) or (useLineVeto and lineVetoed):
+      ## If `passed` is still false, it means *no* reconstructed cluster passed the logL now. Given that
+      ## the original cluster which *did* pass logL is part of the septem event, the conclusion is that
+      ## it was now part of a bigger cluster that did *not* pass anymore.
+      passedInds.excl septemFrame.centerEvIdx
+      passedEvs.excl evNum
+
+    if fkPlotSeptem in flags:
+      if septemFrame.centerEvIdx < 0:
+        doAssert false, "this cannot happen. it implies no cluster found in the given event"
+      if centerData.energies[septemFrame.centerEvIdx] < PlotCutEnergyHigh and # only plot if below energy cut
+         centerData.energies[septemFrame.centerEvIdx] > PlotCutEnergyLow and # only plot if above lower energy cut
+        (PlotEventNumber < 0 or PlotEventNumber == evNum): # and given event matches target event (or all)
+        # shorten to actual number of stored pixels. Otherwise elements with ToT / charge values will remain
+        # in the `septemFrame`
+        septemFrame.pixels.setLen(septemFrame.numRecoPixels)
+        if not useLineVeto: # if no line veto, don't draw lines
+          septemGeometry.lines = newSeq[tuple[m, b: float]]()
+        ## XXX: it might be a good idea to extend the plotting to include cluster information
+        ## that affects the line veto. We could hand eccentricity & the eccentricity cut to make
+        ## it clearer why a cluster was (not) cut (add the ecc. as text next to cluster center?)
+        ## Ideally for that we would change the code to hand some object instead of centers, lines, ...
+        ## and all that jazz. Instead have one object per cluster.
+        plotSeptemEvent(septemFrame.pixels, runNumber, evNum,
+                        lines = septemGeometry.lines,
+                        centers = septemGeometry.centers,
+                        septemVetoed = septemVetoed,
+                        lineVetoed = lineVetoed,
+                        xCenter = septemGeometry.xCenter,
+                        yCenter = septemGeometry.yCenter,
+                        radius = septemGeometry.centerRadius,
+                        energyCenter = centerData.energies[septemFrame.centerEvIdx],
+                        useTeX = ctx.useTeX)
+      #if evNum == 21860:
+      #  echo "Done"
+      #  quit()
+
 proc applySeptemVeto(h5f: var H5File,
                      runNumber: int,
                      passedInds: var OrderedSet[int],
@@ -616,8 +861,6 @@ proc applySeptemVeto(h5f: var H5File,
                      ctx: LikelihoodContext,
                      flags: set[LogLFlagKind]) =
   ## Applies the septem board veto to the given `passedInds` in `runNumber` of `h5f`.
-  ## Writes the resulting clusters, which pass to the `septem` subgroup (parallel to
-  ## the `chip_*` groups into `h5fout`.
   ## If an event does not pass the septem veto cut, it is excluded from the `passedInds`
   ## set.
   ##
@@ -625,9 +868,6 @@ proc applySeptemVeto(h5f: var H5File,
   ## cutoff for which events to plot when running with `--plotSeptem`. In addition the
   ## variable `USE_TEX` can be adjusted to generate TikZ TeX plots.
   ## XXX: add these to config.toml and as a cmdline argument in addition
-  let PlotCutEnergy = getEnv("PLOT_SEPTEM_E_CUTOFF", "5.0").parseFloat
-  let PlotEventNumber = getEnv("PLOT_SEPTEM_EVENT_NUMBER", "-1").parseInt # can be used to plot only a single event
-
   echo "Passed indices before septem veto ", passedInds.card
   let group = h5f[(recoBase() & $runNumber).grp_str]
   var septemDf = h5f.getSeptemEventDF(runNumber)
@@ -657,140 +897,202 @@ proc applySeptemVeto(h5f: var H5File,
   let chips = toSeq(0 ..< ctx.vetoCfg.numChips)
   let gains = chips.mapIt(h5f[(group.name / "chip_" & $it / "gasGainSlices"), GasGainIntervalResult])
   let septemHChips = chips.mapIt(getSeptemHChip(it))
-  let toTCalibParams = septemHChips.mapIt(getTotCalibParameters(it, runNumber))
   let calibTuple = getCalibVsGasGainFactors(septemHChips[ctx.vetoCfg.centerChip], runNumber)
-  var rs: RunningStat
 
-  # for the `passedEvs` we have to read all data from all chips
-  let septemGrouped = septemDf.group_by("eventNumber")
-  for (pair, evGroup) in groups(septemGrouped):
-    let evNum = pair[0][1].toInt
-    if evNum in passedEvs:
-      # then grab all chips for this event
-      let isNNcut = ctx.vetoCfg.useNeuralNetworkCut
-      let valsToCut = if isNNcut: centerData.nnPred else: centerData.logL
-      var septemFrame = buildSeptemEvent(evGroup, valsToCut, centerData.energies,
-                                         cutTab, allChipData, ctx.vetoCfg.centerChip, ctx.vetoCfg.useRealLayout,
-                                         isNNcut)
-      if septemFrame.centerEvIdx == -1:
-        echo "Broken event! ", evGroup.pretty(-1)
-        echo "The event is: ", pair
-        #continue # skip "broken" events for now (i.e. NaN)
-        quit(1)
-      # given the full frame run through the full reconstruction for this cluster
-      # here we give chip number as -1, indicating "Septem"
-      ## XXX: for full ToA support in Timepix3, need to also read the `toa` data and insert
-      ## it here!
-      let inp = (pixels: septemFrame.pixels, eventNumber: evNum.int,
-                 toa: newSeq[uint16](), toaCombined: newSeq[uint64]())
-      let recoEv = recoEvent(inp, -1,
-                             runNumber, searchRadius = ctx.vetoCfg.searchRadius,
-                             dbscanEpsilon = ctx.vetoCfg.dbscanEpsilon,
-                             clusterAlgo = ctx.vetoCfg.clusterAlgo,
-                             useRealLayout = ctx.vetoCfg.useRealLayout)
-      let centerClusterData = getCenterClusterData(septemFrame, centerData, recoEv, ctx.vetoCfg.lineVetoKind)
+  septemDf = septemDf.filter(f{int: `eventNumber` in passedEvs})
 
-      # extract the correct gas gain slices for this event
-      var gainVals: seq[float]
-      for chp in 0 ..< ctx.vetoCfg.numChips:
-        let gainSlices = gains[chp]
-        let gainEvs = gainSlices.mapIt(it.sliceStartEvNum)
-        let sliceIdx = gainEvs.lowerBound(evNum)
-        gainVals.add gainSlices[min(gainSlices.high, sliceIdx)].G # add the correct gas gain
+  when false:
+    let batchedIdx = getBatchedIndices(septemDf, 500)
+    for slice in batchedIdx:
+      echo "Slicing to ", slice
+      let subDf = septemDf[slice[0] .. slice[1]] # slice is inclusive!
+      #echo "Sub : ", subDf, " of total length : ", septemDf.len
+      #echo "Tail of DF: ", subDf.tail(20)
+      # 1. extract all events as `'SeptemEvents'` from the DF
+      let (septemFrames, septemEvents) = ctx.buildSeptemEvents(subDf, cutTab, allChipData, centerData,
+                                                               passedInds, passedEvs)
+      #echo "Built events"
+      # 2. reconstruct all events in parallel
+      let recoEvents = ctx.reconstructSeptemEvents(septemEvents, runNumber)
+      echo "Reconstructed events"
+      # 3. perform the actual septem veto
+      ctx.performSeptemVeto(runNumber,
+                            recoEvents, septemFrames, cutTab, allChipData, centerData,
+                            passedInds, passedEvs,
+                            gains, calibTuple,
+                            σT,
+                            flags)
 
-      # calculate log likelihood of all reconstructed clusters
-      # Note: `septem` and `line` vetoes are "inverse" in their logic. Only a *single* line needed
-      # to veto center cluster, but *any* cluster passing septem (hence passed vs rejected)
-      var septemVetoed = true
-      var lineVetoed   = false
-      var septemGeometry: SeptemEventGeometry # no need for constructor. `default` is fine
-      if fkAggressive in flags:
-        # if there's more than 1 cluster, remove
-        if recoEv.cluster.len > 1: # <- this is a very bad idea knowing something about random coincidence rates now!
-                                   # (anyhow this is not really ever used)
+  when false: # no batching
+    echo "Start building events"
+    # 1. extract all events as `'SeptemEvents'` from the DF
+    let (septemFrames, septemEvents) = ctx.buildSeptemEvents(septemDf, cutTab, allChipData, centerData,
+                                                             passedInds, passedEvs)
+    echo "Built events"
+    # 2. reconstruct all events in parallel
+    let recoEvents = ctx.reconstructSeptemEvents(septemEvents, runNumber)
+    echo "Reconstructed events"
+    # 3. perform the actual septem veto
+    ctx.performSeptemVeto(runNumber,
+                          recoEvents, septemFrames, cutTab, allChipData, centerData,
+                          passedInds, passedEvs,
+                          gains, calibTuple,
+                          σT,
+                          flags)
+
+  #echo "EVENT COUNTER : ", eventCounter
+  when false:
+    echo "Passed indices after septem veto ", passedEvs.card
+    fout.write("Septem events after fake cut: " & $passedEvs.len & "\n")
+    fout.close()
+
+  when true:
+    let PlotCutEnergyLow = getEnv("PLOT_SEPTEM_E_CUTOFF_LOW", "0.0").parseFloat
+    let PlotCutEnergyHigh = getEnv("PLOT_SEPTEM_E_CUTOFF", "5.0").parseFloat
+    let PlotEventNumber = getEnv("PLOT_SEPTEM_EVENT_NUMBER", "-1").parseInt # can be used to plot only a single event
+    let septemGrouped = septemDf.group_by("eventNumber")
+    for (pair, evGroup) in groups(septemGrouped):
+      let evNum = pair[0][1].toInt
+      #if evNum != 98659: continue
+      if evNum in passedEvs:
+        # then grab all chips for this event
+        let isNNcut = ctx.vetoCfg.useNeuralNetworkCut
+        let valsToCut = if isNNcut: centerData.nnPred else: centerData.logL
+        var septemFrame = buildSeptemEvent(evGroup, valsToCut, centerData.energies,
+                                           cutTab, allChipData, ctx.vetoCfg.centerChip, ctx.vetoCfg.useRealLayout,
+                                           isNNcut)
+        if septemFrame.centerEvIdx == -1:
+          echo "Broken event! ", evGroup.pretty(-1)
+          echo "The event is: ", pair
+          #continue # skip "broken" events for now (i.e. NaN)
+          quit(1)
+        # given the full frame run through the full reconstruction for this cluster
+        # here we give chip number as -1, indicating "Septem"
+        ## XXX: for full ToA support in Timepix3, need to also read the `toa` data and insert
+        ## it here!
+        let inp = (pixels: septemFrame.pixels, eventNumber: evNum.int,
+                   toa: newSeq[uint16](), toaCombined: newSeq[uint64]())
+        let recoEv = recoEvent(inp, -1,
+                               runNumber, searchRadius = ctx.vetoCfg.searchRadius,
+                               dbscanEpsilon = ctx.vetoCfg.dbscanEpsilon,
+                               clusterAlgo = ctx.vetoCfg.clusterAlgo,
+                               useRealLayout = ctx.vetoCfg.useRealLayout)
+        let centerClusterData = getCenterClusterData(septemFrame, centerData, recoEv, ctx.vetoCfg.lineVetoKind)
+
+        # extract the correct gas gain slices for this event
+        var gainVals: seq[float]
+        for chp in 0 ..< ctx.vetoCfg.numChips:
+          let gainSlices = gains[chp]
+          let gainEvs = gainSlices.mapIt(it.sliceStartEvNum)
+          let sliceIdx = gainEvs.lowerBound(evNum)
+          gainVals.add gainSlices[min(gainSlices.high, sliceIdx)].G # add the correct gas gain
+
+        # calculate log likelihood of all reconstructed clusters
+        # Note: `septem` and `line` vetoes are "inverse" in their logic. Only a *single* line needed
+        # to veto center cluster, but *any* cluster passing septem (hence passed vs rejected)
+        var septemVetoed = true
+        var lineVetoed   = false
+        var septemGeometry: SeptemEventGeometry # no need for constructor. `default` is fine
+        if fkAggressive in flags:
+          # if there's more than 1 cluster, remove
+          if recoEv.cluster.len > 1: # <- this is a very bad idea knowing something about random coincidence rates now!
+                                     # (anyhow this is not really ever used)
+            passedInds.excl septemFrame.centerEvIdx
+            passedEvs.excl evNum
+            continue # skip to next iteration
+        for clusterTup in pairs(recoEv.cluster):
+          let (logL, nnPred, energy, lineVetoPassed) = evaluateCluster(
+            clusterTup, septemFrame, septemGeometry,
+            centerClusterData,
+            gainVals,
+            calibTuple,
+            σT,
+            ctx,
+            flags,
+            evNum)
+
+          let cX = toXPix(clusterTup[1].centerX)
+          let cY = toYPix(clusterTup[1].centerY)
+          var chipClusterCenter: int
+          if ctx.vetoCfg.useRealLayout:
+            chipClusterCenter = (x: cX, y: cY, ch: 0).determineRealChip(allowOutsideChip = true)
+          else:
+            chipClusterCenter = (x: cX, y: cY, ch: 0).determineChip(allowOutsideChip = true)
+
+          var
+            lnLVeto = false
+            nnVeto = false
+          ## IMPORTANT: the following code relies on the fact that only *one* branch (lnL or NN)
+          ## is being used. The `cutTab` corresponds to the CutValueInterpolator for *that* branch.
+          ## NN cut
+          when defined(cpp):
+            if ctx.vetoCfg.useNeuralNetworkCut and
+               (classify(nnPred) == fcNaN or # some clusters are NaN due to certain bad geometry, kick those out!
+                                             # -> clusters of sparks on edge of chip
+                nnPred < cutTab[energy]):
+              # more background like if smaller than cut value, -> veto it
+              nnVeto = true
+          ## LnL cut
+          if ctx.vetoCfg.useLnLCut and logL > cutTab[energy]:
+            # more background like if larger than cut value, -> veto it
+            lnLVeto = true
+          # needs to be on center chip & pass both cuts. Then septem veto does *not* remove it
+          #if evNum == 21860:
+          #  echo "Chip center cluster: ", chipClusterCenter, " nnVeto? ", nnVeto
+          #  echo "== center? ", chipClusterCenter == ctx.vetoCfg.centerChip, " for center: ", ctx.vetoCfg.centerChip
+          #  echo "nnVeto : ", nnVeto, " for ", nnPred, " < ", cutTab[energy], " for energy: ", energy
+          #  echo "Index was: ", septemFrame.centerEvIdx
+          if chipClusterCenter == ctx.vetoCfg.centerChip and # this cluster's center is on center chip
+             not lnLVeto and # passes lnL veto cut
+             not nnVeto: # passes NN veto cut
+            #if evNum == 98659:
+            #  echo "SEPTEM VETOED, FALSE"
+            septemVetoed = false # <-- not vetoed!
+
+          if not lineVetoed and not lineVetoPassed:
+            lineVetoed = true
+          #if evNum == 98659:
+          #  echo "EVENT:::::: lnL ", lnLVeto, " nn ", nnVeto, " septem: ", septemVetoed
+
+        if (useSeptemVeto and septemVetoed) or (useLineVeto and lineVetoed):
+          ## If `passed` is still false, it means *no* reconstructed cluster passed the logL now. Given that
+          ## the original cluster which *did* pass logL is part of the septem event, the conclusion is that
+          ## it was now part of a bigger cluster that did *not* pass anymore.
           passedInds.excl septemFrame.centerEvIdx
           passedEvs.excl evNum
-          continue # skip to next iteration
-      for clusterTup in pairs(recoEv.cluster):
-        let (logL, nnPred, energy, lineVetoPassed) = evaluateCluster(
-          clusterTup, rs, septemFrame, septemGeometry,
-          centerClusterData,
-          gainVals,
-          calibTuple,
-          σT,
-          ctx,
-          flags)
 
-        let cX = toXPixNormal(clusterTup[1].centerX)
-        let cY = toYPix(clusterTup[1].centerY)
-        var chipClusterCenter: int
-        if ctx.vetoCfg.useRealLayout:
-          chipClusterCenter = (x: cX, y: cY, ch: 0).determineRealChip(allowOutsideChip = true)
-        else:
-          chipClusterCenter = (x: cX, y: cY, ch: 0).determineChip(allowOutsideChip = true)
-
-        var
-          lnLVeto = false
-          nnVeto = false
-        ## IMPORTANT: the following code relies on the fact that only *one* branch (lnL or NN)
-        ## is being used. The `cutTab` corresponds to the CutValueInterpolator for *that* branch.
-        ## NN cut
-        when defined(cpp):
-          if ctx.vetoCfg.useNeuralNetworkCut and
-             (classify(nnPred) == fcNaN or # some clusters are NaN due to certain bad geometry, kick those out!
-                                           # -> clusters of sparks on edge of chip
-              nnPred < cutTab[energy]):
-            # more background like if smaller than cut value, -> veto it
-            nnVeto = true
-        ## LnL cut
-        if ctx.vetoCfg.useLnLCut and logL > cutTab[energy]:
-          # more background like if larger than cut value, -> veto it
-          lnLVeto = true
-        # needs to be on center chip & pass both cuts. Then septem veto does *not* remove it
-        if chipClusterCenter == ctx.vetoCfg.centerChip and # this cluster's center is on center chip
-           not lnLVeto and # passes lnL veto cut
-           not nnVeto: # passes NN veto cut
-          septemVetoed = false # <-- not vetoed!
-
-        if not lineVetoed and not lineVetoPassed:
-          lineVetoed = true
-      if (useSeptemVeto and not septemVetoed) or (useLineVeto and lineVetoed):
-        ## If `passed` is still false, it means *no* reconstructed cluster passed the logL now. Given that
-        ## the original cluster which *did* pass logL is part of the septem event, the conclusion is that
-        ## it was now part of a bigger cluster that did *not* pass anymore.
-        passedInds.excl septemFrame.centerEvIdx
-        passedEvs.excl evNum
-
-      if fkPlotSeptem in flags:
-        if septemFrame.centerEvIdx < 0:
-          doAssert false, "this cannot happen. it implies no cluster found in the given event"
-        if centerData.energies[septemFrame.centerEvIdx] < PlotCutEnergy and # only plot if below energy cut
-          (PlotEventNumber < 0 or PlotEventNumber == evNum): # and given event matches target event (or all)
-          # shorten to actual number of stored pixels. Otherwise elements with ToT / charge values will remain
-          # in the `septemFrame`
-          septemFrame.pixels.setLen(septemFrame.numRecoPixels)
-          if not useLineVeto: # if no line veto, don't draw lines
-            septemGeometry.lines = newSeq[tuple[m, b: float]]()
-          ## XXX: it might be a good idea to extend the plotting to include cluster information
-          ## that affects the line veto. We could hand eccentricity & the eccentricity cut to make
-          ## it clearer why a cluster was (not) cut (add the ecc. as text next to cluster center?)
-          ## Ideally for that we would change the code to hand some object instead of centers, lines, ...
-          ## and all that jazz. Instead have one object per cluster.
-          plotSeptemEvent(septemFrame.pixels, runNumber, evNum,
-                          lines = septemGeometry.lines,
-                          centers = septemGeometry.centers,
-                          septemVetoed = septemVetoed,
-                          lineVetoed = lineVetoed,
-                          xCenter = septemGeometry.xCenter,
-                          yCenter = septemGeometry.yCenter,
-                          radius = septemGeometry.centerRadius,
-                          energyCenter = centerData.energies[septemFrame.centerEvIdx],
-                          useTeX = ctx.useTeX)
-    #if evNum == 12435:
-    #  quit()
-  echo "Passed indices after septem veto ", passedEvs.card
-  fout.write("Septem events after fake cut: " & $passedEvs.len & "\n")
-  fout.close()
+        if fkPlotSeptem in flags:
+          if septemFrame.centerEvIdx < 0:
+            doAssert false, "this cannot happen. it implies no cluster found in the given event"
+          if centerData.energies[septemFrame.centerEvIdx] < PlotCutEnergyHigh and # only plot if below energy cut
+             centerData.energies[septemFrame.centerEvIdx] > PlotCutEnergyLow and # only plot if above lower energy cut
+            (PlotEventNumber < 0 or PlotEventNumber == evNum): # and given event matches target event (or all)
+            # shorten to actual number of stored pixels. Otherwise elements with ToT / charge values will remain
+            # in the `septemFrame`
+            septemFrame.pixels.setLen(septemFrame.numRecoPixels)
+            if not useLineVeto: # if no line veto, don't draw lines
+              septemGeometry.lines = newSeq[tuple[m, b: float]]()
+            ## XXX: it might be a good idea to extend the plotting to include cluster information
+            ## that affects the line veto. We could hand eccentricity & the eccentricity cut to make
+            ## it clearer why a cluster was (not) cut (add the ecc. as text next to cluster center?)
+            ## Ideally for that we would change the code to hand some object instead of centers, lines, ...
+            ## and all that jazz. Instead have one object per cluster.
+            plotSeptemEvent(septemFrame.pixels, runNumber, evNum,
+                            lines = septemGeometry.lines,
+                            centers = septemGeometry.centers,
+                            septemVetoed = septemVetoed,
+                            lineVetoed = lineVetoed,
+                            xCenter = septemGeometry.xCenter,
+                            yCenter = septemGeometry.yCenter,
+                            radius = septemGeometry.centerRadius,
+                            energyCenter = centerData.energies[septemFrame.centerEvIdx],
+                            useTeX = ctx.useTeX)
+      #if evNum == 21860:
+      #  echo "Done"
+      #  quit()
+    echo "Passed indices after septem veto ", passedEvs.card
+    fout.write("Septem events after fake cut: " & $passedEvs.len & "\n")
+    fout.close()
 
 proc copyOverAttrs(h5f, h5fout: H5File) =
   let logGrp = h5fout.create_group(likelihoodGroupGrpStr().string)

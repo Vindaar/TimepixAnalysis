@@ -6,6 +6,11 @@ when compileOption("threads"):
     import threadpool_simple
   elif false:
     import taskpools
+  elif false:
+    import malebolgia
+    import std / isolation
+  elif false:
+    import cligen / [procpool, osUt, mslice]
   else:
     import weave
 import math
@@ -14,6 +19,8 @@ import streams, parsecsv
 # cus modules
 import helpers/utils
 import ../ingrid_types
+
+import flatBuffers
 
 const
   # some helper constants
@@ -557,6 +564,15 @@ proc getRunHeader*(ev: Event,
   else:
     discard
 
+proc readMemFileIntoBuffer*(f: string): ProtoFile =
+  ## Reads the given file `f` as a memory mapped file into a string buffer
+  # add filename to result
+  var ff = memfiles.open(f)
+  result.name = f
+  result.fileData = newString(ff.size)
+  doAssert ff.size > 0, "Size of data in memory mapped file is 0! File " & $f
+  copyMem(result.fileData[0].addr, ff.mem, ff.size)
+  ff.close()
 
 proc readMemFilesIntoBuffer*(list_of_files: seq[string]): seq[ProtoFile] =
   ## procedure which reads a list of files via memory mapping and as a single
@@ -569,16 +585,9 @@ proc readMemFilesIntoBuffer*(list_of_files: seq[string]): seq[ProtoFile] =
   var badCount = 0
   echo "free memory ", getFreeMem()
   echo "occ memory ", getOccupiedMem()
-  var ff: MemFile
   for i, f in list_of_files:
-    # add filename to result
     try:
-      ff = memfiles.open(f)
-      result[i].name = f
-      result[i].fileData = newString(ff.size)
-      doAssert ff.size > 0, "Size of data in memory mapped file is 0! File " & $f
-      copyMem(result[i].fileData[0].addr, ff.mem, ff.size)
-      ff.close()
+      result[i] = readMemFileIntoBuffer(f)
     except OSError:
       # file exists, but is completely empty. Probably HDD ran full!
       # in this case remove the filename from the `dat` seq again

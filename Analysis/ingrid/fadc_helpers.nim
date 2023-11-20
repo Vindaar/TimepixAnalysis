@@ -40,7 +40,7 @@ proc convertFadcTicksToVoltage*[T](array: T, bitMode14: bool): Tensor[float] =
   for i in 0 ..< result.len:
     result[i] = array[i] * conversion_factor
 
-proc readFadcFile*(file: seq[string]): FadcFile = #seq[float] =
+proc readFadcFile*(pFile: ProtoFile): FadcFile =
   ## reads an FADC file. Example header + data line
   ## # nb of channels: 0
   ## # channel mask: 15
@@ -58,10 +58,12 @@ proc readFadcFile*(file: seq[string]): FadcFile = #seq[float] =
     # time
     data = newSeqOfCap[uint16](10240)
   # line 0 is the filename itself
-  doAssert file[0].len > 0
-  doAssert file[file.high].len > 0, "Make sure to strip the input before " &
-    "handing it to `readFadcFile`!"
-  let filepath = file[0]
+  let filepath = pFile.name
+  let file = pFile.fileData
+  var header = newSeqOfCap[string](9)
+  var lb: string
+  for lb in linesIter(file, lb, 0, 9):
+    header.add lb
 
   # variable we use to match value in header line
   var valMatch: int
@@ -99,24 +101,27 @@ proc readFadcFile*(file: seq[string]): FadcFile = #seq[float] =
 
   # parsing for first 6 lines
   var dummy: string
-  writeMatchHeader(file[1 .. 6],
+  writeMatchHeader(header[0 .. 5],
                    fadcHeaderFields,
                    matchHeader, dummy,
                    valMatch, result)
   # line 7: sampling mode
-  if scanf(file[7], matchHeader, dummy, valMatch):
+  if scanf(header[6], matchHeader, dummy, valMatch):
     let mode_register = valMatch
     # now get bit 1 from mode_register by comparing with 0b010
     result.bitMode14 = (mode_register and 0b010) == 0b010
     result.sampling_mode = mode_register
   # line 8: pedestal run flag
-  if scanf(file[8], matchHeader, dummy, valMatch):
+  if scanf(header[7], matchHeader, dummy, valMatch):
     let p_run_flag = valMatch
     result.pedestalRun = p_run_flag != 0
 
   # lines 9 - 21: #Data + commented out lines
-  for line in file[22 .. ^4]:
-    data.add uint16(parseInt(line))
+  var lineBuf: string
+  var lineIdx = 0
+  for _ in linesIter(file, lineBuf, start = 22, stop = 10262):
+    data.add parseUint16(lineBuf)
+    inc lineIdx
   const evNumberMatch = "data$i.txt-fadc"
   # TODO: replace `extractFilename` call by something simpler!
   if scanf(filepath.extractFilename, evNumberMatch, valMatch):
@@ -131,6 +136,7 @@ proc readFadcFile*(file: seq[string]): FadcFile = #seq[float] =
   result.isValid = true
 
 proc readFadcFileMem*(filepath: string): FadcFile =
+#proc readFadcFileMem*(filepath: string, resBuf: ptr UncheckedArray[Buffer], i: int) =
   ## reads an FADC file. Example header + data line
   ## # nb of channels: 0
   ## # channel mask: 15
@@ -236,11 +242,19 @@ proc readFadcFileMem*(filepath: string): FadcFile =
   result.data = data
   result.isValid = true
 
+import flatBuffers
+import std / isolation # for malebolgia and taskpools
+proc readFadcFileMem*(filepath: string, resBuf: ptr UncheckedArray[Buffer], i: int) =
+  let res = readFadcFileMem(filepath)
+  # for `flatBuffers.Buffer`
+  resBuf[i] = asFlat res
+
 proc readFadcFile*(filename: string): FadcFile =
   # wrapper around readFadcFile(file: seq[string]), which first
   # reads all lines in the file before
-  let file = readFile(filename).strip.splitLines
-  result = readFadcFile(filename & file)
+  let file = readFile(filename).strip
+  let pFile = ProtoFile(name: filename, fileData: file)
+  result = readFadcFile(pFile)
 
 proc calcMinOfPulse*(ar: Tensor[float], percentile: float): float =
   # calculates the minimum of the input ar (an FADC pulse) based on

@@ -609,7 +609,7 @@ proc bootstrapFakeEvents(septemDf, centerDf: DataFrame,
   passedEvs = toSeq(0 ..< numBootstrap).toOrderedSet
 
 from ../../Tools/determineDiffusion/determineDiffusion import getDiffusionForRun
-proc applySeptemVeto(h5f, h5fout: var H5File,
+proc applySeptemVeto(h5f: var H5File,
                      runNumber: int,
                      passedInds: var OrderedSet[int],
                      cutTab: CutValueInterpolator, ## Important: `cutTab` can either be for LogL or NN!
@@ -1050,7 +1050,7 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
         if (fkSeptem in flags or fkLineVeto in flags) and chipNumber == centerChip:
           # read all data for other chips ``iff`` chip == 3 (centerChip):
           let cutTabLoc = if ctx.vetoCfg.useNeuralNetworkCut: nnCutTab else: cutTab # hand correct CutValueInterpolator
-          h5f.applySeptemVeto(h5fout, num,
+          h5f.applySeptemVeto(num,
                               passedInds,
                               cutTab = cutTabLoc,
                               ctx = ctx,

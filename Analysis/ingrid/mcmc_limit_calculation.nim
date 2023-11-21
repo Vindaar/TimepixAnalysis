@@ -4259,9 +4259,9 @@ proc limit(
     σ_sig = 0.02724743263827172, ## <- is the value *without* uncertainty on signal efficiency!
     σ_back = 0.002821014576353691,
     σ_p = 0.05,
-    septemVetoRandomCoinc = 0.7841029411764704, # only septem veto random coinc based on bootstrapped fake data
-    lineVetoRandomCoinc = 0.8601764705882353,   # lvRegular based on bootstrapped fake data
-    septemLineVetoRandomCoinc = 0.732514705882353, # lvRegularNoHLC based on bootstrapped fake data
+    septemVetoRandomCoinc = 0.8311, # only septem veto random coinc based on bootstrapped fake data
+    lineVetoRandomCoinc = 0.8539,   # lvRegular based on bootstrapped fake data
+    septemLineVetoRandomCoinc = 0.7863, # lvRegularNoHLC based on bootstrapped fake data
     energyMin = 0.0.keV, energyMax = 12.0.keV,
     trackingTime = -1.Hour, backgroundTime = -1.Hour,
     limitKind = lkBayesScan,

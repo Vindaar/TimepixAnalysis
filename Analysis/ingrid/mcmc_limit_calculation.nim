@@ -132,6 +132,8 @@ type
     integralBase: float # integral of axion flux using base coupling constants
     # detector related
     windowRotation: Degree # rotation of the window during data taking
+    # efficiency
+    combinedEfficiencyFile: string # file storing detector efficiency including LLNL effective area
     # interpolators
     axionSpl: InterpolatorType[float]
     efficiencySpl: InterpolatorType[float]
@@ -832,7 +834,8 @@ proc initContext(path: string,
                  radius, sigma: float, energyRange: keV, nxy, nE: int,
                  backgroundTime, trackingTime: Hour, ## Can be used to ``*overwrite*`` time from input files!
                  axionModel,         # differential solar axion flux
-                 axionImage: string, # axion image (raytracing)
+                 axionImage,         # axion image (raytracing)
+                 combinedEfficiencyFile: string, # file containing combined detector efficiency including LLNL effective area
                  windowRotation = 30.°,
                  σ_sig = 0.0, σ_back = 0.0, # depending on which `σ` is given as > 0, determines uncertainty
                  σ_p = 0.0,
@@ -870,7 +873,7 @@ proc initContext(path: string,
   let axSpl = newLinear1D(axData["Energy [keV]", float].toSeq1D,
                           axData["Flux [keV⁻¹•cm⁻²•s⁻¹]", float].toSeq1D)
 
-  let combEffDf = readCsv("/home/basti/org/resources/combined_detector_efficiencies.csv")
+  let combEffDf = readCsv(combinedEfficiencyFile)
   # calc the efficiency based on the given vetoes
   let (lineVetoRandomCoinc,
        septemLineVetoRandomCoinc) = readData.overwriteRandomCoinc(lineVetoRandomCoinc,
@@ -935,6 +938,7 @@ proc initContext(path: string,
     couplingKind: couplingKind,
     switchAxes: switchAxes,
     # efficiency & signal ray tracing
+    combinedEfficiencyFile: combinedEfficiencyFile,
     windowRotation: windowRotation,
     efficiencySpl: effSpl,
     raytraceSpl: raySpl,
@@ -4119,6 +4123,7 @@ proc sanity(
   nmcSigmaLimits = 500,
   axionModel = "/home/basti/CastData/ExternCode/AxionElectronLimit/axion_diff_flux_gae_1e-13_gagamma_1e-12.csv",
   axionImage = "/home/basti/org/resources/axion_images/axion_image_2018_1487_93_0.989AU.csv",
+  combinedEfficiencyFile = "/home/basti/org/resources/combined_detector_efficiencies.csv",
   switchAxes = false,
   sanityPath = ""
      ) =
@@ -4160,6 +4165,7 @@ proc sanity(
     radius = radius, sigma = σ, energyRange = energyRange,
     backgroundTime = backgroundTime, trackingTime = trackingTime,
     axionModel = axionModel, axionImage = axionImage,
+    combinedEfficiencyFile = combinedEfficiencyFile,
     nxy = nxy, nE = nE,
     σ_sig = 0.02724743263827172, #0.04692492913207222, # from sqrt(squared sum) of signal uncertainties
     σ_back = 0.002821014576353691,#, # from sqrt(square sum) of back uncertainties
@@ -4247,6 +4253,7 @@ proc limit(
     path = "/home/basti/CastData/ExternCode/TimepixAnalysis/resources/LikelihoodFiles/",
     axionModel = "/home/basti/CastData/ExternCode/AxionElectronLimit/axion_diff_flux_gae_1e-13_gagamma_1e-12.csv",
     axionImage = "/home/basti/org/resources/axion_images/axion_image_2018_1487_93_0.989AU.csv", ## Default corresponds to mean Sun-Earth distance during 2017/18 data taking & median conversion ~0.3cm behind window
+    combinedEfficiencyFile = "/home/basti/org/resources/combined_detector_efficiencies.csv",
     useConstantBackground = false,
     radius = 40.0, σ = 40.0 / 3.0, energyRange = 0.6.keV, nxy = 10, nE = 20,
     σ_sig = 0.02724743263827172, ## <- is the value *without* uncertainty on signal efficiency!
@@ -4290,6 +4297,7 @@ proc limit(
     radius = radius, sigma = σ, energyRange = energyRange,
     backgroundTime = backgroundTime, trackingTime = trackingTime,
     axionModel = axionModel, axionImage = axionImage,
+    combinedEfficiencyFile = combinedEfficiencyFile,
     nxy = nxy, nE = nE,
     σ_sig = σ_sig, # from sqrt(squared sum) of signal uncertainties
     σ_back = σ_back,#, # from sqrt(square sum) of back uncertainties

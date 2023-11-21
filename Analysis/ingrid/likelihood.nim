@@ -426,7 +426,7 @@ proc evaluateCluster(clTup: (int, ClusterObject[PixInt]),
     elif containsOriginal and ctx.vetoCfg.lineVetoKind == lvRegularNoHLC: false # contained, but we *dont* want it
     else: true # if it neither contains the original, nor is it, it is of interest
   if fkLineVeto in flags and ofInterest and
-     cl.geometry.eccentricity > ctx.vetoCfg.eccLineVetoCut:
+     cl.geometry.eccentricity >= ctx.vetoCfg.eccLineVetoCut:
     # if this is not in region of interest, check its eccentricity and compute if line points to original
     # center cluster
     # compute line orthogonal to this cluster's line

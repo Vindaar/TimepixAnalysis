@@ -519,6 +519,23 @@ proc splitSeq*[T, U](s: seq[seq[T]], dtype: typedesc[U]): (seq[U], seq[U]) =
     result[0][i] = s[i][0].U
     result[1][i] = s[i][1].U
 
+proc commonSuffix*(files: seq[string]): string =
+  ## Returns the common suffix of all the given filenames.
+  doAssert files.len > 0
+  var idx = 1
+  var c = files[0][^idx] # get last character of first file as reference
+  result = newString(512) # given that filenames must be below 255 bytes, this is enough
+  block Insert:
+    while true:
+      for f in files:
+        let fc = f[^idx]
+        if c != fc: break Insert
+        elif idx > f.high: break Insert
+        result[^idx] = c
+      inc idx
+      c = files[0][^idx] # update character
+  result = result.strip(chars = {'\0'}) # remove all empty bytes
+
 when isMainModule:
   # unit test for a regex to check for
   import re

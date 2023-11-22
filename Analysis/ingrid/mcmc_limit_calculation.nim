@@ -2348,6 +2348,10 @@ proc writeLimitOutput(
 proc genOutfile(limitKind: LimitKind, samplingKind: SamplingKind,
                 nmc: int, ufSuff, pufSuff, suffix: string): string =
   result = &"mc_limit_{limitKind}_{samplingKind}_nmc_{nmc}_{ufSuff}_{pufSuff}{suffix}"
+  # now truncate to 250 characters! Better safe data to files shortened, than not saving anything
+  if result.len > 250:
+    echo "[WARNING] Output filename generated of length ", result.len, ". Will be truncated to 250 characters."
+    result = result[0 ..< 250]
 
 proc plotMCLimitHistogram(
   ctx: Context, limits: seq[float], candsInSens: seq[int],
@@ -2403,9 +2407,9 @@ proc plotMCLimitHistogram(
     pufSuff = &"posUncertain_{ctx.uncertaintyPosition}_σp_{ctx.σ_p:.4f}"
     putSuff = &"{ctx.uncertaintyPosition}, σp = {ctx.σ_p:.4f}"
 
-
   # First write a H5 file of the context and limits
   let baseOutfile = genOutfile(limitKind, ctx.samplingKind, nmc, ufSuff, pufSuff, suffix)
+  createDir(outpath)
   dfL.writeCsv(&"{outpath}/{baseOutfile}.csv")
   ctx.writeLimitOutput(outpath, baseOutfile, nmc, limitKind, limitNoSignal, limits, candsInSens)
 

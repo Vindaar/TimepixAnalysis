@@ -150,9 +150,9 @@ proc readFiles(files: seq[string], names: seq[string], region: ChipRegion,
 
     let (flags, vetoCfg) = readVetoCfg(h5f)
     var totalTime = readTime(h5f)
+    # apply the total efficiency based on all vetoes to the data
+    let totalEff = calcVetoEfficiency(flags, vetoCfg)
     if applyEfficiencyNormalization:
-      # apply the total efficiency based on all vetoes to the data
-      let totalEff = calcVetoEfficiency(flags, vetoCfg)
       # just multiply total time by efficiency to get 'effective background time'
       totalTime *= totalEff
 
@@ -161,6 +161,13 @@ proc readFiles(files: seq[string], names: seq[string], region: ChipRegion,
     let fname = if names.len > 0: names[idx]
                 else: file.extractFilename
     df["File"] = constantColumn(fname, df.len)
+    df["ε_total"] = totalEff
+    df["ε_eff"] = if fkLogL in flags: vetoCfg.signalEfficiency else: vetoCfg.nnSignalEff
+    df["Classifier"] = if fkLogL in flags: "LnL" else: "MLP"
+    df["Scinti"] = fkScinti in flags
+    df["FADC"] = fkFadc in flags
+    df["Septem"] = fkSeptem in flags
+    df["Line"] = fkLineVeto in flags
     log(verbose):
       &"File: {fname}"
       &"Elements before cut: {df.len}"
@@ -205,6 +212,13 @@ template sumIt(s: seq[typed], body: untyped): untyped =
     res += body
   res
 
+proc copyScalars(to: var DataFrame, frm: DataFrame) =
+  for k in getKeys(frm):
+    let col = frm[k].unique
+    if col.len == 1:
+      withNativeTensor(col, x):
+        to[k] = x[0]
+
 proc flatScale(files: seq[LogLFile], factor: float, verbose: bool, dropCounts = true): DataFrame =
   #var count {.global.} = 0
   var df: DataFrame
@@ -243,6 +257,8 @@ proc flatScale(files: seq[LogLFile], factor: float, verbose: bool, dropCounts = 
       else: 0.0
     if dropCounts:
       dfLoc = dfLoc.drop(["Counts", "CountErr"])
+    # copy over all the scalar fields in the data (e.g. `Classifier` and `ε`)
+    dfLoc.copyScalars(subDf)
     result.add dfLoc
   log(verbose):
     result.pretty(-1)
@@ -478,6 +494,44 @@ proc plotEfficiencyComparison(files: seq[LogLFile], outpath: string, verbose: bo
     ggsave(&"{outpath}/signal_efficiency_vs_sqrt_background_facet.pdf",
            width = 1280, height = 800)
 
+import orgtables
+proc printBackgroundRates(df: DataFrame, factor: float, energyMin: float, rateTable: string) =
+  type Line = tuple[Classifier: string, ε_eff: float, Scinti, FADC, Septem, Line: bool, ε_total, Rate: float]
+  proc toLine(df: DataFrame, backRate: float): Line =
+    result = (Classifier : df["Classifier"].unique.item(string),
+              ε_eff      : df["ε_eff"].unique.item(float),
+              Scinti     : df["Scinti"].unique.item(bool),
+              FADC       : df["FADC"].unique.item(bool),
+              Septem     : df["Septem"].unique.item(bool),
+              Line       : df["Line"].unique.item(bool),
+              ε_total    : df["ε_total"].unique.item(float),
+              Rate       : backRate)
+
+  proc intBackRate(df: DataFrame, factor: float, energyRange: Slice[float]): seq[Line] {.discardable.} =
+    result = newSeq[Line]()
+    for tup, subDf in groups(df.group_by("Dataset")): # for each `name` argument separately!
+      let f = tup[0][1].toStr
+      let intBackRate = calcIntegratedBackgroundRate(subDf, factor, energyRange)
+      let size = energyRange.b - energyRange.a
+      log(true): # always print
+        &"Dataset: {f}"
+      log(true): # for some reason cannot have in one, shrug
+        &"\t Integrated background rate in range: {energyRange}: {intBackRate:.4e} cm⁻²·s⁻¹"
+      log(true):
+        &"\t Integrated background rate/keV in range: {energyRange}: {intBackRate / size:.4e} keV⁻¹·cm⁻²·s⁻¹"
+
+      result.add toLine(subDf, intBackRate / size)
+
+  intBackRate(df, factor, max(energyMin, 0.0) .. 12.0)
+  intBackRate(df, factor, max(energyMin, 0.5) .. 2.5)
+  intBackRate(df, factor, max(energyMin, 0.5) .. 5.0)
+  intBackRate(df, factor, max(energyMin, 0.0) .. 2.5)
+  intBackRate(df, factor, max(energyMin, 4.0) .. 8.0)
+  let tab = intBackRate(df, factor, max(energyMin, 0.0) .. 8.0)
+  intBackRate(df, factor, max(energyMin, 2.0) .. 8.0)
+
+  writeFile(rateTable, tab.toOrgTable(precision = 3))
+  echo tab.toOrgTable(precision = 3)
 
 proc main(files: seq[string], log = false, title = "",
           show2014 = false,
@@ -512,6 +566,7 @@ proc main(files: seq[string], log = false, title = "",
           logPlot = false,
           outpath = "plots",
           outfile = "",
+          rateTable = "/tmp/background_rate_table.org", # path to a file in which a table of rates will be printed
           applyEfficiencyNormalization = false,
           quiet = false
          ) =
@@ -592,24 +647,7 @@ proc main(files: seq[string], log = false, title = "",
       echo "[INFO]: Neither any input files given, nor 2014 data to plot. Please provide either."
       return
     elif df.len > 0:
-      proc intBackRate(df: DataFrame, factor: float, energyRange: Slice[float]) =
-        for tup, subDf in groups(df.group_by("Dataset")): # for each `name` argument separately!
-          let f = tup[0][1].toStr
-          let intBackRate = calcIntegratedBackgroundRate(subDf, factor, energyRange)
-          let size = energyRange.b - energyRange.a
-          log(true): # always print
-            &"Dataset: {f}"
-          log(true): # for some reason cannot have in one, shrug
-            &"\t Integrated background rate in range: {energyRange}: {intBackRate:.4e} cm⁻²·s⁻¹"
-          log(true):
-            &"\t Integrated background rate/keV in range: {energyRange}: {intBackRate / size:.4e} keV⁻¹·cm⁻²·s⁻¹"
-      intBackRate(df, factor, max(energyMin, 0.0) .. 12.0)
-      intBackRate(df, factor, max(energyMin, 0.5) .. 2.5)
-      intBackRate(df, factor, max(energyMin, 0.5) .. 5.0)
-      intBackRate(df, factor, max(energyMin, 0.0) .. 2.5)
-      intBackRate(df, factor, max(energyMin, 4.0) .. 8.0)
-      intBackRate(df, factor, max(energyMin, 0.0) .. 8.0)
-      intBackRate(df, factor, max(energyMin, 2.0) .. 8.0)
+      printBackgroundRates(df, factor, energyMin, rateTable)
 
     plotBackgroundRate(
       df.filter(f{idx(Ecol) <= energyMax}), # filter histogram bins to target energy

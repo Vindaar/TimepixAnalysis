@@ -803,7 +803,7 @@ proc recoCluster*[T: SomePix; U: SomePix](c: Cluster[T],
     #echo "correcting 2"
     rotAngleEstimate -= 4 * arctan(1.0)
   elif classify(rotAngleEstimate) != fcNormal:
-    warn "Rot angle estimate is NaN, vals are ", $rms_x, " ", $rms_y
+    warn "Rot angle estimate is NaN, vals are ", $rms_x, " ", $rms_y, " from data: ", $c
     # what do we do in this case with the geometry?!
     #raise newException(ValueError, "Rotation angle estimate returned bad value")
     warn "Fit will probably fail!"

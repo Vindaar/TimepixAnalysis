@@ -157,20 +157,22 @@ proc rocCurve(predictions: seq[float], targets: seq[int],
   let dfRoc = calcRocCurve(predictions, targets)
   rocCurve(dfRoc, suffix, plotPath)
 
-proc logLValues(df: DataFrame): (seq[float], seq[int]) =
-  let logL = df["likelihood", float].map_inline:
+proc predictions(df: DataFrame): (seq[float], seq[int]) =
+  ## The `Prediction` column contains either `"likelihood"` values or
+  ## `"Neuron_0"` values. As likelihood may be saturated, we clamp to 50.
+  let pred = df["Prediction", float].map_inline:
     if classify(x) == fcInf:
       50.0
     else: x
   let targets = df["Type", string].map_inline:
     if x == $dtBack: 0
     else: 1
-  result = (logL.toSeq1D, targets.toSeq1D)
+  result = (pred.toSeq1D, targets.toSeq1D)
 
 proc plotRocCurve(dfLnL, dfMLP: DataFrame, suffix = "_likelihood", plotPath = "/tmp") =
   ## plots the ROC curve of the predictions vs the targets
-  let (logL, targets) = logLValues(dfLnL)
-  let (preds, targetsMlp) = logLValues(dfMlp) ## Note: dfMlp must have its dataset named `likelihood`! # .rename(f{"likelihood" <- "preds"}))
+  let (logL, targets) = predictions(dfLnL)
+  let (preds, targetsMlp) = predictions(dfMlp) ## Note: dfMlp must have its dataset named `likelihood`! # .rename(f{"likelihood" <- "preds"}))
   let dfRoc = calcRocCurve(logL, targets, preds, targetsMlp)
   rocCurve(dfRoc, suffix, plotPath)
 
@@ -534,7 +536,7 @@ proc targetSpecificRoc(dfLnL, dfMlp: DataFrame, plotPath = "/tmp") =
   for tup, subDf in groups(dfRoc.group_by(["Method", "Target"])):
     let meth = tup[0][1].toStr # lnL or MLP
     let target = tup[1][1].toStr
-    let (output, targets) = subDf.logLValues()
+    let (output, targets) = subDf.predictions()
     let verbose = meth == "LogL" and target == "C-EPIC-0.6kV"
     var dfRoc = calcRocCurve(output, targets, verbose)
     dfRoc["Target"] = target
@@ -718,7 +720,7 @@ proc generateRocCurves(model: AnyModel, device: Device, desc: MLPDesc) =
                                                 calcLogL = true,
                                                 mlpOutput = true)
   proc asDf(dfIn: DataFrame, typ, dset: string): DataFrame =
-    toDf({ "likelihood" : (if dset == "Neuron_0": dfIn[dset, float].map_inline(-x)
+    toDf({ "Prediction" : (if dset == "Neuron_0": dfIn[dset, float].map_inline(-x)
                            else: dfIn[dset, float]),
            "Target" : dfIn["Target", string],
            "Type" : typ })
@@ -909,8 +911,7 @@ proc trainModel[T](_: typedesc[T],
     withOptim(model, mlpDesc): # injects `optimizer` variable of correct type into body
       callTrain(optimizer)
     model.save(mlpDesc.path)
-  # perform validation
-  if skipTraining:
+  else: # perform validation
     # reproduce the accuracy and loss plots
     plotType(mlpDesc.epochs, mlpDesc.accuracies, mlpDesc.testAccuracies, "Accuracy", outfile = &"{mlpDesc.plotPath}/accuracy.pdf")
     plotType(mlpDesc.epochs, mlpDesc.losses, mlpDesc.testLosses, "Loss", outfile = &"{mlpDesc.plotPath}/loss.pdf")

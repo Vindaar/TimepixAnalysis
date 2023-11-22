@@ -894,12 +894,13 @@ proc initContext(path: string,
     lineVetoRandomCoinc: lineVetoRandomCoinc,
     septemLineVetoRandomCoinc: septemLineVetoRandomCoinc,
   )
-
   echo "[INFO]: Total veto efficiency is ", vetoEff
-  # now correct for additional veto eff loss (`map_inline` below) and
-  # create a spline
+
   # compute detector efficiency (gas absorption, window losses + telescope effective area)
-  let detTelEff = combEffDf["Efficiency", float] *. combEffDf["LLNL", float]
+  # If `DetectorEfficiency` present, produced by `TPA/Tools/septemboardDetectorEff` and `Efficiency`
+  # includes `LLNL` already. Otherwise old CSV file, which does not!
+  let detTelEff = if "DetectorEfficiency" in combEffDf: combEffDf["Efficiency", float]
+                  else: combEffDf["Efficiency", float] *. combEffDf["LLNL", float]
   # total efficiency is given detector efficiency times veto + lnL efficiency
   let totalEff  = detTelEff.map_inline(x * vetoEff).toSeq1D
   ## XXX: why do we use a cubic spline here? Shouldn't linear be enough? Linear should be faster.

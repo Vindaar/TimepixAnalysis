@@ -49,8 +49,8 @@ proc plotEfficiency(df: DataFrame, outpath: string) =
       ggsave(&"{outpath}/window_plus_argon_efficiency.pdf", width = 800, height = 600)
   block:
     echo df
-    let df = df.drop(["200μm Si", "SB", "Efficiency", "Eff • ε", "Eff • SB • ε", "full Eff."])
-      .rename(f{"Combined" <- "Eff • ε • LLNL"})
+    let df = df.drop(["200μm Si", "SB", "Eff • ε • LLNL", "Eff • ε", "Eff • SB • ε", "full Eff."])
+      .rename(f{"Combined" <- "Efficiency"})
       .gather(["300nm SiN", "30mm Ar Abs.", "20nm Al", "LLNL", "Combined"],
               key = "Type", value = "Efficiency")
     echo df

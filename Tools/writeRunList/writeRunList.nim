@@ -135,7 +135,8 @@ proc writeSummary(runs: RunList, runType: RunTypeKind) =
                   "Active time [h]" : activeTime.asHours() })
   echo df.toOrgTable(precision = 6)
 
-proc main(back, calib: string) =
+proc main(back, calib: string,
+          runList = "runList.org") =
   ## Given a path to a `DataRuns.h5` (`back`) and `CalibrationRuns.h5` file (`calib`) outputs a
   ## run list and the total tracking and non tracking durations.
   docCommentAdd(versionStr)
@@ -149,7 +150,7 @@ proc main(back, calib: string) =
   writeSummary(pltBack, rtBackground)
   writeSummary(pltCalib, rtCalibration)
 
-  write("runList.org", sortedRuns)
+  write(runList, sortedRuns)
 
 when isMainModule:
   import cligen

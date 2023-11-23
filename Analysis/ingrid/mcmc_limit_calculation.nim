@@ -1198,10 +1198,12 @@ proc rate(ctx: Context, c: Candidate): float =
 
 defUnit(cm⁻²•s⁻¹)
 proc totalSignal(ctx: Context): UnitLess =
-  ## TODO: only count the fraction of evnts expected in gold region! Extract inforamtion
-  ## from heatmap by looking for ratio of sum inside gold / sum outside gold
-  let areaBore = π * (2.15 * 2.15).cm²
-
+  ## Computes the total signal expected in the detector, by integrating the
+  ## axion flux arriving over the total magnet bore, total tracking time.
+  ##
+  ## The `integralBase` is the integral over the axion flux multiplied by the detection
+  ## efficiency (window, gas and telescope).
+  const areaBore = π * (2.15 * 2.15).cm²
   let integral = ctx.integralBase.rescale(ctx)
   result = integral.cm⁻²•s⁻¹ * areaBore * ctx.totalTrackingTime.to(s) * conversionProbability(ctx)
 

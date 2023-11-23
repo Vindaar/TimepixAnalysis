@@ -49,11 +49,11 @@ template withBootstrap(rnd: var Rand, samples: seq[float], num: int, body: untyp
 proc expLimitVarStd(limits: seq[float]): (float, float) =
   var rnd = initRand(12312)
   let limits = limits.mapIt(sqrt(it) * 1e-12) # rescale limits
-  const num = 100
+  const num = 1000
   var medians = newSeqOfCap[float](num)
   withBootstrap(rnd, limits, num):
     medians.add median(newSamples, 50)
-  echo "Medians? ", medians
+  #echo "Medians? ", medians
   result = (variance(medians), standardDeviation(medians))
 
 proc readVetoes(h5f: H5File): set[LogLFlagKind] =
@@ -95,33 +95,38 @@ proc asDf(limit: LimitData): DataFrame =
              else: "LnL"
   let eff = if fkMLP in limit.vetoes: limit.eff.nnEffectiveEff
             else: limit.eff.signalEff
-  result = toDf({ "ε" : eff,
+  let septem = fkSeptem in limit.vetoes
+  let line = fkLineVeto in limit.vetoes
+  let fadc = fkFadc in limit.vetoes
+  result = toDf({ "ε_eff" : eff,
                   "Type" : typ,
                   "Scinti" : fkScinti in limit.vetoes,
-                  "FADC" : fkFadc in limit.vetoes,
+                  "FADC" : fadc,
                   "ε_FADC" : 1.0 - (1.0 - limit.eff.vetoPercentile) * 2.0,
-                  "Septem" : fkSeptem in limit.vetoes,
-                  "Line" : fkLineVeto in limit.vetoes,
+                  "Septem" : septem,
+                  "Line" : line,
                   "eccLineCut" : limit.eff.eccLineVetoCut,
-                  "ε_Septem" : limit.eff.septemVetoRandomCoinc,
-                  "ε_Line" : limit.eff.lineVetoRandomCoinc,
-                  "ε_SeptemLine" : limit.eff.septemLineVetoRandomCoinc,
-                  "Total eff." : limit.eff.totalEff,
+                  "ε_Septem" : if septem and not line: limit.eff.septemVetoRandomCoinc else: 1.0,
+                  "ε_Line" : if line and not septem: limit.eff.lineVetoRandomCoinc else: 1.0,
+                  "ε_SeptemLine" : if septem and line: limit.eff.septemLineVetoRandomCoinc else: 1.0,
+                  "ε_total" : limit.eff.totalEff,
                   "Limit no signal [GeV⁻¹]" : limit.limitNoSignal,
                   "Expected limit [GeV⁻¹]" : limit.expectedLimit,
-                  "Exp. limit variance [GeV⁻¹]" : limit.expLimitVariance,
+                  "Exp. limit variance [GeV⁻²]" : limit.expLimitVariance,
                   "Exp. limit σ [GeV⁻¹]" : limit.expLimitStd })
 
-proc main(path = @["/t/lhood_outputs_adaptive_fadc_limits/"],
-          prefix = @["mc_limit_lkMCMC_skInterpBackground_nmc_1000"]) =
+proc main(path: seq[string] = @[],
+          prefix: seq[string] = @[]) =
   var df = newDataFrame()
   doAssert path.len == prefix.len, "Need one prefix for each path!"
   for i, p in path:
     let pref = prefix[i]
-    for f in walkFiles(p / pref & "*.h5"):
-      echo "File: ", f
-      let limit = readLimit(f)
-      df.add asDf(limit)
+    for f in walkDirRec(p):
+      let fname = extractFilename(f)
+      if fname.startsWith(pref) and fname.endsWith(".h5"):
+        echo "File: ", fname
+        let limit = readLimit(f)
+        df.add asDf(limit)
   echo df.arrange("Expected limit [GeV⁻¹]").toOrgTable(precision = 4)
 
 when isMainModule:

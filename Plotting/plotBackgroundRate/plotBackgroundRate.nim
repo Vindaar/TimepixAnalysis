@@ -162,7 +162,7 @@ proc readFiles(files: seq[string], names: seq[string], region: ChipRegion,
                 else: file.extractFilename
     df["File"] = constantColumn(fname, df.len)
     df["ε_total"] = totalEff
-    df["ε_eff"] = if fkLogL in flags: vetoCfg.signalEfficiency else: vetoCfg.nnSignalEff
+    df["ε_eff"] = if fkLogL in flags: vetoCfg.signalEfficiency else: vetoCfg.nnEffectiveEff
     df["Classifier"] = if fkLogL in flags: "LnL" else: "MLP"
     df["Scinti"] = fkScinti in flags
     df["FADC"] = fkFadc in flags
@@ -218,6 +218,10 @@ proc copyScalars(to: var DataFrame, frm: DataFrame) =
     if col.len == 1:
       withNativeTensor(col, x):
         to[k] = x[0]
+    else:
+      if k in ["ε_total", "ε_eff"]: # one efficiency value for each run period
+        # compute the mean instead! (technically weighted by time would be better)
+        to[k] = col.toTensor(float).mean
 
 proc flatScale(files: seq[LogLFile], factor: float, verbose: bool, dropCounts = true): DataFrame =
   #var count {.global.} = 0
@@ -522,15 +526,16 @@ proc printBackgroundRates(df: DataFrame, factor: float, energyMin: float, rateTa
 
       result.add toLine(subDf, intBackRate / size)
 
-  intBackRate(df, factor, max(energyMin, 0.0) .. 12.0)
-  intBackRate(df, factor, max(energyMin, 0.5) .. 2.5)
-  intBackRate(df, factor, max(energyMin, 0.5) .. 5.0)
-  intBackRate(df, factor, max(energyMin, 0.0) .. 2.5)
-  intBackRate(df, factor, max(energyMin, 4.0) .. 8.0)
+  if rateTable.len == 0:
+    intBackRate(df, factor, max(energyMin, 0.0) .. 12.0)
+    intBackRate(df, factor, max(energyMin, 0.5) .. 2.5)
+    intBackRate(df, factor, max(energyMin, 0.5) .. 5.0)
+    intBackRate(df, factor, max(energyMin, 0.0) .. 2.5)
+    intBackRate(df, factor, max(energyMin, 4.0) .. 8.0)
+    intBackRate(df, factor, max(energyMin, 2.0) .. 8.0)
   let tab = intBackRate(df, factor, max(energyMin, 0.0) .. 8.0)
-  intBackRate(df, factor, max(energyMin, 2.0) .. 8.0)
-
-  writeFile(rateTable, tab.toOrgTable(precision = 3))
+  if rateTable.len > 0:
+    writeFile(rateTable, tab.toOrgTable(precision = 3))
   echo tab.toOrgTable(precision = 3)
 
 proc main(files: seq[string], log = false, title = "",
@@ -566,9 +571,10 @@ proc main(files: seq[string], log = false, title = "",
           logPlot = false,
           outpath = "plots",
           outfile = "",
-          rateTable = "/tmp/background_rate_table.org", # path to a file in which a table of rates will be printed
+          rateTable = "", # path to a file in which a table of rates will be printed
           applyEfficiencyNormalization = false,
-          quiet = false
+          quiet = false,
+          noPlot = false # skips the plot, good for background rate table
          ) =
   discard existsOrCreateDir(outpath)
   if readToA:
@@ -649,18 +655,19 @@ proc main(files: seq[string], log = false, title = "",
     elif df.len > 0:
       printBackgroundRates(df, factor, energyMin, rateTable)
 
-    plotBackgroundRate(
-      df.filter(f{idx(Ecol) <= energyMax}), # filter histogram bins to target energy
-      fnameSuffix, title,
-      outpath, outfile,
-      show2014, suffix,
-      hidePoints = hidePoints, hideErrors = hideErrors, fill = fill,
-      useTeX = useTeX, showPreliminary = showPreliminary, genTikZ = genTikZ,
-      showNumClusters = showNumClusters, showTotalTime = showTotalTime,
-      topMargin = topMargin, yMax = yMax, energyMin = energyMin, energyMax = energyMax,
-      logPlot = logPlot,
-      applyEfficiencyNormalization = applyEfficiencyNormalization
-    )
+    if not noPlot:
+      plotBackgroundRate(
+        df.filter(f{idx(Ecol) <= energyMax}), # filter histogram bins to target energy
+        fnameSuffix, title,
+        outpath, outfile,
+        show2014, suffix,
+        hidePoints = hidePoints, hideErrors = hideErrors, fill = fill,
+        useTeX = useTeX, showPreliminary = showPreliminary, genTikZ = genTikZ,
+        showNumClusters = showNumClusters, showTotalTime = showTotalTime,
+        topMargin = topMargin, yMax = yMax, energyMin = energyMin, energyMax = energyMax,
+        logPlot = logPlot,
+        applyEfficiencyNormalization = applyEfficiencyNormalization
+      )
 
 when isMainModule:
   dispatch main, help = {

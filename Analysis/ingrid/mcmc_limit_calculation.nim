@@ -1197,7 +1197,7 @@ proc rate(ctx: Context, c: Candidate): float =
   else: result = (1.0 + s / b)
 
 defUnit(cm⁻²•s⁻¹)
-proc expRate(ctx: Context): UnitLess =
+proc totalSignal(ctx: Context): UnitLess =
   ## TODO: only count the fraction of evnts expected in gold region! Extract inforamtion
   ## from heatmap by looking for ratio of sum inside gold / sum outside gold
   let areaBore = π * (2.15 * 2.15).cm²
@@ -1293,7 +1293,7 @@ proc logLUncertainSig(ctx: Context, candidates: seq[Candidate]): float =
     resetZeroCounters(ctx)
   ## integration of L over `θ_s` using the current parameters for `s`, `b_i`, `s_i`
   ## is equivalent to integration & then evaluating integral at position of these params
-  let s_tot = expRate(ctx)
+  let s_tot = totalSignal(ctx)
   let σ_s = ctx.σs_sig
 
   var cSigBack = newSeq[(float, float)](candidates.len)
@@ -1329,7 +1329,7 @@ proc logLUncertainBack(ctx: Context, candidates: seq[Candidate]): float =
 
   ## integration of L over `θ_b` using the current parameters for `s`, `b_i`, `s_i`
   ## is equivalent to integration & then evaluating integral at position of these params
-  let s_tot = expRate(ctx)
+  let s_tot = totalSignal(ctx)
   let σ_b = ctx.σb_back
   var cSigBack = newSeq[(float, float)](candidates.len)
   for i, c in candidates:
@@ -1356,7 +1356,7 @@ proc logLUncertain(ctx: Context, candidates: seq[Candidate]): float =
     resetZeroCounters(ctx)
   ## integration of L over `θ_b` using the current parameters for `s`, `b_i`, `s_i`
   ## is equivalent to integration & then evaluating integral at position of these params
-  let s_tot = expRate(ctx)
+  let s_tot = totalSignal(ctx)
   let σ_b = ctx.σsb_back
   let σ_s = ctx.σsb_sig
   var cSigBack = newSeq[(float, float)](candidates.len)
@@ -1392,7 +1392,7 @@ proc logLPosUncertain(ctx: Context, candidates: seq[Candidate]): float =
   var cSigBack = newSeq[(float, float)](candidates.len)
   let SQRT2 = sqrt(2.0)
   let σ_p = ctx.σ_p
-  let s_tot = expRate(ctx)
+  let s_tot = totalSignal(ctx)
   for i, c in candidates:
     let sig = ctx.detectionEff(c.energy) * ctx.axionFlux(c.energy) * conversionProbability(ctx)
     cSigBack[i] = (sig.float,
@@ -1427,7 +1427,7 @@ proc logLFullUncertain(ctx: Context, candidates: seq[Candidate]): float =
   var cSigBack = newSeq[(float, float)](candidates.len)
   let SQRT2 = sqrt(2.0)
   let σ_p = ctx.σ_p
-  let s_tot = expRate(ctx)
+  let s_tot = totalSignal(ctx)
   let σ_b = ctx.σsb_back
   let σ_s = ctx.σsb_sig
   for i, c in candidates:
@@ -1480,7 +1480,7 @@ proc logLCertain(ctx: Context, candidates: seq[Candidate]): float =
     resetZeroCounters(ctx)
 
   when true:
-    result = -expRate(ctx)# * 0.002
+    result = -totalSignal(ctx)# * 0.002
     for c in candidates:
       let rt = ctx.rate(c)
       #echo "PURE RATE ", rt, " and ln ", ln(rt), " at position ", c.pos, " at g_ae ", ctx.g_ae², " result: ", result
@@ -2024,7 +2024,7 @@ template fullUncertainFn(): untyped {.dirty.} =
     SQRT2 = sqrt(2.0)
     σ_s = ctx.σsb_sig
     σ_b = ctx.σsb_back
-    s_tot = expRate(ctx)
+    s_tot = totalSignal(ctx)
 
   let σ_p = ctx.σ_p
   for i, c in cands:
@@ -2095,7 +2095,7 @@ template posUncertainFn(): untyped {.dirty.} =
   var cSigBack = newSeq[(float, float)](cands.len)
   let
     SQRT2 = sqrt(2.0)
-    s_tot = expRate(ctx)
+    s_tot = totalSignal(ctx)
 
   let σ_p = ctx.σ_p
   for i, c in cands:
@@ -2132,7 +2132,7 @@ template sbUncertainFn(): untyped {.dirty.} =
   let
     σ_s = ctx.σsb_sig
     σ_b = ctx.σsb_back
-    s_tot = expRate(ctx)
+    s_tot = totalSignal(ctx)
   for i, c in cands:
     cSigBack[i] = (ctx.expectedSignal(c.energy, c.pos).float,
                    ctx.background(c.energy, c.pos).float)
@@ -2158,7 +2158,7 @@ template certainFn(): untyped {.dirty.} =
   doAssert ctx.uncertainty == ukCertain
   resetCoupling(ctx) ## to have reference value to quickly rescale
   var cSigBack = newSeq[(float, float)](cands.len)
-  let s_tot = expRate(ctx)
+  let s_tot = totalSignal(ctx)
   for i, c in cands:
     cSigBack[i] = (ctx.expectedSignal(c.energy, c.pos).float,
                    ctx.background(c.energy, c.pos).float)
@@ -2913,12 +2913,12 @@ proc integrateSignalOverImage(ctx: Context, log: Logger) =
     foldRes.intBackGold += res.intBackGold
 
   log.infosNoHeader:
-    &"Expected number of signals in total = {expRate(ctx)}"
+    &"Expected number of signals in total = {totalSignal(ctx)}"
     &"Total integral of signal: {foldRes.integral} (integrated over the whole chip!)"
     &"Total integral of background: {foldRes.intBack} (integrated over the whole chip!)"
     &"Total integral of signal: {foldRes.integralGold} (integrated over gold region!)"
     &"Total integral of background: {foldRes.intBackGold} (integrated over gold region!)"
-    &"Normalization factor: {foldRes.integral / expRate(ctx)}"
+    &"Normalization factor: {foldRes.integral / totalSignal(ctx)}"
 
 proc plotSignalAtEnergy(ctx: Context, log: Logger, energy: keV, title, outfile: string) =
   ## Generate a plot of the signal component in units of `keV⁻¹•cm⁻²•s⁻¹` at the specified
@@ -3635,7 +3635,7 @@ proc sanityCheckLikelihoodNoSystematics(ctx: Context, log: Logger) =
 proc plotLikelihoodCurves(ctx: Context, candidates: seq[Candidate],
                           prefix: string) =
   ## Plots the likelihood curves at a specific coupling constant in θ
-  let s_tot = expRate(ctx)
+  let s_tot = totalSignal(ctx)
   var cSigBack = newSeq[(float, float)](candidates.len)
   for i, c in candidates:
     cSigBack[i] = (ctx.expectedSignal(c.energy, c.pos).float,
@@ -3726,7 +3726,7 @@ proc plotLikelihoodCurves(ctx: Context, candidates: seq[Candidate],
   else:
     if ctx.uncertaintyPosition == puUncertain:
       when false: #block TX:
-        let s_tot = expRate(ctx)
+        let s_tot = totalSignal(ctx)
         proc likeX(θ_x: float): float =
           ctx.θ_x = θ_x
           proc likeY(θ_y: float, nc: NumContext[float, float]): float =
@@ -3755,7 +3755,7 @@ proc plotLikelihoodCurves(ctx: Context, candidates: seq[Candidate],
           ggtitle(&"L(θ_x), at σ_p = {ctx.σ_p} integrated over θ_y") +
           ggsave(prefix & "θx.pdf")
       when false: #block TY:
-        let s_tot = expRate(ctx)
+        let s_tot = totalSignal(ctx)
         proc likeY(θ_y: float): float =
           ctx.θ_y = θ_y
           proc likeX(θ_x: float, nc: NumContext[float, float]): float =
@@ -3784,7 +3784,7 @@ proc plotLikelihoodCurves(ctx: Context, candidates: seq[Candidate],
           ggtitle(&"L(θ_y), at σ_p = {ctx.σ_p} integrated over θ_x") +
           ggsave(prefix & "θy.pdf")
       block Test:
-        let s_tot = expRate(ctx)
+        let s_tot = totalSignal(ctx)
         var cSigBack = newSeq[(float, float)](candidates.len)
         let SQRT2 = sqrt(2.0)
         for i, c in candidates:
@@ -3815,7 +3815,7 @@ proc plotLikelihoodCurves(ctx: Context, candidates: seq[Candidate],
           ggtitle(&"L(θ_x), at σ_p = {ctx.σ_p} integrated over θ_y") +
           ggsave(prefix & "θx_alternative.pdf")
       block TestXY:
-        let s_tot = expRate(ctx)
+        let s_tot = totalSignal(ctx)
         var cSigBack = newSeq[(float, float)](candidates.len)
         let SQRT2 = sqrt(2.0)
         for i, c in candidates:
@@ -4372,7 +4372,7 @@ when isMainModule:
         let candidates = cands
         template helper(): untyped {.dirty.} =
           ctx.g_ae² = 1e-13 * 1e-13 ## to have reference values to quickly rescale!
-          let s_tot = expRate(ctx)
+          let s_tot = totalSignal(ctx)
           var σ_s: float
           var σ_b: float
           case ctx.uncertainty
@@ -4438,7 +4438,7 @@ when isMainModule:
             var cands = newSeq[(float, float)](candidates.len)
             let SQRT2 = sqrt(2.0)
             let σ_p = ctx.σ_p
-            let s_tot = expRate(ctx)
+            let s_tot = totalSignal(ctx)
             for i, c in candidates:
               let sig = ctx.detectionEff(c.energy) * ctx.axionFlux(c.energy) * conversionProbability(ctx)
               cands[i] = (sig.float,

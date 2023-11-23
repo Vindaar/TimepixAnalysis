@@ -1098,7 +1098,7 @@ proc axionFlux(ctx: Context, energy: keV): keV⁻¹ =
     ctx.totalTrackingTime.to(s)
 
 proc detectionEff(ctx: Context, energy: keV): UnitLess {.gcsafe.} =
-  # window + gas
+  # window + gas + telescope
   if energy < 0.001.keV or energy > 10.0.keV: return 0.0
   result = ctx.efficiencySpl.eval(energy.float)
 

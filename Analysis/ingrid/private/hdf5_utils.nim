@@ -969,7 +969,7 @@ proc getExtendedRunInfo*(h5f: H5File, runNumber: int,
                           t_end: (tstamp[^1].float + evDuration[^1]).fromUnixFloat) # end is last tstamp + duration of that event!
   let deadTime = determineDeadTime(h5f, runNumber, basePath)
 
-  tInfo.t_length = tInfo.t_end - tInfo.t_start # - deadTime.secondsAsDuration()
+  tInfo.t_length = tInfo.t_end - tInfo.t_start - deadTime.secondsAsDuration()
   result.timeInfo = tInfo
   result.totalTime = tInfo.t_length
   result.activeRatio = result.activeTime.inSeconds.float / result.totalTime.inSeconds.float

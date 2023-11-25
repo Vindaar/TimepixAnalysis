@@ -51,12 +51,13 @@ proc main(path, # = "/t/lhood_outputs_adaptive_fadc/",
   setControlCHook(ctrlc)
   let t0 = epochTime()
   discard existsOrCreateDir(outpath)
+  let processedFile = outpath / &"processed_{nmc}.txt"
   let alreadyProcessed =
-    if existsFile(outpath / "processed.txt"):
-      readFile(outpath / "processed.txt").splitLines.mapIt(it.extractFilename)
+    if existsFile(processedFile):
+      readFile(processedFile).splitLines.mapIt(it.extractFilename)
     else:
       newSeq[string]()
-  var processed = open(outpath / "processed.txt", fmAppend)
+  var processed = open(processedFile, fmAppend)
   echo "Limit calculation will be performed for the following files:"
   for file in walkFiles(path / prefix & "*.h5"):
     if file.extractFilename notin alreadyProcessed:

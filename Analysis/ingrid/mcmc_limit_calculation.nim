@@ -1156,8 +1156,8 @@ proc evalInterp(interp: var Interpolation, c: Candidate): keV⁻¹•cm⁻² =
     let px = c.pos.x.toIdx
     let py = c.pos.y.toIdx
     interp.kd.query_ball_point([px.float, py.float, c.energy.float].toTensor,
-                             radius = interp.radius,
-                             metric = CustomMetric)
+                               radius = interp.radius,
+                               metric = CustomMetric)
       .compValue()
       .correctEdgeCutoff(interp.radius, px, py) # this should be correct
       .normalizeValue(interp.radius, interp.energyRange, interp.backgroundTime)
@@ -4122,8 +4122,19 @@ proc sanityCheckAxionElectronAxionPhoton(ctx: Context, log: Logger) =
 
 
 proc sanity(
+  all = false, # run all limits
   scanSigmaLimits = false, # can be disabled, as it's time consuming
   backgroundInterp = false, # can be disabled, as it's time consuming
+  raytracing = false, #
+  detectionEff = false,
+  background = false,
+  backgroundSampling = false,
+  signal = false,
+  likelihoodNoSystematics = false,
+  likelihoodSystematics = false,
+  axionPhoton = false,
+  axionElectronAxionPhoton = false,
+  realSystematics = false,
   limitKind = lkMCMC, # for the sigma limits sanity check
   radius = 40.0, σ = 40.0 / 3.0, energyRange = 0.6.keV, nxy = 10, nE = 20,
   rombergIntegrationDepth = 5,
@@ -4191,42 +4202,51 @@ proc sanity(
     &"Ratio of tracking to background time: {trackingTime / backgroundTime}"
 
   # 1. detection efficiency checks
-  ctx.sanityCheckDetectionEff(log)
+  if all or detectionEff:
+    ctx.sanityCheckDetectionEff(log)
 
   # 1. background related checks
-  ctx.sanityCheckBackground(log)
+  if all or background:
+    ctx.sanityCheckBackground(log)
 
   # 2. raytracing
-  ctx.sanityCheckRaytracingImage(log)
+  if all or raytracing:
+    ctx.sanityCheckRaytracingImage(log)
 
   # 3. background interpolation
-  if backgroundInterp:
+  if all or backgroundInterp:
    ctx.sanityCheckBackgroundInterpolation(log)
 
   # 4. background sampling
-  ctx.sanityCheckBackgroundSampling(log)
+  if all or backgroundSampling:
+    ctx.sanityCheckBackgroundSampling(log)
 
   # 5. signal
-  ctx.sanityCheckSignal(log)
+  if all or signal:
+    ctx.sanityCheckSignal(log)
 
   # 6. likelihood, including signal vs. background
   # reset systematics to "off" (certain)
   ctx.systematics = initSystematics()
   # to compute likelihood things without any systematics
-  ctx.sanityCheckLikelihoodNoSystematics(log)
+  if all or likelihoodNoSystematics:
+    ctx.sanityCheckLikelihoodNoSystematics(log)
 
   # 7. compute likelihood behavior when applying systematics
-  ctx.sanityCheckLikelihoodSyst(log)
+  if all or likelihoodSystematics:
+    ctx.sanityCheckLikelihoodSyst(log)
 
   # 8. check for limit behavior for different systematics
-  if scanSigmaLimits:
+  if all or scanSigmaLimits:
     ctx.sanityCheckSigmaLimits(log, limitKind, nmcSigmaLimits)
 
   # 9. check impact of g_aγ on limit
-  ctx.sanityCheckAxionPhoton(log)
+  if all or axionPhoton:
+    ctx.sanityCheckAxionPhoton(log)
 
   # 10. Sanity check MCMC for g_ae²·g_aγ² yields same as g_ae² only!
-  ctx.sanityCheckAxionElectronAxionPhoton(log)
+  if all or axionElectronAxionPhoton:
+    ctx.sanityCheckAxionElectronAxionPhoton(log)
 
   # 11. sanity checks for length of MCMC & starting parameters & allowed steps?
   # ?
@@ -4243,7 +4263,8 @@ proc sanity(
   # will either be rather imprecise or take a long while.. Hm.
   ## XXX: note this will be used only for *calls to real procedures*. the general systematics
   ## are also handled in `saniyCheckLikelihoodSyst`
-  ctx.sanityCheckRealSystematics(log)
+  if all or realSystematics:
+    ctx.sanityCheckRealSystematics(log)
 
   # 13. anything else?
 

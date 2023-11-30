@@ -41,6 +41,7 @@ proc main(path, # = "/t/lhood_outputs_adaptive_fadc/",
           outpath, # = "/t/lhood_outputs_adaptive_fadc_limits/",
           prefix, # = "likelihood_cdl2018_Run2_crAll",
           axionModel: string, # --axionModel /home/basti/org/resources/differential_flux_sun_earth_distance/solar_axion_flux_differential_g_ae_1e-13_g_ag_1e-12_g_aN_1e-15_0.989AU.csv
+          exclude = "", # a string that must *not* be present
           axionImage: string,
           combinedEfficiencyFile: string,
           switchAxes = false,
@@ -65,6 +66,9 @@ proc main(path, # = "/t/lhood_outputs_adaptive_fadc/",
     else:
       echo "Already processed: ", file
   for file in walkFiles(path / prefix & "*.h5"):
+    if exclude.len > 0 and exclude in file:
+      echo "Skipping file ", file, " as it contains the exclude string: ", exclude
+      continue # skip this
     CurrentFile = file
     if CurrentFile.extractFilename in alreadyProcessed:
       echo "Skipping file ", CurrentFile, " as it was already processed."

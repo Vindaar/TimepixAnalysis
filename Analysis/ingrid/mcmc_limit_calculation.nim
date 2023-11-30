@@ -1238,7 +1238,7 @@ proc plotRaytracingImage(ctx: Context, log: Logger,
       xs.add x
       ys.add y
       zs.add ctx.raytracing((x: x, y: y), ignoreWindow).float
-  let df = toDf(xs, ys, zs)
+  let df = toDf({xs, ys, "Density" : zs})
   var customInferno = inferno()
   customInferno.colors[0] = 0 # transparent
 
@@ -1254,10 +1254,12 @@ proc plotRaytracingImage(ctx: Context, log: Logger,
     &"\twould receive if taken over whole chip."
     &"Saving plot: {outname}"
 
-  ggplot(df, aes("xs", "ys", fill = "zs")) +
+  ggplot(df, aes("xs", "ys", fill = "Density")) +
     geom_raster() +
     scale_fill_gradient(customInferno) +
     ggtitle(title) +
+    xlab("x [mm]") + ylab("y [mm]") +
+    theme_font_scale(1.0, family = "serif") +
     ggsave(outname)
 
 proc resetZeroCounters(ctx: Context) =
@@ -2462,7 +2464,7 @@ proc plotMCLimitHistogram(
              font = font(color = parseHex("0000FF")),
              backgroundColor = color(0.0, 0.0, 0.0, 0.0)) +
     scale_x_continuous() + scale_y_continuous() +
-    margin(top = 1.5)
+    margin(top = 1.75)
   if xlimit[0] != xlimit[1]:
     plt = plt + xlim(xlimit[0], xlimit[1])
   if ylimit[0] != ylimit[1]:

@@ -309,6 +309,7 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
       echo "[INFO]: Saving plot to ", fname
       plt + theme_scale(scale, family = "serif") +
         ggtitle(title & &". Total # clusters = {totalEvs}") +
+        margin(top = 1.75) +
         ggsave(fname, width = 640.0 * scale, height = 480 * scale)
         #ggsave(fname, width = 640, height = 480)#width = 1200, height = 800)
     else:
@@ -316,6 +317,7 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
       echo "[INFO]: Saving plot to ", fname
       plt + ggtitle(title & r". Total \# clusters = " & $totalEvs) +
         theme_scale(scale) +
+        margin(top = 1.75) +
         ggsave(fname, width = 800, height = 600, useTeX = true, standalone = true)
         #ggsave(fname, width = 600, height = 450, useTeX = true, standalone = true)
         #ggvegatex(fname)
@@ -343,7 +345,7 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
              #useTeX = true, standalone = true) # onlyTikZ = true)
 
 proc plotSuppression(cTab: CountTable[(int, int)], totalNum, tiles: int,
-                     outpath: string,
+                     suffix, outpath: string,
                      showGoldRegion: bool) =
   ## Plots a tilemap of background suppressions. It uses `tiles` elements in each axis.
   proc toTensor(cTab: CountTable[(int, int)]): Tensor[int] =
@@ -380,8 +382,8 @@ proc plotSuppression(cTab: CountTable[(int, int)], totalNum, tiles: int,
   echo dfTile
 
   let size = step.ceil
-  let outfile = if outpath.len > 0: outpath / "background_suppression_tile_map.pdf"
-                else: "plots/background_suppression_tile_map.pdf"
+  let outfile = if outpath.len > 0: outpath / &"background_suppression_tile_map{suffix}.pdf"
+                else: &"plots/background_suppression_tile_map{suffix}.pdf"
   ## XXX: FIX UP title for TeX backend (unicode) & make # of total cluster dependent on code, not
   ## hardcoded!
   ggplot(dfTile, aes("xI", "yI", fill = "sI", width = size, height = size)) +
@@ -439,7 +441,7 @@ proc main(
   # `df.len` is total number clusters
   if backgroundSuppression:
     doAssert names.len == 0, "Suppression plot when handing multiple files that are not combined not supported."
-    plotSuppression(cTab.toCountTable(), totalNum, tiles, outpath, showGoldRegion)
+    plotSuppression(cTab.toCountTable(), totalNum, tiles, suffix, outpath, showGoldRegion)
 
   when false:
     # convert center positions to a 256x256 map

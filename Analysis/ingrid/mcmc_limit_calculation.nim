@@ -449,6 +449,7 @@ proc compareVetoCfg(c1, c2: VetoSettings): bool =
         echo "Comparison failed in field: ", field, " is ", v1, " and ", v2
         return
 
+import measuremancer
 proc readFiles(path: string, s: seq[string], noiseFilter: NoiseFilter,
                energyMin, energyMax: keV,
                switchAxes: bool): ReadData =
@@ -479,8 +480,16 @@ proc readFiles(path: string, s: seq[string], noiseFilter: NoiseFilter,
     lastFlags: set[LogLFlagKind]
     totalTime: Hour
     lastCfg: VetoSettings
-  for h in h5fs:
+    nnEff: Measurement[float] # for mean efficiency of NN classifier
+  for i, h in h5fs:
     let (time, vetoCfg, flags) = readFileData(h)
+    # compute the mean efficiency for NN based on time of each file & its efficiency + σ
+    let nnEffLoc = time.float * (vetoCfg.nnEffectiveEff ± vetoCfg.nnEffectiveEffStd)
+    if i == 0:
+      nnEff = nnEffLoc
+    else:
+      nnEff = nnEff + nnEffLoc
+
     if not first and flags != lastFlags:
       raise newException(IOError, "Input files do not all match in the vetoes used! Current file " &
         h.name & " has vetoes: " & $flags & ", but last file: " & $lastFlags)
@@ -493,6 +502,10 @@ proc readFiles(path: string, s: seq[string], noiseFilter: NoiseFilter,
     lastFlags = flags
     first = false
     discard h.close()
+  nnEff = nnEff / totalTime.float # normalize to total time for real efficiency
+  doAssert nnEff.value <= 1.0, "Something went wrong, NN efficiency is larger 1: " & $nnEff
+  lastCfg.nnEffectiveEff = nnEff.value
+  lastCfg.nnEffectiveEffStd = nnEff.error
   result = ReadData(df: df, flags: lastFlags, vetoCfg: lastCfg, totalTime: totalTime)
 
 defUnit(keV⁻¹•cm⁻²•s⁻¹)

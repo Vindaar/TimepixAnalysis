@@ -2341,7 +2341,7 @@ proc computeLimit(ctx: Context, rnd: var Random,
 proc expectedLimit(limits: seq[float]): float =
   ## Returns the expected limit of a set of MC toy experiment limits.
   ## Currently it's just defined as the median of the determined limits.
-  result = limits.median(q = 50)
+  result = limits.median()
 
 proc writeLimitOutput(
   ctx: Context,

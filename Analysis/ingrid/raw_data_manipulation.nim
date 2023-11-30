@@ -236,7 +236,7 @@ proc sortReadInGridData(rawInGrid: seq[Event],
                         rfKind: RunFolderKind): seq[Event] =
   ## sorts the seq of FlowVars according to event numbers again, otherwise
   ## h5 file is all mangled
-  info "Sorting data..."
+  info "Sorting data (", rawInGrid.len, " files)..."
   # case on the old TOS' data storage and new TOS' version
   let t0 = epochTime()
   case rfKind

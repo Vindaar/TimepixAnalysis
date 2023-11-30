@@ -581,13 +581,13 @@ proc readMemFilesIntoBuffer*(list_of_files: seq[string]): seq[ProtoFile] =
   ##    list_of_files: seq[string] = seq of strings containing the filenames to be read
   ## outputs:
   ##    seq[ProtoFile] = seq containing a seq of data for each file
-  result = newSeq[ProtoFile](len(list_of_files))
+  result = newSeqOfCap[ProtoFile](len(list_of_files))
   var badCount = 0
   echo "free memory ", getFreeMem()
   echo "occ memory ", getOccupiedMem()
   for i, f in list_of_files:
     try:
-      result[i] = readMemFileIntoBuffer(f)
+      result.add readMemFileIntoBuffer(f)
     except OSError:
       # file exists, but is completely empty. Probably HDD ran full!
       # in this case remove the filename from the `dat` seq again
@@ -599,7 +599,6 @@ proc readMemFilesIntoBuffer*(list_of_files: seq[string]): seq[ProtoFile] =
   echo "occ memory ", getOccupiedMem()
   if badCount > 0:
     stdout.styledWrite(fgRed, "WARNING: Number of broken files: ", $badCount)
-  result.setLen(result.len - badCount)
 
 proc processEventWithScanf*(data: ProtoFile): Event =
   ## Reads a current TOS event file using the strscans.scanf
@@ -1037,9 +1036,12 @@ proc processSrsEventScanf*(data: ProtoFile): SrsEvent =
   result.isValid = true
 
 proc processEventWrapper(data: ProtoFile, rfKind: RunFolderKind): Event =
+                         #resBuf: ptr UncheckedArray[Buffer], i: int
+                         #) =
   ## wrapper around both process event procs, which determines which one to call
   ## based on the run folder kind. Need a wrapper, due to usage of spawn in
   ## caling prof `readListOfFiles`.
+  #var result: Event # <- hack <- malebolgia
   case rfKind
   of rfNewTos:
     result = processEventWithScanf(data)
@@ -1249,6 +1251,16 @@ when compileOption("threads"):
       if validCount < res.len:
         res.setLen(validCount)
 
+    proc removeInvalidFadc(res: var seq[FadcFile]) =
+      ## Removes all invalid FADC events from `res`
+      var i = 0
+      while i < res.len:
+        if res[i].isValid:
+          inc i
+        else:
+          res.del(i) # do not increase i
+      res = res.sortedByIt(it.eventNumber) # if any in the middle were removed, sort by event number again
+
   ## lol, there's issues with every approach. The procpool version here has the problem,
   ## that it gets insanely slow due to the HDF5 library somehow. It doesn't seem to like
   ## the forks. :(
@@ -1309,6 +1321,7 @@ when compileOption("threads"):
       let p = newThreadPool()
       when T is Event or not fadcMemFiles:
         let protoFiles = readMemFilesIntoBuffer(list_of_files)
+        result.setLen(protoFiles.len)
         echo "...done reading"
         for i, s in protoFiles:
           # loop over each file and call work on data function
@@ -1336,6 +1349,7 @@ when compileOption("threads"):
       var p = Taskpool.new(countProcessors())
       when T is Event or not fadcMemFiles:
         let protoFiles = readMemFilesIntoBuffer(list_of_files)
+        result.setLen(protoFiles.len)
         echo "...done reading"
         for i, s in protoFiles:
           # loop over each file and call work on data function
@@ -1364,6 +1378,7 @@ when compileOption("threads"):
       var resBuf = cast[ptr UncheckedArray[Buffer]](buffers[0].addr)
       when T is Event:
         let protoFiles = readMemFilesIntoBuffer(list_of_files)
+        result.setLen(protoFiles.len)
         echo "...done reading"
         let numFiles = protoFiles.len
         var ppBuf = cast[ptr UncheckedArray[ProtoFile]](protoFiles[0].unsafeAddr)
@@ -1404,6 +1419,7 @@ when compileOption("threads"):
       var resBuf = cast[ptr UncheckedArray[Buffer]](buffers[0].addr)
       when T is Event:
         let protoFiles = readMemFilesIntoBuffer(list_of_files)
+        result.setLen(protoFiles.len)
         echo "...done reading"
         let numFiles = protoFiles.len
         var ppBuf = cast[ptr UncheckedArray[ProtoFile]](protoFiles[0].unsafeAddr)
@@ -1439,6 +1455,7 @@ when compileOption("threads"):
       var resBuf = cast[ptr UncheckedArray[T]](result[0].addr)
       when T is Event:
         let protoFiles = readMemFilesIntoBuffer(list_of_files)
+        result.setLen(protoFiles.len) # some files may be corrupted, shorten result length
         echo "...done reading"
         let numFiles = protoFiles.len
         var ppBuf = cast[ptr UncheckedArray[ProtoFile]](protoFiles[0].unsafeAddr)
@@ -1458,6 +1475,10 @@ when compileOption("threads"):
       syncRoot(Weave)
       exit(Weave)
       delEnv("WEAVE_NUM_THREADS")
+
+      when T is FadcFile: # for `Event` not needed. `readMemFilesIntoBuffer` takes care of it
+        removeInvalidFadc(result)
+
       echo "Exit Weave!"
 
   proc readListOfInGridFiles*(list_of_files: seq[string], rfKind: RunFolderKind):

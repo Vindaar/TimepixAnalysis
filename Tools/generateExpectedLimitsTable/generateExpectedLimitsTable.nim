@@ -11,6 +11,7 @@ respective expected limits.
 
 type
   LimitData = object
+    nmc: int # Number of toy limits
     expectedLimit: float
     expLimitVariance: float
     expLimitStd: float
@@ -77,12 +78,15 @@ proc readEfficiencies(h5f: H5File): Efficiency =
 
 proc readLimit(fname: string): LimitData =
   var h5f = H5open(fname, "r")
+  let nmc = h5f["/".grp_str].attrs["nmc", int]
   let limits = h5f["/limits", float]
   let noCands = h5f.attrs["limitNoSignal", float]
   let vetoes = readVetoes(h5f)
   let effs = readEfficiencies(h5f)
   let (variance, std) = expLimitVarStd(limits)
-  result = LimitData(expectedLimit: expLimit(limits),
+  echo "Standard deviation of existing limits: ", limits.standardDeviation
+  result = LimitData(nmc: nmc,
+                     expectedLimit: expLimit(limits),
                      expLimitVariance: variance,
                      expLimitStd: std,
                      limitNoSignal: sqrt(noCands) * 1e-12,
@@ -99,6 +103,7 @@ proc asDf(limit: LimitData): DataFrame =
   let line = fkLineVeto in limit.vetoes
   let fadc = fkFadc in limit.vetoes
   result = toDf({ "ε_eff" : eff,
+                  "nmc" : limit.nmc,
                   "Type" : typ,
                   "Scinti" : fkScinti in limit.vetoes,
                   "FADC" : fadc,

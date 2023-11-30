@@ -1903,6 +1903,9 @@ proc plotChain(ctx: Context, cands: seq[Candidate], chainDf: DataFrame,
     echo "LS max ", Lmax
     dfA = toDf(coups, Ls)
       .mutate(f{"Ls" ~ `Ls` / Lmax * hMax})
+    if as_gae_gaγ:
+      # convert the coupling constants to `g_ae·g_aγ`
+      dfA = dfA.mutate(f{"coups" ~ sqrt(`coups` * ctx.g_aγ²)})
 
   const targetRef = 1e-19 * 1e-12^2 ## This is the reference we want to keep constant!
   let threshold = setThreshold(ctx, targetRef)
@@ -2278,7 +2281,7 @@ proc build_MH_chain(ctx: Context, rnd: var Random, cands: seq[Candidate],
       echo "Last ten states of chain: ", chain[^10 .. ^1]
       ## TODO: not only return the limit, but also the acceptance rate!
       result = chain
-    else: doAssert false, "Not supported for MCMC yet"
+    else: doAssert false, $ctx.uncertainty & " not supported for MCMC yet"
   let t1 = getMonoTime()
   if not log.isNil:
     log.info "Building MCMC with systematics " & ctx.systematics.pretty() &

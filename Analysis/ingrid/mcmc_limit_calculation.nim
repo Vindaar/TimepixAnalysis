@@ -2511,27 +2511,34 @@ proc toCandidates(df: DataFrame): seq[Candidate] =
   for i in 0 ..< result.len:
     result[i] = Candidate(energy: Es[i].keV, pos: (x: xs[i], y: ys[i]))
 
-const RealLimitPath = "/home/basti/org/Figs/statusAndProgress/trackingCandidates"
 proc plotCandsSigOverBack(ctx: Context, log: Logger, cands: seq[Candidate], outfile, title: string)
-proc computeRealLimit(ctx: Context, rnd: var Random, limitKind: LimitKind) =
+proc computeRealLimit(ctx: Context, rnd: var Random, limitKind: LimitKind,
+                      outpath: string) =
   ## Given the `tracking` files in `ctx` compute the real limit associated and make
   ## multiple plots to showcase the candidate information and the limit.
-  var log = newFileLogger("real_candidates_limit.log", fmtStr = "[$date - $time] - $levelname: ")
+  createDir(outpath)
+  var log = newFileLogger(outpath / "real_candidates_limit.log", fmtStr = "[$date - $time] - $levelname: ")
   var L = newConsoleLogger()
   addHandler(L)
   addHandler(log)
 
+  # Get ratio of background to tracking time for expected number of candidates
+  let ratio = ctx.totalBackgroundTime / ctx.totalTrackingTime
   log.infos("Calculation of the real limit"):
     &"Input tracking files: {ctx.tracking}"
+    &"Number of background clusters = {ctx.backgroundDf.len}"
     &"Number of candidates: {ctx.trackingDf.len}"
+    &"Total background time = {ctx.totalBackgroundTime}"
     &"Total tracking time: {ctx.totalTrackingTime}"
+    &"Ratio of background to tracking time = {ratio}"
+    &"Expected number of clusters in tracking time = {ctx.backgroundDf.len.float / ratio}"
   echo ctx.tracking
   echo ctx.trackingDf
   echo ctx.totalTrackingTime
 
   let cands = ctx.trackingDf.toCandidates()
   #echo cands
-  const outfile = RealLimitPath / "real_candidates_signal_over_background.pdf"
+  let outfile = outpath / "real_candidates_signal_over_background.pdf"
 
   log.info(&"Number of candidates in sensitive region ln(1 + s/b) > 0.5 (=cutoff): {ctx.candsInSens(cands)}")
   ctx.plotCandsSigOverBack(log, cands, outfile,
@@ -2562,7 +2569,7 @@ proc computeRealLimit(ctx: Context, rnd: var Random, limitKind: LimitKind) =
   log.info(&"Limit g_ae·g_aγ (via g⁴) = {limitG2FromG4}")
   log.info(&"Limit g_ae·g_aγ (direct) = {limitG2}")
 
-  const likelihoodHisto = "/home/basti/org/Figs/statusAndProgress/trackingCandidates/mcmc_real_limit_likelihood"
+  let likelihoodHisto = outpath / "mcmc_real_limit_likelihood"
   ctx.plotChain(cands, chainDf, limit, computeIntegral = false,
                 mcmcHistoOutfile = likelihoodHisto & "_g_ae_gag.pdf",
                 title = "Likelihood of real candidates against g_ae·g_aγ",
@@ -3991,10 +3998,17 @@ proc calcRealSystematics(ctx: Context, rnd: var Random, log: Logger,
   # plot the mcmc lines for s & b
   ggplot(dfMCMC, aes("θs_s", "θs_b", color = "gs")) +
     geom_line(size = 0.5) + geom_point(size = 1.0, alpha = 0.1) +
+    theme_scale(3.0) +
     ggsave(SanityPath / &"mcmc_lines_thetas_sb_real_syst_{suffix}.png", width = 2400, height = 2000)
   ggplot(dfMCMC, aes("θs_x", "θs_y", color = "gs")) +
     geom_line(size = 0.5) + geom_point(size = 1.0, alpha = 0.1) +
+    theme_scale(3.0) +
     ggsave(SanityPath / &"mcmc_lines_thetas_xy_real_syst_{suffix}.png", width = 2400, height = 2000)
+
+  ggplot(dfMCMC, aes("gs", "θs_y", color = "θs_x")) +
+    geom_line(size = 0.5) + geom_point(size = 1.0, alpha = 0.1) +
+    theme_scale(3.0) +
+    ggsave(SanityPath / &"mcmc_lines_thetas_gy_real_syst_{suffix}.png", width = 2400, height = 2000)
 
   # also plot L against θb
   ctx.coupling = 8.1e-11 * 8.1e-11
@@ -4072,6 +4086,10 @@ proc sanityCheckRealSystematics(ctx: Context, log: Logger) =
     σ_p = 0.05 # from sqrt(squared sum of x / 7) position uncertainties
   )
   ctx.systematics = syst
+  var rnd = wrap(initMersenneTwister(0xaffe))
+  # draw some candidates
+  let cands = ctx.drawCandidates(rnd)
+  ctx.calcRealSystematics(rnd, log, cands, "real_random_cands_0")
 
 proc `=~=`[T](x, y: T): bool =
   result = unchained.almostEqual(x, y, epsilon = 6)
@@ -4104,7 +4122,7 @@ proc sanityCheckAxionPhoton(ctx: Context, log: Logger) =
     let g_aγ = sqrt(ctx.g_aγ²)
     log.info(&"Limit for g_aγ² = {ctx.g_aγ²}, yields = {limit} and as g_ae·g_aγ = {g_ae * g_aγ}")
 
-proc sanityCheckAxionElectronAxionPhoton(ctx: Context, log: Logger) =
+proc sanityCheckAxionElectronAxionPhoton(ctx: Context, log: Logger, limitKind: LimitKind) =
   ## Checks that computing limits for `g_ae²·g_aγ²` yields same limits as `g_ae²` only with fixed `g_aγ²`.
   # 0. instantiate random number generator
   var rnd = wrap(initMersenneTwister(0xaffe))
@@ -4121,7 +4139,7 @@ proc sanityCheckAxionElectronAxionPhoton(ctx: Context, log: Logger) =
     &"Coupling reference to rescale by {ctx.couplingReference} from g_ae² = {ctx.g_ae²} and g_aγ² = {ctx.g_aγ²}"
   ## XXX: turn this into additional check that shows variance we expect for limits of ``same`` candidates
   for _ in 0 ..< 10:
-    let limit = ctx.computeLimit(rnd, cands, lkMCMC)
+    let limit = ctx.computeLimit(rnd, cands, limitKind)
     let g_ae·g_aγ = sqrt(limit)
     log.info(&"Limit for g_ae²·g_aγ² = {limit}, yields g_ae·g_aγ = {g_ae·g_aγ}")
 
@@ -4138,6 +4156,23 @@ proc sanityCheckAxionElectronAxionPhoton(ctx: Context, log: Logger) =
   #  let g_aγ = sqrt(ctx.g_aγ²)
   #  log.info(&"Limit for g_aγ² = {ctx.g_aγ²}, yields = {limit} and as g_ae·g_aγ = {g_ae * g_aγ}")
 
+proc sanityCheckLimitsNoCandidates(ctx: Context, log: Logger, limitKind: LimitKind) =
+  ## Verifies that indeed not having any candidates still leads to a different
+  ## limit
+  # 0. instantiate random number generator
+  var rnd = wrap(initMersenneTwister(0xaffe))
+  # 1. compute limits without any candidates
+  var limits = newSeq[float]()
+  const Num = 30
+  for i in 0 ..< Num:
+    limits.add ctx.computeLimit(rnd, newSeq[Candidate](), limitKind)
+
+  log.infos("Limits without any candidates"):
+    &"Number of calculated limits: {Num}"
+    &"Mean limit: {limits.mean}"
+    &"Median limit: {limits.median}"
+    &"Variance of limits: {limits.variance}"
+    &"σ of limits: {limits.standardDeviation}"
 
 proc sanity(
   all = false, # run all limits
@@ -4153,6 +4188,7 @@ proc sanity(
   axionPhoton = false,
   axionElectronAxionPhoton = false,
   realSystematics = false,
+  limitsNoCandidates = false,
   limitKind = lkMCMC, # for the sigma limits sanity check
   radius = 40.0, σ = 40.0 / 3.0, energyRange = 0.6.keV, nxy = 10, nE = 20,
   rombergIntegrationDepth = 5,
@@ -4264,7 +4300,7 @@ proc sanity(
 
   # 10. Sanity check MCMC for g_ae²·g_aγ² yields same as g_ae² only!
   if all or axionElectronAxionPhoton:
-    ctx.sanityCheckAxionElectronAxionPhoton(log)
+    ctx.sanityCheckAxionElectronAxionPhoton(log, limitKind)
 
   # 11. sanity checks for length of MCMC & starting parameters & allowed steps?
   # ?
@@ -4285,6 +4321,8 @@ proc sanity(
     ctx.sanityCheckRealSystematics(log)
 
   # 13. anything else?
+  if all or limitsNoCandidates:
+    ctx.sanityCheckLimitsNoCandidates(log, limitKind)
 
 proc readYearFiles(years: seq[int], files: seq[string]): seq[(int, string)] =
   doAssert files.len == years.len, "Every file must be given an associated year! Years: " & $years & ", Files: " & $files
@@ -4370,11 +4408,13 @@ proc limit(
     return
 
   if tracking.len > 0:
-    ctx.computeRealLimit(rnd, limitKind)
+    ctx.computeRealLimit(rnd, limitKind, outpath)
     return
   if plotFile.len > 0:
     echo "NOTE: Make sure the input parameters match the parameters used to generate the file ", plotFile
     let df = readCsv(plotFile)
+    ## XXX: turn this into a proper sanity check, i.e. seeing that the limit even changes slightly
+    ## when no candidates given, due to MCMC being random!
     let limitNoSignal = ctx.computeLimit(rnd, newSeq[Candidate](), limitKind)
     ctx.plotMCLimitHistogram(df["limits", float].toSeq1D,
                              df["candsInSens", int].toSeq1D,

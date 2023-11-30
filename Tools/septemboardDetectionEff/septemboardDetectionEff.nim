@@ -45,8 +45,9 @@ proc plotEfficiency(df: DataFrame, outpath: string) =
     ggplot(df, aes("Energy [keV]", "Efficiency", color = "Type")) +
       geom_line() +
       ggtitle("Full detector efficiencies, including window, gas, ε, window SB, telescope") +
-      margin(top = 1.5) +
-      ggsave(&"{outpath}/window_plus_argon_efficiency.pdf", width = 800, height = 600)
+      margin(top = 1.75) +
+      theme_font_scale(1.0, family = "serif") +
+      ggsave(&"{outpath}/window_plus_argon_efficiency.pdf", width = 600, height = 380)
   block:
     echo df
     let df = df.drop(["200μm Si", "SB", "Eff • ε • LLNL", "Eff • ε", "Eff • SB • ε", "full Eff."])
@@ -57,8 +58,9 @@ proc plotEfficiency(df: DataFrame, outpath: string) =
     ggplot(df, aes("Energy [keV]", "Efficiency", color = "Type")) +
       geom_line() +
       ggtitle("Detection efficiencies of window, software eff., LLNL efficiency and Argon absorption") +
-      margin(top = 1.5) +
-      ggsave(&"{outpath}/detection_efficiency.pdf", width = 800, height = 600)
+      margin(top = 1.75) +
+      theme_font_scale(1.0, family = "serif") +
+      ggsave(&"{outpath}/detection_efficiency.pdf", width = 600, height = 380)
 
 proc castGas(): GasMixture =
   let arC = compound((Ar, 1)) # need Argon gas as a Compound
@@ -94,7 +96,8 @@ proc combineEfficiencies(df, llnl: DataFrame): DataFrame =
 
 proc main(llnlEff: string = "~/org/resources/llnl_xray_telescope_cast_effective_area_extended.csv",
           sep = ',',
-          outpath = "~/org/Figs/statusAndProgress/detector",
+          plotPath = "~/org/Figs/statusAndProgress/detector",
+          outpath = "~/org/resources/detector/",
           ε = 0.8,
           showBrowser = false
          ) = # desired software efficiency to optionall include
@@ -127,7 +130,7 @@ proc main(llnlEff: string = "~/org/resources/llnl_xray_telescope_cast_effective_
   if showBrowser:
     showBrowser(df, "df_initial.html")
   # 9. plot them!
-  df.plotEfficiency(outpath)
+  df.plotEfficiency(plotPath)
 
 when isMainModule:
   import cligen

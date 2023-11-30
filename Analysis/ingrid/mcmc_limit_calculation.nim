@@ -663,13 +663,15 @@ proc initSystematics(
                 else: 0.01727 # else use default for LnL
                               # this value recovers: `σ_sig = 0.04582795952309026`
                               # previously we used 0.02 to get `σ_sig = 0.04692492913207222`
-  let σ_sig = calcNewSig(σ_sig, softEff)
+  let σ_sig = if σ_sig > 0.0: calcNewSig(σ_sig, softEff)
+              else: 0.0
 
   let uncertain = if uncertainty.isSome: uncertainty.get
                   elif σ_sig == 0.0 and σ_back == 0.0: ukCertain
                   elif σ_sig == 0.0: ukUncertainBack
                   elif σ_back == 0.0: ukUncertainSig
                   else: ukUncertain
+
   let uncertainPos = if uncertaintyPos.isSome: uncertaintyPos.get
                      elif σ_p == 0.0: puCertain
                      else: puUncertain
@@ -969,6 +971,7 @@ proc initContext(path: string,
     filePath: path,
     files: files,
     tracking: tracking)
+
   ## Set the coupling reference value given the `couplingKind` and `g_ae²`, `g_aγ²`
   initCouplingReference(result)
 

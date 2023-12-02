@@ -208,13 +208,14 @@ proc sCurve(file, folder, chip, runPeriod: string,
 
 
   var dfScurve = newDataFrame()
+  var dfParams = newDataFrame() # for fit parameters
   for curve in sCurves(file, folder, chip, runPeriod):
     #traces.add trace
     voltages.incl int16(curve.voltage)
     if curve.voltage > 0:
       let df = scurveToDf(curve) #getTrace(curve.thl.asType(float), curve.hits, $curve.voltage)
       # now fit the normal cdf to the SCurve and add its data
-      let fitRes = fitSCurve(curve)
+      let fitRes = fitSCurve(curve, verbose)
       let dfFit = toDf({ "THL" : fitRes.x,
                          "Counts" : fitRes.y,
                          "Voltage" : curve.voltage,
@@ -234,8 +235,21 @@ proc sCurve(file, folder, chip, runPeriod: string,
       thlMean.add (fitRes.pRes[1])
       thlErr.add (fitRes.pErr[1])
 
+      # S-Curve fit function:
+      # parameter p[2] == sigma
+      # parameter p[1] == x0
+      # parameter p[0] == scale factor
+      dfParams.add (chip: chip,
+                    voltage: curve.voltage,
+                    runPeriod: runPeriod,
+                    N: fitRes.pRes[0], ΔN: fitRes.pErr[0],
+                    μ: fitRes.pRes[1], Δμ: fitRes.pErr[1],
+                    σ: fitRes.pRes[2], Δσ: fitRes.pErr[2])
   if dfScurve.len > 0:
     plotSCurves(dfScurve, annotation, runPeriod, chip, legendX, legendY, useTeX, outpath)
+
+  # print the table of S-Curve fit results
+  echo dfParams.toOrgTable(precision = 4, emphStrNumber = false)
 
   # now fit the calibration function
   # however, the voltage data is in a wrong order. need to sort it, before

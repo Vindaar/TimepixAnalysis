@@ -70,7 +70,7 @@ proc plotSCurves*(df: DataFrame, annotation: string, runPeriod, chip = "",
     #xlab(r"$U_\text{injected} / \si{mV}$") +
     #ylab("Counts [\#]") +
     #theme_latex() +
-    ggsave(&"{outpath}/s_curves_{chip}_lX_{legendX}_lY_{legendY}.pdf", width = 600, height = 450, useTex = useTeX, standalone = true)
+    ggsave(&"{outpath}/s_curves_{chip}_{runPeriod}_lX_{legendX}_lY_{legendY}.pdf", width = 600, height = 450, useTex = useTeX, standalone = true)
 
 import measuremancer
 
@@ -94,6 +94,7 @@ proc createThlAnnotation*(res: FitResult, charge, thl, thlErr: seq[float], useTe
     result.add &"χ²/dof = {res.redChiSq:.2f}"
 
 proc plotThlCalib*(thlCalib: FitResult, charge, thl, thlErr: seq[float], chip = "",
+                   runPeriod: string,
                    legendX = -1.0, legendY = -1.0,
                    useTeX = true, outpath = "out") =
   # flip the plot, i.e. show THL on x instead of y as done for the fit to
@@ -117,8 +118,8 @@ proc plotThlCalib*(thlCalib: FitResult, charge, thl, thlErr: seq[float], chip = 
                   )) +
     annotate(annot, x = lX, y = lY, font = font(10.0, family = family),
                                 backgroundColor = color(0,0,0,0)) +
-    ggtitle(&"THL calibration of chip {chip}") +
-    ggsave(&"{outpath}/thl_calibration_chip_{chip}_lX_{legendX}_lY_{legendY}.pdf", width = 600, height = 450,
+    ggtitle(&"THL calibration of chip {chip} for run period {runPeriod}") +
+    ggsave(&"{outpath}/thl_calibration_chip_{chip}_{runPeriod}_lX_{legendX}_lY_{legendY}.pdf", width = 600, height = 450,
             useTeX = useTeX, standalone = true)
 
 proc createToTAnnotation*(res: FitResult): string =
@@ -127,7 +128,7 @@ proc createToTAnnotation*(res: FitResult): string =
   for i, name in n:
     result.add &"${name} = {(res.pRes[i] ± res.pErr[i])}$" & Newline
 
-proc plotToTCalib*(totCalib: FitResult, tot: Tot, chip = 0, chipName = "",
+proc plotToTCalib*(totCalib: FitResult, tot: Tot, runPeriod: string, chip = 0, chipName = "",
                    useTeX = false, outpath = "out") =
   let dfData = toDf({ "U / mV" : tot.pulses.mapIt(it.float),
                       "ToT" : tot.mean,
@@ -136,9 +137,9 @@ proc plotToTCalib*(totCalib: FitResult, tot: Tot, chip = 0, chipName = "",
   let df = bind_rows([("ToT", dfData), ("Fit", dfFit)], "by")
   var title = ""
   if chipName.len > 0:
-    title = &"ToT calibration of Chip {chipName}"
+    title = &"ToT calibration of {runPeriod} Chip {chipName}"
   else:
-    title = &"ToT calibration of Chip {chip}"
+    title = &"ToT calibration of {runPeriod} Chip {chip}"
 
   let annot = createToTAnnotation(totCalib) # totCalib.resText
   ggplot(dfData, aes("U / mV", "ToT")) +
@@ -152,7 +153,7 @@ proc plotToTCalib*(totCalib: FitResult, tot: Tot, chip = 0, chipName = "",
     ylim(0, 250) +
     ggtitle(title) +
     #theme_latex() +
-    ggsave(&"{outpath}/tot_calib_{chip}.pdf", width = 600, height = 450, useTex = useTeX, standalone = true)
+    ggsave(&"{outpath}/tot_calib_{runPeriod}_chip_{chip}.pdf", width = 600, height = 380, useTex = useTeX, standalone = true)
 
 proc plotCharge*(a, b, c, t: float, capacitance: FemtoFarad, chip: int, chipName = "",
                  useTeX = false, outpath = "out") =
@@ -168,7 +169,7 @@ proc plotCharge*(a, b, c, t: float, capacitance: FemtoFarad, chip: int, chipName
     ylab(r"Charge [$e⁻$]") +
     ggtitle(title) +
     #theme_latex() +
-    ggsave(&"{outpath}/charge_calib_{chip}.pdf", width = 600, height = 450, useTex = true, standalone = true)
+    ggsave(&"{outpath}/charge_calib_{chip}.pdf", width = 600, height = 380, useTex = true, standalone = true)
 
 iterator sCurves(file, folder, chip, runPeriod: string): SCurve =
   ## yields the traces of the correct argument given to
@@ -191,7 +192,8 @@ iterator sCurves(file, folder, chip, runPeriod: string): SCurve =
 
 proc sCurve(file, folder, chip, runPeriod: string,
             legendX, legendY: float, useTeX: bool,
-            outpath: string) =
+            outpath: string,
+            verbose: bool) =
   ## perform plotting and fitting of SCurves
   var
     voltages: set[int16]
@@ -248,21 +250,21 @@ proc sCurve(file, folder, chip, runPeriod: string,
     # but also as a rough guess for typical deviation visible
     thlErrSort = sortedChThl.mapIt(it[1][1] * 100)
   if chSort.len > 0:
-    let thlCalib = fitThlCalib(chSort, thlSort, thlErrSort)
-    plotThlCalib(thlCalib, chSort, thlSort, thlErrSort, chip, legendX, legendY, useTeX, outpath)
+    let thlCalib = fitThlCalib(chSort, thlSort, thlErrSort, verbose)
+    plotThlCalib(thlCalib, chSort, thlSort, thlErrSort, chip, runPeriod, legendX, legendY, useTeX, outpath)
 
 proc parseTotInput(file, folder, chip, runPeriod: string,
                    startTot = 0.0): (int, string, Tot) =
   var tot: Tot
   var chipName = ""
   var chipNum = -1
-  if chip.len > 0:
+  if file.len > 0: # if file given, respect that
+    (chipNum, tot) = readToTFile(file, startTot)
+  elif chip.len > 0:
     when declared(ingridDatabase):
       chipName = parseDbChipArg(chip)
       tot = getTotCalib(chipName, runPeriod)
       chipNum = getChipNumber(chipName, runPeriod)
-  elif file.len > 0:
-    (chipNum, tot) = readToTFile(file, startTot)
   else:
     for f in walkFiles(folder.expandTilde & "/*.txt"):
       # TODO: implement multiple in same plot?
@@ -271,15 +273,15 @@ proc parseTotInput(file, folder, chip, runPeriod: string,
   result = (chipNum, chipName, tot)
 
 proc totCalib(file, folder, chip, runPeriod: string, startFit, startTot: float,
-              useTeX: bool, outpath: string) =
+              useTeX: bool, outpath: string, verbose: bool) =
   ## perform plotting and analysis of ToT calibration
   var
     bins: seq[float]
     hist: seq[float]
 
   let (chip, chipName, tot) = parseTotInput(file, folder, chip, runPeriod, startTot)
-  let totCalib = fitToTCalib(tot, startFit)
-  plotToTCalib(totCalib, tot, chip, chipName, useTeX, outpath)
+  let totCalib = fitToTCalib(tot, startFit, verbose)
+  plotToTCalib(totCalib, tot, runPeriod, chip, chipName, useTeX, outpath)
 
 proc chargeCalib(chip, runPeriod: string, useTeX: bool, outpath: string) =
   ## perform plotting and analysis of charge calibration (inverse of ToT)

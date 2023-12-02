@@ -303,7 +303,8 @@ proc main(
   legendX = -1.0, legendY = -1.0,
   version = false,
   useTeX = false,
-  outpath = "out") =
+  outpath = "out",
+  quiet = false) =
   docCommentAdd(doc)
   ## A simple tool to plot SCurves or ToT calibrations.
 
@@ -315,9 +316,9 @@ proc main(
       quit("Cannot import InGrid database. --chip option not supported.")
 
   if scurve:
-    sCurve(file, folder, chip, runPeriod, legendX, legendY, useTeX, outpath)
+    sCurve(file, folder, chip, runPeriod, legendX, legendY, useTeX, outpath, not quiet)
   elif tot:
-    totCalib(file, folder, chip, runPeriod, startFit, startTot, useTeX, outpath)
+    totCalib(file, folder, chip, runPeriod, startFit, startTot, useTeX, outpath, not quiet)
   elif charge:
     chargeCalib(chip, runPeriod, useTeX, outpath)
 

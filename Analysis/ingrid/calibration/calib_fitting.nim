@@ -70,7 +70,7 @@ func findDrop(thl: seq[int], count: seq[float]): (float, int, int) =
   # index is thl of ind
   result = (pCenter, minIndex, maxIndex)
 
-proc fitToTCalib*(tot: Tot, startFit = 0.0): FitResult =
+proc fitToTCalib*(tot: Tot, startFit = 0.0, verbose = false): FitResult =
   var
     # local mutable variables to potentially remove unwanted data for fit
     mPulses = tot.pulses.mapIt(it.float)
@@ -100,7 +100,8 @@ proc fitToTCalib*(tot: Tot, startFit = 0.0): FitResult =
                         mMean,
                         mStd,
                         bounds = pLimits) #@[pLimitBare, pLimitBare, pLimitBare, pLimit])
-  echoResult(pRes, res = res)
+  if verbose:
+    echoResult(pRes, res = res)
 
   # the plot of the fit is performed to the whole pulses range anyways, even if
   result.x = linspace(tot.pulses[0].float, tot.pulses[^1].float, 100)
@@ -110,7 +111,7 @@ proc fitToTCalib*(tot: Tot, startFit = 0.0): FitResult =
   result.redChiSq = res.reducedChiSq
   result.resText = pretty(pRes, res)
 
-proc fitSCurve*(curve: SCurve): FitResult =
+proc fitSCurve*(curve: SCurve, verbose = true): FitResult =
   ## performs the fit of the `sCurveFunc` to the given `thl` and `hits`
   ## fields of the `SCurve` object. Returns a `FitScurve` object of the fit result
   const pSigma = 5.0
@@ -128,7 +129,8 @@ proc fitSCurve*(curve: SCurve): FitResult =
                       thlCut,
                       countCut,
                       err)
-  echoResult(pRes, res = res)
+  if verbose:
+    echoResult(pRes, res = res)
   # create data to plot fit as result
   result.x = linspace(curve.thl[minIndex].float, curve.thl[maxIndex].float, 1000)
   result.y = result.x.mapIt(sCurveFunc(pRes, it))
@@ -146,14 +148,15 @@ proc fitSCurve*[T](thl, count: seq[T], voltage: int): FitResult =
     let curve = SCurve(thl: thl, hits: count, voltage: voltage)
   result = fitSCurve(curve)
 
-proc fitThlCalib*(charge, thl, thlErr: seq[float]): FitResult =
+proc fitThlCalib*(charge, thl, thlErr: seq[float], verbose = true): FitResult =
 
   # determine start parameters
   let p = @[0.0, (thl[1] - thl[0]) / (charge[1] - charge[0])]
 
   let (pRes, res) = fit(thlCalibFunc, p, charge, thl, thlErr)
   # echo parameters
-  echoResult(pRes, res = res)
+  if verbose:
+    echoResult(pRes, res = res)
 
   result.x = linspace(charge[0], charge[^1], 100)
   result.y = result.x.mapIt(thlCalibFunc(pRes, it))

@@ -314,7 +314,7 @@ proc computeMedianBools(df: DataFrame): DataFrame =
   var df = df
   var medianNames = newSeq[string]()
   proc computeMedianBool(dset: string) =
-    let medianVal = df[dset, float].toSeq1D.median(50)
+    let medianVal = df[dset, float].toSeq1D.median()
     let nameStr = $dset & "<" & $dset & "_median"
     medianNames.add nameStr
     df = df.mutate(f{float -> bool: nameStr ~ df[dset][idx] < medianVal})

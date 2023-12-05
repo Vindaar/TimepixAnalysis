@@ -194,6 +194,13 @@ proc read2014Data(log: bool): DataFrame =
   result = result.mutate(f{"yMin" ~ `Rate` - `yMin`}, f{"yMax" ~ `Rate` + `yMax`},
                          f{Ecol ~ `Energy` - 0.1})
   result["Dataset"] = constantColumn("2014/15", result.len)
+  result["Classifier"] = "LnL"
+  result["ε_eff"] = 0.8
+  result["Scinti"] = false
+  result["FADC"] = false
+  result["Septem"] = false
+  result["Line"] = false
+  result["ε_total"] = 0.8
 
 proc histogram(df: DataFrame): DataFrame =
   ## Calculates the histogam of the energy data in the `df` and returns

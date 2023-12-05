@@ -242,7 +242,8 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
                   suffix, title, outpath, axionImage: string,
                   scale: float,
                   preliminary: bool,
-                  showGoldRegion: bool) =
+                  showGoldRegion: bool,
+                  asSinglePlot: bool) =
   let outpath = if outpath.len > 0: outpath else: "plots"
   var colorCol: string
   let totalEvs = df.len
@@ -315,10 +316,16 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
     else:
       #let fname = &"/home/basti/phd/Figs/backgroundClusters/background_cluster_centers{suffix}"
       echo "[INFO]: Saving plot to ", fname
+      let baseTheme = if asSinglePlot: singlePlot else: sideBySide
+      let fWidth = if asSinglePlot: 0.9 else: 0.5
+      let dataPng = totalEvs > 5000
       plt + ggtitle(title & r". Total \# clusters = " & $totalEvs) +
-        theme_scale(scale) +
-        margin(top = 1.75) +
-        ggsave(fname, width = 800, height = 600, useTeX = true, standalone = true)
+        #theme_scale(scale) +
+        themeLatex(fWidth = fWidth, width = 600, baseTheme = baseTheme) +
+        margin(top = 1.75, right = 4.5) +
+        coord_fixed(1.0) +
+        #legendPosition(0.8, 0.0) +
+        ggsave(fname, width = 800, height = 600, useTeX = true, standalone = true, dataAsBitmap = dataPng)
         #ggsave(fname, width = 600, height = 450, useTeX = true, standalone = true)
         #ggvegatex(fname)
   else:
@@ -346,7 +353,8 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
 
 proc plotSuppression(cTab: CountTable[(int, int)], totalNum, tiles: int,
                      suffix, outpath: string,
-                     showGoldRegion: bool) =
+                     showGoldRegion: bool,
+                     asSinglePlot: bool) =
   ## Plots a tilemap of background suppressions. It uses `tiles` elements in each axis.
   proc toTensor(cTab: CountTable[(int, int)]): Tensor[int] =
     result = zeros[int]([256, 256])
@@ -386,12 +394,15 @@ proc plotSuppression(cTab: CountTable[(int, int)], totalNum, tiles: int,
                 else: &"plots/background_suppression_tile_map{suffix}.pdf"
   ## XXX: FIX UP title for TeX backend (unicode) & make # of total cluster dependent on code, not
   ## hardcoded!
+  let baseTheme = if asSinglePlot: singlePlot else: sideBySide
+  let fWidth = if asSinglePlot: 0.9 else: 0.5
   ggplot(dfTile, aes("xI", "yI", fill = "sI", width = size, height = size)) +
     geom_tile() +
     geom_text(aes = aes(x = f{`xI` + size / 2.0}, y = f{`yI` + size / 2.0}, text = "sI"), color = "white") +
     xlim(0, 256) + ylim(0, 256) +
     xlab("x [Pixel]") + ylab("y [Pixel]") +
     margin(top = 1.75) +
+    themeLatex(fWidth = fWidth, width = 600, height = 450, baseTheme = baseTheme) +
     ggtitle(&"Local background suppression compared to {totalNum.float:.2g} raw clusters") +
     ggsave(outfile, useTeX = true, standalone = true)
 
@@ -401,6 +412,7 @@ proc main(
   filterNoisyPixels = false,
   energyMin = 0.0, energyMax = 0.0,
   useTikZ = false,
+  singlePlot = false,
   writeNoisyClusters = false,
   energyText = false,
   energyTextRadius = -1.0, ## Radius in which around the center to print energy as text
@@ -437,11 +449,11 @@ proc main(
       dfLoc["Type"] = names[i]
       df.add dfLoc
 
-  plotClusters(df, names, useTikZ, zMax, colorBy, energyText, energyTextRadius, suffix, title, outpath, axionImage, scale, preliminary, showGoldRegion)
+  plotClusters(df, names, useTikZ, zMax, colorBy, energyText, energyTextRadius, suffix, title, outpath, axionImage, scale, preliminary, showGoldRegion, singlePlot)
   # `df.len` is total number clusters
   if backgroundSuppression:
     doAssert names.len == 0, "Suppression plot when handing multiple files that are not combined not supported."
-    plotSuppression(cTab.toCountTable(), totalNum, tiles, suffix, outpath, showGoldRegion)
+    plotSuppression(cTab.toCountTable(), totalNum, tiles, suffix, outpath, showGoldRegion, singlePlot)
 
   when false:
     # convert center positions to a 256x256 map

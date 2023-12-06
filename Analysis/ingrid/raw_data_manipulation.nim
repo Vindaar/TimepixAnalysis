@@ -1329,7 +1329,8 @@ proc main(path: string, runType: RunTypeKind,
     if path.endsWith(".tar.gz"):
       # extract the data to a temporary directory and continue from there
       #let tmpDir = genTempPath("tmp_", "_extraction")
-      let newPath = extractTo / path.extractFilename.dup(removeSuffix(".tar.gz"))
+      let newPath = extractTo / path.extractFilename.dup(removeSuffix(".tar.gz")).multiReplace([("_rtBackground", ""),
+                                                                                                ("_rtCalibration", "")])
       info "Extracting input archive: ", path
       #extractAll(path, tmpDir)
       let tmpDir = createTempDir("tmp_", "_extraction")

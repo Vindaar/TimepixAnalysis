@@ -516,6 +516,15 @@ func inRegion*(centerX, centerY: float, region: ChipRegion): bool {.inline.} =
     # TODO: gold cut is NOT part of the silver region (see C. Krieger PhD p. 133)
     result = if radius <= regCut.radius: true else : false
 
+import unchained
+defUnit(cm², toExport = true)
+proc areaOf*(region: ChipRegion): cm² =
+  case region
+  of crGold: result = pow(0.95 - 0.45, 2).cm² # area of gold region!
+  of crSilver: result = (π * (4.5.mm * 4.5.mm)).to(cm²)
+  of crBronze: result = (π * (5.5.mm * 5.5.mm)).to(cm²)
+  of crAll: result = (14.1.mm * 14.1.mm).to(cm²)
+
 proc eccentricity[T: SomePix](p: seq[float], func_data: FitObject[T]): float =
   ## this function calculates the eccentricity of a found pixel cluster using nimnlopt.
   ## Since no proper high level library is yet available, we need to pass a var pointer

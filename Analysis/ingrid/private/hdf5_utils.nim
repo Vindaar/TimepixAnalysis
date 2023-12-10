@@ -993,6 +993,19 @@ proc getExtendedRunInfo*(h5f: H5File, runNumber: int,
   result.rfKind = rfKind
   result.runType = runType
 
+proc readTime*(h5f: H5File, fileInfo: FileInfo): float =
+  ## Reads the total time information from the input HDF5 file.
+  case fileInfo.tpaFileKind
+  of tpkLogL:
+    let lhGrp = h5f["/likelihood".grp_str]
+    result = lhGrp.attrs["totalDuration", float]
+  of tpkReco:
+    # need to read all event durations and sum them? No, can use `fileInfo`, right?
+    for run in fileInfo.runs:
+      let extended = h5f.getExtendedRunInfo(run, fileInfo.runType)
+      result += extended.activeTime.inSeconds().float
+  else: doAssert false, "Unsupported input file kind: " & $fileInfo.tpaFileKind
+
 proc readFadcFromH5*(h5f: H5File, runNumber: int): ProcessedFadcRun =
   ## Reads all FADC data as a `ProcessedFadcRun` from run `runNumber`.
   let fadcGroup = fadcRawPath(runNumber)

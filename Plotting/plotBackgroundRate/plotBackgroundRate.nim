@@ -1,4 +1,5 @@
-import ggplotnim, seqmath, sequtils, os, sugar, strscans, strformat, strutils, sugar, sets
+import ggplotnim, seqmath, sequtils, sugar, strscans, strformat, strutils, sugar, sets
+import std / os except FileInfo
 import ingrid / [tos_helpers, ingrid_types]
 from arraymancer import tensor
 
@@ -31,12 +32,11 @@ for dkKind in InGridDsetKind:
 
 var noisyPixels = newSeq[(int, int)]()
 import unchained
-defUnit(cm²)
-proc scaleDset(data: Column, totalTime, factor: float): Column =
+proc scaleDset(data: Column, totalTime, factor: float, region: ChipRegion): Column =
   ## scales the data in `data` according to the area of the gold region,
   ## total time and bin width. The data has to be pre binned of course!
-  # XXX: make sure we never use wrong area if input data makes use of `--chipRegion` feature!
-  var area = pow(0.95 - 0.45, 2).cm² # area of gold region!
+  # get region of the area of interest (`geometry.nim`)
+  var area = areaOf region
 
   let pixSize = 55.MicroMeter * 55.MicroMeter
   let removedSize = noisyPixels.len * pixSize
@@ -48,49 +48,50 @@ proc scaleDset(data: Column, totalTime, factor: float): Column =
   let scale = factor / (totalTime * shutter_open * area.float * bin_width) #* 1e5
   result = toColumn data.toTensor(float).map_inline(x * scale)
 
-proc readTime(h5f: H5File): float =
-  let lhGrp = h5f["/likelihood".grp_str]
-  result = lhGrp.attrs["totalDuration", float]
+proc readVetoCfg(h5f: H5File, fileInfo: FileInfo): (set[LogLFlagKind], VetoSettings) =
+  if fileInfo.tpaFileKind == tpkLogL: # for tpkReco does not make sense
+    let lhGrp = h5f[likelihoodGroupGrpStr]
+    let ctx = deserializeH5[LikelihoodContext](h5f, "logLCtx", lhGrp.name,
+                                               exclude = @["rnd", "refSetTuple", "refDf", "refDfEnergy"])
+    result = (ctx.flags, ctx.vetoCfg)
 
-proc readVetoCfg(h5f: H5File): (set[LogLFlagKind], VetoSettings) =
-  let lhGrp = h5f[likelihoodGroupGrpStr]
-  let ctx = deserializeH5[LikelihoodContext](h5f, "logLCtx", lhGrp.name,
-                                             exclude = @["rnd", "refSetTuple", "refDf", "refDfEnergy"])
-  result = (ctx.flags, ctx.vetoCfg)
-
-proc calcVetoEfficiency(flags: set[LogLFlagKind], vetoCfg: VetoSettings): float =
+proc calcVetoEfficiency(flags: set[LogLFlagKind], vetoCfg: VetoSettings, tpaFileKind: TpaFileKind): float =
   ## Calculates the combined efficiency of the detector given the used vetoes, the
   ## random coincidence rates of each and the FADC veto percentile used to compute
   ## the veto cut.
-  const
-    septemVetoRandomCoinc = 0.7841029411764704    # only septem veto random coinc based on bootstrapp
-    lineVetoRandomCoinc = 0.8601764705882353      # lvRegular based on bootstrapped fake data
-    septemLineVetoRandomCoinc = 0.732514705882353 # lvRegularNoHLC based on bootstrapped fake data
-  result = 1.0 # starting efficiency
-  if fkFadc in flags:
-    doAssert vetoCfg.vetoPercentile > 0.5, "Veto percentile was below 0.5: " &
-      $vetoCfg.vetoPercentile # 0.5 would imply nothing left & have upper percentile
-    # input is e.g. `0.99` so: invert, multiply (both sided percentile cut), invert again
-    result = 1.0 - (1.0 - vetoCfg.vetoPercentile) * 2.0
-  if {fkSeptem, fkLineVeto} - flags == {}: # both septem & line veto
-    result *= septemLineVetoRandomCoinc
-  elif fkSeptem in flags:
-    result *= septemVetoRandomCoinc
-  elif fkLineVeto in flags:
-    result *= lineVetoRandomCoinc
+  case tpaFileKind
+  of tpkLogL:
+    const
+      septemVetoRandomCoinc = 0.7841029411764704    # only septem veto random coinc based on bootstrapp
+      lineVetoRandomCoinc = 0.8601764705882353      # lvRegular based on bootstrapped fake data
+      septemLineVetoRandomCoinc = 0.732514705882353 # lvRegularNoHLC based on bootstrapped fake data
+    result = 1.0 # starting efficiency
+    if fkFadc in flags:
+      doAssert vetoCfg.vetoPercentile > 0.5, "Veto percentile was below 0.5: " &
+        $vetoCfg.vetoPercentile # 0.5 would imply nothing left & have upper percentile
+      # input is e.g. `0.99` so: invert, multiply (both sided percentile cut), invert again
+      result = 1.0 - (1.0 - vetoCfg.vetoPercentile) * 2.0
+    if {fkSeptem, fkLineVeto} - flags == {}: # both septem & line veto
+      result *= septemLineVetoRandomCoinc
+    elif fkSeptem in flags:
+      result *= septemVetoRandomCoinc
+    elif fkLineVeto in flags:
+      result *= lineVetoRandomCoinc
 
-  # now multiply by lnL or MLP cut efficiency. LnL efficiency is likely always defined, but NN
-  # only if NN veto was used
-  if vetoCfg.nnEffectiveEff > 0.0:
-    result *= vetoCfg.nnEffectiveEff
-  elif vetoCfg.signalEfficiency > 0.0:
-    result *= vetoCfg.signalEfficiency
+    # now multiply by lnL or MLP cut efficiency. LnL efficiency is likely always defined, but NN
+    # only if NN veto was used
+    if vetoCfg.nnEffectiveEff > 0.0:
+      result *= vetoCfg.nnEffectiveEff
+    elif vetoCfg.signalEfficiency > 0.0:
+      result *= vetoCfg.signalEfficiency
+    else:
+      raise newException(ValueError, "Input has neither a well defined NN signal efficiency nor a regular likelihood " &
+        "signal efficiency. Stopping.")
   else:
-    raise newException(ValueError, "Input has neither a well defined NN signal efficiency nor a regular likelihood " &
-      "signal efficiency. Stopping.")
+    result = 1.0 # for raw data, no efficiency
 
-proc scaleDset(h5f: H5File, data: Column, factor: float): Column =
-  result = scaleDset(data, h5f.readTime(), factor)
+#proc scaleDset(h5f: H5File, data: Column, factor: float): Column =
+#  result = scaleDset(data, h5f.readTime(), factor)
 
 import macros
 macro log(verbose: bool, body: untyped): untyped =
@@ -135,7 +136,11 @@ proc readFiles(files: seq[string], names: seq[string], region: ChipRegion,
     log(verbose):
       &"Opening file: {file} of files : {files}"
     let h5f = H5open(file, "r")
-    var df = h5f.readDsets(likelihoodBase(), some((centerChip, DsetNames)), verbose = verbose)
+    let fileInfo = h5f.getFileInfo()
+    let dataBase = if fileInfo.tpaFileKind == tpkLogL: likelihoodBase()
+                   else: recoBase()
+
+    var df = h5f.readDsets(dataBase, some((centerChip, DsetNames)), verbose = verbose)
     df = df
       .rename(f{Ecol <- energyDset})
       .filter(f{float -> bool: (`centerX`.toIdx, `centerY`.toIdx) notin noiseSet })
@@ -148,10 +153,10 @@ proc readFiles(files: seq[string], names: seq[string], region: ChipRegion,
       log(verbose):
         &"df len now {df.len}"
 
-    let (flags, vetoCfg) = readVetoCfg(h5f)
-    var totalTime = readTime(h5f)
+    let (flags, vetoCfg) = readVetoCfg(h5f, fileInfo)
+    var totalTime = readTime(h5f, fileInfo)
     # apply the total efficiency based on all vetoes to the data
-    let totalEff = calcVetoEfficiency(flags, vetoCfg)
+    let totalEff = calcVetoEfficiency(flags, vetoCfg, fileInfo.tpaFileKind)
     if applyEfficiencyNormalization:
       # just multiply total time by efficiency to get 'effective background time'
       totalTime *= totalEff
@@ -230,7 +235,7 @@ proc copyScalars(to: var DataFrame, frm: DataFrame) =
         # compute the mean instead! (technically weighted by time would be better)
         to[k] = col.toTensor(float).mean
 
-proc flatScale(files: seq[LogLFile], factor: float, verbose: bool, dropCounts = true): DataFrame =
+proc flatScale(files: seq[LogLFile], factor: float, region: ChipRegion, verbose: bool, dropCounts = true): DataFrame =
   #var count {.global.} = 0
   var df: DataFrame
   for f in files:
@@ -258,9 +263,9 @@ proc flatScale(files: seq[LogLFile], factor: float, verbose: bool, dropCounts = 
     #dfLoc = df.histogram() ## XXX: Tpx3
     dfLoc = subDf.histogram()
     dfLoc = dfLoc.mutate(f{float: "CountErr" ~ sqrt(`Counts`)})
-    dfLoc[Rcol] = dfLoc[Ccol].scaleDset(totalTime, factor)
+    dfLoc[Rcol] = dfLoc[Ccol].scaleDset(totalTime, factor, region)
     dfLoc["totalTime"] = totalTime.Second.to(Hour).float
-    dfLoc["RateErr"] = dfLoc["CountErr"].scaleDset(totalTime, factor)
+    dfLoc["RateErr"] = dfLoc["CountErr"].scaleDset(totalTime, factor, region)
     dfLoc["Dataset"] = constantColumn(fname, dfLoc.len) #"2017/18_" & $count, dfLoc.len)
     dfLoc = dfLoc.mutate(f{"yMin" ~ `Rate` - `RateErr`}, f{"yMax" ~ `Rate` + `RateErr`})
     dfLoc["yMin"] = dfLoc["yMin", float].map_inline:
@@ -274,7 +279,7 @@ proc flatScale(files: seq[LogLFile], factor: float, verbose: bool, dropCounts = 
   log(verbose):
     result.pretty(-1)
 
-proc flatScaleMedian(df: DataFrame, factor: float, totalTime: float, verbose: bool): DataFrame =
+proc flatScaleMedian(df: DataFrame, factor: float, totalTime: float, region: ChipRegion, verbose: bool): DataFrame =
   result = newDataFrame()
   for tup, subDf in groups(df.group_by("Variable")):
     var dfVal = newDataFrame()
@@ -282,8 +287,8 @@ proc flatScaleMedian(df: DataFrame, factor: float, totalTime: float, verbose: bo
       var dfLoc = newDataFrame()
       dfLoc = subDfVal.histogram()
       dfLoc = dfLoc.mutate(f{float: "CountErr" ~ sqrt(`Counts`)})
-      dfLoc[Rcol] = dfLoc[Ccol].scaleDset(totalTime, factor)
-      dfLoc["RateErr"] = dfLoc["CountErr"].scaleDset(totalTime, factor)
+      dfLoc[Rcol] = dfLoc[Ccol].scaleDset(totalTime, factor, region)
+      dfLoc["RateErr"] = dfLoc["CountErr"].scaleDset(totalTime, factor, region)
       dfLoc["Value"] = constantColumn(tupVal[0][1].toBool, dfLoc.len) #"2017/18_" & $count, dfLoc.len)
       #inc count
       dfLoc = dfLoc.mutate(f{"yMin" ~ `Rate` - `RateErr`}, f{"yMax" ~ `Rate` + `RateErr`})
@@ -467,7 +472,7 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
   df = df.drop(["Dataset", "yMin", "yMax"])
   df.writeCsv("/tmp/background_rate_data.csv")
 
-proc plotEfficiencyComparison(files: seq[LogLFile], outpath: string, verbose: bool) =
+proc plotEfficiencyComparison(files: seq[LogLFile], outpath: string, region: ChipRegion, verbose: bool) =
   ## creates a plot comparing different logL cut efficiencies. Each filename should contain the
   ## efficiency in the format
   ## `_eff_<eff>.h5`
@@ -482,7 +487,7 @@ proc plotEfficiencyComparison(files: seq[LogLFile], outpath: string, verbose: bo
     doAssert "_eff_" in f.name
     # ugly for now ## <-- this can come from veto efficiency now!
     let eff = f.name.split("_")[^1].dup(removeSuffix(".h5")).parseFloat
-    var dfFlat = flatScale(@[f], 1e5, verbose, dropCounts = false)
+    var dfFlat = flatScale(@[f], 1e5, region, verbose, dropCounts = false)
     dfFlat["ε/√B"] = dfFlat["Counts", float].map_inline:
       if x > 0.0:
         eff / sqrt(x)
@@ -604,6 +609,7 @@ proc main(files: seq[string], log = false, title = "",
       totalTime += f.totalTime
     plotMedianBools(computeMedianBools(df).flatScaleMedian(factor = factor,
                                                            totalTime = totalTime,
+                                                           region = region,
                                                            verbose = verbose),
                     fnameSuffix, title = "Comparison of background rate by different variables: clusters < and > than median",
                     suffix = suffix,
@@ -611,15 +617,15 @@ proc main(files: seq[string], log = false, title = "",
                     verbose = verbose)
 
   if compareEfficiencies:
-    plotEfficiencyComparison(logLFiles, outpath, verbose)
+    plotEfficiencyComparison(logLFiles, outpath, region, verbose)
   else:
     var df = newDataFrame()
     if names.len > 0:
       doAssert names.len == files.len, "Need one name for each input file!"
       #for logL in logLFiles:
-      df.add flatScale(logLFiles, factor, verbose)
+      df.add flatScale(logLFiles, factor, region, verbose)
     elif separateFiles:
-      df = flatScale(logLFiles, factor, verbose)
+      df = flatScale(logLFiles, factor, region, verbose)
     elif logLFiles.len > 0:
       # add up all input files
       var logL: LogLFile
@@ -642,7 +648,7 @@ proc main(files: seq[string], log = false, title = "",
         raise newException(ValueError, "separateFiles == true requires a `combName`!")
       if logL.year == 0:
         raise newException(ValueError, "separateFiles == true requires a `combYear`!")
-      df = flatScale(@[logL], factor, verbose)
+      df = flatScale(@[logL], factor, region, verbose)
     # else no input files. Only 2014 data to plot
     #if separateFiles:
     #  for logL in logLFiles:

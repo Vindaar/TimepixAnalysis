@@ -394,6 +394,10 @@ proc savePlot(plt: PlotResult, config: Config, fullPath = false) =
           elif themeScale != 1.0:
             p.pltGg + theme_scale(themeScale) +
               ggsave(fname, width, height, useTeX = useTeX, standalone = useTeX)
+          elif useTeX:
+            p.pltGg + themeLatex(fWidth = 0.9, width = width, height = height,
+                                 baseTheme = singlePlot) +
+              ggsave(fname, useTeX = useTeX, standalone = useTeX)
           else:
             p.pltGg.ggsave(fname, width, height, useTeX = useTeX, standalone = useTeX)
         except AssertionError:

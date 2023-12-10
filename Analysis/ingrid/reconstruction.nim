@@ -787,7 +787,8 @@ proc applyCalibrationSteps(h5f: H5File, recoCfg: RecoConfig) =
         if rfOnlyCharge in recoCfg.flags:
           h5f.applyChargeCalibration(runNumber, toDelete = recoCfg.toDelete)
         if rfOnlyGasGain in recoCfg.flags:
-          h5f.calcGasGain(runNumber, recoCfg.gasGainInterval, recoCfg.minimumGasGainInterval, recoCfg.fullRunGasGain)
+          h5f.calcGasGain(runNumber, recoCfg.gasGainInterval, recoCfg.minimumGasGainInterval, recoCfg.fullRunGasGain,
+                          useTeX = recoCfg.useTeX)
         if rfOnlyFadc in recoCfg.flags:
           h5f.calcRiseAndFallTimes(runNumber)
         if rfOnlyFeSpec in recoCfg.flags:

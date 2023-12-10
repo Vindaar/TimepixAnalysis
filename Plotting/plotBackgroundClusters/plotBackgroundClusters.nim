@@ -243,7 +243,8 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
                   scale: float,
                   preliminary: bool,
                   showGoldRegion: bool,
-                  asSinglePlot: bool) =
+                  asSinglePlot: bool,
+                  fWidth: float) =
   let outpath = if outpath.len > 0: outpath else: "plots"
   var colorCol: string
   let totalEvs = df.len
@@ -309,7 +310,7 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
     if not useTikZ:
       echo "[INFO]: Saving plot to ", fname
       plt + theme_scale(scale, family = "serif") +
-        ggtitle(title & &". Total # clusters = {totalEvs}") +
+        ggtitle(title & &". # clusters = {totalEvs}") +
         margin(top = 1.75) +
         ggsave(fname, width = 640.0 * scale, height = 480 * scale)
         #ggsave(fname, width = 640, height = 480)#width = 1200, height = 800)
@@ -317,9 +318,11 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
       #let fname = &"/home/basti/phd/Figs/backgroundClusters/background_cluster_centers{suffix}"
       echo "[INFO]: Saving plot to ", fname
       let baseTheme = if asSinglePlot: singlePlot else: sideBySide
-      let fWidth = if asSinglePlot: 0.9 else: 0.5
+      let fWidth = if fWidth > 0.0: fWidth
+                   elif asSinglePlot: 0.9
+                   else: 0.5
       let dataPng = totalEvs > 5000
-      plt + ggtitle(title & r". Total \# clusters = " & $totalEvs) +
+      plt + ggtitle(title & r". \# clusters = " & $totalEvs) +
         #theme_scale(scale) +
         themeLatex(fWidth = fWidth, width = 600, baseTheme = baseTheme) +
         margin(top = 1.75, right = 4.5) +
@@ -354,7 +357,8 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
 proc plotSuppression(cTab: CountTable[(int, int)], totalNum, tiles: int,
                      suffix, outpath: string,
                      showGoldRegion: bool,
-                     asSinglePlot: bool) =
+                     asSinglePlot: bool,
+                     fWidth: float) =
   ## Plots a tilemap of background suppressions. It uses `tiles` elements in each axis.
   proc toTensor(cTab: CountTable[(int, int)]): Tensor[int] =
     result = zeros[int]([256, 256])
@@ -395,7 +399,9 @@ proc plotSuppression(cTab: CountTable[(int, int)], totalNum, tiles: int,
   ## XXX: FIX UP title for TeX backend (unicode) & make # of total cluster dependent on code, not
   ## hardcoded!
   let baseTheme = if asSinglePlot: singlePlot else: sideBySide
-  let fWidth = if asSinglePlot: 0.9 else: 0.5
+  let fWidth = if fWidth > 0.0: fWidth
+               elif asSinglePlot: 0.9
+               else: 0.5
   ggplot(dfTile, aes("xI", "yI", fill = "sI", width = size, height = size)) +
     geom_tile() +
     geom_text(aes = aes(x = f{`xI` + size / 2.0}, y = f{`yI` + size / 2.0}, text = "sI"), color = "white") +
@@ -427,7 +433,8 @@ proc main(
   backgroundSuppression = false,
   showGoldRegion = false,
   scale = 1.0, # Scale the output image and all texts etc. by this amount. Default is 640x480
-  switchAxes = false # if true, will replace X by Y (to effectively rotate the clusters into CAST setup)
+  switchAxes = false, # if true, will replace X by Y (to effectively rotate the clusters into CAST setup)
+  fWidth = -1.0
      ) =
 
   if energyText and colorBy == count:
@@ -449,11 +456,11 @@ proc main(
       dfLoc["Type"] = names[i]
       df.add dfLoc
 
-  plotClusters(df, names, useTikZ, zMax, colorBy, energyText, energyTextRadius, suffix, title, outpath, axionImage, scale, preliminary, showGoldRegion, singlePlot)
+  plotClusters(df, names, useTikZ, zMax, colorBy, energyText, energyTextRadius, suffix, title, outpath, axionImage, scale, preliminary, showGoldRegion, singlePlot, fWidth)
   # `df.len` is total number clusters
   if backgroundSuppression:
     doAssert names.len == 0, "Suppression plot when handing multiple files that are not combined not supported."
-    plotSuppression(cTab.toCountTable(), totalNum, tiles, suffix, outpath, showGoldRegion, singlePlot)
+    plotSuppression(cTab.toCountTable(), totalNum, tiles, suffix, outpath, showGoldRegion, singlePlot, fWidth)
 
   when false:
     # convert center positions to a 256x256 map

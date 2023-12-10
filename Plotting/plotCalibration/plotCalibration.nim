@@ -126,7 +126,9 @@ proc createToTAnnotation*(res: FitResult): string =
   result.add "$χ²/\\text{dof} " & &" = {res.redChiSq:.2f}$" & Newline
   let n = ["a", "b", "c", "t"]
   for i, name in n:
-    result.add &"${name} = {(res.pRes[i] ± res.pErr[i])}$" & Newline
+    let meas = res.pRes[i] ± res.pErr[i]
+    let mstr = pretty(meas, precision = 4)
+    result.add &"${name} = {mstr}$" & Newline
 
 proc plotToTCalib*(totCalib: FitResult, tot: Tot, runPeriod: string, chip = 0, chipName = "",
                    useTeX = false, outpath = "out") =
@@ -137,9 +139,9 @@ proc plotToTCalib*(totCalib: FitResult, tot: Tot, runPeriod: string, chip = 0, c
   let df = bind_rows([("ToT", dfData), ("Fit", dfFit)], "by")
   var title = ""
   if chipName.len > 0:
-    title = &"ToT calibration of {runPeriod} Chip {chipName}"
+    title = &"ToT calibration of {runPeriod}, chip {chipName}"
   else:
-    title = &"ToT calibration of {runPeriod} Chip {chip}"
+    title = &"ToT calibration of {runPeriod}, chip {chip}"
 
   let annot = createToTAnnotation(totCalib) # totCalib.resText
   ggplot(dfData, aes("U / mV", "ToT")) +
@@ -152,6 +154,7 @@ proc plotToTCalib*(totCalib: FitResult, tot: Tot, runPeriod: string, chip = 0, c
     ylab("$\\mathtt{ToT}$ [clock cycles]") +
     ylim(0, 250) +
     ggtitle(title) +
+    themeLatex(fWidth = 0.9, width = 600, baseTheme = singlePlot) +
     #theme_latex() +
     ggsave(&"{outpath}/tot_calib_{runPeriod}_chip_{chip}.pdf", width = 600, height = 380, useTex = useTeX, standalone = true)
 

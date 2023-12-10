@@ -478,7 +478,8 @@ proc applyGasGainCut*(df: DataFrame): DataFrame =
 proc gasGainHistoAndFit(data: seq[float], bin_edges: seq[float],
                         chipNumber, runNumber: int,
                         plotPath: string,
-                        gasGainInterval = none[GasGainIntervalData]()):
+                        gasGainInterval = none[GasGainIntervalData](),
+                        useTeX = false):
                           (seq[int], FitResult) =
   ## performs the binning of `data` (should be charges in electron converted from the
   ## ToT values in `calcGasGain`) according to `totBins` and fits the
@@ -501,7 +502,8 @@ proc gasGainHistoAndFit(data: seq[float], bin_edges: seq[float],
               chiSq = fitResult.redChiSq,
               chipNumber, runNumber,
               pathPrefix = plotPath,
-              gasGainInterval = gasGainInterval)
+              gasGainInterval = gasGainInterval,
+              useTeX = useTeX)
   result = (binned, fitResult)
 
 proc readGasGainDf*(h5f: H5File, grp: string,
@@ -592,13 +594,15 @@ proc gasGainDfAndCharges(h5f: H5File, group: string): (DataFrame, seq[seq[float]
 
 proc handleGasGainFullRun*(h5f: H5File,
                            runNumber, chipNumber: int,
-                           bin_edges: seq[float], group, plotPath: string): seq[GasGainIntervalResult] =
+                           bin_edges: seq[float], group, plotPath: string,
+                           useTeX = false): seq[GasGainIntervalResult] =
   let cutFormula = $getGasGainCutFormula()
   let (df, chs) = h5f.gasGainDfAndCharges(group)
   let (binned, fitResult) = gasGainHistoAndFit(chs.flatten, bin_edges, #totBins,
                                                                        # chipName,
                                                chipNumber, runNumber,
-                                               plotPath)
+                                               plotPath,
+                                               useTeX = useTeX)
   var grp = h5f[group.grp_str]
   let runGroup = h5f[group.parentDir.grp_str]
   let tstampDset = h5f[(group.parentDir / "timestamp").dset_str]
@@ -626,7 +630,8 @@ proc handleGasGainSlice*(h5f: H5File,
                          runNumber, chipNumber: int,
                          interval, minInterval: float,
                          bin_edges: seq[float],
-                         group, plotPath: string): seq[GasGainIntervalResult] =
+                         group, plotPath: string,
+                         useTeX = false): seq[GasGainIntervalResult] =
   # read required data for gas gain cuts & to map clusters to timestamps
   let cutFormula = $getGasGainCutFormula()
   let (df, chs) = h5f.gasGainDfAndCharges(group)
@@ -638,7 +643,8 @@ proc handleGasGainSlice*(h5f: H5File,
       chSlice, bin_edges, #totBins, # chipName,
       chipNumber, runNumber,
       plotPath,
-      gasGainInterval = some(gasGainInterval))
+      gasGainInterval = some(gasGainInterval),
+      useTeX = useTeX)
 
     let grp = h5f[group.grp_str]
     let chargeDset = h5f[(group / "charge").dset_str]
@@ -656,7 +662,8 @@ proc calcGasGain*(h5f: H5File, grp: string,
                   runNumber, chipNumber: int,
                   fileInfo: FileInfo,
                   fullRunGasGain: bool,
-                  interval, minInterval: float, plotPath: string) =
+                  interval, minInterval: float, plotPath: string,
+                  useTeX = false) =
   ## Handles gas gain calculation for `runNumber`, given by `grp` (different chips!)
   const
     hitLow = 2 # start at 2 to avoid noisy pixels w/ 1 hit
@@ -680,17 +687,20 @@ proc calcGasGain*(h5f: H5File, grp: string,
   if not fullRunGasGain:
     gasGainSliceData = h5f.handleGasGainSlice(runNumber, chipNumber,
                                               interval, minInterval,
-                                              bin_edges, grp, plotPath)
+                                              bin_edges, grp, plotPath,
+                                              useTeX = useTeX)
   else:
     gasGainSliceData = h5f.handleGasGainFullRun(runNumber, chipNumber,
-                                                bin_edges, grp, plotPath)
+                                                bin_edges, grp, plotPath,
+                                                useTeX = useTeX)
   # write gas gain slice data and attributes
   let cutFormula = $getGasGainCutFormula()
   h5f.writeGasGainSliceData(group, gasGainSliceData, cutFormula)
   h5f.writeGasGainAttributes(group, gasGainSliceData.len, interval.round.int)
 
 proc calcGasGain*(h5f: H5File, runNumber: int,
-                  interval, minInterval: float, fullRunGasGain: bool) =
+                  interval, minInterval: float, fullRunGasGain: bool,
+                  useTeX = false) =
   ## fits the polya distribution to the charge values and writes the
   ## fit parameters (including the gas gain) to the H5 file
   ## `interval` is the time interval width on which we apply the binning
@@ -703,7 +713,7 @@ proc calcGasGain*(h5f: H5File, runNumber: int,
   for run, chip, grp in chipGroups(h5f):
     if chipBase in grp:
       doAssert run == runNumber
-      h5f.calcGasGain(grp, run, chip, fileInfo, fullRunGasGain, interval, minInterval, plotPath)
+      h5f.calcGasGain(grp, run, chip, fileInfo, fullRunGasGain, interval, minInterval, plotPath, useTeX = useTeX)
 
 proc writeFeFitParameters(dset: var H5DataSet,
                           popt, popt_E: seq[float],

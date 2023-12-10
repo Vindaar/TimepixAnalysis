@@ -17,7 +17,8 @@ proc plotGasGain*[T](charge, counts: seq[T],
                      G_fit, chiSq: float,
                      chipNumber, runNumber: int,
                      pathPrefix: string,
-                     gasGainInterval = none[GasGainIntervalData]()) =
+                     gasGainInterval = none[GasGainIntervalData](),
+                     useTeX = false) =
   ## given a seq of traces (polya distributions for gas gain) plot
   ## the data and the fit, save plots as svg.
   let dfRaw = toDf({ "charge / e-" : charge,
@@ -45,7 +46,8 @@ proc plotGasGain*[T](charge, counts: seq[T],
     echo xMin
     echo df.filter(f{Value -> bool: c"Type" == %~ "Fit" and c"FitRange" == %~ false})
     echo df.filter(f{string -> bool: c"Type" == "Fit"})
-  ggplot(df, aes("charge / e-", "counts")) +
+
+  var plt = ggplot(df, aes("charge / e-", "counts")) +
     geom_histogram(data = df.filter(f{c"Type" == "Polya"}),
                    stat = "identity") +
     geom_line(data = df.filter(f{Value -> bool: c"Type" == %~ "Fit" and c"FitRange" == %~ true}),
@@ -54,14 +56,18 @@ proc plotGasGain*[T](charge, counts: seq[T],
               color = some(parseHex("FF00FF")),
               lineType = some(ltDashed)) +
               #alpha = some(0.8)) +
+    xlab("Charge [e⁻]") + ylab("Counts") +
     margin(top = 2) +
     ggtitle(&"Polya chip {chipNumber}, run {runNumber}: " &
-            &"G = {G:.1f}, G_fit = {G_fit:.1f}, χ²/dof = {chiSq:.2f}" &
-            intTitle) +
-    ggsave(&"{pathPrefix}/gas_gain_run_{runNumber}_chip_{chipNumber}{suffix}.pdf")
+            &"G = {G:.1f}, G_fit = {G_fit:.1f}, χ²/dof = {chiSq:.2f}\n" &
+            intTitle)
+  if useTeX:
+    plt = plt + themeLatex(fWidth = 0.9, width = 600, baseTheme = singlePlot)
+  plt + ggsave(&"{pathPrefix}/gas_gain_run_{runNumber}_chip_{chipNumber}{suffix}.pdf",
+               useTeX = useTeX, standalone = useTeX)
 
 proc escapeLatex(s: string): string =
-  result = s.multiReplace([("e^-", r"$e^-$"), ("\n", r"\\")])
+  result = s.multiReplace([("e^-", r"$e^-$"), ("\n", r"\\"), ("%", "\\%")])
 
 proc plotFeSpectrum*(feSpec: FeSpecFitData,
                      runNumber: int, chipNumber: int,
@@ -104,8 +110,9 @@ proc plotFeSpectrum*(feSpec: FeSpecFitData,
     ylab(ylabel) +
     annotate(annot,
              left = 0.02,
-             bottom = 0.25,
+             bottom = 0.4,
              font = font(12.0, family = "monospace")) +
+    themeLatex(fWidth = 0.5, width = 600, height = 360, baseTheme = sideBySide) +
     ggtitle(&"Fe spectrum for run: {runNumber}{titleSuffix}") +
     ggsave(&"{pathPrefix}/fe_spec_run_{runNumber}_chip_{chipNumber}{suffix}.pdf",
            width = 600, height = 360,
@@ -146,8 +153,9 @@ proc plotFeEnergyCalib*(ecData: EnergyCalibFitData,
      scale_y_continuous() +
      xlab(xLabel) +
      ylab(yLabel) +
-     margin(right = 3) +
-     ggtitle(&"{titlePrefix} response to X-rays of energies `E` for run: {runNumber}") +
+     margin(right = 3.5, left = 3.5) +
+     themeLatex(fWidth = 0.5, width = 600, height = 360, baseTheme = sideBySide) +
+     ggtitle(&"{titlePrefix} response to X-rays for run: {runNumber}") +
      ggsave(&"{pathPrefix}/energy_calib_run_{runNumber}{suffix}.pdf",
             width = 600, height = 360,
             useTeX = useTeX, standalone = useTeX)

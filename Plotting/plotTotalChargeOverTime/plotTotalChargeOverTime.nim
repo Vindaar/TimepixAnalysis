@@ -271,7 +271,7 @@ proc calcMean(df: DataFrame,
         result[j] = current / norm
         norm = 0.0
       elif useMedian:
-        result[j] = vec.median(50)
+        result[j] = vec.median()
         vec = newSeq[float]()
       elif toCount:
         if length > 3600: ## Want to exclude intervals that are too short!
@@ -388,14 +388,23 @@ proc commonPlotFields(plt: GgPlot, periods: seq[Value]): GgPlot =
   result = plt +
     facet_wrap("runPeriods", scales = "free", order = periods) +
     geom_point(alpha = some(0.75)) +
-    scale_x_continuous(labels = toPeriod) +
+    #scale_x_continuous(labels = toPeriod) +
+    scale_x_date(name = "Date", isTimestamp = true,
+                 dateSpacing = initDuration(weeks = 2),
+                 formatString = "dd/MM/YYYY", dateAlgo = dtaAddDuration) +
+                        #dateSpacing = initDuration(weeks = 26), dateAlgo = dtaAddDuration) +
     facetMargin(FacetMargin, ukCentimeter) +
     margin(top = Top, bottom = Bottom, right = Right, left = Left) +
     legendPosition(LegendLeft, LegendBottom) +
     xlab("Date", rotate = RotAngle, alignTo = "right", margin = 0.0)
   if UseTex:
-    result = result + theme_scale(1.2) +
-      facetHeaderText(font = font(14.0)) # readd otherwise overwritten
+    proc th(): Theme =
+      result = singlePlot()
+      result.tickLabelFont = some(font(7.0))
+    result = result +  #theme_scale(1.2) +
+      ylab("Median value", margin = 3.0) +
+      themeLatex(fWidth = 1.0, width = 1200, height = 800, baseTheme = th)
+      #facetHeaderText(font = font(14.0)) # readd otherwise overwritten
 
 proc plotOverTime(df: DataFrame, interval: float, titleSuff: string,
                   useLog = true,

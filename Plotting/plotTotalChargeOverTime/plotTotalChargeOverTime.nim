@@ -426,13 +426,13 @@ proc plotOverTime(df: DataFrame, interval: float, titleSuff: string,
   let normSuffix = if useMedian and normalizeMedian: " each run type normalized to 1"
                    else: ""
   let title = if title.len > 0: title
-              else: &"{meanPrefix} total charge within {interval:.1f} min, {normSuffix}, {titleSuff}"
+              else: &"{meanPrefix} total charge within {interval:.1f} min, {normSuffix}{titleSuff}"
 
   let periods = uniquePeriods(df).mapIt(%~ ("runPeriods", it))
 
   var pltSum = ggplot(df, aes("timestamp", "sumCharge", color = factor(colorBy)))
     .commonPlotFields(periods) +
-    ggtitle(&"Sum of total charge within {interval:.1f} min, {titleSuff}")
+    ggtitle(&"Sum of total charge within {interval:.1f} min{titleSuff}")
   let yScale = if useMedian and normalizeMedian:
                  f{float: `meanCharge` / max(col("meanCharge"))}
                else:
@@ -491,11 +491,11 @@ proc plotHistos(df: DataFrame, interval: float, titleSuff: string,
       var pltTmp = ggplot(df, aes("timestamp", name, color = "runType"))
         .commonPlotFields(periods) +
         ylim(2.0, 6.5) +
-        ggtitle(&"{adn} of cluster {key} within {interval:.1f} min, {titleSuff}")
+        ggtitle(&"{adn} of cluster {key} within {interval:.1f} min{titleSuff}")
       var pltTmpHisto = ggplot(df, aes(name, fill = "runType")) +
         facet_wrap("runPeriods", scales = "free") +
         geom_histogram(bins = 300, density = true, position = "identity") +
-        ggtitle(&"Histogram of {adn} cluster {key} within {interval:.1f} min, {titleSuff}")
+        ggtitle(&"Histogram of {adn} cluster {key} within {interval:.1f} min{titleSuff}")
       if useLog:
         pltTmp = pltTmp + scale_y_log10()
         pltTmpHisto = pltTmpHisto + scale_y_log10()
@@ -603,7 +603,7 @@ proc main(files: seq[string],
           readAllChips = false, ## Whether to only read center or all Septemboard chips
           normalizeMedian = false,
           outpath = "out",
-          ylabel = "", title = "",
+          ylabel = "", title = "", titleSuff = "",
           countCutoff = 0.0
          ) =
   ## Input should be both H5 `DataRuns*_reco.h5` data files
@@ -654,8 +654,10 @@ proc main(files: seq[string],
 
     let colorBy = if readAllChips: "chip" else: "runType"
     echo dfAll
+    let titleSuff = if titleSuff.len > 0: titleSuff
+                    else: &", {regionCut}, charge > {cutoffCharge}, hits < {cutoffHits.int}"
     plotOverTime(dfAll, interval,
-                 titleSuff = &"{regionCut}, charge > {cutoffCharge}, hits < {cutoffHits.int}",
+                 titleSuff = titleSuff,
                  applyRegionCut = applyRegionCut,
                  useLog = useLog,
                  useMedian = useMedian,
@@ -668,7 +670,7 @@ proc main(files: seq[string],
     if not toCount:
       let dfFilter = filtConc(dfBack, dfCalib)
       plotHistos(dfFilter, interval,
-                 titleSuff = &"{regionCut}charge > {cutoffCharge}, hits < {cutoffHits:.0f} filtered out",
+                 titleSuff = titleSuff,
                  applyRegionCut = applyRegionCut,
                  useLog = false,
                  outpath = outpath)

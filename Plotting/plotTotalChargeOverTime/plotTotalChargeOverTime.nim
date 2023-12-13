@@ -89,19 +89,8 @@ proc readTstampDf(h5f: H5File, applyRegionCut: bool,
   const evNames = genNames()
   const allNames = ["timestamp", "eventNumber"]
 
-  template readIt(names, baseName, df: untyped): untyped =
-    for name in names:
-      let dsetName = baseName / name
-      let dsetH5 = h5f[dsetName.dset_str]
-      withDset(dsetH5):
-        when type(dset) is seq[SupportedRead]:
-          df[name] = dset
-
   for run, grp in runs(h5f, recoBase()):
-    var dfEv = newDataFrame()
-    var dfAll = newDataFrame()
-    let group = h5f[grp.grp_str]
-    readIt(evNames, grp / &"chip_{chip}", dfEv)
+    var dfEv = h5f.readGasGainDf(grp / &"chip_{chip}", evNames)
     if applyRegionCut:
       # if we do not apply the region cut the slicing does not make any sense, because
       # the indices for the slices will be wrong!
@@ -112,20 +101,16 @@ proc readTstampDf(h5f: H5File, applyRegionCut: bool,
       # Note: we only read the slice data to match the input *binning*. If the data
       # was *not* binned (full run gas gain), but we want to plot against 90 min bins,
       # using the gas gain time slice 90 min bins is _still a good idea_ as it gives us
-      # the same data points as in the 90 min case, just with energies that are worse
-      # calibrated.
+      # the same data points as in the 90 min case, just with energies that are calibrated
+      # worse.
       ## XXX: do not try to read `90`, but rather try to read the version of the input time!
       let gsname = if grp / &"chip_{chip}" / "gasGainSlices90" in h5f: "gasGainSlices90"
                    else: "gasGainSlices"
       for (idx, slice) in iterGainSlicesIdx(h5f, grp / &"chip_{chip}", gsname):
         sliceNum[slice] = repeat(idx, slice.len)
       dfEv["sliceNum"] = sliceNum
-
-    readIt(allNames, grp, dfAll)
-    var dfJoined = innerJoin(dfEv, dfAll, "eventNumber")
-    dfJoined["runNumber"] = constantColumn(run, dfJoined.len)
-
-    result.add dfJoined
+    dfEv["runNumber"] = constantColumn(run, dfEv.len)
+    result.add dfEv
 
 proc readPhotoEscapeDf(h5f: H5File, applyRegionCut: bool, chip: int): DataFrame =
   ## These are the x positions (in charge) of the spectrum
@@ -385,6 +370,7 @@ proc calculateMeanDf(df: DataFrame, interval: float,
 
 proc commonPlotFields(plt: GgPlot, periods: seq[Value]): GgPlot =
   ## Adds all those geoms / scales etc. that are common between multiple plots in this script.
+  let align = if abs(RotAngle) > 0.0: "right" else: "center"
   result = plt +
     facet_wrap("runPeriods", scales = "free", order = periods) +
     geom_point(alpha = some(0.75)) +
@@ -396,7 +382,7 @@ proc commonPlotFields(plt: GgPlot, periods: seq[Value]): GgPlot =
     facetMargin(FacetMargin, ukCentimeter) +
     margin(top = Top, bottom = Bottom, right = Right, left = Left) +
     legendPosition(LegendLeft, LegendBottom) +
-    xlab("Date", rotate = RotAngle, alignTo = "right", margin = 0.0)
+    xlab("Date", rotate = RotAngle, alignTo = align, margin = 0.0)
   if UseTex:
     proc th(): Theme =
       result = singlePlot()

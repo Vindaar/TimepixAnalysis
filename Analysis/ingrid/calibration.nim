@@ -663,8 +663,11 @@ proc calcGasGain*(h5f: H5File, grp: string,
                   fileInfo: FileInfo,
                   fullRunGasGain: bool,
                   interval, minInterval: float, plotPath: string,
-                  useTeX = false) =
+                  useTeX = false,
+                  overwrite = false) =
   ## Handles gas gain calculation for `runNumber`, given by `grp` (different chips!)
+  if isDone(h5f, grp, rfOnlyGasGain, overwrite): return
+
   const
     hitLow = 2 # start at 2 to avoid noisy pixels w/ 1 hit
     hitHigh = 302
@@ -698,9 +701,12 @@ proc calcGasGain*(h5f: H5File, grp: string,
   h5f.writeGasGainSliceData(group, gasGainSliceData, cutFormula)
   h5f.writeGasGainAttributes(group, gasGainSliceData.len, interval.round.int)
 
+  # write the flag we are done
+  writeFlag(h5f, grp, rfOnlyGasGain)
+
 proc calcGasGain*(h5f: H5File, runNumber: int,
                   interval, minInterval: float, fullRunGasGain: bool,
-                  useTeX = false) =
+                  useTeX = false, overwrite = false) =
   ## fits the polya distribution to the charge values and writes the
   ## fit parameters (including the gas gain) to the H5 file
   ## `interval` is the time interval width on which we apply the binning
@@ -711,9 +717,9 @@ proc calcGasGain*(h5f: H5File, runNumber: int,
   info "Calulating gas gain for run: ", runNumber
   let fileInfo = h5f.getFileInfo()
   for run, chip, grp in chipGroups(h5f):
-    if chipBase in grp:
+    if chipBase in grp and not isDone(h5f, grp, rfOnlyGasGain, overwrite):
       doAssert run == runNumber
-      h5f.calcGasGain(grp, run, chip, fileInfo, fullRunGasGain, interval, minInterval, plotPath, useTeX = useTeX)
+      h5f.calcGasGain(grp, run, chip, fileInfo, fullRunGasGain, interval, minInterval, plotPath, useTeX = useTeX, overwrite = overwrite)
 
 proc writeFeFitParameters(dset: var H5DataSet,
                           popt, popt_E: seq[float],
@@ -794,35 +800,12 @@ proc fitToFeSpectrum*(h5f: H5File, runNumber, chipNumber: int,
                       fittingOnly = false, useTeX = false,
                       outfiles: seq[string] = @[],
                       writeToFile = true,
-                      plotPath = ""
+                      plotPath = "",
+                      overwrite = false
                      ) =
-  ## (currently) calls Python functions from `ingrid` Python module to
-  ## perform fit to the `FeSpectrum` dataset in the given run number
-  ## NOTE: due to calling Python functions, this proc is *extremely*
-  ## inefficient!
   ## The optional `writeToFile` flag can be set to `false` if this proc
   ## is to be called if the H5 file is opened read only to reproduce
   ## the results, but not rewrite them to the file (used in `plotData`)
-
-  # get the fe spectrum for the run
-  let groupName = recoDataChipBase(runNumber) & $chipNumber
-  var feDset = h5f[(groupName / "FeSpectrum").dsetStr]
-  let plotPath = if plotPath.len == 0: h5f.attrs[PlotDirPrefixAttr, string] else: plotPath
-  let feData = feDset[int64]
-  info "Fit pixel spectrum of run: " & $runNumber & " and chip: " & $chipNumber
-  let feSpec = fitFeSpectrum(feData)
-  info "Fit energy calibration of run: " & $runNumber & " and chip: " & $chipNumber
-  let ecData = fitEnergyCalib(feSpec, isPixel = true)
-  let texts = buildTextForFeSpec(feSpec, ecData)
-  info "Plot pixel spectrum of run: " & $runNumber & " and chip: " & $chipNumber
-  plotFeSpectrum(feSpec, runNumber, chipNumber,
-                 texts, isPixel = true,
-                 pathPrefix = plotPath,
-                 useTeX = useTeX)
-  info "Plot energy calibration of run: " & $runNumber & " and chip: " & $chipNumber
-  plotFeEnergyCalib(ecData, runNumber, isPixel = true,
-                    pathPrefix = plotPath,
-                    useTeX = useTeX)
 
   proc extractAndWriteAttrs(h5f: H5File,
                             dset: var H5DataSet,
@@ -842,13 +825,42 @@ proc fitToFeSpectrum*(h5f: H5File, runNumber, chipNumber: int,
     grp1.copy_attributes(dset.attrs)
     grp2.copy_attributes(dset.attrs)
 
-  const eVperPixelScaling = 1e3
-  if writeToFile:
-    h5f.extractAndWriteAttrs(feDset, eVperPixelScaling, feSpec, ecData, texts, "eV_per_pix")
+  ## ==============================
+  ##         Pixel spectrum
+  ## ==============================
+  let groupName = recoPath(runNumber, chipNumber).string
+  if not isDone(h5f, groupName, $rfOnlyFeSpec & "Pixel", overwrite):
+    # get the fe spectrum for the run
+    var feDset = h5f[(groupName / "FeSpectrum").dsetStr]
+    let plotPath = if plotPath.len == 0: h5f.attrs[PlotDirPrefixAttr, string] else: plotPath
+    let feData = feDset[int64]
+    info "Fit pixel spectrum of run: " & $runNumber & " and chip: " & $chipNumber
+    let feSpec = fitFeSpectrum(feData)
+    info "Fit energy calibration of run: " & $runNumber & " and chip: " & $chipNumber
+    let ecData = fitEnergyCalib(feSpec, isPixel = true)
+    let texts = buildTextForFeSpec(feSpec, ecData)
+    info "Plot pixel spectrum of run: " & $runNumber & " and chip: " & $chipNumber
+    plotFeSpectrum(feSpec, runNumber, chipNumber,
+                   texts, isPixel = true,
+                   pathPrefix = plotPath,
+                   useTeX = useTeX)
+    info "Plot energy calibration of run: " & $runNumber & " and chip: " & $chipNumber
+    plotFeEnergyCalib(ecData, runNumber, isPixel = true,
+                      pathPrefix = plotPath,
+                      useTeX = useTeX)
 
+    const eVperPixelScaling = 1e3
+    if writeToFile:
+      h5f.extractAndWriteAttrs(feDset, eVperPixelScaling, feSpec, ecData, texts, "eV_per_pix")
+      writeFlag(h5f, groupName, $rfOnlyFeSpec & "Pixel")
+
+  ## ==============================
+  ##         Charge spectrum
+  ## ==============================
   # run might not have ``totalCharge`` dset, if no ToT calibration is available,
   # but user wishes Fe spectrum fit to # hit pixels
-  if h5f.hasTotalChargeDset(runNumber, chipNumber):
+  if not isDone(h5f, groupName, $rfOnlyFeSpec & "Charge", overwrite) and
+     h5f.hasTotalChargeDset(runNumber, chipNumber):
     # also fit to the charge spectrum
     let feIdx = h5f[groupName / "FeSpectrumIndices", int64]
     let totChargeData = h5f[groupName / "totalCharge", float64]
@@ -887,13 +899,21 @@ proc fitToFeSpectrum*(h5f: H5File, runNumber, chipNumber: int,
                                textsCharge,
                                "keV_per_electron",
                                "Charge")
+      writeFlag(h5f, groupName, $rfOnlyFeSpec & "Charge")
   else:
-    echo "Warning: `totalCharge` dataset does not exist in file. No fit to " &
+    echo "Warning: Either already performed 55Fe fit or `totalCharge` dataset does not exist in file. No fit to " &
       "charge Fe spectrum will be performed!"
 
+  ## ==============================
+  ##         FADC spectrum
+  ## ==============================
   # `--only_fadc` must have been run nowadays. We only compute the `minVals` in the actual FADC reconstruction
   # now!
-  if h5f.hasFadc(runNumber) and minValBasename(runNumber) in h5f:
+  let fadcGroup = fadcRecoPath(runNumber)
+  echo "CHECKIN GROUP?? ", fadcGroup
+  echo "Is it done? ", isDone(h5f, fadcGroup, $rfOnlyFeSpec & "FADC", overwrite)
+  if not isDone(h5f, fadcGroup, $rfOnlyFeSpec & "FADC", overwrite) and
+     h5f.hasFadc(runNumber) and minValBasename(runNumber) in h5f:
     ## Also fit the 55Fe spectrum in the FADC data
     ## XXX: in the future `minvals` may be replaced by a "charge" equivalent based on
     ## an integral of the signal!
@@ -921,6 +941,7 @@ proc fitToFeSpectrum*(h5f: H5File, runNumber, chipNumber: int,
                                textsFadc,
                                "keV_per_V",
                                "Fadc")
+      writeFlag(h5f, fadcGroup, $rfOnlyFeSpec & "FADC")
 
 proc fitSpectraBySlices(h5f: H5File,
                         chipGrp: H5Group, chip: int,
@@ -962,7 +983,8 @@ proc performChargeCalibGasGainFit*(h5f: H5File,
                                    interval: float,
                                    gcKind: GasGainVsChargeCalibKind = gcMean,
                                    useTeX = false,
-                                   plotPath = "") =
+                                   plotPath = "",
+                                   overwrite = false) =
   ## performs the fit of the charge calibration factors vs gas gain fit
   ## Assumes:
   ## - h5f points to a h5 file of `runType == rtCalibration`
@@ -972,6 +994,8 @@ proc performChargeCalibGasGainFit*(h5f: H5File,
   ## NOTE: the `gcKind` only takes effect for input H5 files, which are already
   ## reconstructed using the new sliced gas gain calibration!
   # iterate over all runs, extract center chip grou
+  if isDone(h5f, recoGroupGrpStr().string, rfOnlyGainFit, overwrite): return
+
   let plotPath = if plotPath.len > 0: plotPath else: h5f.attrs[PlotDirPrefixAttr, string]
   var
     calib = newSeq[float64]()
@@ -1059,8 +1083,10 @@ proc performChargeCalibGasGainFit*(h5f: H5File,
   info "Plot charge calibration vs gas gain for file: " & $h5f.name
   plotGasGainVsChargeCalib(gainVals, calib, calibErr, fitResult,
                            pathPrefix = plotPath, useTeX = useTeX)
+  # write the flag it is done
+  writeFlag(h5f, recoGroupGrpStr().string, rfOnlyGainFit)
 
-proc calcEnergyFromPixels*(h5f: H5File, runNumber: int, calib_factor: float) =
+proc calcEnergyFromPixels*(h5f: H5File, runNumber: int, calib_factor: float, overwrite: bool) =
   ## proc which applies an energy calibration based on the number of hit pixels in an event
   ## using a conversion factor of unit eV / hit pixel to the run given by runNumber contained
   ## in file h5f
@@ -1069,7 +1095,7 @@ proc calcEnergyFromPixels*(h5f: H5File, runNumber: int, calib_factor: float) =
   var chipBase = recoDataChipBase(runNumber)
   # get the group from file
   for run, chip, grp in chipGroups(h5f, recoBase()):
-    if chipBase in grp:
+    if chipBase in grp and not isDone(h5f, grp, rfOnlyEnergy, overwrite):
       doAssert runNumber == run
       # now can start reading, get the group containing the data for this chip
       var group = h5f[grp.grp_str]
@@ -1087,15 +1113,20 @@ proc calcEnergyFromPixels*(h5f: H5File, runNumber: int, calib_factor: float) =
       energy_dset[energy_dset.all] = energy
       # attach used conversion factor to dataset
       energy_dset.attrs["conversionFactorUsed"] = calib_factor
+      # set the flag that this run is finished
+      writeFlag(h5f, grp, rfOnlyEnergy)
 
 proc calcEnergyFromCharge*(h5f: H5File, chipGrp: H5Group,
                            interval: float,
                            b, m: float,
-                           gcKind: GasGainVsChargeCalibKind) =
+                           gcKind: GasGainVsChargeCalibKind,
+                           overwrite: bool) =
   ## performs the actual energy calculation, based on the fit parameters of
-  ## `b` and `m` on the group `chipGrp`. This includes wirting the energy
+  ## `b` and `m` on the group `chipGrp`. This includes writing the energy
   ## dataset and attributes!
   # get the chip number from the attributes of the group
+  if isDone(h5f, chipGrp.name, rfOnlyEnergyElectrons, overwrite): return # nothing to do
+
   var mchpGrp = chipGrp
   let chipNumber = mchpGrp.attrs["chipNumber", int]
 
@@ -1168,8 +1199,11 @@ proc calcEnergyFromCharge*(h5f: H5File, chipGrp: H5Group,
   energy_dset.attrs["Gas gain interval length"] = interval
   energy_dset.attrs["Number of gas gain intervals"] = gainSlices.len
 
+  writeFlag(h5f, chipGrp.name, rfOnlyEnergy)
+
 proc calcEnergyFromCharge*(h5f: H5File, interval: float,
-                           gcKind: GasGainVsChargeCalibKind = gcNone) =
+                           gcKind: GasGainVsChargeCalibKind = gcNone,
+                           overwrite = false) =
   ## proc which applies an energy calibration based on the number of electrons in a cluster
   ## using a conversion factor of unit 1e6 keV / electron to the run given by runNumber contained
   ## in file h5f
@@ -1187,6 +1221,7 @@ proc calcEnergyFromCharge*(h5f: H5File, interval: float,
   # get the group from file
 
   for run, chip, grp in chipGroups(h5f):
+    if isDone(h5f, grp, rfOnlyEnergyElectrons, overwrite): continue # nothing to do
     # now can start reading, get the group containing the data for this chip
     var group = h5f[grp.parentDir.grp_str]
     echo "Energy from charge calibration for run ", run
@@ -1197,4 +1232,4 @@ proc calcEnergyFromCharge*(h5f: H5File, interval: float,
       (b, m) = getCalibVsGasGainFactors(chipName, run, suffix = $gcKind)
     # now iterate over chips in this run
     let chipGrp = h5f[grp.grp_str]
-    h5f.calcEnergyFromCharge(chipGrp, interval, b, m, gcKind)
+    h5f.calcEnergyFromCharge(chipGrp, interval, b, m, gcKind, overwrite)

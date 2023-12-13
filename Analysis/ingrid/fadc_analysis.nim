@@ -10,7 +10,6 @@ import seqmath
 import tos_helpers, ingrid_types, fadc_helpers
 import helpers/utils
 
-
 # for moving average statistics
 import adix / stat
 
@@ -366,7 +365,7 @@ proc calcRiseAndFallTimes*(fadc: Tensor[float], eventNumber: seq[int] = @[]): Re
     for field, data in fieldPairs(result):
       data[i] = getField(tup, field)
 
-proc calcRiseAndFallTimes*(h5f: H5File, run_number: int) =
+proc calcRiseAndFallTimes*(h5f: H5File, runNumber: int, overwrite = false) =
   ## proc which reads the FADC data from the given file
   ## then performs the calculation of fall and rise time
   ## starting from the index of the minimum
@@ -375,10 +374,12 @@ proc calcRiseAndFallTimes*(h5f: H5File, run_number: int) =
     # if no FADC data available, do nothing
     return
 
-  let
-    fadc_group = fadcDataBasename(run_number)
-  var
-    fadc = h5f[fadc_group.dset_str]
+  let fadc_group = fadcRecoPath(runNumber)
+  if isDone(h5f, fadc_group, rfOnlyFadc, overwrite): return # nothing to do
+
+  let fadcDset = fadcDataBasename(runNumber)
+
+  var fadc = h5f[fadcDset.dset_str]
 
   let fadcShape = fadc.shape
   var f_data = newTensorUninit[float](fadcShape)
@@ -389,8 +390,8 @@ proc calcRiseAndFallTimes*(h5f: H5File, run_number: int) =
   # given the reshaped array, we can now compute the
   # fall and rise times
   let t0 = epochTime()
-  echo "Start fadc calc"
-  let evNums = h5f[fadc_group.parentDir / "eventNumber", int]
+  echo "[INFO] Start FADC rise / fall time calculations for run: ", runNumber
+  let evNums = h5f[fadc_group / "eventNumber", int]
   let recoFadc = calcRiseAndFallTimes(f_data, evNums)
   # the filter we use globally in this file
   let filter = H5Filter(kind: fkZlib, zlibLevel: 4)
@@ -405,13 +406,15 @@ proc calcRiseAndFallTimes*(h5f: H5File, run_number: int) =
                                   filter = filter)
     # write the data
     dset.unsafeWrite(data.toUnsafeView(), nEvents)
+  # write flag we are done
+  writeFlag(h5f, fadc_group, rfOnlyFadc)
 
 proc main(h5file: string, runNumber: int = -1,
           noise_analysis = false,
           outfile = "") =
   var h5f = H5open(h5file, "rw")
   if runNumber > 0:
-    calcRiseAndFallTimes(h5f, run_number)
+    calcRiseAndFallTimes(h5f, runNumber)
   elif noise_analysis:
     let t_tup = noiseAnalysis(h5f)
     if outfile.len > 0:

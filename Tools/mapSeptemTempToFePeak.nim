@@ -29,7 +29,7 @@ proc readFePeaks(files: seq[string], feKind: FeFileKind = fePixel): DataFrame =
   case feKind
   of fePixel:
     kalphaIdx = kalphaPix
-    dset = "FeSpectrum"
+    dset = "FeSpectrumPlot"
   of feCharge:
     kalphaIdx = kalphaCharge
     dset = "FeSpectrumCharge"
@@ -95,6 +95,7 @@ proc main(calibFiles: seq[string], inputs: set[FeFileKind],
     var df = readFePeaks(calibFiles, input)
     ggplot(df, aes("Timestamp", Peak)) +
       geom_point() +
+      themeLatex(fWidth = 0.9, width = Width, height = Height, baseTheme = singlePlot) +
       ggsave(&"{outpath}/time_vs_peak_pos_{input}.pdf",
              width = Width, height = Height, useTeX = UseTeX, standalone = UseTeX)
     dfPeaks.add df
@@ -103,8 +104,10 @@ proc main(calibFiles: seq[string], inputs: set[FeFileKind],
     ggplot(dfPeaks, aes("Timestamp", PeakNorm, color = "Type")) +
       geom_point() +
       scale_x_continuous(labels = toPeriod) +
-      ylab(ylabel) +
+      xlab("Timestamp", rotate = -20, alignTo = "right", margin = 2.0) + ylab(ylabel) +
       ggtitle("Normalized ⁵⁵Fe photopeak position in charge, pixels and FADC signal") +
+      margin(bottom = 2.5) +
+      themeLatex(fWidth = 0.9, width = Width, height = Height, baseTheme = singlePlot) +
       ggsave(&"{outpath}/time_vs_peak_pos.pdf",
              width = Width, height = Height, useTeX = UseTeX, standalone = UseTeX)
 
@@ -124,6 +127,7 @@ proc main(calibFiles: seq[string], inputs: set[FeFileKind],
   var df = toDf({ TempPeak : peakNorm, "Timestamp" : feDates })
   ggplot(df, aes(Timestamp, TempPeak)) +
     geom_point() +
+    themeLatex(fWidth = 0.9, width = Width, height = Height, baseTheme = singlePlot) +
     ggsave(&"{outpath}/time_vs_peak_norm_by_temp.pdf",
            width = Width, height = Height, useTeX = UseTeX, standalone = UseTeX)
 
@@ -136,6 +140,7 @@ proc main(calibFiles: seq[string], inputs: set[FeFileKind],
     ylab("Normalized ⁵⁵Fe peak position") +
     ggtitle("Variation of peak position of ⁵⁵Fe peak over time, normalized by temperature") +
     # ggsave("/tmp/time_vs_peak_temp_normed_comparison.pdf")
+    themeLatex(fWidth = 0.9, width = Width, height = Height, baseTheme = singlePlot) +
     ggsave(&"{outpath}/time_vs_peak_temp_normed_comparison.pdf",
            width = Width, height = Height, useTeX = UseTeX, standalone = UseTeX)
 

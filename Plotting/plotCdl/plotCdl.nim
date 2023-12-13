@@ -6,6 +6,26 @@ import cligen
 
 import ginger
 
+let UseTeX = getEnv("USE_TEX", "false").parseBool
+let Width = getEnv("WIDTH", "600").parseFloat
+let Height = getEnv("Height", "420").parseFloat
+
+proc thL(fWidth: float, width: float,
+         baseTheme: (proc(): Theme),
+         height = -1.0, ratio = -1.0,
+         textWidth = 458.29268, # 455.24411
+        ): Theme =
+  if UseTeX:
+    let texOptions = toTeXOptions(UseTeX, onlyTikZ = false,
+                                  standalone = true,
+                                  texTemplate = "", caption = "", label = "", placement = "htbp")
+    result = themeLatex(fWidth, width, baseTHeme, height, ratio, textWidth,
+                        useTeX = UseTeX, texOptions = texOptions)
+  else:
+    result = Theme()
+
+
+
 type
   HistTuple = tuple[bins: seq[float64], hist: seq[float64]]
 
@@ -122,6 +142,7 @@ proc plotRef(df: DataFrame,
     geom_histogram(stat = "identity", position = "identity",
                    alpha = some(0.5)) +
     ggtitle(&"{dset} of reference file, year: {yearKind}") +
+    thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
     ggsave(&"{outpath}/{dset}_ridgeline_{refFile.extractFilename}_{yearKind}.pdf",
             width = 800, height = 480)
 
@@ -161,8 +182,16 @@ proc plotCdlFile(ctx: LikelihoodContext, outpath: string) =
   for idx, el in xrayRef:
     labelOrder[%~ el] = idx
 
-  var img = initViewport(wImg = 1200, hImg = 600, backend = bkCairo)
-  img.layout(3, rows = 1)
+  let backend = if UseTeX: bkTikZ else: bkCairo
+  const LeftMargin = 5.5
+  const OtherMargin = 0.5
+  let additional = (LeftMargin - OtherMargin) / 2.54 * 72.0 # additional: 4.5 cm more on left plot
+  let totalW = 1200 + additional
+  var img = initViewport(wImg = totalW, hImg = 600, backend = backend)
+  let texOptions = toTexOptions(true, false, true, "", "", "", "")
+  img.layout(3, rows = 1, colWidths = @[quant(400 + additional, ukPoint),
+                                        quant(400, ukPoint),
+                                        quant(400, ukPoint)])
   var idx = 0
   let title = "Overview of all reference distributions for each of the three cluster properties"
   for (tup, subDf) in refDf.group_by("Dset").groups:
@@ -178,8 +207,22 @@ proc plotCdlFile(ctx: LikelihoodContext, outpath: string) =
       ggridges("tfKind", overlap = 1.5, labelOrder = labelOrder) +
       geom_histogram(position = "identity", stat = "identity", hdKind = hdOutline, color = "black", lineWidth = 1.0) +
       xlab(dset, tickMargin = 1.5) +
-      margin(left = 4.0, right = 1, top = 1.5) +
       hideLegend()
+    # The `fWidth` correspond to 400 pixels in middle and right column with left margin 0.5 cm
+    # and `400 + additional` pixels in left plot
+    proc thm(): Theme =
+      result = sideBySide()
+      result.tickWidth = some(result.tickWidth.get / 1.5)
+      result.tickLength = some(result.tickLength.get / 1.5)
+    if idx in [1, 2]:
+      plt = plt + hideYLabels() + hideYTickLabels() +
+        margin(left = OtherMargin, right = 1, top = 1.5, bottom = 3.0) +
+        #thL(fWidth = 0.333333, width = 400, height = 600, baseTheme = sideBySide) +
+        thL(fWidth = 400 / totalW, width = 400, height = 600, baseTheme = thm)
+    else:
+      plt = plt + margin(left = LeftMargin, right = 1, top = 1.5, bottom = 3.0) +
+        thL(fWidth = (400.0 + additional) / totalW , width = 400 + additional, height = 600, baseTheme = thm)
+
     img.embedAsRelative(idx, ggcreate(plt).view)
     inc idx
 
@@ -188,19 +231,22 @@ proc plotCdlFile(ctx: LikelihoodContext, outpath: string) =
       geom_histogram(stat = "identity", position = "identity") +
       ggtitle(&"{dset} of reference file") +
       xlab(dset) +
+      thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
       ggsave(&"{outpath}/{dset}_facet_{ctx.cdlFile.extractFilename}.pdf",
               width = 1200, height = 1000)
 
   var area = img.addViewport()
-  let text = area.initText(c(0.5, 0.05, ukRelative), title, goText, taCenter, font = some(font(16.0)))
+  # The font size corresponds to `themeLatex` at `fWidth = 1.0, width = 1200` or `fWidth = 0.33333, width = 400` for a single plot
+  let text = area.initText(c(0.5, 0.05, ukRelative), title, goText, taCenter, font = some(font(23.65412172961357)))
   area.addObj text
   img.children.add area
-  img.draw(&"{outpath}/ridgeline_all_properties_side_by_side.pdf")
+  img.draw(&"{outpath}/ridgeline_all_properties_side_by_side.pdf", texOptions = texOptions)
 
   ggplot(refDf.filter(f{`Bins` <= 10.0 and `Bins` >= 0.0}), aes("Bins", "Counts", fill = "Dset")) +
     ggridges("tfKind", overlap = 1.5, labelOrder = labelOrder) +
     geom_histogram(position = "identity", stat = "identity", hdKind = hdOutline, color = "black", lineWidth = 1.0) +
     xlim(0, 10) +
+    thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
     ggsave(&"{outpath}/ridgeline_all_properties_same_ridge.pdf", width = 1000, height = 600)
 
 
@@ -211,8 +257,10 @@ proc plotCdlFile(ctx: LikelihoodContext, outpath: string) =
                    hdKind = hdOutline,
                    color = "black", lineWidth = 1.0,
                    density = true) +
-    xlab("-ln L") +
+    xlab("-ln L", margin = 1.5) + ylab("Density", margin = 3.5) +
     ggtitle("-ln L distributions for each target/filter combination") +
+    thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
+    margin(left = 4.5) +
     ggsave(&"{outpath}/logL_ridgeline.pdf")
 
   ggplot(df, aes("logL", color = "Dset")) +
@@ -220,6 +268,7 @@ proc plotCdlFile(ctx: LikelihoodContext, outpath: string) =
                    lineWidth = some(1.5),
                    hdKind = hdOutline) +
     ggtitle("LogL distributions from CDL data") +
+    thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
     ggsave(&"{outpath}/logL_outline.pdf")
 
   ## XXX: replace this by the version that we generate in `cdl_spectrum_creation`? We'd need to
@@ -229,6 +278,7 @@ proc plotCdlFile(ctx: LikelihoodContext, outpath: string) =
     geom_histogram(position = "identity", alpha = 0.5, bins = 300, hdKind = hdOutline) +
     xlab("Energy [keV]") + ylab("#") +
     ggtitle("Energy spectra of all GridPix Feb 2019 X-ray tube data") +
+    thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
     ggsave(&"{outpath}/cdl_energies.pdf")
 
   # XXX: Well, it doesn't work in the way I thought, because obviously we cannot just compute

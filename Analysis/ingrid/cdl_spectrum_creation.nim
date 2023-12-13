@@ -18,7 +18,7 @@ index bd5eb1ec3..170061aaf 100644
 ]#
 
 import std / [os, streams, strutils, strformat, tables, sequtils,
-              macros, fenv, algorithm, times, strscans, typeinfo]
+              macros, fenv, algorithm, times, strscans, typeinfo, sugar]
 import ingrid / [ingrid_types, tos_helpers]
 import ingrid / calibration
 import ingrid / calibration / [fit_functions, calib_fitting]
@@ -26,32 +26,6 @@ import cdlFitting / cdlFitMacro
 import helpers / utils
 import cligen / macUt
 import pkg / [mpfit, nlopt, nimhdf5, parsetoml, seqmath, measuremancer]
-
-const docStr = """
-Usage:
-  cdl_spectrum_creation <h5file> [options]
-  cdl_spectrum_creation -h | --help
-  cdl_spectrum_creation --version
-  cdl_spectrum_creation <h5file> --dumpAccurate [options]
-  cdl_spectrum_creation <h5file> --cutcdl [options]
-  cdl_spectrum_creation <h5file> --genRefFile --year=YEAR [options]
-  cdl_spectrum_creation <h5file> --genCdlFile --year=YEAR [options]
-
-Options:
-  -h, --help      Show this help
-  --version       Show the version number
-  --cutcdl        Creates CDL data in h5
-  --dumpAccurate  If set will dump the fit parameters to a
-                  `fitParameters_<timestamp>.txt` file with
-                  higher accuracy (4 decimal places instead of 2).
-  --genRefFile    Generates the X-ray reference data file. Basically
-                  TargetFilterKinds filtered by charge cut on peaks.
-  --genCdlFile    Generate the combined CDL calibration file.
-                  Mainly input file regrouped by TargetFilterKind
-                  instead of run numbers.
-  --outfile=NAME  Name of the output file. Optional.
-  --year=YEAR     Year to add to output filenames.
-"""
 
 when defined(linux):
   const commitHash = staticExec("git rev-parse --short HEAD")
@@ -78,6 +52,9 @@ const CdlGenerateNamingScheme = fkTpa
 # the filter we use globally in this file
 let filter = H5Filter(kind: fkZlib, zlibLevel: 4)
 
+let UseTeX = getEnv("USE_TEX", "false").parseBool
+let Width = getEnv("WIDTH", "600").parseFloat
+let Height = getEnv("Height", "420").parseFloat
 
 type
   CdlFitFunc = proc(p_ar: seq[float], x: float): float
@@ -104,6 +81,20 @@ type
     fit_μ: Measurement[float]
     fit_σ: Measurement[float]
     energyRes: Measurement[float]
+
+proc thL(fWidth: float, width: float,
+         baseTheme: (proc(): Theme),
+         height = -1.0, ratio = -1.0,
+         textWidth = 458.29268, # 455.24411
+        ): Theme =
+  if UseTeX:
+    let texOptions = toTeXOptions(UseTeX, onlyTikZ = false,
+                                  standalone = true,
+                                  texTemplate = "", caption = "", label = "", placement = "htbp")
+    result = themeLatex(fWidth, width, baseTHeme, height, ratio, textWidth,
+                        useTeX = UseTeX, texOptions = texOptions)
+  else:
+    result = Theme()
 
 proc readFitByRun(config: string): bool =
   ## Reads the `fitByRun` field from the configuration file, deciding whether to
@@ -855,6 +846,7 @@ proc energyResolution(peaksHits, peaksCharge: seq[MainPeak],
     xlab("Energy [keV]") +
     ylab("Energy resolution [%]") +
     ggtitle("Energy resolution depending on energy") +
+    thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
     ggsave(&"{pathPrefix}/energyresoplot-{outdate}.pdf", width = 800, height = 480)
 
 proc peakFit(mainPeaks: seq[MainPeak], name: string, pathPrefix: string) =
@@ -871,6 +863,7 @@ proc peakFit(mainPeaks: seq[MainPeak], name: string, pathPrefix: string) =
     xlab("Energy [keV]") +
     ylab(&"Peak position for {name}") +
     ggtitle("Peak position of all targets") +
+    thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
     ggsave(&"{pathPrefix}/{name}.pdf", width = 800, height = 480)
 
 proc serializeFitParameters(fitResult: FitResult,
@@ -931,6 +924,8 @@ proc serializeFitParameters(fitResult: FitResult,
     else:
       result.add "\n"
   result.add &"χ²/dof = {fitResult.χ²dof:.2f}"
+  if UseTeX:
+    result = result.replace("\n", r"\\")
 
 proc dumpFitParameters(outfile, svgFname: string,
                        fitResult: FitResult,
@@ -1140,12 +1135,14 @@ proc fitAndPlotImpl(h5f: H5File, dfU: DataFrame, runNumber: int, fitParamsFname:
     geom_linerange(aes = aes(x = cLV, y = cNV / 2.0, yMin = 0.0, yMax = cNV)) +
     geom_linerange(aes = aes(x = cHV, y = cNV / 2.0, yMin = 0.0, yMax = cNV)) +
     annotate(serializeFitParameters(fitResultMpfit, tfKind, dKind, true),
-             0.55, 0.6,
+             0.5, 0.8,
              font = font(12.0, family = "monospace")) +
     xlab(xtitle) +
     xlim(0.0, binRangePlot) +
     ylab("Counts") +
     ggtitle(&"target: {tfKind}, run: {runNumber}") +
+    thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
+    margin(right = 3.5) +
     ggsave(fname, width = 800, height = 480)
 
   # now dump the fit results, SVG filename and correct parameter names to a file
@@ -1262,8 +1259,9 @@ proc fitAndPlot(h5f: H5File, fitParamsFname: string,
                    hdKind = hdOutline,
                    position = "identity",
                    alpha = 0.5) +
-    ggtitle("Cleaned data of & " & $dKind & " " & $tfKind & " split by run") +
+    ggtitle("Cleaned data of \\& " & $dKind & " " & $tfKind & " split by run") +
     xlab(xtitle) +
+    thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
     ggsave(fnameByRun, width = 800, height = 480)
 
   result = (dfU, mainPeaks)
@@ -1564,18 +1562,21 @@ proc energyHistograms(df: DataFrame, plotPath: string) =
   ggplot(dfC, aes("Energy", fill = "Target")) +
     geom_histogram(bins = 100, hdKind = hdOutline, density = true, position = "identity", alpha = 0.6, color = "black", lineWidth = 1.0) +
     ggtitle("Normalized histograms of energy calibrated CDL data by target / filter") +
-    xlab("Energy [keV]") +
+    xlab("Energy [keV]") + ylab("Density") +
+    thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
     ggsave(&"{plotPath}/{fname}_histos.pdf", width = 800, height = 480)
 
   ggplot(dfC, aes("Energy", fill = "Target")) +
     geom_density(alpha = 0.6, color = "black", size = 1.0, normalize = true) +
     ggtitle("Normalized KDE of energy calibrated CDL data by target / filter") +
-    xlab("Energy [keV]") +
+    xlab("Energy [keV]") + ylab("Density") +
+    thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
     ggsave(&"{plotPath}/{fname}_kde.pdf", width = 800, height = 480)
 
 proc plotRunGains(gainDf, tempDf: DataFrame, plotPath: string) =
   ggplot(gainDf, aes("runNumber", "Gain", color = factor("Target"))) +
     geom_point() +
+    thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
     ggsave(&"{plotPath}/gas_gain_by_run_and_tfkind.pdf", width = 800, height = 480)
 
   let minGain = gainDf["Gain", float].min
@@ -1590,10 +1591,12 @@ proc plotRunGains(gainDf, tempDf: DataFrame, plotPath: string) =
     scale_y_continuous(secAxis = secAxis(name = "Temp [°C]", trans = f{maxTemp / maxGain})) +
     margin(right = 7) +
     legendPosition(0.8, 0.0) +
+    thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
     ggsave(&"{plotPath}/gas_gain_by_run_and_tfkind_with_cdl_temp.pdf", width = 800, height = 480)
 
   ggplot(tempDf, aes("Timestamp", "Septem", color = factor("runNumber"))) +
     geom_point(size = 0.5) +
+    thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
     ggsave(&"{plotPath}/septem_temperature_cdl.pdf")
 
   let title = "Temperatures of CDL runs which contain temperature data"
@@ -1603,6 +1606,7 @@ proc plotRunGains(gainDf, tempDf: DataFrame, plotPath: string) =
     geom_point(size = 0.5) +
     xlab(rotate = -45, alignTo = "right") +
     ggtitle(title) +
+    thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
     ggsave(&"{plotPath}/septem_temperature_facet_cdl_time_since_start.pdf", width = 1200, height = 1000)
 
   proc toDate(v: float): string =
@@ -1614,6 +1618,7 @@ proc plotRunGains(gainDf, tempDf: DataFrame, plotPath: string) =
     xlab(rotate = -45, alignTo = "right") +
     scale_x_continuous(labels = toDate) +
     ggtitle(title) +
+    thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
     ggsave(&"{plotPath}/septem_temperature_facet_cdl.pdf", width = 1200, height = 1000)
 
   ggplot(tempDf.gather(["Septem", "IMB"], "Type", "Temp"), aes("Timestamp", "Temp", color = factor("Type"))) +
@@ -1623,6 +1628,7 @@ proc plotRunGains(gainDf, tempDf: DataFrame, plotPath: string) =
     xlab(rotate = -45, alignTo = "right") +
     scale_x_continuous(labels = toDate) +
     ggtitle(title) +
+    thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
     ggsave(&"{plotPath}/septem_imb_temperature_facet_cdl.pdf", width = 1200, height = 1000)
 
 proc plotIngridProperties(h5f: H5File, tfKind: TargetFilterKind, plotPath: string) =
@@ -1646,6 +1652,7 @@ proc plotIngridProperties(h5f: H5File, tfKind: TargetFilterKind, plotPath: strin
     ggplot(df, aes(dsetStr, fill = factor("run"))) +
       geom_histogram(bins = 100, hdKind = hdOutline, alpha = 0.5, position = "identity", density = true) +
       ggtitle("Dataset " & $dsetStr & " for " & $tfKind) +
+      #thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) + # <- not as a TeX plot, takes too long to produce all!
       ggsave(&"{plotPath}/{$tfKind}_{dsetStr}_histogram_by_run.pdf")
     when false:
       ggplot(df, aes(dsetStr, fill = factor("run"))) +
@@ -1656,8 +1663,9 @@ proc plotIngridProperties(h5f: H5File, tfKind: TargetFilterKind, plotPath: strin
   ggplot(dfAll, aes("Value", fill = factor("run"))) +
     ggridges("Dset", overlap = 4.0) +
     geom_density(normalize = true, alpha = 0.6, color = "black", size = 0.5) +
-    ggtitle("Ridgeline plot of " & $tfKind & " for all InGrid properties in arbitrary units: x/max(x)") +
-    margin(left = 4) +
+    ggtitle($tfKind & ", all InGrid properties in arbitrary units: x/max(x)") +
+    margin(left = 5.5, right = 3.0) +
+    thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
     ggsave(&"{plotPath}/{$tfKind}_ridgeline_kde_by_run.pdf", width = 900, height = 600)
 
 proc writeCdlInfoTable(peaksHits, peaksCharge: seq[MainPeak]) =
@@ -1670,7 +1678,7 @@ proc writeCdlInfoTable(peaksHits, peaksCharge: seq[MainPeak]) =
       result = toDf({ "runNumber" : mp.runNumber,
                       "Target" : $($mp.tfKind.toTarget()),
                       "Filter" : $(mp.tfKind.toFilter()),
-                      "HV [kV]" : (mp.tfKind.toHV().removeSuffix("kV")),
+                      "HV [kV]" : (mp.tfKind.toHV().dup(removeSuffix("kV"))),
                       "dKind" : $mp.dKind,
                       "μ" : mp.fit_μ.toStr(), # write measurements as strings to get nice printing
                       "σ" : mp.fit_σ.toStr(),
@@ -1681,13 +1689,15 @@ proc writeCdlInfoTable(peaksHits, peaksCharge: seq[MainPeak]) =
   echo df.filter(f{`dKind` == "hits"}).drop("dKind").toOrgTable(emphStrNumber = false)
 
 proc plotsAndEnergyResolution(input: string,
-                              dumpAccurate, showStartParams, hideNloptFit, fitByRun: bool) =
+                              dumpAccurate, showStartParams, hideNloptFit, fitByRun: bool,
+                              plotPath: string) =
   let fitParamsFname = getFitParamsFname(dumpAccurate)
   var peaksHits: seq[MainPeak]
   var peaksCharge: seq[MainPeak]
   var h5f = H5open(input, "rw")
   var df = newDataFrame()
-  let plotPath = h5f.attrs[PlotDirPrefixAttr, string]
+  let plotPath = if plotPath.len > 0: plotPath
+                 else: h5f.attrs[PlotDirPrefixAttr, string]
   var gainDf = newDataFrame()
   var tempDf = newDataFrame()
   for tfkind in TargetFilterKind:
@@ -1710,7 +1720,6 @@ proc plotsAndEnergyResolution(input: string,
 
     # plot the ingrid properties by run
     h5f.plotIngridProperties(tfKind, plotPath)
-
 
   # plot the gas gain of all data
   plotRunGains(gainDf, tempDf, plotPath)
@@ -1738,7 +1747,7 @@ proc upcaseWord(s: string): string =
 proc fnNameToTfKind(fn: string): TargetFilterKind =
   # not the prettiest parsing, but gets the job done without too much
   # specifics of the details...
-  var tmp = fn.replace("_", ".").removeSuffix("Func").removeSuffix("Charge")
+  var tmp = fn.replace("_", ".").dup(removeSuffix("Func")).dup(removeSuffix("Charge"))
   var target = ""
   var filter = ""
   var idx = tmp.parseUntil(target, until = {'A' .. 'Z'}, start = 0) # skip first char!
@@ -1778,7 +1787,8 @@ proc main(input = "",
           outfile = "",
           year: string = "2018",
           config = "",
-          printFunctions = false
+          printFunctions = false,
+          plotPath = "",
          ) =
   ##
   docCommentAdd(versionStr)
@@ -1803,7 +1813,7 @@ proc main(input = "",
     # only perform CDL fits if neither CDL calibration file nor
     # reference file created
     raiseNoInput(input)
-    plotsAndEnergyResolution(input, dumpAccurate, showStartParams, hideNloptFit, fitByRun)
+    plotsAndEnergyResolution(input, dumpAccurate, showStartParams, hideNloptFit, fitByRun, plotPath)
 
   if printFunctions:
     echo "Charge functions:"

@@ -3317,6 +3317,7 @@ proc serve() =
 proc plotData*(
   h5file: string,
   runType: RunTypeKind,
+  plotPath: string = "",
   backend: PlottingBackendKind = bGgPlot,
   eventDisplay: bool = false,
   septemboard: bool = false,
@@ -3356,7 +3357,9 @@ proc plotData*(
   if config.len > 0:
     ConfigFile = config
 
-  fileDir = genPlotDirName(h5file, "figs")
+  fileDir = if plotPath.len > 0: plotPath
+            else: genPlotDirName(h5file, "figs")
+
   let tomlConfig = parseToml.parseFile(ConfigFile)
   discard existsOrCreateDir(fileDir)
   var flags: set[ConfigFlagKind]
@@ -3481,6 +3484,7 @@ when isMainModule:
   Calib = {"calib", "calibration", "c"}
   Back = {"back", "background", "b"}
   Xray = {"xray", "xrayfinger", "x"}""",
+    "plotPath" : "Path where all plots are saved.",
 
     "backend" : """Select the plotting backend to be chosen.
   The followoing backends are available:

@@ -1137,7 +1137,6 @@ proc plotFadcEvent(df, dfProps: DataFrame, title, name, outfile: string): PlotV 
                        color = "purple") +
       margin(left = mLeft, top = mTop, right = mRight, bottom = mBottom) +
       xlim(0.0, 2560.0) + # no need to go further!
-      theme_scale(getEnv("SCALE", "1.0").parseFloat) +
       result.theme # just add the theme directly
   else:
     warn &"Unsupported backend kind: {BKind}"
@@ -3098,7 +3097,10 @@ proc add(p: var PlotV, p2: PlotV, f1, f2: string, compareDensity: bool) =
       p.pltGg.aes.fill = some(ggplot_types.Scale(scKind: scFillColor, col: f{"From"}, hasDiscreteness: true,
                                                  ids: p.pltGg.aes.x.get.ids))
     else:
-      p.pltGg.facet = some(Facet(columns: @["From"]))
+      p.pltGg.facet = some(Facet(columns: @[
+        ggplot_types.Scale(col: f{"From"}, hasDiscreteness: true, dcKind: dcDiscrete,
+                           ids: {0'u16 .. high(uint16)})
+      ]))
     ## add the existing geoms if they have non trivial data (otherwise they will be the same)
     for g in p2.pltGg.geoms:
       if g.data.isSome: #

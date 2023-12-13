@@ -188,19 +188,23 @@ proc plotGasGainVsChargeCalib*(gainVals, calib, calibErr: seq[float],
   let fnameHash = concat(gainVals, calib).hash
   let ylabel = if useTeX: r"Calibration factor $a⁻¹$ [$\SI{1e-6}{keV.e^-1}$]"
                else: "Calibration factor a⁻¹ [10⁻⁶ keV / e]"
-  let width = getEnv("WIDTH", "800").parseFloat
-  let height = getEnv("HEIGHT", "480").parseFloat
+  let width = getEnv("WIDTH", "600").parseFloat
+  let height = getEnv("HEIGHT", "380").parseFloat
   let fontScale = getEnv("FONT_SCALE", "1.0").parseFloat
+  let fWidth = getEnv("F_WIDTH", "0.5").parseFloat
+  let annot = if useTeX: annotation.join("\n").replace("\n", r"\\")
+              else: annotation.join("\n")
+
   ggplot(df, aes("Gain", "Calib")) +
     geom_point(data = df.filter(f{`Type` == "Data"})) +
     geom_errorbar(data = df.filter(f{`Type` == "Data"}),
                   aes = aes(yMin = f{`Calib` - `CalibErr`},
                             yMax = f{`Calib` + `CalibErr`})) +
     geom_line(data = dfFit, color = some(parseHex("FF00FF"))) +
-    annotate(annotation.join("\n"), left = 0.65, bottom = 0.2, font = font(family = "monospace")) +
+    annotate(annot, left = 0.5175, bottom = 0.35, font = font(family = "monospace")) +
     xlab("Gas gain 'G'") +
     ylab(ylabel) +
-    theme_font_scale(fontScale) +
+    themeLatex(fWidth = fWidth, width = width, height = height, baseTheme = sideBySide) +
     ggtitle("Energy calibration factors vs gas gain") +
     ggsave(&"{pathPrefix}/gasgain_vs_energy_calibration_factors_{fnameHash}.pdf",
            width = width, height = height,

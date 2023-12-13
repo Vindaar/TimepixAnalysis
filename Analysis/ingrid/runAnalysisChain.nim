@@ -7,29 +7,14 @@ import logging
 
 import projectDefs
 
-const docStr = """
-Usage:
-  runAnalysisChain <dataPath> (--2014 | --2017 | --2018) [--noBack --noCalib --noRaw --noReco] [options]
-
-Options:
-  --2014       Run 2014 analysis chain
-  --2017       Run 2017 analysis chain
-  --2018       Run 2018_2 analysis chain
-  --noBack     Do not perform analysis chain on background runs
-  --noCalib    Do not perform analysis chain on calibration runs
-  --noRaw      Do not perform raw data manipulation
-  --noReco     Do not perform reconstruction
-  -h, --help   Show this help
-  --version    Show the version number
-"""
-
 import ingrid / [ingrid_types]
 import ingrid / private / [hdf5_utils, pure]
-from reconstruction import RecoFlags, RecoConfig, initRecoConfig
+from reconstruction import RecoConfig, initRecoConfig
 
 const subPaths = ["2014_15", "2017", "2018_2"]
 const recoOptions = @[{rfOnlyFadc},
                       {rfOnlyCharge},
+                      {rfOnlyFeSpec}, # for FADC 55Fe spectra!
                       {rfOnlyGasGain},
                       {rfOnlyGainFit},
                       {rfOnlyEnergyElectrons}]
@@ -158,12 +143,15 @@ proc rawDataManipulation(path, outName: string, runType: RunTypeKind): bool =
   info "Last commands exit code: " & $res[1]
   result = res[1] == 0
 
-proc toStr(opt: set[RecoFlags]): string = opt.toSeq.join(" ")
+proc toStr(opt: set[RecoFlags], overwrite: bool): string =
+  result = opt.toSeq.join(" ")
+  if overwrite:
+    result.add " --overwrite"
 
 proc reconstruction(input: string, options: set[RecoFlags],
                     cfg: Config,
                     output: string = ""): bool =
-  let option = options.toStr()
+  let option = options.toStr(cfg.recoCfg.overwrite)
   let runNumber = if cfg.recoCfg.runNumber.isSome: "--runNumber " & $cfg.recoCfg.runNumber.get
                   else: ""
   info "Running reconstruction on " & $input & $option
@@ -276,6 +264,9 @@ proc runCastChain(cfg: Config, data: DataFiles, dYear: DataYear): bool =
   ## XXX: We should rerun `--create_fe_spec` for the FADC spectrum fit. Because we only have
   ## `minVal` after the FADC reco has run nowadays. This means the default Fe fitting does not
   ## perform the fit anymore.
+  if afReco in cfg.anaFlags:
+    if {rfOnlyFadc} in recoOptions and afCalib in cfg.anaFlags:
+      tc(reconstruction(data.calibration.reco, {rfOnlyFeSpec}, cfg))
 
   ## XXX: Technically for this step we also have to perform the generation of the CDL file
   ## in the first place, which is not part of this!
@@ -358,6 +349,7 @@ proc main(
   only_gain_fit = false,
   only_energy_from_e = false,
   only_energy = NaN,
+  overwrite = false,
   config = "" # XXX: not yet implemented!
      ) =
   var toContinue = true
@@ -400,7 +392,7 @@ proc main(
       recoFlags.incl rfOnlyGainFit
     if onlyEnergyFromE:
       recoFlags.incl rfOnlyEnergyElectrons
-    initRecoConfig(recoFlags, runNumberArg, calibFactor)
+    initRecoConfig(recoFlags, runNumberArg, calibFactor, overwrite)
 
   let (is_rf, _, _, _) = isTosRunFolder(input)
   let inputKind = if is_rf: ikRunFolder
@@ -475,5 +467,7 @@ the Fe charge spectrum vs gas gain calibration""",
 Takes precedence over --create_fe_spec if set.
 If no runNumber is given, performs energy calibration on all runs
 in the HDF5 file.""",
+    "overwrite"          : """(reco) If set will overwrite the results of the given calibration step, e.g.
+to redo the energy or charge calibration."""
 
   })

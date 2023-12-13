@@ -1059,6 +1059,22 @@ proc readRecoFadcRun*(h5f: H5File, runNumber: int): ReconstructedFadcRun =
     fadcData: h5f.read(fadcDataBasename(runNumber), float)
   )
 
+proc writeFlag*(h5f: H5File, grp: string, flag: RecoFlags | string) =
+  ## Writes the gven `flag` to the `attrs` of the given `run` in `h5f`.
+  ## Indicates that the processing of that part of the pipeline is done
+  ## for this run.
+  let h5grp = h5f[grp.grp_str]
+  h5grp.attrs[$flag] = "true"
+
+import std / json
+proc isDone*(h5f: H5File, grp: string, flag: RecoFlags | string, overwrite: bool): bool =
+  ## Checks if the given `flag` has already been performed for this run.
+  if overwrite: return false
+  let h5grp = h5f[grp.grp_str]
+  echo "Is in it? ", $flag in h5grp.attrs
+  echo "Has: ", $flag, " attrs? ", h5grp.attrsToJson().pretty()
+  result = $flag in h5grp.attrs and h5grp.attrs[$flag, string] == "true"
+
 proc genPlotDirname*(h5f: H5File, outpath: string, attrName: string): string =
   ## generates a unique name for the directory in which all plots for this H5
   ## file will be created.

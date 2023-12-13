@@ -167,6 +167,7 @@ import fitl / gof
 import arraymancer / stats / kde
 
 let UseTeX = getEnv("USE_TEX", "false").parseBool
+let FacetMargin = getEnv("FACET_MARGIN", "1.5").parseFloat
 let Width = getEnv("WIDTH", "1000").parseFloat
 let Height = getEnv("HEIGHT", "600").parseFloat
 let LineWidth = getEnv("LINE_WIDTH", "2.0").parseFloat
@@ -201,7 +202,8 @@ proc plot(path, outpath: string) =
                      density = true,
                      color = "black", lineWidth = LineWidth) +
       #yMargin(0.2) +
-      ggtitle(&"Different interval lengths for the gas gain computation in minutes, data starting {tup[0][1].toStr}") +
+      themeLatex(fWidth = 0.9, width = Width, height = Height, baseTheme = singlePlot) +
+      ggtitle(&"Gas gain interval lengths in minutes, data starting {tup[0][1].toStr}") +
       ggsave(&"{outpath}/medianEnergy_ridges_{period}.pdf", width = Width, height = Height,
              useTeX = UseTeX, standalone = UseTeX)
 
@@ -213,7 +215,8 @@ proc plot(path, outpath: string) =
                      density = true,
                      position = "identity") +
       #xlim(2, 5) +
-      ggtitle("Different interval lengths for the gas gain computation in minutes") +
+      ggtitle("Gas gain interval lengths in minutes") +
+      themeLatex(fWidth = 0.9, width = Width, height = Height, baseTheme = singlePlot) +
       ggsave(&"{outpath}/medianEnergy_intervals_{period}.pdf", width = Width, height = Height,
              useTeX = UseTeX, standalone = UseTeX)
 
@@ -222,8 +225,10 @@ proc plot(path, outpath: string) =
     let suff = tup[0][1].toStr
     ggplot(subDf, aes("timestamp", xlab)) +
       facet_wrap("RunPeriod", scales = "free") +
+      facetMargin(FacetMargin) +
       geom_point(alpha = some(0.7)) +
       ggtitle(&"Median energy vs time {suff}") +
+      themeLatex(fWidth = 0.9, width = Width, height = Height, baseTheme = singlePlot) +
       ggsave(&"{outpath}/medianEnergy_vs_time_{suff}.pdf", width = Width, height = Height,
              useTeX = UseTeX, standalone = UseTeX)
 
@@ -233,6 +238,7 @@ proc plot(path, outpath: string) =
                 idx(xlab) <= percentile(col(xlab), 0.99)})
   ggplot(dfF, aes(xlab, color = factor("Interval"))) +
     facet_wrap("RunPeriod", scales = "free") +
+    facetMargin(FacetMargin) +
     geom_histogram(bins = 30,
                    lineWidth = LineWidth,
                    alpha = 0.0,
@@ -241,6 +247,7 @@ proc plot(path, outpath: string) =
                    position = "identity") +
     xlim(2, 5) +
     ggtitle("Different interval lengths for the gas gain computation in minutes") +
+    themeLatex(fWidth = 0.9, width = Width, height = Height, baseTheme = singlePlot) +
     ggsave(&"{outpath}/medianEnergy_intervals.pdf", width = Width, height = Height,
            useTeX = UseTeX, standalone = UseTeX)
 
@@ -256,8 +263,10 @@ proc plot(path, outpath: string) =
 
   ggplot(dfK, aes(xlab, "Density", color = factor("Interval"))) +
     facet_wrap("RunPeriod", scales = "free") +
+    facetMargin(FacetMargin) +
     geom_line() +
     ggtitle("Different interval lengths for the gas gain computation in minutes") +
+    themeLatex(fWidth = 0.9, width = Width, height = Height, baseTheme = singlePlot) +
     ggsave(&"{outpath}/medianEnergy_kde_intervals.pdf", width = Width, height = Height,
            useTeX = UseTeX, standalone = UseTeX)
 
@@ -266,7 +275,8 @@ proc plot(path, outpath: string) =
     ggplot(subDf, aes(xlab, "Density", fill = factor("Interval"))) +
       ggridges("Interval", overlap = 2.0) + # , labelOrder = labOrd) +
       geom_line(color = "black", size = LineWidth) +
-      ggtitle(&"Different interval lengths for the gas gain computation in minutes, data starting {tup[0][1].toStr}") +
+      ggtitle(&"Gas gain interval lengths in minutes, data starting {tup[0][1].toStr}") +
+      themeLatex(fWidth = 0.9, width = Width, height = Height, baseTheme = singlePlot) +
       ggsave(&"{outpath}/medianEnergy_kde_ridges_{period}.pdf", width = Width, height = Height,
              useTeX = UseTeX, standalone = UseTeX)
 
@@ -288,10 +298,14 @@ proc plot(path, outpath: string) =
         ints.add tup[0][1].toInt
         pers.add tup[1][1].toStr
     let dfT = toDf({"Goodness of fit test" : tests, "GoF value" : gofs, "Interval" : ints, "RunPeriod" : pers})
+    ## XXX: fix GOFs
     ggplot(dfT, aes("Goodness of fit test", "GoF value", color = "Interval", shape = "RunPeriod")) +
       geom_point() +
       scale_y_log10() +
-      ggtitle("Goodness of fit tests for median energy data by period & interval length") +
+      ggtitle("GoF tests for median energy data by period \\& interval length") +
+      xlab("Goodness of fit test", rotate = -20, alignTo = "right", margin = 2.5) +
+      margin(bottom = 3.5) +
+      themeLatex(fWidth = 0.9, width = Width, height = Height, baseTheme = singlePlot) +
       ggsave(&"{outpath}/gofs_for_different_binnings.pdf", width = 600, height = 360,
              useTeX = UseTeX, standalone = UseTeX)
 

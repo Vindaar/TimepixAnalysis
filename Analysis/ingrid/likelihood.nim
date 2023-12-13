@@ -487,8 +487,9 @@ proc readCenterChipData(h5f: H5File, group: H5Group, ctx: LikelihoodContext): Ce
   result.hits     = h5f[chpGrp / "hits", int]
   result.rmsT     = h5f[chpGrp / "rmsTransverse", float]
   result.rmsL     = h5f[chpGrp / "rmsLongitudinal", float]
-  if ctx.vetoCfg.useNeuralNetworkCut: # get NN prediction for center chip if needed
-    result.nnPred = ctx.predict(h5f, chpGrp)
+  when defined(cpp):
+    if ctx.vetoCfg.useNeuralNetworkCut: # get NN prediction for center chip if needed
+      result.nnPred = ctx.predict(h5f, chpGrp)
 
 proc buildSeptemEvent(evDf: DataFrame,
                       valToCut, energies: seq[float],
@@ -1123,8 +1124,8 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
   # we measured. This is guaranteed by using the gold region.
   ## XXX: add NN support
   let cutTab = calcCutValueTab(ctx)
+  var nnCutTab: CutValueInterpolator
   when defined(cpp):
-    var nnCutTab: CutValueInterpolator
     if ctx.vetoCfg.useNeuralNetworkCut:
       nnCutTab = calcNeuralNetCutValueTab(ctx)
   # get the likelihood and energy datasets
@@ -1653,26 +1654,28 @@ proc plotLogL(ctx: LikelihoodContext) =
     ggsave("signalLogL_ridgeline.pdf",
            height = 600.0)
 
-import .. / .. / Tools / NN_playground / effective_eff_55fe
-proc fillEffectiveEff(ctx: var LikelihoodContext) =
-  ## Fills the effective efficiency fields for the current run period.
-  ##
-  ## Defined here to avoid circular imports.
-  if ctx.vetoCfg.useNeuralNetworkCut:
-    if ctx.vetoCfg.calibFile.len == 0:
-      raise newException(ValueError, "Requires the calibration file for the data input to compute " &
-        "the effective efficiencies for the run period and given NN model and desired target signal " &
-        "efficiency.")
-    let (eff, std) = meanEffectiveEff(ctx.rnd, ctx.vetoCfg.nnModelPath, ctx.vetoCfg.calibFile, ctx.vetoCfg.nnSignalEff)
-    ctx.vetoCfg.nnEffectiveEff = eff
-    ctx.vetoCfg.nnEffectiveEffStd = std
 
-    # now assign `Model` and `MLPDesc`
-    Desc = initDesc(ctx.vetoCfg.nnModelPath)
-    Model = MLP.init(Desc)
-    Model.to(kCuda)
-    var noGrad: NoGradGuard
-    Model.load(ctx.vetoCfg.nnModelPath)
+when defined(cpp):
+  import .. / .. / Tools / NN_playground / effective_eff_55fe
+  proc fillEffectiveEff(ctx: var LikelihoodContext) =
+    ## Fills the effective efficiency fields for the current run period.
+    ##
+    ## Defined here to avoid circular imports.
+    if ctx.vetoCfg.useNeuralNetworkCut:
+      if ctx.vetoCfg.calibFile.len == 0:
+        raise newException(ValueError, "Requires the calibration file for the data input to compute " &
+          "the effective efficiencies for the run period and given NN model and desired target signal " &
+          "efficiency.")
+      let (eff, std) = meanEffectiveEff(ctx.rnd, ctx.vetoCfg.nnModelPath, ctx.vetoCfg.calibFile, ctx.vetoCfg.nnSignalEff)
+      ctx.vetoCfg.nnEffectiveEff = eff
+      ctx.vetoCfg.nnEffectiveEffStd = std
+
+      # now assign `Model` and `MLPDesc`
+      Desc = initDesc(ctx.vetoCfg.nnModelPath)
+      Model = MLP.init(Desc)
+      Model.to(kCuda)
+      var noGrad: NoGradGuard
+      Model.load(ctx.vetoCfg.nnModelPath)
 
 # switch to cligen (DONE), then do (STILL TODO):
 ## runs: seq[int] = @[]) = # `runs` allows to overwrite whihc run is logL cut'd
@@ -1821,7 +1824,8 @@ proc main(
                                   flags = flags,
                                   readLogLData = true) # read logL data regardless of anything else!
   ## fill the effective efficiency fields if a NN is used
-  ctx.fillEffectiveEff()
+  when defined(cpp):
+    ctx.fillEffectiveEff()
 
   if fkRocCurve in flags:
     ## create the ROC curves and likelihood distributios. This requires to

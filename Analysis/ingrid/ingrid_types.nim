@@ -697,6 +697,17 @@ when not defined(pure) and not defined(js):
       # processed and converted FADC data
       fadcData*: Tensor[float]
 
+    RecoFlags* = enum
+      rfNone                = ""
+      rfCreateFe            = "--create_fe"
+      rfOnlyFeSpec          = "--only_fe_spec"
+      rfOnlyFadc            = "--only_fadc"
+      rfOnlyCharge          = "--only_charge"
+      rfOnlyGasGain         = "--only_gas_gain"
+      rfOnlyGainFit         = "--only_gain_fit"
+      rfOnlyEnergy          = "--only_energy"
+      rfOnlyEnergyElectrons = "--only_energy_from_e"
+      rfReadAllRuns         = "rfReadAllRuns"
 
     CutMethodKind* = enum
       cmLnLCut, cmNnCut

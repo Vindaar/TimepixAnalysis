@@ -24,18 +24,6 @@ import helpers/utils
 import ingrid_types, tos_helpers, calibration, fadc_analysis, fadc_helpers
 
 type
-  RecoFlags* = enum
-    rfNone                = ""
-    rfCreateFe            = "--create_fe"
-    rfOnlyFeSpec          = "--only_fe_spec"
-    rfOnlyFadc            = "--only_fadc"
-    rfOnlyCharge          = "--only_charge"
-    rfOnlyGasGain         = "--only_gas_gain"
-    rfOnlyGainFit         = "--only_gain_fit"
-    rfOnlyEnergy          = "--only_energy"
-    rfOnlyEnergyElectrons = "--only_energy_from_e"
-    rfReadAllRuns         = "rfReadAllRuns"
-
   RecoConfig* = object
     flags*: set[RecoFlags] = {}
     cfgFlags*: set[ConfigFlagKind] = {}

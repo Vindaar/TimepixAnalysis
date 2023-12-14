@@ -850,7 +850,8 @@ proc performSeptemVeto(ctx: LikelihoodContext,
                         yCenter = septemGeometry.yCenter,
                         radius = septemGeometry.centerRadius,
                         energyCenter = centerData.energies[septemFrame.centerEvIdx],
-                        useTeX = ctx.useTeX)
+                        useTeX = ctx.useTeX,
+                        plotPath = ctx.plotPath)
       #if evNum == 21860:
       #  echo "Done"
       #  quit()
@@ -1087,7 +1088,8 @@ proc applySeptemVeto(h5f: var H5File,
                             yCenter = septemGeometry.yCenter,
                             radius = septemGeometry.centerRadius,
                             energyCenter = centerData.energies[septemFrame.centerEvIdx],
-                            useTeX = ctx.useTeX)
+                            useTeX = ctx.useTeX,
+                            plotPath = ctx.plotPath)
       #if evNum == 21860:
       #  echo "Done"
       #  quit()
@@ -1726,7 +1728,8 @@ proc main(
   rngSeed = 299_792_458,
   version = false,
   run = -1, # If given only analyze this run
-  septemLineVetoEfficiencyFile = "/tmp/septem_veto_before_after.txt" # Stores the number of events before & after veto (for efficiency / random coinc)
+  septemLineVetoEfficiencyFile = "/tmp/septem_veto_before_after.txt", # Stores the number of events before & after veto (for efficiency / random coinc)
+  plotPath = "",
      ) =
   docCommentAdd(versionStr)
   ## InGrid likelihood calculator. This program is run after reconstruction is finished.
@@ -1822,7 +1825,8 @@ proc main(
                                   septemLineVetoEfficiencyFile = septemLineVetoEfficiencyFile,
                                   rngSeed = rngSeed,
                                   flags = flags,
-                                  readLogLData = true) # read logL data regardless of anything else!
+                                  readLogLData = true, # read logL data regardless of anything else!
+                                  plotPath = plotPath)
   ## fill the effective efficiency fields if a NN is used
   when defined(cpp):
     ctx.fillEffectiveEff()
@@ -1946,5 +1950,6 @@ when isMainModule:
     "createRocCurve" : """If flag is set, we create ROC curves for all energy bins. This
   requires the input to already have a `likelihood` dataset!""",
     "plotLogL"       : "If flag is set, we only plot the signal logL distributions.",
+    "plotPath"       : "Path where the septem event plots are stored.",
 
     "version"        : "Show version."})

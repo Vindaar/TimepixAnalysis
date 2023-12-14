@@ -895,6 +895,7 @@ when not defined(pure) and not defined(js):
       refDfEnergy*: seq[float]
       # general
       useTeX*: bool # whether to generate TikZ plots or cairo
+      plotPath*: string # path to where septem event plots are stored (possibly others in the future?)
       #when defined(cpp):
       flags*: set[LogLFlagKind]
       vetoCfg*: VetoSettings

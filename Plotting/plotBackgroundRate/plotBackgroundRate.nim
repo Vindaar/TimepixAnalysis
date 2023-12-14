@@ -375,7 +375,8 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
                         yMax: float,
                         energyMin, energyMax: float,
                         logPlot: bool,
-                        applyEfficiencyNormalization: bool
+                        applyEfficiencyNormalization: bool,
+                        fWidth: float
                        ) =
   var df = df # mutable copy
   if logPlot:
@@ -452,12 +453,13 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
                          font = font(16.0, color = color(0.92, 0.92, 0.92)),
                          backgroundColor = transparent)
   if useTeX:
+    let theme = if fWidth <= 0.5: sideBySide else: singlePlot
     plt = plt +
     xlab(r"Energy [\si{keV}]") +
     ylab(r"Rate [\SI{1e-5}{keV⁻¹ cm⁻² s⁻¹}]", margin = 1.6) +
     #minorGridLines() +
     ggtitle(titleSuff) +
-    themeLatex(fWidth = 0.9, width = 600, baseTheme = singlePlot)
+    themeLatex(fWidth = fWidth, width = 600, height = 360, baseTheme = theme)
     if genTikZ:
       plt + ggsave(fname.replace(".pdf", ".tex"), width = 600, height = 360, useTeX = true, onlyTikZ = true)
     else:
@@ -574,6 +576,7 @@ proc main(files: seq[string], log = false, title = "",
           yMax = -1.0,
           energyMin = 0.0, energyMax = 12.0,
           useTeX = false,
+          fWidth = 0.9,
           showPreliminary = false,
           showNumClusters = false,
           showTotalTime = false,
@@ -678,7 +681,8 @@ proc main(files: seq[string], log = false, title = "",
         showNumClusters = showNumClusters, showTotalTime = showTotalTime,
         topMargin = topMargin, yMax = yMax, energyMin = energyMin, energyMax = energyMax,
         logPlot = logPlot,
-        applyEfficiencyNormalization = applyEfficiencyNormalization
+        applyEfficiencyNormalization = applyEfficiencyNormalization,
+        fWidth = fWidth
       )
 
 when isMainModule:
@@ -712,6 +716,7 @@ of the logL cut, creates a comparison plot.""",
     "energyMax" : "If any given, limit the energy & x axis to this maximum value.",
     "energyMin" : "If any given, limit the energy to this minimum value (x axis remains unchanged).",
     "useTeX" : "Generate a plot using TeX",
+    "fWidth" : "Width at which the plot is to be inserted in a TeX document.",
     "showPreliminary" : "If set shows a big 'Preliminary' message in the center.",
     "showNumClusters" : "If set adds number of input clusters to title.",
     "showTotalTime" : "If set adds the total time of background data to title.",

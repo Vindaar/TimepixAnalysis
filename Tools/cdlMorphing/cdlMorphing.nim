@@ -6,6 +6,29 @@ import cligen
 
 import numericalnim except linspace
 
+let UseTeX = getEnv("USE_TEX", "false").parseBool
+let Width = getEnv("WIDTH", "600").parseFloat
+let Height = getEnv("Height", "420").parseFloat
+
+proc thL(fWidth: float, width: float,
+         baseTheme: (proc(): Theme),
+         height = -1.0, ratio = -1.0,
+         textWidth = 458.29268, # 455.24411
+        ): Theme =
+  if UseTeX:
+    let texOptions = toTeXOptions(UseTeX, onlyTikZ = false,
+                                  standalone = true,
+                                  texTemplate = "", caption = "", label = "", placement = "htbp")
+    result = themeLatex(fWidth, width, baseTHeme, height, ratio, textWidth,
+                        useTeX = UseTeX, texOptions = texOptions)
+  else:
+    result = Theme()
+
+proc thm(): Theme =
+  result = sideBySide()
+  result.legendFont = some(font(6.0))
+  result.legendTitleFont = some(font(6.0, bold = true))
+
 type
   YearKind = enum
     yr2014 = "2014"
@@ -13,6 +36,14 @@ type
 
   MorphTechnique = enum
     mtNone, mtLinear, mtKde, mtSpline
+
+proc xrange(dset: string): (float, float) =
+  case dset
+  of igFractionInTransverseRms.toDset(): result = (-0.05, 0.8)
+  of igEccentricity.toDset(): result = (0.8, 3.0)
+  of igLengthDivRmsTrans.toDset(): result = (0.0, 15.0)
+  else:
+    doAssert false, "Unsupported dataset: " & $dset
 
 proc readRefDf(ctx: LikelihoodContext): DataFrame =
   ## Get the full reference data as a DF with added `yMin` and `yMax`
@@ -243,15 +274,24 @@ proc plotRef(df: DataFrame,
   #          width = 800, height = 480)
   #let df = df.filter(f{float: `Energy` in energies or `Energy` in eExctract})
   #echo df.filter(f{float: `Energy` in energies}, f{string: `runType` == "Morph"}).pretty(-1)
-
-  ggplot(df, aes("Bins", "Hist", fill = "runType")) +
-    ggridges("Dset", overlap = 1.0, labelOrder = labelOrder) +
+  let xr = xrange(dset)
+  let dfF = df.filter(f{float: `Bins` < xr[1]})
+  ggplot(dfF, aes("Bins", "Hist", fill = "runType")) +
+    ggridges("Dset", overlap = 1.5, labelOrder = labelOrder) +
     #facet_wrap("Dset", scales = "free") +
     geom_histogram(stat = "identity", position = "identity",
-                   alpha = some(0.5)) +
-    ggtitle(&"{dset} of reference file, year: {yearKind}") +
+                   alpha = some(0.5),
+                   hdKind = hdOutline, color = "black",
+                   lineWidth = 1.0) +
+    xlab(dset) +
+    xlim(xr[0], xr[1]) +
+    margin(left = 5.0, right = 4.5) +
+    discreteLegendWidth(0.75) + discreteLegendHeight(0.75) +
+    #ggtitle(&"{dset} of reference file, year: {yearKind}") +
+    ggtitle("Morphing by binwise linear interpolation") +
+    thL(fWidth = 0.5, width = 600, height = 480, baseTheme = sideBySide) +
     ggsave(&"{outpath}/{dset}_ridgeline_morph_{mtKind}_{refFile.extractFilename}_{yearKind}.pdf",
-            width = 800, height = 480)
+           width = 800, height = 480)
 
 proc plotTile(df: DataFrame, dset: string, mtKind: MorphTechnique, outpath: string) =
   let binWidth = block:
@@ -262,8 +302,13 @@ proc plotTile(df: DataFrame, dset: string, mtKind: MorphTechnique, outpath: stri
                         xMin = f{`Bins` - binWidth / 2.0}, xMax = f{`Bins` + binWidth / 2.0})) +
     geom_line(aes = aes("Bins", "Energy", color = "Dset")) +
     scale_y_continuous() +
-    ylim(0, 10) +
     #xlim(0, 15) +
+    ylim(0, 8.5) +
+    margin(left = 2.0) +
+    ylab("Energy [keV]") + xlab(dset) +
+    continuousLegendHeight(2.0) + continuousLegendWidth(0.75) +
+    discreteLegendWidth(0.75) + discreteLegendHeight(0.75) +
+    thL(fWidth = 0.5, width = 600, height = 480, baseTheme = thm) +
     ggtitle(&"2D heatmap plot of CDL data for {dset}")
   let lines = getXrayFluorescenceLines()
   var lineDf = newDataFrame()
@@ -275,7 +320,7 @@ proc plotTile(df: DataFrame, dset: string, mtKind: MorphTechnique, outpath: stri
     let lStr = &"{line:.3g}"
     plt = plt + geom_text(aes = aes(x = minVal, y = line, text = lStr),
                           color = "#FF0000",
-                          size = 4.0)
+                          size = 6.0)
 
   plt + ggsave(&"{outpath}/cdl_as_tile_morph_{mtKind}_{dset}.pdf")
 
@@ -284,6 +329,8 @@ proc plotScatter(df: DataFrame, igDset: string, mtKind: MorphTechnique, outpath:
     geom_point(size = 3.0) +
     scale_y_continuous() +
     ggtitle(&"Scatter plot of CDL data for {igDset}") +
+    thL(fWidth = 0.5, width = 600, height = 480, baseTheme = sideBySide) +
+    ylim(0.0, 8.5) +
     ggsave(&"{outpath}/cdl_as_scatter_morph_{mtKind}_{igDset}.pdf")
 
 proc plotInterpolatedRaster(df: DataFrame, dset: string, mtKind: MorphTechnique, outpath: string) =
@@ -307,10 +354,14 @@ proc plotInterpolatedRaster(df: DataFrame, dset: string, mtKind: MorphTechnique,
     geom_raster(aes = aes(fill = "Hist")) + # aes = aes(width = "binWidth", height = "binHeight")) +
     geom_line(data = dfE, aes = aes("Bins", "Energy", color = "Dset")) +
     scale_y_continuous() +
-    ylim(0, 10) +
+    margin(left = 2.0) +
+    ylim(0, 8.5) +
     ylab("Energy [keV]") + xlab(dset) +
+    continuousLegendHeight(2.0) + continuousLegendWidth(0.75) +
+    discreteLegendWidth(0.75) + discreteLegendHeight(0.75) +
+    thL(fWidth = 0.5, width = 600, height = 480, baseTheme = thm) +
     #xlim(0, 15) +
-    ggtitle(&"Linearly interpolated CDL data for {dset}")
+    ggtitle(&"Linearly interpolated CDL data")
   let lines = getXrayFluorescenceLines()
   var lineDf = newDataFrame()
   for idx in 0 ..< lines.len:
@@ -321,7 +372,7 @@ proc plotInterpolatedRaster(df: DataFrame, dset: string, mtKind: MorphTechnique,
     let lStr = &"{line:.3g}"
     plt = plt + geom_text(data = newDataFrame(), aes = aes(x = minVal, y = line, text = lStr),
                           color = "#FF0000",
-                          size = 4.0)
+                          size = 6.0)
   plt + ggsave(&"{outpath}/cdl_as_raster_interpolated_morph_{mtKind}_{dset}.pdf")
 
 proc computeMorphingSystematics(df: DataFrame): Table[string, float] =
@@ -368,7 +419,7 @@ proc main(#files: seq[string],
                                   energyDset = igEnergyFromCharge,
                                   region = crSilver,
                                   timepix = Timepix1,
-                                  morphKind = mkLineart,
+                                  morphKind = mkLinear,
                                   useLnLCut = true)
 
   var df = newDataFrame()
@@ -390,7 +441,7 @@ proc main(#files: seq[string],
     allPlots(dfRef, igDset, mtNone)
 
     let dfLinear = getMorphedDf(dfRef, igDset)
-    let dfSpline = getMorphedDfSpline(dfRef, igDset)
+    #let dfSpline = getMorphedDfSpline(dfRef, igDset)
     ## NOTE: KDE does not make sense, see docstring above
     #let dfKde    = getMorphedDfKde(dfRef, igDset)
 
@@ -398,7 +449,7 @@ proc main(#files: seq[string],
     diffTab[$dkKind] = computeMorphingSystematics(dfLinear)
 
     allPlots(dfLinear, igDset, mtLinear)
-    allPlots(dfSpline, igDset, mtSpline)
+    #allPlots(dfSpline, igDset, mtSpline)
     ## NOTE: KDE does not make sense, see docstring above
 
   # print info about morphing systematic differences

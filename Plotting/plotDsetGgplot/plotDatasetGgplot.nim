@@ -90,8 +90,9 @@ proc plotKdeRidges(df: DataFrame, dsets: seq[string],
   ggplot(df, aes("Value", fill = factor(by))) +
     ggridges("Dset", overlap = 4.0) +
     geom_density(normalize = true, alpha = 0.6, color = "black", size = 0.5) +
-    ggtitle(&"Ridgeline plot for all InGrid properties in a.u.: x/max(x) {suffix}") +
-    margin(left = 4) +
+    ggtitle(&"Ridgeline plot for all InGrid properties in a.u.: x/max(x){suffix}") +
+    margin(left = 7.25, bottom = 2.5) +
+    themeLatex(fWidth = 1.0, width = 900, height = 600, baseTheme = singlePlot) +
     ggsave(&"{plotPath}/{prefix}_ridgeline_kde_by_run.pdf", width = 900, height = 600)
 
 proc main(files: seq[string],

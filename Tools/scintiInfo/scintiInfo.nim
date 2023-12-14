@@ -6,10 +6,12 @@
 ## - total run time of events with FADC trigger?
 
 import ingrid / tos_helpers
-import seqmath, nimhdf5, strutils, tables
-import os
+import seqmath, nimhdf5
+import std / [os, strutils, tables]
 
 import ggplotnim
+
+let UseTeX = getEnv("USE_TEX", "false").parseBool
 
 proc getScintiFadcDataFrame(h5f: H5File, runNumber: int): DataFrame =
   ## creates a dataframe for run number `runNumber` with the following columns
@@ -64,11 +66,12 @@ proc calcScinti(df: DataFrame, scinti: string, runNumber: int,
     .filter(f{float: idx("Clocks") > 0 and idx("Clocks") < 300})
   ggplot(dfG, aes("Clocks", fill = "Scintillator")) +  #, fill = factor("Number"))) +
     facet_wrap("Scintillator", scales = "free") +
-    facetMargin(0.5) +
-    margin(right = 3.5, bottom = 1) +
+    facetMargin(0.6) +
+    margin(bottom = 1.0, right = 2.5) +
     geom_histogram(binWidth = 1.0, position = "identity") +
-    xlab("Clock cycles", margin = 0.25) +
-    legendPosition(0.83, 0.0) +
+    xlab("Clock cycles", margin = 0.25) + ylab("Count", margin = 2.0) +
+    legendPosition(0.82, 0.0) +
+    themeLatex(fWidth = 0.9, width = 600, baseTheme = singlePlot, useTeX = UseTeX) +
     ggtitle("Clock cycles at which scintillators triggered in 2018 data") +
     ggsave(plotPath / "scintillators_facet_main_run" & $runNumber & ".pdf", width = 800, height = 480)
 
@@ -89,7 +92,8 @@ proc calcScinti(df: DataFrame, scinti: string, runNumber: int,
   echo "Open shutter time in s: ", deltaT
   result = nonMainTriggers.float / deltaT
 
-proc main(fname: string, runNumber: int = -1) =
+proc main(fname: string, runNumber: int = -1,
+          plotPath = "") =
 
   var h5f = H5open(fname, "r")
   defer: discard h5f.close()
@@ -107,7 +111,8 @@ proc main(fname: string, runNumber: int = -1) =
   echo "Open shutter time w/ FADC trigger in hours: ", runTimeFadc / 3600.0
   echo dfTriggered
 
-  let plotPath = h5f.attrs[PlotDirPrefixAttr, string]
+  let plotPath = if plotPath.len > 0: plotPath
+                 else: h5f.attrs[PlotDirPrefixAttr, string]
   let rate1 = calcScinti(dfTriggered, "szint1", runNumber, plotPath)
   let rate2 = calcScinti(dfTriggered, "szint2", runNumber, plotPath)
 

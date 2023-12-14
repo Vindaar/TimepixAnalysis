@@ -470,7 +470,7 @@ proc determineDiffusion(df: DataFrame, outpath: string, runInput: int, useCache,
     geom_point() +
     xlab("Run number") + ylab(ylabel) +
     ggtitle("Determined diffusion constant of all CAST runs") +
-    theme_font_scale(1.0, family = "serif") +
+    themeLatex(fWidth = 0.9, width = 600, baseTheme = singlePlot) +
     ggsave(&"{outpath}/σT_per_run.pdf", useTeX = useTeX, standalone = useTeX)
 
 when isMainModule:

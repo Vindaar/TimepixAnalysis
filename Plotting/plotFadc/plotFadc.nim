@@ -4,6 +4,8 @@ import ingrid / [tos_helpers, ingrid_types]
 import ingrid / calibration / [calib_fitting, calib_plotting]
 import ingrid / calibration
 
+let UseTeX = getEnv("USE_TEX", "false").parseBool
+
 template toEDF*(data: seq[float], isCumSum = false): untyped =
   ## Computes the EDF of binned data
   var dataCdf = data
@@ -106,6 +108,7 @@ proc plotFallTimeRiseTime(df: DataFrame, outpath, suffix: string, isCdl, energyD
       geom_histogram(position = "identity", bins = 100, hdKind = hdOutline, alpha = 0.7) +
       ggtitle(title) +
       xlab(dset & " [ns]") +
+      themeLatex(fWidth = 0.9, width = 600, baseTheme = singlePlot, useTeX = UseTeX) +
       ggsave(genOutfile(outpath, dset, suffix, false, isCdl, energyDep),
              width = 800, height = 480)
     ## KDE of dataset
@@ -113,6 +116,7 @@ proc plotFallTimeRiseTime(df: DataFrame, outpath, suffix: string, isCdl, energyD
       geom_density(normalize = true, alpha = 0.7, adjust = 2.0) +
       ggtitle(title) +
       xlab(dset & " [ns]") +
+      themeLatex(fWidth = 0.9, width = 600, baseTheme = singlePlot, useTeX = UseTeX) +
       ggsave(genOutfile(outpath, dset, suffix, true, isCdl, energyDep),
              width = 800, height = 480)
     let dfLow = df.filter(f{`riseTime` < 200})
@@ -121,6 +125,7 @@ proc plotFallTimeRiseTime(df: DataFrame, outpath, suffix: string, isCdl, energyD
       geom_histogram(position = "identity", bins = 100, hdKind = hdOutline, alpha = 0.7) +
       ggtitle(title) +
       xlab(dset & " [ns]") +
+      themeLatex(fWidth = 0.9, width = 600, baseTheme = singlePlot, useTeX = UseTeX) +
       ggsave(genOutfile(outpath, dset, "less_200_rise_" & suffix, false, isCdl, energyDep),
              width = 800, height = 480)
     ## KDE of dataset of all entries < 200
@@ -128,6 +133,7 @@ proc plotFallTimeRiseTime(df: DataFrame, outpath, suffix: string, isCdl, energyD
       geom_density(normalize = true, alpha = 0.7, adjust = 2.0) +
       ggtitle(title) +
       xlab(dset & " [ns]") +
+      themeLatex(fWidth = 0.9, width = 600, baseTheme = singlePlot, useTeX = UseTeX) +
       ggsave(genOutfile(outpath, dset, "less_200_rise_" & suffix, true, isCdl, energyDep),
              width = 800, height = 480)
 
@@ -141,18 +147,21 @@ proc plotFallTimeRiseTime(df: DataFrame, outpath, suffix: string, isCdl, energyD
         ggridges("Type", overlap = 1.5, labelOrder = labelOrder) +
         geom_density(normalize = true, alpha = 0.7, adjust = 2.0, color = "black") +
         ggtitle(title) +
+        themeLatex(fWidth = 0.9, width = 600, baseTheme = singlePlot, useTeX = UseTeX) +
         ggsave(genOutfile(outpath, dset, "ridgeline_less_200_rise_" & suffix, true, isCdl, energyDep),
                width = 800, height = 480)
     ## KDE of the different FADC settings
     ggplot(df, aes(dset, fill = "Settings")) +
       geom_density(normalize = true, alpha = 0.7, adjust = 2.0, color = "black") +
       ggtitle(dset & " of different FADC settings used") +
+      themeLatex(fWidth = 0.9, width = 600, baseTheme = singlePlot, useTeX = UseTeX) +
       ggsave(genOutfile(outpath, dset, "different_fadc_amp_settings_" & suffix, true, isCdl, energyDep),
              width = 800, height = 480)
     ## KDE of the different runs in data
     ggplot(df, aes(dset, fill = factor("runNumber"))) +
       geom_density(normalize = true, alpha = 0.7, adjust = 2.0, color = "black") +
       ggtitle(dset & " of different runs") +
+      themeLatex(fWidth = 0.9, width = 600, baseTheme = singlePlot, useTeX = UseTeX) +
       ggsave(genOutfile(outpath, dset, "different_runs_" & suffix, true, isCdl, energyDep),
              width = 800, height = 480)
 
@@ -162,6 +171,7 @@ proc plotFallTimeRiseTime(df: DataFrame, outpath, suffix: string, isCdl, energyD
     ggplot(dfG, aes(runNumber, dset, color = other)) +
       geom_point() +
       ggtitle(&"Mean {dset} in input data by run number, colored by {other}.") +
+      themeLatex(fWidth = 0.9, width = 600, baseTheme = singlePlot, useTeX = UseTeX) +
       ggsave(outpath / &"fadc_mean_{dset}_$#.pdf" % suffix,
              width = 800, height = 480)
 
@@ -237,7 +247,7 @@ proc main(calib: string, year: int,
       raise newException(IOError, "The input file is neither clearly a 2017 nor 2018 calibration file!")
 
     let yearToRun = if is2017: 2 else: 3
-    let suffix = "run$#" % $yearToRun
+    let suffix = "Run-$#" % $yearToRun
 
     var df = newDataFrame()
     if energyDep:

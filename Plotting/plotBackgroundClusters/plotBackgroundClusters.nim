@@ -358,7 +358,8 @@ proc plotSuppression(cTab: CountTable[(int, int)], totalNum, tiles: int,
                      suffix, outpath: string,
                      showGoldRegion: bool,
                      asSinglePlot: bool,
-                     fWidth: float) =
+                     fWidth: float,
+                     zMax: float) =
   ## Plots a tilemap of background suppressions. It uses `tiles` elements in each axis.
   proc toTensor(cTab: CountTable[(int, int)]): Tensor[int] =
     result = zeros[int]([256, 256])
@@ -396,20 +397,26 @@ proc plotSuppression(cTab: CountTable[(int, int)], totalNum, tiles: int,
   let size = step.ceil
   let outfile = if outpath.len > 0: outpath / &"background_suppression_tile_map{suffix}.pdf"
                 else: &"plots/background_suppression_tile_map{suffix}.pdf"
-  ## XXX: FIX UP title for TeX backend (unicode) & make # of total cluster dependent on code, not
-  ## hardcoded!
-  let baseTheme = if asSinglePlot: singlePlot else: sideBySide
+  proc customSideBySide(): Theme =
+    result = sideBySide()
+    result.titleFont = some(font(6.0))
+  let baseTheme = if asSinglePlot: singlePlot else: customSideBySide
   let fWidth = if fWidth > 0.0: fWidth
                elif asSinglePlot: 0.9
                else: 0.5
+  var title = &"Local background suppression compared\\\\to {totalNum.float:.2g} raw clusters"
   ggplot(dfTile, aes("xI", "yI", fill = "sI", width = size, height = size)) +
     geom_tile() +
-    geom_text(aes = aes(x = f{`xI` + size / 2.0}, y = f{`yI` + size / 2.0}, text = "sI"), color = "white") +
+    geom_text(aes = aes(x = f{`xI` + size / 2.0}, y = f{`yI` + size / 2.0}, text = "sI"), # , color = "#888888",
+              size = 7.0) +
     xlim(0, 256) + ylim(0, 256) +
     xlab("x [Pixel]") + ylab("y [Pixel]") +
-    margin(top = 1.75) +
+    margin(top = 1.75, right = 4.5) +
+    coord_fixed(1.0) +
+    scale_fill_gradient(cool(),
+                        dataScale = (low: 0.0, high: zMax)) +
     themeLatex(fWidth = fWidth, width = 600, height = 450, baseTheme = baseTheme) +
-    ggtitle(&"Local background suppression compared to {totalNum.float:.2g} raw clusters") +
+    ggtitle(title) +
     ggsave(outfile, useTeX = true, standalone = true)
 
 proc main(
@@ -424,6 +431,7 @@ proc main(
   energyTextRadius = -1.0, ## Radius in which around the center to print energy as text
   colorBy: ColorBy = count,
   zMax = 5.0,
+  zMaxSuppression = 0.0,
   threshold = 2,
   chip = -1, # chip can be used to overwrite center chip reading
   tiles = 7,
@@ -460,7 +468,7 @@ proc main(
   # `df.len` is total number clusters
   if backgroundSuppression:
     doAssert names.len == 0, "Suppression plot when handing multiple files that are not combined not supported."
-    plotSuppression(cTab.toCountTable(), totalNum, tiles, suffix, outpath, showGoldRegion, singlePlot, fWidth)
+    plotSuppression(cTab.toCountTable(), totalNum, tiles, suffix, outpath, showGoldRegion, singlePlot, fWidth, zMaxSuppression)
 
   when false:
     # convert center positions to a 256x256 map

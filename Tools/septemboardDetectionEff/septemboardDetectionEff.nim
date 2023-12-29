@@ -3,6 +3,10 @@ import ggplotnim, seqmath
 import numericalnim except linspace
 import xrayAttenuation
 
+from std / os import getEnv
+let UseTeX = getEnv("USE_TEX", "false").parseBool
+let Newline = if UseTeX: r"\\" else: ""
+
 proc readLLNL(fname: string, sep = ','): DataFrame =
   const areaBore = π * (2.15.cm)^2
   var df = readCsv(fname, sep = sep)
@@ -57,9 +61,9 @@ proc plotEfficiency(df: DataFrame, outpath: string) =
     echo df
     ggplot(df, aes("Energy [keV]", "Efficiency", color = "Type")) +
       geom_line() +
-      ggtitle("Detection efficiencies of window, software eff., LLNL efficiency and Argon absorption") +
+      ggtitle(&"Detection efficiencies of window, software eff., LLNL efficiency{Newline} and Argon absorption") +
       margin(top = 1.75) +
-      theme_font_scale(1.0, family = "serif") +
+      themeLatex(fWidth = 0.9, width = 600, baseTheme = singlePlot, useTeX = UseTeX, useWithoutTeX = false) +
       ggsave(&"{outpath}/detection_efficiency.pdf", width = 600, height = 380)
 
 proc castGas(): GasMixture =

@@ -19,7 +19,7 @@ proc thL(fWidth: float, width: float,
     let texOptions = toTeXOptions(UseTeX, onlyTikZ = false,
                                   standalone = true,
                                   texTemplate = "", caption = "", label = "", placement = "htbp")
-    result = themeLatex(fWidth, width, baseTHeme, height, ratio, textWidth,
+    result = themeLatex(fWidth, width, baseTheme, height, ratio, textWidth,
                         useTeX = UseTeX, texOptions = texOptions)
   else:
     result = Theme()

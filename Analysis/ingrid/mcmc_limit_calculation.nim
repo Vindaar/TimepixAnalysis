@@ -7,6 +7,7 @@ from strutils import repeat, endsWith, strip, parseFloat, removeSuffix, parseBoo
 import pkg / [sorted_seq]
 
 import ingrid / [tos_helpers, ingrid_types]
+import ingrid / private / limit_utils
 # the interpolation code
 import ingrid / background_interpolation
 import numericalnim except linspace, cumSum
@@ -20,6 +21,9 @@ defUnit(keV⁻¹•cm⁻²)
 
 # for multiprocessing
 import cligen / [procpool, mslice, osUt]
+
+# Plot width
+let Width* = getEnv("WIDTH", "600").parseFloat
 
 type
   ChipCoord = range[0.0 .. 14.0]
@@ -87,8 +91,8 @@ type
     of puUncertain:
       σ_p: float # relative uncertainty away from the center of the chip, in units of
                 # ???
-      θ_x: float
-      θ_y: float
+      ϑ_x: float
+      ϑ_y: float
     of puCertain: discard # no uncertainty
 
   # helper object about the data we read from an input H5 file
@@ -297,19 +301,19 @@ template σ_p(ctx: Context): float =
   doAssert ctx.uncertaintyPosition == puUncertain
   ctx.systematics.σ_p
 
-template θ_x(ctx: Context): float =
+template ϑ_x(ctx: Context): float =
   doAssert ctx.uncertaintyPosition == puUncertain
-  ctx.systematics.θ_x
+  ctx.systematics.ϑ_x
 
-template `θ_x=`(ctx: Context, val: float) =
-  ctx.systematics.θ_x = val
+template `ϑ_x=`(ctx: Context, val: float) =
+  ctx.systematics.ϑ_x = val
 
-template θ_y(ctx: Context): float =
+template ϑ_y(ctx: Context): float =
   doAssert ctx.uncertaintyPosition == puUncertain
-  ctx.systematics.θ_y
+  ctx.systematics.ϑ_y
 
-template `θ_y=`(ctx: Context, val: float) =
-  ctx.systematics.θ_y = val
+template `ϑ_y=`(ctx: Context, val: float) =
+  ctx.systematics.ϑ_y = val
 
 ## Logging helpers
 proc info(logger: Logger, msgs: varargs[string, `$`]) =
@@ -1007,11 +1011,20 @@ proc plotCandidates(cands: seq[Candidate],
                    ) =
   let dfC = toDf({ "x" : cands.mapIt(it.pos.x.float),
                    "y" : cands.mapIt(it.pos.y.float),
-                   "E" : cands.mapIt(it.energy.float)})
-  ggplot(dfC, aes("x", "y", color = "E")) +
+                   "E [keV]" : cands.mapIt(it.energy.float)})
+
+  proc thm(): Theme =
+    result = sideBySide()
+    result.titleFont = some(font(7.0))
+
+  ggplot(dfC, aes("x", "y", color = "E [keV]")) +
     geom_point() +
     ggtitle(title) +
-    margin(top = topMargin) +
+    margin(top = topMargin, right = 3.5) +
+    coord_fixed(1.0) +
+    xlab("x [mm]") + ylab("y [mm]") +
+    thL(fWidth = 0.5, width = Width, baseTheme = thm) +
+    continuousLegendWidth(0.75) + continuousLegendHeight(3.0) +
     ggsave(outfile)
 
 import random / mersenne
@@ -1131,8 +1144,8 @@ proc raytracing(ctx: Context, pos: tuple[x, y: float], ignoreWindow: static bool
     ## XXX: investigate me! The old code does not make sense I think,
     ## but I'm not sure if this is correct now. Start from analytical
     ## derivation again.
-    x = pos.x + ctx.θ_x * 7.0 #* (1.0 + ctx.θ_x)
-    y = pos.y + ctx.θ_y * 7.0 #* (1.0 + ctx.θ_y)
+    x = pos.x + ctx.ϑ_x * 7.0 #* (1.0 + ctx.ϑ_x)
+    y = pos.y + ctx.ϑ_y * 7.0 #* (1.0 + ctx.ϑ_y)
   if x notin 0.0 .. 14.0 or
      y notin 0.0 .. 14.0:
     return 0.cm⁻²
@@ -1244,7 +1257,7 @@ proc plotRaytracingImage(ctx: Context, log: Logger,
 
   let pixelsPerSqCm = 256^2 / (1.4.cm * 1.4.cm)
   log.infosNoHeader:
-    &"Raytracing sanity check for: ignoreWindow = {ignoreWindow}, θ_x = θ_y = {ctx.θ_x}"
+    &"Raytracing sanity check for: ignoreWindow = {ignoreWindow}, ϑ_x = ϑ_y = {ctx.ϑ_x}"
     &"Sum of raytracing contributions over the whole chip: {zs.sum.cm⁻²}"
     &"\tcorresponds to number of pixels per cm⁻²"
     &"Raytracing contributions over the whole chip normalized to chip area: {zs.sum.cm⁻² / pixelsPerSqCm}"
@@ -1259,7 +1272,8 @@ proc plotRaytracingImage(ctx: Context, log: Logger,
     scale_fill_gradient(customInferno) +
     ggtitle(title) +
     xlab("x [mm]") + ylab("y [mm]") +
-    theme_font_scale(1.0, family = "serif") +
+    coord_fixed(1.0) +
+    thL(fWidth = 0.9, width = Width) +
     ggsave(outname)
 
 proc resetZeroCounters(ctx: Context) =
@@ -1277,23 +1291,23 @@ proc printZeroCounters(ctx: Context, numCand: int) {.used.} =
   echo "Number of zero background candidates: ", ctx.interp.zeroBack
   echo "Number of zero sig & back candidates: ", ctx.interp.zeroSigBack
 
-template L(s, s_c, b_c, θ_s, σ_s, θ_b, σ_b: untyped,
-           θ_x = 0.0, σ_xp = 0.0, θ_y = 0.0, σ_yp = 0.0): untyped =
+template L(s, s_c, b_c, ϑ_s, σ_s, ϑ_b, σ_b: untyped,
+           ϑ_x = 0.0, σ_xp = 0.0, ϑ_y = 0.0, σ_yp = 0.0): untyped =
   ## `s`, `s_i` and `b_i` may be modified / unmodified depending on which uncertainty
   ## is selected
   ##: XXX: better to do exp( ln( ... ) ), or exp() * exp() * exp() ?
   result = exp(-s)
   #echo "-s ", s, " result ", result
   if σ_s > 0.0:
-    result *= exp(-square(θ_s / (sqrt(2.0) * σ_s))) ## FIXME the normalization of denominator is wrong missing √2
-  elif σ_s == 0.0 and θ_s != 0.0:
+    result *= exp(-square(ϑ_s / (sqrt(2.0) * σ_s))) ## FIXME the normalization of denominator is wrong missing √2
+  elif σ_s == 0.0 and ϑ_s != 0.0:
     result = 0
   if σ_b > 0.0:
-    result *= exp(-square(θ_b / (sqrt(2.0) * σ_b)))
-  elif σ_b == 0.0 and θ_b != 0.0:
+    result *= exp(-square(ϑ_b / (sqrt(2.0) * σ_b)))
+  elif σ_b == 0.0 and ϑ_b != 0.0:
     result = 0
   if σ_xp > 0.0 and σ_yp > 0.0:
-    result *= exp(-square(θ_x / (sqrt(2.0) * σ_xp))) * exp(-square(θ_y / (sqrt(2.0) * σ_yp)))
+    result *= exp(-square(ϑ_x / (sqrt(2.0) * σ_xp))) * exp(-square(ϑ_y / (sqrt(2.0) * σ_yp)))
 
   #echo "current result ", result
   for (s_i {.inject.}, b_i {.inject.}) in cSigBack:
@@ -1303,7 +1317,7 @@ template L(s, s_c, b_c, θ_s, σ_s, θ_b, σ_b: untyped,
       #echo "result at b_i ", b_i, " res = ", result
       result *= (1 + s_c / b_c) # log-normal (but wrong): / (b_c * σ_b * b_i)
   #if true: quit()
-  #echo "Result exp is ", result, " for θ_s = ", θ_s, ", θ_b = ", θ_b
+  #echo "Result exp is ", result, " for ϑ_s = ", ϑ_s, ", ϑ_b = ", ϑ_b
   if result.isNaN:
     echo "WARNING WARNING NAN"
     #quit("quitting from L")
@@ -1311,7 +1325,7 @@ template L(s, s_c, b_c, θ_s, σ_s, θ_b, σ_b: untyped,
 proc logLUncertainSig(ctx: Context, candidates: seq[Candidate]): float =
   if ctx.samplingKind == skInterpBackground:
     resetZeroCounters(ctx)
-  ## integration of L over `θ_s` using the current parameters for `s`, `b_i`, `s_i`
+  ## integration of L over `ϑ_s` using the current parameters for `s`, `b_i`, `s_i`
   ## is equivalent to integration & then evaluating integral at position of these params
   let s_tot = totalSignal(ctx)
   let σ_s = ctx.σs_sig
@@ -1320,11 +1334,11 @@ proc logLUncertainSig(ctx: Context, candidates: seq[Candidate]): float =
   for i, c in candidates:
     cSigBack[i] = (ctx.expectedSignal(c.energy, c.pos).float,
                    ctx.background(c.energy, c.pos).float)
-  proc likelihood(θ_s: float, nc: NumContext[float, float]): float =
-    L(s_tot * (1 + θ_s),
-      s_i * (1 + θ_s),
+  proc likelihood(ϑ_s: float, nc: NumContext[float, float]): float =
+    L(s_tot * (1 + ϑ_s),
+      s_i * (1 + ϑ_s),
       b_i,
-      θ_s, σ_s,
+      ϑ_s, σ_s,
       0.0, 0.0)
   if σ_s > 0.0:
     let res = adaptiveGauss(likelihood, -10, 10)
@@ -1347,7 +1361,7 @@ proc logLUncertainBack(ctx: Context, candidates: seq[Candidate]): float =
   if ctx.samplingKind == skInterpBackground:
     resetZeroCounters(ctx)
 
-  ## integration of L over `θ_b` using the current parameters for `s`, `b_i`, `s_i`
+  ## integration of L over `ϑ_b` using the current parameters for `s`, `b_i`, `s_i`
   ## is equivalent to integration & then evaluating integral at position of these params
   let s_tot = totalSignal(ctx)
   let σ_b = ctx.σb_back
@@ -1356,12 +1370,12 @@ proc logLUncertainBack(ctx: Context, candidates: seq[Candidate]): float =
     cSigBack[i] = (ctx.expectedSignal(c.energy, c.pos).float,
                    ctx.background(c.energy, c.pos).float)
 
-  proc likelihood(θ_b: float, nc: NumContext[float, float]): float =
+  proc likelihood(ϑ_b: float, nc: NumContext[float, float]): float =
     L(s_tot,
       s_i,
-      b_i * (1 + θ_b), # log-normal (but wrong): exp(b_i * (1 + θ_b)),
+      b_i * (1 + ϑ_b), # log-normal (but wrong): exp(b_i * (1 + ϑ_b)),
       0.0, 0.0,
-      θ_b, σ_b)
+      ϑ_b, σ_b)
   ## Mark the point `-1` as a difficult point, so that it's not evaluated. We do not care
   ## about the singularity at that point for the integration
   let res = adaptiveGauss(likelihood, -0.80, 10.0) #, initialPoints = @[-1.0])
@@ -1374,7 +1388,7 @@ proc logLUncertainBack(ctx: Context, candidates: seq[Candidate]): float =
 proc logLUncertain(ctx: Context, candidates: seq[Candidate]): float =
   if ctx.samplingKind == skInterpBackground:
     resetZeroCounters(ctx)
-  ## integration of L over `θ_b` using the current parameters for `s`, `b_i`, `s_i`
+  ## integration of L over `ϑ_b` using the current parameters for `s`, `b_i`, `s_i`
   ## is equivalent to integration & then evaluating integral at position of these params
   let s_tot = totalSignal(ctx)
   let σ_b = ctx.σsb_back
@@ -1385,15 +1399,15 @@ proc logLUncertain(ctx: Context, candidates: seq[Candidate]): float =
                    ctx.background(c.energy, c.pos).float)
 
   var count = 0
-  proc likeBack(θ_b: float, nc: NumContext[float, float]): float =
-    proc likeSig(θ_s: float, nc: NumContext[float, float]): float =
-      L(s_tot * (1 + θ_s),
-        s_i * (1 + θ_s),
-        b_i * (1 + θ_b),
-        θ_s, σ_s,
-        θ_b, σ_b)
+  proc likeBack(ϑ_b: float, nc: NumContext[float, float]): float =
+    proc likeSig(ϑ_s: float, nc: NumContext[float, float]): float =
+      L(s_tot * (1 + ϑ_s),
+        s_i * (1 + ϑ_s),
+        b_i * (1 + ϑ_b),
+        ϑ_s, σ_s,
+        ϑ_b, σ_b)
     result = adaptiveGauss(likeSig, -1.0, 2.0)
-    #echo "Result of inner integral: ", result, " for θ_b = ", θ_b, " at call ", count
+    #echo "Result of inner integral: ", result, " for ϑ_b = ", ϑ_b, " at call ", count
     inc count
   ## There is a singularity at `-1`. Everything smaller is irrelevant and the singularity is
   ## unphysical for us. Start above that.
@@ -1407,7 +1421,7 @@ proc logLUncertain(ctx: Context, candidates: seq[Candidate]): float =
 proc logLPosUncertain(ctx: Context, candidates: seq[Candidate]): float =
   if ctx.samplingKind == skInterpBackground:
     resetZeroCounters(ctx)
-  ## integration of L over `θ_b` using the current parameters for `s`, `b_i`, `s_i`
+  ## integration of L over `ϑ_b` using the current parameters for `s`, `b_i`, `s_i`
   ## is equivalent to integration & then evaluating integral at position of these params
   var cSigBack = newSeq[(float, float)](candidates.len)
   let SQRT2 = sqrt(2.0)
@@ -1417,12 +1431,12 @@ proc logLPosUncertain(ctx: Context, candidates: seq[Candidate]): float =
     let sig = ctx.detectionEff(c.energy) * ctx.axionFlux(c.energy) * conversionProbability(ctx)
     cSigBack[i] = (sig.float,
                    ctx.background(c.energy, c.pos).float)
-  proc likeX(θ_x: float, nc: NumContext[float, float]): float =
-    ctx.θ_x = θ_x
-    proc likeY(θ_y: float, nc: NumContext[float, float]): float =
-      ctx.θ_y = θ_y
+  proc likeX(ϑ_x: float, nc: NumContext[float, float]): float =
+    ctx.ϑ_x = ϑ_x
+    proc likeY(ϑ_y: float, nc: NumContext[float, float]): float =
+      ctx.ϑ_y = ϑ_y
       let P1 = exp(-s_tot)
-      let P2 = exp(-square(θ_x / (SQRT2 * σ_p))) * exp(-square(θ_y / (SQRT2 * σ_p)))
+      let P2 = exp(-square(ϑ_x / (SQRT2 * σ_p))) * exp(-square(ϑ_y / (SQRT2 * σ_p)))
       var P3 = 1.0
       for i in 0 ..< cSigBack.len:
         let (s_init, b_c) = cSigBack[i]
@@ -1455,21 +1469,21 @@ proc logLFullUncertain(ctx: Context, candidates: seq[Candidate]): float =
     cSigBack[i] = (sig.float,
                    ctx.background(c.energy, c.pos).float)
   echo "Romberg integration for ", ctx.g_ae²
-  proc likeX(θ_x: float, nc: NumContext[float, float]): float =
-    ctx.θ_x = θ_x
-    proc likeY(θ_y: float, nc: NumContext[float, float]): float =
-      ctx.θ_y = θ_y
-      proc likeSig(θ_s: float, nc: NumContext[float, float]): float =
-        proc likeBack(θ_b: float, nc: NumContext[float, float]): float =
-          let s_tot_p = s_tot * (1 + θ_s)
+  proc likeX(ϑ_x: float, nc: NumContext[float, float]): float =
+    ctx.ϑ_x = ϑ_x
+    proc likeY(ϑ_y: float, nc: NumContext[float, float]): float =
+      ctx.ϑ_y = ϑ_y
+      proc likeSig(ϑ_s: float, nc: NumContext[float, float]): float =
+        proc likeBack(ϑ_b: float, nc: NumContext[float, float]): float =
+          let s_tot_p = s_tot * (1 + ϑ_s)
           let P1 = exp(-s_tot_p)
-          let P2 = exp(-square(θ_x / (SQRT2 * σ_p))) * exp(-square(θ_y / (SQRT2 * σ_p))) *
-                   exp(-square(θ_s / (SQRT2 * σ_s))) * exp(-square(θ_b / (SQRT2 * σ_b)))
+          let P2 = exp(-square(ϑ_x / (SQRT2 * σ_p))) * exp(-square(ϑ_y / (SQRT2 * σ_p))) *
+                   exp(-square(ϑ_s / (SQRT2 * σ_s))) * exp(-square(ϑ_b / (SQRT2 * σ_b)))
           var P3 = 1.0
           for i in 0 ..< cSigBack.len:
             let (s_init, b_i) = cSigBack[i]
-            let s_i = s_init * (1 + θ_s)
-            let b_c = b_i * (1 + θ_b)
+            let s_i = s_init * (1 + ϑ_s)
+            let b_c = b_i * (1 + ϑ_b)
             if b_c.float != 0.0:
               let s_c = (s_i * ctx.raytracing(candidates[i].pos)).float
               P3 *= (1 + s_c / b_c)
@@ -1818,17 +1832,17 @@ proc extractFromChain(chain: seq[seq[float]], names: seq[string]): DataFrame =
   # allocate tensors of the right size to avoid copying on DF construction
   var
     gs = zeros[float](chain.len)
-    θs = newSeq[Tensor[float]](nPar - 1)
-  for θ in mitems(θs):
-    θ = zeros[float](chain.len)
+    ϑs = newSeq[Tensor[float]](nPar - 1)
+  for ϑ in mitems(ϑs):
+    ϑ = zeros[float](chain.len)
   for i in 0 ..< chain.len:
     let c = chain[i]
     gs[i] = c[0]
     for j in 0 ..< names.len:
-      θs[j][i] = c[1 + j] # + 1 as 0-th param is `g_ae²`
+      ϑs[j][i] = c[1 + j] # + 1 as 0-th param is `g_ae²`
   result = toDf({"gs" : gs})
   for i, name in names:
-    result[name] = θs[i]
+    result[name] = ϑs[i]
 
 proc computeLimitFromMCMC(df: DataFrame, col = "gs"): float =
   ## Given the DF conbtaining the markov chain, computes the limit according to a
@@ -1850,6 +1864,11 @@ proc setThreshold(ctx: Context, x: float): float =
            of ck_g_ae²: x / ctx.g_aγ²
            of ck_g_aγ²: x / ctx.g_ae²
            of ck_g_ae²·g_aγ²: x
+
+proc mcmcLinesStyle(): Theme =
+  result = thL(fWidth = 0.5, width = 600, height = 480) +
+    margin(left = 3.75, right = 4.5) +
+    continuousLegendWidth(0.75) + continuousLegendHeight(3.0)
 
 proc plotChain(ctx: Context, cands: seq[Candidate], chainDf: DataFrame,
                limit: float, computeIntegral = false,
@@ -1921,20 +1940,25 @@ proc plotChain(ctx: Context, cands: seq[Candidate], chainDf: DataFrame,
     let bt = color(0.0, 0.0, 0.0, 0.5)
     if nPar > 4:
       #if cands.len > 0:
-      ggplot(chainDf, aes("gs", "θs_y", color = "θs_x")) +
+      ggplot(chainDf, aes("gs", "ϑs_y", color = "ϑs_x")) +
+
+        geom_line(size = 0.5) + geom_point(size = 1.0, alpha = 0.1) +
+        scale_x_continuous(breaks = 5) +
+        mcmcLinesStyle() +
+        #geom_histogram(bins = 50, density = true) +
+        ggsave("/tmp/mcmc_lines.pdf", width = 600, height = 480, dataAsBitmap = true)
+      ggplot(chainDf, aes("ϑs_x", "ϑs_y", color = "gs")) +
         geom_line(size = 0.5) + geom_point(size = 1.0, alpha = 0.1) +
         #geom_histogram(bins = 50, density = true) +
-        ggsave("/tmp/mcmc_lines.png", width = 1200, height = 800)
-      ggplot(chainDf, aes("θs_x", "θs_y", color = "gs")) +
-        geom_line(size = 0.5) + geom_point(size = 1.0, alpha = 0.1) +
-        #geom_histogram(bins = 50, density = true) +
-        ggsave("/tmp/mcmc_lines_thetas_xy.png", width = 1200, height = 800)
+        mcmcLinesStyle() +
+        ggsave("/tmp/mcmc_lines_thetas_xy.pdf", width = 600, height = 480, dataAsBitmap = true)
     if nPar > 1:
-      ggplot(chainDf, aes("θs_s", "θs_b", color = "gs")) +
+      ggplot(chainDf, aes("ϑs_s", "ϑs_b", color = "gs")) +
         #geom_line(size = 0.5, color = bt, fillColor = tr) + geom_point(size = 1.0, alpha = 0.1) +
         geom_line(size = 0.5) + geom_point(size = 1.0, alpha = 0.1) +
         #geom_histogram(bins = 50, density = true) +
-        ggsave("/tmp/mcmc_lines_thetas_sb.png", width = 1200, height = 800)
+        mcmcLinesStyle() +
+        ggsave("/tmp/mcmc_lines_thetas_sb.pdf", width = 600, height = 480, dataAsBitmap = true)
     #quit()
 
   #echo chainDf
@@ -1952,7 +1976,9 @@ proc plotChain(ctx: Context, cands: seq[Candidate], chainDf: DataFrame,
       annotate(x = bins[c95IdxHisto], y = hist[c95IdxHisto].float + 500.0,
                text = "Limit at 95% area") +
       xlab("g_ae²") + ylab("L (MCMC sampled)") +
-      ggtitle(title)
+      ggtitle(title) +
+      margin(left = 2.75) +
+      thL(fWidth = 0.9, width = Width, forceWidth = true)
     if computeIntegral:
       plt = plt + geom_line(data = dfA, aes = aes("coups", "Ls"), color = "orange")
     plt + ggsave(mcmcHistoOutfile, width = 800, height = 480)
@@ -2060,40 +2086,40 @@ template fullUncertainFn(): untyped {.dirty.} =
 
   proc fn(x: seq[float]): float =
     ctx.coupling = x[0]
-    let (θ_s, θ_b, θ_x, θ_y) = (x[1], x[2], x[3], x[4])
+    let (ϑ_s, ϑ_b, ϑ_x, ϑ_y) = (x[1], x[2], x[3], x[4])
     if x[0] < 0.0: return -1.0
-    elif θ_b < -0.8 or θ_b > 1.0: return -1.0
-    elif θ_s < -1.0 or θ_s > 1.0: return -1.0
-    elif θ_x > 1.0  or θ_x < -1.0: return -1.0
-    elif θ_y > 1.0  or θ_y < -1.0: return -1.0
+    elif ϑ_b < -0.8 or ϑ_b > 1.0: return -1.0
+    elif ϑ_s < -1.0 or ϑ_s > 1.0: return -1.0
+    elif ϑ_x > 1.0  or ϑ_x < -1.0: return -1.0
+    elif ϑ_y > 1.0  or ϑ_y < -1.0: return -1.0
     let s_totg = s_tot.rescale(ctx)
-    ctx.θ_x = θ_x
-    ctx.θ_y = θ_y
+    ctx.ϑ_x = ϑ_x
+    ctx.ϑ_y = ϑ_y
     ## TODO: convert to logsumexp or similar?
     let P1 = exp(-s_totg)
-    let P2 = exp(-square(θ_x / (SQRT2 * σ_p))) * exp(-square(θ_y / (SQRT2 * σ_p))) *
-             exp(-square(θ_s / (SQRT2 * σ_s))) * exp(-square(θ_b / (SQRT2 * σ_b)))
+    let P2 = exp(-square(ϑ_x / (SQRT2 * σ_p))) * exp(-square(ϑ_y / (SQRT2 * σ_p))) *
+             exp(-square(ϑ_s / (SQRT2 * σ_s))) * exp(-square(ϑ_b / (SQRT2 * σ_b)))
     var P3 = 1.0
     for i in 0 ..< cSigBack.len:
       let (s_init, b_c) = cSigBack[i]
       if b_c.float != 0.0:
-        let s_c = (s_init.rescale(ctx) * (1 + θ_s) * ctx.raytracing(cands[i].pos)).float
-        P3 *= (1 + s_c / (b_c * (1 + θ_b)))
+        let s_c = (s_init.rescale(ctx) * (1 + ϑ_s) * ctx.raytracing(cands[i].pos)).float
+        P3 *= (1 + s_c / (b_c * (1 + ϑ_b)))
     result = abs(P1 * P2 * P3) # make positive if number comes out to `-0.0`
 
     when false: ## log branch!!
       let P1 = -s_totg
-      let P2 = -square(θ_x / (SQRT2 * σ_p)) + -square(θ_y / (SQRT2 * σ_p)) +
-               -square(θ_s / (SQRT2 * σ_s)) + -square(θ_b / (SQRT2 * σ_b))
+      let P2 = -square(ϑ_x / (SQRT2 * σ_p)) + -square(ϑ_y / (SQRT2 * σ_p)) +
+               -square(ϑ_s / (SQRT2 * σ_s)) + -square(ϑ_b / (SQRT2 * σ_b))
       var P3 = 0.0
       for i in 0 ..< cSigBack.len:
         let (s_init, b_c) = cSigBack[i]
         if b_c.float != 0.0:
-          let s_c = (s_init.rescale(ctx) * (1 + θ_s) * ctx.raytracing(cands[i].pos)).float
+          let s_c = (s_init.rescale(ctx) * (1 + ϑ_s) * ctx.raytracing(cands[i].pos)).float
           #echo "yeah fick"
           #if true: quit()
 
-          P3 += ln(1 + s_c / (b_c * (1 + θ_b)))
+          P3 += ln(1 + s_c / (b_c * (1 + ϑ_b)))
       result = abs((P1 + P2 + P3)) # make positive if number comes out to `-0.0`
       #echo "RESULT= ", result, " from ", P1, " = ", P2, " = ", P3
     if classify(result) == fcNan:
@@ -2106,8 +2132,8 @@ template fullUncertainFn(): untyped {.dirty.} =
       for i in 0 ..< cSigBack.len:
         let (s_init, b_c) = cSigBack[i]
         if b_c.float != 0.0:
-          let s_c = (s_init.rescale(ctx) * (1 + θ_s) * ctx.raytracing(cands[i].pos)).float
-          let t = ln(1 + s_c / (b_c * (1 + θ_b)))
+          let s_c = (s_init.rescale(ctx) * (1 + ϑ_s) * ctx.raytracing(cands[i].pos)).float
+          let t = ln(1 + s_c / (b_c * (1 + ϑ_b)))
           P3 += t
           echo "P3 = ", P3, " from t ", t, " and s_c ", s_c, " and before rescale = ", s_init, " and g_ae²·g_aγ² = ", ctx.couplingReference, " and b_c = ", b_c
 
@@ -2128,17 +2154,17 @@ template posUncertainFn(): untyped {.dirty.} =
 
   proc fn(x: seq[float]): float =
     ctx.coupling = x[0]
-    let (θ_x, θ_y) = (x[1], x[2])
+    let (ϑ_x, ϑ_y) = (x[1], x[2])
     if x[0] < 0.0: return -1.0
-    elif θ_x > 1.0  or θ_x < -1.0: return -1.0
-    elif θ_y > 1.0  or θ_y < -1.0: return -1.0
+    elif ϑ_x > 1.0  or ϑ_x < -1.0: return -1.0
+    elif ϑ_y > 1.0  or ϑ_y < -1.0: return -1.0
     let s_totg = s_tot.rescale(ctx)
     #echo "rescaled ", s_tot, " to ", s_totg
-    ctx.θ_x = θ_x
-    ctx.θ_y = θ_y
+    ctx.ϑ_x = ϑ_x
+    ctx.ϑ_y = ϑ_y
     ## TODO: convert to logsumexp or similar?
     let P1 = exp(-s_totg)
-    let P2 = exp(-square(θ_x / (SQRT2 * σ_p))) * exp(-square(θ_y / (SQRT2 * σ_p)))
+    let P2 = exp(-square(ϑ_x / (SQRT2 * σ_p))) * exp(-square(ϑ_y / (SQRT2 * σ_p)))
     var P3 = 1.0
     for i in 0 ..< cSigBack.len:
       let (s_init, b_c) = cSigBack[i]
@@ -2162,18 +2188,18 @@ template sbUncertainFn(): untyped {.dirty.} =
   proc fn(x: seq[float]): float =
     ctx.coupling = x[0]
     let g_ae = x[0]
-    let θ_s = x[1]
-    let θ_b = x[2]
+    let ϑ_s = x[1]
+    let ϑ_b = x[2]
     if g_ae < 0.0:
       return -1.0
-    if θ_b < -0.8 or θ_b > 1.0: return -1.0
-    if θ_s < -1.0 or θ_s > 2.0: return -1.0
+    if ϑ_b < -0.8 or ϑ_b > 1.0: return -1.0
+    if ϑ_s < -1.0 or ϑ_s > 2.0: return -1.0
     let s_totg = s_tot.rescale(ctx)
     L(s_totg,
-      s_i.rescale(ctx) * (1 + θ_s),
-      b_i * (1 + θ_b),
-      θ_s, σ_s,
-      θ_b, σ_b)
+      s_i.rescale(ctx) * (1 + ϑ_s),
+      b_i * (1 + ϑ_b),
+      ϑ_s, σ_s,
+      ϑ_b, σ_b)
     result = abs(result) # make positive if number comes out to `-0.0`
 
 template certainFn(): untyped {.dirty.} =
@@ -2224,8 +2250,8 @@ proc build_MH_chain(ctx: Context, rnd: var Random, cands: seq[Candidate],
       var totalChain = newSeq[seq[float]]()
       for i in 0 ..< nChains:
         let start = @[rnd.rand(0.0 .. 5.0) * couplingRef, #1e-21, # g_ae²
-                      rnd.rand(-0.4 .. 0.4), rnd.rand(-0.4 .. 0.4), # θs, θb
-                      rnd.rand(-0.5 .. 0.5), rnd.rand(-0.5 .. 0.5)] # θx, θy
+                      rnd.rand(-0.4 .. 0.4), rnd.rand(-0.4 .. 0.4), # ϑs, ϑb
+                      rnd.rand(-0.5 .. 0.5), rnd.rand(-0.5 .. 0.5)] # ϑx, ϑy
         echo "\t\tInitial chain state: ", start
         let (chain, acceptanceRate) = rnd.build_MH_chain(start, @[3.0 * couplingRef, 0.025, 0.025, 0.05, 0.05], 150_000, fn)
         echo "Acceptance rate: ", acceptanceRate, " with last two states of chain: ", chain[^2 .. ^1]
@@ -2240,7 +2266,7 @@ proc build_MH_chain(ctx: Context, rnd: var Random, cands: seq[Candidate],
       var totalChain = newSeq[seq[float]]()
       for i in 0 ..< nChains:
         let start = @[rnd.rand(0.0 .. 5.0) * couplingRef, #1e-21, # g_ae²
-                      rnd.rand(-0.5 .. 0.5), rnd.rand(-0.5 .. 0.5)] # θx, θy
+                      rnd.rand(-0.5 .. 0.5), rnd.rand(-0.5 .. 0.5)] # ϑx, ϑy
         echo "\t\tInitial chain state: ", start
         let (chain, acceptanceRate) = rnd.build_MH_chain(start, @[3.0 * couplingRef, 0.05, 0.05], 150_000, fn)
         echo "Acceptance rate: ", acceptanceRate, " with last two states of chain: ", chain[^2 .. ^1]
@@ -2258,7 +2284,7 @@ proc build_MH_chain(ctx: Context, rnd: var Random, cands: seq[Candidate],
       var totalChain = newSeq[seq[float]]()
       for i in 0 ..< nChains:
         let start = @[rnd.rand(0.0 .. 5.0) * couplingRef, #1e-21, # g_ae²
-                      rnd.rand(-0.4 .. 0.4), rnd.rand(-0.4 .. 0.4)] # θs, θb
+                      rnd.rand(-0.4 .. 0.4), rnd.rand(-0.4 .. 0.4)] # ϑs, ϑb
         echo "\t\tInitial chain state: ", start
 
         ## XXX: really seems to converge to a different minimum than the one found by the scan
@@ -2291,11 +2317,11 @@ proc computeMCMC(ctx: Context, rnd: var Random, cands: seq[Candidate]): DataFram
   ## Builds the required MCMC and extracts it into a DF
   let chain = ctx.build_MH_chain(rnd, cands)
   let names = if ctx.systematics.uncertainty == ukUncertain and ctx.systematics.uncertaintyPosition == puUncertain:
-                @["θs_s", "θs_b", "θs_x", "θs_y"]
+                @["ϑs_s", "ϑs_b", "ϑs_x", "ϑs_y"]
               elif ctx.systematics.uncertainty == ukUncertain and ctx.systematics.uncertaintyPosition == puCertain:
-                @["θs_s", "θs_b"]
+                @["ϑs_s", "ϑs_b"]
               elif ctx.systematics.uncertainty == ukCertain and ctx.systematics.uncertaintyPosition == puUncertain:
-                @["θs_x", "θs_y"]
+                @["ϑs_x", "ϑs_y"]
               else:
                 @[]
   result = extractFromChain(chain, names)
@@ -2447,13 +2473,18 @@ proc plotMCLimitHistogram(
   if as_gae_gaγ:
     expLimit = to_gaγ(expLimit)
     limitNoSignal = to_gaγ(limitNoSignal)
+
+  proc thm(): Theme =
+    result = singlePlot()
+    result.titleFont = some(font(8.5))
+
   var plt = ggplot(dfL, aes("limits", fill = factor("candsInSens"))) +
     geom_histogram(bins = bins, hdKind = hdOutline, position = "identity", alpha = some(0.5)) +
     geom_linerange(aes = aes(x = limitNoSignal, y = 0.0, yMin = 0.0, yMax = linesTo),
                    color = some(parseHex("FF0000"))) +
     geom_linerange(aes = aes(x = expLimit, y = 0.0, yMin = 0.0, yMax = linesTo),
                    color = some(parseHex("0000FF"))) +
-    annotate(text = "Limit w/o signal, only R_T",
+    annotate(text = "Limit w/o candidates",
              x = noSigX,
              y = linesTo.float,
              rotate = -90.0,
@@ -2467,7 +2498,8 @@ proc plotMCLimitHistogram(
              font = font(color = parseHex("0000FF")),
              backgroundColor = color(0.0, 0.0, 0.0, 0.0)) +
     scale_x_continuous() + scale_y_continuous() +
-    margin(top = 1.75)
+    thL(fWidth = 0.9, width = Width) +
+    margin(top = 2.0)
   if xlimit[0] != xlimit[1]:
     plt = plt + xlim(xlimit[0], xlimit[1])
   if ylimit[0] != ylimit[1]:
@@ -2476,8 +2508,8 @@ proc plotMCLimitHistogram(
                        else: &"Expected limit g_ae·g_aγ = {expLimit:.4e}"
   plt +
     xlab(xLabel) + ylab(yLabel) +
-    ggtitle(&"MC limit histogram of {nmc} toys using {ctx.samplingKind} and {limitKind}. {utSuff} " &
-            &"{putSuff}. {expLimitSuffix}") +
+    ggtitle(&"MC limit histogram of {nmc} toys using {ctx.samplingKind} and {limitKind}.{Newline} {utSuff} " &
+            &"{putSuff}.{Newline} {expLimitSuffix}") +
     ggsave(&"{outpath}/mc_limit_{limitKind}_{ctx.samplingKind}_nmc_{nmc}_{ufSuff}_{pufSuff}{suffix}.pdf",
             width = 800, height = 480)
 
@@ -2514,7 +2546,8 @@ proc toCandidates(df: DataFrame): seq[Candidate] =
   for i in 0 ..< result.len:
     result[i] = Candidate(energy: Es[i].keV, pos: (x: xs[i], y: ys[i]))
 
-proc plotCandsSigOverBack(ctx: Context, log: Logger, cands: seq[Candidate], outfile, title: string)
+proc plotCandsSigOverBack(ctx: Context, log: Logger, cands: seq[Candidate], outfile, title: string,
+                          textCutoff: float, textFn: FormulaNode = FormulaNode())
 proc computeRealLimit(ctx: Context, rnd: var Random, limitKind: LimitKind,
                       outpath: string) =
   ## Given the `tracking` files in `ctx` compute the real limit associated and make
@@ -2546,7 +2579,9 @@ proc computeRealLimit(ctx: Context, rnd: var Random, limitKind: LimitKind,
   log.info(&"Number of candidates in sensitive region ln(1 + s/b) > 0.5 (=cutoff): {ctx.candsInSens(cands)}")
   ctx.plotCandsSigOverBack(log, cands, outfile,
                            "ln(1 + s/b) for the real candidates. " &
-                           &"g_ae = {sqrt(ctx.coupling)}, g_aγ = {sqrt(ctx.g_aγ²)}")
+                           &"g_ae = {sqrt(ctx.coupling)}, g_aγ = {sqrt(ctx.g_aγ²)}",
+                           textCutoff = 0.1,
+                           textFn = f{float: (if idx("s/b") > 0.5: `ys` + 0.3 else: `ys` - 0.3)})
 
   ## Here we manually compute the MCMC etc instead of using `computeLimit` to have the
   ## entire MCMC on hand for further plots.
@@ -2575,11 +2610,11 @@ proc computeRealLimit(ctx: Context, rnd: var Random, limitKind: LimitKind,
   let likelihoodHisto = outpath / "mcmc_real_limit_likelihood"
   ctx.plotChain(cands, chainDf, limit, computeIntegral = false,
                 mcmcHistoOutfile = likelihoodHisto & "_g_ae_gag.pdf",
-                title = "Likelihood of real candidates against g_ae·g_aγ",
+                title = r"Likelihood of real candidates against $g_{ae}·g_{aγ}$",
                 as_gae_gaγ = true)
   ctx.plotChain(cands, chainDf, limit, computeIntegral = true,
                 mcmcHistoOutfile = likelihoodHisto & "_g_ae2.pdf",
-                title = "Likelihood of real candidates against g_ae²",
+                title = r"Likelihood of real candidates against $g²_{ae}$",
                 as_gae_gaγ = false)
 
 
@@ -2865,6 +2900,8 @@ proc plotSignalOverBackground(ctx: Context, log: Logger, outfile: string) =
     geom_linerange(aes = aes(y = hih(), xMin = low(), xMax = hih()), color = parseHex "FF0000") +
     #ggtitle("Signal / Background for E = 1.5 keV & g_ae = 8.1e-11") +
     ggtitle("ln(1 + S / B) for E = 1.5 keV & g_ae = 8.1e-11") +
+    thL(fWidth = 0.5, width = Width) +
+    coord_fixed(1.0) +
     ggsave(outfile)
 
 proc integrateSignalOverImage(ctx: Context, log: Logger) =
@@ -2980,6 +3017,8 @@ proc plotSignalAtEnergy(ctx: Context, log: Logger, energy: keV, title, outfile: 
     scale_fill_gradient(customInferno) +
     xlim(0, 256) + ylim(0, 256) +
     ggtitle(title) +
+    coord_fixed(1.0) +
+    thL(fWidth = 0.5, width = Width) +
     ggsave(outfile)
 
 proc plotSamplingTensor(ctx: Context,
@@ -3002,11 +3041,16 @@ proc plotSamplingTensor(ctx: Context,
       inc idx
   template low: untyped = 4.5 / 14.0 * 256.0
   template hih: untyped = 9.5 / 14.0 * 256.0
-  let df = toDf(xs, ys, cs)
+  let df = toDf({xs, ys, "Count" : cs})
   let offset = interp.xyOffset.toIdx
   log.infosNoHeader:
     &"Saving plot: {outfile}"
-  ggplot(df, aes(x = f{`xs` - offset}, y = f{`ys` - offset}, fill = "cs")) +
+
+  proc thm(): Theme =
+    result = sideBySide()
+    result.titleFont = some(font(7.0))
+
+  ggplot(df, aes(x = f{`xs` - offset}, y = f{`ys` - offset}, fill = "Count")) +
     geom_raster() +
     geom_linerange(aes = aes(x = low(), yMin = low(), yMax = hih()), color = parseHex "FF0000") +
     geom_linerange(aes = aes(x = hih(), yMin = low(), yMax = hih()), color = parseHex "FF0000") +
@@ -3014,8 +3058,12 @@ proc plotSamplingTensor(ctx: Context,
     geom_linerange(aes = aes(y = hih(), xMin = low(), xMax = hih()), color = parseHex "FF0000") +
     scale_fill_continuous(scale = (low: 0.0, high: yMax)) +
     xlim(0, 255) + ylim(0, 255) +
-    margin(top = 1.5) +
+    xlab("x [pixel]") + ylab("y [pixel]") +
+    margin(top = 2.0, right = 3.5) +
     ggtitle(title & &" at E = {interp.energies[energyIdx]} keV") +
+    thL(fWidth = 0.5, width = Width, baseTheme = thm) +
+    continuousLegendWidth(0.75) + continuousLegendHeight(3.0) +
+    coord_fixed(1.0) +
     ggsave(outfile)
 
 proc plotSamplingTensorEnergy(
@@ -3044,12 +3092,19 @@ proc plotSamplingTensorEnergy(
   let eOffset = interp.eOffset
   log.infosNoHeader:
     &"Saving plot: {outfile}"
+
+  proc thm(): Theme =
+    result = sideBySide()
+    result.titleFont = some(font(7.0))
+
   ggplot(df, aes(x = f{`xs` - xyOffset}, y = f{`Es` - eOffset}, fill = "cs")) +
     geom_raster() +
     scale_x_continuous() + scale_y_continuous() +
     scale_fill_continuous(scale = (low: 0.0, high: yMax)) +
     xlim(0, 255) +
     ggtitle(title) +
+    thL(fWidth = 0.5, width = Width, baseTheme = thm) +
+    coord_fixed(1.0) +
     ggsave(outfile)
 
 proc likelihoodScan(ctx: Context, log: Logger,
@@ -3094,6 +3149,7 @@ proc plotCandsLikelihood(ctx: Context, log: Logger,
       margin(top = 2.0) +
       xlab("g_ae²") +
       ggtitle(title) +
+      thL(fWidth = 0.9, width = Width) +
       ggsave(outfile)
   else:
     # plot both the MCMC histogram as well as the likelihood from a scan
@@ -3111,6 +3167,7 @@ proc plotCandsLikelihood(ctx: Context, log: Logger,
       margin(top = 2.0) +
       xlab("g_ae²") +
       ggtitle(title) +
+      thL(fWidth = 0.9, width = Width) +
       ggsave(outfile)
 
 proc plotCompareSystLikelihood(log: Logger,
@@ -3137,11 +3194,14 @@ proc plotCompareSystLikelihood(log: Logger,
     geom_histogram(
       data = dfH, stat = "identity", position = "identity", hdKind = hdOutline,
       fillColor = color(0.0, 0.0, 0.0, 0.0), lineWidth = 1.5) +
-    margin(top = 2.0) +
+    margin(top = 2.0, left = 3.5) +
     ggtitle(title) +
+    thL(fWidth = 0.9, width = Width) +
     ggsave(outfile)
 
-proc plotCandsSigOverBack(ctx: Context, log: Logger, cands: seq[Candidate], outfile, title: string) =
+proc plotCandsSigOverBack(ctx: Context, log: Logger, cands: seq[Candidate], outfile, title: string,
+                          textCutoff: float,
+                          textFn: FormulaNode = FormulaNode()) =
   ## creates a plot of the candidates and the associated signal/background as color
   ## for each candidate (at g_ae = 8.1e-11, g_aγ = 1e-12 GeV⁻¹)
   var ctx = ctx
@@ -3154,13 +3214,31 @@ proc plotCandsSigOverBack(ctx: Context, log: Logger, cands: seq[Candidate], outf
     sb.add ln(1 + sig / ctx.background(c.energy, c.pos))
   let df = toDf({ "xs" : cands.mapIt(it.pos.x.float),
                   "ys" : cands.mapIt(it.pos.y.float),
-                  "sb" : sb })
+                  "s/b" : sb })
   log.infosNoHeader:
     &"Saving plot: {outfile}"
-  ggplot(df, aes("xs", "ys", color = "sb")) +
-    geom_point() +
-    margin(top = 2.0) +
+
+  let dfF = df.filter(f{float: idx("s/b") >= textCutoff})
+  let fn = if textFn.kind != fkVariable: textFn else: f{`ys` + 0.3}
+
+
+  proc thm(): Theme =
+    if FWIDTH <= 0.5:
+      result = sideBySide()
+      result.titleFont = some(font(7.0))
+    else:
+      result = singlePlot()
+  let marg = if FWIDTH <= 0.5: 3.5 else: 5.0
+
+  ggplot(df, aes("xs", "ys")) +
+    geom_point(aes = aes(color = "s/b")) +
+    geom_text(data = dfF, aes = aes(y = textFn, text = "s/b"), size = 5.0) +
+    margin(top = 2.0, right = marg) +
     ggtitle(title) +
+    xlab("x [mm]") + ylab("y [mm]") +
+    coord_fixed(1.0) +
+    continuousLegendWidth(0.75) + continuousLegendHeight(3.0) +
+    thL(fWidth = 0.9, width = Width, baseTheme = thm) +
     ggsave(outfile)
 
 proc plotBackgroundRateFromInterpolation(ctx: Context, log: Logger, outfile, title: string) =
@@ -3195,6 +3273,7 @@ proc plotBackgroundRateFromInterpolation(ctx: Context, log: Logger, outfile, tit
     geom_histogram(stat = "identity", hdKind = hdOutline) +
     margin(top = 2.0) +
     ggtitle(title) +
+    thL(fWidth = 0.9, width = Width) +
     ggsave(outfile)
 
 proc sanityCheckDetectionEff(ctx: Context, log: Logger) =
@@ -3241,6 +3320,7 @@ proc sanityCheckDetectionEff(ctx: Context, log: Logger) =
     facetMargin(0.6) +
     ggtitle(&"Detection efficiency & axion flux (@ g_ae² = {coupling}²) in keV⁻¹ integrated over bore & tracking time.\n" &
             &"P_a↦γ: {conversionProbability(ctx).float:.3e}") +
+    thL(fWidth = 0.9, width = Width) +
     ggsave(sanityPlotPath, width = 1000, height = 480)
 
 proc sanityCheckBackground(ctx: Context, log: Logger) =
@@ -3291,6 +3371,8 @@ proc sanityCheckBackground(ctx: Context, log: Logger) =
     ggplot(df, aes("centerX", "centerY", color = "Energy")) +
       geom_point(size = 1.0, alpha = 0.9) +
       ggtitle("Background <12 keV, # clusters = " & $df.len & suffix) +
+      coord_fixed(1.0) +
+      thL(fWidth = 0.5, width = Width) +
       ggsave(clusterPlotPath)
   plotClusters(ctx.backgroundDf, "background_clusters.pdf", ". noisy pixels filtered")
   plotClusters(readData.df, "background_clusters_including_noisy_pixels.pdf", ". noisy pixels *not* filtered")
@@ -3310,6 +3392,7 @@ proc sanityCheckBackground(ctx: Context, log: Logger) =
   ggplot(ctx.backgroundDf.filterGold, aes("Energy")) +
     geom_histogram(aes = aes(weight = f{weight.float}), binWidth = 0.2) +
     ggtitle("Background rate in gold region. Integrated = " & pretty(intRateGold / 12.0.keV, 3, true)) +
+    thL(fWidth = 0.9, width = Width) +
     ggsave(backgroundRatePath)
 
   # now call `plotBackgroundRate` using `shell` (*must be in PATH*!)
@@ -3337,16 +3420,16 @@ proc sanityCheckRaytracingImage(ctx: Context, log: Logger) =
                             SanityPath / "axion_image_limit_calc_no_theta.pdf",
                             "Axion image as used in limit calculation with window strongback")
   block ThetaMoved:
-    ctx.θ_x = 0.6
-    ctx.θ_y = 0.6
+    ctx.ϑ_x = 0.6
+    ctx.ϑ_y = 0.6
     log.infosNoHeader:
-      &"Raytracing image at θ_x = θ_y = {ctx.θ_x}"
+      &"Raytracing image at ϑ_x = ϑ_y = {ctx.ϑ_x}"
     ## XXX: investigate why the strongback doesn't show up in bottom left
     ctx.plotRaytracingImage(log,
                             SanityPath / "axion_image_limit_calc_theta_0_6.pdf",
-                            "Axion image as used in limit calc w/ window strongback & θx,y = 0.6")
-    ctx.θ_x = 0.0
-    ctx.θ_y = 0.0
+                            "$ϑ_{x,y} = 0.6$ with window strongback")
+    ctx.ϑ_x = 0.0
+    ctx.ϑ_y = 0.0
 
 proc sanityCheckBackgroundInterpolation(ctx: Context, log: Logger) =
   ## creates plots to verify the background interpolation
@@ -3386,7 +3469,7 @@ proc sanityCheckBackgroundInterpolation(ctx: Context, log: Logger) =
         &"Saving plot: {outf}"
       plotEnergySlice(
           outfile = outf,
-          title = &"Background interpolation w/ edge correction at {Estr}",
+          title = &"Background interpolation w/ edge correction at{Newline} {Estr}",
           yMax = yMax):
         t[y, x] = interp.kd.query_ball_point([x.float, y.float, energy.float].toTensor,
                                            radius = interp.radius,
@@ -3402,7 +3485,7 @@ proc sanityCheckBackgroundInterpolation(ctx: Context, log: Logger) =
         &"Saving plot: {outf}"
       plotEnergySlice(
           outfile = outf,
-          title = &"Background rate from interpolation w/ normalization & edge correction at {Estr} in keV⁻¹·cm⁻²·s⁻¹",
+          title = &"Background rate from interpolation with normalization{Newline} & edge correction at {Estr} in keV⁻¹·cm⁻²·s⁻¹",
           yMax = yMax):
         t[y, x] = interp.kd.query_ball_point([x.float, y.float, energy.float].toTensor,
                                              radius = interp.radius,
@@ -3465,14 +3548,22 @@ proc sanityCheckBackgroundInterpolation(ctx: Context, log: Logger) =
         ys.add y
       result = toDf({"x" : xs, "y" : ys})
 
+    proc thm(): Theme =
+      result = sideBySide()
+      result.titleFont = some(font(7.0))
+
     ggplot(dfC, aes("x", "y")) +
       geom_point(size = 1.5, marker = mkRotCross, alpha = 0.75) +
-      geom_point(data = dfI, aes = aes(color = "weight"), size = 2.0, alpha = 0.8) +
+      geom_point(data = dfI, aes = aes(color = "weight"), size = 3.0, alpha = 0.9) +
       geom_line(data = circle((x.float, y.float), Radius), color = "red") +
       xlim(0, 256) + ylim(0, 256) +
-      ggtitle(&"Clusters participating in background interpolation at {energy} around x = {x}, y = {y}") +
-      margin(top = 1.5) +
-      ggsave(SanityPath / &"interpolation_clusters_E_{energy.float}_keV_x_{x}_y_{y}.pdf", width = 640, height = 480)
+      ggtitle(&"Clusters participating in background interpolation{Newline} at {energy} around x = {x}, y = {y}") +
+      margin(top = 2.0, right = 4.0) +
+      xlab("x [pixel]") + ylab("y [pixel]") +
+      thL(fWidth = 0.5, width = Width, baseTheme = thm) +
+      continuousLegendWidth(0.75) + continuousLegendHeight(3.0) +
+      coord_fixed(1.0) +
+      ggsave(SanityPath / &"interpolation_clusters_E_{energy.float}_keV_x_{x}_y_{y}.pdf", width = 640, height = 480, dataAsBitmap = true)
 
   plotInterpolatedClusters(3.0.keV, 110, 80)
   plotInterpolatedClusters(1.0.keV, 110, 80)
@@ -3511,7 +3602,7 @@ proc sanityCheckBackgroundSampling(ctx: Context, log: Logger) =
       log,
       energyIdx = idx,
       SanityPath / &"candidate_sampling_grid_index_{idx}.pdf",
-      "Grid for MC candidate sampling, x/y"
+      "Grid for candidate sampling, x/y"
     )
   plotIndex(2)  # 1.25 keV
   plotIndex(5)  # 2.75 keV
@@ -3520,7 +3611,7 @@ proc sanityCheckBackgroundSampling(ctx: Context, log: Logger) =
   ctx.plotSamplingTensorEnergy(
     log,
     SanityPath / &"candidate_sampling_grid_vs_energy.pdf",
-    "Grid for MC candidate sampling, x/E at y~=128"
+    "Grid for candidate sampling, x/E at y~=128"
   )
 
   # 4. generate 3 different candidate samplings and plot them
@@ -3534,7 +3625,7 @@ proc sanityCheckBackgroundSampling(ctx: Context, log: Logger) =
     plotCandidates(
       cands,
       outfile = outfile,
-      title = "Candidates sampled from gridded background interp (incl. smearing in volume), " & $i &
+      title = &"Candidates sampled from grid (incl. smearing in{Newline} volume), " & $i &
         ", # clusters " & $cands.len,
       topMargin = 2.0
     )
@@ -3595,7 +3686,8 @@ proc sanityCheckLikelihoodNoSystematics(ctx: Context, log: Logger) =
       cands,
       SanityPath / "candidates_signal_over_background_few_sens.pdf",
       "ln(1 + s/b) for case with <= 1 candidates in sens. region. " &
-        &"g_ae = {sqrt(ctx.coupling)}, g_aγ = {sqrt(ctx.g_aγ²)} (no systematics)"
+        &"g_ae = {sqrt(ctx.coupling)}, g_aγ = {sqrt(ctx.g_aγ²)} (no systematics)",
+      textCutoff = Inf
     )
     # 2c. likelihood scan w/ set of candidates (few in signal region)
     ctx.plotCandsLikelihood(
@@ -3619,7 +3711,8 @@ proc sanityCheckLikelihoodNoSystematics(ctx: Context, log: Logger) =
       cands,
       SanityPath / "candidates_signal_over_background_many_sens.pdf",
       "ln(1 + s/b) for case with > 4 candidates in sens. region. " &
-        &"g_ae = {sqrt(ctx.coupling)}, g_aγ = {sqrt(ctx.g_aγ²)} (no systematics)"
+        &"g_ae = {sqrt(ctx.coupling)}, g_aγ = {sqrt(ctx.g_aγ²)} (no systematics)",
+      textCutoff = Inf
     )
     # 3c. likelihood scan w/ set of candidates (few in signal region)
     ctx.plotCandsLikelihood(
@@ -3664,7 +3757,7 @@ proc sanityCheckLikelihoodNoSystematics(ctx: Context, log: Logger) =
 
 proc plotLikelihoodCurves(ctx: Context, candidates: seq[Candidate],
                           prefix: string) =
-  ## Plots the likelihood curves at a specific coupling constant in θ
+  ## Plots the likelihood curves at a specific coupling constant in ϑ
   let s_tot = totalSignal(ctx)
   var cSigBack = newSeq[(float, float)](candidates.len)
   for i, c in candidates:
@@ -3674,35 +3767,39 @@ proc plotLikelihoodCurves(ctx: Context, candidates: seq[Candidate],
   of ukUncertain:
     let σ_b = ctx.σsb_back
     let σ_s = ctx.σsb_sig
-    block θ_signal:
-      proc likeBack(θ_b: float): float =
-        proc likeSig(θ_s: float, nc: NumContext[float, float]): float =
-          L(s_tot * (1 + θ_s),
-            s_i * (1 + θ_s),
-            b_i * (1 + θ_b),
-            θ_s, σ_s,
-            θ_b, σ_b)
+    block ϑ_signal:
+      proc likeBack(ϑ_b: float): float =
+        proc likeSig(ϑ_s: float, nc: NumContext[float, float]): float =
+          L(s_tot * (1 + ϑ_s),
+            s_i * (1 + ϑ_s),
+            b_i * (1 + ϑ_b),
+            ϑ_s, σ_s,
+            ϑ_b, σ_b)
         result = adaptiveGauss(likeSig, -10.0, 10.0)
-      let θb = linspace(-0.99, 10.0, 1000)
-      let df = toDf({"θb" : θb, "L" : θb.mapIt(likeBack(it))})
+      let ϑb = linspace(-0.99, 10.0, 1000)
+      let df = toDf({"ϑb" : ϑb, "L" : ϑb.mapIt(likeBack(it))})
         .filter(f{`L` > 1e-6})
       #df.showBrowser()
-      ggplot(df, aes("θb", "L")) +
+      let title = if UseTeX: r"$L(ϑ_s) = ∫_{-∞}^∞ L(ϑ_s, ϑ_b)\, \mathrm{d}ϑ_b$, at $σ_s$ = " & &"{ctx.σsb_sig:.4f}"
+                  else: "L(ϑ_s) = ∫_{-∞}^∞ L(ϑ_s, ϑ_b) dϑ_b, at σ_s = " & &"{ctx.σsb_sig:.4f}"
+      ggplot(df, aes("ϑb", "L")) +
         geom_line() +
         scale_y_log10() +
-        ggtitle("L(θ_s) = ∫_{-∞}^∞ L(θ_s, θ_b) dθ_b, at σ_s = " & &"{ctx.σsb_sig}") +
-        ggsave(prefix & "θb_integrated_θs.pdf")
-    block θ_background:
-      proc likeSig(θ_s: float): float =
-        proc likeBack(θ_b: float, nc: NumContext[float, float]): float =
-          L(s_tot * (1 + θ_s),
-            s_i * (1 + θ_s),
-            b_i * (1 + θ_b),
-            θ_s, σ_s,
-            θ_b, σ_b)
+        ggtitle(title) +
+        margin(left = 3.0) +
+        thL(fWidth = 0.9, width = Width) +
+        ggsave(prefix & "ϑb_integrated_ϑs.pdf")
+    block ϑ_background:
+      proc likeSig(ϑ_s: float): float =
+        proc likeBack(ϑ_b: float, nc: NumContext[float, float]): float =
+          L(s_tot * (1 + ϑ_s),
+            s_i * (1 + ϑ_s),
+            b_i * (1 + ϑ_b),
+            ϑ_s, σ_s,
+            ϑ_b, σ_b)
         result = adaptiveGauss(likeBack, -0.8, 10.0)
-      let θs = linspace(-1.5, 1.5, 1000)
-      var df = toDf({"θs" : θs, "L" : θs.mapIt(likeSig(it))})
+      let ϑs = linspace(-1.5, 1.5, 1000)
+      var df = toDf({"ϑs" : ϑs, "L" : ϑs.mapIt(likeSig(it))})
       df = df.filter(f{`L` > 0.0})
       let logL = df["L", float].map_inline(log10(x))
       let ymax = logL.max.ceil
@@ -3710,57 +3807,64 @@ proc plotLikelihoodCurves(ctx: Context, candidates: seq[Candidate],
       let ymin = if abs(yRealMin - ymax) > 20: ymax - 20.0
                  else: yRealMin
       # let xlim = (low: pow(10.0, ymin), high: pow(10.0, ymax))
-      ggplot(df, aes("θs", "L")) +
+      let title = if UseTeX: r"$L(ϑ_b) = ∫_{-∞}^∞ L(ϑ_s, ϑ_b)\, \mathrm{d}ϑ_s$, at $σ_b$ = " & &"{ctx.σsb_back:.4f}"
+                  else: "L(ϑ_b) = ∫_{-∞}^∞ L(ϑ_s, ϑ_b) dϑ_s, at σ_b = " & &"{ctx.σsb_back:.4f}"
+
+      ggplot(df, aes("ϑs", "L")) +
         geom_line() +
         scale_y_log10() +
         ylim(ymin, ymax) +
-        ggtitle("L(θ_b) = ∫_{-∞}^∞ L(θ_s, θ_b) dθ_s, at σ_b = " & &"{ctx.σsb_back}") +
-        ggsave(prefix & "θs_integrated_θb.pdf")
+        ggtitle(title) +
+        thL(fWidth = 0.9, width = Width) +
+        margin(left = 3.0) +
+        ggsave(prefix & "ϑs_integrated_ϑb.pdf")
   of ukUncertainSig:
     let σ_s = ctx.σs_sig
-    proc likeSig(θ_s: float): float =
-      L(s_tot * (1 + θ_s),
-        s_i * (1 + θ_s),
+    proc likeSig(ϑ_s: float): float =
+      L(s_tot * (1 + ϑ_s),
+        s_i * (1 + ϑ_s),
         b_i,
-        θ_s, σ_s,
+        ϑ_s, σ_s,
         0.0, 0.0)
-    let θs = linspace(-0.99, 10.0, 1000)
-    let df = toDf({"θ" : θs, "L" : θs.mapIt(likeSig(it))})
+    let ϑs = linspace(-0.99, 10.0, 1000)
+    let df = toDf({"ϑ" : ϑs, "L" : ϑs.mapIt(likeSig(it))})
       .filter(f{`L` > 1e-6})
     #df.showBrowser()
-    ggplot(df, aes("θ", "L")) +
+    ggplot(df, aes("ϑ", "L")) +
       geom_line() +
       scale_y_log10() +
-      ggtitle(&"L(θ_s), at σ_s = {ctx.σs_sig}") +
-      ggsave(prefix & "θs.pdf")
+      ggtitle(&"L(ϑ_s), at σ_s = {ctx.σs_sig:.4f}") +
+      thL(fWidth = 0.9, width = Width) +
+      ggsave(prefix & "ϑs.pdf")
   of ukUncertainBack:
     let σ_b = ctx.σb_back
-    proc likeBack(θ_b: float): float =
+    proc likeBack(ϑ_b: float): float =
       L(s_tot,
         s_i,
-        b_i * (1 + θ_b), # log-normal (but wrong): exp(b_i * (1 + θ_b)),
+        b_i * (1 + ϑ_b), # log-normal (but wrong): exp(b_i * (1 + ϑ_b)),
         0.0, 0.0,
-        θ_b, σ_b)
-    let θs = linspace(-0.98, 1.0, 1000)
-    var df = toDf({"θ" : θs, "L" : θs.mapIt(likeBack(it))})
+        ϑ_b, σ_b)
+    let ϑs = linspace(-0.98, 1.0, 1000)
+    var df = toDf({"ϑ" : ϑs, "L" : ϑs.mapIt(likeBack(it))})
     echo df
     #df = df
     #  .filter(f{`L` > 1e-6})
     #echo df
     #df.showBrowser()
-    ggplot(df, aes("θ", "L")) +
+    ggplot(df, aes("ϑ", "L")) +
       geom_line() +
       scale_y_log10() +
-      ggtitle(&"L(θ_b), at σ_b = {ctx.σb_back}") +
-      ggsave(prefix & "θb.pdf")
+      ggtitle(&"L(ϑ_b), at σ_b = {ctx.σb_back:.4f}") +
+      thL(fWidth = 0.9, width = Width) +
+      ggsave(prefix & "ϑb.pdf")
   else:
     if ctx.uncertaintyPosition == puUncertain:
       when false: #block TX:
         let s_tot = totalSignal(ctx)
-        proc likeX(θ_x: float): float =
-          ctx.θ_x = θ_x
-          proc likeY(θ_y: float, nc: NumContext[float, float]): float =
-            ctx.θ_y = θ_y
+        proc likeX(ϑ_x: float): float =
+          ctx.ϑ_x = ϑ_x
+          proc likeY(ϑ_y: float, nc: NumContext[float, float]): float =
+            ctx.ϑ_y = ϑ_y
             for i, c in candidates:
               cSigBack[i] = (ctx.expectedSignal(c.energy, c.pos).float,
                           ctx.background(c.energy, c.pos).float)
@@ -3769,27 +3873,28 @@ proc plotLikelihoodCurves(ctx: Context, candidates: seq[Candidate],
               b_i,
               0.0, 0.0, # signal
               0.0, 0.0, # background
-              θ_x, ctx.σ_p,
-              θ_y, ctx.σ_p)
+              ϑ_x, ctx.σ_p,
+              ϑ_y, ctx.σ_p)
           result = adaptiveGauss(likeY, -1.0, 1.0, maxIntervals = 100)
-        let θx = linspace(-1.0, 1.0, 1000)
-        var df = toDf({"θ" : θx, "L" : θx.mapIt(likeX(it))})
+        let ϑx = linspace(-1.0, 1.0, 1000)
+        var df = toDf({"ϑ" : ϑx, "L" : ϑx.mapIt(likeX(it))})
         echo df
         df = df
           .filter(f{`L` > 1e-24})
         #echo df
         #df.showBrowser()
-        ggplot(df, aes("θ", "L")) +
+        ggplot(df, aes("ϑ", "L")) +
           geom_line() +
           scale_y_log10() +
-          ggtitle(&"L(θ_x), at σ_p = {ctx.σ_p} integrated over θ_y") +
-          ggsave(prefix & "θx.pdf")
+          ggtitle(&"L(ϑ_x), at σ_p = {ctx.σ_p} integrated over ϑ_y") +
+          thL(fWidth = 0.9, width = Width) +
+          ggsave(prefix & "ϑx.pdf")
       when false: #block TY:
         let s_tot = totalSignal(ctx)
-        proc likeY(θ_y: float): float =
-          ctx.θ_y = θ_y
-          proc likeX(θ_x: float, nc: NumContext[float, float]): float =
-            ctx.θ_x = θ_x
+        proc likeY(ϑ_y: float): float =
+          ctx.ϑ_y = ϑ_y
+          proc likeX(ϑ_x: float, nc: NumContext[float, float]): float =
+            ctx.ϑ_x = ϑ_x
             for i, c in candidates:
               cSigBack[i] = (ctx.expectedSignal(c.energy, c.pos).float,
                              ctx.background(c.energy, c.pos).float)
@@ -3798,21 +3903,22 @@ proc plotLikelihoodCurves(ctx: Context, candidates: seq[Candidate],
               b_i,
               0.0, 0.0, # signal
               0.0, 0.0, # background
-              θ_x, ctx.σ_p,
-              θ_y, ctx.σ_p)
+              ϑ_x, ctx.σ_p,
+              ϑ_y, ctx.σ_p)
           result = adaptiveGauss(likeX, -1.0, 1.0, maxIntervals = 100)
-        let θy = linspace(-1.0, 1.0, 1000)
-        var df = toDf({"θ" : θy, "L" : θy.mapIt(likeY(it))})
+        let ϑy = linspace(-1.0, 1.0, 1000)
+        var df = toDf({"ϑ" : ϑy, "L" : ϑy.mapIt(likeY(it))})
         echo df
         df = df
           .filter(f{`L` > 1e-24})
         #echo df
         #df.showBrowser()
-        ggplot(df, aes("θ", "L")) +
+        ggplot(df, aes("ϑ", "L")) +
           geom_line() +
           scale_y_log10() +
-          ggtitle(&"L(θ_y), at σ_p = {ctx.σ_p} integrated over θ_x") +
-          ggsave(prefix & "θy.pdf")
+          ggtitle(&"L(ϑ_y), at σ_p = {ctx.σ_p} integrated over ϑ_x") +
+          thL(fWidth = 0.9, width = Width) +
+          ggsave(prefix & "ϑy.pdf")
       block Test:
         let s_tot = totalSignal(ctx)
         var cSigBack = newSeq[(float, float)](candidates.len)
@@ -3822,28 +3928,29 @@ proc plotLikelihoodCurves(ctx: Context, candidates: seq[Candidate],
           cSigBack[i] = (sig.float,
                       ctx.background(c.energy, c.pos).float)
         let σ_p = ctx.σ_p
-        proc likeX(θ_x: float): float =
-          ctx.θ_x = θ_x
-          proc likeY(θ_y: float, nc: NumContext[float, float]): float =
-            ctx.θ_y = θ_y
+        proc likeX(ϑ_x: float): float =
+          ctx.ϑ_x = ϑ_x
+          proc likeY(ϑ_y: float, nc: NumContext[float, float]): float =
+            ctx.ϑ_y = ϑ_y
             result = exp(-s_tot)
-            result *= exp(-square(θ_x / (SQRT2 * σ_p))) * exp(-square(θ_y / (SQRT2 * σ_p)))
+            result *= exp(-square(ϑ_x / (SQRT2 * σ_p))) * exp(-square(ϑ_y / (SQRT2 * σ_p)))
             for i in 0 ..< cSigBack.len:
               let (s_init, b_c) = cSigBack[i]
               if b_c.float != 0.0:
                 let s_c = (s_init * ctx.raytracing(candidates[i].pos)).float
                 result *= (1 + s_c / b_c)
           result = simpson(likeY, -1.0, 1.0)
-        let θx = linspace(-1.0, 1.0, 1000)
-        var df = toDf({"θ" : θx, "L" : θx.mapIt(likeX(it))})
+        let ϑx = linspace(-1.0, 1.0, 1000)
+        var df = toDf({"ϑ" : ϑx, "L" : ϑx.mapIt(likeX(it))})
         echo df
         df = df
           .filter(f{`L` > 1e-24})
-        ggplot(df, aes("θ", "L")) +
+        ggplot(df, aes("ϑ", "L")) +
           geom_line() +
           scale_y_log10() +
-          ggtitle(&"L(θ_x), at σ_p = {ctx.σ_p} integrated over θ_y") +
-          ggsave(prefix & "θx_alternative.pdf")
+          ggtitle(&"L(ϑ_x), at σ_p = {ctx.σ_p} integrated over ϑ_y") +
+          thL(fWidth = 0.9, width = Width) +
+          ggsave(prefix & "ϑx_alternative.pdf")
       block TestXY:
         let s_tot = totalSignal(ctx)
         var cSigBack = newSeq[(float, float)](candidates.len)
@@ -3854,36 +3961,39 @@ proc plotLikelihoodCurves(ctx: Context, candidates: seq[Candidate],
                       ctx.background(c.energy, c.pos).float)
         let σ_p = ctx.σ_p
 
-        proc like(θ_x, θ_y: float): float =
-          ctx.θ_x = θ_x
-          ctx.θ_y = θ_y
+        proc like(ϑ_x, ϑ_y: float): float =
+          ctx.ϑ_x = ϑ_x
+          ctx.ϑ_y = ϑ_y
           result = exp(-s_tot)
-          result *= exp(-square(θ_x / (SQRT2 * σ_p))) * exp(-square(θ_y / (SQRT2 * σ_p)))
+          result *= exp(-square(ϑ_x / (SQRT2 * σ_p))) * exp(-square(ϑ_y / (SQRT2 * σ_p)))
           for i in 0 ..< cSigBack.len:
             let (s_init, b_c) = cSigBack[i]
             if b_c.float != 0.0:
               let s_c = (s_init * ctx.raytracing(candidates[i].pos)).float
               result *= (1 + s_c / b_c)
-        let θs = linspace(-1.0, 1.0, 1000)
-        var θx = newSeq[float]()
-        var θy = newSeq[float]()
+        let ϑs = linspace(-1.0, 1.0, 1000)
+        var ϑx = newSeq[float]()
+        var ϑy = newSeq[float]()
         var val = newSeq[float]()
-        for x in θs:
-          for y in θs:
-            θx.add -x
-            θy.add -y
+        for x in ϑs:
+          for y in ϑs:
+            ϑx.add -x
+            ϑy.add -y
             val.add like(x, y)
-        var df = toDf({"θx" : θx, "θy" : θy, "L" : val})
+        var df = toDf({"ϑx" : ϑx, "ϑy" : ϑy, "L" : val})
         echo df
         #df = df
         #  .filter(f{`L` > 1e-24})
         var customInferno = inferno()
         customInferno.colors[0] = 0 # transparent
-        ggplot(df, aes("θx", "θy", fill = "L")) +
+        ggplot(df, aes("ϑx", "ϑy", fill = "L")) +
           geom_raster() +
           scale_fill_gradient(customInferno) +
-          ggtitle(&"L(θ_x, θ_y), at σ_p = {ctx.σ_p}") +
-          ggsave(prefix & "θx_θy.pdf")
+          ggtitle(&"L(ϑ_x, ϑ_y), at σ_p = {ctx.σ_p}") +
+          margin(right = 3.5) +
+          coord_fixed(1.0) +
+          thL(fWidth = 0.9, width = Width) +
+          ggsave(prefix & "ϑx_ϑy.pdf")
     else:
       quit("not va")
 
@@ -3905,17 +4015,18 @@ proc calcSigBack(ctx: Context, rnd: var Random, log: Logger, cands: seq[Candidat
     dfScan.add dfSLoc
     ## XXX: ok I have to look at the MCMC chain plots
     let chain = ctx.build_MH_chain(rnd, cands)
-    let names = if σ > 0.0: @["θs_s", "θs_b"] else: @[]
+    let names = if σ > 0.0: @["ϑs_s", "ϑs_b"] else: @[]
     var dfMLoc = chain.extractFromChain(names)
     dfMLoc["σ"] = σ
-    if "θs_s" notin dfMLoc:
-      dfMLoc["θs_s"] = 0.0; dfMLoc["θs_b"] = 0.0
+    if "ϑs_s" notin dfMLoc:
+      dfMLoc["ϑs_s"] = 0.0; dfMLoc["ϑs_b"] = 0.0
     if σ > 0.0:
       # plot the mcmc lines for s & b
-      ggplot(dfMLoc, aes("θs_s", "θs_b", color = "gs")) +
+      ggplot(dfMLoc, aes("ϑs_s", "ϑs_b", color = "gs")) +
         geom_line(size = 0.5) + geom_point(size = 1.0, alpha = 0.1) +
-        ggsave(SanityPath / &"mcmc_lines_thetas_sb_sigma_{σ}_{suffix}.png", width = 2400, height = 2000)
-      # also plot L against θb
+        mcmcLinesStyle() +
+        ggsave(SanityPath / &"mcmc_lines_thetas_sb_sigma_{σ}_{suffix}.pdf", width = 600, height = 480, dataAsBitmap = true)
+      # also plot L against ϑb
       ctx.coupling = 8.1e-11 * 8.1e-11
       plotLikelihoodCurves(ctx, cands, SanityPath / &"likelihood_sigma_{σ}_{suffix}")
     dfMCMC.add dfMLoc
@@ -3923,7 +4034,7 @@ proc calcSigBack(ctx: Context, rnd: var Random, log: Logger, cands: seq[Candidat
     log,
     dfScan, dfMCMC,
     SanityPath / &"likelihood_sig_back_sigma_compare_{suffix}_cands_in_sens_region.pdf",
-    &"Likelihood behavior with {suffix} cands. in sens. region for different `σ` (S, B)" &
+    &"Likelihood behavior with {suffix} cands. in sens. region for different `σ` (S, B){Newline} " &
       &"g_aγ = {sqrt(ctx.g_aγ²)} (no systematics)"
   )
 
@@ -3950,18 +4061,20 @@ proc calcPosition(ctx: Context, rnd: var Random, log: Logger, cands: seq[Candida
     dfScan.add dfSLoc
     ## XXX: ok I have to look at the MCMC chain plots
     let chain = ctx.build_MH_chain(rnd, cands)
-    let names = if σ > 0.0: @["θs_x", "θs_y"] else: @[]
+    let names = if σ > 0.0: @["ϑs_x", "ϑs_y"] else: @[]
     var dfMLoc = chain.extractFromChain(names)
     dfMLoc["σ"] = σ
-    if "θs_x" notin dfMLoc:
-      dfMLoc["θs_x"] = 0.0; dfMLoc["θs_y"] = 0.0
+    if "ϑs_x" notin dfMLoc:
+      dfMLoc["ϑs_x"] = 0.0; dfMLoc["ϑs_y"] = 0.0
     if σ > 0.0:
       # plot the mcmc lines for s & b
       echo dfMLoc
-      ggplot(dfMLoc, aes("θs_x", "θs_y", color = "gs")) +
+      ggplot(dfMLoc, aes("ϑs_x", "ϑs_y", color = "gs")) +
         geom_line(size = 0.5) + geom_point(size = 1.0, alpha = 0.1) +
-        ggsave(SanityPath / &"mcmc_lines_thetas_xy_sigma_{σ}_{suffix}.png", width = 2400, height = 2000)
-      # also plot L against θb
+        mcmcLinesStyle() +
+        xlab("ϑ_x") + ylab("ϑ_y") +
+        ggsave(SanityPath / &"mcmc_lines_thetas_xy_sigma_{σ}_{suffix}.pdf", width = 600, height = 480, dataAsBitmap = true)
+      # also plot L against ϑb
       ctx.coupling = 8.1e-11 * 8.1e-11
       plotLikelihoodCurves(ctx, cands, SanityPath / &"likelihood_sigma_{σ}_{suffix}")
 
@@ -3970,7 +4083,7 @@ proc calcPosition(ctx: Context, rnd: var Random, log: Logger, cands: seq[Candida
     log,
     dfScan, dfMCMC,
     SanityPath / &"likelihood_x_y_sigma_compare_{suffix}_cands_in_sens_region.pdf",
-    &"Likelihood behavior with {suffix} cands. in sens. region for different `σ` (x, y)" &
+    &"Likelihood behavior with {suffix} cands. in sens. region for different `σ` (x, y) {Newline}" &
       &"g_aγ = {sqrt(ctx.g_aγ²)} (no systematics)"
   )
 
@@ -3993,27 +4106,38 @@ proc calcRealSystematics(ctx: Context, rnd: var Random, log: Logger,
     log, cands, g_aeMax = maxVal, num = 100
   )
   dfScan["σ"] = "real"
+
   ## XXX: ok I have to look at the MCMC chain plots
   let chain = ctx.build_MH_chain(rnd, cands)
-  let names = @["θs_s", "θs_b", "θs_x", "θs_y"]
+  let names = @["ϑs_s", "ϑs_b", "ϑs_x", "ϑs_y"]
   var dfMCMC = chain.extractFromChain(names)
   dfMCMC["σ"] = "real"
+
+  # plot the histogram of the g² values
+  let limit = computeLimitFromMCMC(dfMCMC)
+  ctx.plotChain(cands, dfMCMC, limit, computeIntegral = false,
+                mcmcHistoOutfile = SanityPath / &"mcmc_histo_real_syst_{suffix}.pdf")
+
   # plot the mcmc lines for s & b
-  ggplot(dfMCMC, aes("θs_s", "θs_b", color = "gs")) +
+  ggplot(dfMCMC, aes("ϑs_s", "ϑs_b", color = "gs")) +
     geom_line(size = 0.5) + geom_point(size = 1.0, alpha = 0.1) +
-    theme_scale(3.0) +
-    ggsave(SanityPath / &"mcmc_lines_thetas_sb_real_syst_{suffix}.png", width = 2400, height = 2000)
-  ggplot(dfMCMC, aes("θs_x", "θs_y", color = "gs")) +
+    xlab("ϑ_s") + ylab("ϑ_b") +
+    mcmcLinesStyle() +
+    ggsave(SanityPath / &"mcmc_lines_thetas_sb_real_syst_{suffix}.pdf", dataAsBitmap = true)
+  ggplot(dfMCMC, aes("ϑs_x", "ϑs_y", color = "gs")) +
     geom_line(size = 0.5) + geom_point(size = 1.0, alpha = 0.1) +
-    theme_scale(3.0) +
-    ggsave(SanityPath / &"mcmc_lines_thetas_xy_real_syst_{suffix}.png", width = 2400, height = 2000)
+    xlab("ϑ_x") + ylab("ϑ_y") +
+    mcmcLinesStyle() +
+    ggsave(SanityPath / &"mcmc_lines_thetas_xy_real_syst_{suffix}.pdf", width = 600, height = 480, dataAsBitmap = true)
 
-  ggplot(dfMCMC, aes("gs", "θs_y", color = "θs_x")) +
+  ggplot(dfMCMC, aes("gs", "ϑs_y", color = "ϑs_x")) +
     geom_line(size = 0.5) + geom_point(size = 1.0, alpha = 0.1) +
-    theme_scale(3.0) +
-    ggsave(SanityPath / &"mcmc_lines_thetas_gy_real_syst_{suffix}.png", width = 2400, height = 2000)
+    xlab("g²") + ylab("ϑ_y") +
+    scale_x_continuous(breaks = 5) +
+    mcmcLinesStyle() +
+    ggsave(SanityPath / &"mcmc_lines_thetas_gy_real_syst_{suffix}.pdf", width = 600, height = 480, dataAsBitmap = true)
 
-  # also plot L against θb
+  # also plot L against ϑb
   ctx.coupling = 8.1e-11 * 8.1e-11
   plotLikelihoodCurves(ctx, cands, SanityPath / &"likelihood_real_syst_{suffix}")
 
@@ -4021,7 +4145,7 @@ proc calcRealSystematics(ctx: Context, rnd: var Random, log: Logger,
     log,
     dfScan, dfMCMC,
     SanityPath / &"likelihood_real_syst_compare_{suffix}_cands_in_sens_region.pdf",
-    &"Likelihood behavior with {suffix} cands. in sens. region for different `σ` (S, B)" &
+    &"Likelihood behavior with {suffix} cands. in sens. region for different `σ` (S, B) {Newline}" &
       &"g_aγ = {sqrt(ctx.g_aγ²)} (no systematics)"
   )
 
@@ -4077,6 +4201,7 @@ proc sanityCheckSigmaLimits(ctx: Context, log: Logger,
                         y = f{`σ_b` + 0.01})) +
     xMargin(0.05) + yMargin(0.05) +
     ggtitle(&"Expected limit after {nmc} MC toys for different σ_s, σ_b") +
+    thL(fWidth = 0.9, width = Width) +
     ggsave(SanityPath / "expected_limits_σ_s_σ_b.pdf")
 
 proc sanityCheckRealSystematics(ctx: Context, log: Logger) =
@@ -4218,9 +4343,10 @@ proc sanity(
     SanityPath = sanityPath
 
   let path = ""
-  let backFiles = @[(2017, "/home/basti/org/resources/lhood_limits_10_05_23_mlp_sEff_0.99/lhood_c18_R2_crAll_sEff_0.95_scinti_fadc_line_mlp_mlp_tanh300_msecheckpoint_epoch_485000_loss_0.0055_acc_0.9933_vQ_0.99.h5"),
-                    (2018, "/home/basti/org/resources/lhood_limits_10_05_23_mlp_sEff_0.99/lhood_c18_R3_crAll_sEff_0.95_scinti_fadc_line_mlp_mlp_tanh300_msecheckpoint_epoch_485000_loss_0.0055_acc_0.9933_vQ_0.99.h5")]
-
+  #let backFiles = @[(2017, "/home/basti/org/resources/lhood_limits_10_05_23_mlp_sEff_0.99/lhood_c18_R2_crAll_sEff_0.95_scinti_fadc_line_mlp_mlp_tanh300_msecheckpoint_epoch_485000_loss_0.0055_acc_0.9933_vQ_0.99.h5"),
+  #                  (2018, "/home/basti/org/resources/lhood_limits_10_05_23_mlp_sEff_0.99/lhood_c18_R3_crAll_sEff_0.95_scinti_fadc_line_mlp_mlp_tanh300_msecheckpoint_epoch_485000_loss_0.0055_acc_0.9933_vQ_0.99.h5")]
+  let backFiles = @[(2017, "/home/basti/org/resources/lhood_mlp_17_11_23_adam_tanh30_sigmoid_mse_82k/lhood_c18_R2_crAll_sEff_0.95_scinti_fadc_line_mlp_mlp_tanh_sigmoid_MSE_Adam_30_2checkpoint_epoch_82000_loss_0.0249_acc_0.9662_vQ_0.99.h5"),
+                    (2018, "/home/basti/org/resources/lhood_mlp_17_11_23_adam_tanh30_sigmoid_mse_82k/lhood_c18_R3_crAll_sEff_0.95_scinti_fadc_line_mlp_mlp_tanh_sigmoid_MSE_Adam_30_2checkpoint_epoch_82000_loss_0.0249_acc_0.9662_vQ_0.99.h5")]
 
   let backgroundTime = -1.Hour #3318.Hour ## TODO: FIX ME GET FROM FILES
   let trackingTime = -1.Hour # 169.Hour ## TODO: FIX ME GET FROM FILES
@@ -4534,12 +4660,12 @@ when isMainModule:
             if x[0] < 0.0: return 0.0
             let s_totg = s_tot.rescale(ctx)
             #echo "rescaled ", s_tot, " to ", s_totg
-            let θ_x = x[1]
-            let θ_y = x[2]
-            ctx.θ_x = θ_x
-            ctx.θ_y = θ_y
+            let ϑ_x = x[1]
+            let ϑ_y = x[2]
+            ctx.ϑ_x = ϑ_x
+            ctx.ϑ_y = ϑ_y
             let P1 = exp(-s_totg)
-            let P2 = exp(-square(θ_x / (SQRT2 * σ_p))) * exp(-square(θ_y / (SQRT2 * σ_p)))
+            let P2 = exp(-square(ϑ_x / (SQRT2 * σ_p))) * exp(-square(ϑ_y / (SQRT2 * σ_p)))
             var P3 = 1.0
             for i in 0 ..< cands.len:
               let (s_init, b_c) = cands[i]

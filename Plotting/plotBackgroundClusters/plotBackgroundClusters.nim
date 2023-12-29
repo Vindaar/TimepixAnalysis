@@ -280,7 +280,8 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
       plt = plt +
         geom_raster(data = rasterData, aes = aes("x", "y", fill = zCol), alpha = 0.3) +
         minorGridLines() +
-        scale_fill_gradient(customInferno)
+        scale_fill_gradient(customInferno) +
+        continuousLegendWidth(0.75) + continuousLegendHeight(3.0)
 
     if colorBy == energy and energyText:
       var dfText = df
@@ -288,7 +289,7 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
         dfText = df.filter(f{float -> bool: (128.0 - `x`)^2 + (128.0 - `y`)^2 < energyTextRadius^2})
       plt = plt + geom_text(data = dfText,
                             aes = aes(y = f{`y` + 3}, text = "Energy [keV]"),
-                            font = font(8.0, alignKind = taLeft))
+                            font = font(10.0, alignKind = taLeft))
 
     # Add the main point geom
     if colorBy == count and  maxCount < 10:

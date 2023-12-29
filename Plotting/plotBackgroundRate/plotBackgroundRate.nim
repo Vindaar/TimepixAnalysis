@@ -456,8 +456,7 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
     let theme = if fWidth <= 0.5: sideBySide else: singlePlot
     plt = plt +
     xlab(r"Energy [\si{keV}]") +
-    ylab(r"Rate [\SI{1e-5}{keV⁻¹ cm⁻² s⁻¹}]", margin = 1.6) +
-    #minorGridLines() +
+    ylab(r"Rate [\SI{1e-5}{keV⁻¹ cm⁻² s⁻¹}]") +
     ggtitle(titleSuff) +
     themeLatex(fWidth = fWidth, width = 600, height = 360, baseTheme = theme)
     if genTikZ:

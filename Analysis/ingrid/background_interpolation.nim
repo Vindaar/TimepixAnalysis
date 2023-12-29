@@ -1,9 +1,12 @@
-import std / [math, strformat, sequtils, os]
+import std / [math, strformat, sequtils, os, strutils]
 import ggplotnim, unchained
 import arraymancer except linspace
 import numericalnim except linspace
 from seqmath import gauss, linspace
 #from ingrid / tos_helpers import geometry
+
+import ingrid / private / limit_utils
+let Width* = getEnv("WIDTH", "600").parseFloat
 
 const TrackingBackgroundRatio* = 19.75 ## TODO: replace by actual time!!
 const EnergyCutoff* = 12.0
@@ -161,7 +164,8 @@ proc plot2d[T](bl: T) =
 
 proc plot2dTensor*(t: Tensor[float], outname = "/tmp/test_tensor.pdf",
                    title = "",
-                   yMax = 0.0) =
+                   yMax = 0.0,
+                   zCol = "cs") =
   var xs = newSeq[int](t.size)
   var ys = newSeq[int](t.size)
   var cs = newSeq[float](t.size)
@@ -179,8 +183,12 @@ proc plot2dTensor*(t: Tensor[float], outname = "/tmp/test_tensor.pdf",
   template low: untyped = 4.5 / 14.0 * 256.0
   template hih: untyped = 9.5 / 14.0 * 256.0
 
-  let df = toDf(xs, ys, cs)
-  ggplot(df, aes("xs", "ys", fill = "cs")) +
+  proc thm(): Theme =
+    result = sideBySide()
+    result.titleFont = some(font(7.0))
+
+  let df = toDf({xs, ys, zCol : cs})
+  ggplot(df, aes("xs", "ys", fill = zCol)) +
     geom_raster() +
     geom_linerange(aes = aes(x = low(), yMin = low(), yMax = hih()), color = some(parseHex("FF0000"))) +
     geom_linerange(aes = aes(x = hih(), yMin = low(), yMax = hih()), color = some(parseHex("FF0000"))) +
@@ -188,8 +196,12 @@ proc plot2dTensor*(t: Tensor[float], outname = "/tmp/test_tensor.pdf",
     geom_linerange(aes = aes(y = hih(), xMin = low(), xMax = hih()), color = some(parseHex("FF0000"))) +
     scale_fill_continuous(scale = (low: 0.0, high: yMax)) +
     xlim(0, 256) + ylim(0, 256) +
-    margin(top = 1.5) +
+    xlab("x [pixel]") + ylab("y [pixel]") +
+    margin(top = 2.0, right = 4.0) +
     ggtitle(title) +
+    coord_fixed(1.0) +
+    continuousLegendWidth(0.75) + continuousLegendHeight(3.0) +
+    thL(fWidth = 0.5, width = Width, baseTheme = thm) +
     ggsave(outname)
 
 proc plot3DTensor(t: Tensor[float], outname = "/tmp/test_tensor_3d.pdf",
@@ -366,7 +378,7 @@ proc plotGoldRegionBackgroundRate(kd: KDTree[float], outfile: string,
 template plotEnergySlice*(outfile, title: string, yMax: float, body: untyped): untyped =
   let tr = fillChip:
     body
-  tr.plot2dTensor(outfile, title, yMax)
+  tr.plot2dTensor(outfile, title, yMax, "Rate")
 
 proc plotSingleEnergySlice*(kd: KDTree[float], energy: keV,
                             backgroundTime = 3318.Hour,
@@ -375,7 +387,7 @@ proc plotSingleEnergySlice*(kd: KDTree[float], energy: keV,
   let outfile = if outfile.len > 0: outfile else: &"/tmp/back_interp_energy_{energy}.pdf"
   var tr = zeros[float]([256, 256])
   tr.compInterEnergy(kd, energy, Radius.float, EnergyRange, backgroundTime, byCount = false, metric = CustomMetric)
-  tr.plot2dTensor(outfile, title)
+  tr.plot2dTensor(outfile, title, zCol = "Rate")
 
 proc toNearestNeighborTree*(df: DataFrame): KDTree[float] =
   ## calls the correct interpolation function and returns the interpolated data

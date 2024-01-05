@@ -413,6 +413,17 @@ proc importPyplot(): PyObject =
   discard mpl.use("TKagg")
   result = pyImport("matplotlib.pyplot")
 
+proc linebreak(s: string, col: int = 90, linebreak = "\n"): string =
+  let words = s.split()
+  var w = ""
+  for word in words:
+    if w.len + word.len + 1 <= col:
+      w.add " " & word
+    else:
+      result.add w & linebreak
+      w = word
+  result.add w
+
 proc initPlotV(title: string, xlabel: string, ylabel: string, shape = ShapeKind.Rectangle,
                width = -1, height = -1): PlotV =
   ## returns the plotly layout of the given shape
@@ -446,6 +457,14 @@ proc initPlotV(title: string, xlabel: string, ylabel: string, shape = ShapeKind.
                    fig: fig,
                    ax: ax)
   of bGgPlot:
+    let toBreak = getEnv("LINE_BREAK", "false").parseBool
+    let col = getEnv("COL", "90").parseInt
+    let useTeX = getEnv("USE_TEX", "false").parseBool
+    let title = if toBreak: title.lineBreak(
+      col = col,
+      linebreak = (if useTex: r"\\" else: "\n")
+    )
+                else: title
     result = PlotV(kind: bGgPlot,
                    theme: Theme(title: some(title),
                                 xlabel: some(xlabel),
@@ -765,17 +784,18 @@ proc plotHist(df: DataFrame, title, dset, outfile: string,
                          range = binRange)
   of bGgPlot:
     result = initPlotV(title & " # entries: " & $df.len, dset, "#")
+    let mTop = getEnv("T_MARGIN", "2.0").parseFloat
     if "runs" in df:
       result.pltGg = ggplot(df, aes("xs", color = factor("runs"))) +
           geom_histogram(binWidth = binSize, position = "identity",
                          hdKind = hdOutline, fillColor = color(0,0,0,0)) +
-          margin(top = 2) +
+          margin(top = mTop) +
           scale_x_continuous() + scale_y_continuous() +
           result.theme # just add the theme directly
     else:
       result.pltGg = ggplot(df, aes("xs")) +
           geom_histogram(binWidth = binSize, hdKind = hdOutline) +
-          margin(top = 2) +
+          margin(top = mTop) +
           scale_x_continuous() + scale_y_continuous() +
           result.theme # just add the theme directly
   else: discard

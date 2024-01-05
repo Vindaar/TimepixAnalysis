@@ -531,7 +531,7 @@ proc buildTitle*(pd: PlotDescriptor): kstring =
   else:
     discard
   if pd.plotKind notin {pkInGridEvent, pkFadcEvent, pkInGridFadcEvent}: # no need to add cut information here!
-    result.add ":" & toTitle(pd.selector)
+    result.add ", " & toTitle(pd.selector)
   else: # but do add `applyAll`!
     let applyAll = if pd.selector.cuts.len > 0: &" applyAll: {pd.selector.applyAll}" else: ""
     result.add applyAll

@@ -7,15 +7,24 @@ import cligen
 import numericalnim except linspace
 
 let UseTeX = getEnv("USE_TEX", "false").parseBool
+let FWIDTH = getEnv("F_WIDTH", "0.5").parseFloat
 let Width = getEnv("WIDTH", "600").parseFloat
-let Height = getEnv("Height", "420").parseFloat
+let Height = getEnv("HEIGHT", "480").parseFloat
+
+proc customSideBySide(): Theme =
+  result = sideBySide()
+  result.legendFont = some(font(6.0))
+  result.legendTitleFont = some(font(6.0, bold = true))
 
 proc thL(fWidth: float, width: float,
-         baseTheme: (proc(): Theme),
+         baseTheme: (proc(): Theme) = nil,
          height = -1.0, ratio = -1.0,
          textWidth = 458.29268, # 455.24411
         ): Theme =
   if UseTeX:
+    let baseTheme = if baseTheme != nil: baseTheme
+                    elif fWidth <= 0.5: customSideBySide
+                    else: singlePlot
     let texOptions = toTeXOptions(UseTeX, onlyTikZ = false,
                                   standalone = true,
                                   texTemplate = "", caption = "", label = "", placement = "htbp")
@@ -23,11 +32,6 @@ proc thL(fWidth: float, width: float,
                         useTeX = UseTeX, texOptions = texOptions)
   else:
     result = Theme()
-
-proc thm(): Theme =
-  result = sideBySide()
-  result.legendFont = some(font(6.0))
-  result.legendTitleFont = some(font(6.0, bold = true))
 
 type
   YearKind = enum
@@ -289,7 +293,7 @@ proc plotRef(df: DataFrame,
     discreteLegendWidth(0.75) + discreteLegendHeight(0.75) +
     #ggtitle(&"{dset} of reference file, year: {yearKind}") +
     ggtitle("Morphing by binwise linear interpolation") +
-    thL(fWidth = 0.5, width = 600, height = 480, baseTheme = sideBySide) +
+    thL(fWidth = FWIDTH, width = Width, height = Height) +
     ggsave(&"{outpath}/{dset}_ridgeline_morph_{mtKind}_{refFile.extractFilename}_{yearKind}.pdf",
            width = 800, height = 480)
 
@@ -303,19 +307,20 @@ proc plotTile(df: DataFrame, dset: string, mtKind: MorphTechnique, outpath: stri
     geom_line(aes = aes("Bins", "Energy", color = "Dset")) +
     scale_y_continuous() +
     #xlim(0, 15) +
-    ylim(0, 8.5) +
-    margin(left = 2.0) +
+    #ylim(0, 8.5) +
+    ylim(0, 10.0) +
+    margin(left = 2.5) +
     ylab("Energy [keV]") + xlab(dset) +
     continuousLegendHeight(2.0) + continuousLegendWidth(0.75) +
     discreteLegendWidth(0.75) + discreteLegendHeight(0.75) +
-    thL(fWidth = 0.5, width = 600, height = 480, baseTheme = thm) +
-    ggtitle(&"2D heatmap plot of CDL data for {dset}")
+    thL(fWidth = FWIDTH, width = Width, height = Height) +
+    ggtitle(&"Tilemap of CDL data for {dset}")
   let lines = getXrayFluorescenceLines()
   var lineDf = newDataFrame()
   for idx in 0 ..< lines.len:
     var bins = df.filter(f{string -> bool: `Dset` == "Cu-Ni-15kV" and `runType` == "CDL"})["Bins", float]
     let line = lines[idx]
-    let minVal = bins.min - (bins.max - bins.min) * 0.05
+    let minVal = bins.min - (bins.max - bins.min) * 0.06
     let maxVal = bins.min
     let lStr = &"{line:.3g}"
     plt = plt + geom_text(aes = aes(x = minVal, y = line, text = lStr),
@@ -329,13 +334,13 @@ proc plotScatter(df: DataFrame, igDset: string, mtKind: MorphTechnique, outpath:
     geom_point(size = 3.0) +
     scale_y_continuous() +
     ggtitle(&"Scatter plot of CDL data for {igDset}") +
-    thL(fWidth = 0.5, width = 600, height = 480, baseTheme = sideBySide) +
+    thL(fWidth = FWIDTH, width = Width, height = Height) +
     ylim(0.0, 8.5) +
     ggsave(&"{outpath}/cdl_as_scatter_morph_{mtKind}_{igDset}.pdf")
 
 proc plotInterpolatedRaster(df: DataFrame, dset: string, mtKind: MorphTechnique, outpath: string) =
   var dfMorph: DataFrame
-  ## XXX: The morphing kind here is not really used / does not make much sense as it is.
+  ## NOTE: The morphing kind here is not really used / does not make much sense as it is.
   ## (only `mtNone` does). If the input data is already morphed, it is not morphed in the
   ## intended way:
   ## we would want to fully interpolate. Instead of excluding one energy each, interpolate
@@ -354,12 +359,12 @@ proc plotInterpolatedRaster(df: DataFrame, dset: string, mtKind: MorphTechnique,
     geom_raster(aes = aes(fill = "Hist")) + # aes = aes(width = "binWidth", height = "binHeight")) +
     geom_line(data = dfE, aes = aes("Bins", "Energy", color = "Dset")) +
     scale_y_continuous() +
-    margin(left = 2.0) +
+    margin(left = 2.5) +
     ylim(0, 8.5) +
     ylab("Energy [keV]") + xlab(dset) +
     continuousLegendHeight(2.0) + continuousLegendWidth(0.75) +
     discreteLegendWidth(0.75) + discreteLegendHeight(0.75) +
-    thL(fWidth = 0.5, width = 600, height = 480, baseTheme = thm) +
+    thL(fWidth = FWIDTH, width = Width, height = Height) +
     #xlim(0, 15) +
     ggtitle(&"Linearly interpolated CDL data")
   let lines = getXrayFluorescenceLines()
@@ -367,7 +372,7 @@ proc plotInterpolatedRaster(df: DataFrame, dset: string, mtKind: MorphTechnique,
   for idx in 0 ..< lines.len:
     var bins = df.filter(f{string -> bool: `Dset` == "Cu-Ni-15kV" and `runType` == "CDL"})["Bins", float]
     let line = lines[idx]
-    let minVal = bins.min - (bins.max - bins.min) * 0.05
+    let minVal = bins.min - (bins.max - bins.min) * 0.06
     let maxVal = bins.min
     let lStr = &"{line:.3g}"
     plt = plt + geom_text(data = newDataFrame(), aes = aes(x = minVal, y = line, text = lStr),

@@ -33,10 +33,10 @@ proc addOutline(plt: var GgPlot) =
 let df = toDf({"x" : @[256, 124], "y": @[341, 211]})
 
 var plt = ggplot(df, aes(x, y)) +
-  xlim(0, 800) + ylim(0, 950) +
+  coord_fixed(1.0) +
   scale_x_continuous() + scale_y_continuous()
 plt.addOutline()
-plt + ggsave("/t/test.pdf", height = 900, width = 800)
+plt + ggsave("/t/test.pdf", width = 800)
 
 
 template dump(s: untyped): untyped =

@@ -54,6 +54,7 @@ let filter = H5Filter(kind: fkZlib, zlibLevel: 4)
 
 let UseTeX = getEnv("USE_TEX", "false").parseBool
 let Width = getEnv("WIDTH", "600").parseFloat
+let FWIDTH = getEnv("F_WIDTH", "0.9").parseFloat
 let Height = getEnv("Height", "420").parseFloat
 
 type
@@ -82,12 +83,20 @@ type
     fit_σ: Measurement[float]
     energyRes: Measurement[float]
 
+proc customSideBySide(): Theme =
+  result = sideBySide()
+  result.titleFont = some(font(8.0))
+  result.annotationFont = some(font(5.0, family = "monospace"))
+
 proc thL(fWidth: float, width: float,
-         baseTheme: (proc(): Theme),
+         baseTheme: (proc(): Theme) = nil,
          height = -1.0, ratio = -1.0,
          textWidth = 458.29268, # 455.24411
         ): Theme =
   if UseTeX:
+    let baseTheme = if baseTheme != nil: baseTheme
+                    elif fWidth <= 0.5: customSideBySide
+                    else: singlePlot
     let texOptions = toTeXOptions(UseTeX, onlyTikZ = false,
                                   standalone = true,
                                   texTemplate = "", caption = "", label = "", placement = "htbp")
@@ -846,7 +855,7 @@ proc energyResolution(peaksHits, peaksCharge: seq[MainPeak],
     xlab("Energy [keV]") +
     ylab("Energy resolution [%]") +
     ggtitle("Energy resolution depending on energy") +
-    thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
+    thL(fWidth = 0.9, width = Width) +
     ggsave(&"{pathPrefix}/energyresoplot-{outdate}.pdf", width = 800, height = 480)
 
 proc peakFit(mainPeaks: seq[MainPeak], name: string, pathPrefix: string) =
@@ -863,7 +872,7 @@ proc peakFit(mainPeaks: seq[MainPeak], name: string, pathPrefix: string) =
     xlab("Energy [keV]") +
     ylab(&"Peak position for {name}") +
     ggtitle("Peak position of all targets") +
-    thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
+    thL(fWidth = 0.9, width = Width) +
     ggsave(&"{pathPrefix}/{name}.pdf", width = 800, height = 480)
 
 proc serializeFitParameters(fitResult: FitResult,
@@ -1122,26 +1131,31 @@ proc fitAndPlotImpl(h5f: H5File, dfU: DataFrame, runNumber: int, fitParamsFname:
                    binWidth = binSize) +
     # add error bar bands
     geom_tile(aes = aes(x = cLV - cLE/2.0, y = 0.0, width = cLE, height = cNV),
-              alpha = 0.1, fillColor = "grey", color = transparent) +
+              alpha = 0.5, fillColor = "grey", color = transparent) +
     geom_tile(aes = aes(x = cHV - cHE/2.0, y = 0.0, width = cHE, height = cNV),
-              alpha = 0.1, fillColor = "grey", color = transparent)
+              alpha = 0.5, fillColor = "grey", color = transparent)
   if not showStartParams and hideNloptFit: # if only MPFIT, just draw black
     plt = plt + geom_line(aes(y = "Counts"))
   else:
     plt = plt + geom_line(aes(y = "Counts", color = "Type"))
+
+  if FWIDTH < 0.7:
+    plt = plt + scale_x_continuous(breaks = 6)
   # continue rest of plot
+
   plt +
     # add lines of the lower / upper cut
     geom_linerange(aes = aes(x = cLV, y = cNV / 2.0, yMin = 0.0, yMax = cNV)) +
     geom_linerange(aes = aes(x = cHV, y = cNV / 2.0, yMin = 0.0, yMax = cNV)) +
     annotate(serializeFitParameters(fitResultMpfit, tfKind, dKind, true),
-             0.5, 0.8,
+             0.5, top = 0.0,
              font = font(12.0, family = "monospace")) +
     xlab(xtitle) +
     xlim(0.0, binRangePlot) +
     ylab("Counts") +
     ggtitle(&"target: {tfKind}, run: {runNumber}") +
-    thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
+    minorGridLines() +
+    thL(fWidth = FWIDTH, width = Width) +
     margin(right = 3.5) +
     ggsave(fname, width = 800, height = 480)
 
@@ -1244,7 +1258,9 @@ proc fitAndPlot(h5f: H5File, fitParamsFname: string,
                                   tfKind, dKind, showStartParams, hideNloptFit,
                                   plotPath)
     # calibrate energy using `fit_μ` for unbinned data `dfLoc`
+    let binRangePlot = peak.fit_μ.value * 3.0
     let dfE = calcEnergyFromFits(dfLoc, peak)
+      .filter(f{float: `Counts` <= binRangePlot})
     dfU.add dfE
     # write cuts for the charge based on fit
     h5f.writeChargeCutBounds(dfE, peak, tfKind, yr2018, fitByRun, runNumber, fileIsCdl = false)
@@ -1261,7 +1277,9 @@ proc fitAndPlot(h5f: H5File, fitParamsFname: string,
                    alpha = 0.5) +
     ggtitle("Cleaned data of \\& " & $dKind & " " & $tfKind & " split by run") +
     xlab(xtitle) +
-    thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
+    scale_x_continuous(breaks = 6) +
+    minorGridLines() +
+    thL(fWidth = 0.5, width = Width) +
     ggsave(fnameByRun, width = 800, height = 480)
 
   result = (dfU, mainPeaks)
@@ -1563,20 +1581,20 @@ proc energyHistograms(df: DataFrame, plotPath: string) =
     geom_histogram(bins = 100, hdKind = hdOutline, density = true, position = "identity", alpha = 0.6, color = "black", lineWidth = 1.0) +
     ggtitle("Normalized histograms of energy calibrated CDL data by target / filter") +
     xlab("Energy [keV]") + ylab("Density") +
-    thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
+    thL(fWidth = 0.9, width = Width) +
     ggsave(&"{plotPath}/{fname}_histos.pdf", width = 800, height = 480)
 
   ggplot(dfC, aes("Energy", fill = "Target")) +
     geom_density(alpha = 0.6, color = "black", size = 1.0, normalize = true) +
     ggtitle("Normalized KDE of energy calibrated CDL data by target / filter") +
     xlab("Energy [keV]") + ylab("Density") +
-    thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
+    thL(fWidth = 0.9, width = Width) +
     ggsave(&"{plotPath}/{fname}_kde.pdf", width = 800, height = 480)
 
 proc plotRunGains(gainDf, tempDf: DataFrame, plotPath: string) =
   ggplot(gainDf, aes("runNumber", "Gain", color = factor("Target"))) +
     geom_point() +
-    thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
+    thL(fWidth = 0.9, width = Width) +
     ggsave(&"{plotPath}/gas_gain_by_run_and_tfkind.pdf", width = 800, height = 480)
 
   let minGain = gainDf["Gain", float].min
@@ -1591,12 +1609,12 @@ proc plotRunGains(gainDf, tempDf: DataFrame, plotPath: string) =
     scale_y_continuous(secAxis = secAxis(name = "Temp [°C]", trans = f{maxTemp / maxGain})) +
     margin(right = 7) +
     legendPosition(0.8, 0.0) +
-    thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
+    thL(fWidth = 0.9, width = Width) +
     ggsave(&"{plotPath}/gas_gain_by_run_and_tfkind_with_cdl_temp.pdf", width = 800, height = 480)
 
   ggplot(tempDf, aes("Timestamp", "Septem", color = factor("runNumber"))) +
     geom_point(size = 0.5) +
-    thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
+    thL(fWidth = 0.9, width = Width) +
     ggsave(&"{plotPath}/septem_temperature_cdl.pdf")
 
   let title = "Temperatures of CDL runs which contain temperature data"
@@ -1606,7 +1624,7 @@ proc plotRunGains(gainDf, tempDf: DataFrame, plotPath: string) =
     geom_point(size = 0.5) +
     xlab(rotate = -45, alignTo = "right") +
     ggtitle(title) +
-    thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
+    thL(fWidth = 0.9, width = Width) +
     ggsave(&"{plotPath}/septem_temperature_facet_cdl_time_since_start.pdf", width = 1200, height = 1000)
 
   proc toDate(v: float): string =
@@ -1618,7 +1636,7 @@ proc plotRunGains(gainDf, tempDf: DataFrame, plotPath: string) =
     xlab(rotate = -45, alignTo = "right") +
     scale_x_continuous(labels = toDate) +
     ggtitle(title) +
-    thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
+    thL(fWidth = 0.9, width = Width) +
     ggsave(&"{plotPath}/septem_temperature_facet_cdl.pdf", width = 1200, height = 1000)
 
   ggplot(tempDf.gather(["Septem", "IMB"], "Type", "Temp"), aes("Timestamp", "Temp", color = factor("Type"))) +
@@ -1628,7 +1646,7 @@ proc plotRunGains(gainDf, tempDf: DataFrame, plotPath: string) =
     xlab(rotate = -45, alignTo = "right") +
     scale_x_continuous(labels = toDate) +
     ggtitle(title) +
-    thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
+    thL(fWidth = 0.9, width = Width) +
     ggsave(&"{plotPath}/septem_imb_temperature_facet_cdl.pdf", width = 1200, height = 1000)
 
 proc plotIngridProperties(h5f: H5File, tfKind: TargetFilterKind, plotPath: string) =
@@ -1636,7 +1654,7 @@ proc plotIngridProperties(h5f: H5File, tfKind: TargetFilterKind, plotPath: strin
   var dsets = newSeq[string]()
   let centerChip = h5f.getCenterChip()
   for dset in InGridDsetKind:
-    if dset in { igInvalid, igEnergyFromCharge, igEnergyFromPixel, igLikelihood, igNumClusters,
+    if dset in { igInvalid, igEnergyFromCharge, igEnergyFromCdlFit, igEnergyFromPixel, igLikelihood, igNumClusters,
                  igFractionInHalfRadius, igRadiusDivRmsTrans, igRadius, igBalance, igLengthDivRadius, igEventNumber,
                  igDiffusion, igGasGain }:
       continue
@@ -1652,7 +1670,7 @@ proc plotIngridProperties(h5f: H5File, tfKind: TargetFilterKind, plotPath: strin
     ggplot(df, aes(dsetStr, fill = factor("run"))) +
       geom_histogram(bins = 100, hdKind = hdOutline, alpha = 0.5, position = "identity", density = true) +
       ggtitle("Dataset " & $dsetStr & " for " & $tfKind) +
-      #thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) + # <- not as a TeX plot, takes too long to produce all!
+      #thL(fWidth = 0.9, width = Width) + # <- not as a TeX plot, takes too long to produce all!
       ggsave(&"{plotPath}/{$tfKind}_{dsetStr}_histogram_by_run.pdf")
     when false:
       ggplot(df, aes(dsetStr, fill = factor("run"))) +
@@ -1665,7 +1683,7 @@ proc plotIngridProperties(h5f: H5File, tfKind: TargetFilterKind, plotPath: strin
     geom_density(normalize = true, alpha = 0.6, color = "black", size = 0.5) +
     ggtitle($tfKind & ", all InGrid properties in arbitrary units: x/max(x)") +
     margin(left = 5.5, right = 3.0) +
-    thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
+    thL(fWidth = 0.9, width = Width) +
     ggsave(&"{plotPath}/{$tfKind}_ridgeline_kde_by_run.pdf", width = 900, height = 600)
 
 proc writeCdlInfoTable(peaksHits, peaksCharge: seq[MainPeak]) =

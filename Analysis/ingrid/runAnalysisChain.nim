@@ -22,7 +22,7 @@ const relIDPath = TpxDir / "InGridDatabase/src/resources"
 
 type
   AnaFlags = enum
-    afBack, afCalib, afRaw, afReco, afLogL, afTracking
+    afBack, afCalib, afCDL, afRaw, afReco, afLogL, afTracking
 
   InputKind = enum
     ikFileH5, # refers to a single H5 input file
@@ -38,6 +38,7 @@ type
     dy2014 = 2014
     dy2017 = 2017
     dy2018 = 2018
+    dy2019 = 2019 # for CDL data
 
   # let's test those juicy default values
   Config = object ## Configuration for the analysis
@@ -66,6 +67,10 @@ type
     mulitpleRun = "runs"
     # template to use for files with multiple runs
     nameTmpl = r"$type$runs$year_$step.h5"
+    # default names for data, calib and CDL file
+    dataRuns = "DataRuns"
+    calibrationRuns = "CalibrationRuns"
+    calibCdlFilename = "calibration-cdl-2018.h5"
 
 # set up the logger
 var L = newConsoleLogger()
@@ -92,7 +97,9 @@ proc toOutfile(cfg: Config, runType: RunTypeKind, flag: AnaFlags, year: string):
   doAssert flag in {afRaw, afReco}
   let step = if flag == afRaw: "raw"
              else: "reco"
-  result = cfg.nameTmpl % ["type", runType.toStr.capitalizeAscii,
+  let typ = if flag == afCDL: "CDL_"
+            else: runType.toStr.capitalizeAscii
+  result = cfg.nameTmpl % ["type", typ,
                            "runs", cfg.toRunStr,
                            "year", year & "_", ## XXX: the `_` is dropped for some reason
                            "step", step.capitalizeAscii]
@@ -132,6 +139,7 @@ proc toDataPath(year: DataYear): string =
   of dy2014: result = "2014_15"
   of dy2017: result = "2017"
   of dy2018: result = "2018_2"
+  of dy2019: result = "CDL_2019"
 
 proc rawDataManipulation(path, outName: string, runType: RunTypeKind): bool =
   let runTypeStr = &"--runType={runType}"
@@ -166,12 +174,21 @@ proc reconstruction(input: string, options: set[RecoFlags],
   info "Last commands exit code: " & $res[1]
   result = res[1] == 0
 
+proc cdl_spectrum_creation(input: string): bool =
+  info "Running cdl_spectrum_creation on " & $input & " to produce `calibration-cdl-2018.h5` file."
+  var res: (string, int)
+  res = shellVerbose:
+    cdl_spectrum_creation ($input) "--genCdlFile --year=2018"
+  info "Last commands exit code: " & $res[1]
+  result = res[1] == 0
+
 proc likelihood(input: string,
+                cdlFile: string,
                 cfg: Config,
                 output: string = ""): bool =
   info "Running likelihood on " & $input & " to compute `likelihood` dataset"
   ## XXX: make adjustable
-  let cdlData = "--cdlYear 2018 --cdlFile ~/CastData/data/CDL_2019/calibration-cdl-2018.h5"
+  let cdlData = &"--cdlYear 2018 --cdlFile {cdlFile}"
   let logLOpt = "--computeLogL"
   var res: (string, int)
   res = shellVerbose:
@@ -211,10 +228,13 @@ type
   DataFiles = object
     background: Files
     calibration: Files
+    cdl: string # path to the `calibration-cdl-2018.h5` file
 
 proc fillFiles(cfg: Config, path, outpath: string, runType: RunTypeKind, dYear: DataYear): Files =
-  let rawPath = if runType == rtBackground: path / "DataRuns"
-                else: path / "CalibrationRuns"
+  let rawPath = case runType
+                of rtBackground: path / cfg.dataRuns
+                of rtXrayFinger: path # CDL runs are inside `CDL_2019` path
+                else: path / cfg.calibrationRuns
   result = Files(rawPath: path,
                  raw: outpath / cfg.toOutfile(runType, afRaw, $(ord(dYear))),
                  reco: outpath / cfg.toOutfile(runType, afReco, $(ord(dYear))))
@@ -224,9 +244,14 @@ proc fillDataFiles(cfg: Config, dYear: DataYear): DataFiles =
   let outpath = if cfg.outpath.len > 0: cfg.outpath
                 else: dataPath
   result = DataFiles(background: cfg.fillFiles(dataPath, outpath, rtBackground, dYear),
-                     calibration: cfg.fillFiles(dataPath, outpath, rtCalibration, dYear))
+                     calibration: cfg.fillFiles(dataPath, outpath, rtCalibration, dYear),
+                     cdl: cfg.path / (dy2019.toDataPath()) / cfg.calibCdlFilename)
 
-proc runCastChain(cfg: Config, data: DataFiles, dYear: DataYear): bool =
+proc fillCdlFiles(cfg: Config): Files =
+  let dataPath = cfg.path / (dy2019.toDataPath)
+  result = cfg.fillFiles(dataPath, dataPath, rtXrayFinger, dy2019)
+
+proc runCastChain(cfg: Config, data: DataFiles): bool =
   ## performs the whole chain of the given dataset
   var toContinue = true
 
@@ -273,13 +298,34 @@ proc runCastChain(cfg: Config, data: DataFiles, dYear: DataYear): bool =
 
   ## As a final step compute the likelihood dataset in the file and add the tracking information
   if afLogL in cfg.anaFlags:
-    tc(likelihood(data.calibration.reco, cfg))
-    tc(likelihood(data.background.reco, cfg))
+    tc(likelihood(data.calibration.reco, data.cdl, cfg))
+    tc(likelihood(data.background.reco, data.cdl, cfg))
 
   ## And now the tracking information
   if afTracking in cfg.anaFlags:
     tc(trackingInfo(data.background.reco, cfg))
 
+  result = toContinue
+
+proc runCdlChain(cfg: Config, data: Files): bool =
+  ## Performs the analysis of the CAST CDL 2019 data and produces the `calibration-cdl-2018.h5` file.
+  var toContinue = true
+
+  if afRaw in cfg.anaFlags:
+    tc(rawDataManipulation(data.rawPath, data.raw, rtXrayFinger))
+  if afReco in cfg.anaFlags:
+    tc(reconstruction(data.raw,
+                      {}, cfg,
+                      output = data.reco
+    ))
+    const recoOptions = @[{rfOnlyFadc},
+                          {rfOnlyCharge},
+                          {rfOnlyGasGain}]
+    for opt in recoOptions:
+      tc(reconstruction(data.reco, opt, cfg))
+
+  # now produce the cdl file
+  tc(cdl_spectrum_creation(data.reco))
   result = toContinue
 
 proc runChain(cfg: Config) =
@@ -334,6 +380,7 @@ proc main(
   inputKind: InputKind = ikDataFolder,
   back = false,
   calib = false,
+  cdl = false,
   raw = false,
   reco = false,
   logL = false,
@@ -359,6 +406,7 @@ proc main(
     var flags: set[AnaFlags]
     if back:     flags.incl afBack
     if calib:    flags.incl afCalib
+    if cdl:      flags.incl afCDL
     if raw:      flags.incl afRaw
     if reco:     flags.incl afReco
     if logL:     flags.incl afLogL
@@ -414,12 +462,19 @@ proc main(
   let t0 = epochTime()
   case cfg.inputKind
   of ikDataFolder:
+    if afCDL in cfg.anaFlags: # perform CDL parsing / reconstruction
+      let cdlFiles = fillCdlFiles(cfg)
+      tc(cfg.runCdlChain(cdlFiles))
+
     for year in years:
       doAssert year.uint16 in [2014'u16, 2017, 2018], "Years supported are 2014, 2017, 2018."
       let dYear = DataYear(year)
 
       let dataFiles = fillDataFiles(cfg, dYear)
-      tc(cfg.runCastChain(dataFiles, dYear))
+      if not existsFile(dataFiles.cdl):
+        raise newException(ValueError, "The CDL file " & dataFiles.cdl & " does not seem to exist yet. Did you forget " &
+          "the `--cdl` option?")
+      tc(cfg.runCastChain(dataFiles))
   else:
     doAssert cfg.runType != rtNone, "For individual runs a `runType` is required."
     runChain(cfg)
@@ -436,6 +491,7 @@ to ikFileH5 if explicit H5 file given. For a single run handing this is required
     "outpath"        : "The output path in which all files will be placed. If none given input path is used.",
     "back"           : "(CAST) If set perform analysis of background data. Only relevant for full CAST data.",
     "calib"          : "(CAST) If set perform analysis of calibration data. Only relevant for full CAST data.",
+    "cdl"            : "(CAST) If ste perform analysis of the CDL runs. Only relevant for full CAST data.",
     "raw"            : "If set performs parsing of data and storing in HDF5.",
     "reco"           : "If set performs geometric clustering and calculation of geometric properties.",
     "logL"           : "If set computes the `likelihood` dataset for the CAST data chain",

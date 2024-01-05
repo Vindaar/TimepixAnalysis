@@ -20,6 +20,8 @@ const recoOptions = @[{rfOnlyFadc},
                       {rfOnlyEnergyElectrons}]
 const relIDPath = TpxDir / "InGridDatabase/src/resources"
 
+const TrackingLogs = TpxDir / "resources/LogFiles/tracking-logs"
+
 type
   AnaFlags = enum
     afBack, afCalib, afCDL, afRaw, afReco, afLogL, afTracking
@@ -44,6 +46,7 @@ type
   Config = object ## Configuration for the analysis
     input: string # the input file / directory
     path: string  # the path of the input. If input is a file `path` is the parent dir. Else it's `input`
+    trackingLogs: string = TrackingLogs # path to the tracking files
     case inputKind: InputKind
     of ikFileH5: fileInfo: FileInfo
     else: discard
@@ -109,7 +112,8 @@ proc initConfig(input: string,
                 inputKind: InputKind,
                 recoCfg: RecoConfig,
                 runType: RunTypeKind,
-                anaFlags: set[AnaFlags]): Config =
+                anaFlags: set[AnaFlags],
+                trackingLogs: string): Config =
   let path = if inputKind == ikFileH5: input.parentDir()
              else: input
   let outpath = if outpath.len == 0: path
@@ -120,6 +124,9 @@ proc initConfig(input: string,
                   recoCfg: recoCfg, runType: runType,
                   runNumber: recoCfg.runNumber,
                   anaFlags: anaFlags)
+  if trackingLogs.len > 0:
+    result.trackingLogs = trackingLogs
+
   case inputKind
   of ikFileH5:
     result.fileInfo = getFileInfo(input)
@@ -201,15 +208,12 @@ proc trackingInfo(input: string,
                   cfg: Config,
                   output: string = ""): bool =
   info "Running likelihood on " & $input & " to compute `likelihood` dataset"
-  ## XXX: make adjustable
-
-  ## XXX: FIX THE PATH HERE!!!
-  const TrackingLogs = "-p " & TpxDir / "resources/LogFiles/tracking-logs"
   var res: (string, int)
   # Note: to be generic we include the whole data taking campaign of CAST (and then some)
   # to make sure we don't lose tracking info on either end
+  let logs = cfg.trackingLogs
   res = shellVerbose:
-    cast_log_reader tracking ($TrackingLogs) --startTime "2017/01/01" --endTime "2018/12/31" --h5out ($input)
+    cast_log_reader tracking "-p" ($logs) --startTime "2017/01/01" --endTime "2018/12/31" --h5out ($input)
   #info "Last commands output: " & $res[0]
   info "Last commands exit code: " & $res[1]
   result = res[1] == 0
@@ -378,6 +382,7 @@ proc main(
   outpath = "",
   years: seq[int] = @[],
   inputKind: InputKind = ikDataFolder,
+  trackingLogs = "", # if CAST chain, path to the tracking log files
   back = false,
   calib = false,
   cdl = false,
@@ -446,7 +451,7 @@ proc main(
   let inputKind = if is_rf: ikRunFolder
                   elif input.endsWith(".h5"): ikFileH5
                   else: inputKind
-  var cfg = initConfig(input, outpath, inputKind, recoCfg, runType, anaFlags)
+  var cfg = initConfig(input, outpath, inputKind, recoCfg, runType, anaFlags, trackingLogs)
 
 
   ## XXX: if the input is a H5 file open it and determine what type of
@@ -489,6 +494,7 @@ when isMainModule:
 to ikFileH5 if explicit H5 file given. For a single run handing this is required.""",
     "years"          : "If input is full CAST data (ikDataFolder) the datasets to reconstruct.",
     "outpath"        : "The output path in which all files will be placed. If none given input path is used.",
+    "trackingLogs"   : "(CAST) Can be used to overwrite default path for tracking log files.",
     "back"           : "(CAST) If set perform analysis of background data. Only relevant for full CAST data.",
     "calib"          : "(CAST) If set perform analysis of calibration data. Only relevant for full CAST data.",
     "cdl"            : "(CAST) If ste perform analysis of the CDL runs. Only relevant for full CAST data.",

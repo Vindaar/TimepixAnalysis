@@ -17,7 +17,7 @@ template toEDF*(data: seq[float], isCumSum = false): untyped =
 
 import numericalnim / interpolate
 import arraymancer
-proc plotROC(dfB, dfC: DataFrame, outpath, suffix: string) =
+proc plotROC(dfB, dfC: DataFrame, outpath, tSuffix, suffix: string) =
   # 1. compute cumulative sum from each type of data that is binned in the same way
   # 2. plot cumsum, (1 - cumsum)
   when false:
@@ -50,20 +50,28 @@ proc plotROC(dfB, dfC: DataFrame, outpath, suffix: string) =
     xs.add i.float
     ysC.add dataC.eff(i.float, isBackground = false)
     ysB.add dataB.eff(i.float, isBackground = true)
+
+  let sigEff = "signalEff"
+  let backRej = "backSup"
   let df = toDf(xs, ysC, ysB)
-  ggplot(df, aes("ysC", "ysB")) +
+    .rename(f{sigEff <- "ysC"},
+            f{backRej <- "ysB"})
+  ggplot(df, aes(sigEff, backRej)) +
     geom_line() +
-    ggtitle("ROC curve of FADC rise time cut (only upper), ⁵⁵Fe vs. background in $#" % suffix) +
+    ggtitle("ROC curve of FADC rise time cut (only upper), ⁵⁵Fe vs. background in $#" % tSuffix) +
     xlab("Signal efficiency [%]") + ylab("Background suppression [%]") +
-    ggsave(outpath / "fadc_rise_time_roc_curve.pdf", width = 800, height = 480)
+    themeLatex(fWidth = 0.9, width = 600, baseTheme = singlePlot, useTeX = UseTeX) +
+    ggsave(outpath / ("fadc_rise_time_roc_curve_$#.pdf" % suffix), width = 800, height = 480)
 
-  let dfG = df.gather(["ysC", "ysB"], "ts", "ys")
-  ggplot(dfG, aes("xs", "ys", color = "ts")) +
+  let dfG = df.gather([sigEff, backRej], "Type", "ys")
+  ggplot(dfG, aes("xs", "ys", color = "Type")) +
     geom_line() +
-    xlab("Rise time [clock cycles]") + ylab("Signal efficiency / background suppression [%]") +
-    ggsave(outpath / "fadc_rise_time_efficiencies.pdf", width = 800, height = 480)
+    xlab("Rise time [ns]") + ylab("Signal efficiency / background suppression [%]") +
+    themeLatex(fWidth = 0.9, width = 600, baseTheme = singlePlot, useTeX = UseTeX) +
+    ggtitle("FADC rise time cut (only upper) efficiency in $#" % tSuffix) +
+    ggsave(outpath / ("fadc_rise_time_efficiencies_$#.pdf" % suffix), width = 800, height = 480)
 
-proc plotFallTimeRiseTime(df: DataFrame, outpath, suffix: string, isCdl, energyDep: bool, riseTimeHigh: float) =
+proc plotFallTimeRiseTime(df: DataFrame, outpath, tSuffix, suffix: string, isCdl, energyDep: bool, riseTimeHigh: float) =
   ## Given a full run of FADC data, create the
   ## Note: it may be sensible to compute a truncated mean instead
   # local copy filtered to maximum allowed rise time
@@ -72,11 +80,11 @@ proc plotFallTimeRiseTime(df: DataFrame, outpath, suffix: string, isCdl, energyD
   proc plotDset(dset: string) =
 
     let title = if energyDep:
-                   &"Comparison of FADC {dset} in photo- and escape peak data of $#" % suffix
+                   &"Comparison of FADC {dset} in photo- and escape peak data of $#" % tSuffix
                 elif isCdl:
                    &"Comparison of FADC {dset} in CDL data by target/filter"
                 else:
-                   &"FADC signal {dset} in ⁵⁵Fe vs background data in $#" % suffix
+                   &"FADC signal {dset} in ⁵⁵Fe vs background data in $#" % tSuffix
 
     proc genOutfile(outpath, dset, suffix: string, isKde, isCdl, energyDep: bool): string =
       result = outpath / &"fadc_{dset}"
@@ -247,7 +255,8 @@ proc main(calib: string, year: int,
       raise newException(IOError, "The input file is neither clearly a 2017 nor 2018 calibration file!")
 
     let yearToRun = if is2017: 2 else: 3
-    let suffix = "Run-$#" % $yearToRun
+    let tSuffix = "Run-$#" % $yearToRun
+    let suffix = "run$#" % $yearToRun
 
     var df = newDataFrame()
     if energyDep:
@@ -256,14 +265,14 @@ proc main(calib: string, year: int,
     else:
       let dfC = read(calib, "⁵⁵Fe", energyLow, energyHigh, isCdl = false)
       let dfB = read(back, "back", 5.5, 6.5, isCdl = false)
-      plotROC(dfB, dfC, outpath, suffix)
+      plotROC(dfB, dfC, outpath, tSuffix, suffix)
       df.add dfC
       df.add dfB
 
-    plotFallTimeRiseTime(df, outpath, suffix, isCdl, energyDep, riseTimeHigh)
+    plotFallTimeRiseTime(df, outpath, tSuffix, suffix, isCdl, energyDep, riseTimeHigh)
   else:
     let df = read(calib, "CDL", 0.0, Inf, isCdl = true)
-    plotFallTimeRiseTime(df, outpath, "CDL", isCdl, energyDep, riseTimeHigh)
+    plotFallTimeRiseTime(df, outpath, "CDL", "CDL", isCdl, energyDep, riseTimeHigh)
 when isMainModule:
   import cligen
   dispatch main

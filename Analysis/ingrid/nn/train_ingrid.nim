@@ -16,6 +16,24 @@ var ClampOutput = 50.0
 ## XXX: a bit annoying that this is here...
 const CdlFile = "/home/basti/CastData/data/CDL_2019/calibration-cdl-2018.h5"
 
+let UseTeX = getEnv("USE_TEX", "false").parseBool
+let Width = getEnv("WIDTH", "600").parseFloat
+let Height = getEnv("Height", "420").parseFloat
+
+proc thL(fWidth: float, width: float,
+         baseTheme: (proc(): Theme),
+         height = -1.0, ratio = -1.0,
+         textWidth = 458.29268, # 455.24411
+        ): Theme =
+  if UseTeX:
+    let texOptions = toTeXOptions(UseTeX, onlyTikZ = false,
+                                  standalone = true,
+                                  texTemplate = "", caption = "", label = "", placement = "htbp")
+    result = themeLatex(fWidth, width, baseTheme, height, ratio, textWidth,
+                        useTeX = UseTeX, texOptions = texOptions)
+  else:
+    result = Theme()
+
 proc generateTrainTest(df: DataFrame, rnd: var Rand):
                       ((RawTensor, RawTensor), (RawTensor, RawTensor)) {.noInit.} =
   # - generate
@@ -96,7 +114,8 @@ proc plotPredictions(predictions: seq[float], targets: seq[int],
       geom_histogram(bins = 100, position = "identity", alpha = some(0.5), hdKind = hdOutline) +
       xlab("Predictions") + ylab("Count") +
       scale_x_continuous() +
-      theme_font_scale(1.0, family = "serif") +
+      margin(right = 3.5, left = 3.5) +
+      thL(fWidth = 0.5, width = Width, baseTheme = sideBySide) +
       ggsave(outfile, width = 600, height = 420)
   except:
     discard
@@ -116,7 +135,8 @@ proc plotPredictions(predictions: seq[float], targets: seq[int],
       xlab("Predictions") + ylab("Count") +
       scale_y_log10() +
       ylim(0.0, log10(maxH)) +
-      theme_font_scale(1.0, family = "serif") +
+      margin(right = 3.5, left = 3.5) +
+      thL(fWidth = 0.5, width = Width, baseTheme = sideBySide) +
       ggsave(outfile.replace(".pdf", "_log10.pdf"), width = 600, height = 420)
   except:
     discard
@@ -131,7 +151,9 @@ proc plotType(epochs: seq[int], data, testData: seq[float], typ: string,
     ggplot(df, aes("Epoch", typ, color = "Type")) +
       geom_line() +
       scale_y_log10() +
-      theme_font_scale(1.0, family = "serif") +
+      scale_x_continuous(breaks = 6) +
+      margin(right = 5.0, left = 3.0) +
+      thL(fWidth = 0.5, width = Width, baseTheme = sideBySide) +
       ggsave(outfile, width = 600, height = 420)
   except:
     discard
@@ -545,6 +567,8 @@ proc targetSpecificRoc(dfLnL, dfMlp: DataFrame, plotPath = "/tmp") =
   ggplot(df, aes("sigEff", "backRej", color = "Target", shape = "Method")) +
     geom_line() +
     ylim(0.5, 1.0) +
+    xlab("Signal efficiency") + ylab("Background rejection") +
+    thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
     ggsave(&"{plotPath}/roc_curve_combined_split_by_target.pdf")
 
 proc determineCdlEfficiency(model: AnyModel, device: Device, desc: MLPDesc, ε: float, readRaw: bool,

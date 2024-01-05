@@ -22,6 +22,24 @@ want to run libtorch on a GPU. `-d:danger` just to make it as fast as possible.
 const CdlFile = "/home/basti/CastData/data/CDL_2019/calibration-cdl-2018.h5"
 const RmsCleaningCut = 1.5
 
+let UseTeX = getEnv("USE_TEX", "false").parseBool
+let Width = getEnv("WIDTH", "600").parseFloat
+let Height = getEnv("Height", "420").parseFloat
+
+proc thL(fWidth: float, width: float,
+         baseTheme: (proc(): Theme),
+         height = -1.0, ratio = -1.0,
+         textWidth = 458.29268, # 455.24411
+        ): Theme =
+  if UseTeX:
+    let texOptions = toTeXOptions(UseTeX, onlyTikZ = false,
+                                  standalone = true,
+                                  texTemplate = "", caption = "", label = "", placement = "htbp")
+    result = themeLatex(fWidth, width, baseTheme, height, ratio, textWidth,
+                        useTeX = UseTeX, texOptions = texOptions)
+  else:
+    result = Theme()
+
 proc readGasGains(fnames: seq[string]): Table[int, float] =
   ## Returns the mean gas gains of every run
   result = initTable[int, float]()
@@ -555,7 +573,8 @@ proc evaluateEffectiveEfficiencyByFakeRunCutVal*(
   gainTab: Table[int, float] = initTable[int, float](),
   run = -1,
   readEscapeData = true,
-  generatePlots = true
+  generatePlots = true,
+  generateRunPlots = true,
      ): DataFrame =
   ## This procedure returns a DataFrame that contains the effective efficiencies that the given
   ## calibration files (+ CDL file if given) yield when evaluated using a cut value determined
@@ -620,7 +639,7 @@ proc evaluateEffectiveEfficiencyByFakeRunCutVal*(
     )
 
     ## plots for the real + fake data for each case
-    if generatePlots:
+    if generateRunPlots:
       plotDatasets(bind_rows([("Real", subDf), ("Fake", dfFake)]), plotPath = plotPath / typ & "_" & $runNumber)
 
     let runCutVal = model.determineCutValue(dfFake, ε)
@@ -632,7 +651,7 @@ proc evaluateEffectiveEfficiencyByFakeRunCutVal*(
     ## cut of 80% for real data.
     ## -> write proc similar to `predictCut` that also determines cut value of real data.
     ##  Then iterate all events and extract the indices that are within the two efficiencies.
-    if generatePlots:
+    if generateRunPlots:
       let realCutVal = model.determineCutValue(subDf, ε)
       analyzeIntermediateEvents(model, subDf, runCutVal, realCutVal, plotPath)
 
@@ -649,9 +668,12 @@ proc evaluateEffectiveEfficiencyByFakeRunCutVal*(
   result = dfEff
   if generatePlots:
     ggplot(dfEff, aes("Run", "Eff", color = "Gain", shape = "DataType")) +
-     geom_point() +
+      geom_point() +
+      ylab("Efficiency") +
+      continuousLegendWidth(0.75) + continuousLegendHeight(2.0) +
+      discreteLegendWidth(0.75) + discreteLegendHeight(0.75) +
+      thL(fWidth = 0.9, width = Width, baseTheme = singlePlot) +
       ggsave(&"{plotPath}/efficiency_based_on_fake_data_per_run_cut_val.pdf")
-
 
 import nimhdf5 / serialize_tables
 const CacheTabFile = "/dev/shm/cacheTab_effective_eff.h5"
@@ -699,7 +721,8 @@ proc meanEffectiveEff*(rnd: var Rand, model: string, fname: string,
       @[fname],
       ε,
       readEscapeData = false,
-      generatePlots = false
+      generatePlots = false,
+      generateRunPlots = false
     )
     let effs = df["Eff", float]
     result = (eff: effs.mean, sigma: effs.std)
@@ -711,7 +734,9 @@ proc main(fnames: seq[string], model: string, ε: float,
           plotPath: string = "",
           evaluateFit = false,
           plotDatasets = false,
-          run = -1) =
+          run = -1,
+          generatePlots = false,
+          generateRunPlots = false) =
   ## The `cdlFile` currently must be the `CDL_2019_Reco.h5` file!
   let mlpDesc = initMLPDesc(model, plotPath)
   let gainTab = readGasGains(concat(fnames, @[cdlFile]))
@@ -736,7 +761,9 @@ proc main(fnames: seq[string], model: string, ε: float,
   ## use it to compute a bespoke effective cut value for each run and then apply
   ## that to the real data and see what efficiencies we end up with!
   #echo meanEffectiveEff(rnd, mlpDesc.path,
-  discard evaluateEffectiveEfficiencyByFakeRunCutVal(rnd, mlpDesc.inputModel, fnames, ε, cdlFile, mlpDesc.plotPath, gainTab, run)
+  discard evaluateEffectiveEfficiencyByFakeRunCutVal(rnd, mlpDesc.inputModel, fnames, ε, cdlFile, mlpDesc.plotPath, gainTab, run,
+                                                     generatePlots = generatePlots,
+                                                     generateRunPlots = generateRunPlots)
   if true: quit()
   when false:
     # 2. evaluate effective efficiency of the real 55Fe CAST data

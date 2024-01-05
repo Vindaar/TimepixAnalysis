@@ -295,11 +295,10 @@ proc getSeptemDataFrame*(h5f: H5File, runNumber: int, allowedChips: seq[int] = @
   result = toDf({ "eventNumber" : evs, "x" : xs.mapIt(it.int), "y" : ys.mapIt(it.int), "chipNumber" : chips,
                   "cluster" : cls })
   #  .to(SeptemDataTable)
-
   if charge:
     result["charge"] = chs
   if ToT:
-    result["ToT"] = tots
+    result["ToT"] = tots.mapIt(it.float)
 
 proc getSeptemEventDF*(h5f: H5File, runNumber: int): DataFrame  =
   ## Returns a DataFrame for the given `runNumber`, which contains two columns
@@ -402,6 +401,21 @@ proc dfToSeptemEvent*(df: DataFrame, zDset = "charge"): DataFrame =
       else: doAssert false, "Invalid chip number!"
   result = toDf({"x" : xDf, "y" : yDf, "charge" : zDf})
 
+proc chpPixToRealPix*(df: DataFrame, realLayout = false): DataFrame =
+  ## Takes a Septem DataFrame (from `getSeptemDataFrame`) and converts it into a data frame
+  ## using the real septem coordinates for all x/y pixels
+  var xs = df["x", int]
+  var ys = df["y", int]
+  let chip = df["chipNumber", int]
+  for i in 0 ..< xs.len:
+    let pix = chpPixToSeptemPix((x: xs[i], y: ys[i], ch: 0.int), chipNumber = chip[i], realLayout = realLayout)
+    xs[i] = pix.x
+    ys[i] = pix.y
+  result = df
+  # overwrite the x and y columns
+  result["x"] = xs
+  result["y"] = ys
+
 proc drawCircle(x, y: int, radius: float): (seq[float], seq[float]) =
   let xP = linspace(0, 2 * Pi, 1000)
   for i in 0 ..< xP.len:
@@ -422,7 +436,9 @@ proc addSeptemboardOutline*(plt: var GgPlot, useRealLayout: bool) =
     (y: 0  , xMin: 0, xMax: 255),
     (y: 255, xMin: 0, xMax: 255)
   ]
-
+  # dummy data so that not for each `linerange` we walk over the main x/y aesthetics
+  # (expensive if large data, e.g. raster of 7 chips)
+  let df = toDf({"xs" : @[0, 1], "ys" : @[0, 1], "zs" : @[0, 1]})
   proc toLayout(x: int, isX: bool, chip: int): int =
     result = if useRealLayout: x.chpPixToRealPix(isX, chip) else: x.chpPixToSeptemPix(isX, chip)
   for chip in 0 .. 6:
@@ -430,12 +446,12 @@ proc addSeptemboardOutline*(plt: var GgPlot, useRealLayout: bool) =
       let val  = line.x.toLayout(true, chip)
       let minV = line.yMin.toLayout(false, chip)
       let maxV = line.yMax.toLayout(false, chip)
-      plt = plt + geom_linerange(aes = aes(x = val, yMin = minV, yMax = maxV))
+      plt = plt + geom_linerange(data = df, aes = aes(x = gradient(val), yMin = gradient(minV), yMax = gradient(maxV)))
     for line in chipOutlineY:
       let val  = line.y.toLayout(false, chip)
       let minV = line.xMin.toLayout(true, chip)
       let maxV = line.xMax.toLayout(true, chip)
-      plt = plt + geom_linerange(aes = aes(y = val, xMin = minV, xMax = maxV))
+      plt = plt + geom_linerange(data = df, aes = aes(y = gradient(val), xMin = gradient(minV), xMax = gradient(maxV)))
 
 proc plotSeptemEvent*(evData: PixelsInt, run, eventNumber: int,
                       lines: seq[tuple[m, b: float]],

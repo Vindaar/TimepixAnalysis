@@ -65,11 +65,12 @@ proc plotSCurves*(df: DataFrame, annotation: string, runPeriod, chip = "",
     geom_line(data = dfData) +
     geom_line(data = dfFit, aes = aes("THL", "Counts"), color = "black", lineType = ltDashed) +
     ggtitle(&"SCurves for run period '{runPeriod}', chip {chip}") +
+    themeLatex(fWidth = 0.9, width = 600, baseTheme = singlePlot) +
+    discreteLegendHeight(0.75) + discreteLegendWidth(0.75) +
     annotate(annotation, x = lX, y = lY, font = font(10.0, family = "monospace"),
              backgroundColor = color(0.0, 0.0, 0.0, 0.0)) +
     #xlab(r"$U_\text{injected} / \si{mV}$") +
     #ylab("Counts [\#]") +
-    #theme_latex() +
     ggsave(&"{outpath}/s_curves_{chip}_{runPeriod}_lX_{legendX}_lY_{legendY}.pdf", width = 600, height = 450, useTex = useTeX, standalone = true)
 
 import measuremancer
@@ -118,6 +119,7 @@ proc plotThlCalib*(thlCalib: FitResult, charge, thl, thlErr: seq[float], chip = 
                   )) +
     annotate(annot, x = lX, y = lY, font = font(10.0, family = family),
                                 backgroundColor = color(0,0,0,0)) +
+    themeLatex(fWidth = 0.9, width = 600, baseTheme = singlePlot) +
     ggtitle(&"THL calibration of chip {chip} for run period {runPeriod}") +
     ggsave(&"{outpath}/thl_calibration_chip_{chip}_{runPeriod}_lX_{legendX}_lY_{legendY}.pdf", width = 600, height = 450,
             useTeX = useTeX, standalone = true)

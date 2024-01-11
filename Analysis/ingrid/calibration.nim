@@ -706,13 +706,14 @@ proc calcGasGain*(h5f: H5File, grp: string,
 
 proc calcGasGain*(h5f: H5File, runNumber: int,
                   interval, minInterval: float, fullRunGasGain: bool,
+                  plotPath = "",
                   useTeX = false, overwrite = false) =
   ## fits the polya distribution to the charge values and writes the
   ## fit parameters (including the gas gain) to the H5 file
   ## `interval` is the time interval width on which we apply the binning
   ## of each run in minutes
   var chipBase = recoDataChipBase(runNumber)
-  let plotPath = h5f.attrs[PlotDirPrefixAttr, string]
+  let plotPath = if plotPath.len > 0: plotPath else: h5f.attrs[PlotDirPrefixAttr, string]
   # get the group from file
   info "Calulating gas gain for run: ", runNumber
   let fileInfo = h5f.getFileInfo()

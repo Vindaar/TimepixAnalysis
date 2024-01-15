@@ -1259,11 +1259,12 @@ proc fitAndPlot(h5f: H5File, fitParamsFname: string,
                                   plotPath)
     # calibrate energy using `fit_μ` for unbinned data `dfLoc`
     let binRangePlot = peak.fit_μ.value * 3.0
-    let dfE = calcEnergyFromFits(dfLoc, peak)
-      .filter(f{float: `Counts` <= binRangePlot})
-    dfU.add dfE
+    var dfE = calcEnergyFromFits(dfLoc, peak)
     # write cuts for the charge based on fit
     h5f.writeChargeCutBounds(dfE, peak, tfKind, yr2018, fitByRun, runNumber, fileIsCdl = false)
+    # now filter events to desired range for plots
+    dfE = dfE.filter(f{float: `Counts` <= binRangePlot})
+    dfU.add dfE
     mainPeaks.add peak
 
   # first plot of only cut data by

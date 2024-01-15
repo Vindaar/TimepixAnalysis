@@ -312,13 +312,14 @@ func isVetoedByScintis(eventNumber: int,
   ## returns `true` if the event of `ind` is vetoed by the scintillators based
   ## on the fact that one of the two scintillators had a non trivial scintillator
   ## count value ( > 0 and < 4095; in practice ~< 400).
+  ## Restrict to 150 to avoid the 255 scintillator 'bug' in the large veto paddle.
   ## Vetoed means the event must be thrown out, because the event was most
   ## likely induced by a muon
   result = false
   # throw out any event with a non trivial (> 0 and < 4095)
   # scintillator trigger
   const low = 0
-  const high = 400 # be pessimistic about high
+  const high = 150 # be pessimistic about high
   let sIdx = scintEvNum.lowerBound(eventNumber)
   if sIdx < scintEvNum.high and
      scintEvNum[sIdx] == eventNumber and

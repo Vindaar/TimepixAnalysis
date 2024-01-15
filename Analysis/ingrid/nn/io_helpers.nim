@@ -30,7 +30,7 @@ proc shuff*(rnd: var Rand, x: seq[int]): seq[int] =
   result = x
   rnd.shuffle(result)
 
-import ../../Tools/determineDiffusion/determineDiffusion
+import ../determineDiffusion/determineDiffusion
 proc readCdlDset*(h5f: H5File, cdlPath, dset: string): DataFrame =
   ## Reads the given dataset (target/filter kind) `dset` according
   ## to the required cuts for X-rays for this target/filter.

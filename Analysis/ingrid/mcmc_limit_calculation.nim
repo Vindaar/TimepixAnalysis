@@ -246,7 +246,9 @@ proc toH5(h5f: H5File, interp: Interpolator2DType[float], name = "", path = "/")
   var zs = zeros[float]([256, 256])
   for x in 0 ..< 256:
     for y in 0 ..< 256:
-      zs[x, y] = interp.eval(x.float + 0.5, y.float + 0.5)
+      # Note: we don't center to `+ 0.5` in each pixel, because the input data is
+      # not centered either
+      zs[x, y] = interp.eval(x.float, y.float)
   let dset = h5f.create_dataset(path / name,
                                 (256, 256),
                                 float,

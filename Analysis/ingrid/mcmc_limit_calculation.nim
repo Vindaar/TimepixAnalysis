@@ -2176,7 +2176,7 @@ proc build_MH_chain(rnd: var Random, init, stepsize: seq[float], nTotal: int,
     if accept:
       inc nAccepted
   echo "Building chain of ", nTotal, " elements took ", epochTime() - t0, " s"
-  result = (chain, nAccepted.float / nTotal.float)
+  result = RawChain(Chain(links: chain, acceptanceRate: nAccepted.float / nTotal.float, logVals: logVals))
 
 template resetCoupling(ctx: Context): untyped =
   case ctx.couplingKind

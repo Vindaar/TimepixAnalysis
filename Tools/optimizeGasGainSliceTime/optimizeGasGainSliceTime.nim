@@ -246,6 +246,7 @@ proc plot(path, outpath: string) =
                    density = true,
                    position = "identity") +
     xlim(2, 5) +
+    margin(bottom = 1.5, right = 3.5) +
     ggtitle("Different interval lengths for the gas gain computation in minutes") +
     themeLatex(fWidth = 0.9, width = Width, height = Height, baseTheme = singlePlot) +
     ggsave(&"{outpath}/medianEnergy_intervals.pdf", width = Width, height = Height,
@@ -267,6 +268,7 @@ proc plot(path, outpath: string) =
     geom_line() +
     ggtitle("Different interval lengths for the gas gain computation in minutes") +
     themeLatex(fWidth = 0.9, width = Width, height = Height, baseTheme = singlePlot) +
+    margin(bottom = 1.5, right = 3.5) +
     ggsave(&"{outpath}/medianEnergy_kde_intervals.pdf", width = Width, height = Height,
            useTeX = UseTeX, standalone = UseTeX)
 
@@ -305,6 +307,7 @@ proc plot(path, outpath: string) =
       ggtitle("GoF tests for median energy data by period \\& interval length") +
       xlab("Goodness of fit test", rotate = -20, alignTo = "right", margin = 2.5) +
       margin(bottom = 3.5) +
+      discreteLegendWidth(0.75) + discreteLegendHeight(0.75) +
       themeLatex(fWidth = 0.9, width = Width, height = Height, baseTheme = singlePlot) +
       ggsave(&"{outpath}/gofs_for_different_binnings.pdf", width = 600, height = 360,
              useTeX = UseTeX, standalone = UseTeX)

@@ -154,11 +154,16 @@ type
     # limit related
     g_aγ²: float # the ``reference`` g_aγ (squared)
     g_ae²: float # the ``reference`` g_ae value (squared)
+    β²: float    # the ``reference`` β value (squared) for the chameleon coupling XXX: not in use yet
     coupling: float # the ``current`` coupling constant in use. Can be a value of
-                    # `g_ae²`, `g_aγ²`, `g_ae²·g_aγ²` depending on use case!
+                    # `g_ae²`, `g_aγ⁴`, `g_ae²·g_aγ²`, `β⁴` depending on use case!
                     # Corresponds to first entry of MCMC chain vector!
     couplingKind: CouplingKind # decides which coupling to modify
     couplingReference: float # the full reference coupling. `g_ae²·g_aγ²` if `ck_g_ae²·g_aγ²`
+    mcmcCouplingTarget: float # The target value used as reference for the MCMC
+                              # For `g_ae²` searches: `1e-21 * 1e-12^2`
+                              # Should be larger than the typical expected coupling constant. Provides
+                              # the range of interest in which MCMC will effectively sample.
     # systematics and noise
     systematics: Systematics
     noiseFilter: NoiseFilter
@@ -173,10 +178,13 @@ type
     #maxIdx: int # index of the maximum of the logL curve
 
   CouplingKind = enum
-    ck_g_ae² ## We vary the `g_ae²` and leave `g_aγ²` fully fixed
-    ck_g_aγ² ## We vary the `g_aγ²` and leave `g_ae²` fully fixed (and effectively 'disabled'); for axion-photon searches
+    ck_g_ae²       ## We vary the `g_ae²` and leave `g_aγ²` fully fixed
+    ck_g_aγ⁴       ## We vary the `g_aγ⁴` and leave `g_ae²` fully fixed (and effectively 'disabled'); for axion-photon searches
     ck_g_ae²·g_aγ² ## We vary the *product* of `g_ae²·g_aγ²`, i.e. direct `g⁴` proportional search.
                    ## Note that this is equivalent in terms of the limit!
+    ck_g_ae·g_aγ   ## We vary the *product* of `g_ae·g_aγ`, but in `g²` form. This is *NOT* equivalent and gives the ``WRONG``
+                   ## limit. Only for illustration!
+    ck_β⁴          ## We vary `β`, the chameleon coupling. For chameleon searches.
 
   ## For now a noise filter only defines a single set of pixels that are applied to
   ## all files in `fnames`. In the future we could generalize to specific sets of pixels
@@ -516,28 +524,54 @@ defUnit(keV⁻¹•cm⁻²•s⁻¹)
 defUnit(keV⁻¹•m⁻²•yr⁻¹)
 defUnit(cm⁻²)
 defUnit(keV⁻¹•cm⁻²)
-proc readAxModel(f: string): DataFrame =
+
+# The data file `chameleon-spectrum.dat` contains the spectrum in units of
+# `keV⁻¹•16mm⁻²•h⁻¹` at β_m = β_m^sun = 6.457e10 or 10^10.81, however
+# it *already includes* the conversion probability, using 9T, 9.26m. Hence
+# conversion prob below, which we invert.
+# See fig. 11.2 in Christoph's thesis
+defUnit(keV⁻¹•mm⁻²•h⁻¹)
+defUnit(keV⁻¹•cm⁻²•s⁻¹)
+func conversionProbabilityChameleon(B: Tesla, L: Meter): float =
+  const M_pl = sqrt(((hp_bar * c) / G_Newton).toDef(kg²)).toNaturalUnit.to(GeV) / sqrt(8 * π) # reduced Planck mass in natural units
+  const βγsun = pow(10, 10.81)
+  let M_γ = M_pl / βγsun
+  result = (B.toNaturalUnit * L.toNaturalUnit / (2 * M_γ))^2
+
+proc readAxModel(f: string, isChameleon = false): DataFrame =
   proc convert(x: float): float =
     result = x.keV⁻¹•m⁻²•yr⁻¹.to(keV⁻¹•cm⁻²•s⁻¹).float
-  result = readCsv(f)
-  if "type" in result:
-    result = result.filter(f{`type` == "Total flux"}) # only use the total flux part of the CSV!
+  proc convertChameleon(x: float): float =
+    # divide by 16 to get from  /16mm² to /1mm². Input f
+    # idiotic flux has already taken conversion probability into account.
+    let P = conversionProbabilityChameleon(9.0.T, 9.26.m) # used values by Christop!
+    result = (x.keV⁻¹•mm⁻²•h⁻¹ / 16.0 / P).to(keV⁻¹•cm⁻²•s⁻¹).float
 
-  if "Energy / eV" in result:
-    result = result
-      .mutate(f{"Energy [keV]" ~ c"Energy / eV" / 1000.0})
-  elif "Energy" in result:
-    result = result.rename(f{"Energy [keV]" <- "Energy"}) # without name is keV
+  if not isChameleon: # axion data
+    result = readCsv(f)
+    if "type" in result:
+      result = result.filter(f{`type` == "Total flux"}) # only use the total flux part of the CSV!
 
-  if "diffFlux" in result:
-    result = result.mutate(f{"Flux [keV⁻¹•cm⁻²•s⁻¹]" ~ convert(idx("diffFlux"))})
-  elif "Flux / keV⁻¹ m⁻² yr⁻¹" in result:
-    result = result.mutate(f{"Flux [keV⁻¹•cm⁻²•s⁻¹]" ~ convert(idx("Flux / keV⁻¹ m⁻² yr⁻¹"))})
+    if "Energy / eV" in result:
+      result = result
+        .mutate(f{"Energy [keV]" ~ c"Energy / eV" / 1000.0})
+    elif "Energy" in result:
+      result = result.rename(f{"Energy [keV]" <- "Energy"}) # without name is keV
 
-  if "Energy / eV" in result:
-    result = result.drop(["Energy / eV"])
-  if "Flux / keV⁻¹ m⁻² yr⁻¹" in result:
-    result = result.drop(["Flux / keV⁻¹ m⁻² yr⁻¹"])
+    if "diffFlux" in result:
+      result = result.mutate(f{"Flux [keV⁻¹•cm⁻²•s⁻¹]" ~ convert(idx("diffFlux"))})
+    elif "Flux / keV⁻¹ m⁻² yr⁻¹" in result:
+      result = result.mutate(f{"Flux [keV⁻¹•cm⁻²•s⁻¹]" ~ convert(idx("Flux / keV⁻¹ m⁻² yr⁻¹"))})
+
+    if "Energy / eV" in result:
+      result = result.drop(["Energy / eV"])
+    if "Flux / keV⁻¹ m⁻² yr⁻¹" in result:
+      result = result.drop(["Flux / keV⁻¹ m⁻² yr⁻¹"])
+  else:
+    # chameleon data
+    result = readCsv(f, sep = '\t', header = "#")
+      .mutate(f{"Flux [keV⁻¹•cm⁻²•s⁻¹]" ~ convertChameleon(idx("I[/16mm2/hour/keV]"))},
+              f{"Energy [keV]" ~ `energy` / 1000.0})
 
 proc detectionEff(ctx: Context, energy: keV): UnitLess {.gcsafe.}
 
@@ -842,9 +876,24 @@ proc initCouplingReference(ctx: Context) =
   ## Sets the reference coupling values that are used to compute thresholds,
   ## rescaling parameters and starting values for the MCMC.
   case ctx.couplingKind
-  of ck_g_ae²: ctx.couplingReference = ctx.g_ae²
-  of ck_g_aγ²: ctx.couplingReference = ctx.g_aγ²
+  of ck_g_ae²:       ctx.couplingReference = ctx.g_ae²
+  of ck_g_aγ⁴:       ctx.couplingReference = ctx.g_aγ² * ctx.g_aγ²
   of ck_g_ae²·g_aγ²: ctx.couplingReference = ctx.g_ae² * ctx.g_aγ²
+  of ck_g_ae·g_aγ:   ctx.couplingReference = ctx.g_ae² * ctx.g_aγ²
+  of ck_β⁴:          ctx.couplingReference = ctx.β² * ctx.β²
+
+proc setMcmcCouplingTarget(couplingKind: CouplingKind, target: float): float =
+  if classify(target) != fcInf:
+    result = target
+  else:
+    case couplingKind
+    of ck_g_ae²:       result = 1e-21 * 1e-12^2
+    of ck_g_ae²·g_aγ²: result = 8e-11^2 * 1e-12^2
+    of ck_g_ae·g_aγ:   result = 8e-11^2 * 1e-12^2
+    of ck_g_aγ⁴:       result = 5e-9^2 * 1e-12^2 ## Nature limit 6.6e-11^4. 1e-12 because that's reference for input files
+    of ck_β⁴:          result = 1e10^2 * pow(10, 10.81) * pow(10, 10.81) ## (10^10.81)² due to reference in input files
+    #else:
+    #  doAssert false, "Not implemented yet, coupling target for " & $couplingKind
 
 proc initContext(path: string,
                  yearFiles: seq[(int, string)],
@@ -852,7 +901,8 @@ proc initContext(path: string,
                  useConstantBackground: bool, # decides whether to use background interpolation or not
                  radius, sigma: float, energyRange: keV, nxy, nE: int,
                  backgroundTime, trackingTime: Hour, ## Can be used to ``*overwrite*`` time from input files!
-                 axionModel,         # differential solar axion flux
+                 axionModel: string,         # differential solar axion flux
+                 isChameleon: bool, # whether file given for `axionModel` is actually chameleon
                  axionImage,         # axion image (raytracing)
                  combinedEfficiencyFile: string, # file containing combined detector efficiency including LLNL effective area
                  windowRotation = 30.°,
@@ -865,6 +915,7 @@ proc initContext(path: string,
                  energyMin = 0.0.keV,
                  energyMax = 12.0.keV,
                  couplingKind = ck_g_ae²,
+                 mcmcCouplingTarget = Inf,
                  switchAxes: bool
                 ): Context =
   let samplingKind = if useConstantBackground: skConstBackground else: skInterpBackground
@@ -887,7 +938,7 @@ proc initContext(path: string,
                           10000).mapIt(it) # cut to range valid in interpolation
   let backgroundCdf = energies.mapIt(kdeSpl.eval(it)).toCDF()
 
-  let axData = readAxModel(axionModel)
+  let axData = readAxModel(axionModel, isChameleon = isChameleon)
   ## TODO: use linear interpolator to avoid going to negative?
   let axSpl = newLinear1D(axData["Energy [keV]", float].toSeq1D,
                           axData["Flux [keV⁻¹•cm⁻²•s⁻¹]", float].toSeq1D)
@@ -938,6 +989,7 @@ proc initContext(path: string,
 
   echo "[INFO] Background time = ", backTime
   echo "[INFO] Tracking time = ", trackTime, " and readDataTracking = ", readDataTracking.totalTime
+
   result = Context(
     # general information and input parameters
     logLFlags: readData.flags,
@@ -951,6 +1003,8 @@ proc initContext(path: string,
     # axion model
     g_aγ²: 1e-12 * 1e-12, ## reference axion-photon coupling   (default conversion prob at this value)
     g_ae²: 1e-13 * 1e-13, ## reference axion-electron coupling (input flux at this value)
+    β²: pow(10, 10.81) * pow(10, 10.81), ## reference chameleon coupling (input flux at this value)
+    mcmcCouplingTarget: setMcmcCouplingTarget(couplingKind, mcmcCouplingTarget),
     axionModelFile: axionModel,
     axionImageFile: axionImage,
     axionModel: axData,
@@ -999,10 +1053,32 @@ proc initContext(path: string,
     )
     result.interp = interp
 
-proc rescale(x: float, ctx: Context): float =
-  ## Rescales the input `x` by the correct new coupling constant using the
+proc rescaleFlux(x: float, ctx: Context): float =
+  ## Rescales the input flux (!) `x` by the correct new coupling constant using the
   ## reference coupling.
-  result = x * ctx.coupling / ctx.couplingReference
+  case ctx.couplingKind
+  of ck_g_ae·g_aγ:   result = x * ctx.coupling^2 / ctx.couplingReference # divide out constant g_aγ² and scale by g'²_ae / g²_ae
+  of ck_g_ae²:       result = x * ctx.coupling / ctx.couplingReference
+  of ck_g_aγ⁴:       result = x * sqrt(ctx.coupling / ctx.couplingReference)
+  of ck_β⁴:          result = x * sqrt(ctx.coupling / ctx.couplingReference)
+  of ck_g_ae²·g_aγ²: result = x * ctx.coupling / ctx.couplingReference # divide out constant g_aγ² and scale by g'²_ae / g²_ae
+
+proc rescaleSignal(x: float, ctx: Context): float =
+  ## Rescales the input signal `x` by the correct new coupling constant using the
+  ## reference coupling, taking into account the current `couplingKind`, i.e. which
+  ## way we use to compute a limit and what limit we compute.
+  ## In particular for searches of the axion-photon coupling `g_aγ²` or chameleon
+  ## coupling `β`, we perform the rescaling twice. Once for the axion flux scaling and
+  ## once for the conversion probability.
+  ##
+  ## IMPORTANT: For obvious reasons this must *NOT* be called on a value that either
+  ## *ONLY* takes into account the flux *OR* the conversion probability!
+  case ctx.couplingKind
+  #of ck_g_ae², ck_g_ae²·g_aγ²: result = x * ctx.coupling / ctx.couplingReference
+  of ck_g_ae²:        result = x * ctx.coupling / ctx.couplingReference # same as `rescaleFlux`!
+  of ck_g_ae·g_aγ:    result = x * (ctx.coupling)^2 / ctx.couplingReference
+  of ck_g_ae²·g_aγ²:  result = x * ctx.coupling / ctx.couplingReference
+  of ck_g_aγ⁴, ck_β⁴: result = x * ctx.coupling / ctx.couplingReference
 
 proc plotCandidates(cands: seq[Candidate],
                     outfile = "/tmp/candidates.pdf",
@@ -1122,7 +1198,8 @@ proc axionFlux(ctx: Context, energy: keV): keV⁻¹ =
   ## telescope aperture within the tracking time)
   let areaBore = π * (2.15 * 2.15).cm² # area of bore in cm²
   if energy < 0.001.keV or energy > 10.0.keV: return 0.0.keV⁻¹
-  result = ctx.axionSpl.eval(energy.float).rescale(ctx).keV⁻¹•cm⁻²•s⁻¹ * # missing keV⁻¹
+  result = ctx.axionSpl.eval(energy.float, extrap = Constant, extrapValue = 0.0)
+    .rescaleFlux(ctx).keV⁻¹•cm⁻²•s⁻¹ * # missing keV⁻¹
     areaBore *
     ctx.totalTrackingTime.to(s)
 
@@ -1162,14 +1239,30 @@ proc detectionEfficiency(ctx: Context, energy: keV, pos: tuple[x, y: float]): cm
 func conversionProbability(ctx: Context): UnitLess =
   ## the conversion probability in the CAST magnet (depends on g_aγ)
   ## simplified vacuum conversion prob. for small masses
+  # 8.8 T is the value from the CAST slow control files!
   const B = 8.8.T #9.0.T
   const L = 9.26.m
+  const M_pl = sqrt(((hp_bar * c) / G_Newton).toDef(kg²)).toNaturalUnit.to(GeV) / sqrt(8 * π) # reduced Planck mass in natural units
   ## `Context` contains the product. Keep unit of GeV⁻¹ in `pow` for conversion, but value outside, multiply the square.
-  result = ctx.g_aγ² * (1.GeV⁻¹ * B.toNaturalUnit * L.toNaturalUnit / 2.0)^2
+  ## (Note: `ctx.g_aγ²` is type `float`, hence no conversion factors!)
+  case ctx.couplingKind
+  of ck_g_ae²:       result = ctx.g_aγ² * (1.GeV⁻¹ * B.toNaturalUnit * L.toNaturalUnit / 2.0)^2
+  of ck_g_aγ⁴:       result = sqrt(ctx.coupling) * (1.GeV⁻¹ * B.toNaturalUnit * L.toNaturalUnit / 2.0)^2 # `ctx.coupling` is `g_aγ⁴`!
+  of ck_g_ae²·g_aγ²: result = ctx.g_aγ² * (1.GeV⁻¹ * B.toNaturalUnit * L.toNaturalUnit / 2.0)^2 # `ctx.coupling` `g_ae·g_aγ`!
+  of ck_g_ae·g_aγ:   result = ctx.g_aγ² * (1.GeV⁻¹ * B.toNaturalUnit * L.toNaturalUnit / 2.0)^2 # `ctx.coupling` `g_ae·g_aγ`!
+  of ck_β⁴:
+    # P(β) = (B L / (2 M_γ))² = (β B L / (2 M_pl))² with M_γ = M_pl / β ⇔ β = M_pl / M_γ
+    # `ctx.coupling` is `β⁴`
+    result = sqrt(ctx.coupling) * (B.toNaturalUnit * L.toNaturalUnit / (2 * M_pl))^2 * 0.389 # 38.9% is factor b/c not all chameleons see full magnet, ref. http://dx.doi.org/10.1016/j.physletb.2015.07.049
 
 proc expectedSignal(ctx: Context, energy: keV, pos: tuple[x, y: float]): keV⁻¹•cm⁻² =
   ## TODO: conversion to detection area??
   result = ctx.axionFlux(energy) * conversionProbability(ctx) * ctx.detectionEfficiency(energy, pos)
+
+proc expectedSignalNoRaytrace(ctx: Context, energy: keV): keV⁻¹ =
+  ## Equivalent to `expectedSignal`, but missing the `raytracing` call. Helper used in likelihood functions
+  ## to compute base signal before multiplying by raytrace weight for each candidate.
+  result = ctx.axionFlux(energy) * conversionProbability(ctx) * ctx.detectionEff(energy)
 
 proc toIntegrated(r: keV⁻¹•cm⁻²•s⁻¹, trackingTime: Hour): keV⁻¹•cm⁻² =
   ## Turns the background rate into an integrated rate over the tracking time
@@ -1233,7 +1326,7 @@ proc totalSignal(ctx: Context): UnitLess =
   ## The `integralBase` is the integral over the axion flux multiplied by the detection
   ## efficiency (window, gas and telescope).
   const areaBore = π * (2.15 * 2.15).cm²
-  let integral = ctx.integralBase.rescale(ctx)
+  let integral = ctx.integralBase.rescaleFlux(ctx)
   result = integral.cm⁻²•s⁻¹ * areaBore * ctx.totalTrackingTime.to(s) * conversionProbability(ctx)
 
 proc plotRaytracingImage(ctx: Context, log: Logger,
@@ -1428,7 +1521,7 @@ proc logLPosUncertain(ctx: Context, candidates: seq[Candidate]): float =
   let σ_p = ctx.σ_p
   let s_tot = totalSignal(ctx)
   for i, c in candidates:
-    let sig = ctx.detectionEff(c.energy) * ctx.axionFlux(c.energy) * conversionProbability(ctx)
+    let sig = ctx.expectedSignalNoRaytrace(c.energy)
     cSigBack[i] = (sig.float,
                    ctx.background(c.energy, c.pos).float)
   proc likeX(ϑ_x: float, nc: NumContext[float, float]): float =
@@ -1465,7 +1558,7 @@ proc logLFullUncertain(ctx: Context, candidates: seq[Candidate]): float =
   let σ_b = ctx.σsb_back
   let σ_s = ctx.σsb_sig
   for i, c in candidates:
-    let sig = ctx.detectionEff(c.energy) * ctx.axionFlux(c.energy) * conversionProbability(ctx)
+    let sig = ctx.expectedSignalNoRaytrace(c.energy)
     cSigBack[i] = (sig.float,
                    ctx.background(c.energy, c.pos).float)
   echo "Romberg integration for ", ctx.g_ae²
@@ -1860,10 +1953,21 @@ proc setThreshold(ctx: Context, x: float): float =
   ## this proc returns a value that recovers 1e-19 in case the coupling
   ## kind is `ck_g_ae²` by dividing out the 1e-12² part that is equivalent
   ## to the reference.
+  ## i.e. divides out the part ``not`` being varied.
   result = case ctx.couplingKind
            of ck_g_ae²: x / ctx.g_aγ²
-           of ck_g_aγ²: x / ctx.g_ae²
+           of ck_g_aγ⁴: x
+           of ck_g_ae·g_aγ: sqrt(x)
            of ck_g_ae²·g_aγ²: x
+           of ck_β⁴: x
+
+proc getThreshold(ctx: Context): float =
+  ## If our likelihood crosses the value defined here, we want to
+  ## produce some plots to debug / cross check (can happen, but should be *rare*)
+  case ctx.couplingKind
+  of ck_g_ae², ck_g_ae²·g_aγ², ck_g_ae·g_aγ: result = 1e-19 * 1e-12^2
+  of ck_g_aγ⁴: result = 1e-39 # expect limits like 9e-11, 9e-11^4 = 6.5e-41.
+  of ck_β⁴: result = 1e11^2 * pow(10.0, 10.81) * pow(10.0, 10.81)
 
 proc mcmcLinesStyle(): Theme =
   result = thL(fWidth = 0.5, width = 600, height = 480) +
@@ -1926,10 +2030,10 @@ proc plotChain(ctx: Context, cands: seq[Candidate], chainDf: DataFrame,
       # convert the coupling constants to `g_ae·g_aγ`
       dfA = dfA.mutate(f{"coups" ~ sqrt(`coups` * ctx.g_aγ²)})
 
-  const targetRef = 1e-19 * 1e-12^2 ## This is the reference we want to keep constant!
+  let targetRef = getThreshold(ctx)
   let threshold = setThreshold(ctx, targetRef)
-  if limit > threshold:
-    echo zip(toSeq(0 ..< gs.len), gs).filterIt(it[1] > threshold)
+  if limit > threshold: # very large coupling, produce som plots / print numbers
+    #echo zip(toSeq(0 ..< gs.len), gs).filterIt(it[1] > threshold)
     let t2 = threshold / 2.0
     let t5 = threshold / 5.0
     echo &"Number of states with L > {t2}: ", zip(toSeq(0 ..< gs.len), gs).filterIt(it[1] > t2).len
@@ -2060,7 +2164,10 @@ proc build_MH_chain(rnd: var Random, init, stepsize: seq[float], nTotal: int,
   result = (chain, nAccepted.float / nTotal.float)
 
 template resetCoupling(ctx: Context): untyped =
-  ctx.coupling = ctx.couplingReference
+  case ctx.couplingKind
+  of ck_g_ae·g_aγ: ctx.coupling = sqrt(ctx.couplingReference)
+  of ck_g_ae²·g_aγ²: ctx.coupling = ctx.couplingReference
+  else: ctx.coupling = ctx.couplingReference
 
 ## The following 3 templates defining functions are dirty so that `cSigBack` is visible after
 ## the template was called.
@@ -2077,7 +2184,7 @@ template fullUncertainFn(): untyped {.dirty.} =
 
   let σ_p = ctx.σ_p
   for i, c in cands:
-    let sig = ctx.detectionEff(c.energy) * ctx.axionFlux(c.energy) * conversionProbability(ctx)
+    let sig = ctx.expectedSignalNoRaytrace(c.energy)
     if sig.float < 0.0:
       echo "WHAT THE FUCK: ", sig, " from det = ", ctx.detectionEff(c.energy), " axFl = ", ctx.axionFlux(c.energy), " Paγ = ", conversionProbability(ctx), " at energy ", c.energy
       quit()
@@ -2092,7 +2199,7 @@ template fullUncertainFn(): untyped {.dirty.} =
     elif ϑ_s < -1.0 or ϑ_s > 1.0: return -1.0
     elif ϑ_x > 1.0  or ϑ_x < -1.0: return -1.0
     elif ϑ_y > 1.0  or ϑ_y < -1.0: return -1.0
-    let s_totg = s_tot.rescale(ctx)
+    let s_totg = s_tot.rescaleSignal(ctx)
     ctx.ϑ_x = ϑ_x
     ctx.ϑ_y = ϑ_y
     ## TODO: convert to logsumexp or similar?
@@ -2103,7 +2210,7 @@ template fullUncertainFn(): untyped {.dirty.} =
     for i in 0 ..< cSigBack.len:
       let (s_init, b_c) = cSigBack[i]
       if b_c.float != 0.0:
-        let s_c = (s_init.rescale(ctx) * (1 + ϑ_s) * ctx.raytracing(cands[i].pos)).float
+        let s_c = (s_init.rescaleSignal(ctx) * (1 + ϑ_s) * ctx.raytracing(cands[i].pos)).float
         P3 *= (1 + s_c / (b_c * (1 + ϑ_b)))
     result = abs(P1 * P2 * P3) # make positive if number comes out to `-0.0`
 
@@ -2115,7 +2222,7 @@ template fullUncertainFn(): untyped {.dirty.} =
       for i in 0 ..< cSigBack.len:
         let (s_init, b_c) = cSigBack[i]
         if b_c.float != 0.0:
-          let s_c = (s_init.rescale(ctx) * (1 + ϑ_s) * ctx.raytracing(cands[i].pos)).float
+          let s_c = (s_init.rescaleSignal(ctx) * (1 + ϑ_s) * ctx.raytracing(cands[i].pos)).float
           #echo "yeah fick"
           #if true: quit()
 
@@ -2132,7 +2239,7 @@ template fullUncertainFn(): untyped {.dirty.} =
       for i in 0 ..< cSigBack.len:
         let (s_init, b_c) = cSigBack[i]
         if b_c.float != 0.0:
-          let s_c = (s_init.rescale(ctx) * (1 + ϑ_s) * ctx.raytracing(cands[i].pos)).float
+          let s_c = (s_init.rescaleSignal(ctx) * (1 + ϑ_s) * ctx.raytracing(cands[i].pos)).float
           let t = ln(1 + s_c / (b_c * (1 + ϑ_b)))
           P3 += t
           echo "P3 = ", P3, " from t ", t, " and s_c ", s_c, " and before rescale = ", s_init, " and g_ae²·g_aγ² = ", ctx.couplingReference, " and b_c = ", b_c
@@ -2148,7 +2255,7 @@ template posUncertainFn(): untyped {.dirty.} =
 
   let σ_p = ctx.σ_p
   for i, c in cands:
-    let sig = ctx.detectionEff(c.energy) * ctx.axionFlux(c.energy) * conversionProbability(ctx)
+    let sig = ctx.expectedSignalNoRaytrace(c.energy)
     cSigBack[i] = (sig.float,
                    ctx.background(c.energy, c.pos).float)
 
@@ -2158,7 +2265,7 @@ template posUncertainFn(): untyped {.dirty.} =
     if x[0] < 0.0: return -1.0
     elif ϑ_x > 1.0  or ϑ_x < -1.0: return -1.0
     elif ϑ_y > 1.0  or ϑ_y < -1.0: return -1.0
-    let s_totg = s_tot.rescale(ctx)
+    let s_totg = s_tot.rescaleSignal(ctx)
     #echo "rescaled ", s_tot, " to ", s_totg
     ctx.ϑ_x = ϑ_x
     ctx.ϑ_y = ϑ_y
@@ -2169,7 +2276,7 @@ template posUncertainFn(): untyped {.dirty.} =
     for i in 0 ..< cSigBack.len:
       let (s_init, b_c) = cSigBack[i]
       if b_c.float != 0.0:
-        let s_c = (s_init.rescale(ctx) * ctx.raytracing(cands[i].pos)).float
+        let s_c = (s_init.rescaleSignal(ctx) * ctx.raytracing(cands[i].pos)).float
         P3 *= (1 + s_c / b_c)
     result = abs(P1 * P2 * P3) # make positive if number comes out to `-0.0`
 
@@ -2194,9 +2301,9 @@ template sbUncertainFn(): untyped {.dirty.} =
       return -1.0
     if ϑ_b < -0.8 or ϑ_b > 1.0: return -1.0
     if ϑ_s < -1.0 or ϑ_s > 2.0: return -1.0
-    let s_totg = s_tot.rescale(ctx)
+    let s_totg = s_tot.rescaleSignal(ctx)
     L(s_totg,
-      s_i.rescale(ctx) * (1 + ϑ_s),
+      s_i.rescaleSignal(ctx) * (1 + ϑ_s),
       b_i * (1 + ϑ_b),
       ϑ_s, σ_s,
       ϑ_b, σ_b)
@@ -2216,9 +2323,9 @@ template certainFn(): untyped {.dirty.} =
     ctx.coupling = x[0]
     if x[0] < 0.0:
       return -1.0
-    let s_totg = s_tot.rescale(ctx)
+    let s_totg = s_tot.rescaleSignal(ctx)
     L(s_totg,
-      s_i.rescale(ctx),
+      s_i.rescaleSignal(ctx),
       b_i,
       0.0, 0.0,
       0.0, 0.0)
@@ -2233,10 +2340,17 @@ proc build_MH_chain(ctx: Context, rnd: var Random, cands: seq[Candidate],
   let t0 = getMonoTime()
 
   ## Compute the starting range depending on the current axion photon coupling
-  const g_ae²Ref = 1e-21 * 1e-12^2 ## This is the reference we want to keep constant!
   ## `couplingRef` acts as the boundary in which we want to be for the start of the
   ## MCMC as well as relating the step size of each chain link.
-  let couplingRef = ctx.setThreshold(g_ae²Ref)
+  let couplingRef = ctx.setThreshold(ctx.mcmcCouplingTarget)
+  ## XXX: move me into `Context`!
+  let stepMultiplier = case ctx.couplingKind
+                       of ck_g_aγ⁴: 1.0
+                       of ck_β⁴: 1.0
+                       of ck_g_ae²·g_aγ²: 0.5
+                       of ck_g_ae·g_aγ: 0.5
+                       of ck_g_ae²: 3.0
+
 
   case ctx.uncertaintyPosition
   of puUncertain:
@@ -2338,11 +2452,22 @@ proc computeMCMCLimit(ctx: Context, rnd: var Random, cands: seq[Candidate],
                 mcmcHistoOutfile = mcmcHistoOutfile, title = title,
                 as_gae_gaγ = as_gae_gaγ)
 
+proc setCouplingSignalOverBackground(ctx: Context) =
+  ## Sets the coupling constant so that `candsInSens` or `plotCandsSigOverBack` produces comparable
+  ## values.
+  case ctx.couplingKind
+  of ck_g_ae²:       ctx.coupling = 8.1e-11^2
+  of ck_g_ae²·g_aγ²: ctx.coupling = 8.1e-11 * 1e-12
+  of ck_g_ae·g_aγ:   ctx.coupling = 8.1e-11 * 1e-12
+  of ck_g_aγ⁴:       ctx.coupling = 7e-11^4 # a bit above nature limit
+  of ck_β⁴:          ctx.coupling = 3.75e10^4 # a bit above christoph limit
+  #else: doAssert false, "`candsInSens` currently not implemented for couplingKind: " & $ctx.couplingKind
+
 proc candsInSens(ctx: Context, cands: seq[Candidate], cutoff = 0.5): int =
   var ctx = ctx
   # use a fixed g_ae² for the computation here
   #ctx.g_ae² = 8.1e-11^2
-  ctx.coupling = 8.1e-11^2
+  ctx.setCouplingSignalOverBackground()
   for c in cands:
     let sig = ctx.expectedSignal(c.energy, c.pos)
     if ln(1 + sig / ctx.background(c.energy, c.pos)) >= cutoff:
@@ -2383,13 +2508,19 @@ proc writeLimitOutput(
   ## Writes the output of the limit calculation to an H5 file that includes the
   ## achieved limits as well as all the parameters that were used. This is simpler
   ## and more stable than relying on a CSV file + the file name.
+  let expLimit = case ctx.couplingKind
+                 of ck_g_ae²: sqrt(limits.median()) * sqrt(ctx.g_aγ²)
+                 of ck_g_ae²·g_aγ²: sqrt(limits.median)
+                 of ck_g_ae·g_aγ:  limits.median
+                 of ck_g_aγ⁴: pow(limits.median, 0.25)
+                 of ck_β⁴: pow(limits.median, 0.25)
   let limitOutput = LimitOutput(ctx: ctx,
                                 nmc: nmc,
                                 limits: limits,
                                 candsInSens: candsInSens,
                                 limitNoSignal: limitNoSignal,
                                 limitKind: limitKind,
-                                expectedLimit: sqrt(limits.percentile(50)) * sqrt(ctx.g_aγ²))
+                                expectedLimit: expLimit)
   ## XXX: or do we want to store _all_ in a single file? "Limits H5"?
   let name = outpath / outfile & ".h5"
   limitOutput.toH5(name, path)
@@ -2402,6 +2533,40 @@ proc genOutfile(limitKind: LimitKind, samplingKind: SamplingKind,
   if result.len > 250:
     echo "[WARNING] Output filename generated of length ", result.len, ". Will be truncated to 250 characters."
     result = result[0 ..< 250]
+
+proc setDefaultMaxLimit(kind: CouplingKind): float =
+  case kind
+  of ck_g_ae²: result = 3e-20
+  of ck_g_aγ⁴: result = 5e-40 ## XXX: check
+  of ck_g_ae²·g_aγ²: result = 3e-42 ## XXX: check
+  of ck_g_ae·g_aγ: result = 3e-20 ## NOTE: irrelevant
+  of ck_β⁴: result = 1e43
+
+proc getExpectedLimitSuffix(expLimit: float, couplingKind: CouplingKind, as_gae_gaγ: bool): string =
+  case couplingKind
+  of ck_g_ae²:
+    if not as_gae_gaγ: result = &"Expected limit g_ae² = {expLimit:.4e}"
+    else: result = &"Expected limit g_ae·g_aγ = {expLimit:.4e}"
+  of ck_g_aγ⁴: result = &"Expected limit g_aγ = {pow(expLimit, 0.25):.4e}"
+  of ck_β⁴:    result = &"Expected limit β_γ = {pow(expLimit, 0.25):.4e}"
+  of ck_g_ae²·g_aγ²: result = &"Expected limit g_ae·g_aγ = {sqrt(expLimit):.4e}"
+  of ck_g_ae·g_aγ: result = &"WRONG Expected limit g_ae·g_aγ = {expLimit:.4e}"
+
+proc getNoSignalOffset(couplingKind: CouplingKind): float =
+  case couplingKind
+  of ck_g_ae²:       result = 0.2e-21
+  of ck_g_aγ⁴:       result = 0.5e-41
+  of ck_β⁴:          result = 1e41
+  of ck_g_ae²·g_aγ²: result = 1e-42
+  of ck_g_ae·g_aγ:   result = 1e-21
+
+proc getExpectedLimitOffset(couplingKind: CouplingKind): float =
+  case couplingKind
+  of ck_g_ae²:       result = 0.01e-21
+  of ck_g_aγ⁴:       result = 0.05e-41
+  of ck_β⁴:          result = 0.1e41
+  of ck_g_ae²·g_aγ²: result = 0.1e-42
+  of ck_g_ae·g_aγ:   result = 0.1e-21
 
 proc plotMCLimitHistogram(
   ctx: Context, limits: seq[float], candsInSens: seq[int],
@@ -2418,7 +2583,7 @@ proc plotMCLimitHistogram(
      ) =
   proc to_gaγ(x: float): float = sqrt(x * ctx.g_aγ²)
 
-  var defaultMaxLimit = 3e-20
+  var defaultMaxLimit = setDefaultMaxLimit(ctx.couplingKind)
 
   var expLimit = if classify(expLimit) == fcInf: expectedLimit limits
                  else: expLimit
@@ -2466,10 +2631,14 @@ proc plotMCLimitHistogram(
   let maxVal = if xlimit[1] > 0.0: xLimit[1] else: defaultMaxLimit
   dfL = dfL
     .filter(f{`limits` < maxVal})
-  let noSigX = if as_gae_gaγ: to_gaγ(limitNoSignal - 0.2e-21)
-               else: limitNoSignal - 0.2e-21
-  let expLimX = if as_gae_gaγ: to_gaγ(expLimit + 0.01e-21)
-                else: expLimit + 0.01e-21
+
+  # Get positions for text in `x`
+  let noSignalOffset = getNoSignalOffset(ctx.couplingKind)
+  let expLimitOffset = getExpectedLimitOffset(ctx.couplingKind)
+  let noSigX = if as_gae_gaγ: to_gaγ(limitNoSignal - noSignalOffset)
+               else: limitNoSignal - noSignalOffset
+  let expLimX = if as_gae_gaγ: to_gaγ(expLimit + expLimitOffset)
+                else: expLimit + expLimitOffset
   if as_gae_gaγ:
     expLimit = to_gaγ(expLimit)
     limitNoSignal = to_gaγ(limitNoSignal)
@@ -2504,8 +2673,7 @@ proc plotMCLimitHistogram(
     plt = plt + xlim(xlimit[0], xlimit[1])
   if ylimit[0] != ylimit[1]:
     plt = plt + ylim(ylimit[0], ylimit[1])
-  let expLimitSuffix = if not as_gae_gaγ: &"Expected limit g_ae² = {expLimit:.4e}"
-                       else: &"Expected limit g_ae·g_aγ = {expLimit:.4e}"
+  let expLimitSuffix = getExpectedLimitSuffix(expLimit, ctx.couplingKind, as_gae_gaγ)
   plt +
     xlab(xLabel) + ylab(yLabel) +
     ggtitle(&"MC limit histogram of {nmc} toys using {ctx.samplingKind} and {limitKind}.{Newline} {utSuff} " &
@@ -2861,8 +3029,8 @@ proc plotSignalOverBackground(ctx: Context, log: Logger, outfile: string) =
   ## creates a plot of the signal over background for each pixel on the chip.
   ## Uses a limit of 8.1e-23
   var ctx = ctx
-  #ctx.g_ae² = 8.1e-11 * 8.1e-11
-  ctx.coupling = 8.1e-11 * 8.1e-11
+  # set a sensible coupling constant
+  ctx.setCouplingSignalOverBackground()
   var xs = newSeq[float](256 * 256)
   var ys = newSeq[float](256 * 256)
   var sb = newSeq[float](256 * 256)
@@ -2908,8 +3076,8 @@ proc integrateSignalOverImage(ctx: Context, log: Logger) =
   ## integrate the signal contribution over the whole image to see if we recover
   ## the ~O(10) axion induced signals
   var ctx = ctx
-  #ctx.g_ae² = 8.1e-11^2
-  ctx.coupling = 8.1e-11^2
+  # set a sensible coupling constant
+  ctx.setCouplingSignalOverBackground()
 
   log.infoHeader("Integrate signal over full chip")
   # flush the logger file to not duplicate output when logger called in multiproccessing context
@@ -2991,8 +3159,8 @@ proc plotSignalAtEnergy(ctx: Context, log: Logger, energy: keV, title, outfile: 
   ## Generate a plot of the signal component in units of `keV⁻¹•cm⁻²•s⁻¹` at the specified
   ## energy using a coupling constant of `g_ae = 8.1e-11`.
   var ctx = ctx
-  #ctx.g_ae² = 8.1e-11^2
-  ctx.coupling = 8.1e-11^2
+  # set a sensible coupling constant
+  ctx.setCouplingSignalOverBackground()
   var xs = newSeqOfCap[int](256*256)
   var ys = newSeqOfCap[int](256*256)
   var zs = newSeqOfCap[float](256*256)
@@ -3204,10 +3372,11 @@ proc plotCandsSigOverBack(ctx: Context, log: Logger, cands: seq[Candidate], outf
                           textFn: FormulaNode = FormulaNode()) =
   ## creates a plot of the candidates and the associated signal/background as color
   ## for each candidate (at g_ae = 8.1e-11, g_aγ = 1e-12 GeV⁻¹)
+  if cands.len == 0: return
   var ctx = ctx
   # use a fixed g_ae² for the computation here
-  #ctx.g_ae² = 8.1e-11^2
-  ctx.coupling = 8.1e-11^2
+  ctx.setCouplingSignalOverBackground()
+
   var sb = newSeq[float]()
   for c in cands:
     let sig = ctx.expectedSignal(c.energy, c.pos)
@@ -3221,7 +3390,6 @@ proc plotCandsSigOverBack(ctx: Context, log: Logger, cands: seq[Candidate], outf
   let dfF = df.filter(f{float: idx("s/b") >= textCutoff})
   let fn = if textFn.kind != fkVariable: textFn else: f{`ys` + 0.3}
 
-
   proc thm(): Theme =
     if FWIDTH <= 0.5:
       result = sideBySide()
@@ -3229,7 +3397,6 @@ proc plotCandsSigOverBack(ctx: Context, log: Logger, cands: seq[Candidate], outf
     else:
       result = singlePlot()
   let marg = if FWIDTH <= 0.5: 3.5 else: 5.0
-
   ggplot(df, aes("xs", "ys")) +
     geom_point(aes = aes(color = "s/b")) +
     geom_text(data = dfF, aes = aes(y = textFn, text = "s/b"), size = 5.0) +
@@ -3924,7 +4091,7 @@ proc plotLikelihoodCurves(ctx: Context, candidates: seq[Candidate],
         var cSigBack = newSeq[(float, float)](candidates.len)
         let SQRT2 = sqrt(2.0)
         for i, c in candidates:
-          let sig = ctx.detectionEff(c.energy) * ctx.axionFlux(c.energy) * conversionProbability(ctx)
+          let sig = ctx.expectedSignalNoRaytrace(c.energy)
           cSigBack[i] = (sig.float,
                       ctx.background(c.energy, c.pos).float)
         let σ_p = ctx.σ_p
@@ -3956,7 +4123,7 @@ proc plotLikelihoodCurves(ctx: Context, candidates: seq[Candidate],
         var cSigBack = newSeq[(float, float)](candidates.len)
         let SQRT2 = sqrt(2.0)
         for i, c in candidates:
-          let sig = ctx.detectionEff(c.energy) * ctx.axionFlux(c.energy) * conversionProbability(ctx)
+          let sig = ctx.expectedSignalNoRaytrace(c.energy)
           cSigBack[i] = (sig.float,
                       ctx.background(c.energy, c.pos).float)
         let σ_p = ctx.σ_p
@@ -4026,8 +4193,8 @@ proc calcSigBack(ctx: Context, rnd: var Random, log: Logger, cands: seq[Candidat
         geom_line(size = 0.5) + geom_point(size = 1.0, alpha = 0.1) +
         mcmcLinesStyle() +
         ggsave(SanityPath / &"mcmc_lines_thetas_sb_sigma_{σ}_{suffix}.pdf", width = 600, height = 480, dataAsBitmap = true)
-      # also plot L against ϑb
-      ctx.coupling = 8.1e-11 * 8.1e-11
+      # also plot L against ϑb, set a sensible coupling constant
+      ctx.setCouplingSignalOverBackground()
       plotLikelihoodCurves(ctx, cands, SanityPath / &"likelihood_sigma_{σ}_{suffix}")
     dfMCMC.add dfMLoc
   plotCompareSystLikelihood(
@@ -4074,8 +4241,8 @@ proc calcPosition(ctx: Context, rnd: var Random, log: Logger, cands: seq[Candida
         mcmcLinesStyle() +
         xlab("ϑ_x") + ylab("ϑ_y") +
         ggsave(SanityPath / &"mcmc_lines_thetas_xy_sigma_{σ}_{suffix}.pdf", width = 600, height = 480, dataAsBitmap = true)
-      # also plot L against ϑb
-      ctx.coupling = 8.1e-11 * 8.1e-11
+      # also plot L against ϑb, set a sensible coupling constant
+      ctx.setCouplingSignalOverBackground()
       plotLikelihoodCurves(ctx, cands, SanityPath / &"likelihood_sigma_{σ}_{suffix}")
 
     dfMCMC.add dfMLoc
@@ -4088,7 +4255,8 @@ proc calcPosition(ctx: Context, rnd: var Random, log: Logger, cands: seq[Candida
   )
 
 proc calcRealSystematics(ctx: Context, rnd: var Random, log: Logger,
-                         cands: seq[Candidate], suffix: string) =
+                         cands: seq[Candidate], suffix: string,
+                         calcScan = true) =
   ## given some candidates, go through calculation of likelihood for the real
   ## set of systematics that we use for our actual limit.
   ## `suffix` corresponds to the name used in the filename & title, as
@@ -4102,16 +4270,18 @@ proc calcRealSystematics(ctx: Context, rnd: var Random, log: Logger,
   ctx.systematics = syst
   let maxVal = if suffix == "few": 1.2e-20
                else: 3e-20
-  var dfScan = ctx.likelihoodScan(
-    log, cands, g_aeMax = maxVal, num = 100
-  )
-  dfScan["σ"] = "real"
-
   ## XXX: ok I have to look at the MCMC chain plots
   let chain = ctx.build_MH_chain(rnd, cands)
   let names = @["ϑs_s", "ϑs_b", "ϑs_x", "ϑs_y"]
   var dfMCMC = chain.extractFromChain(names)
   dfMCMC["σ"] = "real"
+
+  var dfScan = newDataFrame()
+  if calcScan:
+    dfScan = ctx.likelihoodScan(
+      log, cands, g_aeMax = maxVal, num = 100
+    )
+    dfScan["σ"] = "real"
 
   # plot the histogram of the g² values
   let limit = computeLimitFromMCMC(dfMCMC)
@@ -4137,17 +4307,25 @@ proc calcRealSystematics(ctx: Context, rnd: var Random, log: Logger,
     mcmcLinesStyle() +
     ggsave(SanityPath / &"mcmc_lines_thetas_gy_real_syst_{suffix}.pdf", width = 600, height = 480, dataAsBitmap = true)
 
-  # also plot L against ϑb
-  ctx.coupling = 8.1e-11 * 8.1e-11
-  plotLikelihoodCurves(ctx, cands, SanityPath / &"likelihood_real_syst_{suffix}")
+  ggplot(dfMCMC, aes("gs", "logVals", color = "ϑs_y")) +
+    geom_line(size = 0.5) + geom_point(size = 1.0, alpha = 0.1) +
+    xlab("g²") + ylab("L") +
+    scale_x_continuous(breaks = 5) +
+    mcmcLinesStyle() +
+    ggsave(SanityPath / &"mcmc_lines_thetas_gL_real_syst_{suffix}.pdf", width = 600, height = 480, dataAsBitmap = true)
 
-  plotCompareSystLikelihood(
-    log,
-    dfScan, dfMCMC,
-    SanityPath / &"likelihood_real_syst_compare_{suffix}_cands_in_sens_region.pdf",
-    &"Likelihood behavior with {suffix} cands. in sens. region for different `σ` (S, B) {Newline}" &
-      &"g_aγ = {sqrt(ctx.g_aγ²)} (no systematics)"
-  )
+  # also plot L against ϑb, set a sensible coupling constant
+  ctx.setCouplingSignalOverBackground()
+
+  if calcScan:
+    plotLikelihoodCurves(ctx, cands, SanityPath / &"likelihood_real_syst_{suffix}")
+    plotCompareSystLikelihood(
+      log,
+      dfScan, dfMCMC,
+      SanityPath / &"likelihood_real_syst_compare_{suffix}_cands_in_sens_region.pdf",
+      &"Likelihood behavior with {suffix} cands. in sens. region for different `σ` (S, B) {Newline}" &
+        &"g_aγ = {sqrt(ctx.g_aγ²)} (no systematics)"
+    )
 
 proc sanityCheckLikelihoodSyst(ctx: Context, log: Logger) =
   ## generates plots to cross check the behavior of the likelihood
@@ -4222,8 +4400,287 @@ proc sanityCheckRealSystematics(ctx: Context, log: Logger) =
 proc `=~=`[T](x, y: T): bool =
   result = unchained.almostEqual(x, y, epsilon = 6)
 
-proc sanityCheckAxionPhoton(ctx: Context, log: Logger) =
+proc sanityCheckAxionElectronLimit(ctx: Context, log: Logger) =
+  ## Checks that calculation of the axion-electron limit works as expected.
+  # 0. instantiate random number generator
+  var rnd = wrap(initMersenneTwister(0xaffe))
+
+  # 1a. set the coupling kind
+  ctx.couplingKind = ck_g_ae²
+  # 1b. reset the coupling reference!
+  ctx.initCouplingReference()
+  # 1c. set coupling target range for MCMC (1e-12 is reference g_aγ² of input flux)
+  ctx.mcmcCouplingTarget = setMcmcCouplingTarget(ck_g_ae², Inf)
+
+  # candidates over background
+  template pltSB(): untyped =
+    let outfile = SanityPath / "candidates_signal_over_background_axion_electron.pdf"
+    ctx.plotCandsSigOverBack(log, cands, outfile,
+                             "ln(1 + s/b) for the real candidates. " &
+                             &"g_aγ = {sqrt(ctx.coupling)}",
+                             textCutoff = Inf)
+                             #textFn = f{float: (if idx("s/b") > 0.5: `ys` + 0.3 else: `ys` - 0.3)})
+
+  # 2. draw a set of candidates
+  var cands = drawCandidates(ctx, rnd, toPlot = false)
+  pltSB()
+  # 2b. Check conversion probability is fine if `g_aγ²` unchanged. Should be about 1.7e-19
+  log.infos("Chameleon coupling constant"):
+    &"Conversion probability using default g_aγ² = {ctx.g_aγ²}, yields P_a↦γ = {ctx.conversionProbability()}"
+  #doAssert ctx.conversionProbability() =~= 1.70182e-21
+  # 3. compute several limits with different g_aγ²
+  ## XXX: turn this into additional check that shows variance we expect for limits of ``same`` candidates
+  var limit = ctx.computeLimit(rnd, cands, lkMCMC)
+  log.info(&"Limit with default g_ae² = {ctx.g_ae²} is = {limit}, and as g_ae = {sqrt(limit)}")
+
+  cands = drawCandidates(ctx, rnd, toPlot = false)
+  pltSB()
+  limit = ctx.computeLimit(rnd, cands, lkMCMC)
+  log.info(&"2. Limit with default g_ae² = {ctx.g_ae²} is = {limit}, and as g_ae = {sqrt(limit)}")
+
+  cands = drawCandidates(ctx, rnd, toPlot = false)
+  pltSB()
+  limit = ctx.computeLimit(rnd, cands, lkMCMC)
+  log.info(&"3. Limit with default g_ae² = {ctx.g_ae²} is = {limit}, and as g_ae = {sqrt(limit)}")
+
+  cands = drawCandidates(ctx, rnd, toPlot = false)
+  pltSB()
+  limit = ctx.computeLimit(rnd, cands, lkMCMC)
+  log.info(&"4. Limit with default g_ae² = {ctx.g_ae²} is = {limit}, and as g_ae = {sqrt(limit)}")
+
+  #
+  ctx.calcRealSystematics(rnd, log, cands, suffix = "", calcScan = false)
+
+proc sanityCheckAxionElectronAxionPhotonLimit(ctx: Context, log: Logger) =
+  ## Checks that calculation of the axion-electron limit via g_ae²·g_aγ² works as expected.
+  # 0. instantiate random number generator
+  var rnd = wrap(initMersenneTwister(0xaffe))
+
+  # 1a. set the coupling kind
+  ctx.couplingKind = ck_g_ae²·g_aγ²
+  ## NOTE: Only run `ck_g_ae·g_aγ` to illustrate that it leads to the wrong limit!
+  #ctx.couplingKind = ck_g_ae·g_aγ
+  # 1b. reset the coupling reference!
+  ctx.initCouplingReference()
+  # 1c. set coupling target range for MCMC (1e-12 is reference g_aγ² of input flux)
+  ctx.mcmcCouplingTarget = setMcmcCouplingTarget(ck_g_ae²·g_aγ², Inf)
+  #ctx.mcmcCouplingTarget = setMcmcCouplingTarget(ck_g_ae·g_aγ, Inf)
+
+  # candidates over background
+  template pltSB(): untyped =
+    let outfile = SanityPath / "candidates_signal_over_background_axion_electron_axion_photon.pdf"
+    ctx.plotCandsSigOverBack(log, cands, outfile,
+                             "ln(1 + s/b) for the real candidates. " &
+                             &"g_aγ = {sqrt(ctx.coupling)}",
+                             textCutoff = Inf)
+                             #textFn = f{float: (if idx("s/b") > 0.5: `ys` + 0.3 else: `ys` - 0.3)})
+
+  # 2. draw a set of candidates
+  var cands = drawCandidates(ctx, rnd, toPlot = false)
+  pltSB()
+  # 2b. Check conversion probability is fine if `g_aγ²` unchanged. Should be about 1.7e-19
+  log.infos("Axion-electron axion-photon coupling constant"):
+    &"Conversion probability using default g_aγ² = {ctx.g_aγ²}, yields P_a↦γ = {ctx.conversionProbability()}"
+  #doAssert ctx.conversionProbability() =~= 1.70182e-21
+  # 3. compute several limits with different g_aγ²
+  ## XXX: turn this into additional check that shows variance we expect for limits of ``same`` candidates
+  var limit = ctx.computeLimit(rnd, cands, lkMCMC)
+  log.info(&"Limit is g_ae²·g_aγ² = {limit}, as g_ae·g_aγ = {sqrt(limit)}")
+
+  cands = drawCandidates(ctx, rnd, toPlot = false)
+  pltSB()
+  limit = ctx.computeLimit(rnd, cands, lkMCMC)
+  log.info(&"2. Limit is g_ae²·g_aγ² = {limit}, as g_ae·g_aγ = {sqrt(limit)}")
+
+  cands = drawCandidates(ctx, rnd, toPlot = false)
+  pltSB()
+  limit = ctx.computeLimit(rnd, cands, lkMCMC)
+  log.info(&"3. Limit is g_ae²·g_aγ² = {limit}, as g_ae·g_aγ = {sqrt(limit)}")
+
+  cands = drawCandidates(ctx, rnd, toPlot = false)
+  pltSB()
+  limit = ctx.computeLimit(rnd, cands, lkMCMC)
+  log.info(&"4. Limit is g_ae²·g_aγ² = {limit}, as g_ae·g_aγ = {sqrt(limit)}")
+
+  #
+  ctx.calcRealSystematics(rnd, log, cands, suffix = "", calcScan = false)
+
+proc sanityCheckAxionElectronAxionPhotonLimitWrong(ctx: Context, log: Logger) =
+  ## Checks that calculation of the axion-electron limit via g_ae·g_aγ to illustrate that
+  ## the MCMC needs to use a parameter in which the likelihood function is linear!
   ##
+  ## NOTE: Only run `ck_g_ae·g_aγ` to illustrate that it leads to the wrong limit!
+  ##
+  ## Compare with `sanityCheckAxionElectronAxionPhotonLimit` output. The limits should
+  ## be identical, but they are very different! This one leads to too low limits.
+  # 0. instantiate random number generator
+  var rnd = wrap(initMersenneTwister(0xaffe))
+
+  # 1a. set the coupling kind
+
+  ctx.couplingKind = ck_g_ae·g_aγ
+  # 1b. reset the coupling reference!
+  ctx.initCouplingReference()
+  # 1c. set coupling target range for MCMC (1e-12 is reference g_aγ² of input flux)
+  ctx.mcmcCouplingTarget = setMcmcCouplingTarget(ck_g_ae·g_aγ, Inf)
+
+  # candidates over background
+  template pltSB(): untyped =
+    let outfile = SanityPath / "candidates_signal_over_background_axion_electron_axion_photon_wrong.pdf"
+    ctx.plotCandsSigOverBack(log, cands, outfile,
+                             "ln(1 + s/b) for the real candidates. " &
+                             &"g_aγ = {sqrt(ctx.coupling)}",
+                             textCutoff = Inf)
+                             #textFn = f{float: (if idx("s/b") > 0.5: `ys` + 0.3 else: `ys` - 0.3)})
+
+  # 2. draw a set of candidates
+  var cands = drawCandidates(ctx, rnd, toPlot = false)
+  pltSB()
+  # 2b. Check conversion probability is fine if `g_aγ²` unchanged. Should be about 1.7e-19
+  log.infos("Axion-electron axion-photon coupling constant via g_ae·g_aγ directly"):
+    &"Conversion probability using default g_aγ² = {ctx.g_aγ²}, yields P_a↦γ = {ctx.conversionProbability()}"
+  #doAssert ctx.conversionProbability() =~= 1.70182e-21
+  # 3. compute several limits with different g_aγ²
+  ## XXX: turn this into additional check that shows variance we expect for limits of ``same`` candidates
+  var limit = ctx.computeLimit(rnd, cands, lkMCMC)
+  log.info(&"Limit is g_ae·g_aγ = {limit}")
+
+  cands = drawCandidates(ctx, rnd, toPlot = false)
+  pltSB()
+  limit = ctx.computeLimit(rnd, cands, lkMCMC)
+  log.info(&"2. Limit is g_ae·g_aγ = {limit}")
+
+  cands = drawCandidates(ctx, rnd, toPlot = false)
+  pltSB()
+  limit = ctx.computeLimit(rnd, cands, lkMCMC)
+  log.info(&"3. Limit is g_ae·g_aγ = {limit}")
+
+  cands = drawCandidates(ctx, rnd, toPlot = false)
+  pltSB()
+  limit = ctx.computeLimit(rnd, cands, lkMCMC)
+  log.info(&"4. Limit is g_ae·g_aγ = {limit}")
+
+  #
+  ctx.calcRealSystematics(rnd, log, cands, suffix = "", calcScan = false)
+
+
+proc sanityCheckAxionPhotonLimit(ctx: Context, log: Logger) =
+  ## Checks that calculation of a pure axion-photon limit works as expected. I.e. no
+  ## `g_ae²` at all. Input must be axion photon flux of course.
+  # 0. instantiate random number generator
+  var rnd = wrap(initMersenneTwister(0xaffe))
+
+  # 1a. set the coupling kind
+  ctx.couplingKind = ck_g_aγ⁴
+  # 1b. reset the coupling reference!
+  ctx.initCouplingReference()
+  # 1c. set coupling target range for MCMC (1e-12 is reference g_aγ² of input flux)
+  ctx.mcmcCouplingTarget = setMcmcCouplingTarget(ck_g_aγ⁴, Inf)
+
+  # candidates over background
+  template pltSB(): untyped =
+    let outfile = SanityPath / "candidates_signal_over_background_axionPhoton.pdf"
+    ctx.plotCandsSigOverBack(log, cands, outfile,
+                             "ln(1 + s/b) for the real candidates. " &
+                             &"g_aγ = {sqrt(ctx.coupling)}",
+                             textCutoff = Inf)
+                             #textFn = f{float: (if idx("s/b") > 0.5: `ys` + 0.3 else: `ys` - 0.3)})
+
+
+  # 2. draw a set of candidates
+  # var cands = newSeq[Candidate]() # to test no candidates
+  var cands = drawCandidates(ctx, rnd, toPlot = false)
+  pltSB()
+  # 2b. Check conversion probability is fine if `g_aγ²` unchanged. Should be about 1.7e-19
+  log.infos("Axion-photon coupling constant"):
+    &"Conversion probability using default g_aγ² = {ctx.g_aγ²}, yields P_a↦γ = {ctx.conversionProbability()}"
+  #doAssert ctx.conversionProbability() =~= 1.70182e-21
+  # 3. compute several limits with different g_aγ²
+  ## XXX: turn this into additional check that shows variance we expect for limits of ``same`` candidates
+  var limit = ctx.computeLimit(rnd, cands, lkMCMC)
+  log.info(&"Limit with default g_aγ² = {ctx.g_aγ²} is = {limit}, and as g_aγ = {pow(limit, 0.25)}")
+  ctx.calcRealSystematics(rnd, log, cands, suffix = "_1_", calcScan = false)
+
+  cands = drawCandidates(ctx, rnd, toPlot = false)
+  pltSB()
+  limit = ctx.computeLimit(rnd, cands, lkMCMC)
+  log.info(&"2. Limit with default g_aγ² = {ctx.g_aγ²} is = {limit}, and as g_aγ = {pow(limit, 0.25)}")
+  ctx.calcRealSystematics(rnd, log, cands, suffix = "_2_", calcScan = false)
+
+  cands = drawCandidates(ctx, rnd, toPlot = false)
+  pltSB()
+  limit = ctx.computeLimit(rnd, cands, lkMCMC)
+  log.info(&"3. Limit with default g_aγ² = {ctx.g_aγ²} is = {limit}, and as g_aγ = {pow(limit, 0.25)}")
+  ctx.calcRealSystematics(rnd, log, cands, suffix = "_3_", calcScan = false)
+
+  cands = drawCandidates(ctx, rnd, toPlot = false)
+  pltSB()
+  limit = ctx.computeLimit(rnd, cands, lkMCMC)
+  log.info(&"4. Limit with default g_aγ² = {ctx.g_aγ²} is = {limit}, and as g_aγ = {pow(limit, 0.25)}")
+  ctx.calcRealSystematics(rnd, log, cands, suffix = "_4_", calcScan = false)
+  #const lowerg_aγ = -13 ## Scan g_aγ values from 1e-13 to 1e-11 in log space. Note that in principle towards 1e-11 the axion
+  #const upperg_aγ = -11 ## photon flux would become non negligible coming from the Sun!
+  #let g_aγ²s = logspace(lowerg_aγ * 2, upperG_aγ * 2, 10)
+  #log.info(&"Computing limits for g_aγ² from g_aγ = {pow(10.0, lowerg_aγ)} to {pow(10.0, upperg_aγ)}. Variation of 1e-1 normal.")
+  #for g in g_aγ²s:
+  #  ctx.g_aγ² = g
+  #  let limit = ctx.computeLimit(rnd, cands, lkMCMC)
+  #  let g_ae = sqrt(limit)
+  #  let g_aγ = sqrt(ctx.g_aγ²)
+  #  log.info(&"Limit for g_aγ² = {ctx.g_aγ²}, yields = {limit} and as g_ae·g_aγ = {g_ae * g_aγ}")
+  ctx.calcRealSystematics(rnd, log, cands, suffix = "", calcScan = false)
+
+proc sanityCheckChameleonLimit(ctx: Context, log: Logger) =
+  ## Checks that calculation of a chameleon limit works as expected.
+  # 0. instantiate random number generator
+  var rnd = wrap(initMersenneTwister(0xaffe))
+
+  # 1a. set the coupling kind
+  ctx.couplingKind = ck_β⁴
+  # 1b. reset the coupling reference!
+  ctx.initCouplingReference()
+  # 1c. set coupling target range for MCMC (1e-12 is reference g_aγ² of input flux)
+  ctx.mcmcCouplingTarget = setMcmcCouplingTarget(ck_β⁴, Inf)
+
+  # candidates over background
+  template pltSB(): untyped =
+    let outfile = SanityPath / "candidates_signal_over_background_chameleon.pdf"
+    ctx.plotCandsSigOverBack(log, cands, outfile,
+                             "ln(1 + s/b) for the real candidates. " &
+                             &"g_aγ = {sqrt(ctx.coupling)}",
+                             textCutoff = Inf)
+                             #textFn = f{float: (if idx("s/b") > 0.5: `ys` + 0.3 else: `ys` - 0.3)})
+
+  # 2. draw a set of candidates
+  var cands = drawCandidates(ctx, rnd, toPlot = false)
+  pltSB()
+  # 2b. Check conversion probability is fine if `g_aγ²` unchanged. Should be about 1.7e-19
+  log.infos("Chameleon coupling constant"):
+    &"Conversion probability using default β² = {ctx.β²}, yields P_c↦γ = {ctx.conversionProbability()}"
+  #doAssert ctx.conversionProbability() =~= 1.70182e-21
+  # 3. compute several limits with different g_aγ²
+  ## XXX: turn this into additional check that shows variance we expect for limits of ``same`` candidates
+  var limit = ctx.computeLimit(rnd, cands, lkMCMC)
+  log.info(&"Limit with default β² = {ctx.β²} is = {limit}, and as β = {pow(limit, 0.25):.6e}")
+
+  cands = drawCandidates(ctx, rnd, toPlot = false)
+  pltSB()
+  limit = ctx.computeLimit(rnd, cands, lkMCMC)
+  log.info(&"2. Limit with default β² = {ctx.β²} is = {limit}, and as β = {pow(limit, 0.25):.6e}")
+
+  cands = drawCandidates(ctx, rnd, toPlot = false)
+  pltSB()
+  limit = ctx.computeLimit(rnd, cands, lkMCMC)
+  log.info(&"3. Limit with default β² = {ctx.β²} is = {limit}, and as β = {pow(limit, 0.25):.6e}")
+
+  cands = drawCandidates(ctx, rnd, toPlot = false)
+  pltSB()
+  limit = ctx.computeLimit(rnd, cands, lkMCMC)
+  log.info(&"4. Limit with default β² = {ctx.β²} is = {limit}, and as β = {pow(limit, 0.25):.6e}")
+  ctx.calcRealSystematics(rnd, log, cands, suffix = "", calcScan = false)
+
+proc sanityCheckAxionPhoton(ctx: Context, log: Logger) =
+  ## Checks that the absolute value of `g_aγ²` used does not impact the limit.
   # 0. instantiate random number generator
   var rnd = wrap(initMersenneTwister(0xaffe))
   # 1. draw a set of candidates
@@ -4257,7 +4714,7 @@ proc sanityCheckAxionElectronAxionPhoton(ctx: Context, log: Logger, limitKind: L
   # 1. reset the `g_aγ²` value used as reference
   ctx.g_aγ² = 1e-12 * 1e-12
   # 2. set the coupling kind
-  ctx.couplingKind = ck_g_ae²·g_aγ²
+  ctx.couplingKind = ck_g_ae² # ·g_aγ²
   # 3. reset the coupling reference!
   ctx.initCouplingReference()
   # 4. draw a set of candidates
@@ -4268,21 +4725,21 @@ proc sanityCheckAxionElectronAxionPhoton(ctx: Context, log: Logger, limitKind: L
   ## XXX: turn this into additional check that shows variance we expect for limits of ``same`` candidates
   for _ in 0 ..< 10:
     let limit = ctx.computeLimit(rnd, cands, limitKind)
-    let g_ae·g_aγ = sqrt(limit)
+    let g_ae·g_aγ = sqrt(limit * ctx.g_aγ²) # sqrt(limit)
     log.info(&"Limit for g_ae²·g_aγ² = {limit}, yields g_ae·g_aγ = {g_ae·g_aγ}")
 
   ## XXX: Plot histogram of the g_ae²·g_aγ² samples!
 
-  #const lowerg_aγ = -13 ## Scan g_aγ values from 1e-13 to 1e-11 in log space. Note that in principle towards 1e-11 the axion
-  #const upperg_aγ = -11 ## photon flux would become non negligible coming from the Sun!
-  #let g_aγ²s = logspace(lowerg_aγ * 2, upperG_aγ * 2, 10)
-  #log.info(&"Computing limits for g_aγ² from g_aγ = {pow(10.0, lowerg_aγ)} to {pow(10.0, upperg_aγ)}. Variation of 1e-1 normal.")
-  #for g in g_aγ²s:
-  #  ctx.g_aγ² = g
-  #  let limit = ctx.computeLimit(rnd, cands, lkMCMC)
-  #  let g_ae = sqrt(limit)
-  #  let g_aγ = sqrt(ctx.g_aγ²)
-  #  log.info(&"Limit for g_aγ² = {ctx.g_aγ²}, yields = {limit} and as g_ae·g_aγ = {g_ae * g_aγ}")
+  const lowerg_aγ = -13 ## Scan g_aγ values from 1e-13 to 1e-11 in log space. Note that in principle towards 1e-11 the axion
+  const upperg_aγ = -11 ## photon flux would become non negligible coming from the Sun!
+  let g_aγ²s = logspace(lowerg_aγ * 2, upperG_aγ * 2, 10)
+  log.info(&"Computing limits for g_aγ² from g_aγ = {pow(10.0, lowerg_aγ)} to {pow(10.0, upperg_aγ)}. Variation of 1e-1 normal.")
+  for g in g_aγ²s:
+    ctx.g_aγ² = g
+    let limit = ctx.computeLimit(rnd, cands, lkMCMC)
+    let g_ae = sqrt(limit)
+    let g_aγ = sqrt(ctx.g_aγ²)
+    log.info(&"Limit for g_aγ² = {ctx.g_aγ²}, yields = {limit} and as g_ae·g_aγ = {g_ae * g_aγ}")
 
 proc sanityCheckLimitsNoCandidates(ctx: Context, log: Logger, limitKind: LimitKind) =
   ## Verifies that indeed not having any candidates still leads to a different
@@ -4315,6 +4772,11 @@ proc sanity(
   likelihoodSystematics = false,
   axionPhoton = false,
   axionElectronAxionPhoton = false,
+  axionElectronLimit = false,
+  axionElectronAxionPhotonLimit = false,
+  axionElectronAxionPhotonLimitWrong = false,
+  axionPhotonLimit = false,
+  chameleonLimit = false,
   realSystematics = false,
   limitsNoCandidates = false,
   limitKind = lkMCMC, # for the sigma limits sanity check
@@ -4322,6 +4784,7 @@ proc sanity(
   rombergIntegrationDepth = 5,
   nmcSigmaLimits = 500,
   axionModel = "/home/basti/CastData/ExternCode/AxionElectronLimit/axion_diff_flux_gae_1e-13_gagamma_1e-12.csv",
+  isChameleon = false,
   axionImage = "/home/basti/org/resources/axion_images/axion_image_2018_1487_93_0.989AU.csv",
   combinedEfficiencyFile = "/home/basti/org/resources/combined_detector_efficiencies.csv",
   switchAxes = false,
@@ -4341,6 +4804,7 @@ proc sanity(
   # Overwrite sanity path if any given
   if sanityPath.len > 0:
     SanityPath = sanityPath
+  createDir(SanityPath)
 
   let path = ""
   #let backFiles = @[(2017, "/home/basti/org/resources/lhood_limits_10_05_23_mlp_sEff_0.99/lhood_c18_R2_crAll_sEff_0.95_scinti_fadc_line_mlp_mlp_tanh300_msecheckpoint_epoch_485000_loss_0.0055_acc_0.9933_vQ_0.99.h5"),
@@ -4351,7 +4815,7 @@ proc sanity(
   let backgroundTime = -1.Hour #3318.Hour ## TODO: FIX ME GET FROM FILES
   let trackingTime = -1.Hour # 169.Hour ## TODO: FIX ME GET FROM FILES
 
-  var log = newFileLogger("sanity.log", fmtStr = "[$date - $time] - $levelname: ")
+  var log = newFileLogger(SanityPath / "sanity.log", fmtStr = "[$date - $time] - $levelname: ")
   var L = newConsoleLogger()
   addHandler(L)
   addHandler(log)
@@ -4366,6 +4830,7 @@ proc sanity(
     radius = radius, sigma = σ, energyRange = energyRange,
     backgroundTime = backgroundTime, trackingTime = trackingTime,
     axionModel = axionModel, axionImage = axionImage,
+    isChameleon = isChameleon,
     combinedEfficiencyFile = combinedEfficiencyFile,
     nxy = nxy, nE = nE,
     σ_sig = 0.02724743263827172, #0.04692492913207222, # from sqrt(squared sum) of signal uncertainties
@@ -4429,7 +4894,61 @@ proc sanity(
 
   # 10. Sanity check MCMC for g_ae²·g_aγ² yields same as g_ae² only!
   if all or axionElectronAxionPhoton:
+    let syst = initSystematics(
+      σ_sig = 0.04692492913207222, # from sqrt(squared sum) of signal uncertainties
+      σ_back = 0.002821014576353691,#, # from sqrt(square sum) of back uncertainties
+      σ_p = 0.05 # from sqrt(squared sum of x / 7) position uncertainties
+    )
+    ctx.systematics = syst
     ctx.sanityCheckAxionElectronAxionPhoton(log, limitKind)
+
+  # 10. Sanity check MCMC for g_ae²·g_aγ² yields same as g_ae² only!
+  if all or axionElectronAxionPhotonLimit:
+    let syst = initSystematics(
+      σ_sig = 0.04692492913207222, # from sqrt(squared sum) of signal uncertainties
+      σ_back = 0.002821014576353691,#, # from sqrt(square sum) of back uncertainties
+      σ_p = 0.05 # from sqrt(squared sum of x / 7) position uncertainties
+    )
+    ctx.systematics = syst
+    ctx.sanityCheckAxionElectronAxionPhotonLimit(log)
+
+  ## NOTE: This is for illustration that MCMC needs parameter in which the likelihood
+  ## is a linear function!
+  if all or axionElectronAxionPhotonLimitWrong:
+    let syst = initSystematics(
+      σ_sig = 0.04692492913207222, # from sqrt(squared sum) of signal uncertainties
+      σ_back = 0.002821014576353691,#, # from sqrt(square sum) of back uncertainties
+      σ_p = 0.05 # from sqrt(squared sum of x / 7) position uncertainties
+    )
+    ctx.systematics = syst
+    ctx.sanityCheckAxionElectronAxionPhotonLimitWrong(log)
+
+  if all or axionElectronLimit:
+    let syst = initSystematics(
+      σ_sig = 0.04692492913207222, # from sqrt(squared sum) of signal uncertainties
+      σ_back = 0.002821014576353691,#, # from sqrt(square sum) of back uncertainties
+      σ_p = 0.05 # from sqrt(squared sum of x / 7) position uncertainties
+    )
+    ctx.systematics = syst
+    ctx.sanityCheckAxionElectronLimit(log)
+
+  if all or axionPhotonLimit:
+    let syst = initSystematics(
+      σ_sig = 0.04692492913207222, # from sqrt(squared sum) of signal uncertainties
+      σ_back = 0.002821014576353691,#, # from sqrt(square sum) of back uncertainties
+      σ_p = 0.05 # from sqrt(squared sum of x / 7) position uncertainties
+    )
+    ctx.systematics = syst
+    ctx.sanityCheckAxionPhotonLimit(log)
+
+  if all or chameleonLimit:
+    let syst = initSystematics(
+      σ_sig = 0.04692492913207222, # from sqrt(squared sum) of signal uncertainties
+      σ_back = 0.002821014576353691,#, # from sqrt(square sum) of back uncertainties
+      σ_p = 0.05 # from sqrt(squared sum of x / 7) position uncertainties
+    )
+    ctx.systematics = syst
+    ctx.sanityCheckChameleonLimit(log)
 
   # 11. sanity checks for length of MCMC & starting parameters & allowed steps?
   # ?
@@ -4465,6 +4984,7 @@ proc limit(
     years: seq[int] = @[],
     path = "/home/basti/CastData/ExternCode/TimepixAnalysis/resources/LikelihoodFiles/",
     axionModel = "/home/basti/CastData/ExternCode/AxionElectronLimit/axion_diff_flux_gae_1e-13_gagamma_1e-12.csv",
+    isChameleon = false, # whether `axionModel` is actually chameleon
     axionImage = "/home/basti/org/resources/axion_images/axion_image_2018_1487_93_0.989AU.csv", ## Default corresponds to mean Sun-Earth distance during 2017/18 data taking & median conversion ~0.3cm behind window
     combinedEfficiencyFile = "/home/basti/org/resources/combined_detector_efficiencies.csv",
     useConstantBackground = false,
@@ -4472,6 +4992,7 @@ proc limit(
     σ_sig = 0.02724743263827172, ## <- is the value *without* uncertainty on signal efficiency!
     σ_back = 0.002821014576353691,
     σ_p = 0.05,
+    couplingKind = ck_g_ae²,
     septemVetoRandomCoinc = 0.8311, # only septem veto random coinc based on bootstrapped fake data
     lineVetoRandomCoinc = 0.8539,   # lvRegular based on bootstrapped fake data
     septemLineVetoRandomCoinc = 0.7863, # lvRegularNoHLC based on bootstrapped fake data
@@ -4510,6 +5031,7 @@ proc limit(
     radius = radius, sigma = σ, energyRange = energyRange,
     backgroundTime = backgroundTime, trackingTime = trackingTime,
     axionModel = axionModel, axionImage = axionImage,
+    isChameleon = isChameleon,
     combinedEfficiencyFile = combinedEfficiencyFile,
     nxy = nxy, nE = nE,
     σ_sig = σ_sig, # from sqrt(squared sum) of signal uncertainties
@@ -4519,7 +5041,8 @@ proc limit(
     lineVetoRandomCoinc = lineVetoRandomCoinc,
     septemLineVetoRandomCoinc = septemLineVetoRandomCoinc,
     energyMin = energyMin, energyMax = energyMax,
-    switchAxes = switchAxes
+    switchAxes = switchAxes,
+    couplingKind = couplingKind
   ) # from sqrt(squared sum of x / 7) position uncertainties
     # large values of σ_sig cause NaN and grind some integrations to a halt!
     ## XXX: σ_sig = 0.3)
@@ -4605,15 +5128,15 @@ when isMainModule:
             ctx.g_ae² = x[0]
             if x[1] < -0.8: return 0.0
 
-            let s_totg = s_tot.rescale(ctx)
+            let s_totg = s_tot.rescaleSignal(ctx)
             echo "rescaled ", s_tot, " to ", s_totg
             L(s_totg,
-              s_i.rescale(ctx),
+              s_i.rescaleSignal(ctx),
               b_i * (1 + x[1]),
               0.0, 0.0,
               x[1], σ_b)
 
-          let (chain, acceptanceRate) = rnd.build_MH_chain(@[0.1e-21, 0.2], @[1e-21, 0.4], 100_000, fn)
+          let (chain, acceptanceRate, logVals) = rnd.build_MH_chain(@[0.1e-21, 0.2], @[1e-21, 0.4], 100_000, fn)
           echo "Acceptance rate: ", acceptanceRate
           echo "Last ten states of chain: ", chain[^10 .. ^1]
           plotChain(chain)
@@ -4623,14 +5146,14 @@ when isMainModule:
             ctx.g_ae² = x[0]
             if x[1] < -0.8: return 0.0
 
-            let s_totg = s_tot.rescale(ctx)
+            let s_totg = s_tot.rescaleSignal(ctx)
             L(s_totg,
-              s_i.rescale(ctx) * (1 + x[2]),
+              s_i.rescaleSignal(ctx) * (1 + x[2]),
               b_i * (1 + x[1]),
               x[2], σ_s,
               x[1], σ_b)
 
-          let (chain, acceptanceRate) = rnd.build_MH_chain(@[0.1e-21, 0.2, -0.1], @[1e-21, 0.4, 0.4], 100_000, fn)
+          let (chain, acceptanceRate, logVals) = rnd.build_MH_chain(@[0.1e-21, 0.2, -0.1], @[1e-21, 0.4, 0.4], 100_000, fn)
           echo "Acceptance rate: ", acceptanceRate
           echo "Last ten states of chain: ", chain[^10 .. ^1]
           plotChain(chain)
@@ -4650,7 +5173,7 @@ when isMainModule:
             let σ_p = ctx.σ_p
             let s_tot = totalSignal(ctx)
             for i, c in candidates:
-              let sig = ctx.detectionEff(c.energy) * ctx.axionFlux(c.energy) * conversionProbability(ctx)
+              let sig = ctx.expectedSignalNoRaytrace(c.energy)
               cands[i] = (sig.float,
                           ctx.background(c.energy, c.pos).float)
 
@@ -4658,7 +5181,7 @@ when isMainModule:
           proc fn(x: seq[float]): float =
             ctx.g_ae² = x[0]
             if x[0] < 0.0: return 0.0
-            let s_totg = s_tot.rescale(ctx)
+            let s_totg = s_tot.rescaleSignal(ctx)
             #echo "rescaled ", s_tot, " to ", s_totg
             let ϑ_x = x[1]
             let ϑ_y = x[2]
@@ -4670,11 +5193,11 @@ when isMainModule:
             for i in 0 ..< cands.len:
               let (s_init, b_c) = cands[i]
               if b_c.float != 0.0:
-                let s_c = (s_init.rescale(ctx) * ctx.raytracing(candidates[i].pos)).float
+                let s_c = (s_init.rescaleSignal(ctx) * ctx.raytracing(candidates[i].pos)).float
                 P3 *= (1 + s_c / b_c)
             result = P1 * P2 * P3
 
-          let (chain, acceptanceRate) = rnd.build_MH_chain(@[0.1e-21, 0.3, -0.3], @[1e-21, 0.4, 0.4], 500_000, fn)
+          let (chain, acceptanceRate, logVals) = rnd.build_MH_chain(@[0.1e-21, 0.3, -0.3], @[1e-21, 0.4, 0.4], 500_000, fn)
           echo "Acceptance rate: ", acceptanceRate
           echo "Last ten states of chain: ", chain[^10 .. ^1]
           plotChain(chain)

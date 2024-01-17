@@ -213,6 +213,16 @@ type
     limitKind: LimitKind
     expectedLimit: float # expected limit as `g_ae · g_aγ` with `g_aγ = 1e-12 GeV⁻¹`
 
+  LogProc = proc(x: seq[float]): float
+  Chain = object
+    links: seq[seq[float]]
+    acceptanceRate: float
+    logVals: seq[float]
+    numChains: int # number of chains part of this combined chain
+
+  ## A `RawChain` is a chain as produced by the algorithm with no elements removed due to burn in.
+  RawChain {.borrow: `.`.} = distinct Chain
+
 ## Mini helper to avoid `pow` calls and the issues with `^` precedence
 template square[T](x: T): T = x * x
 
@@ -1916,24 +1926,25 @@ when true:
       ggplot(df, aes("couplings", "Ls")) +
         geom_line() + ggsave("/tmp/couplings_vs_likelihood.pdf")
 
-proc extractFromChain(chain: seq[seq[float]], names: seq[string]): DataFrame =
+proc extractFromChain(chain: Chain, names: seq[string]): DataFrame =
   ## Turns a given markov chain into a DF for easier future processing (and plotting)
   ##
   ## Nuisance parameter columns will be filled in case they exist in the chain.
-  let nPar = chain[0].len
+  let links = chain.links # get all chain links
+  let nPar = links[0].len
   doAssert names.len == nPar - 1, "names.len " & $names.len & " vs (nPar - 1) " & $(nPar - 1) # - 1 as `g_ae²` is additional parameter
   # allocate tensors of the right size to avoid copying on DF construction
   var
-    gs = zeros[float](chain.len)
+    gs = zeros[float](links.len)
     ϑs = newSeq[Tensor[float]](nPar - 1)
   for ϑ in mitems(ϑs):
-    ϑ = zeros[float](chain.len)
-  for i in 0 ..< chain.len:
-    let c = chain[i]
+    ϑ = zeros[float](links.len)
+  for i in 0 ..< links.len:
+    let c = links[i]
     gs[i] = c[0]
     for j in 0 ..< names.len:
       ϑs[j][i] = c[1 + j] # + 1 as 0-th param is `g_ae²`
-  result = toDf({"gs" : gs})
+  result = toDf({"gs" : gs, "logVals" : chain.logVals})
   for i, name in names:
     result[name] = ϑs[i]
 
@@ -2103,9 +2114,8 @@ proc plotChain(ctx: Context, cands: seq[Candidate], chainDf: DataFrame,
 
     if min(bins) < 0.0: quit()
 
-type
-  LogProc = proc(x: seq[float]): float
 
+## A few helpers for the MH algorithm
 template rand(rnd: var Random, slice: Slice[float]): untyped =
   var u = uniform(slice.a, slice.b)
   rnd.sample(u)
@@ -2143,13 +2153,15 @@ proc sample_MH(
     result = (accept: false, xNew: xOld, logVal: logOld)
 
 proc build_MH_chain(rnd: var Random, init, stepsize: seq[float], nTotal: int,
-                    logProc: LogProc): (seq[seq[float]], float) =
+                    logProc: LogProc): RawChain =
   var nAccepted = 0
   var chain = newSeq[seq[float]](nTotal+1)
+  var logVals = newSeq[float](nTotal+1)
   chain[0] = init
   let t0 = epochTime()
   # compute starting value of function
   var logVal = logProc(init)
+  logVals[0] = logVal
   var accept: bool
   var state: seq[float]
   for i in 0 ..< nTotal:
@@ -2158,6 +2170,7 @@ proc build_MH_chain(rnd: var Random, init, stepsize: seq[float], nTotal: int,
       echo state, " at index ", i, " is accept? ", accept
       quit()
     chain[i+1] = state
+    logVals[i+1] = logVal
     if accept:
       inc nAccepted
   echo "Building chain of ", nTotal, " elements took ", epochTime() - t0, " s"
@@ -2331,8 +2344,21 @@ template certainFn(): untyped {.dirty.} =
       0.0, 0.0)
     result = abs(result) # make positive if number comes out to `-0.0`
 
+proc burnIn(chain: var Chain, rawChain: RawChain, burnIn: int) =
+  ## Produces a 'burned in' chain by removing the first `burnIn` elements of the
+  ## chain.
+  chain.links.add   rawChain.links[burnIn .. ^1]
+  chain.logVals.add rawChain.logVals[burnIn .. ^1]
+  if chain.numChains == 0:
+    chain.acceptanceRate = rawChain.acceptanceRate
+  else:
+    # compute cumulative average of acceptance rate
+    chain.acceptanceRate = (rawChain.acceptanceRate + chain.numChains * chain.acceptanceRate) /
+      (chain.numChains + 1)
+  inc chain.numChains # one more chain added
+
 proc build_MH_chain(ctx: Context, rnd: var Random, cands: seq[Candidate],
-                    log: Logger = nil): seq[seq[float]] =
+                    log: Logger = nil): Chain =
   ## Builds the appropriate chain given the systematics (or lack thereof) of the given
   ## `ctx` and the given candidates `cands`.
   ##
@@ -2351,40 +2377,37 @@ proc build_MH_chain(ctx: Context, rnd: var Random, cands: seq[Candidate],
                        of ck_g_ae·g_aγ: 0.5
                        of ck_g_ae²: 3.0
 
+  const nChains = 3
+  ## Burn in of 50,000 was deemed fine even for extreme walks in L = 0 space
+  const BurnIn = 50_000
 
   case ctx.uncertaintyPosition
   of puUncertain:
     case ctx.uncertainty
     of ukUncertain:
       fullUncertainFn() ## defines `fn` and `cSigBack`
-      #let (chain, acceptanceRate) = build_MH_chain(@[0.1e-21, 0.1, 0.2, 0.5, -0.5], @[3e-21, 0.025, 0.025, 0.05, 0.05], 100_000, fn)
-      const nChains = 3
-      ## Burn in of 50,000 was deemed fine even for extreme walks in L = 0 space
-      const BurnIn = 50_000
-      var totalChain = newSeq[seq[float]]()
+      #let (chain, acceptanceRate, logVals) = build_MH_chain(@[0.1e-21, 0.1, 0.2, 0.5, -0.5], @[3e-21, 0.025, 0.025, 0.05, 0.05], 100_000, fn)
+      var totalChain = Chain()
       for i in 0 ..< nChains:
         let start = @[rnd.rand(0.0 .. 5.0) * couplingRef, #1e-21, # g_ae²
                       rnd.rand(-0.4 .. 0.4), rnd.rand(-0.4 .. 0.4), # ϑs, ϑb
                       rnd.rand(-0.5 .. 0.5), rnd.rand(-0.5 .. 0.5)] # ϑx, ϑy
         echo "\t\tInitial chain state: ", start
-        let (chain, acceptanceRate) = rnd.build_MH_chain(start, @[3.0 * couplingRef, 0.025, 0.025, 0.05, 0.05], 150_000, fn)
-        echo "Acceptance rate: ", acceptanceRate, " with last two states of chain: ", chain[^2 .. ^1]
-        totalChain.add chain[BurnIn .. ^1]
+        let chain = rnd.build_MH_chain(start, @[stepMultiplier * couplingRef, 0.025, 0.025, 0.05, 0.05], 150_000, fn)
+        echo "Acceptance rate: ", chain.acceptanceRate, " with last two states of chain: ", chain.links[^2 .. ^1]
+        totalChain.burnIn chain, BurnIn
       ## TODO: not only return the limit, but also the acceptance rate!
       result = totalChain
     of ukCertain:
       posUncertainFn() ## defines `fn` and `cSigBack`
-      const nChains = 3
-      ## Burn in of 50,000 was deemed fine even for extreme walks in L = 0 space
-      const BurnIn = 50_000
-      var totalChain = newSeq[seq[float]]()
+      var totalChain = Chain()
       for i in 0 ..< nChains:
         let start = @[rnd.rand(0.0 .. 5.0) * couplingRef, #1e-21, # g_ae²
                       rnd.rand(-0.5 .. 0.5), rnd.rand(-0.5 .. 0.5)] # ϑx, ϑy
         echo "\t\tInitial chain state: ", start
-        let (chain, acceptanceRate) = rnd.build_MH_chain(start, @[3.0 * couplingRef, 0.05, 0.05], 150_000, fn)
-        echo "Acceptance rate: ", acceptanceRate, " with last two states of chain: ", chain[^2 .. ^1]
-        totalChain.add chain[BurnIn .. ^1]
+        let chain = rnd.build_MH_chain(start, @[3.0 * couplingRef, 0.05, 0.05], 150_000, fn)
+        echo "Acceptance rate: ", chain.acceptanceRate, " with last two states of chain: ", chain.links[^2 .. ^1]
+        totalChain.burnIn chain, BurnIn
       ## TODO: not only return the limit, but also the acceptance rate!
       result = totalChain
     else: doAssert false, "Currently unsupported (posUncertain + s/b certain combination)"
@@ -2392,40 +2415,38 @@ proc build_MH_chain(ctx: Context, rnd: var Random, cands: seq[Candidate],
     case ctx.uncertainty
     of ukUncertain:
       sbUncertainFn()
-      const nChains = 3
-      ## Burn in of 50,000 was deemed fine even for extreme walks in L = 0 space
-      const BurnIn = 50_000
-      var totalChain = newSeq[seq[float]]()
+      var totalChain = Chain()
       for i in 0 ..< nChains:
         let start = @[rnd.rand(0.0 .. 5.0) * couplingRef, #1e-21, # g_ae²
                       rnd.rand(-0.4 .. 0.4), rnd.rand(-0.4 .. 0.4)] # ϑs, ϑb
         echo "\t\tInitial chain state: ", start
 
         ## XXX: really seems to converge to a different minimum than the one found by the scan
-        let (chain, acceptanceRate) = rnd.build_MH_chain(start, @[5.0 * couplingRef, 0.01, 0.01], 200_000, fn)
-        echo "Acceptance rate: ", acceptanceRate, " with last two states of chain: ", chain[^2 .. ^1]
-        totalChain.add chain[BurnIn .. ^1]
+        let chain = rnd.build_MH_chain(start, @[5.0 * couplingRef, 0.01, 0.01], 200_000, fn)
+        echo "Acceptance rate: ", chain.acceptanceRate, " with last two states of chain: ", chain.links[^2 .. ^1]
+        totalChain.burnIn chain, BurnIn
       ## TODO: not only return the limit, but also the acceptance rate!
       result = totalChain
 
       when false:
-        let (chain, acceptanceRate) = rnd.build_MH_chain(@[0.5e-21, 0.05, -0.05], @[3e-21, 0.025, 0.025], 500_000, fn)
-        echo "Acceptance rate: ", acceptanceRate
-        echo "Last ten states of chain: ", chain[^10 .. ^1]
+        let chain = rnd.build_MH_chain(@[0.5e-21, 0.05, -0.05], @[3e-21, 0.025, 0.025], 500_000, fn)
+        echo "Acceptance rate: ", chain.acceptanceRate
+        echo "Last ten states of chain: ", chain.links[^10 .. ^1]
         ## TODO: not only return the limit, but also the acceptance rate!
-        result = chain
+        result = Chain(chain) # convert single RawChain to Chain
     of ukCertain:
+      ## XXX: why no multiple chains or burn in?
       certainFn()
-      let (chain, acceptanceRate) = rnd.build_MH_chain(@[0.5 * couplingRef], @[couplingRef], 100_000, fn)
-      echo "Acceptance rate: ", acceptanceRate
-      echo "Last ten states of chain: ", chain[^10 .. ^1]
+      let chain = rnd.build_MH_chain(@[0.5 * couplingRef], @[couplingRef], 100_000, fn)
+      echo "Acceptance rate: ", chain.acceptanceRate
+      echo "Last ten states of chain: ", chain.links[^10 .. ^1]
       ## TODO: not only return the limit, but also the acceptance rate!
-      result = chain
+      result = Chain(chain) # convert single RawChain to Chain
     else: doAssert false, $ctx.uncertainty & " not supported for MCMC yet"
   let t1 = getMonoTime()
   if not log.isNil:
     log.info "Building MCMC with systematics " & ctx.systematics.pretty() &
-      " of final length " & $result.len & " took " & $(t1 - t0) & " s"
+      " of final length " & $result.links.len & " took " & $(t1 - t0) & " s"
 
 proc computeMCMC(ctx: Context, rnd: var Random, cands: seq[Candidate]): DataFrame =
   ## Builds the required MCMC and extracts it into a DF
@@ -2522,6 +2543,7 @@ proc writeLimitOutput(
                                 limitKind: limitKind,
                                 expectedLimit: expLimit)
   ## XXX: or do we want to store _all_ in a single file? "Limits H5"?
+  #echo "Limit output: ", limitOutput
   let name = outpath / outfile & ".h5"
   limitOutput.toH5(name, path)
   echo "Wrote outfile ", name
@@ -3895,7 +3917,7 @@ proc sanityCheckLikelihoodNoSystematics(ctx: Context, log: Logger) =
   block MCMC:
     # similar to above (in terms of likelihood scan), but now also including MCMC
     # MCMC for few candidates in sensitive region
-    var chain: seq[seq[float]]
+    var chain: Chain
     var df: DataFrame
     chain = ctx.build_MH_chain(rnd, candsFewSignals)
     df = chain.extractFromChain(@[])

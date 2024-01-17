@@ -180,7 +180,7 @@ proc plotFallTimeRiseTime(df: DataFrame, outpath, tSuffix, suffix: string, isCdl
       geom_point() +
       ggtitle(&"Mean {dset} in input data by run number, colored by {other}.") +
       themeLatex(fWidth = 0.9, width = 600, baseTheme = singlePlot, useTeX = UseTeX) +
-      ggsave(outpath / &"fadc_mean_{dset}_$#.pdf" % suffix,
+      ggsave(outpath / &"fadc_runNumber_mean_{dset}_$#.pdf" % suffix,
              width = 800, height = 480)
 
   plotDset("fallTime")

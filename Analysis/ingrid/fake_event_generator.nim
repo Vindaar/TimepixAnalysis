@@ -351,8 +351,6 @@ proc genGainDiffusionEvent(rnd: var Rand, gain: GainInfo,
   ## 0. compute the equivalent charge of the target energy using the "gas gain vs energy calibration" relation
   ##   using `E = totalCharge · calibrationFactor`
   ##   with  `calibrationFactor = m · gain + b` with `m, b` determined by the gas gain vs energy calib fit.
-  let gainToUse = gain.G * 0.9
-
   ## XXX: for CDL data overwrite the calibration factor and use from `GainInfo`
   var targetEnergyCharge: float
   if not calibInfo.isCdl:
@@ -390,7 +388,7 @@ proc genGainDiffusionEvent(rnd: var Rand, gain: GainInfo,
   #let gInv = invert(gain.G * 0.6, calibInfo)
   #let gInv = invert(gain.G, calibInfo)
   #let params = @[gain.N, gInv, gain.theta]
-  let params = @[gain.N, gainToUse, gain.theta / 3.0]
+  let params = @[gain.N, gain.G, gain.theta / 3.0]
   let psampler = initPolyaSampler(params, frm = 0.0, to = 20000.0) #invert(20000.0, calibInfo))
   ## 4. Sample a target center x and center y position within crSilver
   let (xc, yc) = rnd.sampleInSilver()
@@ -408,7 +406,7 @@ proc genGainDiffusionEvent(rnd: var Rand, gain: GainInfo,
 
   ## XXX: for the time being we simply always accept any ToT value above cutoff!
   let actSampler = (proc(rnd: var Rand, x: float): bool =
-                      let activateThreshold = expShift(x, gainToUse, cutoff, 0.3)
+                      let activateThreshold = expShift(x, gain.G, cutoff, 0.3)
                       result = x > cutoff # and rnd.rand(1.0) < activateThreshold
   )
   let neighSampler = (proc(rnd: var Rand, x: float): int =
@@ -750,7 +748,7 @@ proc generateAndReconstruct*[C: MaybeContext](rnd: var Rand,
   # reconstruct event
   result = reconstructFakeEvent(pix,
                                 fakeDesc.σT,
-                                gainInfo.G * 0.9, # * 0.75, #  * 0.85, ## XXX: FIX ME
+                                gainInfo.G,
                                 runNumber,
                                 calibInfo,
                                 ctx)

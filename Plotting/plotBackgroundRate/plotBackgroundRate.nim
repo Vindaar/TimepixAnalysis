@@ -3,7 +3,7 @@ import std / os except FileInfo
 import ingrid / [tos_helpers, ingrid_types]
 from arraymancer import tensor
 
-import nimhdf5, numericalnim, unchained
+import nimhdf5, numericalnim, unchained, measuremancer
 
 import ggplotnim / ggplot_vegatex
 
@@ -32,6 +32,14 @@ for dkKind in InGridDsetKind:
 
 var noisyPixels = newSeq[(int, int)]()
 import unchained
+proc scaleCounts(count: float, totalTime, factor: float, region: ChipRegion): float =
+  var area = areaOf region
+  let pixSize = 55.MicroMeter * 55.MicroMeter
+  let removedSize = noisyPixels.len * pixSize
+  area = area - removedSize.to(cm²)
+  let scale = factor / (totalTime * area.float)
+  result = count.float * scale
+
 proc scaleDset(data: Column, totalTime, factor: float, region: ChipRegion): Column =
   ## scales the data in `data` according to the area of the gold region,
   ## total time and bin width. The data has to be pre binned of course!
@@ -303,17 +311,24 @@ proc flatScaleMedian(df: DataFrame, factor: float, totalTime: float, region: Chi
     result.pretty(-1)
 
 proc calcIntegratedBackgroundRate(df: DataFrame, factor: float,
-                                  energyRange: Slice[float] = 0.0 .. 10.0): float =
+                                  energyRange: Slice[float] = 0.0 .. 10.0): Measurement[float] =
   ## returns the integrated background rate given by the Rate
   ## stored in the given DataFrame, integrated over the energy
   ## range stored in the DF (typically that should be 0 - 10 keV)
   ##
   ## It is assumed that the energy is given in keV and the rate in
   ## keV⁻¹ cm⁻² s⁻¹.
-  let df = df.filter(f{float: `Energy` >= energyRange.a and `Energy` <= energyRange.b})
-  let energies = df[Ecol].toTensor(float)
-  let rate = df[Rcol].toTensor(float)
-  result = trapz(rate.toSeq1D, energies.toSeq1D) / factor
+  let df = df.filter(f{float: idx(Ecol) >= energyRange.a and idx(Ecol) <= energyRange.b})
+  let energies = df[Ecol, float]
+  let rate = df[Rcol, float].toSeq1D
+  let rateErr = df["RateErr", float].toSeq1D
+  let rateMeas = toSeq(0 ..< rate.len).mapIt(rate[it] ± rateErr[it])
+  let binWidth = energies[1] - energies[0]
+  proc sum[T](s: seq[T]): T = ## We use a custom sum, because `std/math` is a `func`...
+    for x in s: result = result + x
+  result = rateMeas.sum * binWidth / factor # manual integration of the histogram
+                                            # avoids interpolation artefacts
+  #result = trapz(rateMeas, energies.toSeq1D) / factor
 
 proc computeMedianBools(df: DataFrame): DataFrame =
   var df = df
@@ -512,8 +527,8 @@ proc plotEfficiencyComparison(files: seq[LogLFile], outpath: string, region: Chi
 
 import orgtables
 proc printBackgroundRates(df: DataFrame, factor: float, energyMin: float, rateTable: string) =
-  type Line = tuple[Classifier: string, ε_eff: float, Scinti, FADC, Septem, Line: bool, ε_total, Rate: float]
-  proc toLine(df: DataFrame, backRate: float): Line =
+  type Line = tuple[Classifier: string, ε_eff: float, Scinti, FADC, Septem, Line: bool, ε_total: float, rateMeas: Measurement[float], Rate: string]
+  proc toLine(df: DataFrame, backRate: Measurement[float]): Line =
     result = (Classifier : df["Classifier"].unique.item(string),
               ε_eff      : df["ε_eff"].unique.item(float),
               Scinti     : df["Scinti"].unique.item(bool),
@@ -521,7 +536,8 @@ proc printBackgroundRates(df: DataFrame, factor: float, energyMin: float, rateTa
               Septem     : df["Septem"].unique.item(bool),
               Line       : df["Line"].unique.item(bool),
               ε_total    : df["ε_total"].unique.item(float),
-              Rate       : backRate)
+              rateMeas   : backRate, # measurement as rate, to sort by
+              Rate       : pretty(backRate, 4, merge = true)) # store `Rate` as a string to handle uncertainty formatting here!
 
   proc intBackRate(df: DataFrame, factor: float, energyRange: Slice[float]): seq[Line] {.discardable.} =
     result = newSeq[Line]()
@@ -529,12 +545,22 @@ proc printBackgroundRates(df: DataFrame, factor: float, energyMin: float, rateTa
       let f = tup[0][1].toStr
       let intBackRate = calcIntegratedBackgroundRate(subDf, factor, energyRange)
       let size = energyRange.b - energyRange.a
+      let r = pretty(intBackRate, precision = 4, merge = true)
+      let rkeV = pretty(intBackRate / size, precision = 4, merge = true)
+
+      # let's calculate by hand
+      let counts = subDf.filter(f{float -> bool: idx(Ecol) >= energyRange.a and idx(Ecol) <= energyRange.b})[Ccol, float].sum
+      let time = subDf["totalTime"].unique.item(float).Hour
+      let rate = counts.scaleCounts(time.to(Second).float, 1.0, crGold) / size
+      let err = sqrt(counts).scaleCounts(time.to(Second).float, 1.0, crGold) / size
+      echo "Manual rate = ", pretty(rate ± err, precision = 4, merge = true)
+
       log(true): # always print
         &"Dataset: {f}"
       log(true): # for some reason cannot have in one, shrug
-        &"\t Integrated background rate in range: {energyRange}: {intBackRate:.4e} cm⁻²·s⁻¹"
+        &"\t Integrated background rate in range: {energyRange}: {r} cm⁻²·s⁻¹"
       log(true):
-        &"\t Integrated background rate/keV in range: {energyRange}: {intBackRate / size:.4e} keV⁻¹·cm⁻²·s⁻¹"
+        &"\t Integrated background rate/keV in range: {energyRange}: {rkeV} keV⁻¹·cm⁻²·s⁻¹"
 
       result.add toLine(subDf, intBackRate / size)
 
@@ -546,6 +572,7 @@ proc printBackgroundRates(df: DataFrame, factor: float, energyMin: float, rateTa
     intBackRate(df, factor, max(energyMin, 4.0) .. 8.0)
     intBackRate(df, factor, max(energyMin, 2.0) .. 8.0)
   let tab = intBackRate(df, factor, max(energyMin, 0.0) .. 8.0)
+    .sortedByIt(it.rateMeas)
   if rateTable.len > 0:
     writeFile(rateTable, tab.toOrgTable(precision = 3))
   echo tab.toOrgTable(precision = 3)
@@ -625,9 +652,9 @@ proc main(files: seq[string], log = false, title = "",
     if names.len > 0:
       doAssert names.len == files.len, "Need one name for each input file!"
       #for logL in logLFiles:
-      df.add flatScale(logLFiles, factor, region, verbose)
+      df.add flatScale(logLFiles, factor, region, verbose, dropCounts = false)
     elif separateFiles:
-      df = flatScale(logLFiles, factor, region, verbose)
+      df = flatScale(logLFiles, factor, region, verbose, dropCounts = false)
     elif logLFiles.len > 0:
       # add up all input files
       var logL: LogLFile
@@ -650,7 +677,7 @@ proc main(files: seq[string], log = false, title = "",
         raise newException(ValueError, "separateFiles == true requires a `combName`!")
       if logL.year == 0:
         raise newException(ValueError, "separateFiles == true requires a `combYear`!")
-      df = flatScale(@[logL], factor, region, verbose)
+      df = flatScale(@[logL], factor, region, verbose, dropCounts = false)
     # else no input files. Only 2014 data to plot
     #if separateFiles:
     #  for logL in logLFiles:

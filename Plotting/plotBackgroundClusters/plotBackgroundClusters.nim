@@ -244,7 +244,7 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
                   preliminary: bool,
                   showGoldRegion: bool,
                   asSinglePlot: bool,
-                  fWidth: float) =
+                  fWidth, textWidth, textSize, pointSize: float) =
   let outpath = if outpath.len > 0: outpath else: "plots"
   var colorCol: string
   let totalEvs = df.len
@@ -289,13 +289,13 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
         dfText = df.filter(f{float -> bool: (128.0 - `x`)^2 + (128.0 - `y`)^2 < energyTextRadius^2})
       plt = plt + geom_text(data = dfText,
                             aes = aes(y = f{`y` + 3}, text = "Energy [keV]"),
-                            font = font(10.0, alignKind = taLeft))
+                            font = font(textSize, alignKind = taLeft))
 
     # Add the main point geom
     if colorBy == count and  maxCount < 10:
-      plt = plt + geom_point(aes = aes(color = factor(colorCol)), size = some(scale * 1.0))
+      plt = plt + geom_point(aes = aes(color = factor(colorCol)), size = some(scale * pointSize))
     else:
-      plt = plt + geom_point(aes = aes(color = colorCol), size = some(scale * 1.0)) +
+      plt = plt + geom_point(aes = aes(color = colorCol), size = some(scale * pointSize)) +
         scale_color_continuous(scale = (low: 0.0, high: zMax))
 
     if preliminary:
@@ -325,8 +325,8 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
       let dataPng = totalEvs > 5000
       plt + ggtitle(title & r". \# clusters = " & $totalEvs) +
         #theme_scale(scale) +
-        themeLatex(fWidth = fWidth, width = 600, baseTheme = baseTheme) +
         margin(top = 1.75, right = 4.5) +
+        themeLatex(fWidth = fWidth, width = 600, baseTheme = baseTheme, textWidth = textWidth) +
         coord_fixed(1.0) +
         #legendPosition(0.8, 0.0) +
         ggsave(fname, width = 800, height = 600, useTeX = true, standalone = true, dataAsBitmap = dataPng)
@@ -443,7 +443,10 @@ proc main(
   showGoldRegion = false,
   scale = 1.0, # Scale the output image and all texts etc. by this amount. Default is 640x480
   switchAxes = false, # if true, will replace X by Y (to effectively rotate the clusters into CAST setup)
-  fWidth = -1.0
+  fWidth = -1.0,
+  textWidth = 458.29268,
+  textSize = 10.0,
+  pointSize = 1.0
      ) =
 
   if energyText and colorBy == count:
@@ -465,7 +468,7 @@ proc main(
       dfLoc["Type"] = names[i]
       df.add dfLoc
 
-  plotClusters(df, names, useTikZ, zMax, colorBy, energyText, energyTextRadius, suffix, title, outpath, axionImage, scale, preliminary, showGoldRegion, singlePlot, fWidth)
+  plotClusters(df, names, useTikZ, zMax, colorBy, energyText, energyTextRadius, suffix, title, outpath, axionImage, scale, preliminary, showGoldRegion, singlePlot, fWidth, textWidth, textSize, pointSize)
   # `df.len` is total number clusters
   if backgroundSuppression:
     doAssert names.len == 0, "Suppression plot when handing multiple files that are not combined not supported."

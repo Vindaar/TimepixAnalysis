@@ -1573,7 +1573,7 @@ proc logLFullUncertain(ctx: Context, candidates: seq[Candidate]): float =
     let sig = ctx.expectedSignalNoRaytrace(c.energy)
     cSigBack[i] = (sig.float,
                    ctx.background(c.energy, c.pos).float)
-  echo "Romberg integration for ", ctx.g_ae²
+  echo "Romberg integration for ", ctx.coupling
   proc likeX(ϑ_x: float, nc: NumContext[float, float]): float =
     ctx.ϑ_x = ϑ_x
     proc likeY(ϑ_y: float, nc: NumContext[float, float]): float =
@@ -1987,6 +1987,22 @@ proc mcmcLinesStyle(): Theme =
     margin(left = 3.75, right = 4.5) +
     continuousLegendWidth(0.75) + continuousLegendHeight(3.0)
 
+proc getUpperCouplingRange(ctx: Context): float =
+  case ctx.couplingKind
+  of ck_g_ae²:       result = 1.4e-20
+  of ck_g_ae²·g_aγ²: result = 1.4e-20^2
+  of ck_g_aγ⁴:       result = 1.4e-40
+  of ck_β⁴:          result = 2.5e42
+  else: doAssert false
+
+proc getXLabel(coupling: CouplingKind): string =
+  case coupling
+  of ck_g_ae²:       result = r"$g²_{ae}$"
+  of ck_g_ae²·g_aγ²: result = r"$g²_{ae}·g²_{aγ}$"
+  of ck_g_aγ⁴:       result = r"$g⁴_{aγ}$"
+  of ck_β⁴:          result = r"$β⁴_γ$"
+  else: doAssert false
+
 proc plotChain(ctx: Context, cands: seq[Candidate], chainDf: DataFrame,
                limit: float, computeIntegral = false,
                mcmcHistoOutfile = "",
@@ -2023,17 +2039,19 @@ proc plotChain(ctx: Context, cands: seq[Candidate], chainDf: DataFrame,
     let hMax = hist.max
     var Ls = newSeq[float]()
     ## XXX: make adaptive for coupling kind!
-    let coups = linspace(0.0, 1.4e-20, 20)
-    if not fileExists("/tmp/likelihood.bin"):
+    let upperCoupling = getUpperCouplingRange(ctx)
+    let coups = linspace(0.0, upperCoupling, 20)
+    let binary = &"/tmp/likelihood_{ctx.couplingKind}.bin"
+    if not fileExists(binary):
       echo "Computing the integration"
       let t0 = epochTime()
       for i, gae in coups:
         echo "At idx ", i
         Ls.add ctx.evalAt(cands, gae)
       echo "Integration took ", epochTime() - t0
-      writeFile("/tmp/likelihood.bin", Ls.toFlatty())
+      writeFile(binary, Ls.toFlatty())
     else:
-      Ls = fromFlatty(readFile("/tmp/likelihood.bin"), seq[float])
+      Ls = fromFlatty(readFile(binary), seq[float])
       echo "Limit from Ls ", coups[cdfUnequal(Ls.mapIt(it.float), coups).lowerBound(0.95)]
     let Lmax = Ls.max
     echo "LS max ", Lmax
@@ -2092,7 +2110,7 @@ proc plotChain(ctx: Context, cands: seq[Candidate], chainDf: DataFrame,
         hdKind = hdOutline, lineWidth = 1.5, fillColor = "red") +
       annotate(x = bins[c95IdxHisto], y = hist[c95IdxHisto].float + 500.0,
                text = "Limit at 95% area") +
-      xlab("g_ae²") + ylab("L (MCMC sampled)") +
+      xlab(getXlabel(ctx.couplingKind)) + ylab("L (MCMC sampled)") +
       ggtitle(title) +
       margin(left = 2.75) +
       thL(fWidth = 0.9, width = Width, forceWidth = true)
@@ -2466,14 +2484,42 @@ proc computeMCMC(ctx: Context, rnd: var Random, cands: seq[Candidate]): DataFram
 proc computeMCMCLimit(ctx: Context, rnd: var Random, cands: seq[Candidate],
                       mcmcHistoOutfile = "",
                       title = "",
-                      as_gae_gaγ = false): float =
+                      as_gae_gaγ = false,
+                      plotChain = true): float =
   ## Computes the MCMC via `computeMCMC` and uses it to determine the limit.
   ## Additionally makes a plot of the data.
   let chainDf = ctx.computeMCMC(rnd, cands)
   result = computeLimitFromMCMC(chainDf)
-  ctx.plotChain(cands, chainDf, result, computeIntegral = false,
-                mcmcHistoOutfile = mcmcHistoOutfile, title = title,
-                as_gae_gaγ = as_gae_gaγ)
+  if plotChain:
+    ctx.plotChain(cands, chainDf, result, computeIntegral = false,
+                  mcmcHistoOutfile = mcmcHistoOutfile, title = title,
+                  as_gae_gaγ = as_gae_gaγ)
+
+proc computeParallelLimits(ctx: Context, limitKind: LimitKind, nmc, jobs: int,
+                           cands: seq[Candidate] = @[],
+                           plotChain = true): seq[(float, int)]
+
+proc convertLimit(limit: float, coupling: CouplingKind): float =
+  case coupling
+  of ck_g_ae²: result = sqrt(limit) * 1e-12 ## XXX: use context
+  of ck_g_ae²·g_aγ²: result = sqrt(limit)
+  of ck_g_aγ⁴: result = pow(limit, 0.25)
+  of ck_β⁴: result = pow(limit, 0.25)
+  else: doAssert false
+
+proc computeLimitStd(ctx: Context, rnd: var Random, nmc, jobs: int, cands: seq[Candidate]): (float, float, float) =
+  let limitTups = ctx.computeParallelLimits(lkMCMC, nmc, jobs, cands, plotChain = false)
+  var limits = limitTups.mapIt(it[0].convertLimit(ctx.couplingKind))
+  let p1 = limits.percentile(1)
+  let p99 = limits.percentile(99)
+  limits = limits.filterIt(it > p1 and it < p99) # arg 1 is `candsInSens`. Irrelevant here.
+  result = (limits.mean, limits.median, limits.standardDeviation)
+
+  let df = toDf(limits)
+  df.writeCsv("/tmp/limits.csv")
+  ggplot(df, aes("limits")) +
+    geom_histogram() +
+    ggsave("/tmp/limits.pdf")
 
 proc setCouplingSignalOverBackground(ctx: Context) =
   ## Sets the coupling constant so that `candsInSens` or `plotCandsSigOverBack` produces comparable
@@ -2483,7 +2529,7 @@ proc setCouplingSignalOverBackground(ctx: Context) =
   of ck_g_ae²·g_aγ²: ctx.coupling = 8.1e-11 * 1e-12
   of ck_g_ae·g_aγ:   ctx.coupling = 8.1e-11 * 1e-12
   of ck_g_aγ⁴:       ctx.coupling = 7e-11^4 # a bit above nature limit
-  of ck_β⁴:          ctx.coupling = 3.75e10^4 # a bit above christoph limit
+  of ck_β⁴:          ctx.coupling = 3.75e10^4
   #else: doAssert false, "`candsInSens` currently not implemented for couplingKind: " & $ctx.couplingKind
 
 proc candsInSens(ctx: Context, cands: seq[Candidate], cutoff = 0.5): int =
@@ -2502,7 +2548,8 @@ proc computeLimit(ctx: Context, rnd: var Random,
                   toPlot: static bool = false,
                   mcmcHistoOutfile = "",
                   title = "",
-                  as_gae_gaγ = false): float =
+                  as_gae_gaγ = false,
+                  plotChain = true): float =
   #{.cast(gcsafe).}:
   case limitKind
   of lkBayesScan:
@@ -2511,7 +2558,8 @@ proc computeLimit(ctx: Context, rnd: var Random,
     result = ctx.computeMCMCLimit(rnd, cands,
                                   mcmcHistoOutfile = mcmcHistoOutfile,
                                   title = title,
-                                  as_gae_gaγ = as_gae_gaγ)
+                                  as_gae_gaγ = as_gae_gaγ,
+                                  plotChain = plotChain)
   else:
     doAssert false, "Unsupported limit calculation type"
 
@@ -2768,45 +2816,87 @@ proc computeRealLimit(ctx: Context, rnd: var Random, limitKind: LimitKind,
   #echo cands
   let outfile = outpath / "real_candidates_signal_over_background.pdf"
 
+  proc couplingStr(ctx: Context): string =
+    case ctx.couplingKind
+    of ck_g_ae²:       result = &"g_ae = {sqrt(ctx.coupling)}, g_aγ = {sqrt(ctx.g_aγ²)}"
+    of ck_g_ae²·g_aγ²: result = &"g_ae·g_aγ = {sqrt(ctx.coupling)}"
+    of ck_g_aγ⁴:       result = &"g_aγ = {pow(ctx.coupling, 0.25)}"
+    of ck_β⁴:          result = &"β_γ = {pow(ctx.coupling, 0.25)}"
+    else: doAssert false
+
   log.info(&"Number of candidates in sensitive region ln(1 + s/b) > 0.5 (=cutoff): {ctx.candsInSens(cands)}")
   ctx.plotCandsSigOverBack(log, cands, outfile,
                            "ln(1 + s/b) for the real candidates. " &
-                           &"g_ae = {sqrt(ctx.coupling)}, g_aγ = {sqrt(ctx.g_aγ²)}",
+                           couplingStr(ctx),
                            textCutoff = 0.1,
                            textFn = f{float: (if idx("s/b") > 0.5: `ys` + 0.3 else: `ys` - 0.3)})
+
+  ## Determine variance of the real limits, simply based on MCMC statistics
 
   ## Here we manually compute the MCMC etc instead of using `computeLimit` to have the
   ## entire MCMC on hand for further plots.
   var chainDf = ctx.computeMCMC(rnd, cands)
   let limit = computeLimitFromMCMC(chainDf, "gs") # limit from `g_ae²` directly
-  ## Now we will add a few columns to the MCMC DF to compute the limits via
-  ## other methods. It's a simple sanity check to see that in our case the
-  ## limit does not depend on `g_ae²`, `g_ae·g_aγ`, `g_ae²·g_aγ²` or whatever
-  ## we sample with. This is expected of course, because transforming between
-  ## them is a monotonic transformation and our limit is computed by getting
-  ## a specific quantile, which of course does not change by transforming monotonically!
-  chainDf = chainDf.mutate(f{"g_ae²·g_aγ²" ~ `gs` * ctx.g_aγ²},
-                           f{"g_ae·g_aγ" ~ sqrt(`gs` * ctx.g_aγ²)})
-  let limitG4 = computeLimitFromMCMC(chainDf, "g_ae²·g_aγ²")
-  let limitG2FromG4 = sqrt(limitG4)
-  let limitG2 = computeLimitFromMCMC(chainDf, "g_ae·g_aγ")
 
-  log.info(&"Real limit based on 3 150k long MCMCs: g_ae² = {limit}, g_ae·g_aγ = {sqrt(limit * ctx.g_aγ²)}")
-  log.info(&"Limits based on transformed data (sanity check; expectation: same limit due to monotonic " &
-    "transformation that does not change the quantiles.")
-  log.info(&"Limit g_ae²              = {limit}")
-  log.info(&"Limit g_ae²·g_aγ²        = {limitG4}")
-  log.info(&"Limit g_ae·g_aγ (via g⁴) = {limitG2FromG4}")
-  log.info(&"Limit g_ae·g_aγ (direct) = {limitG2}")
+
+  const nmc = 200
+  const jobs = 30
+  let (limitMean, limitMedian, limitStd) = ctx.computeLimitStd(rnd, nmc, jobs, cands)
+
+  log.info(&"Mean of {nmc} real limits (3·150k MCMC) = {limitMean:.6e}")
+  log.info(&"Median of {nmc} real limits (3·150k MCMC) = {limitMedian:.6e}")
+  log.info(&"σ of {nmc} real limits (3·150k MCMC) = {limitStd:.6e}")
+  log.info(&"Combined real limit (200 times 3·150k MCMC) = {pretty(limitMean ± limitStd, precision = 4, merge = true)}")
+
+  proc limitStr(ctx: Context, limit: float): string =
+    case ctx.couplingKind
+    of ck_g_ae²:       result = &"g_ae² = {limit}, g_ae·g_aγ = {sqrt(limit * ctx.g_aγ²)}"
+    of ck_g_ae²·g_aγ²: result = &"g_ae·g_aγ = {sqrt(limit)}"
+    of ck_g_aγ⁴:       result = &"g_aγ = {pow(limit, 0.25)}"
+    of ck_β⁴:          result = &"β_γ = {pow(limit, 0.25)}"
+    else: doAssert false
+
+  let limitTxt = ctx.limitStr(limit)
+  log.info(&"Real limit based on 3 150k long MCMCs: {limitTxt}")
 
   let likelihoodHisto = outpath / "mcmc_real_limit_likelihood"
-  ctx.plotChain(cands, chainDf, limit, computeIntegral = false,
-                mcmcHistoOutfile = likelihoodHisto & "_g_ae_gag.pdf",
-                title = r"Likelihood of real candidates against $g_{ae}·g_{aγ}$",
-                as_gae_gaγ = true)
+  if ctx.couplingKind == ck_g_ae²:
+    ## Now we will add a few columns to the MCMC DF to compute the limits via
+    ## other methods. It's a simple sanity check to see that in our case the
+    ## limit does not depend on `g_ae²`, `g_ae·g_aγ`, `g_ae²·g_aγ²` or whatever
+    ## we sample with. This is expected of course, because transforming between
+    ## them is a monotonic transformation and our limit is computed by getting
+    ## a specific quantile, which of course does not change by transforming monotonically!
+    chainDf = chainDf.mutate(f{"g_ae²·g_aγ²" ~ `gs` * ctx.g_aγ²},
+                             f{"g_ae·g_aγ" ~ sqrt(`gs` * ctx.g_aγ²)})
+    let limitG4 = computeLimitFromMCMC(chainDf, "g_ae²·g_aγ²")
+    let limitG2FromG4 = sqrt(limitG4)
+    let limitG2 = computeLimitFromMCMC(chainDf, "g_ae·g_aγ")
+    log.info(&"Limits based on transformed data (sanity check; expectation: same limit due to monotonic " &
+      "transformation that does not change the quantiles.")
+    log.info(&"Limit g_ae²              = {limit}")
+    log.info(&"Limit g_ae²·g_aγ²        = {limitG4}")
+    log.info(&"Limit g_ae·g_aγ (via g⁴) = {limitG2FromG4}")
+    log.info(&"Limit g_ae·g_aγ (direct) = {limitG2}")
+
+    # `as_gae_gaγ` only makes sense for ck_g_ae² too
+    ctx.plotChain(cands, chainDf, limit, computeIntegral = false,
+                  mcmcHistoOutfile = likelihoodHisto & "_g_ae_gag.pdf",
+                  title = r"Likelihood of real candidates against $g_{ae}·g_{aγ}$",
+                  as_gae_gaγ = true)
+
+  proc getTitleArg(coupling: CouplingKind): string =
+    case ctx.couplingKind
+    of ck_g_ae²:       result = r"$g²_{ae}$"
+    of ck_g_ae²·g_aγ²: result = r"$g²_{ae}·g_{aγ}$"
+    of ck_g_aγ⁴:       result = r"$g_{aγ}$"
+    of ck_β⁴:          result = r"$β_γ$"
+    else: doAssert false
+
+  let arg = getTitleArg(ctx.couplingKind)
   ctx.plotChain(cands, chainDf, limit, computeIntegral = true,
-                mcmcHistoOutfile = likelihoodHisto & "_g_ae2.pdf",
-                title = r"Likelihood of real candidates against $g²_{ae}$",
+                mcmcHistoOutfile = &"{likelihoodHisto}_{ctx.couplingKind}.pdf",
+                title = &"Likelihood of real candidates against {arg}",
                 as_gae_gaγ = false)
 
 
@@ -3006,14 +3096,20 @@ when true:
          for i in 0 ..< p.nmc:
            echo "MC index ", i
            ctx.mcIdx = i
-           let cands = ctx.drawCandidates(rnd)
-           let limit = ctx.computeLimit(rnd, cands, limitKind)
+           # Sample new candidates, if none given from parent process!
+           let cands = if cands.len > 0: cands
+                       else: ctx.drawCandidates(rnd)
+           let limit = ctx.computeLimit(rnd, cands, limitKind, plotChain = plotChain)
            let cInSens = candsInSens(ctx, cands)
            results.add (limit, cInSens)
          # o.urite toString(results), '\0')
          echo "Bytes: ", w.wrLenSeq results)
 
-  proc computeParallelLimits(ctx: Context, limitKind: LimitKind, nmc, jobs: int): seq[(float, int)] =
+  proc computeParallelLimits(ctx: Context, limitKind: LimitKind, nmc, jobs: int,
+                             cands: seq[Candidate] = @[],
+                             plotChain = true): seq[(float, int)] =
+    ## If `cands` given, each worker will only compute limits of those candidates!
+    ## Mainly intended for sanity checks and real limits!
     var nJobs = if jobs > 0: jobs else: countProcessors() - 2
     if nmc < nJobs:
       nJobs = nmc
@@ -4671,7 +4767,7 @@ proc sanityCheckChameleonLimit(ctx: Context, log: Logger) =
     let outfile = SanityPath / "candidates_signal_over_background_chameleon.pdf"
     ctx.plotCandsSigOverBack(log, cands, outfile,
                              "ln(1 + s/b) for the real candidates. " &
-                             &"g_aγ = {sqrt(ctx.coupling)}",
+                             &"β_γ = {pow(ctx.coupling, 0.25)}",
                              textCutoff = Inf)
                              #textFn = f{float: (if idx("s/b") > 0.5: `ys` + 0.3 else: `ys` - 0.3)})
 
@@ -5035,6 +5131,7 @@ proc limit(
     as_gae_gaγ = false,
     outpath = "/tmp/",
     suffix = "",
+    rombergIntegrationDepth = 5,
     jobs = 0,
     switchAxes = false # If true will exchange X and Y positions of clusters, to view as detector installed at CAST
                        # (see sec. `sec:limit:candidates:septemboard_layout_transformations` in thesis)
@@ -5066,7 +5163,8 @@ proc limit(
     septemLineVetoRandomCoinc = septemLineVetoRandomCoinc,
     energyMin = energyMin, energyMax = energyMax,
     switchAxes = switchAxes,
-    couplingKind = couplingKind
+    couplingKind = couplingKind,
+    rombergIntegrationDepth = rombergIntegrationDepth
   ) # from sqrt(squared sum of x / 7) position uncertainties
     # large values of σ_sig cause NaN and grind some integrations to a halt!
     ## XXX: σ_sig = 0.3)
@@ -5075,10 +5173,6 @@ proc limit(
   # writeFile(&"/tmp/reference_candidates_{count}_s_{ctx.σsb_sig}_b_{ctx.σsb_back}.bin", cands.toFlatty())
   #let cands = newSeq[Candidate]() #fromFlatty(readFile("/tmp/reference_candidates_1001_s_0.3_b_0.05.bin"), seq[Candidate]) # drawCandidates(ctx, rnd, toPlot = true)
 
-  let cands = drawCandidates(ctx, rnd, toPlot = true)
-  plotCandidates(cands)
-  ctx.coupling = 1e-10 * 1e-10 #limit
-  ## XXX: differentiate serial or parallel limits
   if computeLimit:
     echo ctx.monteCarloLimits(rnd, limitKind, nmc = nmc)
     return

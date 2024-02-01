@@ -486,7 +486,7 @@ proc readNextChunk(data: var seq[uint32], h5f: var H5File, inputDset: var H5Data
         inc batchIdx
       # regardless, we succeeded (even if we didn't have anything to do)
       success = true
-    except HDF5BloscDecompressionError:
+    except HDF5BloscDecompressionError, HDF5LibraryError:
       # faled to decompress blosc data! update indices, continue and try again
       echo "[WARN]: Decompression of batch after ", batchIdx, " failed!"
       inc processedIdx, (toIdx - fromIdx) # skip `batchSize` words (mark them "processed")

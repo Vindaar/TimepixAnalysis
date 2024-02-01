@@ -911,10 +911,9 @@ proc fitToFeSpectrum*(h5f: H5File, runNumber, chipNumber: int,
   # `--only_fadc` must have been run nowadays. We only compute the `minVals` in the actual FADC reconstruction
   # now!
   let fadcGroup = fadcRecoPath(runNumber)
-  echo "CHECKIN GROUP?? ", fadcGroup
-  echo "Is it done? ", isDone(h5f, fadcGroup, $rfOnlyFeSpec & "FADC", overwrite)
-  if not isDone(h5f, fadcGroup, $rfOnlyFeSpec & "FADC", overwrite) and
-     h5f.hasFadc(runNumber) and minValBasename(runNumber) in h5f:
+  if h5f.hasFadc(runNumber) and
+     not isDone(h5f, fadcGroup, $rfOnlyFeSpec & "FADC", overwrite) and
+     minValBasename(runNumber) in h5f:
     ## Also fit the 55Fe spectrum in the FADC data
     ## XXX: in the future `minvals` may be replaced by a "charge" equivalent based on
     ## an integral of the signal!

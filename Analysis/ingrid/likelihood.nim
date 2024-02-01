@@ -100,14 +100,9 @@ proc calcLogLikelihood*(h5f: var H5File,
   ##     # elements / # total in histogram = likelihood. Take log
   for (num, group) in runs(h5f):
     echo &"Start logL calc of run {group}"
-    # get number of chips from attributes
-    var run_attrs = h5f[group.grp_str].attrs
-
     var logL_chips = newSeq[seq[float64]](ctx.vetoCfg.numChips)
-
+    # iterate over all chips and perform logL calcs
     for (_, chipNumber, grp) in chipGroups(h5f, group):
-      # iterate over all chips and perform logL calcs
-      var attrs = h5f[grp.grp_str].attrs
       let logL = calcLikelihoodDataset(h5f, grp, ctx)
       # after walking over all events for this chip, add to correct
       # index for logL
@@ -1788,17 +1783,16 @@ proc main(
 
   # get data to read info to store in context
   let cdlStretch = initCdlStretch(Fe55, cdlFile)
-  let rootGrp = h5f[recoGroupGrpStr()]
+  let rootGrp = h5f[recoGroupGrpStr()] # is actually `reconstruction`
   let centerChip = rootGrp.attrs["centerChip", int]
-
-  ## XXX: add `numChips` to root group!
-  #let numChips = rootGrp.attrs["numChips", int]
+  let numChips = if "numChips" in rootGrp.attrs: rootGrp.attrs["numChips", int]
+                 else: 7 # default to 7 for old files!
 
   var ctx = initLikelihoodContext(cdlFile, year, region, energyDset, timepix,
                                   readMorphKind(),
                                   cdlStretch,
                                   centerChip = centerChip,
-                                  #numChips = numChips,
+                                  numChips = numChips,
                                   # misc,
                                   useTeX = useTeX,
                                   # NN cut

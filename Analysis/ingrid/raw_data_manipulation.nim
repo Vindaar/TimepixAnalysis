@@ -570,6 +570,7 @@ proc writeRawAttrs*(h5f: var H5File,
   let (centerChip, centerName) = getCenterChipAndName(run)
   rawG.attrs["centerChip"] = centerChip
   rawG.attrs["centerChipName"] = centerName
+  rawG.attrs["numChips"] = run.nChips
 
   ## Write global variables of `raw_data_manipulation`
   rawG.attrs["raw_data_manipulation_version"] = commitHash

@@ -345,13 +345,14 @@ proc computeMedianBools(df: DataFrame): DataFrame =
   result = df.gather(medianNames, key = "Variable", value = "Value")
 
 proc addNoisyPixels() =
-  for x in 150 .. 175:
-    for y in 130 .. 162:
-      noisyPixels.add (x, y)
-
-  for x in 125 .. 135:
-    for y in 110 .. 120:
-      noisyPixels.add (x, y)
+  ## Adds certain pixels to the noise filter to not count them for the background rate.
+  ## IMPORTANT: These pixels here are for the Timepix3 based test detector!
+  proc maskPixels(xr, yr: (int, int)) =
+    for x in xr[0] .. xr[1]:
+      for y in yr[0] .. yr[1]:
+        noisyPixels.add (x, y)
+  maskPixels( (150, 175), (130, 162) )
+  maskPixels( (125, 135), (110, 120) )
 
 proc plotMedianBools(df: DataFrame, fnameSuffix, title: string,
                      suffix, outpath: string, verbose: bool) =

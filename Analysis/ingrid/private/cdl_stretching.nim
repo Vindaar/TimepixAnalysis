@@ -103,27 +103,13 @@ proc readFe55File(fname: string): DataFrame =
 
 proc readCdlData(dfFe: DataFrame, energy: float, cdlFile: string): DataFrame =
   # map input fake energy to reference dataset
+  ## XXX: or should we read all columns in `dfFe` as previously?
+  const Dsets = [igEccentricity, igFractionInTransverseRms, igLengthDivRmsTrans]
   let grp = energy.toRefDset()
-  let passedInds = block:
-    var res = newSeqOfCap[int](100_000)
-    withLogLFilterCuts(cdlFile, grp, yr2018, igEnergyFromCharge, LogLCutDsets):
-      res.add i
-    res
-  const xray_ref = getXrayRefTable()
   result = newDataFrame()
-  let h5f = H5open(cdlFile, "r")
-  for dset in IngridDsetKind:
-    try:
-      let d = dset.toDset()
-      if d notin dfFe: continue # skip things not in input
-      var cdlFiltered = newSeq[float](passedInds.len)
-      let cdlRaw = h5f[cdlGroupName(grp, "2019", d), float]
-      for i, idx in passedInds:
-        cdlFiltered[i] = cdlRaw[idx]
-      result[d] = cdlFiltered
-    except AssertionError:
-      continue
-  discard h5f.close()
+  withLogLFilterCuts(cdlFile, grp, yr2018, igEnergyFromCharge, LogLCutDsets):
+    for d in Dsets:
+      result[d.toDset()] = data[d]
 
 proc toEdf(x: seq[float], bins: seq[float]): seq[float] =
   ## Computes the EDF of the input data `x` given some `bins`.

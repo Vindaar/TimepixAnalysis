@@ -112,7 +112,7 @@ proc plotFeSpectrum*(feSpec: FeSpecFitData,
              left = 0.02,
              bottom = 0.4,
              font = font(12.0, family = "monospace")) +
-    themeLatex(fWidth = 0.5, width = 600, height = 360, baseTheme = sideBySide) +
+    themeLatex(fWidth = 0.5, width = 600, height = 360, baseTheme = sideBySide, useTeX = useTeX) +
     ggtitle(&"Fe spectrum for run: {runNumber}{titleSuffix}") +
     ggsave(&"{pathPrefix}/fe_spec_run_{runNumber}_chip_{chipNumber}{suffix}.pdf",
            width = 600, height = 360,
@@ -154,7 +154,7 @@ proc plotFeEnergyCalib*(ecData: EnergyCalibFitData,
      xlab(xLabel) +
      ylab(yLabel) +
      margin(right = 3.5, left = 3.5) +
-     themeLatex(fWidth = 0.5, width = 600, height = 360, baseTheme = sideBySide) +
+     themeLatex(fWidth = 0.5, width = 600, height = 360, baseTheme = sideBySide, useTeX = useTeX) +
      ggtitle(&"{titlePrefix} response to X-rays for run: {runNumber}") +
      ggsave(&"{pathPrefix}/energy_calib_run_{runNumber}{suffix}.pdf",
             width = 600, height = 360,
@@ -204,7 +204,7 @@ proc plotGasGainVsChargeCalib*(gainVals, calib, calibErr: seq[float],
     annotate(annot, left = 0.5175, bottom = 0.35, font = font(family = "monospace")) +
     xlab("Gas gain 'G'") +
     ylab(ylabel) +
-    themeLatex(fWidth = fWidth, width = width, height = height, baseTheme = sideBySide) +
+    themeLatex(fWidth = fWidth, width = width, height = height, baseTheme = sideBySide, useTeX = useTeX) +
     ggtitle("Energy calibration factors vs gas gain") +
     ggsave(&"{pathPrefix}/gasgain_vs_energy_calibration_factors_{fnameHash}.pdf",
            width = width, height = height,

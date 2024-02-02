@@ -741,13 +741,10 @@ proc appliedConfig(fileInfo: FileInfo, config: Config): FileInfo =
   if fileInfo.tpaFileKind == tpkCDL:
     result.cdlGroup = config.cdlGroup
 
-proc plotHist(df: DataFrame, title, dset, outfile: string,
-              binS: float, binR: (float, float)
-             ): PlotV =
-  ## XXX: use `dset` as the column name!
-  ## plots the data in `x` as a histogram
+template prepareHistogramData(df: DataFrame, dset: string, binS: float, binR: (float, float)): untyped {.dirty.} =
+  ## A dirty template that is used in both the `plotHist` and `plotRidgeline` procedures
   if df.len == 0: return
-  var df = df.filter(fn {float: classify(`xs`) notin {fcInf, fcNegInf, fcNaN}})
+  df = df.filter(fn {float: classify(`xs`) notin {fcInf, fcNegInf, fcNaN}})
   if df.len == 0: return # if empty *now*, return
   let xs = df["xs", float].toSeq1D
   var binRange = binR
@@ -760,11 +757,17 @@ proc plotHist(df: DataFrame, title, dset, outfile: string,
   # now filter to bin range
   df = df.filter(fn {float: `xs` >= binRange[0] and
                             `xs` <= binRange[1]})
-
-  ## Nothing left to plot
-  if df.len == 0: return
-
   info &"Bin range {binRange} for dset: {dset}"
+
+proc plotHist(df: DataFrame, title, dset, outfile: string,
+              binS: float, binR: (float, float)
+             ): PlotV =
+  ## plots the data in `x` as a histogram
+  ## NOTE: dirty template, see above!
+  var df = df
+  prepareHistogramData(df, dset, binS, binR)
+  # Nothing left to plot
+  if df.len == 0: return
   case BKind
   of bPlotly:
     result = initPlotV(title, dset, "#")
@@ -799,6 +802,45 @@ proc plotHist(df: DataFrame, title, dset, outfile: string,
           scale_x_continuous() + scale_y_continuous() +
           result.theme # just add the theme directly
   else: discard
+
+proc plotRidgeline(df: DataFrame, title, dset, outfile: string,
+                   binS: float, binR: (float, float)
+                  ): PlotV =
+  ## plots the data in `x` as a histogram
+  ## NOTE: dirty template, see above!
+  var df = df
+  prepareHistogramData(df, dset, binS, binR)
+  # Nothing left to plot
+  if df.len == 0: return
+  case BKind
+  of bGgPlot:
+    result = initPlotV(title & " entries: " & $df.len, dset, "#")
+    let mTop = getEnv("T_MARGIN", "2.0").parseFloat
+    let overlap = getEnv("OVERLAP", "5.0").parseFloat
+    let useDensity = getEnv("DENSITY", "false").parseBool
+    if "runs" in df:
+      result.pltGg = ggplot(df, aes("xs", fill = factor("runs"))) +
+          ggridges("runs", overlap = overlap) +
+          margin(top = mTop) +
+          scale_x_continuous() + scale_y_continuous() +
+          result.theme # just add the theme directly
+      if useDensity:
+        result.pltGg = result.pltGg + geom_density(size = 1.0, color = "black")
+      else:
+        result.pltGg = result.pltGg +
+          geom_histogram(binWidth = binSize,
+                         position = "identity",
+                         hdKind = hdOutline,
+                         color = "black",
+                         lineWidth = 1.0)
+    else:
+      result.pltGg = ggplot(df, aes("xs")) +
+          geom_histogram(binWidth = binSize, hdKind = hdOutline) +
+          margin(top = mTop) +
+          scale_x_continuous() + scale_y_continuous() +
+          result.theme # just add the theme directly
+  else: discard
+
 
 proc plotBar[T](binsIn, countsIn: seq[seq[T]], title: string,
                 xlabel: string, dsets: seq[string],
@@ -953,27 +995,34 @@ proc histograms(h5f: H5File, runType: RunTypeKind,
     selectors = @[initSelector(config)]
 
   ## TODO: make datasets and chip regions selectable!
+  template asRidge(cfg, res, pd: untyped): untyped =
+    if cfg.separateRuns:
+      pd.plotKind = pkInGridDsetRidgeline
+      res.add pd
+
   for selector in selectors:
     if cfInGrid in config.flags:
       for ch in fileInfo.chips:
         for dset in concat(@InGridDsets, @ToADsets):
           let (binSize, binRange) = config.getBinSizeAndBinRange(dset)
-          result.add PlotDescriptor(runType: runType,
-                                    name: dset,
-                                    selector: selector,
-                                    runs: fileInfo.runs,
-                                    plotKind: pkInGridDset,
-                                    chip: ch,
-                                    isCenterChip: fileInfo.centerChip == ch,
-                                    binSize: binSize,
-                                    binRange: binRange,
-                                    splitBySec: config.splitBySec,
-                                    lastSliceError: config.lastSliceError,
-                                    dropLastSlice: config.dropLastSlice)
+          var pd = PlotDescriptor(runType: runType,
+                                  name: dset,
+                                  selector: selector,
+                                  runs: fileInfo.runs,
+                                  plotKind: pkInGridDset,
+                                  chip: ch,
+                                  isCenterChip: fileInfo.centerChip == ch,
+                                  binSize: binSize,
+                                  binRange: binRange,
+                                  splitBySec: config.splitBySec,
+                                  lastSliceError: config.lastSliceError,
+                                  dropLastSlice: config.dropLastSlice)
+          result.add pd
+          config.asRidge(result, pd)
     if cfFadc in config.flags:
       for dset in FadcDsets:
         let (binSize, binRange) = config.getBinSizeAndBinRange(dset)
-        result.add PlotDescriptor(runType: runType,
+        var pd = PlotDescriptor(runType: runType,
                                   name: dset,
                                   selector: selector,
                                   runs: fileInfo.runs,
@@ -983,6 +1032,8 @@ proc histograms(h5f: H5File, runType: RunTypeKind,
                                   splitBySec: config.splitBySec,
                                   lastSliceError: config.lastSliceError,
                                   dropLastSlice: config.dropLastSlice)
+        result.add pd
+        config.asRidge(result, pd)
 
 proc calcOccupancy[T](x, y: seq[T]): Tensor[float] =
   ## calculates the occupancy of the given x and y datasets
@@ -1848,8 +1899,28 @@ proc handleInGridDset(h5f: H5File,
   let title = buildTitle(pd)
   df = df.rename(f{"xs" <- pd.name})
   if df.len > 0:
-    let plot = plotHist(df, title, pd.name, outfile,
+    var plot = plotHist(df, title, pd.name, outfile,
                         pd.binSize, pd.binRange)
+    result = initPlotResult(outfile, plot)
+  else:
+    result = initInvalidPlotResult()
+
+proc handleInGridDsetRidgeline(h5f: H5File,
+                               fileInfo: FileInfo,
+                               pd: PlotDescriptor,
+                               config: Config): PlotResult =
+  var dfs = newSeq[DataFrame]()
+  for r in pd.runs:
+    dfs.add h5f.readDsets(pd, fileInfo, r, @[pd.name], pd.selector, separateRuns = config.separateRuns, chipNumber = pd.chip)
+  var df = dfs.assignStack()
+
+  let outfile = buildOutfile(pd, fileDir, fileType)
+  let title = buildTitle(pd)
+  df = df.rename(f{"xs" <- pd.name})
+  if df.len > 0:
+    doAssert "runs" in df, "runs columns does not exist. Must run with `separateRuns`."
+    var plot = plotRidgeline(df, title, pd.name, outfile,
+                             pd.binSize, pd.binRange)
     result = initPlotResult(outfile, plot)
   else:
     result = initInvalidPlotResult()
@@ -2668,6 +2739,8 @@ proc createPlot*(h5f: H5File,
     case pd.plotKind
     of pkInGridDset:
       result = handleInGridDset(h5f, fileInfo, pd, config)
+    of pkInGridDsetRidgeline:
+      result = handleInGridDsetRidgeline(h5f, fileInfo, pd, config)
     of pkFadcDset:
       result = handleFadcDset(h5f, fileInfo, pd, config)
     of pkOccupancy:

@@ -116,6 +116,7 @@ type
   ## enum listing all available `plot types` we can produce
   PlotKind* = enum
     pkInGridDset           ## histogram InGrid property
+    pkInGridDsetRidgeline  ## InGrid properties as ridgeline (only if `separateRuns`)
     pkFadcDset             ## histogram FADC property
     pkPolya                ## InGrid polya distribution
     pkCombPolya            ## combined polya of all chips
@@ -183,7 +184,7 @@ type
     suffix*: string ## An optional suffix for the output file name
     # bKind: BackendKind <- to know which backend to use for interactive plot creation
     case plotKind*: PlotKind
-    of pkInGridDset, pkFadcDset, pkToTPerPixel, pkFeVsTime, pkFeChVsTime, pkFePixDivChVsTime, pkFeSpec, pkFeSpecCharge, pkPolya:
+    of pkInGridDset, pkInGridDsetRidgeline, pkFadcDset, pkToTPerPixel, pkFeVsTime, pkFeChVsTime, pkFePixDivChVsTime, pkFeSpec, pkFeSpecCharge, pkPolya:
       # optional fields for bin size and range
       binSize*: float
       binRange*: BinRange

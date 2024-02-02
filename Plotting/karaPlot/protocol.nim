@@ -233,7 +233,7 @@ func `%`*(pd: PlotDescriptor): JsonNode =
   result[kstring"title"] = % pd.title
   result[kstring"plotKind"] = % $pd.plotKind
   case pd.plotKind
-  of pkInGridDset, pkFadcDset:
+  of pkInGridDset, pkInGridDsetRidgeline, pkFadcDset:
     result[kstring"selector"] = % pd.selector
     result[kstring"binSize"] = % ($pd.binSize)
     # binRange is a float, but we should never encounter `Inf`, thus keep as float
@@ -282,7 +282,7 @@ func parsePd*(pd: JsonNode): PlotDescriptor =
                                         pkInGridDset)
   result.selector = parseSelector(pd[kstring"selector"])
   case result.plotKind
-  of pkInGridDset, pkFadcDset:
+  of pkInGridDset, pkInGridDsetRidgeline, pkFadcDset:
     result.binSize = pd[kstring"binSize"].getStr.parseFloat
     result.binRange = (low: pd[kstring"binRange"]["low"].getStr.parseFloat,
                        high: pd[kstring"binRange"]["high"].getStr.parseFloat)
@@ -390,13 +390,15 @@ proc buildOutfile*(pd: PlotDescriptor, prefix, filetype: string): kstring =
   var name = ""
   let runsStr = getRunsStr(pd.runs)
   case pd.plotKind
-  of pkInGridDset:
+  of pkInGridDset, pkInGridDsetRidgeline:
     name = InGridFnameTemplate %% [pd.name,
                                    runsStr,
                                    $pd.chip,
                                    $pd.binSize,
                                    $pd.binRange[0],
                                    $pd.binRange[1]]
+    if pd.plotKind == pkInGridDsetRidgeline:
+      name.add "_ridges"
   of pkCustomPlot:
     name = CustomPlotFnameTemplate %% [pd.name,
                                        runsStr,
@@ -468,7 +470,7 @@ proc buildTitle*(pd: PlotDescriptor): kstring =
   else:
     runsStr = pd.runs.foldl($a & " " & $b, "").strip(chars = {' '})
   case pd.plotKind
-  of pkInGridDset:
+  of pkInGridDset, pkInGridDsetRidgeline:
     result = InGridTitleTemplate %% [pd.name,
                                      runsStr,
                                      $pd.chip,

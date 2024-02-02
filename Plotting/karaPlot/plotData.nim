@@ -786,7 +786,7 @@ proc plotHist(df: DataFrame, title, dset, outfile: string,
                          bins = nbins,
                          range = binRange)
   of bGgPlot:
-    result = initPlotV(title & " # entries: " & $df.len, dset, "#")
+    result = initPlotV(title & " entries: " & $df.len, dset, "#")
     let mTop = getEnv("T_MARGIN", "2.0").parseFloat
     if "runs" in df:
       result.pltGg = ggplot(df, aes("xs", color = factor("runs"))) +

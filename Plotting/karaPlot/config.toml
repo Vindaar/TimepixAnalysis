@@ -104,3 +104,4 @@ fallTime             = 20.0
 FeSpectrum           = 1.0
 FeSpectrumCharge     = 100.0
 totPerPixel          = 1.0
+toaLength            = 1.0

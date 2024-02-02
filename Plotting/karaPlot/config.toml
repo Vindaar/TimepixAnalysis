@@ -78,6 +78,7 @@ minvals              = [-0.6, 0.0]
 riseTime             = [2.0, 502.0]
 fallTime             = [7.0, 707.0]
 totPerPixel          = [-0.5, 300.5]
+toaLength            = [-0.5, 100.5]
 
 [Bins.NumBins]
 hits                 = 500

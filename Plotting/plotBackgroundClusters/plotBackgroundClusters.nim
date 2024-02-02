@@ -237,21 +237,7 @@ proc writeNoisyClusters(cTab: CountTable[(int, int)],
 
 from ginger import quant
 proc posterTheme(): Theme =
-  result = Theme(titleFont: some(font(36.0)),
-                 labelFont: some(font(36.0)),
-                 tickLabelFont: some(font(24.0)),
-                 tickLength: some(15.0),
-                 tickWidth: some(3.0),
-                 gridLineWidth: some(3.0),
-                 legendFont: some(font(28.0)),
-                 legendTitleFont: some(font(28.0, bold = true)),
-                 facetHeaderFont: some(font(36.0, alignKind = taCenter)),
-                 baseLabelMargin: some(0.2),
-                 annotationFont: some(font(9.0, family = "monospace")),
-                 continuousLegendHeight: some(1.8),
-                 continuousLegendWidth: some(1.0),
-                 plotMarginRight: some(quant(6.0, ukCentimeter)),
-                 baseScale: some(1.5)) # won't be scaled!
+  result = tomlTheme("~/.config/ggplotnim/custom_theme.toml")
 
 proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
                   colorBy: ColorBy,

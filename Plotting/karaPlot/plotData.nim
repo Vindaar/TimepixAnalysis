@@ -465,10 +465,15 @@ proc initPlotV(title: string, xlabel: string, ylabel: string, shape = ShapeKind.
       linebreak = (if useTex: r"\\" else: "\n")
     )
                 else: title
+    let customTheme = getEnv("CUSTOM_THEME", "")
+    var theme: Theme
+    if customTheme.len > 0:
+      theme = tomlTheme(customTheme)
+    theme.title = some(title)
+    theme.xlabel = some(xlabel)
+    theme.ylabel = some(ylabel)
     result = PlotV(kind: bGgPlot,
-                   theme: Theme(title: some(title),
-                                xlabel: some(xlabel),
-                                ylabel: some(ylabel)),
+                   theme: theme,
                    width: width.float,
                    height: if height > 0: height.float else: FigHeight)
   else: discard

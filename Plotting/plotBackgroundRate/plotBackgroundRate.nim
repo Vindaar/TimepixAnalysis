@@ -59,6 +59,7 @@ proc scaleDset(data: Column, totalTime, factor: float, region: ChipRegion): Colu
 proc readVetoCfg(h5f: H5File, fileInfo: FileInfo): (set[LogLFlagKind], VetoSettings) =
   if fileInfo.tpaFileKind == tpkLogL: # for tpkReco does not make sense
     let lhGrp = h5f[likelihoodGroupGrpStr]
+    if "logLCtx" notin lhGrp: return ({fkLogL}, VetoSettings()) ## Older files don't have it!
     let ctx = deserializeH5[LikelihoodContext](h5f, "logLCtx", lhGrp.name,
                                                exclude = @["rnd", "refSetTuple", "refDf", "refDfEnergy"])
     result = (ctx.flags, ctx.vetoCfg)

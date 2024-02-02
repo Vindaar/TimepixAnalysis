@@ -799,8 +799,11 @@ proc plotHist(df: DataFrame, title, dset, outfile: string,
     let mTop = getEnv("T_MARGIN", "2.0").parseFloat
     if "runs" in df:
       result.pltGg = ggplot(df, aes("xs", color = factor("runs"))) +
-          geom_histogram(binWidth = binSize, position = "identity",
-                         hdKind = hdOutline, fillColor = color(0,0,0,0)) +
+          geom_histogram(binWidth = binSize,
+                         position = "identity",
+                         hdKind = hdOutline,
+                         fillColor = color(0,0,0,0),
+                         lineWidth = 1.0) +
           margin(top = mTop) +
           scale_x_continuous() + scale_y_continuous() +
           result.theme # just add the theme directly
@@ -834,14 +837,14 @@ proc plotRidgeline(df: DataFrame, title, dset, outfile: string,
           scale_x_continuous() + scale_y_continuous() +
           result.theme # just add the theme directly
       if useDensity:
-        result.pltGg = result.pltGg + geom_density(size = 1.0, color = "black")
+        result.pltGg = result.pltGg + geom_density(size = 1.5, color = "black")
       else:
         result.pltGg = result.pltGg +
           geom_histogram(binWidth = binSize,
                          position = "identity",
                          hdKind = hdOutline,
                          color = "black",
-                         lineWidth = 1.0)
+                         lineWidth = 1.5)
     else:
       result.pltGg = ggplot(df, aes("xs")) +
           geom_histogram(binWidth = binSize, hdKind = hdOutline) +

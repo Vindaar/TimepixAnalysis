@@ -1097,6 +1097,7 @@ proc plotHist2D(data: Tensor[float], title, outfile: string): PlotV =
     if data.max > 0.0:
       result.pltGg = ggplot(df, aes("x", "y", fill = "z")) +
           geom_raster() +
+          coord_fixed(1.0) +
           scale_fill_continuous(scale = (low: 0.0, high: data.max)) +
           xlim(0, NPix) + ylim(0, NPix) +
           result.theme # just add the theme directly

@@ -504,14 +504,13 @@ proc applyMaskRegion(h5f: H5File, selector: DataSelector, dset: string,
     for x in maskRegion.x.min .. maskRegion.x.max:
       for y in maskRegion.y.min .. maskRegion.y.max:
         noisyPixels.add (x, y)
-
   if noisyPixels.len == 0: return idx
   let noiseSet = noisyPixels.toHashSet
   # read data
   let
     posX = h5f.readAs(group.name / "centerX", float)
     posY = h5f.readAs(group.name / "centerY", float)
-  result = newSeqOfCap[int](idx.len)
+  result = newSeqOfCap[int](posX.len)
   let idxs = if idx.len == 0: toSeq(0 ..< posX.len) else: idx
   for i in idxs:
     if (posX[i].toIdx, posY[i].toIdx) notin noiseSet:
@@ -572,12 +571,14 @@ proc applyCuts(h5f: H5File, selector: DataSelector, dset: H5Dataset, idx: seq[in
 proc readIndices[T](h5f: H5File, dset: H5Dataset, evs: seq[int], dtype: typedesc[T]): seq[T] =
   ## Read only those indices corresponding to the given events `evs`
   let idxs = h5f.eventIndices(dset.name.parentDir, evs)
-  result = dset.readAs(idxs, dtype)
+  #result = dset.readAs(idxs, dtype)
+  result = dset.readAs(dtype)[idxs]
 
 proc readIndices[T](h5f: H5File, dset: H5Dataset, vlenDtype: DatatypeID, evs: seq[int], dtype: typedesc[T]): seq[seq[T]] =
   ## Read only those indices corresponding to the given events `evs`
   let idxs = h5f.eventIndices(dset.name.parentDir, evs)
-  result = dset[vlenDtype, dtype, idxs]
+  #result = dset[vlenDtype, dtype, idxs]
+  result = dset[vlenDtype, dtype][idxs]
 
 proc readFull*(h5f: H5File,
                fileInfo: FileInfo,
@@ -612,7 +613,8 @@ proc readFull*(h5f: H5File,
       result[1] = dset.readAs(dtype)
     elif idx.len > 0:
       # manual conversion required
-      result[1] = dset.readAs(idx, dtype)  #h5f.readIndices(dset, idx, dtype)
+      #result[1] = dset.readAs(idx, dtype)  #h5f.readIndices(dset, idx, dtype))
+      result[1] = dset.readAs(dtype)[idx]  #h5f.readIndices(dset, idx, dtype)
     # else nothing to read, will remain empty
   else:
     type subtype = getInnerType(dtype)
@@ -626,7 +628,8 @@ proc readFull*(h5f: H5File,
         result[1] = dset.readAs(subtype).reshape2D(dset.shape)
       elif idx.len > 0:
         # manual conversion required
-        result[1] = dset[idx, subtype].reshape2D(dset.shape)#h5f.readIndices(dset, idx, subtype).reshape2D(dset.shape)
+        #result[1] = dset[idx, subtype].reshape2D(dset.shape)#h5f.readIndices(dset, idx, subtype).reshape2D(dset.shape)
+        result[1] = dset[subtype][idx].reshape2D(dset.shape)#h5f.readIndices(dset, idx, subtype).reshape2D(dset.shape)
       # else nothing to read, will remain empty
   result[0] = idx
 
@@ -724,7 +727,8 @@ proc readVlen(h5f: H5File,
     if not selector.hasCuts(h5f.name.extractFilename, dset) and idx.len == 0:
       result = dset[vlenDType, dtype]
     elif idx.len > 0:
-      result = dset[vlenDtype, dtype, idx] #h5f.readIndices(dset, vlenDtype, evs, dtype)
+      #result = dset[vlenDtype, dtype, idx] #h5f.readIndices(dset, vlenDtype, evs, dtype)
+      result = dset[vlenDtype, dtype][idx] #h5f.readIndices(dset, vlenDtype, evs, dtype)
     # else nothing to read, remain empty
   else:
     return # early, no such data

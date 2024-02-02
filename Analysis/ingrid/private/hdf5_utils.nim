@@ -603,6 +603,13 @@ proc runGroupName*(n: string): string =
 proc getRunNumber*(group: H5Group): int =
   ## Returns the run number of this group
   result = group.attrs["runNumber", int]
+  if result == 0: ## In this case check not a left over from old Tpx3 days
+    let nam = group.name.extractFilename
+    let num = nam.split("_")[1].parseInt
+    if num != result:
+      raise newException(ValueError, "Your file is an outdated HDF5 file from TPA. The `runNumber` attribute " &
+        "of run " & $num & " is 0. Use `TPA/Tools/update_run_numbers.nim` to update them without recreating " &
+        "the full file.")
 
 ################################################################################
 ##################### HDF5 related helper functions ############################

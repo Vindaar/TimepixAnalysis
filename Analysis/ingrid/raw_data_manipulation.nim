@@ -579,7 +579,7 @@ proc writeRawAttrs*(h5f: var H5File,
 
   ## ToT cut parameters used
   rawG.attrs["ToT_cutLow"] = run.totCut.low
-  rawG.attrs["ToT_cutHigh"] = run.totCut.low
+  rawG.attrs["ToT_cutHigh"] = run.totCut.high
 
 proc writeRunGrpAttrs*(h5f: var H5File, group: var H5Group,
                        runType: RunTypeKind,

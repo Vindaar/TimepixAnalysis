@@ -381,6 +381,10 @@ proc plotMedianBools(df: DataFrame, fnameSuffix, title: string,
     ggtitle(&"{title}{suffix}") +
     ggsave(fname, width = 1920, height = 1080)
 
+proc customTheme(): Theme =
+  ## Reads our TOML theme
+  result = tomlTheme("~/.config/ggplotnim/custom_theme.toml")
+
 proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
                         outpath, outfile: string,
                         show2014: bool, suffix: string,
@@ -392,7 +396,7 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
                         energyMin, energyMax: float,
                         logPlot: bool,
                         applyEfficiencyNormalization: bool,
-                        fWidth: float
+                        fWidth, textWidth: float
                        ) =
   var df = df # mutable copy
   if logPlot:
@@ -469,12 +473,14 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
                          font = font(16.0, color = color(0.92, 0.92, 0.92)),
                          backgroundColor = transparent)
   if useTeX:
-    let theme = if fWidth <= 0.5: sideBySide else: singlePlot
+    let theme = if textWidth > 2000.0: customTheme
+                elif fWidth <= 0.5: sideBySide
+                else: singlePlot
     plt = plt +
     xlab(r"Energy [\si{keV}]") +
     ylab(r"Rate [\SI{1e-5}{keV⁻¹ cm⁻² s⁻¹}]") +
     ggtitle(titleSuff) +
-    themeLatex(fWidth = fWidth, width = 600, height = 360, baseTheme = theme)
+    themeLatex(fWidth = fWidth, width = 600, baseTheme = theme, textWidth = textWidth)
     if genTikZ:
       plt + ggsave(fname.replace(".pdf", ".tex"), width = 600, height = 360, useTeX = true, onlyTikZ = true)
     else:
@@ -604,6 +610,7 @@ proc main(files: seq[string], log = false, title = "",
           energyMin = 0.0, energyMax = 12.0,
           useTeX = false,
           fWidth = 0.9,
+          textWidth = 458.29268,
           showPreliminary = false,
           showNumClusters = false,
           showTotalTime = false,
@@ -709,7 +716,8 @@ proc main(files: seq[string], log = false, title = "",
         topMargin = topMargin, yMax = yMax, energyMin = energyMin, energyMax = energyMax,
         logPlot = logPlot,
         applyEfficiencyNormalization = applyEfficiencyNormalization,
-        fWidth = fWidth
+        fWidth = fWidth,
+        textWidth = textWidth
       )
 
 when isMainModule:
@@ -744,6 +752,7 @@ of the logL cut, creates a comparison plot.""",
     "energyMin" : "If any given, limit the energy to this minimum value (x axis remains unchanged).",
     "useTeX" : "Generate a plot using TeX",
     "fWidth" : "Width at which the plot is to be inserted in a TeX document.",
+    "textWidth" : "Text width of the TeX page we want to insert the plot to.",
     "showPreliminary" : "If set shows a big 'Preliminary' message in the center.",
     "showNumClusters" : "If set adds number of input clusters to title.",
     "showTotalTime" : "If set adds the total time of background data to title.",

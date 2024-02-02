@@ -22,9 +22,9 @@ proc tpx3EventHeader(tpx3: Tpx3RunConfig): (Table[string, string], Table[string,
   e_header["dateTime"] = format(timeFromTpx3RunConfig(tpx3), "YYYY-MM-dd'.'HH:mm:ss")
   result = (e_header, c_header)
 
-proc tpx3RunHeader(tpx3: Tpx3RunConfig): Table[string, string] =
+proc tpx3RunHeader(tpx3: Tpx3RunConfig, runNumber: int): Table[string, string] =
   result = initTable[string, string]()
-  result["runNumber"] = "0"
+  result["runNumber"] = $runNumber
   result["runTime"] = "0"
   result["runTimeFrames"] = "0"
   result["numChips"] = "1"
@@ -137,7 +137,7 @@ proc computeTpx3RunParameters*(data: seq[Tpx3Data], startIdx, clusterTimeCutoff,
   result.tots = @[tots]
   result.hits = @[hits]
   result.occupancies = occ
-  result.runHeader = tpx3RunHeader(runConfig)
+  result.runHeader = tpx3RunHeader(runConfig, runNumber)
   result.totCut = totCut
 
   result.nChips = 1 ## TODO: allow multiple chips, find out where to best read from input file

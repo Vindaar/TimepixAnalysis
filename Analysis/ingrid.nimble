@@ -1,6 +1,6 @@
 # Package
 
-version       = "0.3.6"
+version       = "0.4.0"
 author        = "Sebastian Schmidt"
 description   = "A selection of functions, which help during analysis etc. of InGrid related data files (created by TOS and other)"
 license       = "MIT"
@@ -14,19 +14,10 @@ requires "nim >= 1.4.0"
 requires "helpers >= 0.2.0"
 # major dependencies
 requires "arraymancer >= 0.7.23"
-requires "https://github.com/vindaar/seqmath >= 0.1.19"
 requires "ingridDatabase"
-requires "ggplotnim >= 0.6.3"
-requires "nimhdf5 >= 0.5.11"
-requires "unchained >= 0.3.9"
-requires "https://github.com/SciNim/xrayAttenuation >= 0.2.1"
-requires "datamancer >= 0.3.17"
-# optimization dependencies
-requires "mpfit >= 0.1.1"
-requires "nlopt >= 0.3.1"
 # UI/UX deps and optional deps
-requires "docopt#head"
 requires "cligen"
+requires "docopt#head" # mostly not in use anymore! Replaced byyy `cligen` pretty much everywhere
 requires "adix"
 requires "parsetoml"
 requires "karax"
@@ -40,3 +31,23 @@ requires "weave#head"
 requires "cppstl"
 requires "numericalnim"
 requires "alea"
+
+# These dependencies below here are some of the most important.
+# They are pinned to specific versions for this git tag to have the exact used versions
+# of the most relevant libraries in place for the (printed) thesis results
+requires "ggplotnim = 0.7.0"
+requires "ginger = 0.6.1"
+requires "nimhdf5 = 0.5.12"
+requires "unchained = 0.4.0"
+requires "datamancer = 0.4.0"
+requires "https://github.com/SciNim/xrayAttenuation = 0.3.0"
+requires "measuremancer = 0.2.6"
+# optimization dependencies
+requires "mpfit = 0.2.0"
+requires "nlopt = 0.3.2"
+# additional packages
+requires "https://github.com/vindaar/seqmath = 0.2.0"
+requires "latexdsl = 0.2.0"
+requires "shell = 0.5.2"
+requires "https://github.com/Vindaar/orgtables"
+requires "https://github.com/Vindaar/flatBuffers = 0.1.0"

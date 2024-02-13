@@ -827,7 +827,7 @@ proc plotRidgeline(df: DataFrame, title, dset, outfile: string,
   case BKind
   of bGgPlot:
     result = initPlotV(title & " entries: " & $df.len, dset, "#")
-    let mTop = getEnv("T_MARGIN", "2.0").parseFloat
+    let mTop = getEnv("T_MARGIN_RIDGE", "2.0").parseFloat
     let overlap = getEnv("OVERLAP", "5.0").parseFloat
     let useDensity = getEnv("DENSITY", "false").parseBool
     if "runs" in df:

@@ -837,7 +837,8 @@ proc plotRidgeline(df: DataFrame, title, dset, outfile: string,
           scale_x_continuous() + scale_y_continuous() +
           result.theme # just add the theme directly
       if useDensity:
-        result.pltGg = result.pltGg + geom_density(size = 1.5, color = "black")
+        result.pltGg = result.pltGg + geom_density(size = 1.5, color = "black") +
+          ylab("Density")
       else:
         result.pltGg = result.pltGg +
           geom_histogram(binWidth = binSize,

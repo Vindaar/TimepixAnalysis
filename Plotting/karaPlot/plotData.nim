@@ -184,7 +184,7 @@ proc initConfig*(chips: set[uint16],
                  region: ChipRegion,
                  maskRegion: seq[MaskRegion],
                  tomlConfig: TomlValueRef,
-                 ingridDsets: set[IngridDsetKind] = {},
+                 ingridDsets: seq[string] = @[],
                  fadcDsets: seq[string] = @[],
                  head: int = 0,
                  xDset: string = "",
@@ -1015,7 +1015,7 @@ proc histograms(h5f: H5File, runType: RunTypeKind,
   for selector in selectors:
     if cfInGrid in config.flags:
       for ch in fileInfo.chips:
-        for dset in concat(@InGridDsets, @ToADsets):
+        for dset in config.ingridDsets:
           let (binSize, binRange) = config.getBinSizeAndBinRange(dset)
           var pd = PlotDescriptor(runType: runType,
                                   name: dset,
@@ -3422,6 +3422,10 @@ proc serve() =
 
   waitFor server.serveClient()
 
+proc defineDatasets(dsets: seq[string]): seq[string] =
+  ## If no dsets given, use default set (all)
+  result = if dsets.len == 0: concat(@InGridDsets, @ToADsets) else: dsets
+
 proc plotData*(
   h5file: string,
   runType: RunTypeKind,
@@ -3438,6 +3442,7 @@ proc plotData*(
   chips: set[uint16] = {},
   runs: set[uint16] = {},
   show = false,
+  ingridDsets: seq[string] = @[],
   cuts: seq[GenericCut] = @[],
   region: ChipRegion = crAll,
   invertedCuts: seq[GenericCut] = @[],
@@ -3496,11 +3501,13 @@ proc plotData*(
   if compiledCustom:
     flags.incl cfCompiledCustom
 
+  let ingridDsets = defineDatasets(ingridDsets)
   let cfg = initConfig(chips, runs, flags,
                        cuts = concat(cuts, invertedCuts),
                        maskRegion = maskRegion,
                        region = region,
                        tomlConfig = tomlConfig,
+                       ingridDsets = ingridDsets,
                        head = head,
                        xDset = x,
                        yDset = y,

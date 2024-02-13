@@ -60,7 +60,7 @@ else:
       fileType*: PlotFiletypeKind
       separateRuns*: bool ## If `separateRuns` is true, histogram plots will be split by their
                           ## filename. One histogram for each run.
-      ingridDsets*: set[IngridDsetKind]
+      ingridDsets*: seq[string] ## Datasets are not IngridDsetKind, because ToA datasets not part of that yet
       fadcDsets*: seq[string] # currently don't have an enum for them
       cuts*: seq[GenericCut] ## Used to fill the `DataSelector`
       maskRegion*: seq[MaskRegion] ## Used to fill the `DataSelector`

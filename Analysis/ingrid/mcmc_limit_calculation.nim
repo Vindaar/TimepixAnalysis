@@ -4697,6 +4697,26 @@ proc sanityCheckAxionPhotonLimit(ctx: Context, log: Logger) =
   # 1c. set coupling target range for MCMC (1e-12 is reference g_aγ² of input flux)
   ctx.mcmcCouplingTarget = setMcmcCouplingTarget(ck_g_aγ⁴, Inf)
 
+  # Create a plot of the total signal as a function of `g⁴_aγ`
+  block:
+    ## This is a cross check with Cristina's code. She gets about 3 counts of signal expected
+    ## at ~6.6e-11^4 with 320h of data. Here we compute the same for our detector and setup,
+    ## which yields a total signal of 1.47213 counts at the same coupling. The factor of 2
+    ## is pretty close to the 160h of tracking data we have. Our two detectors are pretty similar
+    ## in general efficiency over the energy range of the axion-photon flux.
+    let g_aγs = linspace(0.0, 5e-40, 1000)
+    var ss = newSeq[float]()
+    for g in g_aγs:
+      ctx.coupling = g
+      ss.add ctx.totalSignal()
+    ggplot(toDf(g_aγs, ss), aes("g_aγs", "ss")) +
+      geom_line() +
+      xlab("g⁴_aγ [GeV⁻⁴]") + ylab("Total signal [counts]") +
+      ggsave(SanityPath / "total_signal_vs_g4_aγ.pdf")
+    ctx.coupling = 6.6e-11^4
+    log.infos("Total signal expected"):
+      &"Total signal s_tot = {ctx.totalSignal()} at g_aγ = {ctx.coupling}"
+
   # candidates over background
   template pltSB(): untyped =
     let outfile = SanityPath / "candidates_signal_over_background_axionPhoton.pdf"

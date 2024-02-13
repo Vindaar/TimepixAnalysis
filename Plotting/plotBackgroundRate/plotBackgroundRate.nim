@@ -382,9 +382,10 @@ proc plotMedianBools(df: DataFrame, fnameSuffix, title: string,
     ggtitle(&"{title}{suffix}") +
     ggsave(fname, width = 1920, height = 1080)
 
+let CustomTheme = getEnv("CUSTOM_THEME", "~/.config/ggplotnim/custom_theme.toml")
 proc customTheme(): Theme =
   ## Reads our TOML theme
-  result = tomlTheme("~/.config/ggplotnim/custom_theme.toml")
+  result = tomlTheme(CustomTheme)
 
 proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
                         outpath, outfile: string,

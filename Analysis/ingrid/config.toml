@@ -47,7 +47,7 @@ gasGainEnergyKind = "Individual"
 
 [RawData]
 plotDirectory = "out"
-tpx3ToACutoff = 50 # ToA cluster cutoff!
+tpx3ToACutoff = 100 # ToA cluster cutoff!
 # ToT related cuts. Removes any pixel below and above the given threshold
 # The range is *inclusive*
 rmTotLow = 0 # this default excludes nothing

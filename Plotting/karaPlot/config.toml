@@ -46,13 +46,13 @@ max = 20.0 # maximum allowed value
 
 regions = [1, 2]
 [MaskRegions.1]
-applyFile = ["reco_tpx3_background.h5", "lhood_tpx3_background_cast_cdl.h5"]
+applyFile = ["reco_tpx3_background_tot_cut.h5", "reco_tpx3_calibration_tot_cut.h5", "lhood_tpx3_background_cast_cdl.h5"]
 applyDset = []
-x = [150, 250] # mask x range from <-> to
+x = [150, 170] # mask x range from <-> to
 y = [130, 162] # mask y range from <-> to
 
 [MaskRegions.2]
-applyFile = ["reco_tpx3_background.h5", "lhood_tpx3_background_cast_cdl.h5"]
+applyFile = ["reco_tpx3_background_tot_cut.h5", "reco_tpx3_calibration_tot_cut.h5", "lhood_tpx3_background_cast_cdl.h5"]
 applyDset = []
 x = [125, 135] # mask x range from <-> to
 y = [110, 120] # mask y range from <-> to

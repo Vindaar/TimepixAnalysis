@@ -89,6 +89,11 @@ type
     isTracking*: seq[bool]
     magB*: seq[float] # magnetic field
                       # apparently magB is not the real value in the tracking logs anymore!
+    vertical*: seq[float] # precise vertical position (`V. precis.`)
+    horizontal*: seq[float] # precise horizontal position (`H precis.`)
+    verticalEnc*: seq[int] # vertical encoder position
+    horizontalEnc*: seq[int] # horizontal encoder position (`H precis.`)
+
     badLineCount: int
 
   ## A single version schema
@@ -789,6 +794,8 @@ proc parse_tracking_logfile*(content: string, filename: string): TrackingLog =
     time_i = 7
     h_me = 9
     v_me = 10
+    h_prec = 15
+    v_prec = 16
     magB_i = 22
 
   var
@@ -859,10 +866,14 @@ proc parse_tracking_logfile*(content: string, filename: string): TrackingLog =
       daytime = parseTime(d[time_i]) # time on the current day since midnight
       tracking = int(parseFloat(d[tracking_i])) == 1
       magB = parseFloat(d[magB_i])
+      h_precise = parseFloat(d[h_prec])
+      v_precise = parseFloat(d[v_prec])
+
     # determine magnet movement and set old encoder values
     let move = is_magnet_moving((h_me, h_me_p), (v_me, v_me_p))
     h_me_p = h_me
     v_me_p = v_me
+
     if not tracking_p and tracking:
       tracking_start = date + daytime
       tracking_p = not tracking_p
@@ -875,6 +886,11 @@ proc parse_tracking_logfile*(content: string, filename: string): TrackingLog =
     result.isMoving.add move
     result.isTracking.add tracking
     result.magB.add magB
+    result.horizontal.add h_precise
+    result.vertical.add v_precise
+    result.horizontalEnc.add h_me
+    result.verticalEnc.add v_me
+
     inc lineCnt
 
   # now set the tracking variant object depending on whether tracking took place
@@ -886,6 +902,7 @@ proc parse_tracking_logfile*(content: string, filename: string): TrackingLog =
                          isMoving: result.isMoving,
                          isTracking: result.isTracking,
                          magB: result.magB)
+
   elif tracking_start > tracking_stop: # likely file _ends_ while tracking (broken old file)
     doAssert tracking_stop == fromUnix(0)
     result.tracking_start = tracking_start
@@ -1066,12 +1083,35 @@ proc read_sc_log_folder(log_folder: string,
   # plot angles
   plotAngles(scLogs)
 
+proc writeTrackingMagnetPos(logs: seq[TrackingLog], outfile: string, startTime, endTime: string) =
+  # 1. filter to the correct times
+  let logs = sortAndFilter(logs, startTime, endTime)
+  # 2. convert to DF
+  proc logToDf(log: TrackingLog): DataFrame =
+    echo "Log: ", log.date
+    result = seqsToDf({ "Date" : log.date.format("YYYY/MM/dd", utc()),
+                        "Time" : log.timestamps,
+                        "isTracking" : log.isTracking,
+                        "Vertical" : log.vertical,
+                        "Horizontal" : log.horizontal,
+                        "VerticalEnc" : log.verticalEnc,
+                        "HorizontalEnc" : log.horizontalEnc })
+
+
+  var dfs = newSeq[DataFrame]()
+  for l in logs:
+    dfs.add l.logToDf
+  let df = assignStack(dfs)
+  # 3. write CSV
+  df.writeCsv(outfile)
+
 proc process_log_folder(folder: string, logKind: LogFileKind,
                         h5file = "",
                         schemaFile: VersionSchemaFile = VersionSchemaFile(),
                         magnetField = 8.0,
                         startTime, endTime = "",
                         trackingLogOutfile = "",
+                        trackingPosDfOutfile = "",
                         dryRun = false) =
   case logKind
   of lkSlowControl:
@@ -1085,6 +1125,9 @@ proc process_log_folder(folder: string, logKind: LogFileKind,
     echo "Tracking days :"
     print_tracking_logs(trk, rkTracking, startTime = startTime, endTime = endTime, outfile = trackingLogOutfile)
 
+    if trackingPosDfOutfile.len > 0:
+      writeTrackingMagnetPos(trk, trackingPosDfOutfile, startTime, endTime)
+
     when not defined(pure):
       if h5file.len > 0:
         # given the H5 file, create a referential table connecting
@@ -1095,6 +1138,7 @@ proc process_log_folder(folder: string, logKind: LogFileKind,
         # add tracking information to H5 file
         if not dryRun:
           write_tracking_h5(trackmap, h5file)
+
 
 proc toDf(tr: TrackingLog, enforceSameFields = false): DataFrame =
   if enforceSameFields:
@@ -1373,6 +1417,7 @@ proc sc(path: string, schemas: string, magnetField = 8.0) =
 proc tracking(path: string, h5out = "",
               startTime = "", endTime = "",
               trackingLogOutfile = "",
+              trackingPosDfOutfile = "",
               dryRun = false) =
   # check whether actual log file (extension fits)
   let (dir, fn, ext) = splitFile(path)
@@ -1387,6 +1432,7 @@ proc tracking(path: string, h5out = "",
     process_log_folder(path, lkTracking, h5out,
                        startTime = startTime, endTime = endTime,
                        trackingLogOutfile = trackingLogOutfile,
+                       trackingPosDfOutfile = trackingPosDfOutfile,
                        dryRun = dryRun)
 
 proc h5file(file: string) =
@@ -1414,6 +1460,7 @@ proc main() =
                                   "startTime" : "Date in YYYY/MM/dd format from which to print tracking information. This is inclusive.",
                                   "endTime" : "Date in YYYY/MM/dd format from which to print tracking information. This is exclusive.",
                                   "trackingLogOutfile" : "Path to where a CSV & Org table of all found trackings should be written.",
+                                  "trackingPosDfOutfile" : "Path to where a CSV where magnet movement of all trackings should be written.",
                 }],
                 [allLogs, help={"path" : "A path to the location containing all logs in form of `.tar.gz` files is needed.",
                                 "schemas" : "The path to the `Versions.idx` schema file description is needed.",

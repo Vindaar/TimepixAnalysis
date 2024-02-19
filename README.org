@@ -13,7 +13,14 @@ It contains code to calibrate a Timepix ASIC and perform event shape
 analysis of data to differentiate between background events (mainly
 cosmic muons) and signal events (X-rays).
 
-...
+The software in this repository is at the heart of my PhD thesis,
+
+https://phd.vindaar.de
+
+All data required to reproduce the results of my thesis, including
+results reconstructed with this code, can be found here:
+
+https://zenodo.org/uploads/10521887
 
 ** CAST
 

@@ -208,10 +208,15 @@ type
     ctx: Context ## The context storing most information
     nmc: int
     limits: seq[float]
-    limitNoSignal: float
-    candsInSens: seq[int]
+    candsInSens: seq[int]    ## how many candidates in sens region for each toy set (or for observed cands)
     limitKind: LimitKind
-    expectedLimit: float # expected limit as `g_ae · g_aγ` with `g_aγ = 1e-12 GeV⁻¹`
+    isObservedLimit: bool    ## Whether the file is for expected limits or observed limits
+    limitNoSignal: float     ## Limit without any candidates (expected only)
+    expectedLimit: float     ## expected limit as `g_ae · g_aγ` with `g_aγ = 1e-12 GeV⁻¹` (expected only)
+    observedLimit: float     ## observed limit (observed only)
+    chainDf: DataFrame       ## DF of the observed limit data (observed only)
+    obsLimitStats: tuple[mean, median, std: float] ## Statistics of observed limits variation due to statistical fluc.
+                                                   ## (based on `nmc` used for observed limits)
 
   LogProc = proc(x: seq[float]): float
   Chain = object
@@ -2573,25 +2578,38 @@ proc writeLimitOutput(
   outpath, outfile: string,
   nmc: int,
   limitKind: LimitKind,
-  limitNoSignal: float,
-  limits: seq[float], candsInSens: seq[int],
+  candsInSens: seq[int],
+  limits: seq[float] = @[],
+  limitNoSignal: float = 0.0,
+  observedLimit = -1.0,
+  chainDf = newDataFrame(),
+  obsLimitStats: tuple[mean, median, std: float] = (mean: 0.0, median: 0.0, std: 0.0),
   path = "") =
   ## Writes the output of the limit calculation to an H5 file that includes the
   ## achieved limits as well as all the parameters that were used. This is simpler
   ## and more stable than relying on a CSV file + the file name.
-  let expLimit = case ctx.couplingKind
-                 of ck_g_ae²: sqrt(limits.median()) * sqrt(ctx.g_aγ²)
-                 of ck_g_ae²·g_aγ²: sqrt(limits.median)
-                 of ck_g_ae·g_aγ:  limits.median
-                 of ck_g_aγ⁴: pow(limits.median, 0.25)
-                 of ck_β⁴: pow(limits.median, 0.25)
+  proc getLimit(coup: CouplingKind, limit: float): float =
+    result = case coup
+             of ck_g_ae²: sqrt(limit) * sqrt(ctx.g_aγ²)
+             of ck_g_ae²·g_aγ²: sqrt(limit)
+             of ck_g_ae·g_aγ:  limit
+             of ck_g_aγ⁴: pow(limit, 0.25)
+             of ck_β⁴: pow(limit, 0.25)
+  let expLimit = if limits.len > 0: getLimit(ctx.couplingKind, limits.median())
+                 else: 0.0
+  let obsLimit = if observedLimit > 0.0: getLimit(ctx.couplingKind, observedLimit)
+                 else: 0.0
   let limitOutput = LimitOutput(ctx: ctx,
                                 nmc: nmc,
                                 limits: limits,
+                                isObservedLimit: observedLimit > 0.0,
                                 candsInSens: candsInSens,
                                 limitNoSignal: limitNoSignal,
                                 limitKind: limitKind,
-                                expectedLimit: expLimit)
+                                expectedLimit: expLimit,
+                                observedLimit: obsLimit,
+                                chainDf: chainDf,
+                                obsLimitStats: obsLimitStats)
   ## XXX: or do we want to store _all_ in a single file? "Limits H5"?
   #echo "Limit output: ", limitOutput
   let name = outpath / outfile & ".h5"
@@ -2640,6 +2658,40 @@ proc getExpectedLimitOffset(couplingKind: CouplingKind): float =
   of ck_g_ae²·g_aγ²: result = 0.1e-42
   of ck_g_ae·g_aγ:   result = 0.1e-21
 
+proc getUncertaintySuffixes(ctx: Context): tuple[ufSuff, utSuff, pufSuff, putSuff: string] =
+  ## Returns suitable suffixes to use for different types of uncertainties
+  ##
+  ## - `u`: uncertainty
+  ## - `pu`: position uncertainty
+  ##
+  ## - `f`: file name
+  ## - `t`: title
+  var ufSuff: string
+  var utSuff: string
+  case ctx.uncertainty
+  of ukCertain:
+    ufSuff = &"uncertainty_{ctx.uncertainty}"
+    utSuff = &"{ctx.uncertainty}"
+  of ukUncertainSig:
+    ufSuff = &"uncertainty_{ctx.uncertainty}_σs_{ctx.σs_sig:.4f}"
+    utSuff = &"{ctx.uncertainty}, σs = {ctx.σs_sig:.4f}"
+  of ukUncertainBack:
+    ufSuff = &"uncertainty_{ctx.uncertainty}_σb_{ctx.σb_back:.4f}"
+    utSuff = &"{ctx.uncertainty}, σb = {ctx.σb_back:.4f}"
+  of ukUncertain:
+    ufSuff = &"uncertainty_{ctx.uncertainty}_σs_{ctx.σsb_sig:.4f}_σb_{ctx.σsb_back:.4f}"
+    utSuff = &"{ctx.uncertainty}, σs = {ctx.σsb_sig:.4f}, σb = {ctx.σsb_back:.4f}"
+  var pufSuff: string
+  var putSuff: string
+  case ctx.uncertaintyPosition
+  of puCertain:
+    pufSuff = &"posUncertain_{ctx.uncertaintyPosition}"
+    putSuff = &"{ctx.uncertaintyPosition}"
+  of puUncertain:
+    pufSuff = &"posUncertain_{ctx.uncertaintyPosition}_σp_{ctx.σ_p:.4f}"
+    putSuff = &"{ctx.uncertaintyPosition}, σp = {ctx.σ_p:.4f}"
+  result = (ufSuff: ufSuff, utSuff: utSuff, pufSuff: pufSuff, putSuff: putSuff)
+
 proc plotMCLimitHistogram(
   ctx: Context, limits: seq[float], candsInSens: seq[int],
   limitKind: LimitKind, nmc: int,
@@ -2669,36 +2721,12 @@ proc plotMCLimitHistogram(
     dfL["limits"] = dfL["limits", float].map_inline(to_gaγ(x))
     xlimit = (to_gaγ(xlimit[0]), to_gaγ(xlimit[1]))
 
-  var ufSuff: string
-  var utSuff: string
-  case ctx.uncertainty
-  of ukCertain:
-    ufSuff = &"uncertainty_{ctx.uncertainty}"
-    utSuff = &"{ctx.uncertainty}"
-  of ukUncertainSig:
-    ufSuff = &"uncertainty_{ctx.uncertainty}_σs_{ctx.σs_sig:.4f}"
-    utSuff = &"{ctx.uncertainty}, σs = {ctx.σs_sig:.4f}"
-  of ukUncertainBack:
-    ufSuff = &"uncertainty_{ctx.uncertainty}_σb_{ctx.σb_back:.4f}"
-    utSuff = &"{ctx.uncertainty}, σb = {ctx.σb_back:.4f}"
-  of ukUncertain:
-    ufSuff = &"uncertainty_{ctx.uncertainty}_σs_{ctx.σsb_sig:.4f}_σb_{ctx.σsb_back:.4f}"
-    utSuff = &"{ctx.uncertainty}, σs = {ctx.σsb_sig:.4f}, σb = {ctx.σsb_back:.4f}"
-  var pufSuff: string
-  var putSuff: string
-  case ctx.uncertaintyPosition
-  of puCertain:
-    pufSuff = &"posUncertain_{ctx.uncertaintyPosition}"
-    putSuff = &"{ctx.uncertaintyPosition}"
-  of puUncertain:
-    pufSuff = &"posUncertain_{ctx.uncertaintyPosition}_σp_{ctx.σ_p:.4f}"
-    putSuff = &"{ctx.uncertaintyPosition}, σp = {ctx.σ_p:.4f}"
-
+  let (ufSuff, utSuff, pufSuff, putSuff) = ctx.getUncertaintySuffixes()
   # First write a H5 file of the context and limits
   let baseOutfile = genOutfile(limitKind, ctx.samplingKind, nmc, ufSuff, pufSuff, suffix)
   createDir(outpath)
   dfL.writeCsv(&"{outpath}/{baseOutfile}.csv")
-  ctx.writeLimitOutput(outpath, baseOutfile, nmc, limitKind, limitNoSignal, limits, candsInSens)
+  ctx.writeLimitOutput(outpath, baseOutfile, nmc, limitKind, candsInSens, limits, limitNoSignal)
 
   let maxVal = if xlimit[1] > 0.0: xLimit[1] else: defaultMaxLimit
   dfL = dfL
@@ -2899,7 +2927,15 @@ proc computeRealLimit(ctx: Context, rnd: var Random, limitKind: LimitKind,
                 title = &"Likelihood of real candidates against {arg}",
                 as_gae_gaγ = false)
 
-
+  ## Finally, serialize the data
+  let (ufSuff, _, pufSuff, _) = ctx.getUncertaintySuffixes()
+  let suffix = "observed_limit"
+  let baseOutfile = genOutfile(limitKind, ctx.samplingKind, nmc, ufSuff, pufSuff, suffix)
+  createDir(outpath)
+  ctx.writeLimitOutput(outpath, baseOutfile, nmc, limitKind,
+                       candsInSens = @[ctx.candsInSens(cands)], ## For real candidates only!
+                       observedLimit = limit, chainDf = chainDf,
+                       obsLimitStats = (mean: limitMean, median: limitMedian, std: limitStd))
 
 when false:
   #import weave

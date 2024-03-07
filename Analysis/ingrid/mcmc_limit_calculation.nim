@@ -217,6 +217,8 @@ type
     chainDf: DataFrame       ## DF of the observed limit data (observed only)
     obsLimitStats: tuple[mean, median, std: float] ## Statistics of observed limits variation due to statistical fluc.
                                                    ## (based on `nmc` used for observed limits)
+    nChainsObserved: int     ## Number of chains used for observed limit
+    burnIn: int              ## Burn in used
 
   LogProc = proc(x: seq[float]): float
   Chain = object
@@ -2383,11 +2385,17 @@ proc burnIn(chain: var Chain, rawChain: RawChain, burnIn: int) =
   inc chain.numChains # one more chain added
 
 proc build_MH_chain(ctx: Context, rnd: var Random, cands: seq[Candidate],
-                    log: Logger = nil): Chain =
+                    log: Logger = nil,
+                    nChains = 3, burnIn = 50_000): Chain =
   ## Builds the appropriate chain given the systematics (or lack thereof) of the given
   ## `ctx` and the given candidates `cands`.
   ##
   ## Returns the built markov chain as a sequence of parameters (i.e. seq[seq[float]]).
+  ##
+  ## Default parameters:
+  ## `const nChains = 3`
+  ## ## Burn in of 50,000 was deemed fine even for extreme walks in L = 0 space
+  ## `const BurnIn = 50_000`
   let t0 = getMonoTime()
 
   ## Compute the starting range depending on the current axion photon coupling
@@ -2401,10 +2409,6 @@ proc build_MH_chain(ctx: Context, rnd: var Random, cands: seq[Candidate],
                        of ck_g_ae²·g_aγ²: 0.5
                        of ck_g_ae·g_aγ: 0.5
                        of ck_g_ae²: 3.0
-
-  const nChains = 3
-  ## Burn in of 50,000 was deemed fine even for extreme walks in L = 0 space
-  const BurnIn = 50_000
 
   case ctx.uncertaintyPosition
   of puUncertain:
@@ -2420,7 +2424,7 @@ proc build_MH_chain(ctx: Context, rnd: var Random, cands: seq[Candidate],
         echo "\t\tInitial chain state: ", start
         let chain = rnd.build_MH_chain(start, @[stepMultiplier * couplingRef, 0.025, 0.025, 0.05, 0.05], 150_000, fn)
         echo "Acceptance rate: ", chain.acceptanceRate, " with last two states of chain: ", chain.links[^2 .. ^1]
-        totalChain.burnIn chain, BurnIn
+        totalChain.burnIn chain, burnIn
       ## TODO: not only return the limit, but also the acceptance rate!
       result = totalChain
     of ukCertain:
@@ -2432,7 +2436,7 @@ proc build_MH_chain(ctx: Context, rnd: var Random, cands: seq[Candidate],
         echo "\t\tInitial chain state: ", start
         let chain = rnd.build_MH_chain(start, @[3.0 * couplingRef, 0.05, 0.05], 150_000, fn)
         echo "Acceptance rate: ", chain.acceptanceRate, " with last two states of chain: ", chain.links[^2 .. ^1]
-        totalChain.burnIn chain, BurnIn
+        totalChain.burnIn chain, burnIn
       ## TODO: not only return the limit, but also the acceptance rate!
       result = totalChain
     else: doAssert false, "Currently unsupported (posUncertain + s/b certain combination)"
@@ -2449,7 +2453,7 @@ proc build_MH_chain(ctx: Context, rnd: var Random, cands: seq[Candidate],
         ## XXX: really seems to converge to a different minimum than the one found by the scan
         let chain = rnd.build_MH_chain(start, @[5.0 * couplingRef, 0.01, 0.01], 200_000, fn)
         echo "Acceptance rate: ", chain.acceptanceRate, " with last two states of chain: ", chain.links[^2 .. ^1]
-        totalChain.burnIn chain, BurnIn
+        totalChain.burnIn chain, burnIn
       ## TODO: not only return the limit, but also the acceptance rate!
       result = totalChain
 
@@ -2473,9 +2477,10 @@ proc build_MH_chain(ctx: Context, rnd: var Random, cands: seq[Candidate],
     log.info "Building MCMC with systematics " & ctx.systematics.pretty() &
       " of final length " & $result.links.len & " took " & $(t1 - t0) & " s"
 
-proc computeMCMC(ctx: Context, rnd: var Random, cands: seq[Candidate]): DataFrame =
+proc computeMCMC(ctx: Context, rnd: var Random, cands: seq[Candidate],
+                 nChains = 3, burnIn = 50_000): DataFrame =
   ## Builds the required MCMC and extracts it into a DF
-  let chain = ctx.build_MH_chain(rnd, cands)
+  let chain = ctx.build_MH_chain(rnd, cands, nChains = nChains, burnIn = burnIn)
   let names = if ctx.systematics.uncertainty == ukUncertain and ctx.systematics.uncertaintyPosition == puUncertain:
                 @["ϑs_s", "ϑs_b", "ϑs_x", "ϑs_y"]
               elif ctx.systematics.uncertainty == ukUncertain and ctx.systematics.uncertaintyPosition == puCertain:
@@ -2584,6 +2589,7 @@ proc writeLimitOutput(
   observedLimit = -1.0,
   chainDf = newDataFrame(),
   obsLimitStats: tuple[mean, median, std: float] = (mean: 0.0, median: 0.0, std: 0.0),
+  nChains = 3, burnIn = 50_000,
   path = "") =
   ## Writes the output of the limit calculation to an H5 file that includes the
   ## achieved limits as well as all the parameters that were used. This is simpler
@@ -2609,7 +2615,9 @@ proc writeLimitOutput(
                                 expectedLimit: expLimit,
                                 observedLimit: obsLimit,
                                 chainDf: chainDf,
-                                obsLimitStats: obsLimitStats)
+                                obsLimitStats: obsLimitStats,
+                                nChainsObserved: nChains,
+                                burnIn: burnIn)
   ## XXX: or do we want to store _all_ in a single file? "Limits H5"?
   #echo "Limit output: ", limitOutput
   let name = outpath / outfile & ".h5"
@@ -2863,18 +2871,19 @@ proc computeRealLimit(ctx: Context, rnd: var Random, limitKind: LimitKind,
 
   ## Here we manually compute the MCMC etc instead of using `computeLimit` to have the
   ## entire MCMC on hand for further plots.
-  var chainDf = ctx.computeMCMC(rnd, cands)
+  let burnIn = 50_000 # default burn in
+  let nChains = 200
+  var chainDf = ctx.computeMCMC(rnd, cands, nChains = nChains, burnIn = burnIn)
   let limit = computeLimitFromMCMC(chainDf, "gs") # limit from `g_ae²` directly
-
 
   const nmc = 200
   const jobs = 30
   let (limitMean, limitMedian, limitStd) = ctx.computeLimitStd(rnd, nmc, jobs, cands)
 
-  log.info(&"Mean of {nmc} real limits (3·150k MCMC) = {limitMean:.6e}")
-  log.info(&"Median of {nmc} real limits (3·150k MCMC) = {limitMedian:.6e}")
-  log.info(&"σ of {nmc} real limits (3·150k MCMC) = {limitStd:.6e}")
-  log.info(&"Combined real limit (200 times 3·150k MCMC) = {pretty(limitMean ± limitStd, precision = 4, merge = true)}")
+  log.info(&"Mean of {nmc} real limits ({nChains}·150k MCMC) = {limitMean:.6e}")
+  log.info(&"Median of {nmc} real limits ({nChains}·150k MCMC) = {limitMedian:.6e}")
+  log.info(&"σ of {nmc} real limits ({nChains}·150k MCMC) = {limitStd:.6e}")
+  log.info(&"Combined real limit (200 times {nChains}·150k MCMC) = {pretty(limitMean ± limitStd, precision = 4, merge = true)}")
 
   proc limitStr(ctx: Context, limit: float): string =
     case ctx.couplingKind
@@ -2935,7 +2944,9 @@ proc computeRealLimit(ctx: Context, rnd: var Random, limitKind: LimitKind,
   ctx.writeLimitOutput(outpath, baseOutfile, nmc, limitKind,
                        candsInSens = @[ctx.candsInSens(cands)], ## For real candidates only!
                        observedLimit = limit, chainDf = chainDf,
-                       obsLimitStats = (mean: limitMean, median: limitMedian, std: limitStd))
+                       obsLimitStats = (mean: limitMean, median: limitMedian, std: limitStd),
+                       nChains = nChains,
+                       burnIn = burnIn)
 
 when false:
   #import weave

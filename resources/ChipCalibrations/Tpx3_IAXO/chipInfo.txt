@@ -1,0 +1,6 @@
+chipName: A7 W15
+runPeriod: RunPrototypeSurface
+timepixVersion: Timepix3
+board: PrototypeSingleChip
+chipNumber: 0
+Info: This calibration is for the first IAXO prototype single chip detector, with the data taken in the surface level laboratory and the detector pointing towards zenith.

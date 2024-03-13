@@ -1,0 +1,23 @@
+* Notes on log file location
+
+In the past the CAST log files were found in the following locations:
+
+-  =AngleEncoders= and =logfiles= (slow control)
+  #+begin_src sh
+  /afs/cern.ch/exp/cast/sc/
+  #+end_src
+  Now that =afs= doesn't exist anymore, the same is found on =eos= in:
+  #+begin_src sh
+  /eos/experiment/cast/sc
+  #+end_src
+
+  Note: there is a =tracking-log= directory in the above path, but it
+  only contains very old logs. See below.
+- =tracking-log=:
+  #+begin_src sh
+  /afs/cern.ch/exp/cast/vhscratch/SlowControl/tracking-log
+  #+end_src
+  and nowadays:
+  #+begin_src sh
+  /eos/experiment/cast/vhscratch/SlowControl/tracking-log
+  #+end_src

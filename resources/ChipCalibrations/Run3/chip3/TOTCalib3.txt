@@ -1,0 +1,14 @@
+pulse 20	chip 3	mean 5.22112	std 8.12762
+pulse 30	chip 3	mean 31.1021	std 5.17623
+pulse 40	chip 3	mean 42.5438	std 4.91125
+pulse 50	chip 3	mean 50.4175	std 4.92224
+pulse 60	chip 3	mean 57.5432	std 4.96843
+pulse 70	chip 3	mean 63.6904	std 5.03795
+pulse 80	chip 3	mean 69.0802	std 5.09144
+pulse 90	chip 3	mean 74.0144	std 5.1611
+pulse 100	chip 3	mean 78.4146	std 5.19614
+pulse 150	chip 3	mean 99.5617	std 5.51128
+pulse 200	chip 3	mean 118.605	std 5.95357
+pulse 250	chip 3	mean 137.289	std 6.44105
+pulse 350	chip 3	mean 173.286	std 7.75858
+pulse 450	chip 3	mean 210.785	std 15.9729

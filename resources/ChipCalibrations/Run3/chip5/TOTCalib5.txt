@@ -1,0 +1,14 @@
+pulse 20	chip 5	mean 0.611816	std 2.90496
+pulse 30	chip 5	mean 24.3338	std 5.62148
+pulse 40	chip 5	mean 36.8699	std 4.41144
+pulse 50	chip 5	mean 45.2898	std 4.38621
+pulse 60	chip 5	mean 52.6083	std 4.44573
+pulse 70	chip 5	mean 58.6591	std 4.50372
+pulse 80	chip 5	mean 64.1981	std 4.55672
+pulse 90	chip 5	mean 69.209	std 4.61676
+pulse 100	chip 5	mean 74.0417	std 4.69742
+pulse 150	chip 5	mean 95.5912	std 5.00727
+pulse 200	chip 5	mean 115.065	std 5.41775
+pulse 250	chip 5	mean 133.956	std 5.85085
+pulse 350	chip 5	mean 170.215	std 6.79015
+pulse 450	chip 5	mean 205.696	std 7.89984

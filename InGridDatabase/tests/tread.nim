@@ -4,12 +4,12 @@ import ingridDatabase
 
 when isMainModule:
   const chipName = "E4W66"
-  let t = getTotCalib(chipName)
+  let runPeriod = "Run1"
+  let t = getTotCalib(chipName, runPeriod)
   echo t
 
-  let scvs = getScurveSeq(chipName)
+  let scvs = getScurveSeq(chipName, runPeriod)
   echo scvs
 
-  let thl = getThreshold(chipName)
+  let thl = getThreshold(chipName, runPeriod)
   echo thl
-  

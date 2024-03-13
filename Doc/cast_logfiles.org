@@ -1,0 +1,130 @@
+* CAST log files
+
+This is about the slow control and tracking logfiles. These can be
+parsed and processed with the =LogReader/cast_log_reader.nim=.
+
+
+
+** Example of broken log files
+
+Let =trLogs= be the parsed trLogs if they are parsed without the "same
+date as first line" check we have since implemented.
+
+The files matching the dates given by the unix timestamps here show
+extremely mismatching dates.
+
+#+begin_src nim
+  trLogs = trLogs.sortedByIt(it.date)
+  dfs = newSeqOfCap[DataFrame](trLogs.len)
+  for log in trLogs:
+    #echo "Number above 1.0: ", log.magB.filterIt(it > 1.0).len, " at date ", log.date
+    let dfLoc = toDf(log)
+    if dfLoc.len > 1:
+      dfs.add dfLoc
+
+    if log.date == fromUnix(1452466800):
+      dfThem.add dfLoc
+    elif log.date == fromUnix(1411077600):
+      dfThem.add dfLoc
+    elif log.date == fromUnix(1411164000):
+      dfThem.add dfLoc
+
+  echo dfThem.len
+  for i, d in dfThem:
+    d.showBrowser("df_" & $i & ".html")
+
+  if true: quit()
+  
+#+end_src
+
+After parsing of these we end up with a (if sorted by timestamp):
+#+begin_src
+Start at: 4248397 stop at 4248398
+Relevant subDf : Dataframe with 4 columns and 12 rows:
+         Idx    Time / s       B / T        Date        From
+      dtype:         int       float         int      string
+           0  1411188324   -0.001549  1411164000 Tracking...
+           1  1411188351   -0.001401  1452466800 Tracking...
+           2  1411188374       9.407  1411077600 Tracking...
+           3  1411188384   -0.001559  1411164000 Tracking...
+           4  1411188411   -0.001401  1452466800 Tracking...
+           5  1411188434       9.407  1411077600 Tracking...
+           6  1411188444   -0.001577  1411164000 Tracking...
+           7  1411188471   -0.001401  1452466800 Tracking...
+           8  1411188494       9.407  1411077600 Tracking...
+           9  1411188532   -0.001401  1452466800 Tracking...
+          10  1411188554       9.406  1411077600 Tracking...
+          11  1411188592   -0.001401  1452466800 Tracking...
+#+end_src
+
+Note the mismatch between the time and date column. Files contain a
+"date" and a "time" column, where date is something like =MM/dd/yyyy=
+and time just the time of day. Time column is computed by doing
+=date + time=. In these files (in particular the =145...= one),
+suddenly there are lines from 2014 instead of 2016.
+
+
+Another file:
+#+begin_src
+Start at: 4168052 stop at 4168053
+Relevant subDf : Dataframe with 4 columns and 12 rows:
+         Idx    Time / s       B / T        Date        From
+      dtype:         int       float         int      string
+           0  1411447749    -0.00163  1411336800 Tracking...
+           1  1411447758       9.407  1411336800 Tracking...
+           2  1411447809   -0.001626  1411336800 Tracking...
+           3  1411447818       9.407  1411336800 Tracking...
+           4  1411447869   -0.001698  1411336800 Tracking...
+           5  1411447878       9.406  1411336800 Tracking...
+           6  1411447929   -0.001656  1411336800 Tracking...
+           7  1411447938       9.406  1411336800 Tracking...
+           8  1411447990   -0.001676  1411336800 Tracking...
+           9  1411447998       9.407  1411336800 Tracking...
+          10  1411448050   -0.001709  1411336800 Tracking...
+          11  1411448058       9.407  1411336800 Tracking...
+#+end_src
+what it has same date???
+This one is a bug of ours.
+
+Holy crap, again it's the files...:
+Excerpt:
+
+#+begin_src
+0.000E+0  0.000E+0  1.5000E+4  2.6464E+4  0.000E+0  0.000E+0  09/23/14  09:35:14  3.494306114E+9  1.5000E+4  2.6464E+4  8.5820E+1  6.5384E-3  5.7104E+0  4.6207E+1  0.0000E+0  0.0000E+0  09/23/14  09:36:07  127.839122  30.312293  5.9688E+1  -1.656E-3  8.6984E+2  5.9383E+2  5.9000E+2  1.823E+1  1.796E+1  2.021E+1  1.893E+1  1.910E+1  -1.073E-5  1.431E-5  2.503E-5  -3.219E-5  0.000E+0  0.000E+0  0.000E+0  0.000E+0  0.000E+0  0.000E+0  6.000E+1  5.9000E+2  1.5000E+4  2.6464E+4  -3.4687E+0  2.0313E-1  1.4973E+1  0.000E+0
+0.000E+0  0.000E+0  1.5000E+4  2.6464E+4  0.000E+0  0.000E+0  09/23/14  09:36:19  3.494306180E+9  1.5000E+4  2.6464E+4  8.5820E+1  6.5384E-3  5.9498E+0  4.5992E+1  0.0000E+0  0.0000E+0  09/23/14  09:37:12  128.102562  30.459746  5.9540E+1  -1.658E-3  8.6983E+2  5.9382E+2  5.9000E+2  1.832E+1  1.846E+1  2.033E+1  1.905E+1  1.912E+1  1.073E-5  -1.073E-5  1.073E-5  -1.073E-5  0.000E+0  0.000E+0  0.000E+0  0.000E+0  0.000E+0  0.000E+0  6.000E+1  5.9000E+2  1.5000E+4  2.6464E+4  -3.4687E+0  2.0313E-1  1.5008E+1  0.000E+0
+0.000E+0  0.000E+0  1.5000E+4  2.6464E+4  0.000E+0  0.000E+0  09/23/14  07:00:12  3.494296813E+9  1.5000E+4  2.6464E+4  8.5820E+1  6.5384E-3  6.1692E+0  4.5794E+1  0.0000E+0  0.0000E+0  09/23/14  09:38:12  128.346445  30.595384  5.9405E+1  -1.620E-3  8.6983E+2  5.9432E+2  5.9000E+2  1.875E+1  1.865E+1  2.014E+1  1.969E+1  2.038E+1  1.788E-6  1.967E-5  5.364E-6  1.788E-5  0.000E+0  0.000E+0  0.000E+0  0.000E+0  0.000E+0  0.000E+0  6.000E+1  5.9000E+2  1.5000E+4  2.6464E+4  -3.4687E+0  2.0313E-1  1.5001E+1  0.000E+0
+1.000E+0  0.000E+0  1.5000E+4  2.6464E+4  0.000E+0  0.000E+0  09/23/14  07:01:11  3.494296872E+9  1.5000E+4  2.6464E+4  8.5820E+1  6.5384E-3  3.0155E+2  6.5487E+1  0.0000E+0  0.0000E+0  09/23/14  07:02:05  96.200636  5.825901  8.4174E+1  -1.609E-3  8.6990E+2  5.9430E+2  5.9000E+2  1.895E+1  1.871E+1  2.013E+1  1.857E+1  1.943E+1  2.861E-5  -1.788E-6  -7.153E-6  3.576E-6  1.330E+0  2.810E+0  8.410E+0  8.410E+0  1.990E+2  1.990E+2  6.000E+1  5.9000E+2  1.8990E+4  4.5877E+4  -3.4687E+0  2.0313E-1  1.4972E+1  0.000E+0
+1.000E+0  0.000E+0  1.5000E+4  2.6464E+4  0.000E+0  0.000E+0  09/23/14  06:02:09  3.494293329E+9  1.5252E+4  2.7582E+4  8.6476E+1  3.4256E-1  2.6830E+2  6.0879E+1  1.0152E+1  6.1464E+0  09/23/14  06:03:04  85.500394  -4.353325  9.4353E+1  -1.620E-3  8.6979E+2  5.9430E+2  5.9000E+2  1.850E+1  1.826E+1  2.110E+1  1.985E+1  2.027E+1  7.153E-6  1.073E-5  7.153E-6  -8.941E-6  6.500E-1  2.680E+0  1.367E+2  5.677E+1  4.000E+2  2.440E+2  6.000E+1  5.9000E+2  1.4880E+4  1.2026E+4  -3.4687E+0  2.0313E-1  2.2482E+1  0.000E+0
+1.000E+0  0.000E+0  1.5000E+4  2.6464E+4  0.000E+0  0.000E+0  09/23/14  06:03:09  3.494293389E+9  1.5069E+4  2.6601E+4  8.6000E+1  4.7714E-2  2.6960E+2  6.1375E+1  4.5659E-1  3.8668E+0  09/23/14  06:04:03  85.679154  -4.183958  9.4184E+1  -1.676E-3  8.6951E+2  5.9429E+2  5.9000E+2  1.772E+1  1.765E+1  1.983E+1  1.793E+1  1.914E+1  -4.113E-5  -3.219E-5  -1.609E-5  -3.040E-5  6.400E-1  1.810E+0  1.308E+2  7.000E+1  4.000E+2  3.996E+2  6.000E+1  5.9000E+2  1.4948E+4  1.2585E+4  -3.4687E+0  2.0313E-1  2.2446E+1  0.000E+0
+1.000E+0  0.000E+0  1.5000E+4  2.6464E+4  0.000E+0  0.000E+0  09/23/14  06:04:09  3.494293449E+9  1.4936E+4  2.5388E+4  8.5653E+1  -3.1757E-1  2.7101E+2  6.1714E+1  4.3215E-2  3.3841E+0  09/23/14  06:05:03  85.860866  -4.011679  9.4012E+1  -1.646E-3  8.6939E+2  5.9429E+2  5.9000E+2  1.848E+1  1.848E+1  2.080E+1  1.872E+1  1.945E+1  1.073E-5  0.000E+0  -3.576E-6  1.609E-5  1.280E+0  1.780E+0  4.366E+1  7.000E+1  1.412E+2  3.988E+2  6.000E+1  5.9000E+2  1.5018E+4  1.3154E+4  -3.4687E+0  2.0313E-1  1.3969E+1  0.000E+0
+#+end_src
+
+See the date & time column. The time just jumps stupidly.
+
+I think the correct thing to do from here is to:
+- either never look at the timestamp column. Only sort by date. This
+  works as long as we don't want to combine the slow control data &
+  tracking log data.
+- or remove every line for which =timestamp[i] > timestamp[i-1]=
+  doesn't hold.
+
+For the computation of magnet on time solution b) is definitely the
+correct one, as otherwise we have no idea what the time difference
+is. Once the time jumps back to normal we just use that difference.
+
+For a plot of the different magnet values, it doesn't matter.
+
+For the ramping up & ramping down cycle count... We don't care about
+the time itself. The order (we assume) can be considered correct. We
+cannot look at data that overlaps for tracking & slow control anyway,
+as we would end up double counting.
+
+
+I'll go with a simple solution now... Anything before 2010 will use
+the tracking logs and anything after the slow control log. The time
+between 2010 and 2015 (including) are covered by both types of logs.
+
+
+
+
+

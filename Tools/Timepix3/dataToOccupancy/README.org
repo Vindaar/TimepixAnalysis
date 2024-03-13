@@ -1,0 +1,108 @@
+* Timepix3: Raw data to plots helper tool
+
+If you receive this tool without any binaries, complain to whoever
+gave it to you!
+
+The following files are expected:
+#+begin_src
+-rwxr-xr-x  1 basti 787K May 18 18:19 libblosc.so
+-rwxr-xr-x  1 basti 3.5M May 18 18:19 libhdf5.so
+-rwxr-xr-x  1 basti  43K May 18 18:23 libmpfit.so
+lrwxrwxrwx  1 basti   18 May 18 18:23 libnlopt.so -> libnlopt.so.0.10.0
+-rwxr-xr-x  1 basti 643K May 18 18:23 libnlopt.so.0.10.0
+-rwxr-xr-x  1 basti 2.9M May 18 18:07 plotData
+-rw-r--r--  1 basti  631 May 18 17:38 plotData.toml
+-rwxr-xr-x  1 basti 2.1M May 18 19:17 raw_data_manipulation
+-rw-r--r--  1 basti 1.6K May 18 19:53 raw_reco_config.toml
+-rw-r--r--  1 basti 1.8K May 18 19:12 README.org  # ⇐ this file!
+-rwxr-xr-x  1 basti 840K May 18 18:02 readTpx3RawTest
+-rwxr-xr-x  1 basti 2.6M May 18 19:43 reconstruction
+-rwxr-xr-x  1 basti 858K May 18 19:43 tpx3RawToPlots
+-rw-r--r--  1 basti 1.4K May 18 19:09 tpx3RawToPlots.nim
+#+end_src
+
+In a "non installed case", only the following 4 files are given:
+#+begin_src
+plotData.toml
+raw_reco_config.toml
+README.org
+tpx3RawToPlots.nim
+#+end_src
+
+The =tpx3RawToPlots.nim= is the actual binary the user is supposed to
+run (see [[How to use]]).
+The TOML files are the configuration files for:
+- =plotData.toml=: to control =karaPlot=
+- =raw_reco_config.toml=: to control =raw_data_manipulation= and
+  =reconstruction=
+
+Aside from that all shown shared libraries from above as well as the
+other binaries need to be supplied before shipping.
+
+These binaries can be compiled from the following source files:
+#+begin_src
+  - Source file: /TimepixAnalysis/Analysis/ingrid/raw_data_manipulation.nim
+  - Binary: raw_data_manipulation
+  - Compile command: nim c -d:danger --threads:on raw_data_manipulation.nim
+
+  - Source file: /TimepixAnalysis/Analysis/ingrid/reconstruction.nim
+  - Binary: reconstruction
+  - Compile command: nim c -d:danger --threads:on reconstruction.nim
+
+  - Source file: /TimepixAnalysis/Tools/Timepix3/readTpx3RawTest.nim
+  - Binary: readTpx3RawTest
+  - Compile command: nim c -d:danger --threads:on -d:blosc readTpx3RawTest.nim
+
+  - Source file: /TimepixAnalysis/Plotting/karaPlot/plotData.nim
+  - Binary: plotData
+  - Compile command: nim c -d:danger --threads:on plotData.nim
+#+end_src
+
+Assembling these binaries and shared libraries should result in a tool
+that is usable as described below.
+
+** How to use
+
+This is as simply as it gets, I hope.
+
+Essentially there's two steps:
+1. we need to source the =setup.sh= file once (it just sets
+   =LD_LIBRARY_PATH= to this directory, so all shared libraries are
+   found).
+2. we run the actual tool to generate the occupancy.
+   #+begin_src sh
+   ./tpx3RawToPlots -f <inputFilename> -s <suffix> [-o <outpath>]
+   #+end_src
+   This will first convert the raw data into interpreted pixel
+   data. Then it will call run the first step of the data
+   analysis to create the occupancy plot.
+
+There are two things to keep in mind:
+1. 2 additional HDF5 files will be created. These are:
+   - =tpx3_<suffix>.h5=
+   - =raw_<suffix>.h5=
+   That's what the =<suffix>= is for.
+2. these HDF5 files will be placed in the same directory as the input
+   data file, unless the optional =-o= with a path is given.
+
+After running over these successfully, one or multiple occupancy plots
+will be created (multiple if the input file is too large to fit into
+RAM after data type conversions).
+
+In theory it's possible to perform the full data analysis and create
+the whole range of plots. In order to do that, one needs to add the
+following 3 command line arguments:
+   #+begin_src sh
+   ./tpx3RawToPlots -f <inputFilename> -s <suffix> --reco --energy --plots
+   #+end_src
+
+However, depending on what the data looks like, the fit to the rotational
+angle of the clusters might never converge, leading to an endless
+loop. One can adjust the ToA cutoff threshold for cluster
+determination in the =raw_reco_config.toml= file using the
+=tpx3ToACutoff= option. This is the cutoff in ToA clock cycles
+required between two hits. The default is 50, which might be
+problematic for extremely high data rates.
+
+
+   

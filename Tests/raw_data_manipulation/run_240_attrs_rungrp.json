@@ -1,0 +1,74 @@
+{
+  "pathName": {
+    "value": "data/runs/Run_240_181021-14-54",
+    "type": "dkString"
+  },
+  "numChips": {
+    "value": 7,
+    "type": "dkInt64"
+  },
+  "externalTrigger": {
+    "value": 0,
+    "type": "dkInt64"
+  },
+  "centerChipName": {
+    "value": "H 10 W69",
+    "type": "dkString"
+  },
+  "shutterMode": {
+    "value": "verylong",
+    "type": "dkString"
+  },
+  "rawDataFinished": {
+    "value": "true",
+    "type": "dkString"
+  },
+  "runType": {
+    "value": "rtBackground",
+    "type": "dkString"
+  },
+  "raw_data_manipulation_compiled_on": {
+    "value": "2022-02-23 at 10:37:16",
+    "type": "dkString"
+  },
+  "runNumber": {
+    "value": 240,
+    "type": "dkInt64"
+  },
+  "numEventsStored": {
+    "value": 1001,
+    "type": "dkInt64"
+  },
+  "runTimeFrames": {
+    "value": 1,
+    "type": "dkInt64"
+  },
+  "dateTime": {
+    "value": "2018-10-21.14:54:08",
+    "type": "dkString"
+  },
+  "runMode": {
+    "value": 0,
+    "type": "dkInt64"
+  },
+  "runTime": {
+    "value": 0,
+    "type": "dkInt64"
+  },
+  "shutterTime": {
+    "value": 30,
+    "type": "dkInt64"
+  },
+  "raw_data_manipulation_version": {
+    "value": "d1349c8",
+    "type": "dkString"
+  },
+  "fastClock": {
+    "value": 0,
+    "type": "dkInt64"
+  },
+  "centerChip": {
+    "value": 3,
+    "type": "dkInt64"
+  }
+}

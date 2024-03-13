@@ -1,0 +1,90 @@
+{
+  "pathName": {
+    "value": "data/runs/Run_241_181022-16-16",
+    "type": "dkString"
+  },
+  "szint2TriggerRatio": {
+    "value": 0.4935064935064935,
+    "type": "dkFloat64"
+  },
+  "numChips": {
+    "value": 7,
+    "type": "dkInt64"
+  },
+  "externalTrigger": {
+    "value": 0,
+    "type": "dkInt64"
+  },
+  "nonTrivial_szint2TriggerRatio": {
+    "value": 0.004995004995004995,
+    "type": "dkFloat64"
+  },
+  "centerChipName": {
+    "value": "H 10 W69",
+    "type": "dkString"
+  },
+  "shutterMode": {
+    "value": "verylong",
+    "type": "dkString"
+  },
+  "rawDataFinished": {
+    "value": "true",
+    "type": "dkString"
+  },
+  "runType": {
+    "value": "rtCalibration",
+    "type": "dkString"
+  },
+  "runNumber": {
+    "value": 241,
+    "type": "dkInt64"
+  },
+  "RawTransferFinished":{
+    "value": "true",
+    "type":"dkString"
+  },
+  "numEventsStored": {
+    "value": 1001,
+    "type": "dkInt64"
+  },
+  "runTimeFrames": {
+    "value": 0,
+    "type": "dkInt64"
+  },
+  "dateTime": {
+    "value": "2018-10-22.16:16:21",
+    "type": "dkString"
+  },
+  "runMode": {
+    "value": 0,
+    "type": "dkInt64"
+  },
+  "runTime": {
+    "value": 7200,
+    "type": "dkInt64"
+  },
+  "shutterTime": {
+    "value": 30,
+    "type": "dkInt64"
+  },
+  "fastClock": {
+    "value": 0,
+    "type": "dkInt64"
+  },
+  "fadcTriggerRatio": {
+    "value": 0.994005994005994,
+    "type": "dkFloat64"
+  },
+  "nonTrivial_szint1TriggerRatio": {
+    "value": 0.0,
+    "type": "dkFloat64"
+  },
+  "szint1TriggerRatio": {
+    "value": 0.000999000999000999,
+    "type": "dkFloat64"
+  },
+  "centerChip": {
+    "value": 3,
+    "type": "dkInt64"
+  }
+}

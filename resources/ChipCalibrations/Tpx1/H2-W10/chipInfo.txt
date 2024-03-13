@@ -1,0 +1,5 @@
+chipName: H2 W10
+runPeriod: Tpx1Simulation
+board: Simulation
+chipNumber: 1
+Info: This chip is mainly used in the simulation by Markus `https://github.com/GasDet-Bonn/GridPix_xray_simulation`

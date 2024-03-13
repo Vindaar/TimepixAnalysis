@@ -1,5 +1,0 @@
-chipName: I2 W69
-runPeriod: Tpx1LabData
-board: CAST_single_chip
-chipNumber: 1
-Info: This chip is used for real data by Markus.

@@ -1,19 +1,22 @@
 # this file contains procs, which deal with the analysis of the
 # FADC data stored in a H5 file
 
-import std / [strutils, sequtils, strformat, heapqueue, os, tables, times, typetraits]
+import strutils, sequtils, strformat
+import docopt
+import ospaths
 import nimhdf5
+import tables
+import times
+import future
+import typetraits
 
 import arraymancer
 import seqmath
 
-import tos_helpers, ingrid_types, fadc_helpers
+import tos_helpers
 import helpers/utils
 
-# for moving average statistics
-import adix / stat
-
-const doc = """
+let doc = """
 InGrid FADC analysis tool
 
 Usage:
@@ -29,6 +32,49 @@ Options:
   -h --help                   Show this help
   --version                   Show version.
 """
+
+# proc noiseAnalysis(h5f: var H5FileObj) =
+#   ## proc which performs the analysis of the noise, i.e. ratio of active and dead
+#   ## detector. Read the timestamps in the files, get event durations and in bin
+#   ## ranges, which can be determined (~ 20 s to account for 1s accuracy in timestamp?)
+
+#   const avg_int = 10
+#   for num, group in runs(h5f):
+#     echo num, " and ", group
+#     # so what do we need to do? Get timestamps.
+#     # get each event, check if noisy (use noisy flag)
+#     # define bin by starting at t = t0, build up some
+#     # seq of noisy, not noisy
+#     # once t = t1, where delta t = t1 - t0
+#     # we calculate ratio of noisy vs non noisy
+#     # given shift start and end times, we can later extract
+#     # noise development
+#     let tstamp = h5f[(group / "timestamp").dset_str][int64]
+#     let noisy  = h5f[(group / "fadc/noisy").dset_str][int64]
+#     var
+#       n_noise = 0
+#       n_good  = 0
+#       t_0     = tstamp[0]
+#       noise_frac: seq[float] = @[]
+#     # TODO: good start, but still wrong. Less FADC events than timestamps
+#     # thus also need fadc_readout dataset to get the times of each FADC
+#     # event. That is to know when each happened etc
+#     # then also need not only fraction of noisy events, but also effective
+#     # dead time. So we need also eventDuration
+
+#     for i, t in tstamp:
+#       if tstamp[i] - t_0 > avg_int:
+#         noise_frac.add (n_noise / n_good)
+#         n_noise = 0
+#         n_good = 0
+#         t_0 = tstamp[i]
+#       else:
+#         if noisy[i] == 1:
+#           inc n_noise
+#         else:
+#           inc n_good
+#     echo "Noise fracs are ", noise_frac
+#     quit()
 
 type
   FadcIntTime = enum
@@ -54,7 +100,7 @@ proc getFadcIntTime(date: DateTime): FadcIntTime =
   elif date > t3:
     result = fk100
 
-proc noiseAnalysis(h5f: H5File): tuple[f50, f100: Table[string, float64]] =
+proc noiseAnalysis(h5f: var H5FileObj): tuple[f50, f100: Table[string, float64]] =
   ## proc which performs the analysis of the noise, i.e. ratio of active and dead
   ## detector. Read the timestamps in the files, gets start and end times of runs
   ## and compares total dead time for each run, depending on type of FADC setting
@@ -83,21 +129,18 @@ proc noiseAnalysis(h5f: H5File): tuple[f50, f100: Table[string, float64]] =
       let
         tr_start = attrs[&"tracking_start_{i}", string].parse(date_syntax)
         tr_stop  = attrs[&"tracking_stop_{i}", string].parse(date_syntax)
-        tr_mean  = tr_start + initDuration(
-          seconds = ((tr_stop - tr_start).inSeconds.float / 2).round.int
-        )
+        tr_mean  = tr_start + initDuration(seconds = ((tr_stop - tr_start).seconds.float / 2).int)
       let
         durations = h5f[(group / "eventDuration").dset_str][float64]
         # get tracking indices of this tracking number
-        tracking_inds = h5f.getTrackingEvents(grp, i, tracking = true,
-                                              returnEventNumbers = true)
+        tracking_inds = h5f.getTrackingEvents(grp, i, tracking = true)
         # get all durations for events within tracking from the tstamp indices
         durations_track = durations[tracking_inds]
         # sum all event durations within tracking
         duration_live = initDuration(seconds = durations_track.sum.int)
       let
         # calculate shutter open time
-        ratio = duration_live.inSeconds.float / (tr_stop - tr_start).inSeconds.float
+        ratio = duration_live.seconds.float / (tr_stop - tr_start).seconds.float
         fk_type = getFadcIntTime(tr_mean)
       # build the key for the table consisting of run number, FADC int time
       # and the date
@@ -142,125 +185,52 @@ proc writeNoiseData(tab_tup: tuple[f50, f100: Table[string, float64]], outfile: 
   for k, v in t100:
     outf.write(&"{k} \t {v}\n")
 
-proc high[T](t: Tensor[T]): int =
-  assert t.rank == 1
-  result = t.size.int - 1
 
-proc len[T](t: Tensor[T]): int =
-  assert t.rank == 1
-  result = t.size.int
-
-
-## XXX: Instead of this, use a simple array that we index with a
-## running (`mod` based) index! We just rotate around so that
-## `idx - WindowSize` (mod) is always the oldest index!
-type
-  ## Helper data types to be aware of the current data in the MovingStat window.
-  ## We use a queue to pop the correct values once they go out of the window.
-  FifoElement = tuple[idx: int, val: float]
-  FIFO = object
-    idx: int # incrementing counter used for next element as the index
-    windowSize: int
-    data: HeapQueue[FifoElement]
-
-proc `<`(a, b: FifoElement): bool = a.idx < b.idx
-proc initFifo(windowSize: int): FIFO =
-  result = FIFO(idx: 0,
-                windowSize: windowSize,
-                data: initHeapQueue[FifoElement]())
-
-proc push(fifo: var FIFO, x: float) =
-  fifo.data.push (fifo.idx, x)
-  inc fifo.idx
-
-proc pop(fifo: var FIFO): float =
-  let removed = fifo.data.pop()
-  result = removed.val
-
-proc popIdx(fifo: var FIFO): int =
-  let removed = fifo.data.pop()
-  result = removed.idx
-
-proc meanIdx(fifo: var FIFO): int =
-  doAssert fifo.data.len > 0, "FIFO is empty! Cannot calculate a mean"
-  var res = 0.0
-  let num = fifo.data.len
-  while fifo.data.len > 0:
-    let idx = fifo.popIdx()
-    res += idx.float
-  result = (res / num.float).round.int
-
-proc findThresholdValue*[T: seq | Tensor; U](data: T, x_min: int,
-                                             minThreshold, threshold: U,
-                                             left = true, positive = false): (int, int) =
+proc findThresholdValue[T](data: seq[seq[T]], x_min: seq[int], threshold: seq[T], left = true, positive = false): seq[int] =
   ## left determines whether we start search left or right
   ## positive sets the range of the data. postiive == false means we consider
-  ## dips instead of peaks
-  ##
-  ## The current implementation is problematic as it is falling for outliers in the data.
-  ## We will replace it by a version that calculates a truncated running mean.
-  ##
-  ## The `minThreshold` is the threshold we need to cross on the _minimum_ of the signal
-  ## before we start counting the rise/fall time. `threshold` on the other hand is the
-  ## point we need to cross to `stop` counting rise/fall time.
-  ##
-  ## Returns the register at which we cross the baseline threshold (`threshold`) and the
-  ## register at which we cross the signal threshold (our start, `minThreshold`). Difference
-  ## between the two is the rise/fall time.
-  const WindowSize = 5
-
-  var x = xMin # current FADC register we look at
-  var count = 0 # number of registers we've looked at
-
-  var removeQueue = initFifo(WindowSize)
-  var stat = initMovingStat[float, int]()
-  stat.push data[x]        # start with position of minimum
-  removeQueue.push data[x] # in both
-
-  var start = false # indicates whether we are above `minThreshold`
-  var xMinThreshold = -1 # where we crossed the minimum threshold, i.e. `start` set to `true`
-  while stat.mean() < threshold and count < 2560:
-    if left:
-      dec x
-      if x <= 0:
-        x = data.high
+  ## dips instaed of peaks
+  result = newSeq[int](x_min.len)
+  for i, el in data:
+    let thr     = threshold[i]
+    var x = x_min[i]
+    var count = 0
+    while el[x] < thr and count < 2560:
+      # positive == true would mean el[x] > thr
+      if left == true:
+        dec x
+        if x <= 0:
+          x = el.high
+      else:
+        inc x
+        if x >= el.high:
+          x = 0
+      inc count
+    # once we're out, we found our threshold in the data
+    if count >= 2560:
+      # set the threshold value to the start value, indicating, that
+      # it could not be found
+      result[i] = x_min[i]
     else:
-      inc x
-      if x >= data.high:
-        x = 0
-    inc count
-    # push current datapoint
-    stat.push data[x]
-    removeQueue.push data[x]
-    if stat.n > WindowSize: # if window is full, time to pop elements
-      let toRemove = removeQueue.pop()
-      stat.pop toRemove
+      # in case of a good result..
+      result[i] = x
 
-    if not start and stat.mean() > minThreshold: # start rise time from here!
-      start = true
-      xMinThreshold = x
 
-  # once we're out, we found our threshold in the data
-  if count >= 2560:
-    # set the threshold value to the start value, indicating, that
-    # it could not be found
-    result = (x_min, x_min)
-  else:
-    # register is the mean index of the queue (we start index from 0,
-    # increase for each add) add to the start index mod 2560
-    var resIdx: int
-    # remove the offset induced by where we start (`xMin`) and where we start
-    # rise/fall time calc (`xMinThreshold`)
-    let meanIdx = removeQueue.meanIdx() - (abs(xMin - xMinThreshold))
-    if left:
-      resIdx = xMinThreshold - meanIdx
-      if resIdx < 0:
-        resIdx += 2560 # push it to the right by one full window
-    else:
-      resIdx = meanIdx + xMinThreshold
-    result = (resIdx mod 2560, xMinThreshold)
+proc reshapeFadc[T](s: seq[T], shape = int): seq[seq[T]] =
+  ## unfinished proc which reshapes the given sequence to a
+  ## higher order nested sequence. Currently hardcoded for FADC
+  let dim2 = s.len
+  var tmp: seq[T] = @[]
+  echo dim2
+  for i in 0 ..< dim2:
+    if i == 0:
+      result = @[]
+    elif i mod 2560 == 0:
+      result.add(tmp)
+      tmp.setLen(0)
+    tmp.add s[i]
 
-proc diffUnderModulo*[T](a, b: T, modulo: int): T {.inline.} =
+proc diffUnderModulo[T](a, b: T, modulo: int): T {.inline.} =
   ## returns the difference between two values taking into account
   ## modulo a certain value
   let
@@ -268,159 +238,90 @@ proc diffUnderModulo*[T](a, b: T, modulo: int): T {.inline.} =
     d2 = abs(modulo - abs(a - b))
   result = min(d1, d2)
 
-proc percIdx(q: float, len: int): int = (len.float * q).round.int
-proc biasedTruncMean1D(t: Tensor[float], qLow, qHigh: float): float =
-  let numH = t.size.int
-  let plow = percIdx(qLow, numH)
-  let phih = percIdx(qHigh, numH)
-  let subSorted = t.sorted
-  ## compute the biased truncated mean by slicing sorted data to lower and upper
-  ## percentile index
-  var red = 0.0
-  for j in max(0, plow) ..< min(numH, phih): # loop manually as data is `uint16` to convert
-    red += subSorted[j].float
-  result = red / (phih - plow).float
-
-proc skewness(t: Tensor[float]): float =
-  ## Skewness from a tensor
-  var ms = initMovingStat[float, int]()
-  for i in 0 ..< t.size.int:
-    ms.push t[i]
-  result = ms.skewness()
-
-proc calcRiseAndFallTime*(fadc: Tensor[float]): tuple[baseline: float,
-                                                      argMinval,
-                                                      riseStart,
-                                                      fallStop,
-                                                      riseTime,
-                                                      fallTime: uint16,
-                                                      skewness: float,
-                                                      noisy: int,
-                                                      minVal: float
-                                                     ] =
-  ## Calculates the baseline, minimum location, start of pulse rise, end of pulse fall,
-  ## rise time and fall time for a ``single`` FADC spectrum
-  ##
-  ## WARNING: `calcRiseAndFallTime` return data *must* be in the order of the fields
-  ## in `RecoFadc`!
-
-  ## XXX: Make the parameters adjustable!
-  # get location of minimum
-  let xMin = argmin(fadc)
-
-  let
-    # we demand at least 4 dips, before we can consider an event as noisy
-    n_dips = 4
-    # the percentile considered for the calculation of the minimum
-    min_percentile = 0.99 # this seems better ~ fine
-  let noisy = fadc.isFadcFileNoisy(n_dips)
-  let minVal = fadc.calcMinOfPulse(min_percentile)
-
-  when false:
-    let df = toDf({ "fadc" : fadc,
-                    "idx" : toSeq(0 ..< 2560) })
-    ggplot(df, aes("idx", "fadc")) + geom_line() + ggsave("/t/test.pdf")
-
-  # determine baseline based on truncated mean. Remove good chunk of lower data to make sure we 'cut out'
-  # the typical signal. 2560/0.3 = 768 channels is a reasonable width that covers most signals.
-  let baseline = fadc.biasedTruncMean1D(0.30, 0.95)
-  # now determine rise and fall times. The thresholds are defined as the point 5% below the
-  # baseline (due to fluctuations). In addition we use `PercentileMean` to compute a tighter minimum
-  # value and define a threshold of `OffsetToBaseline` from the minimum value which is the starting
-  # point from where rise/fall times are measured!
-  const PercentileMean = 0.995 # 0.5% = 2560 * 0.005 = 12.8 registers around the minimum for the minimum val
-  const OffsetToBaselineTop = 0.1 # 10 % below baseline due to noisy events
-  const OffsetToBaselineBottom = 0.025 # 2.5 % below baseline seems reasonable
-  let meanMinVal = calcMinOfPulse(fadc, PercentileMean)
-  let offsetTop = abs(OffsetToBaselineTop * (meanMinVal - baseline)) # relative to the 'amplitude'
-  let offsetBottom = abs(OffsetToBaselineBottom * (meanMinVal - baseline)) # relative to the 'amplitude'
-  let
-    (riseStart, riseStop) = findThresholdValue(fadc, xMin, meanMinVal + offsetBottom, baseline - offsetTop)
-    (fallStop, fallStart)  = findThresholdValue(fadc, xMin, meanMinVal + offsetBottom, baseline - offsetTop, left = false)
-
-  # given this data, we could now in principle already calculate the fall and rise
-  # times in nano seconds, but we're going to stick to registers for now
-  let
-    riseTime = diffUnderModulo(riseStop, riseStart, 2560)
-    fallTime = diffUnderModulo(fallStart, fallStop, 2560)
-
-  result = (baseline: baseline, argMinval: xMin.uint16, riseStart: riseStart.uint16, fallStop: fallStop.uint16,
-            riseTime: riseTime.uint16, fallTime: fallTime.uint16,
-            skewness: fadc.skewness(),
-            noisy: noisy,
-            minVal: minVal)
-
-proc calcRiseAndFallTimes*(fadc: Tensor[float], eventNumber: seq[int] = @[]): RecoFadc =
-  ## Calculates the baseline, minimum location, start of pulse rise, end of pulse fall,
-  ## rise time and fall time for ``all`` given FADC spectra
-  let nSpectra = fadc.shape[0]
-  for field, data in fieldPairs(result):
-    data = newTensorUninit[get(genericParams(typeof data), 0)](nSpectra)
-  # for i in `||`(0, fadc.high, ""):
-  for i in 0 ..< nSpectra:
-    ## WARNING: `calcRiseAndFallTime` return fields *must* have the same names as the
-    ## fields in `RecoFadc`!
-    # if eventNumber[i] != 15599: continue # can be used to debug events
-    let tup = calcRiseAndFallTime(fadc[i, _].squeeze)
-    for field, data in fieldPairs(result):
-      data[i] = getField(tup, field)
-
-proc calcRiseAndFallTimes*(h5f: H5File, runNumber: int, overwrite = false) =
+proc calcRiseAndFallTimes*(h5f: var H5FileObj, run_number: int) =
   ## proc which reads the FADC data from the given file
   ## then performs the calculation of fall and rise time
   ## starting from the index of the minimum
 
-  if fadcDataBasename(runNumber) notin h5f:
-    # if no FADC data available, do nothing
-    return
+  let
+    minvals_group = minvalsBasename(run_number)
+    fadc_group = fadcDataBasename(run_number)
+  var
+    minvals = h5f[minvals_group.dset_str]
+    fadc = h5f[fadc_group.dset_str]
 
-  let fadc_group = fadcRecoPath(runNumber)
-  if isDone(h5f, fadc_group, rfOnlyFadc, overwrite): return # nothing to do
-
-  let fadcDset = fadcDataBasename(runNumber)
-
-  var fadc = h5f[fadcDset.dset_str]
-
-  let fadcShape = fadc.shape
-  var f_data = newTensorUninit[float](fadcShape)
-  # use unsafe `read` to avoid seq->Tensor copy
-  fadc.read(f_data.toUnsafeView())
-  let nEvents = fadcShape[0]
+  let t0 = epochTime()
+  var f_data = fadc[float64].reshapeFadc
+  let nevents = f_data.len
 
   # given the reshaped array, we can now compute the
   # fall and rise times
-  let t0 = epochTime()
-  echo "[INFO] Start FADC rise / fall time calculations for run: ", runNumber
-  let evNums = h5f[fadc_group / "eventNumber", int]
-  let recoFadc = calcRiseAndFallTimes(f_data, evNums)
-  # the filter we use globally in this file
-  let filter = H5Filter(kind: fkZlib, zlibLevel: 4)
 
-  echo "FADC minima calculations took: ", (epochTime() - t0)
+  # get location of minimum
+  let x_min = mapIt(f_data, argmin(it.toTensor))
+
+  let t1 = epochTime()
+  echo "Getting all minima took $# seconds" % $(t1 - t0)
+
+  # now determine baseline + 10 % of its maximum value
+  let baseline = mapIt(f_data, it.percentile(p = 50) + system.max(it) * 0.1)
+  let t2 = epochTime()
+  echo "Baseline calc took $# seconds" % $(t2 - t1)
+
+  # now determine rise and fall times
+  let
+    rise_start = findThresholdValue(f_data, x_min, baseline)
+    fall_stop = findThresholdValue(f_data, x_min, baseline, left = false)
+
+  # given this data, we could now in principle already calculate the fall and rise
+  # times in nano seconds, but we're going to stick to registers for now
+  let
+    rise_times = mapIt(zip(x_min, rise_start), diffUnderModulo(it[0], it[1], 2560))
+    fall_times = mapIt(zip(x_min, fall_stop), diffUnderModulo(it[1], it[0], 2560))
+
   # now write data back to h5file
-  for field, data in fieldPairs(recoFadc):
-    type innerType = get(genericParams(typeof data), 0)
-    if fadcRecoPath(runNumber) / "minvals" in h5f: # delete old school minvals naming
-      discard h5f.delete(fadcRecoPath(runNumber) / "minvals")
-    var dset = h5f.create_dataset(fadcRecoPath(runNumber) / field, nEvents, innerType,
-                                  filter = filter)
-    # write the data
-    dset.unsafeWrite(data.toUnsafeView(), nEvents)
-  # write flag we are done
-  writeFlag(h5f, fadc_group, rfOnlyFadc)
+  var
+    base_dset = h5f.create_dataset(fadcBaselineBasename(run_number), nevents, float)
+    x_min_dset = h5f.create_dataset(argMinvalBasename(run_number), nevents, uint16)
+    rise_s_dset = h5f.create_dataset(riseStartBasename(run_number), nevents, uint16)
+    fall_s_dset = h5f.create_dataset(fallStopBasename(run_number), nevents, uint16)
+    rise_t_dset = h5f.create_dataset(riseTimeBasename(run_number), nevents, uint16)
+    fall_t_dset = h5f.create_dataset(fallTimeBasename(run_number), nevents, uint16)
 
-proc main(h5file: string, runNumber: int = -1,
-          noise_analysis = false,
-          outfile = "") =
-  var h5f = H5open(h5file, "rw")
-  if runNumber > 0:
-    calcRiseAndFallTimes(h5f, runNumber)
-  elif noise_analysis:
+  # convert data to uint16
+  let
+    x_min_u = x_min.asType(uint16)
+    rise_start_u = rise_start.asType(uint16)
+    fall_stop_u = fall_stop.asType(uint16)
+    rise_times_u = rise_times.asType(uint16)
+    fall_times_u = fall_times.asType(uint16)
+
+  # write the data
+  let all = base_dset.all
+  base_dset[all] = baseline
+  x_min_dset[all] = x_min_u
+  rise_s_dset[all] = rise_start_u
+  fall_s_dset[all] = fall_stop_u
+  rise_t_dset[all] = rise_times_u
+  fall_t_dset[all] = fall_times_u
+
+proc main() =
+  let args = docopt(doc)
+  echo args
+
+  let
+    h5file = $args["<HDF5file>"]
+    run_number = $args["--run_number"]
+
+
+  var h5f = H5File(h5file, "rw")
+  if run_number != "nil":
+    calcRiseAndFallTimes(h5f, parseInt(run_number))
+  elif $args["--noise_analysis"] != "nil":
+    let outfile = $args["--noise_analysis"]
     let t_tup = noiseAnalysis(h5f)
-    if outfile.len > 0:
-      writeNoiseData(t_tup, outfile)
+    writeNoiseData(t_tup, outfile)
   echo "H5 library closed with ", h5f.close()
 
 when isMainModule:
-  import cligen
-  dispatch main
+  main()

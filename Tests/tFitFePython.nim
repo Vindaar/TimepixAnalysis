@@ -11,7 +11,7 @@ when isMainModule:
     quit("Please hand a h5 file!")
 
   let h5file = paramStr(1)
-  var h5f = H5open(h5file, "rw")
+  var h5f = H5file(h5file, "rw")
   h5f.visitFile()
 
   for runStr, grp in runs(h5f):

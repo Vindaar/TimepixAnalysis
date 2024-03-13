@@ -14,8 +14,8 @@ const pathRun = "/home/basti/CastData/ExternCode/TimepixAnalysis/Analysis/ingrid
 const groupCdlPath = "/calibration-cdl-apr2014-Ag-Ag-6kV"
 const groupRunPath = "/reconstruction/run_114/chip_3"
 
-var h5cdl = H5open(pathCDL, "r")
-var h5run = H5open(pathRun, "r")
+var h5cdl = H5file(pathCDL, "r")
+var h5run = H5file(pathRun, "r")
 
 var groupCDl = h5cdl[groupCdlPath.grp_str]
 var groupRun = h5run[groupRunPath.grp_str]
@@ -50,7 +50,7 @@ let tab = {"NumberOfPixels"              : "hits",
 # using this we will store all information from the CDL file in a
 # new version of it
 
-var h5f = H5open("calibration-newTos.h5", "rw")
+var h5f = H5file("calibration-newTos.h5", "rw")
 var recoGroup = h5f.create_group("/reconstrution")
 var dataTab = initTable[string, seq[float32]]()
 for k in keys(tab):

@@ -1,11 +1,7 @@
-# Ignore all files
-*
-# Unignore all with extensions in recipes
-!*.*
-# Unignore all directories
-!*/
 **/nimcache/*
 *~
+/Analysis/ingrid/raw_data_manipulation
+/Analysis/ingrid/reconstruction
 /Analysis/ingrid/data/*
 /Analysis/nim.cfg
 /InGrid-Python/InGrid.egg-info/*
@@ -14,40 +10,3 @@ InGrid-Python/dist/*
 /extractScintiTriggers/scinti_triggers.svg
 /Analysis/ingrid/out/*
 /Plotting/plotCalibration/out/*
-/Plotting/karaPlot/figs/*
-/Plotting/karaPlot/calibration*.html
-/Plotting/karaPlot/calibration*.org
-/Plotting/karaPlot/background*.html
-/Plotting/karaPlot/background*.org
-/Plotting/onlinePlotter/logs/*
-/Analysis/ingrid/*.h5
-/Analysis/ingrid/*.pdf
-/Analysis/ingrid/*.svg
-Tests/io/plots/fadc_spectrum[0-9]*.pdf
-Tests/io/plots/fadc_spectrum_baseline[0-9]*.pdf
-Analysis/ingrid/fitparams_*[0-9]*.txt
-Tests/event_[0-9]*.*
-Tools/CompareMarlinTpa/UseMarlinRotAngle/*.pdf
-Tools/CompareMarlinTpa/UseMarlinRotAngle/logs/*
-Tests/raw_data_manipulation/*.pdf
-Tests/reconstruction/*.pdf
-/Plotting/karaPlot/*.json
-/Plotting/onlinePlotter/*.h5
-/PlottingPython/Plotting/*.pdf
-/InGridDatabase/src/databaseTool
-/LogReader/cast_log_reader
-/LogReader/logFileSplitter
-/Plotting/plotDsetGgplot/*.pdf
-/Plotting/plotOuterChips/*.svg
-/Plotting/plotOuterChips/*.pdf
-/Tools/DebugCkDiff/*.svg
-# ignore common files that we generally don't want to commit. Might want to stage
-# manually in some cases
-**/*.h5
-**/*.aux
-**/*.log
-**/*.tex
-**/*.pdf
-**/*.svg
-**/*.png
-**/*.html

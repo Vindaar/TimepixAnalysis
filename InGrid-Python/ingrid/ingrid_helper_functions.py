@@ -115,15 +115,7 @@ def recoDataChipBase(run_number):
 def rawDataChipBase(run_number):
     return "/runs/run_{}/chip_".format(run_number)
 
-def binData(data, cuts, binning = None):
-    """
-    Returns the bin edges *without* the rightmost bin edge!
-    """
-    # Bin the given data after applying potential cuts (NOTE: this feature is not
-    # really supported).
-    # If binning is given, we create the histogram according to that binning.
-    # Used e.g. for `fitFeSpectrumCharge`, because we do not have distinct bins for
-    # each 1000 electrons
+def binData(data, cuts):
     if cuts is not None:
       for cut_str in cuts:
           # careful, this is somewhat dangerous, because we just evaluate any string
@@ -134,10 +126,10 @@ def binData(data, cuts, binning = None):
 
     # assume binsize of 1 for now
     data = np.concatenate(data).flatten()
-    if binning is None:
-        binning = np.linspace(-0.5, np.max(data) + 0.5, np.max(data) + 2)
+    binning = np.linspace(-0.5, np.max(data) + 0.5, np.max(data) + 2)
 
     hist, bin_edges = np.histogram(data, binning)
+    bins = np.arange(np.max(data) + 1)
 
     # return data as tuple (bin content / binning)
     # we remove the last element due to the way we create the bins
@@ -185,11 +177,7 @@ def plotData(hist, binning, range, outfile, title, xlabel, ylabel, save_plot = T
             #print(hist)
             raise
     else:
-        # for a bar plot with binning given as a list, calculate the widths of the bins
-        widths = [binning[it + 1] - binning[it] for it in np.arange(len(binning) - 1)]
-        # append the last width
-        widths.append(widths[-1])
-        ax.bar(binning, hist, width = widths, align='edge', linewidth=0.2)
+        ax.bar(binning, hist, 1., align='edge', linewidth=0.2)
     if title is not None:
         ax.set_title(title)
     ax.set_xlabel(xlabel)
@@ -318,10 +306,9 @@ def readH5Data(h5file, group_name, chip, dset_names):
     # and one ore more dataset names, read the data and return
     # a list of the `dset_names` arrays
 
-    if isinstance(h5file, str):
-        print("Opening h5file {}".format(h5file))
-        h5f = h5py.File(h5file, "r")
-        print(h5f)
+    print("Opening h5file {}".format(h5file))
+    h5f = h5py.File(h5file, "r")
+    print(h5f)
 
     # first check whether we read one run or all
     result = []
@@ -354,8 +341,7 @@ def readH5Data(h5file, group_name, chip, dset_names):
             result = readFadcInGridDset(h5f, group_name, dset_names[0])
             result = np.asarray(result)
 
-    if isinstance(h5file, str):
-        h5f.close()
+    h5f.close()
     return result
 
 

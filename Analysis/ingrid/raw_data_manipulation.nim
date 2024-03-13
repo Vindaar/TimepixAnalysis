@@ -1,4 +1,3 @@
-## InGrid raw data manipulation.
 ## this script performs the raw data manipulation of a given run or list of runs
 ## and outputs the resulting data to a HDF5 file
 ## steps which are performed
@@ -9,73 +8,95 @@
 ## - caluclating the FADC signal depth / event histogram
 ## - calculate the ToT per pixel histogram
 
-# standard lib
-import std / [os, osproc, logging, sequtils, sugar, algorithm, tables, times,
-              strutils, strformat, rdstdin, tempfiles]
-
+## standard lib
+import os, osproc, logging
+import re
+import sequtils, sugar
+import algorithm
+import tables
+import times
+import threadpool
+import memfiles
+import strutils, strformat, parseutils
+import docopt
+import typetraits
+import sets
+import macros
+#import nimprof
 
 # InGrid-module
 import fadc_helpers
 import helpers/utils
 import tos_helpers
 import ingrid_types
+#import reconstruction
 
 # other modules
 import seqmath
 import nimhdf5
 import arraymancer
-import parsetoml
-import cligen / macUt
+import zero_functional
 
-# We don't use `zippy` for now due to it failing for archives e.g. for run 186 (> int32 in bytes)
-# from zippy/tarballs import extractAll # to handle `.tar.gz` archives
+# global experimental pragma to use parallel: statement in readRawInGridData()
+{.experimental.}
+
+## TODO:
+## change the we write to H5 to appropriate types, e.g.
+## x / y pixel coordinates may as well be written as uint8
+## FADC raw as uint16
+## all flags as uint8
+## ToT values as uint16
+## hits as uint16
 
 type
   RawFlagKind = enum
-    rfIgnoreRunList, rfOverwrite, rfNoFadc, rfTpx3
+    rfIgnoreRunList, rfOverwrite, rfNoFadc
 
-## XXX: make runtime changeable using config.toml!
-const FILE_BUFSIZE {.intdefine.} = 5_000
+const FILE_BUFSIZE = 25000
+const NChips = 7
 
 ##############################
 # create globals for 2014/15 run list
 ##############################
-# projectDefs contains `OldTosRunListPath` among others
-import projectDefs
-## TODO: this check is broken! Oh no, it's not broken, but if the binary is moved after compilation
-## the CT check is invalid!
-var
-  oldTosRunListFound = false
-  oldTosCalibRuns: set[uint16] = {}
-  oldTosBackRuns: set[uint16]  = {}
-  oldTosXrayRuns: set[uint16]  = {}
-if fileExists(OldTosRunListPath):
-  oldTosCalibRuns = parseOldTosRunlist(OldTosRunListPath, rtCalibration)
-  oldTosBackRuns  = parseOldTosRunlist(OldTosRunListPath, rtBackground)
-  oldTosXrayRuns  = parseOldTosRunlist(OldTosRunListPath, rtXrayFinger)
-  oldTosRunListFound = true
+# TOD: should this actually be in here?
+const OldTosRunlist = "Runlist-CAST-D03-W0063.csv"
+const AppDir = getProjectPath()
+var TpxDir {.compileTime.} = ""
+static:
+  discard parseUntil(AppDir, TpxDir, "TimepixAnalysis")
+  TpxDir = TpxDir / "TimepixAnalysis/resources/" / OldTosRunList
+const OldTosRunListPath = TpxDir
+when fileExists(OldTosRunListPath):
+  let oldTosCalibRuns = parseOldTosRunlist(OldTosRunListPath, rtCalibration)
+  let oldTosBackRuns  = parseOldTosRunlist(OldTosRunListPath, rtBackground)
+  let oldTosXrayRuns  = parseOldTosRunlist(OldTosRunListPath, rtXrayFinger)
+else:
+  static:
+    hint("Compiling without 2014/15 run list")
+  const oldTosCalibRuns = ""
+  const oldTosBackRuns  = ""
+  const oldTosXrayRuns  = ""
 
 when defined(linux):
   const commitHash = staticExec("git rev-parse --short HEAD")
 else:
   const commitHash = ""
 # get date using `CompileDate` magic
-const compileDate = CompileDate & " at " & CompileTime
-const versionStr = "Version: $# built on: $#" % [commitHash, compileDate]
-const docStr = """
+const currentDate = CompileDate & " at " & CompileTime
+
+const docTmpl = """
+Version: $# built on: $#
+InGrid raw data manipulation.
+
 Usage:
   raw_data_manipulation <folder> [options]
   raw_data_manipulation <folder> --runType <type> [options]
   raw_data_manipulation <folder> --out=<name> [--nofadc] [--runType=<type>] [--ignoreRunList] [options]
   raw_data_manipulation <folder> --nofadc [options]
-  raw_data_manipulation --tpx3 <H5File> [options]
-  raw_data_manipulation --tpx3 <H5File> --runType <type> [options]
-  raw_data_manipulation --tpx3 <H5File> --runType <type> --out=<name> [options]
   raw_data_manipulation -h | --help
   raw_data_manipulation --version
 
 Options:
-  --tpx3 <H5File>     Convert data from a Timepix3 H5 file to TPA format
   --runType=<type>    Select run type (Calib | Back | Xray)
                       The following are parsed case insensetive:
                       Calib = {"calib", "calibration", "c"}
@@ -89,10 +110,11 @@ Options:
                       file. By default runs found in the file will be skipped.
                       HOWEVER: overwriting is assumed, if you only hand a
                       run folder!
-  --config <path>     Path to the configuration file to use.
   -h --help           Show this help
   --version           Show version.
+
 """
+const doc = docTmpl % [commitHash, currentDate]
 
 # define the compression filter we use
 #let filter = H5Filter(kind: fkZlib, zlibLevel: 6) # on run 146 took: 0.889728331565857 min
@@ -116,63 +138,106 @@ let filter = H5Filter(kind: fkZlib, zlibLevel: 4) # on run 146 took: 0.598701584
 
 # set up the logger
 var L = newConsoleLogger()
-if not dirExists("logs"):
-  createDir("logs")
 var fL = newFileLogger("logs/raw_data_manipulation.log", fmtStr = verboseFmtStr)
-when isMainModule:
-  addHandler(L)
-  addHandler(fL)
+addHandler(L)
+addHandler(fL)
 
 ################################################################################
 
 template ch_len(): int = 2560
 template all_ch_len(): int = ch_len() * 4
 
-proc parseTomlConfig(configFile: string): TomlValueRef =
-  let configPath = if configFile.len == 0:
-                     const sourceDir = currentSourcePath().parentDir
-                     sourceDir / "config.toml"
-                   else:
-                     configFile
-  info "Reading config file: ", configPath
-  result = parseToml.parseFile(configPath)
+template inGridGroupNames(runNumber: int): (string, string, string, string) =
+  ## returns the names of all groups in a H5 file related to InGrid
+  let
+    # group name for raw data
+    groupName = getGroupNameForRun(runNumber)
+    # group name for reconstructed data
+    recoGroupName = getRecoNameForRun(runNumber)
+    # create datatypes for variable length data
+    chipGroupName = group_name & "/chip_$#" #% $chp
+    combineGroupName = getRawCombineName()
+  var result = (groupName, recoGroupName, chipGroupName, combineGroupName)
+  result
 
-proc initTotCut(cfg: TomlValueRef): TotCut =
-  ## Initializes a `ToTCut` object from the given config file
-  let low = cfg["RawData"]["rmTotLow"].getInt
-  let high = cfg["RawData"]["rmTotHigh"].getInt
-  template check(val, name: untyped): untyped =
-    if val < 0:
-      raise newException(ValueError, "Invalid configuration field `" & $name & "`. Cannot " &
-        "be a negative value. Given value is: " & $val)
-    if val > uint16.high.int:
-      raise newException(ValueError, "Invalid configuration field `" & $name & "`. Cannot " &
-        "be a larger than `uint16.high = " & $uint16.high & "`. Given value is: " & $val)
-  check(low, "rmTotLow")
-  check(high, "rmTotHigh")
-  result = TotCut(low: low, high: high)
+template inGridGroups(h5f: var H5FileObj,
+                      nChips: int = 0,
+                      forFadc: static[bool] = false):
+         (H5Group, H5Group, H5Group, seq[H5Group]) =
+  ## template to get the H5 groups for
+  ## Note: some variables need to be defined in the calling scope! This
+  ## is why this is a template!
+  var
+    # create the groups for the run and reconstruction data
+    runGroup = h5f.create_group(groupName)
+    recoGroup = h5f.create_group(recoGroupName)
+  when forFadc == false:
+    var
+      # combined data group
+      combineGroup = h5f.create_group(combineGroupName)
+      # create group for each chip
+      chipGroups = mapIt(toSeq(0 ..< nChips), h5f.create_group(chipGroupName % $it))
+    var result = (runGroup, recoGroup, combineGroup, chipGroups)
+  else:
+    var
+      fadcCombine = h5f.create_group(combineRecoBasenameFadc())
+    var result = (runGroup, recoGroup, fadcCombine, newSeq[H5Group](0))
+  result
 
-proc specialTypesAndEvKeys(): (DatatypeID, DatatypeID, array[7, string]) =
+proc specialTypesAndEvKeys(): (hid_t, hid_t, array[7, string]) =
   let
     # create datatypes for variable length data
     ev_type_xy = special_type(uint8)
     ev_type_ch = special_type(uint16)
     # dataset names corresponding to event header keys
     eventHeaderKeys = ["eventNumber", "useHvFadc", "fadcReadout", "timestamp",
-                       "szint1ClockInt", "szint2ClockInt", "fadcTriggerClock"]
+                         "szint1ClockInt", "szint2ClockInt", "fadcTriggerClock"]
   result[0] = ev_type_xy
   result[1] = ev_type_ch
   result[2] = eventHeaderKeys
 
-proc getTotHitOccDsets(h5f: var H5File, chipGroups: seq[H5Group]):
+proc getTotHitOccDsetNames(chipGroupName: string,
+                           nChips: int):
+                          (seq[string], seq[string], seq[string]) =
+  let
+    totDsetNames = toSeq(0 ..< nChips).mapIt((chipGroupName % $it) & "/ToT")
+    hitDsetNames = toSeq(0 ..< nChips).mapIt((chipGroupName % $it) & "/Hits")
+    occDsetNames = toSeq(0 ..< nChips).mapIt((chipGroupName % $it) & "/Occupancy")
+  result = (totDsetNames, hitDsetNames, occDsetNames)
+
+proc getTotHitOccDsets(h5f: var H5FileObj, chipGroupName: string, nChips: int):
                       (seq[H5DataSet], seq[H5DataSet], seq[H5DataSet]) =
-  proc fromChipGroups(h5f: var H5File, chipGroups: seq[H5Group], name: string): seq[H5DataSet] =
-    chipGroups.mapIt(h5f[(it.name & name).dset_str])
+  let (totDsetNames,
+       hitDsetNames,
+       occDsetNames) = getTotHitOccDsetNames(chipGroupName, nChips)
+
   var
-    totDset = h5f.fromChipGroups(chipGroups, "/ToT")
-    hitDset = h5f.fromChipGroups(chipGroups, "/Hits")
-    occDset = h5f.fromChipGroups(chipGroups, "/Occupancy")
+    totDset = totDsetNames.mapIt(h5f[it.dset_str])
+    hitDset = hitDsetNames.mapIt(h5f[it.dset_str])
+    occDset = occDsetNames.mapIt(h5f[it.dset_str])
   result = (totDset, hitDset, occDset)
+
+# macro combineBasename(typename: static[string]): typed =
+#   # really ugly macro, mostly to toy around, to create basename templates
+#   # creates a string, which is parsed to create templates, based on static
+#   # string inputs
+#   # returns a base string with for the given type, so that we
+#   # can create names for the location of hardlinks for ToT, Hits etc
+#   # for all runs
+#   # set the name and beginning of returned string to be filled
+#   let nim_template_name: string = """
+# template combineBasename$#*(chip_number, runNumber: int): string =
+#   result: string = ""
+#   let end_str = "_", chip_number, "_", runNumber
+#   result = "$#" & end_str
+#   result""" % [typename, typename]
+#   # add the further two fields to be handed to the function
+#   #nim_template_name &= """$chip_number_$runNumber"
+#   #"""
+#   result = parseStmt(nim_template_name)
+
+# template combinedBasenameHits(chip_number, runNumber: int) =
+#   "Hits_$#_$#" % [$chip_number, $runNumber]
 
 template batchFiles(files: var seq[string], bufsize, actions: untyped): untyped =
   ## this is a template, which can be used to batch a set of files into chunks
@@ -194,7 +259,10 @@ template batchFiles(files: var seq[string], bufsize, actions: untyped): untyped 
   ##     echo memoryConsumptuousCalc(files[0..ind_high])
   while len(files) > 0:
     # variable to set last index to read to
-    var ind_high {.inject.} = min(files.high, bufsize - 1)
+    var ind_high {.inject.} = bufsize
+    if len(files) < bufsize:
+      ind_high = len(files) - 1
+
     # perform actions as desired
     actions
 
@@ -202,45 +270,71 @@ template batchFiles(files: var seq[string], bufsize, actions: untyped): untyped 
     # sequtils.delete removes the element with ind_high as well!
     files.delete(0, ind_high)
 
-proc readFileBatch[T](files: seq[string],
-                      rfKind: RunFolderKind = rfNewTos): seq[T] {.inline.} =
-  ## Reads the entire given batch of files
-  let t0 = epochTime()
-  when T is Event:
-    case rfKind
-    of rfOldTos, rfNewTos, rfSrsTos:
-      result = readListOfInGridFiles(files, rfKind)
-    else:
-      raise newException(IOError, "Unknown run folder kind. Cannot read " &
-        "event files!")
-  elif T is FadcFile:
-    result = readListOfFadcFiles(files)
+proc batchFileReading[T](files: var seq[string],
+                         rfKind: RunFolderKind = rfNewTos,
+                         bufsize: int = FILE_BUFSIZE):
+                          seq[FlowVar[ref T]] {.inline.} =
+  # and removes all elements in the file list until all events have been read and the seq
+  # is empty
+  let
+    t0 = epochTime()
+    n_files = len(files)
+  var count = 0
+  # initialize sequence
+  result = @[]
+
+  var buf_seq: type(result)
+  batchFiles(files, bufsize):
+    # read files into buffer sequence, `ind_high` is an injected variable of the template
+    # after each iteration the `files` variable is modified. Read files are deleted.
+    when T is Event:
+      case rfKind
+      of rfOldTos, rfNewTos, rfSrsTos:
+        buf_seq = readListOfInGridFiles(files[0..ind_high], rfKind)
+      else:
+        raise newException(IOError, "Unknown run folder kind. Cannot read " &
+          "event files!")
+    elif T is FadcFile:
+      buf_seq = readListOfFadcFiles(files[0..ind_high])
+
+    info "... and concating buffered sequence to result"
+    result = concat(result, buf_seq)
+    count += bufsize
   info "All files read. Number = " & $len(result)
   info "Reading took $# seconds" % $(epochTime() - t0)
+  info "Compared with starting files " & $n_files
+
 
 proc readRawInGridData*(listOfFiles: seq[string],
                         rfKind: RunFolderKind):
-                          seq[Event] =
+                          seq[FlowVar[ref Event]] =
   ## given a run_folder it reads all event files (data<number>.txt) and returns
   ## a sequence of Events, which store the raw event data
   ## Intermediately we receive FlowVars to ref Events after reading. We read via
   ## inodes, which may be scramled, so we sort the data and get the FlowVar values.
   ## NOTE: this procedure does the reading of the data in parallel, thanks to
   ## using spawn
-  # Get data files sorted by inode for better performance (esp on HDDs)
-  let files = sortByInode(listOfFiles)
-  # read them
-  result = readFileBatch[Event](files, rfKind)
+  # get a sorted list of files, sorted by filename first
+  var files: seq[string] = sortByInode(listOfFiles)
+  # split the sorted files into batches, and sort each batch by inode
+  result = batchFileReading[Event](files, rfKind)
 
-proc sortReadInGridData(rawInGrid: seq[Event],
+proc sortReadInGridData(rawIngrid: seq[FlowVar[ref Event]],
                         rfKind: RunFolderKind): seq[Event] =
   ## sorts the seq of FlowVars according to event numbers again, otherwise
   ## h5 file is all mangled
-  info "Sorting data (", rawInGrid.len, " files)..."
+  info "Sorting data..."
   # case on the old TOS' data storage and new TOS' version
   let t0 = epochTime()
+  # TODO: compare speed of sorting for both cases. Merge?
   case rfKind
-  of rfNewTos, rfOldTos, rfSrsTos:
+  of rfNewTos:
+    var numList = mapIt(raw_ingrid, (^it)[].evHeader["eventNumber"].parseInt)
+    result = newSeq[Event](raw_ingrid.len)
+    let minIndex = numList.min
+    for i, ind in numList:
+      result[ind - minIndex] = (^raw_ingrid[i])[]
+  of rfOldTos, rfSrsTos:
     # in this case there may be missing events, so we simply sort by the indices themselves
     # sorting is done the following way:
     # - extract list of eventNumbers from `Events`
@@ -248,19 +342,19 @@ proc sortReadInGridData(rawInGrid: seq[Event],
     # - sort tuples by `EventNumber`
     # - add elements to result taken from `AtIndex` in `Events`
     let
-      numEvents = rawInGrid.len
+      numEvents = raw_ingrid.len
       # get event numbers
-      numList = mapIt(rawInGrid, it.evHeader["eventNumber"].parseInt)
-      # zip event numbers with indices in rawInGrid (unsorted!)
+      numList = mapIt(raw_ingrid, (^it)[].evHeader["eventNumber"].parseInt)
+      # zip event numbers with indices in raw_ingrid (unsorted!)
       zipped = zip(numList, toSeq(0 ..< numEvents))
       # sort tuples by event numbers (indices thus mangled, but in "correct" order
       # for insertion)
       sortedNums = zipped.sortedByIt(it[0])
     info &"Min event number {min(numList)} and max number {max(numList)}"
     # insert elements into result
-    result = newSeqOfCap[Event](rawInGrid.len)
+    result = newSeqOfCap[Event](raw_ingrid.len)
     for i in sortedNums:
-      result.add rawInGrid[i[1]]
+      result.add (^raw_ingrid[i[1]])[]
   else:
     # we'll never end up here with rfUnknown, unless something bad happens
     logging.fatal("Unkown error. Ended up with unknown run folder kind " &
@@ -270,7 +364,8 @@ proc sortReadInGridData(rawInGrid: seq[Event],
   let t1 = epochTime()
   info &"...Sorting done, took {$(t1 - t0)} seconds"
 
-proc processRawInGridData(run: Run, totCut: ToTCut): ProcessedRun =
+
+proc processRawInGridData(run: Run): ProcessedRun =
   ## procedure to process the raw data read from the event files by readRawInGridData
   ## inputs:
   ##    ch: seq[Event]] = seq of Event objects, which each store raw data of a single event.
@@ -292,6 +387,7 @@ proc processRawInGridData(run: Run, totCut: ToTCut): ProcessedRun =
     runHeader = run.runHeader
   # get number of chips from header
   let nChips = parseInt(runHeader["numChips"])
+
   # variable to count number of processed files
   var
     count = 0
@@ -307,8 +403,6 @@ proc processRawInGridData(run: Run, totCut: ToTCut): ProcessedRun =
     # initialize the events sequence of result, since we add to this sequence
     # instead of copying ch to it!
     events = newSeq[Event](len(ch))
-    # mutable local copy of `TotCut` to count removed pixels
-    totCut = totCut
   let
     # get the run specific time and shutter mode
     time = parseFloat(runHeader["shutterTime"])
@@ -328,19 +422,28 @@ proc processRawInGridData(run: Run, totCut: ToTCut): ProcessedRun =
   # assign the length field of the ref object
     # for the rest, get a copy of the event
     var a: Event = ch[i]
+    # TODO: think about parallelizing here by having proc, which
+    # works processes the single event?
     a.length = calcLength(a, time, mode)
-    for c in mitems(a.chips):
-      let num = c.chip.number
-      # filter out unwanted pixels
-      c.pixels.applyTotCut(totCut)
-      addPixelsToOccupancySeptem(occ, c.pixels, num)
-      # store remaining ToT values & # hits
-      tot_run[num][i] = c.pixels.mapIt(it.ch)
-      hits[num][i] = c.pixels.len.uint16
-
-    ## reassing possibly modified event
     events[i] = a
-    echoCount(count, msg = " files processed.")
+    let chips = a.chips
+    for c in chips:
+      let
+        num = c.chip.number
+        pixels = c.pixels
+      addPixelsToOccupancySeptem(occ, pixels, num)
+      let tot_event = pixelsToTOT(pixels)
+      tot_run[num][i] = tot_event
+      let n_pix = len(tot_event).uint16
+      if n_pix > 0'u16:
+        # if the compiler flag (-d:CUT_ON_CENTER) is set, we cut all events, which are
+        # in the center 4.5mm^2 square of the chip
+        when defined(CUT_ON_CENTER):
+          if isNearCenterOfChip(pixels) == true:
+            hits[num][i] = n_pix
+        else:
+          hits[num][i] = n_pix
+    echoFilesCounted(count, msg = " files processed.")
 
   # use first event of run to fill event header. Fine, because event
   # header is contained in every file
@@ -348,90 +451,161 @@ proc processRawInGridData(run: Run, totCut: ToTCut): ProcessedRun =
   result.chips = run.chips
   result.nChips = nChips
   result.events = events
-  result.tots = newSeq[seq[uint16]](nChips)
-  for i, tot in tot_run:
-    result.tots[i] = concat tot
+  result.tots = tot_run -->> map(it -->
+                                 flatten().
+                                 to(seq[uint16])) --> to(seq[seq[uint16]])# flatten 1 level
   result.hits = hits
   result.occupancies = occ
-  result.totCut = totCut
 
-proc processFadcData(fadcFiles: seq[FadcFile]): ProcessedFadcRun {.inline.} =
+{.experimental.}
+proc processFadcData(fadc_files: seq[FlowVar[ref FadcFile]]): ProcessedFadcData {.inline.} =
   ## proc which performs all processing needed to be done on the raw FADC
-  ## data. Starting from conversion of FadcFiles -> FadcData
+  ## data. Starting from conversion of FadcFiles -> FadcData, but includes
+  ## calculation of minimum and check for noisy events
   # sequence to store the indices needed to extract the 0 channel
-  let nEvents = fadcFiles.len
-  result.raw_fadc_data = newTensorUninit[uint16]([nEvents, all_ch_len()])
+  let
+    fadc_ch0_indices = getCh0Indices()
+    ch_len = ch_len()
+    pedestal_run = getPedestalRun()
+    nEvents = fadc_files.len
+    # we demand at least 4 dips, before we can consider an event as noisy
+    n_dips = 4
+    # the percentile considered for the calculation of the minimum
+    min_percentile = 0.95
+
+  # convert FlowVars of FadcFiles to sequence of FadcFiles
+  result.raw_fadc_data = newSeq[seq[uint16]](nEvents)
+  result.fadc_data = zeros[float]([nEvents, ch_len])
   result.trigRecs = newSeq[int](nEvents)
+  result.noisy = newSeq[int](nEvents)
+  result.minVals = newSeq[float](nEvents)
   result.eventNumber = newSeq[int](nEvents)
   let t0 = epochTime()
-  for i, ev in fadcFiles:
-    result.raw_fadc_data[i, _] = ev.data.toTensor.unsqueeze(axis = 0)
-    result.trigRecs[i]         = ev.trigRec
-    result.eventNumber[i]      = ev.eventNumber
+  # TODO: parallelize this somehow so that it's faster!
+  for i, event in fadc_files:
+    let ev = (^event)[]
+    result.raw_fadc_data[i] = ev.data
+    result.trigRecs[i]      = ev.trigRec
+    result.eventNumber[i]   = ev.eventNumber
+    let fadc_dat = ev.fadcFileToFadcData(pedestal_run, fadc_ch0_indices).data
+    result.fadc_data[i, _]  = fadc_dat.reshape([1, ch_len])
+    result.noisy[i]         = fadc_dat.isFadcFileNoisy(n_dips)
+    result.minVals[i]       = fadc_dat.calcMinOfPulse(min_percentile)
+
+  # this parallel solution seems to be slower, instead of faster ?! well, probably
+  # because we only have these two spawns and one of these functions is much slower
+  # than the other
+  # parallel:
+  #   for i, event in fadc_files:
+  #     let ev = (^event)[]
+  #     if i < result.raw_fadc_data.len:
+  #       result.raw_fadc_data[i] = ev.data
+  #     let fadc_dat = ev.fadcFileToFadcData(pedestal_run, fadc_ch0_indices).data
+  #     if i < result.trigRecs.len:
+  #       result.trigRecs[i]      = ev.trigrec
+  #       result.fadc_data[i, _]  = fadc_dat.reshape([1, ch_len])
+  #     if i < result.noisy.len:
+  #       result.noisy[i]         = spawn fadc_dat.isFadcFileNoisy(n_dips)
+  #     if i < result.minVals.len:
+  #       result.minVals[i]       = spawn fadc_dat.calcMinOfPulse(min_percentile)
+  #     sync()
   info "Calculation of $# events took $# seconds" % [$nEvents, $(epochTime() - t0)]
 
-proc initFadcInH5(h5f: var H5File, runNumber, batchsize: int, filename: string) =
+proc initFadcInH5(h5f: var H5FileObj, runNumber, batchsize: int, filename: string) =
   # proc to initialize the datasets etc in the HDF5 file for the FADC. Useful
   # since we don't want to do this every time we call the write function
-  const
+  let
     ch_len = ch_len()
     all_ch_len = all_ch_len()
 
-  let groupName = fadcRawPath(runNumber)
-  template datasetCreation(h5f, name, shape, `type`: untyped): untyped =
-    ## inserts the correct data set creation parameters
-    when typeof(shape) is tuple:
-      let chnkS = @[batchsize, shape[1]]
-      let mxS = @[int.high, shape[1]]
-    else:
-      let chnkS = @[batchSize]
-      let mxS = @[int.high]
-    h5f.create_dataset(name,
-                       shape,
-                       dtype = `type`,
-                       chunksize = chnkS,
-                       maxshape = mxS,
-                       filter = filter)
+  let
+    group_name = getGroupNameForRun(runNumber) & "/fadc"
+    reco_group_name = getRecoNameForRun(runNumber) & "/fadc"
+
+  # use dirty template to get groups for the group names
+  var (runGroup, recoGroup, fadcCombine, _) = inGridGroups(h5f, forFadc = true)
   var
-    runGroup = h5f.create_group(groupName)
     # create the datasets for raw data etc
     # NOTE: we initialize all datasets with a size of 0. This means we need to extend
     # it immediately. However, this allows us to always (!) simply extend and write
     # the data to dset.len onwards!
-    raw_fadc_dset    = h5f.datasetCreation(rawFadcBasename(runNumber), (0, all_ch_len), uint16)
-    #fadc_dset        = h5f.datasetCreation(fadcDataBasename(runNumber), (0, ch_len), float)
-    trigrec_dset     = h5f.datasetCreation(trigrecBasename(runNumber), 0, int)
+    raw_fadc_dset    = h5f.create_dataset(rawFadcBasename(runNumber), (0, all_ch_len),
+                                          uint16,
+                                          chunksize = @[batchsize, all_ch_len],
+                                          maxshape = @[int.high, all_ch_len],
+                                          filter = filter)
+    fadc_dset        = h5f.create_dataset(fadcDataBasename(runNumber), (0, ch_len),
+                                          float,
+                                          chunksize = @[batchsize, ch_len],
+                                          maxshape = @[int.high, ch_len],
+                                          filter = filter)
+    trigrec_dset     = h5f.create_dataset(trigrecBasename(runNumber), (0, 1),
+                                          int,
+                                          chunksize = @[batchsize, 1],
+                                          maxshape = @[int.high, 1],
+                                          filter = filter)
     # dataset of eventNumber
-    eventNumber_dset = h5f.datasetCreation(eventNumberBasenameRaw(runNumber), 0, int)
+    eventNumber_dset = h5f.create_dataset(eventNumberBasename(runNumber), (0, 1),
+                                          int,
+                                          chunksize = @[batchsize, 1],
+                                          maxshape = @[int.high, 1],
+                                          filter = filter)
+
+    # dataset stores flag whether FADC event was a noisy one (using our algorithm)
+    noisy_dset       = h5f.create_dataset(noiseBasename(runNumber), (0, 1),
+                                          int,
+                                          chunksize = @[batchsize, 1],
+                                          maxshape = @[int.high, 1],
+                                          filter = filter)
+    # dataset stores minima of each FADC event, dip voltage
+    minVals_dset     = h5f.create_dataset(minValsBasename(runNumber), (0, 1),
+                                          float,
+                                          chunksize = @[batchsize, 1],
+                                          maxshape = @[int.high, 1],
+                                          filter = filter)
 
   # write attributes to FADC groups
   # read the given FADC file and extract that information from it
   let fadc_for_attrs = readFadcFile(filename)
   # helper sequence to loop over both groups to write attrs
-  runGroup.attrs["posttrig"] = fadc_for_attrs.posttrig
-  runGroup.attrs["pretrig"] = fadc_for_attrs.pretrig
-  runGroup.attrs["n_channels"] = fadc_for_attrs.n_channels
-  runGroup.attrs["channel_mask"] = fadc_for_attrs.channel_mask
-  runGroup.attrs["frequency"] = fadc_for_attrs.frequency
-  runGroup.attrs["sampling_mode"] = fadc_for_attrs.sampling_mode
-  runGroup.attrs["pedestal_run"] = if fadc_for_attrs.pedestal_run == true: 1 else: 0
+  var group_seq = @[run_group, reco_group]
+  for group in mitems(group_seq):
+    group.attrs["posttrig"] = fadc_for_attrs.posttrig
+    group.attrs["pretrig"] = fadc_for_attrs.pretrig
+    group.attrs["n_channels"] = fadc_for_attrs.n_channels
+    group.attrs["channel_mask"] = fadc_for_attrs.channel_mask
+    group.attrs["frequency"] = fadc_for_attrs.frequency
+    group.attrs["sampling_mode"] = fadc_for_attrs.sampling_mode
+    group.attrs["pedestal_run"] = if fadc_for_attrs.pedestal_run == true: 1 else: 0
 
-proc writeFadcDataToH5(h5f: var H5File, runNumber: int, f_proc: ProcessedFadcRun) =
+proc writeFadcDataToH5(h5f: var H5FileObj, runNumber: int, f_proc: ProcessedFadcData) =
   # proc to write the current FADC data to the H5 file
   # now write the data
   let
+    reco_group_name = getRecoNameForRun(runNumber)
     raw_name = rawFadcBasename(runNumber)
+    reco_name = fadcDataBasename(runNumber)
     trigRec_name = trigRecBasename(runNumber)
-    eventNumber_name = eventNumberBasenameRaw(runNumber)
+    eventNumber_name = eventNumberBasename(runNumber)
     ch_len = ch_len()
     all_ch_len = all_ch_len()
-    # raw data tensor has N events as rows
-    nEvents = f_proc.raw_fadc_data.shape[0]
+    nEvents = f_proc.raw_fadc_data.len
   var
     raw_fadc_dset = h5f[raw_name.dset_str]
+    fadc_dset = h5f[reco_name.dset_str]
     trigRec_dset = h5f[trigRec_name.dset_str]
     eventNumber_dset = h5f[eventNumber_name.dset_str]
+    noisy_dset = h5f[noiseBasename(runNumber).dset_str]
+    minVals_dset = h5f[minValsBasename(runNumber).dset_str]
 
+  info raw_fadc_dset.shape
+  info raw_fadc_dset.maxshape
+  info fadc_dset.shape
+  info fadc_dset.maxshape
+  info trigRec_dset.shape
+  info trigRec_dset.maxshape
+  info eventNumber_dset.shape
+  info eventNumber_dset.maxshape
   # first need to extend the dataset, as we start with a size of 0.
   let oldsize = raw_fadc_dset.shape[0]
   let newsize = oldsize + nEvents
@@ -439,42 +613,87 @@ proc writeFadcDataToH5(h5f: var H5File, runNumber: int, f_proc: ProcessedFadcRun
   # fine, because we need to resize to append. But in case we start this program twice in
   # a row, without deleting the file, we simply extend the dataset further, because we read
   # the current (final!) shape from the file
-  info "Adding to FADC datasets, from $# to $#" % [$oldsize, $newsize]
-  # add raw FADC tensor by handing `ptr T` and `shape`
-  raw_fadc_dset.add(f_proc.raw_fadc_data.toUnsafeView(), @(f_proc.raw_fadc_data.shape))
-  trigRec_dset.add f_proc.trigRecs
-  eventNumber_dset.add f_proc.eventNumber
-  info "Done writing FADC data"
+  # NOTE: one way to mitigate t his, would be to set oldsize as a {.global.} variable
+  # in which case we simply set it to 0 on the first call and afterwards extend it by
+  # the size we add
+  raw_fadc_dset.resize((newsize, all_ch_len))
+  fadc_dset.resize((newsize, ch_len))
+  trigRec_dset.resize((newsize, 1))
+  eventNumber_dset.resize((newsize, 1))
+  noisy_dset.resize((newsize, 1))
+  minVals_dset.resize((newsize, 1))
 
-proc readWriteFadcData(run_folder: string, runNumber: int, h5f: var H5File) =
+  # now write the data
+  let t0 = epochTime()
+  # TODO: speed this up
+  # write using hyperslab
+  info "Trying to write using hyperslab! from $# to $#" % [$oldsize, $newsize]
+  raw_fadc_dset.write_hyperslab(f_proc.raw_fadc_data,
+                                offset = @[oldsize, 0],
+                                count = @[nEvents, all_ch_len])
+  fadc_dset.write_hyperslab(f_proc.fadc_data.toRawSeq,
+                            offset = @[oldsize, 0],
+                            count = @[nEvents, ch_len])
+  trigRec_dset.write_hyperslab(f_proc.trigRecs,
+                               offset = @[oldsize, 0],
+                               count = @[nEvents, 1])
+  eventNumber_dset.write_hyperslab(f_proc.eventNumber,
+                               offset = @[oldsize, 0],
+                               count = @[nEvents, 1])
+  noisy_dset.write_hyperslab(f_proc.noisy,
+                             offset = @[oldsize, 0],
+                             count = @[nEvents, 1])
+  minVals_dset.write_hyperslab(f_proc.minVals,
+                               offset = @[oldsize, 0],
+                               count = @[nEvents, 1])
+  info "Writing of FADC data took $# seconds" % $(epochTime() - t0)
+
+proc finishFadcWriteToH5(h5f: var H5FileObj, runNumber: int) =
+  # proc to finalize the last things we need to write for the FADC data
+  # for now only hardlinking to combine group
+  let
+    noisy_target = noiseBasename(runNumber)
+    minVals_target = minValsBasename(runNumber)
+    noisy_link = combineRecoBasenameNoisy(runNumber)
+    minVals_link = combineRecoBasenameMinVals(runNumber)
+
+  h5f.create_hardlink(noisy_target, noisy_link)
+  h5f.create_hardlink(minVals_target, minVals_link)
+
+proc readProcessWriteFadcData(run_folder: string, runNumber: int, h5f: var H5FileObj) =
   ## given a run_folder it reads all fadc files (data<number>.txt-fadc),
-  ## processes it (FadcFile -> FadcRaw) and writes it to the HDF5 file
+  ## processes it (FadcFile -> FadcData) and writes it to the HDF5 file
+
   # get a sorted list of files, sorted by inode
   var
-    dataFiles = getListOfEventFiles(run_folder,
-                                           EventType.FadcType,
-                                           RunFolderKind.rfUnknown,
-                                           EventSortType.fname)
-    raw_fadc_data: seq[FadcFile]
+    files: seq[string] = getSortedListOfFiles(run_folder,
+                                              EventSortType.fname,
+                                              EventType.FadcType,
+                                              RunFolderKind.rfUnknown)
+    raw_fadc_data: seq[FlowVar[ref FadcFile]] = @[]
     # variable to store the processed FADC data
-    f_proc: ProcessedFadcRun
+    f_proc: ProcessedFadcData
     # in case of FADC data we cannot afford to read all files into memory before
     # writing some to HDF5, because the memory overhead from storing all files
     # in seq[string] is too large (17000 FADC files -> 10GB needed!)
     # thus already perform batching here
-    files_read: seq[string]
-  if dataFiles.files.len == 0:
+    files_read: seq[string] = @[]
+  # use batchFiles template to work on 1000 files per batch
+
+  if files.len == 0:
     # in case there are no FADC files, return from this proc
     return
-  const batchsize = 2500
+
+  const batchsize = 1000
+
   # before we start iterating over the files, initialize the H5 file
-  var files = dataFiles.files
   h5f.initFadcInH5(runNumber, batchsize, files[0])
-  batchFiles(files, batchsize):
+  batchFiles(files, batchsize - 1):
     # batch in 1000 file pieces
-    info "Starting with file $# and ending with file $#" % [$files[0], $files[^1]]
-    files_read = files_read.concat(files)
-    raw_fadc_data = readFileBatch[FadcFile](files)
+    var mfiles = files[0..ind_high]
+    info "Starting with file $# and ending with file $#" % [$mfiles[0], $mfiles[^1]]
+    files_read = files_read.concat(mfiles)
+    raw_fadc_data = batchFileReading[FadcFile](mfiles)
 
     # TODO: read FADC files also by inode and then sort the fadc
     # we just read here. NOTE: for that have to change the writeFadcDataToH5
@@ -482,70 +701,116 @@ proc readWriteFadcData(run_folder: string, runNumber: int, h5f: var H5File) =
 
     # given read files, we now need to append this data to the HDF5 file, before
     # we can process more data, otherwise we might run out of RAM
-    f_proc = raw_fadc_data.processFadcData()
+    f_proc = raw_fadc_data.processFadcData
     info "Number of FADC files in this batch ", raw_fadc_data.len
 
     h5f.writeFadcDataToH5(runNumber, f_proc)
 
   info "Number of files read: ", files_read.toSet.len
   # finally finish writing to the HDF5 file
-  # finishFadcWriteToH5(h5f, runNumber)
+  finishFadcWriteToH5(h5f, runNumber)
 
-proc createChipGroups(h5f: var H5File,
-                      runNumber: int,
-                      nChips: int = 0): seq[H5Group] =
-  let chipGroupName = getGroupNameRaw(runNumber) & "/chip_$#"
-  result = mapIt(toSeq(0 ..< nChips), h5f.create_group(chipGroupName % $it))
-
-proc getChipGroups(h5f: H5File, runNumber: int, nChips: int = 0): seq[H5Group] =
-  let chipGroupName = getGroupNameRaw(runNumber) & "/chip_$#"
-  result = mapIt(toSeq(0 ..< nChips), h5f[(chipGroupName % $it).grp_str])
-
-proc initInGridInH5*(h5f: var H5File, runNumber, nChips,
-                     batchsize: int,
-                     createToADset = false) =
+proc initInGridInH5(h5f: var H5FileObj, runNumber, nChips, batchsize: int) =
   ## This proc creates the groups and dataset for the InGrid data in the H5 file
   ## inputs:
   ##   h5f: H5file = the H5 file object of the writeable HDF5 file
   ##   ?
   # create variables for group names (NOTE: dirty template!)
-  let groupName = getGroupNameRaw(runNumber)
-  let chipGroups = createChipGroups(h5f, runNumber, nChips)
+  let (groupName, recoGroupName, chipGroupName, combineGroupName) = inGridGroupNames(runNumber)
   let (ev_type_xy, ev_type_ch, eventHeaderKeys) = specialTypesAndEvKeys()
 
-  template datasetCreation(h5f: untyped, name: untyped, `type`: untyped) =
-    ## inserts the correct data set creation parameters and creates the dataset.
-    ## As we do not need it here, discard it and use for its side effect
-    discard h5f.create_dataset(name,
-                               0,
-                               dtype = `type`,
-                               chunksize = @[batchsize],
-                               maxshape = @[int.high],
-                               filter = filter)
+  template datasetCreation(h5f: untyped, name: untyped, `type`: untyped): untyped =
+    ## inserts the correct data set creation parameters
+    h5f.create_dataset(name,
+                       (0, 1),
+                       dtype = `type`,
+                       chunksize = @[batchsize, 1],
+                       maxshape = @[int.high, 1],
+                       filter = filter)
 
-  for chp in chipGroups:
+  var
+    # group for raw data
+    run_group = h5f.create_group(group_name)
+    # group for reconstructed data
+    reco_group = h5f.create_group(reco_group_name)
+    # combined data group
+    combine_group = h5f.create_group(combine_group_name)
+
+    # create group for each chip
+    chip_groups = mapIt(toSeq(0 ..< nChips), h5f.create_group(chipGroupName % $it))
     # datasets are chunked in the batchsize we read. Size originally 0
-    h5f.datasetCreation(chp.name & "/raw_x", ev_type_xy)
-    h5f.datasetCreation(chp.name & "/raw_y", ev_type_xy)
-    h5f.datasetCreation(chp.name & "/raw_ch", ev_type_ch)
-    h5f.datasetCreation(chp.name & "/ToT", uint16)
-    h5f.datasetCreation(chp.name & "/Hits", uint16)
+    x_dsets  = mapIt(chip_groups, h5f.datasetCreation(it.name & "/raw_x", ev_type_xy))
+    y_dsets  = mapIt(chip_groups, h5f.datasetCreation(it.name & "/raw_y", ev_type_xy))
+    ch_dsets = mapIt(chip_groups, h5f.datasetCreation(it.name & "/raw_ch", ev_type_ch))
+
+    # datasets to store the header information for each event
+    evHeadersDsetTab = eventHeaderKeys.mapIt(
+      (it,
+       h5f.datasetCreation(group_name & "/" & it, int))
+    ).toTable
+    # TODO: add string of datetime as well
+    #dateTimeDset = h5f.create_dataset(joinPath(group_name, "dateTime"), nEvents, string)
+
+    # other single column data
+    durationDset = h5f.datasetCreation(joinPath(group_name, "eventDuration"), float)
+  let names = mapIt(toSeq(0 ..< nChips), chipGroupName % $it)
+  var
+    totDset = mapIt(names, h5f.datasetCreation(it & "/ToT", uint16))
+    hitDset = mapIt(names, h5f.datasetCreation(it & "/Hits", uint16))
     # use normal dataset creation proc, due to static size of occupancies
-    discard h5f.create_dataset(chp.name & "/Occupancy", (256, 256), int, filter = filter)
-    if createToADset:
-      h5f.datasetCreation(chp.name & "/raw_toa", ev_type_ch)
-      h5f.datasetCreation(chp.name & "/raw_toa_combined", special_type(uint64))
+    occDset = mapIt(names, h5f.create_dataset(it & "/Occupancy", (256, 256), int))
 
-  # datasets to store the header information for each event
-  for key in eventHeaderKeys:
-    h5f.datasetCreation(groupName & "/" & key, int)
-  # TODO: add string of datetime as well
-  #dateTimeDset = h5f.create_dataset(joinPath(group_name, "dateTime"), nEvents, string)
-  # other single column data
-  h5f.datasetCreation(joinPath(groupName, "eventDuration"), float)
+proc writeInGridAttrs(h5f: var H5FileObj, run: ProcessedRun,
+                      rfKind: RunFolderKind,
+                      runType: RunTypeKind) =
 
-proc getCenterChipAndName(run: ProcessedRun): (int, string) =
-  ## returns the chip number and the name of the center chip
+  # use dirty template to define variables of group names
+  let (groupName,
+       recoGroupName,
+       chipGroupName,
+       combineGroupName) = inGridGroupNames(run.runNumber)
+  # use another dirty template to get the groups for the names
+  var (runGroup, recoGroup, combineGroup, chipGroups) = inGridGroups(h5f, run.nChips)
+  # now write attribute data (containing the event run header, for a start
+  # NOTE: unfortunately we cannot write all of it simply using applyIt,
+  # because we need to parse some numbers as ints, leave some as strings
+  let asInt = ["runNumber", "runTime", "runTimeFrames", "numChips", "shutterTime",
+               "runMode", "fastClock", "externalTrigger"]
+  let asString = ["pathName", "dateTime", "shutterMode"]
+  # write run header
+  # Note: need to check for existence of the keys, because for old TOS data,
+  # not all keys are set!
+  for it in asInt:
+    if it in run.runHeader:
+      let att = parseInt(run.runHeader[it])
+      run_group.attrs[it]  = att
+      reco_group.attrs[it] = att
+  for it in asString:
+    if it in run.runHeader:
+      let att = run.runHeader[it]
+      run_group.attrs[it] = att
+      reco_group.attrs[it] = att
+
+  # initialize the attribute for the current number of stored events to 0
+  run_group.attrs["numEventsStored"] = 0
+  # write attributes for each chip
+  var i = 0
+  for grp in mitems(chip_groups):
+    grp.attrs["chipNumber"] = run.chips[i].number
+    grp.attrs["chipName"]   = run.chips[i].name
+    # initialize the attribute for the current number of stored events to 0
+    grp.attrs["numEventsStored"] = 0
+    inc i
+
+  # finally write run type to base runs / reconstruction groups
+  var
+    rawG = h5f["runs".grp_str]
+    recoG = h5f["reconstruction".grp_str]
+  rawG.attrs["runType"] = $runType
+  recoG.attrs["runType"] = $runType
+  rawG.attrs["runFolderKind"] = $rfKind
+  recoG.attrs["runFolderKind"] = $rfKind
+  # Currently hardcode the number of chips we use.
   # TODO: Find nicer solution!
   var centerChip = 0
   case run.nChips
@@ -557,179 +822,60 @@ proc getCenterChipAndName(run: ProcessedRun): (int, string) =
     warn &"This number of chips ({run.nChips}) currently unsupported for" &
       " `centerChip` determination. Will be set to 0."
   let centerName = run.chips[centerChip].name
-  result = (centerChip, centerName)
-
-proc writeRawAttrs*(h5f: var H5File,
-                    run: ProcessedRun,
-                    rfKind: RunFolderKind,
-                    runType: RunTypeKind) =
-  # finally write run type to base runs group
-  var rawG = h5f["runs".grp_str]
-  rawG.attrs["runType"] = $runType
-  rawG.attrs["runFolderKind"] = $rfKind
-  let (centerChip, centerName) = getCenterChipAndName(run)
   rawG.attrs["centerChip"] = centerChip
+  recoG.attrs["centerChip"] = centerChip
+  run_group.attrs["centerChip"] = centerChip
+  reco_group.attrs["centerChip"] = centerChip
   rawG.attrs["centerChipName"] = centerName
-  rawG.attrs["numChips"] = run.nChips
+  recoG.attrs["centerChipName"] = centerName
+  run_group.attrs["centerChipName"] = centerName
+  reco_group.attrs["centerChipName"] = centerName
 
-  ## Write global variables of `raw_data_manipulation`
-  rawG.attrs["raw_data_manipulation_version"] = commitHash
-  rawG.attrs["raw_data_manipulation_compiled_on"] = compileDate
-  rawG.attrs["TimepixVersion"] = $run.timepix
+  # into the reco group name we now write the ToT and Hits information
+  # var totDset = h5f.create_dataset(reco_group & "/ToT")
+  #for chip in 0 .. run.nChips:
+    # since not every chip has hits on each event, we need to create one group
+    # for each chip and store each chip's data in these
 
-  ## ToT cut parameters used
-  rawG.attrs["ToT_cutLow"] = run.totCut.low
-  rawG.attrs["ToT_cutHigh"] = run.totCut.high
+    #let chipGroupName = reco_group_name & "/chip_$#" % $chip
+    #var chip_group = h5f.create_group(chipGroupName)
 
-proc writeRunGrpAttrs*(h5f: var H5File, group: var H5Group,
-                       runType: RunTypeKind,
-                       run: ProcessedRun,
-                       toaClusterCutoff: int) =
-  ## writes all attributes to given `group` that can be extracted from
-  ## the `ProcessedRun`, `rfKind` and `runType`.
-  # now write attribute data (containing the event run header, for a start
-  # NOTE: unfortunately we cannot write all of it simply using applyIt,
-  # because we need to parse some numbers as ints, leave some as strings
-  # see https://github.com/Vindaar/TimepixAnalysis/issues/51 for a solution
-  var asInt: seq[string]
-  var asString: seq[string]
-  case run.timepix
-  of Timepix1:
-    asInt = @["runNumber", "runTime", "runTimeFrames", "numChips", "shutterTime",
-              "runMode", "fastClock", "externalTrigger"]
-    asString = @["pathName", "dateTime", "shutterMode"]
-  of Timepix3:
-    asInt = @["runNumber", "runTime", "runTimeFrames", "numChips",
-              "runMode", "fastClock", "externalTrigger"]
-    asString = @["pathName", "dateTime", "shutterMode", "shutterTime"]
-  # write run header
-  # Note: need to check for existence of the keys, because for old TOS data,
-  # not all keys are set!
-  for it in asInt:
-    if it in run.runHeader:
-      let att = parseInt(run.runHeader[it])
-      group.attrs[it]  = att
-  for it in asString:
-    if it in run.runHeader:
-      let att = run.runHeader[it]
-      group.attrs[it] = att
-
-  # now write information about run length (in time)
-  let first = run.events[0]
-  let last = run.events[^1]
-  if "dateTime" in first.evHeader:
-    let start = first.evHeader["dateTime"]
-    let stop  = last.evHeader["dateTime"]
-    group.attrs["runStart"] = start
-    group.attrs["runStop"]  = stop
-    # NOTE: the run length will be wrong by the duration of the last event!
-    group.attrs["totalRunDuration"] = (parseTOSDateString(stop) -
-                                       parseTOSDateString(start)).inSeconds
-  else:
-    doAssert "timestamp" in first.evHeader, "Neither `dateTime` nor `timestamp` found in " &
-      "event header. Invalid!"
-    let tStart = first.evHeader["timestamp"].parseInt
-    let tStop  = last.evHeader["timestamp"].parseInt
-
-    # Note: given that we may be processing a run in batches, we need to read the start / stop
-    # attributes and possibly overwrite if they are smaller / larger and recompute the total
-    # run duration!
-    var runStart = inZone(fromUnix(tStart), utc())
-    var runStop = inZone(fromUnix(tStop), utc())
-    if "runStart" in group.attrs:
-      # keep existing if smaller than new
-      let writtenRunStart = parse(group.attrs["runStart", string], "yyyy-MM-dd'T'HH:mm:sszzz")
-      if runStart > writtenRunStart:
-        runStart = writtenRunStart
-    if "runStop" in group.attrs:
-      # keep existing if larger than new
-      let writtenRunStop = parse(group.attrs["runStop", string], "yyyy-MM-dd'T'HH:mm:sszzz")
-      if runStop < writtenRunStop:
-        runStop = writtenRunStop
-    group.attrs["runStart"] = $runStart
-    group.attrs["runStop"] = $runStop
-    # NOTE: the run length will be wrong by the duration of the last event!
-    group.attrs["totalRunDuration"] = inSeconds(runStop - runStart)
-  if toaClusterCutoff > 0:
-    ## dealing with Tpx3 data. Write ToA cluster cutoff
-    group.attrs["toaClusterCutoff"] = toaClusterCutoff
-
-  let (centerChip, centerName) = getCenterChipAndName(run)
-  group.attrs["centerChipName"] = centerName
-  group.attrs["centerChip"] = centerChip
-  # initialize the attribute for the current number of stored events to 0
-  group.attrs["numEventsStored"] = 0
-  group.attrs["runType"] = $runType
-  ## Write global variables of `raw_data_manipulation`
-  group.attrs["raw_data_manipulation_version"] = commitHash
-  group.attrs["raw_data_manipulation_compiled_on"] = compileDate
-
-  ## ToT cut parameters used
-  group.attrs["ToT_cutLow"] = run.totCut.low
-  group.attrs["ToT_cutHigh"] = run.totCut.high
-  group.attrs["ToT_numRemovedLow"] = run.totCut.rmLow
-  group.attrs["ToT_numRemovedHigh"] = run.totCut.rmHigh
-
-proc writeChipAttrs*(h5f: var H5File,
-                     chipGroups: var seq[H5Group],
-                     run: ProcessedRun) =
-  # write attributes for each chip
-  for i, grp in mpairs(chip_groups):
-    grp.attrs["chipNumber"] = run.chips[i].number
-    grp.attrs["chipName"]   = run.chips[i].name
-    # initialize the attribute for the current number of stored events to 0
-    grp.attrs["numEventsStored"] = 0
-
-proc writeInGridAttrs*(h5f: var H5File, run: ProcessedRun,
-                       rfKind: RunFolderKind, runType: RunTypeKind,
-                       ingridInit: bool,
-                       toaClusterCutoff = -1) =
-  ## `ingridInit` is used to indicate whether we need to write the `RawAttrs`
-  # writes all attributes into the output file. This includes
-  # - "runs" group attributes
-  # - individual run group attributes
-  # - chip group attributes
-  # "runs" group
-  if not ingridInit:
-    writeRawAttrs(h5f, run, rfKind, runType)
-  # individual run group
-  let groupName = getGroupNameRaw(run.runNumber)
-  var group = h5f[groupName.grp_str]
-  writeRunGrpAttrs(h5f, group, runType, run, toaClusterCutoff)
-  # chip groups
-  var chipGroups = if not ingridInit: createChipGroups(h5f, run.runNumber, run.nChips)
-                   else: getChipGroups(h5f, run.runNumber, run.nChips)
-  writeChipAttrs(h5f, chipGroups, run)
+    # write chip name and number, taken from first event
+    #chip_groups[chip].attrs["chipNumber"] = run.events[0].chips[chip].chip.number
+    #chip_groups[chip].attrs["chipName"]   = run.events[0].chips[chip].chip.name
 
 proc fillDataForH5(x, y: var seq[seq[seq[uint8]]],
-                   ch, toa: var seq[seq[seq[uint16]]],
-                   toaCombined: var seq[seq[seq[uint64]]],
+                   ch: var seq[seq[seq[uint16]]],
                    evHeaders: var Table[string, seq[int]],
                    duration: var seq[float],
                    events: seq[Event],
                    startEvent: int) =
-  doAssert events.len > 0, "Need at least one event to process!"
   let
     nEvents = events.len
     # take 0 event to get number of chips, since same for whole run
     nChips = events[0].nChips
-    hasToa = events[0].chips[0].version == Timepix3
   for i in 0 ..< nChips:
     x[i]  = newSeq[seq[uint8]](nEvents)
     y[i]  = newSeq[seq[uint8]](nEvents)
     ch[i] = newSeq[seq[uint16]](nEvents)
-    if hasToa:
-      toa[i] = newSeq[seq[uint16]](nEvents)
-      toaCombined[i] = newSeq[seq[uint64]](nEvents)
   for i, event in events:
+    # given chip number, we can write the data of this event to the correct dataset
+    # need to subtract number of events already in file (min(evNumber) > 0!)
+    # NOTE: we now simply enumerate the number of events we read. There should be no reason
+    # why we should have to consider the real event numbers
+    # TODO: if you read this in the future and everything works, remove the
+    # next two lines :)
+    let evNumberRaw = parseInt(event.evHeader["eventNumber"])
+    let evNumber = parseInt(event.evHeader["eventNumber"]) - startEvent
+
     duration[i] = event.length
     # add event header information
     for key in keys(evHeaders):
       try:
         evHeaders[key][i] = parseInt(event.evHeader[key])
       except KeyError:
-        #echo "Event $# with evHeaders does not contain key $#" % [$event, $key]
         discard
+        #echo "Event $# with evHeaders does not contain key $#" % [$event, $key]
       except IndexError:
         logging.error "Event $# with evHeaders does not contain key $#" % [$event, $key]
     # add raw chip pixel information
@@ -741,19 +887,15 @@ proc fillDataForH5(x, y: var seq[seq[seq[uint8]]],
         xl: seq[uint8] = newSeq[uint8](hits)
         yl: seq[uint8] = newSeq[uint8](hits)
         chl: seq[uint16] = newSeq[uint16](hits)
-      for j, p in chp.pixels:
-        xl[j] = uint8(p[0])
-        yl[j] = uint8(p[1])
-        chl[j] = uint16(p[2])
+      for i, p in chp.pixels:
+        xl[i] = uint8(p[0])
+        yl[i] = uint8(p[1])
+        chl[i] = uint16(p[2])
       x[num][i] = xl
       y[num][i] = yl
       ch[num][i] = chl
-      if hasToa:
-        # possibly assign ToA
-        toa[num][i] = chp.toa
-        toaCombined[num][i] = chp.toaCombined
 
-proc writeProcessedRunToH5*(h5f: var H5File, run: ProcessedRun) =
+proc writeProcessedRunToH5(h5f: var H5FileObj, run: ProcessedRun) =
   ## this procedure writes the data from the processed run to a HDF5
   ## (opened already) given by h5file_id
   ## inputs:
@@ -769,9 +911,12 @@ proc writeProcessedRunToH5*(h5f: var H5File, run: ProcessedRun) =
   let t0 = epochTime()
   # first write the raw data
   # get the names of the groups
-  let groupName = getGroupNameRaw(runNumber)
-  var runGroup = h5f[groupName.grp_str]
-  var chipGroups = createChipGroups(h5f, runNumber, nChips)
+  let (groupName,
+       recoGroupName,
+       chipGroupName,
+       combineGroupName) = inGridGroupNames(run.runNumber)
+  # another dirty template to get the groups for the names
+  var (runGroup, recoGroup, combineGroup, chipGroups) = inGridGroups(h5f, nChips)
   let (ev_type_xy, ev_type_ch, eventHeaderKeys) = specialTypesAndEvKeys()
 
   var
@@ -785,7 +930,7 @@ proc writeProcessedRunToH5*(h5f: var H5File, run: ProcessedRun) =
         (it, h5f[(groupName & "/" & it).dset_str])
       ).toTable
     # TODO: add string of datetime as well
-    #dateTimeDset = h5f.create_dataset(joinPath(groupName, "dateTime"), nEvents, string)
+    #dateTimeDset = h5f.create_dataset(joinPath(group_name, "dateTime"), nEvents, string)
 
     # other single column data
     durationDset = h5f[(joinPath(groupName, "eventDuration")).dset_str]
@@ -795,19 +940,6 @@ proc writeProcessedRunToH5*(h5f: var H5File, run: ProcessedRun) =
     x  = newSeq[seq[seq[uint8]]](nChips)
     y  = newSeq[seq[seq[uint8]]](nChips)
     ch = newSeq[seq[seq[uint16]]](nChips)
-
-  let hasToa = run.timepix == Timepix3
-
-  var
-    toa_dsets: seq[H5Dataset]
-    toa_combined_dsets: seq[H5Dataset]
-    toa = newSeq[seq[seq[uint16]]](nChips)
-    toaCombined = newSeq[seq[seq[uint64]]](nChips)
-
-  if hasToa:
-    # also write ToA
-    toa_dsets = chipGroups.mapIt(h5f[(it.name & "/raw_toa").dset_str])
-    toa_combined_dsets = chipGroups.mapIt(h5f[(it.name & "/raw_toa_combined").dset_str])
 
   # prepare event header keys and value (init seqs)
   for key in eventHeaderKeys:
@@ -824,33 +956,40 @@ proc writeProcessedRunToH5*(h5f: var H5File, run: ProcessedRun) =
   runGroup.attrs["numEventsStored"] = newsize
 
   # call proc to write the data from the events to the seqs, tables
-  fillDataForH5(x, y, ch, toa, toaCombined, evHeaders, duration, run.events, oldsize)
+  fillDataForH5(x, y, ch, evHeaders, duration, run.events, oldsize)
 
   ##############################
   ###### Write the data ########
   ##############################
 
   info "Writing all dset x data "
+  #let all = x_dsets[0].all
+
+  template writeHyper(dset: untyped, data: untyped): untyped =
+    dset.write_hyperslab(data, offset = @[oldsize, 0], count = @[nEvents, 1])
+
   for i in 0 ..< nChips:
     withDebug:
       info "Writing dsets ", i, " size x ", x_dsets.len
-    x_dsets[i].add x[i]
-    y_dsets[i].add y[i]
-    ch_dsets[i].add ch[i]
+    x_dsets[i].resize((newsize, 1))
+    y_dsets[i].resize((newsize, 1))
+    ch_dsets[i].resize((newsize, 1))
     withDebug:
       info "Shape of x ", x[i].len, " ", x[i].shape
       info "Shape of dset ", x_dsets[i].shape
-    if hasToa:
-      toa_dsets[i].add toa[i]
-      toa_combined_dsets[i].add toaCombined[i]
+    x_dsets[i].writeHyper(x[i])
+    y_dsets[i].writeHyper(y[i])
+    ch_dsets[i].writeHyper(ch[i])
 
   for key, dset in mpairs(evHeadersDsetTab):
     withDebug:
       info "Writing $# in $#" % [$key, $dset]
-    dset.add evHeaders[key]
+    dset.resize((newsize, 1))
+    dset.writeHyper(evHeaders[key])
 
   # write other single column datasets
-  durationDset.add duration
+  durationDset.resize((newsize, 1))
+  durationDset.writeHyper(duration)
   info "took a total of $# seconds" % $(epochTime() - t0)
 
   ####################
@@ -863,7 +1002,7 @@ proc writeProcessedRunToH5*(h5f: var H5File, run: ProcessedRun) =
   info "ToTs shape is ", run.tots.shape
   info "hits shape is ", run.hits.shape
   # into the reco group name we now write the ToT and Hits information
-  var (totDsets, hitDsets, occDsets) = getTotHitOccDsets(h5f, chipGroups)
+  var (totDsets, hitDsets, occDsets) = getTotHitOccDsets(h5f, chipGroupName, nChips)
 
   for chip in 0 ..< run.nChips:
     # since not every chip has hits on each event, we need to create one group
@@ -881,33 +1020,44 @@ proc writeProcessedRunToH5*(h5f: var H5File, run: ProcessedRun) =
       totDset = totDsets[chip]
       hitDset = hitDsets[chip]
       occDset = occDsets[chip]
-    totDset.add tot
-    hitDset.add hit
+
+    let newTotSize = totDset.shape[0] + tot.len
+    let newHitSize = hitDset.shape[0] + hit.len
+
+    let totOldSize = totDset.shape[0]
+    totDset.resize((newTotSize, 1))
+    hitDset.resize((newHitSize, 1))
+    # need to handle ToT dataset differently
+    totDset.write_hyperslab(tot.reshape([tot.len, 1]), offset = @[totOldSize, 0], count = @[tot.len, 1])
+    hitDset.writeHyper(hit.reshape([hit.len, 1]))
     # before writing the occupancy dataset, we need to read the old, stack the current
     # occupancy on it and finally write the result
-    # TODO: this does not seem to make sense to me. We're iterating over all chips in a whole run.
-    # Why would there be data in the occupancy dataset for us to read?
-    let stackOcc = occDset[int64].toTensor.reshape([256, 256]) +. occ
+    let stackOcc = occDset[int64].toTensor.reshape([256, 256]) .+ occ
     occDset.unsafeWrite(stackOcc.get_data_ptr, stackOcc.size)
 
-#proc linkRawToReco(h5f: var H5File, runNumber, nChips: int) =
-#  ## perform linking from raw group to reco group
-#  let (groupName,
-#       recoGroupName,
-#       chipGroupName,
-#       combineGroupName) = inGridRawGroupNames(runNumber)
-#  let (_, _, eventHeaderKeys) = specialTypesAndEvKeys()
-#  let (totDsetNames,
-#       hitDsetNames,
-#       occDsetNames) = getTotHitOccDsetNames(chipGroupName, nChips)
-#  let
-#    durationDsetName = joinPath(groupName, "eventDuration")
-#
-#  # link over to reconstruction group
-#  h5f.create_hardlink(durationDsetName, recoGroupName / extractFilename(durationDsetName))
-#  # create hard links of header data to reco group
-#  for key in eventHeaderKeys:
-#    h5f.create_hardlink(joinPath(groupName, key), joinPath(recoGroupName, key))
+
+proc linkRawToReco(h5f: var H5FileObj, runNumber, nChips: int) =
+  ## perform linking from raw group to reco group
+  let (groupName,
+       recoGroupName,
+       chipGroupName,
+       combineGroupName) = inGridGroupNames(runNumber)
+  let (_, _, eventHeaderKeys) = specialTypesAndEvKeys()
+  let (totDsetNames,
+       hitDsetNames,
+       occDsetNames) = getTotHitOccDsetNames(chipGroupName, nChips)
+  let
+    durationDsetName = joinPath(groupName, "eventDuration")
+
+  # link over to reconstruction group
+  h5f.create_hardlink(durationDsetName, recoGroupName / extractFilename(durationDsetName))
+  # create hard links of header data to reco group
+  for key in eventHeaderKeys:
+    h5f.create_hardlink(joinPath(groupName, key), joinPath(recoGroupName, key))
+  for chip in 0 ..< nChips:
+    # create hardlinks for ToT and Hits
+    h5f.create_hardlink(totDsetNames[chip], combineRawBasenameToT(chip, runNumber))
+    h5f.create_hardlink(hitDsetNames[chip], combineRawBasenameHits(chip, runNumber))
 
 proc createRun(runHeader: Table[string, string],
                runNumber: int,
@@ -944,49 +1094,9 @@ proc createRun(runHeader: Table[string, string],
     raise newException(Exception, "Creation of a `Run` is impossible for an " &
       "unknown run folder kind at the moment!")
 
-proc calcTimeOfEvent(evDuration: float,
-                     eventNumber: int,
-                     timestamp: string,
-                     runStart: DateTime): DateTime =
-  let
-    tstamp = timestamp
-      .align(count = 9, padding = '0')
-      .parse("HHmmssfff")
-    tdiff = (evDuration * eventNumber.float).round(places = 3)
-  result = runStart + initDuration(seconds = tdiff.round.int,
-                                   milliseconds = (tdiff - tdiff.trunc).round.int)
-  # replace time of evDate
-  result.second = tstamp.second
-  result.minute = tstamp.minute
-  result.hour = tstamp.hour
-
-proc calcTimeOfEvent(runTime, totalEvents, eventNumber: int,
-                     timestamp: string,
-                     runStart: DateTime): DateTime =
-  let evDuration = runTime.float / totalEvents.float
-  result = calcTimeOfEvent(evDuration, eventNumber, timestamp, runStart)
-
-proc fixOldTosTimestamps(runHeader: Table[string, string],
-                         events: var seq[Event]) =
-  ## applies the correct time stamp to the events in `events` for old TOS
-  ## data, since each event only has the 24h time associated to it.
-  let
-    runTime = runHeader["runTime"].parseInt
-    totalEvents = runHeader["totalEvents"].parseInt
-    evDuration = runTime.float / totalEvents.float
-    runStart = runHeader["dateTime"].parse(TosDateString)
-  for ev in mitems(events):
-    # walk over all events and replace the `timestamp` field with a corrected value
-    let
-      evNumber = ev.evHeader["eventNumber"].parseInt
-      evDate = calcTimeOfEvent(evDuration, evNumber, ev.evHeader["timestamp"],
-                               runStart)
-    ev.evHeader["timestamp"] = $evDate.toTime.toUnix
-
-proc readAndProcessInGrid*(listOfFiles: seq[string],
-                           runNumber: int,
-                           totCut: TotCut,
-                           rfKind: RunFolderKind): ProcessedRun =
+proc readAndProcessInGrid(listOfFiles: seq[string],
+                          runNumber: int,
+                          rfKind: RunFolderKind): ProcessedRun =
   ## Calls the procs to read InGrid data and hands it to the processing proc
   ## inputs:
   ##   listOfFiles: all the files to be read
@@ -995,113 +1105,66 @@ proc readAndProcessInGrid*(listOfFiles: seq[string],
   # read the raw event data into a seq of FlowVars
   info "list of files ", listOfFiles.len
   let ingrid = readRawInGridData(listOfFiles, rfKind)
-  var sortedIngrid = sortReadInGridData(ingrid, rfKind)
+  let sortedIngrid = sortReadInGridData(ingrid, rfKind)
 
-  # only continue, if any fails in input
-  # This may not be the case if proc is used in a dynamic environment!
-  if sortedIngrid.len > 0:
-    # to extract the run header, we only need any element of
-    # the data. For `rfNewTos` and `rfOldTos` the run header is
-    # equivalent to the event header. For `rfSrsTos` it's different
-    let runHeader = getRunHeader(sortedIngrid[0], runNumber, rfKind)
-    case rfKind
-    of rfOldTos: fixOldTosTimestamps(runHeader, sortedIngrid)
-    else: discard
-    # process the data read into seq of FlowVars, save as result
-    let run = createRun(runHeader, runNumber, sortedIngrid, rfKind)
-    result = processRawInGridData(run, totCut)
+  # to extract the run header, we only need any element of
+  # the data. For `rfNewTos` and `rfOldTos` the run header is
+  # equivalent to the event header. For `rfSrsTos` it's different
+  let runHeader = getRunHeader(sortedIngrid[0], rfKind)
+  # process the data read into seq of FlowVars, save as result
+  let run = createRun(runHeader, runNumber, sortedIngrid, rfKind)
+  result = processRawInGridData(run)
 
-proc processAndWriteFadc(run_folder: string, runNumber: int, h5f: var H5File) =
+proc processAndWriteFadc(run_folder: string, runNumber: int, h5f: var H5FileObj) =
   # for the FADC we call a single function here, which works on
   # the FADC files in a buffered way, always reading 1000 FADC
   # filsa at a time.
   let mem1 = getOccupiedMem()
   info "occupied memory before fadc $# \n\n" % [$mem1]
-  readWriteFadcData(run_folder, runNumber, h5f)
-  info "FADC took $# data" % $(abs(getOccupiedMem() - mem1))
+  readProcessWriteFadcData(run_folder, runNumber, h5f)
+  info "FADC took $# data" % $(getOccupiedMem() - mem1)
 
-proc createProcessedTpx3Run(data: seq[Tpx3Data], startIdx, cutoff, runNumber: int,
-                            totCut: TotCut,
-                            runConfig: Tpx3RunConfig): ProcessedRun =
-  # add new cluster if diff in time larger than 50 clock cycles
-  result = computeTpx3RunParameters(data, startIdx, clusterTimeCutoff = cutoff,
-                                    runNumber = runNumber,
-                                    totCut = totCut,
-                                    runConfig = runConfig)
-
-proc parseAndWriteTempLog(h5f: H5File, dataFiles: DataFiles, runNumber: int) =
-  ## Parses the existing `temp_log.txt` file and stores the data in the `temperatures`
-  ## dataset within the run group of `runNumber`.
-  doAssert dataFiles.temperatureLog.len > 0, "Temperature log file does not exist!"
-  let data = parseTemperatureFile(dataFiles.temperatureLog)
-  let dset = h5f.create_dataset(rawDataBase() & $runNumber / "temperatures",
-                                data.len,
-                                TemperatureLogEntry,
-                                filter = filter)
-  dset[dset.all] = data
-
-proc processAndWriteSingleRun(h5f: var H5File, run_folder: string,
-                              flags: set[RawFlagKind],
-                              runType: RunTypeKind,
-                              configFile: string) =
+proc processAndWriteSingleRun(h5f: var H5FileObj, run_folder: string,
+                              flags: set[RawFlagKind], runType: RunTypeKind = rtNone) =
   ## proc to process and write a single run
   ## inputs:
-  ##     h5f: var H5File = mutable copy of the H5 file object to which we will write
+  ##     h5f: var H5FileObj = mutable copy of the H5 file object to which we will write
   ##         the data
   ##     flags: set[RawFlagKind] = flags indicating different settings, e.g. `nofadc`
-  const batchsize = FILE_BUFSIZE * 2
+  const batchsize = 50000
+  var attrsWritten = false
   var nChips: int
-  # parse config toml file
-  let cfgTable = parseTomlConfig(configFile)
-  let plotOutPath = cfgTable["RawData"]["plotDirectory"].getStr
-  let totCut = initTotCut(cfgTable)
 
   let (_, runNumber, rfKind, _) = isTosRunFolder(runFolder)
-  var dataFiles = getListOfEventFiles(run_folder,
-                                      EventType.InGridType,
-                                      rfKind,
-                                      EventSortType.fname)
-  let plotDirPrefix = h5f.genPlotDirname(plotOutPath, PlotDirRawPrefixAttr)
-  var batchNum = 0
+  var files = getSortedListOfFiles(run_folder,
+                                   EventSortType.fname,
+                                   EventType.InGridType,
+                                   rfKind)
 
-  var ingridInit = false
-  var files = dataFiles.files
-  batchFiles(files, batchsize):
-    let r = readAndProcessInGrid(files[0 .. ind_high], runNumber, totCut, rfKind)
-    if r.events.len > 0:
-      nChips = r.nChips
+  batchFiles(files, batchsize - 1):
+    let r = readAndProcessInGrid(files[0 .. ind_high], runNumber, rfKind)
+    nChips = r.nChips
 
-      if not ingridInit:
-        ## XXX: this actually runs for every single run, because this whole procedure is
-        ## *single run* and not multiple runs
-        # create datasets in H5 file
-        initInGridInH5(h5f, runNumber, nChips, batchsize)
-      # now attributes, possibly overwrite start/stop times of run, hence needed
-      writeInGridAttrs(h5f, r, rfKind, runType, ingridInit)
-      ingridInit = true
-      for chip in 0 ..< nChips:
-        plotOccupancy(squeeze(r.occupancies[chip,_,_]),
-                      plotDirPrefix, r.runNumber, chip, batchNum = batchNum)
-      inc batchNum
+    if attrsWritten == false:
+      writeInGridAttrs(h5f, r, rfKind, runType)
+      # create datasets in H5 file
+      initInGridInH5(h5f, runNumber, nChips, batchsize)
+      attrsWritten = true
 
-      writeProcessedRunToH5(h5f, r)
-      info "Size of total ProcessedRun object = ", sizeof(r)
-    else:
-      warn "Skipped writing to file, since ProcessedRun contains no events!"
-
-  # parse and write temperature data if any
-  if dataFiles.temperatureLog.len > 0:
-    h5f.parseAndWriteTempLog(dataFiles, runNumber)
+    let a = squeeze(r.occupancies[0,_,_])
+    dumpFrameToFile("tmp/frame.txt", a)
+    writeProcessedRunToH5(h5f, r)
+    info "Size of total ProcessedRun object = ", sizeof(r)
 
   ####################
   # Create Hardlinks #
   ####################
-  # linkRawToReco(h5f, runNumber, nChips)
+  linkRawToReco(h5f, runNumber, nChips)
+
+
 
   # dump sequences to file
   #dumpToTandHits(folder, runType, r.tots, r.hits)
-
-
 
   if rfNoFadc notin flags:
     processAndWriteFadc(runFolder, runNumber, h5f)
@@ -1111,113 +1174,65 @@ proc processAndWriteSingleRun(h5f: var H5File, run_folder: string,
   # TODO: write all other settings to file too? e.g. `nofadc`,
   # `ignoreRunList` etc?
 
-proc processAndWriteSingleRunTpx3(h5f: H5File, h5fout: var H5File,
-                                  runNumber: int,
-                                  clusterCutoff: int,
-                                  totCut: TotCut,
-                                  plotDirPrefix: string,
-                                  runType: RunTypeKind = rtNone) =
-  const tpx3Buf = 50_000_000
-  const nChips = 1 ## NOTE: so far we just use 1 chip for simplicity
+proc main() =
 
-  let runPath = tpx3Base() & $runNumber
-  let dset = h5f[(runPath / "hit_data").dset_str]
-  let runConfig = h5f.readTpx3RunConfig(runNumber)
-  let pixNum = dset.shape[0]
-  let batches = ceil(pixNum.float / tpx3Buf.float).int
-  var oldIdx = 0
-  var eventsProcessed = 0
-  var countIdx = min(tpx3Buf, pixNum)
-  var ingridInit = false
-  for idx in 0 ..< batches:
-    info "Processing batch index from ", oldIdx, " to ", countIdx
-    var data = dset.read_hyperslab(Tpx3Data, @[oldIdx],
-                                   count = @[countIdx])
-    oldIdx += countIdx
-    countIdx = if oldIdx + tpx3Buf < pixNum: tpx3Buf
-               else: pixNum - oldIdx
-    let r = createProcessedTpx3Run(data, eventsProcessed, cutoff = clusterCutoff,
-                                   runNumber = runNumber,
-                                   totCut = totCut,
-                                   runConfig = runConfig)
-    eventsProcessed += r.events.len
-    if r.events.len > 0:
-      if not ingridInit:
-        #runNumber = r.runNumber
-        #nChips = processedRun.nChips
-        # create datasets in H5 file
-        initInGridInH5(h5fout, runNumber, nChips, batchsize = FILE_BUFSIZE, createToADset = true)
-      # now attributes
-      writeInGridAttrs(h5fout, r, rfUnknown, runType, ingridInit,
-                       clusterCutoff)
-      ingridInit = true
-      for chip in 0 ..< nChips:
-        plotOccupancy(squeeze(r.occupancies[chip,_,_]),
-                      plotDirPrefix, runNumber, chip,
-                      batchNum = idx)
-      writeProcessedRunToH5(h5fout, r)
-      runFinished(h5fout, runNumber)
-      info "Size of total ProcessedRun object = ", sizeof(r)
-    else:
-      warn "Skipped writing to file, since ProcessedRun contains no events!"
+  # use the usage docstring to generate an CL argument table
+  let args = docopt(doc)
+  echo args
 
-proc askNoRunListContinue(): bool =
-  var buf: string
-  while true:
-    buf = readLineFromStdin("Do you want to continue? (Y/n)")
-    case buf.normalize
-    of "": return true
-    of "y", "yes": return true
-    of "n", "no": return false
-    else: continue
+  #echo oldTosBackRuns
 
-proc handleTimepix1(folder: string, runType: RunTypeKind, outfile: string,
-                    flags: set[RawFlagKind], configFile: string) =
+  let folder = $args["<folder>"]
+  var runTypeStr = $args["--runType"]
+  var runType: RunTypeKind
+  var flags: set[RawFlagKind]
+  var outfile = $args["--out"]
+  if runTypeStr != "nil":
+    runType = parseRunType(runTypeStr)
+  if outfile == "nil":
+    outfile = "run_file.h5"
+  if $args["--nofadc"] == "true":
+    flags.incl rfNoFadc
+  if $args["--ignoreRunList"] != "false":
+    flags.incl rfIgnoreRunList
+  if $args["--overwrite"] == "true":
+    flags.incl rfOverwrite
+
+  echo &"Flags are is {flags}"
+
   # first check whether given folder is valid run folder
   let (is_run_folder, runNumber, rfKind, contains_run_folder) = isTosRunFolder(folder)
   info "Is run folder       : ", is_run_folder
   info "Contains run folder : ", contains_run_folder
 
-  var flags = flags # mutable local copy
   if rfKind == rfOldTos:
     # in case of old TOS runs, there never was a detector with an FADC
     # so force `nofadc`
     info "runKind is " & $rfOldTos & ", hence `nofadc` -> true"
     flags.incl rfNoFadc
 
+  let t0 = epochTime()
   if is_run_folder == true and contains_run_folder == false:
-    # hand H5File to processSingleRun, because we need to write intermediate
+    # hand H5FileObj to processSingleRun, because we need to write intermediate
     # steps to the H5 file for the FADC, otherwise we use too much RAM
     # in order to write the processed run and FADC data to file, open the HDF5 file
-    var h5f = H5open(outfile, "rw")
+    var h5f = H5file(outfile, "rw")
     case rfKind
     of rfOldTos:
-      if not oldTosRunListFound:
-        warn "Old TOS run list was not found! Expected in " & OldTosRunListPath & "."
-        if not askNoRunListContinue():
-          # stopping without runlist
-          info "Stopping on user desire, due to missing old TOS runlist."
-          return
       case runType
       of rtCalibration:
         if rfIgnoreRunList in flags or runNumber.uint16 in oldTosCalibRuns:
-          processAndWriteSingleRun(h5f, folder, flags, runType, configFile)
-        else:
-          info &"Run {runNumber} with path {folder} is an invalid run for type {runType}!"
+          processAndWriteSingleRun(h5f, folder, flags, runType)
       of rtBackground:
         if rfIgnoreRunList in flags or runNumber.uint16 in oldTosBackRuns:
-          processAndWriteSingleRun(h5f, folder, flags, runType, configFile)
-        else:
-          info &"Run {runNumber} with path {folder} is an invalid run for type {runType}!"
+          processAndWriteSingleRun(h5f, folder, flags, runType)
       of rtXrayFinger:
         if rfIgnoreRunList in flags or runNumber.uint16 in oldTosXrayRuns:
-          processAndWriteSingleRun(h5f, folder, flags, runType, configFile)
-        else:
-          info &"Run {runNumber} with path {folder} is an invalid run for type {runType}!"
+          processAndWriteSingleRun(h5f, folder, flags, runType)
       else:
         info &"Run {runNumber} with path {folder} is invalid for type {runType}"
     of rfNewTos, rfSrsTos:
-      processAndWriteSingleRun(h5f, folder, flags, runType, configFile)
+      processAndWriteSingleRun(h5f, folder, flags, runType)
     else:
       raise newException(IOError, "Unknown run folder kind. Cannot read " &
         "events!")
@@ -1229,11 +1244,11 @@ proc handleTimepix1(folder: string, runType: RunTypeKind, outfile: string,
     # in this case loop over all folder again and call processSingleRun() for each
     # run folder
     # open H5 output file to check if run already exists
-    var h5f: H5File
+    var h5f: H5FileObj
     if fileExists(outfile):
-      h5f = H5open(outfile, "r")
+      h5f = H5file(outfile, "r")
     else:
-      h5f = H5open(outfile, "rw")
+      h5f = H5file(outfile, "rw")
     for kind, path in walkDir(folder):
       case kind
       of pcDir, pcLinkToDir:
@@ -1251,8 +1266,8 @@ proc handleTimepix1(folder: string, runType: RunTypeKind, outfile: string,
             discard h5f.close()
 
           let program = getAppFilename()
-          var command = program & " -p " & path
-          for i in 3 .. paramCount():
+          var command = program & " " & path
+          for i in 2 .. paramCount():
             let c = paramStr(i)
             command = command & " " & c
           info "Calling command ", command
@@ -1261,7 +1276,7 @@ proc handleTimepix1(folder: string, runType: RunTypeKind, outfile: string,
             quit("Subprocess failed with " & $errC)
 
           # reopen the hdf5 file
-          h5f = H5open(outfile, "r")
+          h5f = H5file(outfile, "r")
 
           # TODO: the following is the normal code. However, it leaks memory. That's
           # why we currently just call this script on the subfolder
@@ -1281,103 +1296,7 @@ proc handleTimepix1(folder: string, runType: RunTypeKind, outfile: string,
     logging.error "No run folder found in given path."
     quit()
 
-proc handleTimepix3(h5file: string, runType: RunTypeKind,
-                    outfile: string,
-                    flags: set[RawFlagKind],
-                    configFile: string) =
-  ## handles converting a Timepix3 input file from tpx3-daq / basil format to required TPA format
-  info "Converting Tpx3 data from " & $h5file & " and storing it in " & $outfile
-  var h5fout = H5File(outfile, "rw")
-  # parse config toml file
-  let cfgTable = parseTomlConfig(configFile)
-  let plotOutPath = cfgTable["RawData"]["plotDirectory"].getStr
-  let clusterCutoff = cfgTable["RawData"]["tpx3ToACutoff"].getInt
-  let totCut = initTotCut(cfgTable)
-
-  let plotDirPrefix = h5fout.genPlotDirname(plotOutPath, PlotDirRawPrefixAttr)
-
-  var h5f = H5File(h5file, "r")
-  let fileInfo = getFileInfo(h5f)
-  for runNumber in fileInfo.runs:
-    h5f.processAndWriteSingleRunTpx3(h5fout, runNumber, clusterCutoff, totCut,
-                                     plotOutPath, fileInfo.runType)
-  discard h5f.close()
-  # finally once we're done, add `rawDataFinished` attribute
-  discard h5fout.close()
-
-proc main(path: string, runType: RunTypeKind,
-          `out` = "", nofadc = false, ignoreRunList = false,
-          config = "", overwrite = false, tpx3 = false,
-          keepExtracted = false,
-          extractTo = getTempDir()
-         ) =
-  docCommentAdd(versionStr)
-  var flags: set[RawFlagKind]
-  let outfile = if `out`.len == 0: "run_file.h5" else: `out`
-  if nofadc:
-    flags.incl rfNoFadc
-  if ignoreRunList:
-    flags.incl rfIgnoreRunList
-  if overwrite:
-    flags.incl rfOverwrite
-  if tpx3:
-    flags.incl rfTpx3
-
-  echo &"Flags are is {flags}"
-  let t0 = epochTime()
-
-  if rfTpx3 notin flags:
-    if path.endsWith(".tar.gz"):
-      # extract the data to a temporary directory and continue from there
-      #let tmpDir = genTempPath("tmp_", "_extraction")
-      let newPath = extractTo / path.extractFilename.dup(removeSuffix(".tar.gz")).multiReplace([("_rtBackground", ""),
-                                                                                                ("_rtCalibration", "")])
-      info "Extracting input archive: ", path
-      #extractAll(path, tmpDir)
-      let tmpDir = createTempDir("tmp_", "_extraction")
-      discard untarFile(path, tmpDir)
-      moveDir(tmpDir, extractTo)
-      info "Extracted run archive `", path, "` to: `", tmpDir, "` and moved it to `", extractTo, "`. Now will process: ", newPath
-      handleTimepix1(newPath, runType, outfile, flags, config)
-      if not keepExtracted:
-        info "Removing: ", newPath
-        removeDir(newPath)
-    else:
-      handleTimepix1(path, runType, outfile, flags, config)
-  else:
-    handleTimepix3(path, runType, outfile, flags, config)
-
   info "Processing all given runs took $# minutes" % $( (epochTime() - t0) / 60'f )
 
 when isMainModule:
-  import cligen
-  import cligen/argcvt
-  proc argParse(dst: var RunTypeKind, dfl: RunTypeKind,
-                a: var ArgcvtParams): bool =
-    dst = parseRunType(a.val)
-    if dst != rtNone:
-      result = true
-
-  proc argHelp*(dfl: RunTypeKind; a: var ArgcvtParams): seq[string] =
-    result = @[ a.argKeys, "RunTypeKind", $dfl ]
-
-  dispatch(main, help = {
-    "tpx3" : "Convert data from a Timepix3 H5 file to TPA format instead of a Tpx1 run directory",
-    "runType" : """Select run type (Calib | Back | Xray)
-The following are parsed case insensetive:
-  Calib = {"calib", "calibration", "c"}
-  Back = {"back", "background", "b"}
-  Xray = {"xray", "xrayfinger", "x"}""",
-    "out" : "Filename of output file. If none given will be set to `run_file.h5`.",
-    "nofadc" : "Do not read FADC files.",
-    "ignoreRunList" : "If set ignores the run list 2014/15 to indicate using any rfOldTos run",
-    "overwrite" : """If set will overwrite runs already existing in the
-file. By default runs found in the file will be skipped.
-HOWEVER: overwriting is assumed, if you only hand a
-run folder!""",
-    "config" : """Path to the configuration file to use. Default is `config.toml`
-in directory of this source file.""",
-    "keepExtracted" : """If a `.tar.gz` archive is given for a run folder and this flag is true
-we won't remove the extracted archive afterwards.""",
-    "extractTo" : """If a `.tar.gz` archive is given extract the data to this directory.""",
-    "version" : "Print the version of the binary."})
+  main()

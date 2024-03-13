@@ -9,186 +9,27 @@ import osproc
 import re
 import times
 import seqmath
-import memfiles
-
-template withDocopt*(doc: string): untyped =
-  ## a helper template to build a commit hash and build time
-  ## aware docopt string called `doc`
-
-  when defined(linux):
-    const commitHash = staticExec("git rev-parse --short HEAD")
-  else:
-    const commitHash = ""
-
-  # get date using `CompileDate` magic
-  const currentDate = CompileDate & " at " & CompileTime
-
-  const docTmplPrefix = """
-  Version: $# built on: $#
-  """
-  # concat the user given doc to it
-  const doc = docTmplPrefix % [commitHash, currentDate] & doc
-  doc
 
 macro `+`*[N, M: int](a: array[N, string], b: array[M, string]): untyped =
   ## macro to concat two const arrays `a`, `b` at compile time to return a new
   ## array
   let aImpl = a.symbol.getImpl
   let bImpl = b.symbol.getImpl
-  doAssert aImpl.kind == nnkConstDef
-  doAssert bImpl.kind == nnkConstDef
   var tree = nnkBracket.newTree()
-  for x in aImpl[2]:
-    tree.add x
-  for x in bImpl[2]:
-    tree.add x
+  for x in aImpl:
+    tree.add quote do:
+      `x`
+  for x in bImpl:
+    tree.add quote do:
+      `x`
   result = nnkStmtList.newTree(
     tree
   )
-
-macro getField*(tup: typed, field: static string): untyped =
-  ## Mini helper to access the field `field` of a tuple from a
-  ## static string, as returned by `fieldPairs`.
-  let id = ident(field)
-  result = nnkDotExpr.newTree(tup, id)
-
-proc removePref*(s: string, pref: string): string =
-  result = s
-  result.removePrefix(pref)
 
 template asType*[T](s: seq[T], dtype: typedesc): untyped =
   ## convenience template to convert type of a `seq` to a different type,
   ## if possible
   mapIt(s, dtype(it))
-
-proc traverseTree(input: NimNode): NimNode =
-  # iterate children
-  for i in 0 ..< input.len:
-    case input[i].kind
-    of nnkSym:
-      # if we found a symbol, take it
-      result = input[i]
-    of nnkBracketExpr:
-      # has more children, traverse
-      result = traverseTree(input[i])
-    else:
-      error("Unsupported type: " & $input.kind)
-
-proc findReplace(cImpl: NimNode, assgn: NimNode): NimNode =
-  ## iterates through `cImpl`, looks for the assignment in `assgn`
-  ## and if found replaces the value within. If not found appends
-  ## the given statement to the NimNode
-  result = copy(cImpl)
-  for i in 1 ..< cImpl.len:
-    let curNode = cImpl[i]
-    case curNode.kind
-    of nnkExprColonExpr:
-      # check if field is `assgn` field
-      if eqIdent(curNode[0].strVal, assgn[0].strVal):
-        # replace this nodes value
-        result[i][1] = assgn[1]
-        # return now
-        return result
-    else:
-      let msg = "No, shouldn't be here: " & $curNode.kind & " with repr " & curNode.treeRepr
-      error(msg)
-  # if we end up here we didn't find the identifier
-  let newExpr = nnkExprColonExpr.newTree(
-    assgn[0],
-    assgn[1]
-  )
-  result.add newExpr
-
-macro replace*(c: typed, x: untyped): untyped =
-  ## mini dsl to replace specific fields of a given object
-  ## with values given in body
-  ##
-  ## Example:
-  ## .. code-block:
-  ##   type
-  ##     MyObj = object
-  ##       a: int
-  ##       b: seq[int]
-  ##       c: bool
-  ##       d: float
-  ##   let obj = MyObj(a: 5,
-  ##                   b: @[1, 2, 3]
-  ##                   c: false)
-  ##   let nObj = replace(obj):
-  ##     c = true
-  ##     d = 5.5
-  ## # will be rewritten to
-  ##   let nObj = MyObj(a: 5,
-  ##                   b: @[1, 2, 3]
-  ##                   c: true,
-  ##                   d: 5.5)
-  # in new AST `getImpl` returns symbol for which it was called
-  # too
-  var cImpl = c.getImpl[2]
-  # now just replace the correct cImpl fields
-  # by the given fields of the user
-  for ch in x:
-    cImpl = findReplace(cImpl, ch)
-  result = cImpl
-  #echo result.repr
-
-proc readNumLinesMemFile*(ff: var MemFile, buf: var seq[string], stop: int) {.inline.} =
-  ## reads memory mapped slices from file `ff`, adds to buffer and
-  ## stops at line `stop`
-  ## NOTE: for performance make sure thatt `buf` is a sequence of cap `stop`
-  buf.setLen(stop)
-  var count = 0
-  var lineBuf = newStringOfCap(80)
-  for slice in memSlices(ff):
-    lineBuf.setLen(slice.size)
-    copyMem(addr lineBuf[0], slice.data, slice.size)
-    buf[count] = lineBuf
-    inc count
-    if count == stop:
-      break
-
-iterator memLines*(ff: var MemFile, buf: var string, start = 0, stop = -1): string {.inline.} =
-  var count = 0
-  for slice in memSlices(ff):
-    inc count
-    if count < start:
-      continue
-    elif count == stop:
-      break
-    buf.setLen(slice.size)
-    copyMem(addr buf[0], slice.data, slice.size)
-    yield buf
-
-iterator linesIter*(ff: string, buf: var string, start = 0, stop = -1): string {.inline.} =
-  var count = 0
-  var idx = 0
-  while true:
-    case ff[idx]
-    of '\n':
-      inc count
-      if count == stop:
-        break
-      elif count >= start:
-        yield buf
-      buf.setLen(0)
-    else:
-      buf.add ff[idx]
-    inc idx
-
-proc parseUint16*(x: string): uint16 =
-  var i = 0
-  var digits = 0
-  while i < x.len:
-    case x[i]
-    of ' ': discard
-    of '0' .. '9':
-      let val = uint16(ord(x[i]) - ord('0'))
-      result *= 10
-      result += val
-      inc digits
-    else:
-      raise newException(ValueError, "Unexpected character in uint16: " & $x[i] & ", full number: " & x)
-    inc i
 
 proc getNewBound*(ind, width, size: int, up_flag: bool = true): int {.inline.} =
   # procedure to select a new bound, either upper or lower for
@@ -348,7 +189,7 @@ proc createSortedInodeTable*(list_of_files: seq[string]): OrderedTable[int, stri
   sortInodeTable(result)
 
 
-proc untarFile*(filepath: string, outdir = ""): string =
+proc untarFile*(filepath: string): string =
   # this procedure extracts the given *.tar.gz file of a run to the folder, in
   # which it is located, by making a system call to tar -xzf
   # inputs:
@@ -363,9 +204,7 @@ proc untarFile*(filepath: string, outdir = ""): string =
   # .tar, which we need to remove
   let name = split(name_tar, ".tar")[0]
   # # given the directory, make system call to tar and extract the folder
-  let outdir = if outdir.len > 0: outdir else: dir
-
-  let cmd_tar = "tar -xzf " & filepath & " --directory " & outdir
+  let cmd_tar = "tar -xzf " & filepath & " --directory " & dir
 
   echo "System call to tar:\n\t", cmd_tar
   var (x, y) = execCmdEx(cmd_tar)
@@ -375,7 +214,8 @@ proc untarFile*(filepath: string, outdir = ""): string =
   else:
     # in this case tar returned 0 (== success)
     # now that we have extracted the folder, get list of files in run folder
-    result = joinPath(outdir, name)
+    result = joinPath(dir, name)
+
 
 proc removeFolder*(folderpath: string): bool =
   # this procedure removes the folder with the given path, by making a system call to
@@ -401,22 +241,8 @@ proc removeFolder*(folderpath: string): bool =
   else:
     result = false
 
-proc echoBenchCounted*(count: var int,
-                  t: var float,
-                  modby = 500, msg = " files read.") =
+template echoFilesCounted*(count: int, modby = 500, msg = " files read.") =
   inc count
-  if count mod modby == 0:
-    echo $count & msg
-    let t1 = epochTime()
-    echo "Took ", t1 - t, " s"
-    t = t1
-
-proc echoCount*(count: var int, modby = 500, msg = " files read.") =
-  inc count
-  if count mod modby == 0:
-    echo $count & msg
-
-proc echoCounted*(count: int, modby = 500, msg = " files read.") =
   if count mod modby == 0:
     echo $count & msg
 
@@ -425,16 +251,15 @@ proc getDaysHoursMinutes*(dur: Duration): string =
   ## n days HH:MM
   ## based on a `Duration`
   let
-    days = dur.inDays
-    hours = dur.inHours - convert(Days, Hours, dur.inDays)
-    minutes = dur.inMinutes - convert(Days, Minutes, dur.inDays) - convert(Hours, Minutes, hours)
+    days = dur.days
+    hours = dur.hours - convert(Days, Hours, dur.days)
+    minutes = dur.minutes - convert(Days, Minutes, dur.days) - convert(Hours, Minutes, hours)
   result = &"{days} days {hours:02}:{minutes:02}"
 
 template getDateSyntax*(): string =
   ## returns the default syntax used when echoing a `DateTime` or `Time` object
   ## to parse a thusly created string
-  # "yyyy-MM-dd'T'HH-mm-sszzz"
-  "yyyy-MM-dd\'T\'HH:mm:sszzz"
+  "yyyy-MM-dd'T'HH-mm-sszzz"
 
 # import the arraymancer related procs only if the `-d:pure` flag is not
 # set. This allows us to keep this dependency out, if desired
@@ -486,20 +311,20 @@ when not defined(pure):
     # we define the cut value (which determines skip_non_outliers) as values, which are
     # smaller than one sigma smaller than the mean value
     var cut_value: float
-    if skip_non_outliers:
+    if skip_non_outliers == true:
       cut_value = mean(t) - std(t)
 
     var
       ind, u, min_ind, min_range, max_range, min_from_min: int = 0
 
-    for i in 0 ..< steps:
+    for i in 0..<steps:
       ind = i * width
       u   = ind + width - 1
-      let view = t[ind .. u]
+      let view = t[ind..u]
       min_ind = findArgOfLocalMin(view, ind)
       # given the current minimum, check whether we skip this element
       # since it is outside our bounds of interest anyway
-      if skip_non_outliers:
+      if skip_non_outliers == true:
         int_min = t[min_ind]
         if int_min > cut_value:
           continue
@@ -511,30 +336,6 @@ when not defined(pure):
       if min_ind == min_from_min:
         result.add(min_ind)
 
-proc splitSeq*[T, U](s: seq[seq[T]], dtype: typedesc[U]): (seq[U], seq[U]) =
-  ## splits a (N, 2) nested seq into two seqs
-  result[0] = newSeq[dtype](s.len)
-  result[1] = newSeq[dtype](s.len)
-  for i in 0..s.high:
-    result[0][i] = s[i][0].U
-    result[1][i] = s[i][1].U
-
-proc commonSuffix*(files: seq[string]): string =
-  ## Returns the common suffix of all the given filenames.
-  doAssert files.len > 0
-  var idx = 1
-  var c = files[0][^idx] # get last character of first file as reference
-  result = newString(512) # given that filenames must be below 255 bytes, this is enough
-  block Insert:
-    while true:
-      for f in files:
-        let fc = f[^idx]
-        if c != fc: break Insert
-        elif idx > f.high: break Insert
-        result[^idx] = c
-      inc idx
-      c = files[0][^idx] # update character
-  result = result.strip(chars = {'\0'}) # remove all empty bytes
 
 when isMainModule:
   # unit test for a regex to check for

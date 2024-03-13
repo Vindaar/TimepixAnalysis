@@ -1,8 +1,5 @@
 import arraymancer
-import .. / ingrid_types
-
-proc initSeptemFrame*(): Tensor[float] {.noinit.} =
-  result = zeros[float]([3 * 256, 3 * 256])
+import ingrid/ingrid_types
 
 proc dumpFrameToFile*[T](filepath: string, ar: Tensor[T]) =
   ## this procedure dumps a given frame (tensor ar needs to be of shape (256, 256)
@@ -37,3 +34,4 @@ proc createTensorFromZeroSuppressed*[T](pixels: Pixels): Tensor[T] =
   result = zeros[T](256, 256)
   for p in pixels:
     result[p.x, p.y] = p.ch
+

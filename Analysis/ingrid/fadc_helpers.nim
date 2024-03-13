@@ -1,9 +1,12 @@
-import std / [os, re, sequtils, sugar, memfiles, strutils, strscans]
+import ospaths
+import os
+import re
+import sequtils, sugar
+import strutils, strscans
 import helpers/utils
+import threadpool
 # import read list of files, to read FADC files in parallel
-
-when compileOption("threads"):
-  from tos_helpers import readListOfFiles
+from tos_helpers import readListOfFiles, readMemFilesIntoBuffer
 import ingrid_types
 import algorithm
 import macros
@@ -11,17 +14,34 @@ import macros
 import seqmath
 import arraymancer
 
-# helpers for dealing with `Tensor` in generic seq / Tensor code
-proc len[T](t: Tensor[T]): int = t.size.int
-proc high[T](t: Tensor[T]): int = t.len - 1
-
 proc walkRunFolderAndGetFadcFiles*(folder: string): seq[string] =
   # walks a run folder and returns a seq of FADC filename strings
 
   # let lf = system.listFiles(folder)
   result = getListOfFiles(folder, ".*-fadc")
 
-proc convertFadcTicksToVoltage*[T](array: T, bitMode14: bool): Tensor[float] =
+proc convertFadcTicksToVoltage*[T](array: seq[T], bitMode14: bool): seq[T] =
+  ## this function converts the channel arrays from FADC ticks to V, by
+  ## making use of the mode_register written to file.
+  ## Mode register contains (3 bit register, see CAEN manual p.31):
+  ##    bit 0: EN_VME_IRQ interruption tagging of VME bus?!
+  ##    bit 1: 14BIT_MODE if set to 1, output uses 14 bit register, instead of
+  ##           backward compatible 12 bit
+  ##    bit 2: AUTO_RESTART_ACQ if 1, automatic restart of acqusition at end of
+  ##           RAM readout
+  result = @[]
+  var conversion_factor: float = 1'f64
+  if bitMode14 == true:
+    conversion_factor = 1 / 8192'f
+  else:
+    # should be 2048. instead of 4096 (cf. septemClasses.py)
+    conversion_factor = 1 / 2048'f
+
+  # calculate conversion using map and lambda proc macro
+  result = map(array, (x: float) -> float => x * conversion_factor)
+
+proc convertFadcTicksToVoltage*(data: Tensor[float], bitMode14: bool): Tensor[float] =
+  ## equivalent proc to above with Tensor[T] instead of seq[T]
   ## this function converts the channel arrays from FADC ticks to V, by
   ## making use of the mode_register written to file.
   ## Mode register contains (3 bit register, see CAEN manual p.31):
@@ -36,11 +56,12 @@ proc convertFadcTicksToVoltage*[T](array: T, bitMode14: bool): Tensor[float] =
   else:
     # should be 2048. instead of 4096 (cf. septemClasses.py)
     conversion_factor = 1 / 2048'f
-  result = newTensorUninit[float](array.len)
-  for i in 0 ..< result.len:
-    result[i] = array[i] * conversion_factor
 
-proc readFadcFile*(pFile: ProtoFile): FadcFile =
+  # calculate conversion using tensor map, first create mutable copy by assigning
+  # to result
+  result = data.map(x => x * conversion_factor)
+
+proc readFadcFile*(file: seq[string]): ref FadcFile = #seq[float] =
   ## reads an FADC file. Example header + data line
   ## # nb of channels: 0
   ## # channel mask: 15
@@ -52,18 +73,17 @@ proc readFadcFile*(pFile: ProtoFile): FadcFile =
   ## # pedestal run: 1
   ## #Data: followed by lines 10 - 21 commented out, and then
   ## single integers for data
+  result = new FadcFile
   var
     # create a sequence with a cap size large enough to hold the whole file
     # speeds up the add, as the sequence does not have to be resized all the
     # time
     data = newSeqOfCap[uint16](10240)
+    postTrig, trigRec, preTrig, n_channels, frequency, sampling_mode: int
+    bitMode14, pedestalRun: bool
+    line_spl: seq[string]
   # line 0 is the filename itself
-  let filepath = pFile.name
-  let file = pFile.fileData
-  var header = newSeqOfCap[string](9)
-  var lb: string
-  for lb in linesIter(file, lb, 0, 9):
-    header.add lb
+  let filepath = file[0]
 
   # variable we use to match value in header line
   var valMatch: int
@@ -101,134 +121,24 @@ proc readFadcFile*(pFile: ProtoFile): FadcFile =
 
   # parsing for first 6 lines
   var dummy: string
-  writeMatchHeader(header[0 .. 5],
+  writeMatchHeader(file[1 .. 6],
                    fadcHeaderFields,
                    matchHeader, dummy,
                    valMatch, result)
   # line 7: sampling mode
-  if scanf(header[6], matchHeader, dummy, valMatch):
-    let mode_register = valMatch
-    # now get bit 1 from mode_register by comparing with 0b010
-    result.bitMode14 = (mode_register and 0b010) == 0b010
-    result.sampling_mode = mode_register
-  # line 8: pedestal run flag
-  if scanf(header[7], matchHeader, dummy, valMatch):
-    let p_run_flag = valMatch
-    result.pedestalRun = p_run_flag != 0
-
-  # lines 9 - 21: #Data + commented out lines
-  var lineBuf: string
-  var lineIdx = 0
-  for _ in linesIter(file, lineBuf, start = 22, stop = 10262):
-    data.add parseUint16(lineBuf)
-    inc lineIdx
-  const evNumberMatch = "data$i.txt-fadc"
-  # TODO: replace `extractFilename` call by something simpler!
-  if scanf(filepath.extractFilename, evNumberMatch, valMatch):
-    result.eventNumber = valMatch
-  elif not result.pedestalRun:
-    # raise exception if this is no pedestal run
-    raise newException(Exception, "Warning: could not match event number match for file " &
-      $filepath & " and result " & $result)
-
-  # finally assign data sequence
-  result.data = data
-  result.isValid = true
-
-proc readFadcFileMem*(filepath: string): FadcFile =
-#proc readFadcFileMem*(filepath: string, resBuf: ptr UncheckedArray[Buffer], i: int) =
-  ## reads an FADC file. Example header + data line
-  ## # nb of channels: 0
-  ## # channel mask: 15
-  ## # postrig: 16
-  ## # pretrig: 15000
-  ## # triggerrecord: 115
-  ## # frequency: 2
-  ## # sampling mode: 0
-  ## # pedestal run: 1
-  ## #Data: followed by lines 10 - 21 commented out, and then
-  ## single integers for data
-  var
-    # create a sequence with a cap size large enough to hold the whole file
-    # speeds up the add, as the sequence does not have to be resized all the
-    # time
-    data = newSeqOfCap[uint16](10240)
-
-  var file: seq[string]
-  var ff: MemFile
-  try:
-    ff = memfiles.open(filepath, mode = fmRead, mappedSize = -1)
-  except OSError:
-    # broken file, `isValid` will be false
-    return
-  readNumLinesMemFile(ff, file, 9)
-
-  # variable we use to match value in header line
-  var valMatch: int
-  const matchHeader = "# $*: $i"
-  const fadcHeaderFields = ["nChannels",
-                            "channel_mask",
-                            "postTrig",
-                            "preTrig",
-                            "trigRec",
-                            "frequency"]
-  macro writeMatchHeader(line: seq[string],
-                         fadcHeaderFields: static[array[6, string]],
-                         matchHeader,
-                         dummy,
-                         valMatch,
-                         fadcFile: typed): untyped =
-    ## helper macro to create scanf statements for the first
-    ## 6 lines of the FADC header
-    ## produces:
-    ##   if scanf(line[1], matchHeader, valMatch):
-    ##     result.nChannels = valMatch
-    ## like lines for each FADC field written in `fadcHeaderFields`.
-    ## does not save too much space, but is nicer :) (:
-    result = newStmtList()
-    var i = 0
-    for name in fadcHeaderFields:
-      let fieldName = parseExpr(name)
-      result.add quote do:
-        if scanf(`line`[`i`], `matchHeader`, `dummy`, `valMatch`):
-          `fadcFile`.`fieldName` = `valMatch`
-        else:
-          raise newException(Exception, "Coulnd't match line " & $`i` & " for " &
-            " field " & $`name` & " line is: " & `line`[`i`])
-      inc i
-
-  # parsing for first 6 lines
-  var dummy: string
-  try:
-    writeMatchHeader(file[0 .. 5],
-                     fadcHeaderFields,
-                     matchHeader, dummy,
-                     valMatch, result)
-  except Exception:
-    # broken file, `isValid` will be false
-    return
-  # line 7: sampling mode
-  if scanf(file[6], matchHeader, dummy, valMatch):
-    let mode_register = valMatch
-    # now get bit 1 from mode_register by comparing with 0b010
-    result.bitMode14 = (mode_register and 0b010) == 0b010
-    result.sampling_mode = mode_register
-  # line 8: pedestal run flag
   if scanf(file[7], matchHeader, dummy, valMatch):
+    let mode_register = valMatch
+    # now get bit 1 from mode_register by comparing with 0b010
+    result.bitMode14 = (mode_register and 0b010) == 0b010
+    result.sampling_mode = mode_register
+  # line 8: pedestal run flag
+  if scanf(file[8], matchHeader, dummy, valMatch):
     let p_run_flag = valMatch
-    result.pedestalRun = p_run_flag != 0
+    result.pedestalRun = if p_run_flag == 0: false else: true
 
   # lines 9 - 21: #Data + commented out lines
-  # fast parsing of the rest of the file using memory mapped slicing
-  var lineBuf = newStringOfCap(80)
-  for _ in memLines(ff, lineBuf, start = 22, stop = 10262):
-    data.add uint16(lineBuf.parseInt)
-  ff.close()
-
-  if data.len != 10240:
-    # broken file, `isValid` will be false
-    return
-
+  for line in file[22 .. ^4]:
+    data.add uint16(parseInt(line))
   const evNumberMatch = "data$i.txt-fadc"
   # TODO: replace `extractFilename` call by something simpler!
   if scanf(filepath.extractFilename, evNumberMatch, valMatch):
@@ -236,25 +146,16 @@ proc readFadcFileMem*(filepath: string): FadcFile =
   elif not result.pedestalRun:
     # raise exception if this is no pedestal run
     raise newException(Exception, "Warning: could not match event number match for file " &
-      $filepath & " and result " & $result)
+      $filepath & " and result " & $result[])
 
   # finally assign data sequence
   result.data = data
-  result.isValid = true
 
-import flatBuffers
-import std / isolation # for malebolgia and taskpools
-proc readFadcFileMem*(filepath: string, resBuf: ptr UncheckedArray[Buffer], i: int) =
-  let res = readFadcFileMem(filepath)
-  # for `flatBuffers.Buffer`
-  resBuf[i] = asFlat res
-
-proc readFadcFile*(filename: string): FadcFile =
+proc readFadcFile*(filename: string): ref FadcFile =
   # wrapper around readFadcFile(file: seq[string]), which first
   # reads all lines in the file before
-  let file = readFile(filename).strip
-  let pFile = ProtoFile(name: filename, fileData: file)
-  result = readFadcFile(pFile)
+  let file = readFile(filename).strip.splitLines
+  result = readFadcFile(filename & file)
 
 proc calcMinOfPulse*(ar: Tensor[float], percentile: float): float =
   # calculates the minimum of the input ar (an FADC pulse) based on
@@ -267,7 +168,7 @@ proc calcMinOfPulse*(ar: Tensor[float], percentile: float): float =
     ind_max_r = arg_min + n_elements
     ind_max = if ind_max_r < ar.size: ind_max_r else: ar.size
 
-  result = mean(ar[ind_min ..< ind_max])
+  result = mean(ar[ind_min..ind_max])
 
 proc calcMinOfPulseAlt*(array: Tensor[float], percentile: float): float =
   # calculates the minimum of the input array (an FADC pulse) based on
@@ -284,6 +185,7 @@ proc calcMinOfPulseAlt*(array: Tensor[float], percentile: float): float =
   # given resulting array, calculate percentile
   let n_elements = filtered_array.len
   sort(filtered_array, system.cmp[float])
+  echo "Filtered array 0 ", filtered_array[^10..^1]
 
   #echo filtered_array[0], filtered_array[filtered_array.high]
   #echo filtered_array[0..30]
@@ -294,16 +196,16 @@ proc calcMinOfPulseAlt*(array: Tensor[float], percentile: float): float =
   #filtered_array = filter(array, (x: T) -> bool => x < threshold)
   filtered_array = filterIt(array.toRawSeq, it < threshold)
   #echo "Filtered array ", filtered_array
+  echo "Min of array is ", `min`
   result = mean(filtered_array)
 
-proc applyFadcPedestalRun*[T; U](fadc_data: T, pedestalRun: U): Tensor[float] =
+proc applyFadcPedestalRun*[T](fadc_data, pedestalRun: seq[T]): seq[float] =
   # applys the pedestal run given in the second argument to the first one
-  bind `len`
-  bind `high`
-  doAssert fadc_data.len == pedestalRun.len
-  result = newTensorUninit[float](fadc_data.len)
-  for i in 0 .. fadc_data.high:
-    result[i] = fadc_data[i].float - pedestalRun[i].float
+  # by zipping the two arrays and using map to subtract each element
+  result = map(
+    zip(fadc_data, pedestalRun),
+    proc(val: (T, T)): float = float(val[0]) - float(val[1])
+  )
 
 proc getCh0Indices*(): seq[int] {.inline.} =
   # proc which simply returns the channel 0 indices
@@ -312,7 +214,7 @@ proc getCh0Indices*(): seq[int] {.inline.} =
   # it often!
   result = arange(3, 4*2560, 4)
 
-proc performTemporalCorrection*[T](data: Tensor[T], trigRec, postTrig: int): seq[T] =
+proc performTemporalCorrection*[T](data: seq[T], trigRec, postTrig: int): seq[T] =
   ## performs the temporal correction of the FADC cyclic register
   ## see CAEN FADC manual p. 15
   ## It is done by rotating the data array according to
@@ -320,38 +222,34 @@ proc performTemporalCorrection*[T](data: Tensor[T], trigRec, postTrig: int): seq
   ##   nRoll = (trigRec - postTrig) * 20
   let nRoll = (trigRec - postTrig) * 20
   # now simply roll
-  result = rotatedLeft(toOpenArray(data.toUnsafeView(), 0, data.size.int - 1), -nRoll)
+  result = rotatedLeft(data, nRoll)
 
-proc fadcFileToFadcData*[T](data: Tensor[uint16],
-                            pedestalRun: T,
-                            trigRec, postTrig: int, bitMode14: bool,
-                            ch0_indices: openArray[int]): FadcData =
+proc fadcFileToFadcData*[T](fadc_file: FadcFile,
+                            pedestalRun: seq[T],
+                            ch0_indices: seq[int]): FadcData =
   # this function converts an FadcFile object (read from a file) to
   # an FadcData object (extracted Ch0, applied pedestal run, converted
   # to volt)
   result = FadcData()
+
   # first apply the pedestal run
-  var fadc_data = applyFadcPedestalRun(data, pedestalRun)
+  # TODO: extend this to apply the closest pedestal run instead?
+  var fadc_data = applyFadcPedestalRun(fadc_file.data, pedestalRun)
 
   # and cut out channel 3 (the one we take data with)
   var ch0_vals = fadc_data[ch0_indices]
-  ## XXX: these are not actually faulty, huh.
   # set the two 'faulty' registers to 0
-  #ch0_vals[0] = 0
-  #ch0_vals[1] = 0
+  ch0_vals[0] = 0
+  ch0_vals[1] = 0
 
   # now perform temporal correction
-  let tempCorrected = performTemporalCorrection(ch0_vals, trigRec, postTrig)
-  # convert to volt
-  result.data = convertFadcTicksToVoltage(tempCorrected, bitMode14)
+  let tempCorrected = performTemporalCorrection(ch0_vals, fadc_file.trigRec, fadc_file.postTrig)
 
-proc fadcFileToFadcData*[T](fadc_file: FadcFile,
-                            pedestalRun: T,
-                            ch0_indices: openArray[int]): FadcData =
-  result = fadcFileToFadcData(fadc_file.data.toTensor(), pedestalRun,
-                              fadc_file.trigRec, fadc_file.postTrig,
-                              fadc_file.bitMode14,
-                              ch0_indices)
+  # assign result as tensor
+  result.data = tempCorrected.toTensor.astype(float)
+
+  # convert to volt
+  result.data = convertFadcTicksToVoltage(result.data, fadc_file.bitMode14)
 
 proc fadcFileToFadcData*[T](fadc_file: FadcFile, pedestalRun: seq[T]): FadcData =
   # proc which wraps above proc by first creating the indices needed for the
@@ -368,58 +266,21 @@ proc getFadcData*(filename: string): FadcData =
   # on many subsequent calls.
   let ch0_indices {.global.} = arange(3, 4*2560, 4)
   # same for the pedestal run data
-  const pedestalRun = joinPath(currentSourcePath(), "../../../resources/pedestalRuns/pedestalRun000042_1_182143774.txt-fadc")
+  const home = getHomeDir()
+  const pedestalRun = joinPath(home, "CastData/data/pedestalRuns/pedestalRun000042_1_182143774.txt-fadc")
   let pedestal_d {.global.} = readFadcFile(pedestalRun)
-  let data = readFadcFile(filename)
+
+  let data = readFadcFile(filename)[]
   result = fadcFileToFadcData(data, pedestal_d.data)
 
 proc getPedestalRun*(): seq[uint16] =
   # this convenience function returns the data array from
   # our local pedestal run
-  const pedestal_file = joinPath(currentSourcePath(), "../../../resources/pedestalRuns/pedestalRun000042_1_182143774.txt-fadc")
+
+  const home = getHomeDir()
+  const pedestal_file = joinPath(home, "CastData/Code/scripts/data/pedestalRuns/pedestalRun000042_1_182143774.txt-fadc")
   let pedestal = readFadcFile(pedestal_file)
   result = pedestal.data
-
-import weave
-proc percIdx(q: float, len: int): int = (len.float * q).round.int
-proc biasedTruncMean*[T](x: Tensor[T], axis: int, qLow, qHigh: float): Tensor[float] =
-  ## Computes the *biased* truncated mean of `x` by removing the quantiles `qLow` on the
-  ## bottom end and `qHigh` on the upper end.
-  ## ends of the data. `q` should be given as a fraction of events to remove on both ends.
-  ## E.g. `qLow = 0.05, qHigh = 0.99` removes anything below the 5-th percentile and above the 99-th.
-  ##
-  ## Note: uses `weave` internally to multithread along the desired axis!
-  doAssert x.rank == 2
-  result = newTensorUninit[float](x.shape[axis])
-  init(Weave)
-  let xBuf = x.toUnsafeView()
-  let resBuf = result.toUnsafeView()
-  let notAxis = if axis == 0: 1 else: 0
-  let numH = x.shape[notAxis] # assuming row column major, 0 is # rows, 1 is # cols
-  let numW = x.shape[axis]
-  parallelFor i in 0 ..< numW:
-    captures: {xBuf, resBuf, numH, numW, axis, qLow, qHigh}
-    let xT = xBuf.fromBuffer(numH, numW)
-    # get a sorted slice for index `i`
-    let subSorted = xT.atAxisIndex(axis, i).squeeze.sorted
-    let plow = percIdx(qLow, numH)
-    let phih = percIdx(qHigh, numH)
-
-    var resT = resBuf.fromBuffer(numW)
-    ## compute the biased truncated mean by slicing sorted data to lower and upper
-    ## percentile index
-    var red = 0.0
-    for j in max(0, plow) ..< min(numH, phih): # loop manually as data is `uint16` to convert
-      red += subSorted[j].float
-    resT[i] = red / (phih - plow).float
-  syncRoot(Weave)
-  exit(Weave)
-
-proc getPedestalRun*(files: ProcessedFadcRun): Tensor[float] =
-  ## Computes pedestals given an input `ProcessedFadcRun`, i.e.
-  ## the raw FADC data using a biased truncated mean approach.
-  result = biasedTruncMean(files.rawFadcData, axis = 1,
-                           qLow = 0.2, qHigh = 0.98)
 
 proc build_filename_from_event_number(number: string): string =
   # function receives event number as string and builds filename from it
@@ -449,29 +310,34 @@ proc buildListOfXrayFiles*(file: string): seq[string] =
 
   return event_list
 
-when compileOption("threads"):
-  # import taskpools # for taskpools obviously
-  proc readListOfFadcFiles*(list_of_files: seq[string]): seq[FadcFile] =
-    ## this procedure receives a list of files, reads them into memory (as a buffer)
-    ## and processes the content into a seq of ref FadcFile
-    ## inputs:
-    ##    list_of_files: seq[string] = a seq of fadc filenames, which are to be read in one go
-    ## outputs:
-    ##    seq[FadcFile] = a seq of `FadcFile` which stores the FADC raw data
-    ## the meat of the proc is in the readListOfFiles function. Here we simply tell it
-    ## what kind of datatype we are reading.
-    result = readListOfFiles[FadcFile](list_of_files)
+# use experimental pragma to use parallel statement, which is contained in
+# dirty template
+{.experimental.}
+proc readListOfFadcFiles*(list_of_files: seq[string]): seq[FlowVar[ref FadcFile]] =
+  # this procedure receives a list of files, reads them into memory (as a buffer)
+  # and processes the content into a seq of ref FadcFile
+  # inputs:
+  #    list_of_files: seq[string] = a seq of fadc filenames, which are to be read in one go
+  # outputs:
+  #    seq[FlowVar[ref FadcFile]] = a seq of flow vars pointing to fadc events, since we read
+  #                                 in parallel
+  # the meat of the proc is in the readListOfFiles function. Here we simply tell it
+  # what kind of datatype we are reading.
+  result = readListOfFiles[FadcFile](list_of_files)
+
+
+
 
   ###################################################################################
   # The following procs all deal with the calculation of whether a given FADC event #
   # is noisy or not                                                                 #
-  # NOTE: the general procs have been moved to helpers/utils module                 #
+  # NOTE: the general procs have been moved to helpers/utils module              #
   ###################################################################################
 
 proc isFadcFileNoisy*(fadc: FadcData, n_dips: int): bool =
-  ## this procedure checks whether a given file name
-  ## is a noisy FADC file. Determined by the number of dips found in the
-  ## FADC signal.
+  # this procedure checks whether a given file name
+  # is a noisy FADC file. Determined by the number of dips found in the
+  # FADC signal.
   let peak_loc = findPeaks(fadc.data, 150)
   result = if len(peak_loc) >= n_dips: true else: false
 

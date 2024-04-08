@@ -78,13 +78,14 @@ proc writeTeX(W_h1, b1, W_h2, b2, W_c, bc: RawTensor): string =
                     W_h2.toTex(), b2.toTexVec(),
                     W_c.toTex(), bc.toTexVec() ]
 
-proc main(modelPath: string, simFile: string = "", writeTeX = false) =
+
+template loadModelMakeDevice*(modelPath: string): untyped {.dirty.} =
   var device_type: DeviceKind
   if Torch.cuda_is_available():
-    #echo "CUDA available! Training on GPU."
+    echo "CUDA available! Training on GPU."
     device_type = kCuda
   else:
-    #echo "Training on CPU."
+    echo "Training on CPU."
     device_type = kCPU
   let device = Device.init(device_type)
   let desc = initDesc(modelPath)
@@ -92,7 +93,34 @@ proc main(modelPath: string, simFile: string = "", writeTeX = false) =
   Torch.manual_seed(1)
   model.to(device)
   echo "Loading model: ", modelPath
-  model.load(modelPath)
+  model.load(modelPath, device)
+
+import mlp_schematic
+proc rawToATensor(t: RawTensor): Tensor[float] =
+  echo "T sizes: ", t.sizes
+  result = zeros[float](t.numel().int)
+  let sh = [t.numel()]
+  let tx = t.reshape(sh.asTorchView())
+  for i in 0 ..< t.numel():
+    result[i.int] = tx[i.int].item(float)
+  result = result.reshape(@(t.sizes.asNimView).mapIt(it.int))
+  echo "result shape: ", result.shape
+
+proc generateMlpSchematic(desc: MLPDesc, mlp: MLP, file: string) =
+  ## Plots a schematic of the given MLP
+  doAssert desc.numHidden.len == 2
+  let w1 = mlp.hidden.weight.rawToATensor
+  let w2 = mlp.hidden2.weight.rawToATensor
+  let w3 = mlp.classifier.weight.rawToATensor
+  plotSchematic(desc.numInputs, desc.numHidden[0], desc.numHidden[1], 2, # 2 output neurons
+                w1, w2, w3,
+                desc.datasets,
+                file)
+
+proc main(modelPath: string, simFile: string = "", writeTeX = false,
+          schematic = "") =
+  loadModelMakeDevice(modelPath)
+  echo "loading model success"
 
   let w1 = model.hidden.weight
   let b1 = model.hidden.bias
@@ -142,6 +170,8 @@ proc main(modelPath: string, simFile: string = "", writeTeX = false) =
       let body = writeTeX(w1, b1, w2, b2, wc, bc)
       compile("/tmp/tex_mlp.tex", body, fullBody = true)
 
+  if schematic.len > 0:
+    generateMlpSchematic(desc, model, schematic)
 
 
 when isMainModule:

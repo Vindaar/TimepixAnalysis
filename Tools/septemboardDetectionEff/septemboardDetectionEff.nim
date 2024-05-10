@@ -61,8 +61,8 @@ proc plotEfficiency(df: DataFrame, outpath: string) =
     echo df
     ggplot(df, aes("Energy [keV]", "Efficiency", color = "Type")) +
       geom_line() +
-      ggtitle(&"Detection efficiencies of window, software eff., LLNL efficiency{Newline} and Argon absorption") +
-      margin(top = 1.75) +
+      ggtitle(&"Detection efficiencies of window, Argon absorption and LLNL efficiency") +
+      #margin(top = 1.) + # not needed for shortened title
       themeLatex(fWidth = 0.9, width = 600, baseTheme = singlePlot, useTeX = UseTeX, useWithoutTeX = false) +
       ggsave(&"{outpath}/detection_efficiency.pdf", width = 600, height = 380)
 

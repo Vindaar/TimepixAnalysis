@@ -580,6 +580,7 @@ proc printBackgroundRates(df: DataFrame, factor: float, energyMin: float, rateTa
     intBackRate(df, factor, max(energyMin, 0.0) .. 2.5)
     intBackRate(df, factor, max(energyMin, 4.0) .. 8.0)
     intBackRate(df, factor, max(energyMin, 2.0) .. 8.0)
+    intBackRate(df, factor, max(energyMin, 2.0) .. 7.0)
   let tab = intBackRate(df, factor, max(energyMin, 0.0) .. 8.0)
     .sortedByIt(it.rateMeas)
   if rateTable.len > 0:

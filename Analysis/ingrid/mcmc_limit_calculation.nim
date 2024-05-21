@@ -158,6 +158,8 @@ type
     coupling: float # the ``current`` coupling constant in use. Can be a value of
                     # `g_ae²`, `g_aγ⁴`, `g_ae²·g_aγ²`, `β⁴` depending on use case!
                     # Corresponds to first entry of MCMC chain vector!
+    m_a: eV = -1.eV # Axion mass for which we compute a limit. Default negative value implies we use
+                    # low mass approximation for converison probability
     couplingKind: CouplingKind # decides which coupling to modify
     couplingReference: float # the full reference coupling. `g_ae²·g_aγ²` if `ck_g_ae²·g_aγ²`
     mcmcCouplingTarget: float # The target value used as reference for the MCMC
@@ -596,6 +598,7 @@ proc readAxModel(f: string, isChameleon = false): DataFrame =
               f{"Energy [keV]" ~ `energy` / 1000.0})
 
 proc detectionEff(ctx: Context, energy: keV): UnitLess {.gcsafe.}
+func conversionProbability(ctx: Context, energy: keV = -1.keV, m_a: eV = -1.eV): UnitLess
 
 template toCDF(data: seq[float], isCumSum = false): untyped =
   ## Computes the CDF of binned data
@@ -917,6 +920,22 @@ proc setMcmcCouplingTarget(couplingKind: CouplingKind, target: float): float =
     #else:
     #  doAssert false, "Not implemented yet, coupling target for " & $couplingKind
 
+proc computeIntegralBase(ctx: Context, m_a: eV = -1.eV): float =
+  # Note: evaluating `detectionEff` at > 10 keV is fine, just returns 0. Not fully correct, because our
+  # eff. there would be > 0, but flux is effectively 0 there anyway and irrelevant for limit
+  var axModel = ctx.axionModel
+  if m_a > 0.eV:
+    axModel = axModel
+      .mutate(f{"Flux" ~ idx("Flux [keV⁻¹•cm⁻²•s⁻¹]") * detectionEff(ctx, idx("Energy [keV]").keV) *
+                  ctx.conversionProbability(idx("Energy [keV]").keV, m_a) })
+  else:
+    axModel = axModel
+      .mutate(f{"Flux" ~ idx("Flux [keV⁻¹•cm⁻²•s⁻¹]") * detectionEff(ctx, idx("Energy [keV]").keV) })
+    echo "[INFO]: Axion model: ", axModel
+  result = simpson(axModel["Flux", float].toSeq1D,
+                   axModel["Energy [keV]", float].toSeq1D)
+  echo "Integral:: ", result
+
 proc initContext(path: string,
                  yearFiles: seq[(int, string)],
                  trackingYearFiles: seq[(int, string)],
@@ -937,6 +956,7 @@ proc initContext(path: string,
                  energyMin = 0.0.keV,
                  energyMax = 12.0.keV,
                  couplingKind = ck_g_ae²,
+                 m_a = -1.eV,
                  mcmcCouplingTarget = Inf,
                  switchAxes: bool
                 ): Context =
@@ -1026,6 +1046,7 @@ proc initContext(path: string,
     g_aγ²: 1e-12 * 1e-12, ## reference axion-photon coupling   (default conversion prob at this value)
     g_ae²: 1e-13 * 1e-13, ## reference axion-electron coupling (input flux at this value)
     β²: pow(10, 10.81) * pow(10, 10.81), ## reference chameleon coupling (input flux at this value)
+    m_a: m_a,
     mcmcCouplingTarget: setMcmcCouplingTarget(couplingKind, mcmcCouplingTarget),
     axionModelFile: axionModel,
     axionImageFile: axionImage,
@@ -1056,14 +1077,7 @@ proc initContext(path: string,
   initCouplingReference(result)
 
   let ctx = result # XXX: hack to workaround bug in formula macro due to `result` name!!!
-  # Note: evaluating `detectionEff` at > 10 keV is fine, just returns 0. Not fully correct, because our
-  # eff. there would be > 0, but flux is effectively 0 there anyway and irrelevant for limit
-  let axModel = axData
-    .mutate(f{"Flux" ~ idx("Flux [keV⁻¹•cm⁻²•s⁻¹]") * detectionEff(ctx, idx("Energy [keV]").keV) })
-  echo "[INFO]: Axion model: ", axModel
-  let integralBase = simpson(axModel["Flux", float].toSeq1D,
-                             axModel["Energy [keV]", float].toSeq1D)
-  result.integralBase = integralBase
+  result.integralBase = result.computeIntegralBase()
 
   ## Set fields for interpolation
   if not useConstantBackground:
@@ -1258,7 +1272,7 @@ proc detectionEfficiency(ctx: Context, energy: keV, pos: tuple[x, y: float]): cm
   ## the total detection efficiency
   result = ctx.detectionEff(energy) * ctx.raytracing(pos)
 
-func conversionProbability(ctx: Context): UnitLess =
+func conversionProbability(ctx: Context, energy: keV = -1.keV, m_a: eV = -1.eV): UnitLess =
   ## the conversion probability in the CAST magnet (depends on g_aγ)
   ## simplified vacuum conversion prob. for small masses
   # 8.8 T is the value from the CAST slow control files!
@@ -1276,15 +1290,20 @@ func conversionProbability(ctx: Context): UnitLess =
     # P(β) = (B L / (2 M_γ))² = (β B L / (2 M_pl))² with M_γ = M_pl / β ⇔ β = M_pl / M_γ
     # `ctx.coupling` is `β⁴`
     result = sqrt(ctx.coupling) * (B.toNaturalUnit * L.toNaturalUnit / (2 * M_pl))^2 * 0.389 # 38.9% is factor b/c not all chameleons see full magnet, ref. http://dx.doi.org/10.1016/j.physletb.2015.07.049
+  if ctx.m_a > 0.eV or m_a > 0.eV: ## Any mass defined means we don't use low mass approximation
+    let m_a = if m_a > 0.eV: m_a else: ctx.m_a
+    let q   = m_a^2 / (2 * energy)
+    let qL2 = q * L.toNaturalUnit() / 2.0
+    result *= (sin(qL2) / qL2)^2
 
 proc expectedSignal(ctx: Context, energy: keV, pos: tuple[x, y: float]): keV⁻¹•cm⁻² =
   ## TODO: conversion to detection area??
-  result = ctx.axionFlux(energy) * conversionProbability(ctx) * ctx.detectionEfficiency(energy, pos)
+  result = ctx.axionFlux(energy) * conversionProbability(ctx, energy) * ctx.detectionEfficiency(energy, pos)
 
 proc expectedSignalNoRaytrace(ctx: Context, energy: keV): keV⁻¹ =
   ## Equivalent to `expectedSignal`, but missing the `raytracing` call. Helper used in likelihood functions
   ## to compute base signal before multiplying by raytrace weight for each candidate.
-  result = ctx.axionFlux(energy) * conversionProbability(ctx) * ctx.detectionEff(energy)
+  result = ctx.axionFlux(energy) * conversionProbability(ctx, energy) * ctx.detectionEff(energy)
 
 proc toIntegrated(r: keV⁻¹•cm⁻²•s⁻¹, trackingTime: Hour): keV⁻¹•cm⁻² =
   ## Turns the background rate into an integrated rate over the tracking time
@@ -1348,8 +1367,15 @@ proc totalSignal(ctx: Context): UnitLess =
   ## The `integralBase` is the integral over the axion flux multiplied by the detection
   ## efficiency (window, gas and telescope).
   const areaBore = π * (2.15 * 2.15).cm²
-  let integral = ctx.integralBase.rescaleFlux(ctx)
-  result = integral.cm⁻²•s⁻¹ * areaBore * ctx.totalTrackingTime.to(s) * conversionProbability(ctx)
+  if ctx.m_a > 0.eV:
+    ## If we have an axion mass, recompute the base integral including the conversion probability
+    ## with the axion mass. Then scale accordingly (without P_aγ!)
+    ctx.integralBase = ctx.computeIntegralBase(ctx.m_a)
+    let integral = ctx.integralBase.rescaleFlux(ctx)
+    result = integral.cm⁻²•s⁻¹ * areaBore * ctx.totalTrackingTime.to(s)
+  else:
+    let integral = ctx.integralBase.rescaleFlux(ctx)
+    result = integral.cm⁻²•s⁻¹ * areaBore * ctx.totalTrackingTime.to(s) * conversionProbability(ctx)
 
 proc plotRaytracingImage(ctx: Context, log: Logger,
                          outname = "/tmp/axion_image_limit_calc.pdf",

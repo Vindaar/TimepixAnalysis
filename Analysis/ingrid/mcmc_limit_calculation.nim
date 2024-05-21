@@ -1,5 +1,6 @@
 import std / [os, math, random, strformat, times, stats, osproc, logging, monotimes, sets]
 import pkg / [nimhdf5, unchained, seqmath, chroma, cligen, shell]
+import nimhdf5 / serialize_tables
 
 import sequtils except repeat
 from strutils import repeat, endsWith, strip, parseFloat, removeSuffix, parseBool
@@ -2266,7 +2267,7 @@ template fullUncertainFn(): untyped {.dirty.} =
   for i, c in cands:
     let sig = ctx.expectedSignalNoRaytrace(c.energy)
     if sig.float < 0.0:
-      echo "WHAT THE FUCK: ", sig, " from det = ", ctx.detectionEff(c.energy), " axFl = ", ctx.axionFlux(c.energy), " Paγ = ", conversionProbability(ctx), " at energy ", c.energy
+      echo "WHAT THE FUCK: ", sig, " from det = ", ctx.detectionEff(c.energy), " axFl = ", ctx.axionFlux(c.energy), " Paγ = ", conversionProbability(ctx, c.energy), " at energy ", c.energy
       quit()
     cSigBack[i] = (sig.float,
                    ctx.background(c.energy, c.pos).float)
@@ -2412,6 +2413,8 @@ template certainFn(): untyped {.dirty.} =
 proc burnIn(chain: var Chain, rawChain: RawChain, burnIn: int) =
   ## Produces a 'burned in' chain by removing the first `burnIn` elements of the
   ## chain.
+  doAssert rawChain.links.len > burnIn and rawChain.logVals.len > burnIn, "Raw input chain shorter than burn in! " &
+    $rawChain.links.len & " and " & $rawChain.logVals.len
   chain.links.add   rawChain.links[burnIn .. ^1]
   chain.logVals.add rawChain.logVals[burnIn .. ^1]
   if chain.numChains == 0:

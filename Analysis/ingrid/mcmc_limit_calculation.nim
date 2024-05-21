@@ -19,6 +19,8 @@ import datamancer / serialize
 # and serialization to binary (also needed for `procpool` `forked`!)
 import flatBuffers
 import flatBuffers / flatBuffers_tensor
+# cligen `procpool` `forked` sugar!
+import forked
 
 defUnit(keV⁻¹•cm⁻²)
 
@@ -2427,7 +2429,9 @@ proc burnIn(chain: var Chain, rawChain: RawChain, burnIn: int) =
 
 proc build_MH_chain(ctx: Context, rnd: var Random, cands: seq[Candidate],
                     log: Logger = nil,
-                    nChains = 3, burnIn = 50_000): Chain =
+                    nChains = 3,
+                    burnIn = 50_000,
+                    Forked: bool = false): Chain =
   ## Builds the appropriate chain given the systematics (or lack thereof) of the given
   ## `ctx` and the given candidates `cands`.
   ##
@@ -2450,78 +2454,107 @@ proc build_MH_chain(ctx: Context, rnd: var Random, cands: seq[Candidate],
                        of ck_g_ae²·g_aγ²: 0.5
                        of ck_g_ae·g_aγ: 0.5
                        of ck_g_ae²: 3.0
+  var initFn: proc(rnd: var Random): seq[float] = block:
+    case ctx.uncertaintyPosition
+    of puUncertain:
+      case ctx.uncertainty
+      of ukUncertain:
+        proc(rnd: var Random): seq[float] =
+          result = @[rnd.rand(0.0 .. 5.0) * couplingRef, #1e-21, # g_ae²
+                     rnd.rand(-0.4 .. 0.4), rnd.rand(-0.4 .. 0.4), # ϑs, ϑb
+                     rnd.rand(-0.5 .. 0.5), rnd.rand(-0.5 .. 0.5)] # ϑx, ϑy
+      of ukCertain:
+        proc(rnd: var Random): seq[float] =
+          result = @[rnd.rand(0.0 .. 5.0) * couplingRef, #1e-21, # g_ae²
+                     rnd.rand(-0.5 .. 0.5), rnd.rand(-0.5 .. 0.5)] # ϑx, ϑy
+      else:
+        doAssert false, "Currently unsupported (posUncertain + s/b certain combination)"
+        proc(rnd: var Random): seq[float] = discard
+    of puCertain:
+      case ctx.uncertainty
+      of ukUncertain:
+        proc(rnd: var Random): seq[float] =
+          result = @[rnd.rand(0.0 .. 5.0) * couplingRef, #1e-21, # g_ae²
+                     rnd.rand(-0.4 .. 0.4), rnd.rand(-0.4 .. 0.4)] # ϑs, ϑb
+      of ukCertain:
+        proc(rnd: var Random): seq[float] =
+          result = @[rnd.rand(0.0 .. 5.0) * couplingRef]
+      else:
+        doAssert false, "Currently unsupported (posUncertain + s/b certain combination)"
+        proc(rnd: var Random): seq[float] = discard
+  var step = block:
+    case ctx.uncertaintyPosition
+    of puUncertain:
+      case ctx.uncertainty
+      of ukUncertain:
+        @[stepMultiplier * couplingRef, 0.025, 0.025, 0.05, 0.05]
+      of ukCertain:   @[3.0 * couplingRef, 0.05, 0.05]
+      else:
+        doAssert false, "Currently unsupported (posUncertain + s/b certain combination)"
+        @[]
+    of puCertain:
+      case ctx.uncertainty
+      of ukUncertain: @[5.0 * couplingRef, 0.01, 0.01]
+      of ukCertain:   @[couplingRef]
+      else:
+        doAssert false, "Currently unsupported (posUncertain + s/b certain combination)"
+        @[]
+
+  template chainBuilder() {.dirty.} =
+    var totalChain = Chain() # TODO: not only return the limit, but also the acceptance rate!
+    const ChainLen = 150_000
+    if Forked: # Parallel using multiprocessing
+      for i in forked(0 ..< nChains):
+        var rnd = wrap(initMersenneTwister(299_792_458 + i.uint32)) ## New RNG seed for each job!
+        let start = initFn(rnd)
+        echo "\t\tInitial chain state: ", start
+        let chain = rnd.build_MH_chain(start, step, ChainLen, fn)
+        echo "Acceptance rate: ", chain.acceptanceRate, " with last two states of chain: ", chain.links[^2 .. ^1]
+        send chain
+        join: totalChain.burnIn chain, burnIn
+    else: # serial, single thread
+      for i in 0 ..< nChains:
+        let start = initFn(rnd)
+        echo "\t\tInitial chain state: ", start
+        let chain = rnd.build_MH_chain(start, step, ChainLen, fn)
+        echo "Acceptance rate: ", chain.acceptanceRate, " with last two states of chain: ", chain.links[^2 .. ^1]
+
+        when false:
+          const path = "/dev/shm/test_data.dat"
+          saveBuffer(chain, path)
+          if true: quit()
+        totalChain.burnIn chain, burnIn
+    result = totalChain
 
   case ctx.uncertaintyPosition
   of puUncertain:
     case ctx.uncertainty
     of ukUncertain:
       fullUncertainFn() ## defines `fn` and `cSigBack`
-      #let (chain, acceptanceRate, logVals) = build_MH_chain(@[0.1e-21, 0.1, 0.2, 0.5, -0.5], @[3e-21, 0.025, 0.025, 0.05, 0.05], 100_000, fn)
-      var totalChain = Chain()
-      for i in 0 ..< nChains:
-        let start = @[rnd.rand(0.0 .. 5.0) * couplingRef, #1e-21, # g_ae²
-                      rnd.rand(-0.4 .. 0.4), rnd.rand(-0.4 .. 0.4), # ϑs, ϑb
-                      rnd.rand(-0.5 .. 0.5), rnd.rand(-0.5 .. 0.5)] # ϑx, ϑy
-        echo "\t\tInitial chain state: ", start
-        let chain = rnd.build_MH_chain(start, @[stepMultiplier * couplingRef, 0.025, 0.025, 0.05, 0.05], 150_000, fn)
-        echo "Acceptance rate: ", chain.acceptanceRate, " with last two states of chain: ", chain.links[^2 .. ^1]
-        totalChain.burnIn chain, burnIn
-      ## TODO: not only return the limit, but also the acceptance rate!
-      result = totalChain
+      chainBuilder()
     of ukCertain:
       posUncertainFn() ## defines `fn` and `cSigBack`
-      var totalChain = Chain()
-      for i in 0 ..< nChains:
-        let start = @[rnd.rand(0.0 .. 5.0) * couplingRef, #1e-21, # g_ae²
-                      rnd.rand(-0.5 .. 0.5), rnd.rand(-0.5 .. 0.5)] # ϑx, ϑy
-        echo "\t\tInitial chain state: ", start
-        let chain = rnd.build_MH_chain(start, @[3.0 * couplingRef, 0.05, 0.05], 150_000, fn)
-        echo "Acceptance rate: ", chain.acceptanceRate, " with last two states of chain: ", chain.links[^2 .. ^1]
-        totalChain.burnIn chain, burnIn
-      ## TODO: not only return the limit, but also the acceptance rate!
-      result = totalChain
+      chainBuilder()
     else: doAssert false, "Currently unsupported (posUncertain + s/b certain combination)"
   of puCertain:
     case ctx.uncertainty
     of ukUncertain:
       sbUncertainFn()
-      var totalChain = Chain()
-      for i in 0 ..< nChains:
-        let start = @[rnd.rand(0.0 .. 5.0) * couplingRef, #1e-21, # g_ae²
-                      rnd.rand(-0.4 .. 0.4), rnd.rand(-0.4 .. 0.4)] # ϑs, ϑb
-        echo "\t\tInitial chain state: ", start
-
-        ## XXX: really seems to converge to a different minimum than the one found by the scan
-        let chain = rnd.build_MH_chain(start, @[5.0 * couplingRef, 0.01, 0.01], 200_000, fn)
-        echo "Acceptance rate: ", chain.acceptanceRate, " with last two states of chain: ", chain.links[^2 .. ^1]
-        totalChain.burnIn chain, burnIn
-      ## TODO: not only return the limit, but also the acceptance rate!
-      result = totalChain
-
-      when false:
-        let chain = rnd.build_MH_chain(@[0.5e-21, 0.05, -0.05], @[3e-21, 0.025, 0.025], 500_000, fn)
-        echo "Acceptance rate: ", chain.acceptanceRate
-        echo "Last ten states of chain: ", chain.links[^10 .. ^1]
-        ## TODO: not only return the limit, but also the acceptance rate!
-        result = Chain(chain) # convert single RawChain to Chain
+      chainBuilder()
     of ukCertain:
-      ## XXX: why no multiple chains or burn in?
       certainFn()
-      let chain = rnd.build_MH_chain(@[0.5 * couplingRef], @[couplingRef], 100_000, fn)
-      echo "Acceptance rate: ", chain.acceptanceRate
-      echo "Last ten states of chain: ", chain.links[^10 .. ^1]
-      ## TODO: not only return the limit, but also the acceptance rate!
-      result = Chain(chain) # convert single RawChain to Chain
+      chainBuilder()
     else: doAssert false, $ctx.uncertainty & " not supported for MCMC yet"
+
   let t1 = getMonoTime()
   if not log.isNil:
     log.info "Building MCMC with systematics " & ctx.systematics.pretty() &
       " of final length " & $result.links.len & " took " & $(t1 - t0) & " s"
 
 proc computeMCMC(ctx: Context, rnd: var Random, cands: seq[Candidate],
-                 nChains = 3, burnIn = 50_000): DataFrame =
+                 nChains = 3, burnIn = 50_000, Forked = false): DataFrame =
   ## Builds the required MCMC and extracts it into a DF
-  let chain = ctx.build_MH_chain(rnd, cands, nChains = nChains, burnIn = burnIn)
+  let chain = ctx.build_MH_chain(rnd, cands, nChains = nChains, burnIn = burnIn, Forked = Forked)
   let names = if ctx.systematics.uncertainty == ukUncertain and ctx.systematics.uncertaintyPosition == puUncertain:
                 @["ϑs_s", "ϑs_b", "ϑs_x", "ϑs_y"]
               elif ctx.systematics.uncertainty == ukUncertain and ctx.systematics.uncertaintyPosition == puCertain:

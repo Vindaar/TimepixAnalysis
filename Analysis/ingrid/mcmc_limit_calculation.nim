@@ -243,7 +243,8 @@ proc toH5(h5f: H5File, x: InterpolatorType[float], name = "", path = "/") =
   let dset = h5f.create_dataset(path / name,
                                 energies.len,
                                 float,
-                                filter = H5Filter(kind: fkZLib, zlibLevel: 4))
+                                filter = H5Filter(kind: fkZLib, zlibLevel: 4),
+                                overwrite = true)
   dset[dset.all] = ys
 
 proc toH5(h5f: H5File, interp: Interpolator2DType[float], name = "", path = "/") =
@@ -259,7 +260,8 @@ proc toH5(h5f: H5File, interp: Interpolator2DType[float], name = "", path = "/")
   let dset = h5f.create_dataset(path / name,
                                 (256, 256),
                                 float,
-                                filter = H5Filter(kind: fkZLib, zlibLevel: 4))
+                                filter = H5Filter(kind: fkZLib, zlibLevel: 4),
+                                overwrite = true)
   dset.unsafeWrite(zs.toUnsafeView, zs.size.int)
 
 proc toH5(h5f: H5File, kd: KDTree[float], name = "", path = "/") =
@@ -270,7 +272,8 @@ proc toH5(h5f: H5File, kd: KDTree[float], name = "", path = "/") =
   let dset = h5f.create_dataset(path / name,
                                 kd.data.shape.toSeq,
                                 float,
-                                filter = H5Filter(kind: fkZLib, zlibLevel: 4))
+                                filter = H5Filter(kind: fkZLib, zlibLevel: 4),
+                                overwrite = true)
   dset.unsafeWrite(kd.data.toUnsafeView, size)
 
 proc pretty(s: Systematics): string =

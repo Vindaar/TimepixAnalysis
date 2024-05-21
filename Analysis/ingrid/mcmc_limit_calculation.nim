@@ -15,7 +15,9 @@ import arraymancer except read_csv, cumSum
 
 # get serialization support for DataFrame and Tensor
 import datamancer / serialize
-
+# and serialization to binary (also needed for `procpool` `forked`!)
+import flatBuffers
+import flatBuffers / flatBuffers_tensor
 
 defUnit(keV⁻¹•cm⁻²)
 
@@ -1840,7 +1842,6 @@ proc plotSecond(lh: LimitHelper) {.used.} =
     geom_line() +
     ggsave("/tmp/cdf_second_der.pdf")
 
-import flatty
 when false:
   proc bayesLimit(ctx: Context, cands: seq[Candidate], toPlot: static bool = false): float = # {.gcsafe.} =
     var ctx = ctx
@@ -1932,13 +1933,13 @@ when true:
       #sleep(300)
       inc count
       if count > 1000:
-        writeFile(&"/tmp/reference_candidates_{count}_s_{ctx.σsb_sig}_b_{ctx.σsb_back}.bin", cands.toFlatty())
+        saveBuffer(cands, &"/tmp/reference_candidates_{count}_s_{ctx.σsb_sig}_b_{ctx.σsb_back}.bin")
         echo "At count ", count, " for ctx "#, ctx
         quit()
     #echo "Final x: ", xs, " of length: ", xs.len, " and dervs ", dervs
     echo "Diff: ", diff
     if false: #ctx.mcIdx == 44:
-      writeFile("/tmp/reference_candidates.bin", cands.toFlatty())
+      saveBuffer(cands, "/tmp/reference_candidates.bin")
       quit()
     couplings = lh.couplings()
 
@@ -2082,9 +2083,9 @@ proc plotChain(ctx: Context, cands: seq[Candidate], chainDf: DataFrame,
         echo "At idx ", i
         Ls.add ctx.evalAt(cands, gae)
       echo "Integration took ", epochTime() - t0
-      writeFile(binary, Ls.toFlatty())
+      saveBuffer(Ls, binary)
     else:
-      Ls = fromFlatty(readFile(binary), seq[float])
+      Ls = loadBuffer[seq[float]](binary)
       echo "Limit from Ls ", coups[cdfUnequal(Ls.mapIt(it.float), coups).lowerBound(0.95)]
     let Lmax = Ls.max
     echo "LS max ", Lmax

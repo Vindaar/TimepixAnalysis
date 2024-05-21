@@ -1312,8 +1312,6 @@ proc toIntegrated(r: keV⁻¹•cm⁻²•s⁻¹, trackingTime: Hour): keV⁻¹�
   result = r * t
 
 proc evalInterp(interp: var Interpolation, c: Candidate): keV⁻¹•cm⁻² =
-  #echo "POSITION ", pos.x, " and ", pos.y
-  #echo "INTERP: ", pos.x, " and ", pos.y
   ## NOTE: `pos.x/y` needs to be given as value [0, 255] to kd tree, but we get [0, 14]!
   template computeBackground(): untyped {.dirty.} =
     let px = c.pos.x.toIdx
@@ -1438,7 +1436,6 @@ template L(s, s_c, b_c, ϑ_s, σ_s, ϑ_b, σ_b: untyped,
   ## is selected
   ##: XXX: better to do exp( ln( ... ) ), or exp() * exp() * exp() ?
   result = exp(-s)
-  #echo "-s ", s, " result ", result
   if σ_s > 0.0:
     result *= exp(-square(ϑ_s / (sqrt(2.0) * σ_s))) ## FIXME the normalization of denominator is wrong missing √2
   elif σ_s == 0.0 and ϑ_s != 0.0:
@@ -1450,18 +1447,22 @@ template L(s, s_c, b_c, ϑ_s, σ_s, ϑ_b, σ_b: untyped,
   if σ_xp > 0.0 and σ_yp > 0.0:
     result *= exp(-square(ϑ_x / (sqrt(2.0) * σ_xp))) * exp(-square(ϑ_y / (sqrt(2.0) * σ_yp)))
 
-  #echo "current result ", result
   for (s_i {.inject.}, b_i {.inject.}) in cSigBack:
     ## XXX: how to deal with `s_c` or `b_c` negative? Results in negative arg to log if `s/b` is smaller
     ## than -1. In product this is not an issue. But well...
     if b_c.float != 0.0:
-      #echo "result at b_i ", b_i, " res = ", result
       result *= (1 + s_c / b_c) # log-normal (but wrong): / (b_c * σ_b * b_i)
-  #if true: quit()
-  #echo "Result exp is ", result, " for ϑ_s = ", ϑ_s, ", ϑ_b = ", ϑ_b
   if result.isNaN:
     echo "WARNING WARNING NAN"
     #quit("quitting from L")
+
+proc writeCandidates(candidates: seq[Candidate]) =
+  ## helper to write candidates to debug
+  var f = open("/tmp/bad_candidates.txt", fmWrite)
+  f.write("E, x, y\n")
+  for cnd in candidates:
+    f.write(&"{cnd.energy.float},{cnd.pos.x},{cnd.pos.y}\n")
+  f.close()
 
 proc logLUncertainSig(ctx: Context, candidates: seq[Candidate]): float =
   if ctx.samplingKind == skInterpBackground:
@@ -1483,15 +1484,8 @@ proc logLUncertainSig(ctx: Context, candidates: seq[Candidate]): float =
       0.0, 0.0)
   if σ_s > 0.0:
     let res = adaptiveGauss(likelihood, -10, 10)
-    #echo "Integration result: ", res, ", ln(res) = ", ln(res), " for ", ctx.g_ae², " compare ", logLCertain(ctx, candidates)
     if res.isNaN:
-      echo "CSigBack: ", cSigBack
-      var f = open("/tmp/bad_candidates.txt", fmWrite)
-      f.write("E, x, y\n")
-      for cnd in candidates:
-        f.write(&"{cnd.energy.float},{cnd.pos.x},{cnd.pos.y}\n")
-      f.close()
-      #quit()
+      writeCandidates(candidates)
       return Inf
     result = res
   else:
@@ -1520,8 +1514,8 @@ proc logLUncertainBack(ctx: Context, candidates: seq[Candidate]): float =
   ## Mark the point `-1` as a difficult point, so that it's not evaluated. We do not care
   ## about the singularity at that point for the integration
   let res = adaptiveGauss(likelihood, -0.80, 10.0) #, initialPoints = @[-1.0])
-  #echo "Integration result: ", res, ", ln(res) = ", ln(res), " for ", ctx.g_ae² #, " compare ", logLCertain(ctx, candidates)
   if res.isNaN:
+    writeCandidates(candidates)
     quit()
 
   result = res
@@ -1548,13 +1542,12 @@ proc logLUncertain(ctx: Context, candidates: seq[Candidate]): float =
         ϑ_s, σ_s,
         ϑ_b, σ_b)
     result = adaptiveGauss(likeSig, -1.0, 2.0)
-    #echo "Result of inner integral: ", result, " for ϑ_b = ", ϑ_b, " at call ", count
     inc count
   ## There is a singularity at `-1`. Everything smaller is irrelevant and the singularity is
   ## unphysical for us. Start above that.
   let res = adaptiveGauss(likeBack, -0.80, 1.0, maxintervals = 9999) #, initialPoints = @[-1.0])
-  #echo "Integration result: ", res, ", ln(res) = ", ln(res), " for ", ctx.g_ae², " compare ", logLCertain(ctx, candidates)
   if res.isNaN:
+    writeCandidates(candidates)
     quit()
 
   result = res
@@ -1628,7 +1621,6 @@ proc logLFullUncertain(ctx: Context, candidates: seq[Candidate]): float =
             if b_c.float != 0.0:
               let s_c = (s_i * ctx.raytracing(candidates[i].pos)).float
               P3 *= (1 + s_c / b_c)
-          #echo P1, " ", P2, " ", P3
           result = 1.0
           when true:
             result *= P1
@@ -1642,8 +1634,8 @@ proc logLFullUncertain(ctx: Context, candidates: seq[Candidate]): float =
   result = romberg(likeX, -1.0, 1.0, depth = ctx.rombergIntegrationDepth)
   #result = ln( res )
   if result.isNaN:
-    echo "!!!"
-    if true: quit()
+    writeCandidates(candidates)
+    quit("!!!")
   #
   #      result = trapz(likeBack, -0.8, 2.0, N = 30)#, depth = 2)
   #    result = trapz(likeSig, -2.0, 2.0, N = 30)# , depth = 2)
@@ -1759,7 +1751,6 @@ proc insert(lh: var LimitHelper, c: float) =
   ## Inserts the given coupling into the heapqueue and computes the likelihood value
   ## associated to the coupling constant for the given `Context`
   let L = lh.ctx.evalAt(lh.cands, c)
-  #echo "L: ", L, " at ", c
   let cL = Likelihood(coupling: c,
                       computed: true,
                       L: L)
@@ -1993,6 +1984,12 @@ proc computeLimitFromMCMC(df: DataFrame, col = "gs"): float =
   let c95Idx = cdf.lowerBound(0.95)
   result = xCdf[c95Idx]
   echo "Limit at ", result
+
+template resetCoupling(ctx: Context): untyped =
+  case ctx.couplingKind
+  of ck_g_ae·g_aγ: ctx.coupling = sqrt(ctx.couplingReference)
+  of ck_g_ae²·g_aγ²: ctx.coupling = ctx.couplingReference
+  else: ctx.coupling = ctx.couplingReference
 
 proc setThreshold(ctx: Context, x: float): float =
   ## Returns the given threshold value based on the target value `x`
@@ -2232,12 +2229,6 @@ proc build_MH_chain(rnd: var Random, init, stepsize: seq[float], nTotal: int,
   echo "Building chain of ", nTotal, " elements took ", epochTime() - t0, " s"
   result = RawChain(Chain(links: chain, acceptanceRate: nAccepted.float / nTotal.float, logVals: logVals))
 
-template resetCoupling(ctx: Context): untyped =
-  case ctx.couplingKind
-  of ck_g_ae·g_aγ: ctx.coupling = sqrt(ctx.couplingReference)
-  of ck_g_ae²·g_aγ²: ctx.coupling = ctx.couplingReference
-  else: ctx.coupling = ctx.couplingReference
-
 ## The following 3 templates defining functions are dirty so that `cSigBack` is visible after
 ## the template was called.
 template fullUncertainFn(): untyped {.dirty.} =
@@ -2292,26 +2283,25 @@ template fullUncertainFn(): untyped {.dirty.} =
         let (s_init, b_c) = cSigBack[i]
         if b_c.float != 0.0:
           let s_c = (s_init.rescaleSignal(ctx) * (1 + ϑ_s) * ctx.raytracing(cands[i].pos)).float
-          #echo "yeah fick"
-          #if true: quit()
-
           P3 += ln(1 + s_c / (b_c * (1 + ϑ_b)))
       result = abs((P1 + P2 + P3)) # make positive if number comes out to `-0.0`
-      #echo "RESULT= ", result, " from ", P1, " = ", P2, " = ", P3
     if classify(result) == fcNan:
-      echo "RESULT IS NAN!!! "
+      #echo "RESULT IS NAN!!! "
       echo "Inputs (vector) = ", x
-      echo "P1 = ", P1
-      echo "P2 = ", P2
+      echo "P1 = ", P1, " at s_totg = ", s_totg
+      echo "P2 = ", P2, " at ϑs = ", [ϑs, σ_b, ϑ_x, ϑ_y], " σs = ", [σ_p, σ_s, σ_b]
       echo "P3 = ", P3
-      P3 = 0.0
+      P3 = 1.0
       for i in 0 ..< cSigBack.len:
         let (s_init, b_c) = cSigBack[i]
         if b_c.float != 0.0:
           let s_c = (s_init.rescaleSignal(ctx) * (1 + ϑ_s) * ctx.raytracing(cands[i].pos)).float
-          let t = ln(1 + s_c / (b_c * (1 + ϑ_b)))
-          P3 += t
-          echo "P3 = ", P3, " from t ", t, " and s_c ", s_c, " and before rescale = ", s_init, " and g_ae²·g_aγ² = ", ctx.couplingReference, " and b_c = ", b_c
+          let t = (1 + s_c / (b_c * (1 + ϑ_b)))
+          if classify(P3 * t) in {fcNan, fcInf, fcNegInf}:
+            echo "P3 = ", P3, " from t ", t, " and s_c ", s_c, " and before rescale = ", s_init, " and g_ae²·g_aγ² = ", ctx.couplingReference, " and b_c = ", b_c
+            break
+          P3 *= t
+
 
 template posUncertainFn(): untyped {.dirty.} =
   doAssert ctx.uncertaintyPosition == puUncertain
@@ -2335,7 +2325,6 @@ template posUncertainFn(): untyped {.dirty.} =
     elif ϑ_x > 1.0  or ϑ_x < -1.0: return -1.0
     elif ϑ_y > 1.0  or ϑ_y < -1.0: return -1.0
     let s_totg = s_tot.rescaleSignal(ctx)
-    #echo "rescaled ", s_tot, " to ", s_totg
     ctx.ϑ_x = ϑ_x
     ctx.ϑ_y = ϑ_y
     ## TODO: convert to logsumexp or similar?
@@ -5263,12 +5252,8 @@ proc limit(
     rombergIntegrationDepth = rombergIntegrationDepth
   ) # from sqrt(squared sum of x / 7) position uncertainties
     # large values of σ_sig cause NaN and grind some integrations to a halt!
-    ## XXX: σ_sig = 0.3)
 
   var rnd = wrap(initMersenneTwister(299792458 + 2))
-  # writeFile(&"/tmp/reference_candidates_{count}_s_{ctx.σsb_sig}_b_{ctx.σsb_back}.bin", cands.toFlatty())
-  #let cands = newSeq[Candidate]() #fromFlatty(readFile("/tmp/reference_candidates_1001_s_0.3_b_0.05.bin"), seq[Candidate]) # drawCandidates(ctx, rnd, toPlot = true)
-
   if computeLimit:
     echo ctx.monteCarloLimits(rnd, limitKind, nmc = nmc)
     return

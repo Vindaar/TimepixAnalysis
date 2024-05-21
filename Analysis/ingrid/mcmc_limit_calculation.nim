@@ -2950,6 +2950,8 @@ proc computeRealLimit(ctx: Context, rnd: var Random, limitKind: LimitKind,
   var chainDf = ctx.computeMCMC(rnd, cands, nChains = nChains, burnIn = burnIn)
   let limit = computeLimitFromMCMC(chainDf, "gs") # limit from `g_ae²` directly
 
+  ## XXX: We are not reusing the same number of chains for the mean / median / std limit
+  ## Why? (outside of time)
   const nmc = 200
   const jobs = 30
   let (limitMean, limitMedian, limitStd) = ctx.computeLimitStd(rnd, nmc, jobs, cands)
@@ -4613,11 +4615,12 @@ proc sanityCheckSigmaLimits(ctx: Context, log: Logger,
   #let expLimits = ctx.compSigmalLimitsSerial(limitKind)
   let df = toDf({ "σ_s" : expLimits.mapIt(it.σ_s),
                   "σ_b" : expLimits.mapIt(it.σ_b),
-                  "expLimits" : expLimits.mapIt(it.limit)})
+                  "expLimits" : expLimits.mapIt(it.limit),
+                  "tyPos" : expLimits.mapIt(it.σ_b + 0.01)})
   ggplot(df, aes("σ_s", "σ_b", color = "expLimits")) +
     geom_point() +
     geom_text(aes = aes(text = "expLimits",
-                        y = f{`σ_b` + 0.01})) +
+                        y = "tyPos")) +
     xMargin(0.05) + yMargin(0.05) +
     ggtitle(&"Expected limit after {nmc} MC toys for different σ_s, σ_b") +
     thL(fWidth = 0.9, width = Width) +
@@ -5020,6 +5023,53 @@ proc sanityCheckLimitsNoCandidates(ctx: Context, log: Logger, limitKind: LimitKi
     &"Variance of limits: {limits.variance}"
     &"σ of limits: {limits.standardDeviation}"
 
+proc sanityCheckLimitMassScanRange(ctx: Context, log: Logger, limitKind: LimitKind) =
+  ## Some sanity checks related to computing limits with different masses
+  # 0. set coupling target to g^4
+  ctx.g_aγ² = 1e-12 * 1e-12
+  ctx.couplingKind = ck_g_aγ⁴
+  ctx.initCouplingReference()
+  ctx.mcmcCouplingTarget = setMcmcCouplingTarget(ck_g_aγ⁴, Inf)
+  ctx.resetCoupling()
+  # 1. check that the `integralBase` changes if the mass changes
+  let bOff = ctx.computeIntegralBase(-1.eV) * conversionProbability(ctx)
+  let bLow = ctx.computeIntegralBase(1e-4.eV)
+  let bHih = ctx.computeIntegralBase(0.2.eV)
+
+  echo "What? ", bOff, " a ", bLow
+
+  log.infos("Integral base changes as fn of mass"):
+    &"integralBase @ -1.eV   = {bOff}"
+    &"integralBase @ 1e-4.eV = {bLow}"
+    &"integralBase @ 0.2.eV  = {bHih}"
+  doAssert value.almostEqual(bOff, bLow, epsilon = 1e-6)
+  doAssert bHih < bLow
+
+  # 2. check that conversion probability changes as fn of mass
+  let pOff = ctx.conversionProbability(3.keV, -1.eV)
+  let pLow = ctx.conversionProbability(3.keV, 1e-4.eV)
+  let pHih = ctx.conversionProbability(3.keV, 0.2.eV)
+  log.infos("Conversion probability as a function of mass and energy"):
+    &"conversionProbability @ m_a = -1.eV   , E = 3.keV = {pOff}"
+    &"conversionProbability @ m_a = 1e-4.eV , E = 3.keV = {pLow}"
+    &"conversionProbability @ m_a = 0.2.eV  , E = 3.keV = {pHih}"
+
+  doAssert value.almostEqual(pOff, pLow, epsilon = 1e-6)
+  doAssert pHih < pLow
+
+  # 3. compute MCMC, make plots
+  var rnd = wrap(initMersenneTwister(0xaffe))
+  let cands = drawCandidates(ctx, rnd, toPlot = false)
+  ctx.m_a = 0.2.eV
+  echo "NUMBER OF CANDIDATES::::::::::: ", cands.len
+  ctx.calcRealSystematics(rnd, log, cands, suffix = "mass_scan", calcScan = false)
+
+  # compute MCMC in parallel
+  var chainDf = ctx.computeMCMC(rnd, cands, nChains = 60, burnIn = 50_000, Forked = true)
+  echo chainDf
+  #echo "Total signal: ", totalSignal(ctx)
+
+
 proc sanity(
   all = false, # run all limits
   scanSigmaLimits = false, # can be disabled, as it's time consuming
@@ -5040,6 +5090,7 @@ proc sanity(
   chameleonLimit = false,
   realSystematics = false,
   limitsNoCandidates = false,
+  massScanRange = false,
   limitKind = lkMCMC, # for the sigma limits sanity check
   radius = 40.0, σ = 40.0 / 3.0, energyRange = 0.6.keV, nxy = 10, nE = 20,
   rombergIntegrationDepth = 5,
@@ -5232,6 +5283,9 @@ proc sanity(
   # 13. anything else?
   if all or limitsNoCandidates:
     ctx.sanityCheckLimitsNoCandidates(log, limitKind)
+
+  if all or massScanRange:
+    ctx.sanityCheckLimitMassScanRange(log, limitKind)
 
 proc readYearFiles(years: seq[int], files: seq[string]): seq[(int, string)] =
   doAssert files.len == years.len, "Every file must be given an associated year! Years: " & $years & ", Files: " & $files

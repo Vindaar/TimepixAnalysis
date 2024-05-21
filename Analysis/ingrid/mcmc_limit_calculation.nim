@@ -2007,6 +2007,25 @@ proc setThreshold(ctx: Context, x: float): float =
            of ck_g_ae·g_aγ: sqrt(x)
            of ck_g_ae²·g_aγ²: x
            of ck_β⁴: x
+  # now adjust by scaling due to possible axion mass difference
+  let E = case ctx.couplingKind
+          of ck_g_ae², ck_g_aγ⁴, ck_g_ae·g_aγ, ck_g_ae²·g_aγ²: 3.0.keV # good enough
+          of ck_β⁴: 1.0.keV
+  let m_a = ctx.m_a
+  ctx.resetCoupling()
+  doAssert ctx.coupling > 0.0, "Coupling must be > 0!"
+
+  let P0 = ctx.conversionProbability(E, 1e-6.eV) ## very low mass
+  let P1 = ctx.conversionProbability(E, m_a) ## very low mass
+  ## Scale according to conversion probability change from very low mass to current
+  ## mass. Based on if we scale coupling constant (in MCMC) by g² or g⁴ we need to
+  ## either multiply by P1/P0 linearly or squared.
+  ## E.g. if P0/P1 = 1e3 (higher mass == lower probability) and we compute
+  ## `g⁴` limit, we need to scale up by 1e9 in allowed coupling range!
+  let mul = case ctx.couplingKind
+            of ck_g_ae², ck_g_ae·g_aγ, ck_g_ae²·g_aγ²: P0 / P1
+            of ck_g_aγ⁴, ck_β⁴: (P0 / P1) #pow(P0 / P1, 1.5) #^2
+  result *= mul
 
 proc getThreshold(ctx: Context): float =
   ## If our likelihood crosses the value defined here, we want to

@@ -227,6 +227,25 @@ type
     nChainsObserved: int     ## Number of chains used for observed limit
     burnIn: int              ## Burn in used
 
+  LimitData = object
+    m_a: eV
+    bins: int
+    upper: float # upper cut value (99.9 percentile of prebinned data)
+    gs: seq[float] # coupling constants
+    histo: seq[int]
+
+  MassScanLimitOutput = object
+    ctx: Context
+    burnIn: int
+    nChains: int # number of chains built for each mass
+    limitKind: LimitKind
+    massLow: eV
+    massHigh: eV
+    massSteps: int
+    dfL: DataFrame # DF of the likelihood space, narrow format `[m_a, gs, L]` columns
+    lData: Table[eV, LimitData]
+    dfLimit: DataFrame # DF of the computed limits for each mass, columns `[limit, masses]`
+
   LogProc = proc(x: seq[float]): float
   Chain = object
     links: seq[seq[float]]
@@ -2698,6 +2717,37 @@ proc writeLimitOutput(
   limitOutput.toH5(name, path)
   echo "Wrote outfile ", name
 
+proc writeMassScanLimitOutput(
+  ctx: Context,
+  outpath, outfile: string,
+  limitKind: LimitKind,
+  nChains, burnIn: int,
+  massScanRange: tuple[low, high: eV, steps: int],
+  lData: Table[eV, LimitData],
+  dfL, dfLimit: DataFrame,
+  path = "") =
+  ## Writes the output of the limit calculation to an H5 file
+  ## of the limits scanned by mass
+  let limitOutput = MassScanLimitOutput(
+    ctx: ctx,
+    limitKind: limitKind,
+    burnIn: burnIn,
+    nChains: nChains,
+    massLow: massScanRange.low,
+    massHigh: massScanRange.high,
+    massSteps: massScanRange.steps,
+    dfL: dfL,
+    lData: lData,
+    dfLimit: dfLimit
+  )
+  ## XXX: or do we want to store _all_ in a single file? "Limits H5"?
+  #echo "Limit output: ", limitOutput
+  let name = outpath / outfile & ".h5"
+  let nameBuf = outpath / outfile & ".dat"
+  limitOutput.saveBuffer(nameBuf)
+  limitOutput.toH5(name, path)
+  echo "Wrote outfile ", name
+
 proc genOutfile(limitKind: LimitKind, samplingKind: SamplingKind,
                 nmc: int, ufSuff, pufSuff, suffix: string): string =
   result = &"mc_limit_{limitKind}_{samplingKind}_nmc_{nmc}_{ufSuff}_{pufSuff}{suffix}"
@@ -3023,6 +3073,110 @@ proc computeRealLimit(ctx: Context, rnd: var Random, limitKind: LimitKind,
                        obsLimitStats = (mean: limitMean, median: limitMedian, std: limitStd),
                        nChains = nChains,
                        burnIn = burnIn)
+
+
+proc unbinnedToBinned(df: DataFrame, m_a: eV, upperLimit: float, bins = 1000): (seq[float], seq[int]) =
+  ## Computes the binned likelihood function, given the unbinned coupling constant values from
+  ## the given DF. Used for a specific axion mass `m_a` and should be used to add to a new
+  ## column of an existing DF at column name corresponding to the mass.
+  let df = df.filter(f{`gs` < upperLimit})
+  let (histo, bins) = histogram(df["gs", float].toSeq1D, bins = bins)
+  var binCenters = newSeq[float](histo.len)
+  for i in 0 ..< bins.len - 1:
+    binCenters[i] = (bins[i+1] + bins[i]) / 2.0
+  #result = (toColumn binCenters, toColumn histo)
+  result = (binCenters, histo)
+
+proc percentileFloat(x: Tensor[float], p: float): float =
+  ## Returns the percentile of the data `p` (float). I.e. this does not only support
+  ## integer percentiles
+  if p > 1.0 or p < 0.0:
+    raise newException(ValueError, "Given percentile must be in `0 <= p <= 1`, but given: " & $p)
+  let xS = x.sorted
+  let pI = x.len.float * p
+  result = xS[pI.round.int]
+
+proc computeRealLimitMassRange(ctx: Context, rnd: var Random,
+                               massScanRange: tuple[low: eV, high: eV, steps: int],
+                               limitKind: LimitKind,
+                               outpath: string) =
+  ## Given the `tracking` files in `ctx` compute the real limit associated and make
+  ## multiple plots to showcase the candidate information and the limit.
+  createDir(outpath)
+  var log = newFileLogger(outpath / "real_candidates_limit_mass_scan.log", fmtStr = "[$date - $time] - $levelname: ")
+  var L = newConsoleLogger()
+  addHandler(L)
+  addHandler(log)
+
+  #ctx.g_aγ² = 1e-12 * 1e-12
+  #ctx.couplingKind = ck_g_aγ⁴
+  #ctx.initCouplingReference()
+  #ctx.resetCoupling()
+
+
+  # Get ratio of background to tracking time for expected number of candidates
+  let ratio = ctx.totalBackgroundTime / ctx.totalTrackingTime
+  log.infos("Calculation of the real limit"):
+    &"Input tracking files: {ctx.tracking}"
+    &"Number of background clusters = {ctx.backgroundDf.len}"
+    &"Number of candidates: {ctx.trackingDf.len}"
+    &"Total background time = {ctx.totalBackgroundTime}"
+    &"Total tracking time: {ctx.totalTrackingTime}"
+    &"Ratio of background to tracking time = {ratio}"
+    &"Expected number of clusters in tracking time = {ctx.backgroundDf.len.float / ratio}"
+  echo ctx.tracking
+  echo ctx.trackingDf
+  echo ctx.totalTrackingTime
+
+  let cands = ctx.trackingDf.toCandidates()
+
+  ## Determine variance of the real limits, simply based on MCMC statistics
+
+  ## Here we manually compute the MCMC etc instead of using `computeLimit` to have the
+  ## entire MCMC on hand for further plots.
+  let burnIn = 50_000 # default burn in
+  let nChains = 60
+
+  ## Scan mass range!
+  let msr = massScanRange
+  var masses = newSeq[float]()
+  var limits = newSeq[float]()
+
+  var lData = initTable[eV, LimitData]()
+  var dfs = newSeq[DataFrame]()
+
+  for m_a in logspace(log10(msr.low.float), log10(msr.high.float), msr.steps):
+    let m_a = m_a.eV
+    ctx.m_a = m_a # adjust the current axion mass
+    # compute MCMC in parallel
+    var chainDf = ctx.computeMCMC(rnd, cands, nChains = nChains, burnIn = burnIn, Forked = true)
+
+    masses.add m_a.float
+    limits.add computeLimitFromMCMC(chainDf, "gs")
+
+    # get upper range based on percentile (if extreme outliers, ignore them)
+    let upper = percentileFloat(chainDf["gs", float], 0.999) # 99.9% of the data?
+    const bins = 1000
+    let (gs, histo) = unbinnedToBinned(chainDf, m_a, upper, bins = bins)
+    let lD = LimitData(m_a: m_a, bins: bins, upper: upper, gs: gs, histo: histo)
+    lData[m_a] = lD
+
+    dfs.add toDf({"m_a" : m_a.float, "gs" : gs, "L" : histo})
+
+  let dfL = dfs.assignStack()
+  let dfLimit = toDf(masses, limits)
+
+  ## Finally, serialize the data
+  let (ufSuff, _, pufSuff, _) = ctx.getUncertaintySuffixes()
+  let suffix = "mass_scan"
+  let baseOutfile = genOutfile(limitKind, ctx.samplingKind, msr.steps, ufSuff, pufSuff, suffix)
+  createDir(outpath)
+  ctx.writeMassScanLimitOutput(outpath, baseOutfile, limitKind,
+                               nChains = nChains,
+                               burnIn = burnIn,
+                               massScanRange = massScanRange,
+                               lData = lData,
+                               dfL = dfL, dfLimit = dfLimit)
 
 when false:
   #import weave
@@ -5294,42 +5448,45 @@ proc readYearFiles(years: seq[int], files: seq[string]): seq[(int, string)] =
     result.add (years[i], files[i])
 
 proc limit(
-    files: seq[string] = @[],
-    tracking: seq[string] = @[], # H5 files containing real tracking candidates!
-    years: seq[int] = @[],
-    path = "/home/basti/CastData/ExternCode/TimepixAnalysis/resources/LikelihoodFiles/",
-    axionModel = "/home/basti/CastData/ExternCode/AxionElectronLimit/axion_diff_flux_gae_1e-13_gagamma_1e-12.csv",
-    isChameleon = false, # whether `axionModel` is actually chameleon
-    axionImage = "/home/basti/org/resources/axion_images/axion_image_2018_1487_93_0.989AU.csv", ## Default corresponds to mean Sun-Earth distance during 2017/18 data taking & median conversion ~0.3cm behind window
-    combinedEfficiencyFile = "/home/basti/org/resources/combined_detector_efficiencies.csv",
-    useConstantBackground = false,
-    radius = 40.0, σ = 40.0 / 3.0, energyRange = 0.6.keV, nxy = 10, nE = 20,
-    σ_sig = 0.02724743263827172, ## <- is the value *without* uncertainty on signal efficiency!
-    σ_back = 0.002821014576353691,
-    σ_p = 0.05,
-    couplingKind = ck_g_ae²,
-    septemVetoRandomCoinc = 0.8311, # only septem veto random coinc based on bootstrapped fake data
-    lineVetoRandomCoinc = 0.8539,   # lvRegular based on bootstrapped fake data
-    septemLineVetoRandomCoinc = 0.7863, # lvRegularNoHLC based on bootstrapped fake data
-    energyMin = 0.0.keV, energyMax = 12.0.keV,
-    trackingTime = -1.Hour, backgroundTime = -1.Hour,
-    limitKind = lkBayesScan,
-    computeLimit = false,
-    scanSigmaLimits = false,
-    nmc = 1000,
-    plotFile = "", # if given, will plot this file instead of doing limits
-    bins = 50, # number of bins to use for plot
-    xLow = 0.0, xHigh = 0.0,
-    yLow = 0.0, yHigh = 0.0,
-    xLabel = "Limit", yLabel = "Count",
-    linesTo = 1000,
-    as_gae_gaγ = false,
-    outpath = "/tmp/",
-    suffix = "",
-    rombergIntegrationDepth = 5,
-    jobs = 0,
-    switchAxes = false # If true will exchange X and Y positions of clusters, to view as detector installed at CAST
-                       # (see sec. `sec:limit:candidates:septemboard_layout_transformations` in thesis)
+  files: seq[string] = @[],
+  tracking: seq[string] = @[], # H5 files containing real tracking candidates!
+  years: seq[int] = @[],
+  path = "/home/basti/CastData/ExternCode/TimepixAnalysis/resources/LikelihoodFiles/",
+  axionModel = "/home/basti/CastData/ExternCode/AxionElectronLimit/axion_diff_flux_gae_1e-13_gagamma_1e-12.csv",
+  isChameleon = false, # whether `axionModel` is actually chameleon
+  axionImage = "/home/basti/org/resources/axion_images/axion_image_2018_1487_93_0.989AU.csv", ## Default corresponds to mean Sun-Earth distance during 2017/18 data taking & median conversion ~0.3cm behind window
+  combinedEfficiencyFile = "/home/basti/org/resources/combined_detector_efficiencies.csv",
+  useConstantBackground = false,
+  radius = 40.0, σ = 40.0 / 3.0, energyRange = 0.6.keV, nxy = 10, nE = 20,
+  σ_sig = 0.02724743263827172, ## <- is the value *without* uncertainty on signal efficiency!
+  σ_back = 0.002821014576353691,
+  σ_p = 0.05,
+  couplingKind = ck_g_ae²,
+  septemVetoRandomCoinc = 0.8311, # only septem veto random coinc based on bootstrapped fake data
+  lineVetoRandomCoinc = 0.8539,   # lvRegular based on bootstrapped fake data
+  septemLineVetoRandomCoinc = 0.7863, # lvRegularNoHLC based on bootstrapped fake data
+  energyMin = 0.0.keV, energyMax = 12.0.keV,
+  trackingTime = -1.Hour, backgroundTime = -1.Hour,
+  limitKind = lkBayesScan,
+  computeLimit = false,
+  scanSigmaLimits = false,
+  massLow = 0.eV,
+  massHigh = 0.eV,
+  massSteps = 0, ## indicates we wish to scan the real limit in this mass range
+  nmc = 1000,
+  plotFile = "", # if given, will plot this file instead of doing limits
+  bins = 50, # number of bins to use for plot
+  xLow = 0.0, xHigh = 0.0,
+  yLow = 0.0, yHigh = 0.0,
+  xLabel = "Limit", yLabel = "Count",
+  linesTo = 1000,
+  as_gae_gaγ = false,
+  outpath = "/tmp/",
+  suffix = "",
+  rombergIntegrationDepth = 5,
+  jobs = 0,
+  switchAxes = false # If true will exchange X and Y positions of clusters, to view as detector installed at CAST
+                     # (see sec. `sec:limit:candidates:septemboard_layout_transformations` in thesis)
      ): int = # dummy return an `int`, otherwise run into some cligen bug
   ## XXX: For expected limit we need the ratio of tracking to non tracking time. Currently hardcoded.
   echo "files ", files
@@ -5368,8 +5525,12 @@ proc limit(
     echo ctx.monteCarloLimits(rnd, limitKind, nmc = nmc)
     return
 
+  let massScanRange = (low: massLow, high: massHigh, steps: massSteps)
   if tracking.len > 0:
-    ctx.computeRealLimit(rnd, limitKind, outpath)
+    if massScanRange.steps > 0: ## Perform a scan of the real limits over `steps` masses (logspace)
+      ctx.computeRealLimitMassRange(rnd, massScanRange, limitKind, outpath)
+    else: ## simply compute the real limit in the limit of small axion masses
+      ctx.computeRealLimit(rnd, limitKind, outpath)
     return
   if plotFile.len > 0:
     echo "NOTE: Make sure the input parameters match the parameters used to generate the file ", plotFile

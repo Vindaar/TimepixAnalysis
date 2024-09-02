@@ -12,7 +12,6 @@ import seqmath
 import arraymancer
 
 # helpers for dealing with `Tensor` in generic seq / Tensor code
-proc len[T](t: Tensor[T]): int = t.size.int
 proc high[T](t: Tensor[T]): int = t.len - 1
 
 proc walkRunFolderAndGetFadcFiles*(folder: string): seq[string] =

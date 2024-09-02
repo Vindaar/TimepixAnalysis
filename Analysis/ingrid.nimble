@@ -46,7 +46,7 @@ requires "measuremancer == 0.2.6"
 requires "mpfit == 0.2.0"
 requires "nlopt == 0.3.2"
 # additional packages
-requires "https://github.com/vindaar/seqmath == 0.2.1"
+requires "https://github.com/vindaar/seqmath == 0.2.2"
 requires "latexdsl == 0.2.0"
 requires "shell == 0.5.2"
 requires "https://github.com/Vindaar/orgtables"

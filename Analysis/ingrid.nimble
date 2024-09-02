@@ -13,7 +13,7 @@ requires "nim >= 1.4.0"
 # internal module
 requires "helpers >= 0.2.0"
 # major dependencies
-requires "arraymancer >= 0.7.23"
+requires "arraymancer >= 0.7.32"
 requires "ingridDatabase"
 # UI/UX deps and optional deps
 requires "cligen"

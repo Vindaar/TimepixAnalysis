@@ -5302,9 +5302,9 @@ proc sanity(
     σ_sig = 0.02724743263827172, #0.04692492913207222, # from sqrt(squared sum) of signal uncertainties
     σ_back = 0.002821014576353691,#, # from sqrt(square sum) of back uncertainties
     σ_p = 0.05,
-    septemVetoRandomCoinc = 0.7841029411764704, # only septem veto random coinc based on bootstrapp
-    lineVetoRandomCoinc = 0.8601764705882353,   # lvRegular based on bootstrapped fake data
-    septemLineVetoRandomCoinc = 0.732514705882353, # lvRegularNoHLC based on bootstrapped fake data
+    septemVetoRandomCoinc = 0.8311, # only septem veto random coinc based on bootstrapped fake data
+    lineVetoRandomCoinc = 0.8539,   # lvRegular based on bootstrapped fake data
+    septemLineVetoRandomCoinc = 0.7863, # lvRegularNoHLC based on bootstrapped fake data
     rombergIntegrationDepth = rombergIntegrationDepth,
     energyMin = 0.2.keV, energyMax = 12.0.keV,
     switchAxes = switchAxes

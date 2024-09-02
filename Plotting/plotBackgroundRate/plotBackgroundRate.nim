@@ -71,9 +71,9 @@ proc calcVetoEfficiency(flags: set[LogLFlagKind], vetoCfg: VetoSettings, tpaFile
   case tpaFileKind
   of tpkLogL:
     const
-      septemVetoRandomCoinc = 0.7841029411764704    # only septem veto random coinc based on bootstrapp
-      lineVetoRandomCoinc = 0.8601764705882353      # lvRegular based on bootstrapped fake data
-      septemLineVetoRandomCoinc = 0.732514705882353 # lvRegularNoHLC based on bootstrapped fake data
+      septemVetoRandomCoinc = 0.8311     # only septem veto random coinc based on bootstrapped fake data
+      lineVetoRandomCoinc = 0.8539       # lvRegular based on bootstrapped fake data
+      septemLineVetoRandomCoinc = 0.7863 # lvRegularNoHLC based on bootstrapped fake data
     result = 1.0 # starting efficiency
     if fkFadc in flags:
       doAssert vetoCfg.vetoPercentile > 0.5, "Veto percentile was below 0.5: " &

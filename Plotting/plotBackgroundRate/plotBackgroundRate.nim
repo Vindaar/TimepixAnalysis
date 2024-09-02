@@ -390,7 +390,7 @@ proc customTheme(): Theme =
 proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
                         outpath, outfile: string,
                         show2014: bool, suffix: string,
-                        hidePoints, hideErrors, fill: bool,
+                        hidePoints, hideErrors, hideHistogram, fill: bool,
                         useTeX, showPreliminary, genTikZ: bool,
                         showNumClusters, showTotalTime: bool,
                         topMargin,
@@ -436,23 +436,29 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
     titleSuff.add &", normalized by efficiency"
 
   if numDsets > 1 and fill:
-    plt = ggplot(df, aes(Ecol, Rcol, fill = "Dataset")) +
-      geom_histogram(stat = "identity", position = "identity", alpha = 0.5,
-                     color = transparent,
-                     hdKind = hdOutline)
+    plt = ggplot(df, aes(Ecol, Rcol, fill = "Dataset"))
+    if not hideHistogram:
+      plt = plt +
+        geom_histogram(stat = "identity", position = "identity", alpha = 0.5,
+                       color = transparent,
+                       hdKind = hdOutline)
   elif numDsets > 1:
-    plt = ggplot(df, aes(Ecol, Rcol, color = "Dataset")) +
-      geom_histogram(
-        stat = "identity", position = "identity", alpha = 0.0,
-        lineWidth = 2.0,
-        hdKind = hdOutline
-      )
+    plt = ggplot(df, aes(Ecol, Rcol, color = "Dataset"))
+    if not hideHistogram:
+      plt = plt +
+        geom_histogram(
+          stat = "identity", position = "identity", alpha = 0.0,
+          lineWidth = 2.0,
+          hdKind = hdOutline
+        )
   else:
-    plt = ggplot(df, aes(Ecol, Rcol)) +
-      geom_histogram(stat = "identity", position = "identity",
-                     alpha = 0.5, color = transparent, hdKind = hdOutline) +
-      minorGridLines()
-      #scale_x_continuous(breaks = 20)
+    plt = ggplot(df, aes(Ecol, Rcol))
+    if not hideHistogram:
+      plt = plt +
+        geom_histogram(stat = "identity", position = "identity",
+                       alpha = 0.5, color = transparent, hdKind = hdOutline) +
+        minorGridLines()
+        #scale_x_continuous(breaks = 20)
   if not hidePoints:
     plt = plt + geom_point(binPosition = "center", position = "identity")
   if not hideErrors:
@@ -601,6 +607,7 @@ proc main(files: seq[string], log = false, title = "",
           totalTime = -1, # total time to use in hours # not supported with `names` or `separateFiles`!
           hidePoints = false, ## disables the `geom_point` call
           hideErrors = false, ## disables the `geom_errorbar` call
+          hideHistogram = false, ## disables the `geom_histogram` call
           fill = false, ## If true, will `fill` with alpha 0.5 for case of multiple datasets.
                         ## Else will color outline
           region: ChipRegion = crAll, # use either all data or cut to given region
@@ -713,7 +720,7 @@ proc main(files: seq[string], log = false, title = "",
         fnameSuffix, title,
         outpath, outfile,
         show2014, suffix,
-        hidePoints = hidePoints, hideErrors = hideErrors, fill = fill,
+        hidePoints = hidePoints, hideErrors = hideErrors, hideHistogram = hideHistogram, fill = fill,
         useTeX = useTeX, showPreliminary = showPreliminary, genTikZ = genTikZ,
         showNumClusters = showNumClusters, showTotalTime = showTotalTime,
         topMargin = topMargin, yMax = yMax, energyMin = energyMin, energyMax = energyMax,
@@ -743,6 +750,7 @@ of the logL cut, creates a comparison plot.""",
     "totalTime" : "Total time to use in hours, not supported with `names` or `separateFiles`.",
     "hidePoints" : "If set do not show points of data (only histogram).",
     "hideErrors" : "If set disables error bars.",
+    "hideHistogram" : "If set disables the histogram.",
     "fill" : "If true, will `fill` with alpha 0.5 for case of multiple datasets. Else will color outline.",
     "region" : "The chip region to cut to.",
     "energyDset" : "The energy dataset to base the x axis on, {energyFromCharge, energyFromPixel}.",

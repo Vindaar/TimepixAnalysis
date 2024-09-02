@@ -334,7 +334,10 @@ proc fadcFileToFadcData*[T](data: Tensor[uint16],
   var fadc_data = applyFadcPedestalRun(data, pedestalRun)
 
   # and cut out channel 3 (the one we take data with)
-  var ch0_vals = fadc_data[ch0_indices]
+  ## NOTE: `@` is only needed due to recently added more type safety in arraymancer
+  ## There I forgot to add support for `ntyOpenArray`. PR upcoming, but for the time
+  ## being, let's just convert to a sequence here.
+  var ch0_vals = fadc_data[@ch0_indices]
   ## XXX: these are not actually faulty, huh.
   # set the two 'faulty' registers to 0
   #ch0_vals[0] = 0

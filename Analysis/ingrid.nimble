@@ -39,7 +39,7 @@ requires "ggplotnim == 0.7.0"
 requires "ginger == 0.6.1"
 requires "nimhdf5 == 0.5.12"
 requires "unchained == 0.4.0"
-requires "datamancer == 0.4.0"
+requires "datamancer >= 0.4.0"
 requires "https://github.com/SciNim/xrayAttenuation == 0.3.1"
 requires "measuremancer == 0.2.6"
 # optimization dependencies

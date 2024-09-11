@@ -316,7 +316,7 @@ proc rawDataToDut(data: openArray[uint32], chunkNr: int, chunkStartTime: float,
   res.setLen(data.len)
 
   var linkIdxs = newSeq[int](8)
-  var linksEven = newSeqWith[bool](8, true)
+  var linksEven = newSeqWith(8, true)
   # need notion of even, odd to know if started an element or already has entry
   # essentially like `j` for timestamps, but general for all links.
   ## TODO: check for 0b0101 TOA extension packets.

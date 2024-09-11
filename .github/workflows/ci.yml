@@ -48,10 +48,10 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install dependencies (Ubuntu)
-        if: ${{matrix.target == 'linux'}}
         run: |
           sudo apt-get update
           sudo apt-get install libnlopt0 libnlopt-dev mlocate
+          sudo updatedb # update locate DB
 
       - name: Setup nimble & deps
         shell: bash

@@ -202,12 +202,12 @@
     },
     "cdt": {
       "version": "0.1.1",
-      "vcsRevision": "49198f7d02c6df559aee408de4a6359731831f69",
+      "vcsRevision": "2437955da338f409aaa762596d686975b06eeb8e",
       "url": "https://github.com/HugoGranstrom/cdt",
       "downloadMethod": "git",
       "dependencies": [],
       "checksums": {
-        "sha1": "8e079c6a8d42882b3104ebd3ed8398b4a7ea969c"
+        "sha1": "195f0270aaf5d363925f7fdf8a4cc125e4832417"
       }
     },
     "chroma": {

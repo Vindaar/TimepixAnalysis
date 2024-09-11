@@ -12,7 +12,8 @@ template shellCheck(actions: untyped): untyped =
       actions
     toContinue = res[1] == 0
   if not toContinue:
-    quit("Building TimepixAnalysis failed!")
+    stdout.styledWrite(fgRed, "[ERROR]: Building TimepixAnalysis failed.")
+    quit()
 
 proc findLib(lib: string, tool: string): bool =
   ## Checks if the given shared library `lib` is found
@@ -79,6 +80,11 @@ proc checkMPFIT(allowClone: bool, clonePath: string,
       "--allowClone=true")
 
 proc generatePathsFile() =
+  ## This generates a `nimble.paths` file from the `nimble.lock` file in
+  ## `Analysis`. This file is crucial, because it sets up the Nim compiler
+  ## such that it uses exactly the dependencies defined in the lockfile.
+  ##
+  ## This is done via the `--path:/foo/bar/` mechanism of the compiler.
   shellCheck:
     one:
       cd Analysis
@@ -93,21 +99,26 @@ proc compileBinaries() =
       ($cmd)
 
   let bins = @[
+    # Base programs
     ("Analysis/ingrid/parse_raw_tpx3", @["danger", "blosc"]),
     ("Analysis/ingrid/raw_data_manipulation", @["danger", "blosc"]),
     ("Analysis/ingrid/reconstruction", @["danger"]),
-    ("Analysis/ingrid/likelihood", @["danger"]),
-    ("Analysis/ingrid/runAnalysisChain", @["release"]),
+    # NOTE: For the moment we don't build `likelihood`, because it requires some data files that are
+    # too big to be hosted in the TPA repository. It is usually not required for most users anyway.
+    # ("Analysis/ingrid/likelihood", @["danger", "useMalloc"]),
+    # Similarly the limit calculation can be compiled manually.
+    # ("Analysis/ingrid/mcmc_limit_calculation", @["danger"]),
     ("Analysis/ingrid/fake_event_generator", @["danger"]),
+    # Processing pipeline helpers
+    ("Analysis/ingrid/runAnalysisChain", @["release"]),
     ("Analysis/createAllLikelihoodCombinations", @[""]),
+    # Plotting helpers
     ("Plotting/karaPlot/plotData", @["danger"]),
     ("Plotting/plotBackgroundRate/plotBackgroundRate", @["release"]),
     ("Plotting/plotBackgroundClusters/plotBackgroundClusters", @["release"]),
   ]
   for (b, f) in bins:
     compile(b, f)
-
-echo "Finished building TimepixAnalysis!"
 
 proc main(locateTool = "locate",
           allowClone = true,

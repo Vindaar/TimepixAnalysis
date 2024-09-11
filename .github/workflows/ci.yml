@@ -51,7 +51,7 @@ jobs:
         if: ${{matrix.target == 'linux'}}
         run: |
           sudo apt-get update
-          sudo apt-get install libnlopt0 libnlopt-dev
+          sudo apt-get install libnlopt0 libnlopt-dev mlocate
 
       - name: Setup nimble & deps
         shell: bash

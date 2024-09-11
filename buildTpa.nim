@@ -116,7 +116,7 @@ proc compileBinaries() =
     ("Analysis/ingrid/fake_event_generator", @["danger"]),
     # Processing pipeline helpers
     ("Analysis/ingrid/runAnalysisChain", @["release"]),
-    ("Analysis/createAllLikelihoodCombinations", @[""]),
+    ("Analysis/createAllLikelihoodCombinations", @[]),
     # Plotting helpers
     ("Plotting/karaPlot/plotData", @["danger"]),
     ("Plotting/plotBackgroundRate/plotBackgroundRate", @["release"]),

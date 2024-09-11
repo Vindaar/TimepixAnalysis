@@ -1,0 +1,98 @@
+name: TPA CI
+on:
+  push:
+    paths:
+      - 'tests/**'
+      - 'Analysis/**'
+      - 'Tools/**'
+      - 'Plotting/**'
+      - 'docs/**'
+      - 'Analysis/ingrid.nimble'
+      - '.github/workflows/ci.yml'
+    branches:
+      - 'master'
+  pull_request:
+    paths:
+      - 'tests/**'
+      - 'Analysis/**'
+      - 'Tools/**'
+      - 'Plotting/**'
+      - 'docs/**'
+      - 'Analysis/ingrid.nimble'
+      - '.github/workflows/ci.yml'
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        nim:
+          - '2.0.x'
+          - 'devel'
+        os:
+          - ubuntu-latest
+#          - windows-latest
+#          - macOS-latest
+    name: '${{ matrix.nim }} (${{ matrix.os }})'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          path: TimepixAnalysis
+
+      - name: Setup nim
+        uses: jiro4989/setup-nim-action@v1
+        with:
+          nim-version: ${{ matrix.nim }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install dependencies (Ubuntu)
+        if: ${{matrix.target == 'linux'}}
+        run: |
+          sudo apt-get update
+          sudo apt-get install libnlopt0 libnlopt-dev
+
+      - name: Setup nimble & deps
+        shell: bash
+        run: |
+          cd TimepixAnalysis/Analysis
+          nimble setup # set up the nimble.paths file for all deps
+
+      - name: Build binaries
+        shell: bash
+        run: |
+          cd TimepixAnalysis
+          nim c buildTpa
+          ./buildTpa
+
+#      - name: Run tests
+#        shell: bash
+#        run: |
+#          cd TimepixAnalysis
+#          nimble -y test
+
+#      - name: Build docs
+#        if: >
+#          github.event_name == 'push' && github.ref == 'refs/heads/master' &&
+#          matrix.target == 'linux' && matrix.branch == 'devel'
+#        shell: bash
+#        run: |
+#          cd TimepixAnalysis
+#          # **HAVE** to call `develop`, cuz we're getting screwed by
+#          # logic otherwise
+#          nimble develop -y
+#          nimble gen_docs
+#          # TODO: fix this, need to iterate over all files, do similar to arraymancer docs
+#          # Ignore failures for older Nim
+#          cp docs/{the,}index.html || true
+
+#      - name: Publish docs
+#        if: >
+#          github.event_name == 'push' && github.ref == 'refs/heads/master' &&
+#          matrix.target == 'linux' && matrix.branch == 'devel'
+#        uses: crazy-max/ghaction-github-pages@v1
+#        with:
+#          build_dir: datamancer/docs
+#        env:
+#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

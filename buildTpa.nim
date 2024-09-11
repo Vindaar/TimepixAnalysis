@@ -13,7 +13,7 @@ template shellCheck(actions: untyped): untyped =
     toContinue = res[1] == 0
   if not toContinue:
     stdout.styledWrite(fgRed, "[ERROR]: Building TimepixAnalysis failed.")
-    quit()
+    quit(1)
 
 proc findLib(lib: string, tool: string): bool =
   ## Checks if the given shared library `lib` is found

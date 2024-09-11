@@ -1163,7 +1163,7 @@ proc plotCandidates(cands: seq[Candidate],
     continuousLegendWidth(0.75) + continuousLegendHeight(3.0) +
     ggsave(outfile)
 
-import random / mersenne
+import pkg / random / mersenne
 import alea / [core, rng, gauss, poisson]
 proc drawCandidates(ctx: Context,
                     rnd: var Random,

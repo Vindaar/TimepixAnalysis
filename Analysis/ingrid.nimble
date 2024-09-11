@@ -49,6 +49,11 @@ requires "latexdsl == 0.2.0"
 requires "shell == 0.6.0"
 requires "orgtables"
 requires "https://github.com/Vindaar/flatBuffers == 0.1.0"
+requires "https://github.com/Vindaar/forked >= 0.1.1"
+
+# NOTE: the internal `helpers` module in `NimUtil` and the InGridDatabase module are
+# not explicitly 'required' here, because we have a `nim.cfg` file in the TPA root,
+# which defines the `--path:` to their locations.
 
 
 import std / [strutils, sequtils, strformat]

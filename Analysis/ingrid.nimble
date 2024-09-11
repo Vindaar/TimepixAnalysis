@@ -10,11 +10,8 @@ skipExt       = @["h5"]
 # Dependencies
 
 requires "nim >= 1.4.0"
-# internal module
-requires "helpers >= 0.2.0"
 # major dependencies
 requires "arraymancer >= 0.7.32"
-requires "ingridDatabase"
 # UI/UX deps and optional deps
 requires "cligen >= 1.7.4"
 requires "docopt#head" # mostly not in use anymore! Replaced byyy `cligen` pretty much everywhere
@@ -31,6 +28,7 @@ requires "weave#head"
 requires "cppstl"
 requires "numericalnim"
 requires "alea"
+requires "https://github.com/Vindaar/nblosc"
 
 # These dependencies below here are some of the most important.
 # They are pinned to specific versions for this git tag to have the exact used versions

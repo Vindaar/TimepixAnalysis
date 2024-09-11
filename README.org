@@ -150,6 +150,9 @@ The following shared libraries are linked at runtime:
 - =libpcre=
 Their installation procedures are explained below.
 
+For instructions to install the dependencies, see sec. [[#sec:deps]]. Note
+that for ~NLopt~ and ~MPFIT~ the build tool (see sec. [[#sec:install:build]]).
+
 ** General remarks
 
 A note about the dependeny of the source code on the Nim compiler:
@@ -245,214 +248,116 @@ source ~/.bashrc
 #+END_SRC
 or simply start a new shell.
 
-** HDF5
-The major dependency of the Nim projects is HDF5. On a reasonably
-modern Linux distribution the =libhdf5= should be part of the package
-repositories. The supported HDF5 versions are:
-- =1.8=: as a legacy mode, compile the Nim projects with
-  =-d:H5_LEGACY=
-- =1.10=: the current HDF5 version and the default
-
-If the HDF5 library is not available on your OS, you may download the
-binaries or the source code from the [[url:https://www.hdfgroup.org/downloads/hdf5/][HDF group]].
-
-*** HDF View
-HDF View is a very useful tool to look at HDF5 files with a graphical
-user interface. For HEP users: it is very similar to ROOT's TBrowser.
-
-Although many package repositories contain a version of HDF View, it
-is typically relatively old. The current version is version 3.0.0,
-which has some nice features, so it may be a good idea to install it
-manually.
-
-** NLopt
-
-The NLopt library is a nonlinear optimization library, which is used
-in this project to fit the rotation angle of clusters and perform fits of
-the gas gain. The Nim wrapper is found at
-[[https://github.com/vindaar/nimnlopt]]. To build the C library follow the
-following instructions, (taken from [[https://github.com/vindaar/nimnlopt/c_header][here]]):
-#+BEGIN_SRC sh
-git clone https://github.com/stevengj/nlopt # clone the repository
-cd nlopt
-mkdir build
-cd build
-cmake ..
-make
-sudo make install
-#+END_SRC
-This introduces =cmake= as a dependency. Note that this installs the
-=libnlopt.so= system wide. If you do not wish to do that, you need to
-set your =LD_PRELOAD_PATH= accordingly!
-
-Afterwards installation of the Nim =nlopt= module is sufficient (done
-automatically later).
-
-** MPfit
-
-MPfit is a non-linear least squares fitting library. It is required as
-a dependency, since it's used to perform different fits in the
-analysis. The Nim wrapper is located at
-[[https://github.com/vindaar/nim-mpfit]]. Compilation of this shared
-object is easiest by cloning the git repository of the Nim wrapper:
-#+BEGIN_SRC sh
-cd ~/src
-git clone https://github.com/vindaar/nim-mpfit
-cd nim-mpfit
-#+END_SRC
-And then build the library from the =c_src= directory as follows:
-#+BEGIN_SRC sh
-cd c_src
-gcc -c -Wall -Werror -fpic mpfit.c mpfit.h
-gcc -shared -o libmpfit.so mpfit.o
-#+END_SRC
-which should create the =libmpfit.so=. Now install that library system
-wide (again to avoid having to deal with =LD_PRELOAD_PATH=
-manually). Depending on your system, a suitable choice may be
-[[file:/usr/local/lib/]]:
-#+BEGIN_SRC sh
-sudo cp libmpfit.so /usr/local/lib
-#+END_SRC
-
-Finally, you may install the Nim wrapper via
-#+BEGIN_SRC sh
-nimble install
-#+END_SRC
-or tell =nimble= to point to the directory of the respitory here via:
-#+BEGIN_SRC sh
-nimble develop
-#+END_SRC
-The latter makes updating the package much easier, since updating the
-git repository is enough.
-
-** PCRE
-Perl Compatible Regular Expressions (PCRE) is a library for regular
-expression matching. On almost any unix system, this library is
-already available. For some distributions (possibly some CentOS or
-Scientific Linux) it may not be.
-
-This currently means you'll have to build this library by yourself.
-
-*** Different RE implementations
-
-The default RE library in Nim is a wrapper around PCRE, due to PCRE's
-very high performance. However, the performance critical parts do not
-depend on PCRE anymore.
-In principle we could thus replace the =re= module with
-https://github.com/nitely/nim-regex, a purely Nim based regex
-engine. PRs welcome! :)
-
-** TODO Blosc [optional]
-
-[[https://github.com/Blosc/c-blosc][Blosc]] is a compression library used to compress the binary data in the
-HDF5 files. By default however =Zlib= compression is used, so this is
-typically not needed.
-If one wishes to read Timepix3 based HDF5 files ~blosc~ support is
-mandatory (in [[file:Analysis/ingrid/parse_raw_tpx3.nim]] and after that
-in [[file:Analysis/ingrid/raw_data_manipulation.nim]]).
 
 ** Install the TimpixAnalysis framework
 
 Once the dependencies are installed, we can prepare the framework.
 
 *** Preparing the =TimepixAnalysis= repository
+
 We start by cloning the =TimepixAnalysis= repository somewhere, e.g.:
 #+BEGIN_SRC sh
 cd ~/src
 git clone https://github.com/Vindaar/TimepixAnalysis
 #+END_SRC
 
-The next step is to prepare installation of the modules within this
-repository. That means we need to install
-- the [[file:NimUtil/][helpers]] module
-- the [[file:InGridDatabase/][InGridDatabase]] module
-- the [[file:Analysis/][ingrid]] (contains the analysis) module
+*** Using the build tool to build (most) binaries
+:PROPERTIES:
+:CUSTOM_ID: sec:install:build
+:END:
 
-This is done by calling either =nimble install= or =nimble develop= in
-the folders linked above, which contain a =.nimble= file.
+As of <2024-09-11 Wed 18:48> there is now a build tool to automate the
+compilation of (most; all relevant for the majority of users)
+binaries. In addition, the nimble (i.e. other Nim packages)
+dependencies are now fixed using a lock file, so that precisely the
+versions that are fixed are pulled and used. The latter should
+hopefully remove the occurrence for spurious compilation failures due
+to random version mismatches.
 
-*** Note on =nimble install= vs. =nimble develop=
+First we need to setup the Nimble dependencies:
+#+begin_src sh
+cd Analysis
+nimble setup
+#+end_src
+The command pulls all dependencies written in
+[[file:Analysis/nimble.lock]]. Afterwards, any compilation within the
+~Analysis~ directory will _only_ use those packages.
 
-#+BEGIN_CENTER
-_Aside:_ The difference between nimble's =install= and =develop=
-commands is:
-- =install= copies the source files of the module to your local
-  =nimble= packages folder, by default [[file:~/.nimble/pkgs/][~/.nimble/pkgs/]]
-- =develop= just creates a link in the said folder, which points to
-  the location where the source files lie,
-  e.g. =~/src/TimepixAnalysis/InGridDatabase/src= or similar.
-Thus, using =nimble develop= is very convenient for packages, which
-are updated frequently using =git pull= or which are actively
-developed by yourself. No reinstallation necessary, if the source changes.
-#+END_CENTER
+Next, we compile the build tool found in the root of the repository:
+#+begin_src sh
+nim c buildTpa
+#+end_src
 
-*** Installation of the sub modules
+#+begin_src sh :results code
+./buildTpa -h
+#+end_src
 
-Choosing =nimble develop=, we install the following (assuming you're
-in the root of the =TimepixAnalysis= repository):
-#+BEGIN_SRC sh
-cd NimUtil
-nimble develop
-cd ../InGridDatabase
-nimble develop
-cd ../Analysis
-nimble develop
-cd ..
-#+END_SRC
-Calling =nimble develop= in the Analysis directory, will install all
-needed dependencies (in principle also =nimhdf5=, =nlopt= and =mpfit=
-libraries).
-If there are no regressions upstream on any of the packages (we
-install =#head= of all dependencies), installation should be smooth
-and you should be set to compile the programs!
+#+begin_src sh
+Usage:
+  main [optional-params]
+Options:
+  -h, --help                         print this cligen-erated help
 
-*** Compilation of the two major tools
+  --help-syntax                      advanced: prepend,plurals,..
 
-Now we're ready to compile the =raw_data_manipulation= and
-=reconstruction= programs. First enter the Analysis directory:
-#+BEGIN_SRC sh
-cd Analysis/ingrid
-#+END_SRC
-Now a basic Nim compilation looks as follows:
-#+BEGIN_SRC
-nim c raw_data_manipulation.nim
-#+END_SRC
-=c= stands for =compile to C= (technically just for =compile= with the
-default backend. The =C= target specifically is called by
-=cc=). Alternatively you can use =cpp= to compile to =C++=, =js= to
-compile to Javascript or =objc= to compile to Objective-C. Note that
-the filename extension for =myfile.nim= is optional.
+  -l=, --locateTool= string "locate" Program to use to detect installed shared
+                                     libraries on the system.
 
-If you compile a program to actually use it (and not to test or
-debug), you'll want to compile it with the =-d:release= flag, like so:
-#+BEGIN_SRC sh
-nim c -d:release raw_data_manipulation.nim
-#+END_SRC
+  -a, --allowClone   bool   true     If true will automatically clone a git
+                                     repository and build shared library
+                                     dependencies.
 
-Since basically all programs part of this project use multiple
-threads, another option is necessary, the =--threads:on= flag:
-#+BEGIN_SRC sh
-nim c -d:release --threads:on raw_data_manipulation.nim
-#+END_SRC
-This in principle is all you need to do to get a standalone binary,
-which depends on the aforementioned shared libraries.
+  -c=, --clonePath=  string "~/src"  Base path in which cloned directories will
+                                     be installed.
 
-By default the resulting binary is called after the compiled Nim file
-without a file extension. If you wish a different filename, use the
-=--out= option:
-#+BEGIN_SRC sh
-nim c -d:release --threads:on --out:myName raw_data_manipulation.nim
-#+END_SRC
-_Note:_ this can also be used to place the resulting binary in a
-different folder!
-_Note 2:_ take care that you *cannot* write neither =--threads on= nor
-=--threads=on=! The colon is mandatory.
+  --args=            string ""       An additional command line argument string
+                                     passed to all programs being compiled.
+#+end_src
 
-The =reconstruction= program is compiled in the same way.
-#+BEGIN_SRC sh
-nim c -d:release --threads:on reconstruction.nim
-#+END_SRC
+A few things to note:
+- it tries to use ~locate~ to determine if the NLopt (~libnlopt.so~)
+  and MPFIT (~libmpfit.so~) shared libraries can be found by ~ld.so~
+- if not as long as ~allowClone~ is ~true~ it will pull the code for
+  these libraries and build them manually. In that case you still need
+  to make sure the shared libraries can be found by ~ld.so~ on your
+  system. By default (changed via ~--clonePath:/foo/bar~) the
+  repositories will be cloned into =~/src=. See sec [[#sec:deps]] for more
+  information.
 
+All you need to do to build the binaries then is:
+#+begin_src sh
+./buildTpa
+#+end_src
+
+It builds:
+- ~parse_raw_tpx3~
+- ~raw_data_manipulation~
+- ~reconstruction~
+- ~runAnalysisChain~  
+- ~fake_event_generator~
+- ~plotBackgroundRate~
+- ~plotBackgroundClusters~  
+- ~plotData~
+
+Symbolic links to the location of the binaries are found in the [[fe:][./bin]]
+directory of this repository. I recommend to add the path to that
+directory to your ~.zshrc~ / ~.bashrc~ (or whatever else your setup
+looks like).
+
+Assuming TPA is located in =~/src/TimepixAnalysis= that might look like:
+
+**** Zsh
+
+#+begin_src sh
+path+=src/TimepixAnalysis/bin
+#+end_src
+
+**** Bash
+
+#+begin_src sh
+export PATH=$PATH:src/TimepixAnalysis/bin
+#+end_src
+      
 *** Troubleshooting
 
 If you run into problems trying to run one of the programs, it might
@@ -499,6 +404,118 @@ nimble install "https://github.com/vindaar/seqmath#head"
 *** List of nimble dependencies
 
 For a list of Nimble dependencies, see [[file:Analysis/ingrid.nimble]].
+
+** Dependencies
+:PROPERTIES:
+:CUSTOM_ID: sec:deps
+:END:
+
+*** HDF5
+The major dependency of the Nim projects is HDF5. On a reasonably
+modern Linux distribution the =libhdf5= should be part of the package
+repositories. The supported HDF5 versions are:
+- =1.8=: as a legacy mode, compile the Nim projects with
+  =-d:H5_LEGACY=
+- =1.10=: the current HDF5 version and the default
+
+If the HDF5 library is not available on your OS, you may download the
+binaries or the source code from the [[url:https://www.hdfgroup.org/downloads/hdf5/][HDF group]].
+
+**** HDF View
+HDF View is a very useful tool to look at HDF5 files with a graphical
+user interface. For HEP users: it is very similar to ROOT's TBrowser.
+
+Although many package repositories contain a version of HDF View, it
+is typically relatively old. The current version is version 3.0.0,
+which has some nice features, so it may be a good idea to install it
+manually.
+
+*** NLopt
+
+The NLopt library is a nonlinear optimization library, which is used
+in this project to fit the rotation angle of clusters and perform fits of
+the gas gain. The Nim wrapper is found at
+[[https://github.com/vindaar/nimnlopt]]. To build the C library follow the
+following instructions, (taken from [[https://github.com/vindaar/nimnlopt/c_header][here]]):
+#+BEGIN_SRC sh
+git clone https://github.com/stevengj/nlopt # clone the repository
+cd nlopt
+mkdir build
+cd build
+cmake ..
+make
+sudo make install
+#+END_SRC
+This introduces =cmake= as a dependency. Note that this installs the
+=libnlopt.so= system wide. If you do not wish to do that, you need to
+set your =LD_PRELOAD_PATH= accordingly!
+
+Afterwards installation of the Nim =nlopt= module is sufficient (done
+automatically later).
+
+*** MPfit
+
+MPfit is a non-linear least squares fitting library. It is required as
+a dependency, since it's used to perform different fits in the
+analysis. The Nim wrapper is located at
+[[https://github.com/vindaar/nim-mpfit]]. Compilation of this shared
+object is easiest by cloning the git repository of the Nim wrapper:
+#+BEGIN_SRC sh
+cd ~/src
+git clone https://github.com/vindaar/nim-mpfit
+cd nim-mpfit
+#+END_SRC
+And then build the library from the =c_src= directory as follows:
+#+BEGIN_SRC sh
+cd c_src
+gcc -c -Wall -Werror -fpic mpfit.c mpfit.h
+gcc -shared -o libmpfit.so mpfit.o
+#+END_SRC
+which should create the =libmpfit.so=. Now install that library system
+wide (again to avoid having to deal with =LD_PRELOAD_PATH=
+manually). Depending on your system, a suitable choice may be
+[[file:/usr/local/lib/]]:
+#+BEGIN_SRC sh
+sudo cp libmpfit.so /usr/local/lib
+#+END_SRC
+
+Finally, you may install the Nim wrapper via
+#+BEGIN_SRC sh
+nimble install
+#+END_SRC
+or tell =nimble= to point to the directory of the respitory here via:
+#+BEGIN_SRC sh
+nimble develop
+#+END_SRC
+The latter makes updating the package much easier, since updating the
+git repository is enough.
+
+*** PCRE
+Perl Compatible Regular Expressions (PCRE) is a library for regular
+expression matching. On almost any unix system, this library is
+already available. For some distributions (possibly some CentOS or
+Scientific Linux) it may not be.
+
+This currently means you'll have to build this library by yourself.
+
+**** Different RE implementations
+
+The default RE library in Nim is a wrapper around PCRE, due to PCRE's
+very high performance. However, the performance critical parts do not
+depend on PCRE anymore.
+In principle we could thus replace the =re= module with
+https://github.com/nitely/nim-regex, a purely Nim based regex
+engine. PRs welcome! :)
+
+*** Blosc [optional]
+
+[[https://github.com/Blosc/c-blosc][Blosc]] is a compression library used to compress the binary data in the
+HDF5 files. By default however =Zlib= compression is used, so this is
+typically not needed.
+If one wishes to read Timepix3 based HDF5 files ~blosc~ support is
+mandatory (in [[file:Analysis/ingrid/parse_raw_tpx3.nim]] and after that
+in [[file:Analysis/ingrid/raw_data_manipulation.nim]]).
+
 
 * Usage
 

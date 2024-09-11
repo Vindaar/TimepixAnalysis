@@ -16,7 +16,7 @@ requires "helpers >= 0.2.0"
 requires "arraymancer >= 0.7.32"
 requires "ingridDatabase"
 # UI/UX deps and optional deps
-requires "cligen"
+requires "cligen >= 1.7.4"
 requires "docopt#head" # mostly not in use anymore! Replaced byyy `cligen` pretty much everywhere
 requires "adix"
 requires "parsetoml"

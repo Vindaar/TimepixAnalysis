@@ -1,0 +1,712 @@
+{
+  "version": 2,
+  "packages": {
+    "cligen": {
+      "version": "1.7.4",
+      "vcsRevision": "32902f690ed31c80b3fb807f1f0b7ca926a4c41b",
+      "url": "https://github.com/c-blake/cligen.git",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "953a52e8c0f6fb89ab4f42751c84db3203166160"
+      }
+    },
+    "adix": {
+      "version": "0.6.1",
+      "vcsRevision": "dbb95717f987d77597859e9c82c2568e87030aff",
+      "url": "https://github.com/c-blake/adix",
+      "downloadMethod": "git",
+      "dependencies": [
+        "cligen"
+      ],
+      "checksums": {
+        "sha1": "119eb8093e1a66ee99644c7d7c4dd610924b299e"
+      }
+    },
+    "random": {
+      "version": "0.5.7",
+      "vcsRevision": "881019662b584c43f2ef5158ff346bf6b6b29f88",
+      "url": "https://github.com/oprypin/nim-random",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "a848bbc060f57e69820d40c6f9b26bac296dd106"
+      }
+    },
+    "alea": {
+      "version": "0.1.7",
+      "vcsRevision": "2297aac71294b3a5abbe463a39b737de513d883e",
+      "url": "https://github.com/andreaferretti/alea",
+      "downloadMethod": "git",
+      "dependencies": [
+        "random"
+      ],
+      "checksums": {
+        "sha1": "1c124da1086f4e2f0908cbd8c50ba4aa652c25ef"
+      }
+    },
+    "nimblas": {
+      "version": "0.3.1",
+      "vcsRevision": "93ffdd705496990983eefa0507d52f6a6c533ca7",
+      "url": "https://github.com/andreaferretti/nimblas",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "e1ecdea4bb8176f12d66efd4aa0c7b3bea970027"
+      }
+    },
+    "nimlapack": {
+      "version": "0.3.1",
+      "vcsRevision": "231430b3d2156f5cbe8fe16bb8967cd9a93964c5",
+      "url": "https://github.com/andreaferretti/nimlapack",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "fcb25795c6fb43f9251b7f34c3ad84c39e645afd"
+      }
+    },
+    "nimcuda": {
+      "version": "0.1.9",
+      "vcsRevision": "5c3cf233726549b63266f6dba14788f30e0405b6",
+      "url": "https://github.com/andreaferretti/nimcuda",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "9d6c8461e8f6f1acdacc55fe2353c27650be6a10"
+      }
+    },
+    "opencl": {
+      "version": "1.0.1",
+      "vcsRevision": "7b138ac19d7f5452a74742392ffadac3d26ee397",
+      "url": "https://github.com/nim-lang/opencl",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "89c70044ee474834a4f7dcd6bf05a9082b0886bb"
+      }
+    },
+    "nimcl": {
+      "version": "0.1.3",
+      "vcsRevision": "f2f963ff043a364386888f8a6cf91646cd583e99",
+      "url": "https://github.com/andreaferretti/nimcl",
+      "downloadMethod": "git",
+      "dependencies": [
+        "opencl"
+      ],
+      "checksums": {
+        "sha1": "fb304e3b75503fb359ffe649d019a2fac7e2b3dc"
+      }
+    },
+    "clblast": {
+      "version": "0.0.2",
+      "vcsRevision": "cdadb10dd85b95c9e7248f0b9661ad1e7616efe6",
+      "url": "https://github.com/numforge/nim-clblast",
+      "downloadMethod": "git",
+      "dependencies": [
+        "opencl"
+      ],
+      "checksums": {
+        "sha1": "0b4514b483f83492c49bb0629e5b45ffdf8e7aa3"
+      }
+    },
+    "stb_image": {
+      "version": "2.5",
+      "vcsRevision": "ba5f45286bfa9bed93d8d6b941949cd6218ec888",
+      "url": "https://gitlab.com/define-private-public/stb_image-Nim.git",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "abf5fd03e72ee4c316c50a0538b973e355dcb175"
+      }
+    },
+    "zip": {
+      "version": "0.3.1",
+      "vcsRevision": "bdc5783fefc1afb8eb622ff13d464a832ce1d507",
+      "url": "https://github.com/nim-lang/zip",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "747aab3c43ecb7b50671cdd0ec3b2edc2c83494c"
+      }
+    },
+    "untar": {
+      "version": "0.1.0",
+      "vcsRevision": "b49f6ac94974fe11cb3d396a8a9c533824a497a7",
+      "url": "https://github.com/dom96/untar",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "ceb12634783156ddd511410242dc7855ae2f4a14"
+      }
+    },
+    "arraymancer": {
+      "version": "0.7.32",
+      "vcsRevision": "c95e1c78048a02eda9ac8ad7bb2dd189dbdc1902",
+      "url": "https://github.com/mratsim/Arraymancer",
+      "downloadMethod": "git",
+      "dependencies": [
+        "nimblas",
+        "nimlapack",
+        "nimcuda",
+        "nimcl",
+        "clblast",
+        "stb_image",
+        "zip",
+        "untar"
+      ],
+      "checksums": {
+        "sha1": "e1fa31ad09f0199e93c1bf9959e1f3af5bdacc08"
+      }
+    },
+    "vmath": {
+      "version": "2.0.0",
+      "vcsRevision": "7282ae1247f2f384ebeaec3826d7fa38fd0e1df1",
+      "url": "https://github.com/treeform/vmath",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "c90a664f3425d26219e1262ed9a888b859b3127c"
+      }
+    },
+    "bumpy": {
+      "version": "1.1.2",
+      "vcsRevision": "d7eaf00c24820ad0317c9926737402e62431e931",
+      "url": "https://github.com/treeform/bumpy",
+      "downloadMethod": "git",
+      "dependencies": [
+        "vmath"
+      ],
+      "checksums": {
+        "sha1": "acc789c4e31b3ee969a13dd0c238d808f39b19c7"
+      }
+    },
+    "cairo": {
+      "version": "1.1.1",
+      "vcsRevision": "50ca8ed54554eae686024c0dc88490502af31cb8",
+      "url": "https://github.com/nim-lang/cairo",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "f2c13e59ce9658b2ae6fa0c89173f6012a23fafc"
+      }
+    },
+    "cdt": {
+      "version": "0.1.1",
+      "vcsRevision": "49198f7d02c6df559aee408de4a6359731831f69",
+      "url": "https://github.com/HugoGranstrom/cdt",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "8e079c6a8d42882b3104ebd3ed8398b4a7ea969c"
+      }
+    },
+    "chroma": {
+      "version": "0.2.7",
+      "vcsRevision": "b2e71179174e040884ebf6a16cbac711c84620b9",
+      "url": "https://github.com/treeform/chroma",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "f873f4b97e87a82e27e0b85bf9130fe3e320a2b8"
+      }
+    },
+    "cppstl": {
+      "version": "0.6.2",
+      "vcsRevision": "914d41b7521221be05706e2317f85d6f77728d66",
+      "url": "https://github.com/BigEpsilon/nim-cppstl",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "e188e0b740c690be8012e76da3b1180ef7cc4d66"
+      }
+    },
+    "nimsimd": {
+      "version": "1.2.12",
+      "vcsRevision": "391de702184b23fce87270b225967ef955766aeb",
+      "url": "https://github.com/guzba/nimsimd",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "48fc3a072be3c16acbdbab63b936c744c7739b41"
+      }
+    },
+    "crunchy": {
+      "version": "0.1.11",
+      "vcsRevision": "98eb6526982bb8aae8eec6e8781f4539fa19e049",
+      "url": "https://github.com/guzba/crunchy",
+      "downloadMethod": "git",
+      "dependencies": [
+        "nimsimd"
+      ],
+      "checksums": {
+        "sha1": "d34f03fc0f6876dbf53f99601096728ec31f47a3"
+      }
+    },
+    "seqmath": {
+      "version": "0.2.2",
+      "vcsRevision": "74767bc93d5ef460a607c5224df82237cdb39ac5",
+      "url": "https://github.com/Vindaar/seqmath",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "734340a5e463353b96c988e776df8b8760c099ec"
+      }
+    },
+    "datamancer": {
+      "version": "0.4.6",
+      "vcsRevision": "bfe0c88474e1b318c8bb22fd8b4ab07f21034047",
+      "url": "https://github.com/SciNim/datamancer",
+      "downloadMethod": "git",
+      "dependencies": [
+        "seqmath",
+        "arraymancer"
+      ],
+      "checksums": {
+        "sha1": "bc6933372278685ce1f8895cc6490b63bd7b421d"
+      }
+    },
+    "unicodedb": {
+      "version": "0.12.0",
+      "vcsRevision": "b055310c08db8f879057b4fec15c8301ee93bb2a",
+      "url": "https://github.com/nitely/nim-unicodedb",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "4452416471e2fe8726eb6070ed6ea7368171cc09"
+      }
+    },
+    "regex": {
+      "version": "0.25.0",
+      "vcsRevision": "cb8b7bfdcdc2272aadf92153c668acd3c901bd6b",
+      "url": "https://github.com/nitely/nim-regex",
+      "downloadMethod": "git",
+      "dependencies": [
+        "unicodedb"
+      ],
+      "checksums": {
+        "sha1": "cb2e24397c051e55ad5b72b3c0d4f270a90084df"
+      }
+    },
+    "docopt": {
+      "version": "0.7.1",
+      "vcsRevision": "efaa112b6df172a9168c4eb581ab8dda1fbcfe2a",
+      "url": "https://github.com/docopt/docopt.nim",
+      "downloadMethod": "git",
+      "dependencies": [
+        "regex"
+      ],
+      "checksums": {
+        "sha1": "387f1ae17f3b7620c7814cf44a52d3d91b8906e9"
+      }
+    },
+    "dotenv": {
+      "version": "2.0.2",
+      "vcsRevision": "a3c6726147276ea1447dee292fd27bb036242b78",
+      "url": "https://github.com/euantorano/dotenv.nim",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "1e70fc63c286ca3da7592d61dbe501fcea35bc72"
+      }
+    },
+    "flatBuffers": {
+      "version": "0.1.0",
+      "vcsRevision": "13bfb63dfc4ce526a54f64ee6f83dd54342f507c",
+      "url": "https://github.com/Vindaar/flatBuffers",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "c0395ec0a07b8056d950e37d132dce1e57e7a609"
+      }
+    },
+    "flatty": {
+      "version": "0.3.4",
+      "vcsRevision": "07f6ba8ab96238e5bd1264cf0cea1d1746abb00c",
+      "url": "https://github.com/treeform/flatty",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "5775e6ea6ca339efc5bd37b082b8294342d49dc5"
+      }
+    },
+    "fontim": {
+      "version": "0.2.0",
+      "vcsRevision": "eae55734dbf316bd428524a1e29974ac17fda711",
+      "url": "https://github.com/zetashift/fontim",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "3aa3f5f541ecd9d24aaf4d56620b3c00fa668884"
+      }
+    },
+    "shell": {
+      "version": "0.6.0",
+      "vcsRevision": "cdd98b9d6e0715fc13a62b1de3f82450cc463679",
+      "url": "https://github.com/Vindaar/shell",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "ce4bd02e0fbe71a56753821b4162ecad488cec66"
+      }
+    },
+    "latexdsl": {
+      "version": "0.2.0",
+      "vcsRevision": "f06a89e59761815a27a9a0f32b0db6686065c674",
+      "url": "https://github.com/Vindaar/LatexDSL",
+      "downloadMethod": "git",
+      "dependencies": [
+        "shell"
+      ],
+      "checksums": {
+        "sha1": "e7001028160a82ccfa387de680775f9ed592ccb5"
+      }
+    },
+    "zippy": {
+      "version": "0.10.16",
+      "vcsRevision": "a99f6a7d8a8e3e0213b3cad0daf0ea974bf58e3f",
+      "url": "https://github.com/guzba/zippy",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "da3bb5ea388f980babcc29760348e2899d29a639"
+      }
+    },
+    "pixie": {
+      "version": "5.0.7",
+      "vcsRevision": "3b65ca5605a1156987041bf0295449e4c56128cf",
+      "url": "https://github.com/treeform/pixie",
+      "downloadMethod": "git",
+      "dependencies": [
+        "vmath",
+        "chroma",
+        "zippy",
+        "flatty",
+        "nimsimd",
+        "bumpy",
+        "crunchy"
+      ],
+      "checksums": {
+        "sha1": "64999611cd1093e28b62ed80e695783839441538"
+      }
+    },
+    "ginger": {
+      "version": "0.6.1",
+      "vcsRevision": "ac3920a9c2005d4ea6f2016677a8edfa8ce0cbb3",
+      "url": "https://github.com/Vindaar/ginger",
+      "downloadMethod": "git",
+      "dependencies": [
+        "chroma",
+        "seqmath",
+        "cairo",
+        "latexdsl",
+        "pixie",
+        "shell",
+        "fontim"
+      ],
+      "checksums": {
+        "sha1": "01ae18b65875ed684d47d4b8f45be125d3621018"
+      }
+    },
+    "webview": {
+      "version": "0.1.0",
+      "vcsRevision": "ca3e25ee93a63c3a819a1bfa17386dad6ad41b1a",
+      "url": "https://github.com/oskca/webview",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "2d714d280055de9d0a33e6a730f1099feb1261aa"
+      }
+    },
+    "parsetoml": {
+      "version": "0.7.1",
+      "vcsRevision": "6e5e16179fa2db60f2f37d8b1af4128aaa9c8aaf",
+      "url": "https://github.com/NimParsers/parsetoml.git",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "586fe63467a674008c4445ed1b8ac882177d7103"
+      }
+    },
+    "threading": {
+      "version": "0.2.0",
+      "vcsRevision": "c69e13aeb9127cdf8519b07e3f270eada34eee5d",
+      "url": "https://github.com/nim-lang/threading",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "1bb1be822a989a8b56bd86c4e1117367426f1b67"
+      }
+    },
+    "polynumeric": {
+      "version": "0.2.1",
+      "vcsRevision": "c45ae36b3c40c3c332bcf159a6ed21ae53aab66e",
+      "url": "https://github.com/SciNim/polynumeric",
+      "downloadMethod": "git",
+      "dependencies": [
+        "arraymancer"
+      ],
+      "checksums": {
+        "sha1": "25d14a718148352a3ab9db4dc8b53bf73dc669ab"
+      }
+    },
+    "nimpy": {
+      "version": "0.2.0",
+      "vcsRevision": "07e1d8a1f1348a1acdad91ed77d317d2d3712b8d",
+      "url": "https://github.com/yglukhov/nimpy",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "fb4ac75c25a76340c14a0d45b356c4598e03aea6"
+      }
+    },
+    "scinim": {
+      "version": "0.2.5",
+      "vcsRevision": "67207e89a11a62ceb671da45e8032039f20eef12",
+      "url": "https://github.com/SciNim/scinim",
+      "downloadMethod": "git",
+      "dependencies": [
+        "threading",
+        "arraymancer",
+        "polynumeric",
+        "nimpy"
+      ],
+      "checksums": {
+        "sha1": "123625cbd61116b14d229ace3cd62269e4b63f7e"
+      }
+    },
+    "ggplotnim": {
+      "version": "0.7.0",
+      "vcsRevision": "db4a39eaa914b44ce452d07b6042e3610c91e0c9",
+      "url": "https://github.com/Vindaar/ggplotnim",
+      "downloadMethod": "git",
+      "dependencies": [
+        "seqmath",
+        "ginger",
+        "datamancer",
+        "arraymancer",
+        "shell",
+        "webview",
+        "parsetoml",
+        "scinim"
+      ],
+      "checksums": {
+        "sha1": "92f992d8b4feea19234fe5b7d748ed07f0352f0b"
+      }
+    },
+    "helpers": {
+      "version": "0.2.0",
+      "vcsRevision": "cb83336f2357601b4a2aec5595deb8ed45028460",
+      "url": "git@github.com:vindaar/TimepixAnalysis.git",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "968803cb7670e528ca94bb116394874f17833f94"
+      }
+    },
+    "ingridDatabase": {
+      "version": "0.1.0",
+      "vcsRevision": "cb83336f2357601b4a2aec5595deb8ed45028460",
+      "url": "git@github.com:vindaar/TimepixAnalysis.git",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "72a5954a8a3e15e26b2dc24a308b63997fbf08ac"
+      }
+    },
+    "wasmrt": {
+      "version": "0.1.0",
+      "vcsRevision": "145b4a0b903b8f38ee5050f74efe1222085ed613",
+      "url": "https://github.com/yglukhov/wasmrt",
+      "downloadMethod": "git",
+      "dependencies": [
+        "zippy"
+      ],
+      "checksums": {
+        "sha1": "345935a3a160c44acf09ec23a14e2c20eaebc8a0"
+      }
+    },
+    "jsbind": {
+      "version": "0.1.1",
+      "vcsRevision": "d9c2ded6b81a69cbf8636eb3402c077c524c56a9",
+      "url": "https://github.com/yglukhov/jsbind",
+      "downloadMethod": "git",
+      "dependencies": [
+        "wasmrt"
+      ],
+      "checksums": {
+        "sha1": "4b25dc5465197d5b72d46a75a1d73753d41cc062"
+      }
+    },
+    "ws": {
+      "version": "0.5.0",
+      "vcsRevision": "9536bf99ddf5948db221ccb7bb3663aa238a8e21",
+      "url": "https://github.com/treeform/ws",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "ae4daf4ae302d0431f3c2d385ae9d2fe767a3246"
+      }
+    },
+    "karax": {
+      "version": "1.3.3",
+      "vcsRevision": "d86349c63d8ece330d749eb037a9fa5ffca87c79",
+      "url": "https://github.com/karaxnim/karax/",
+      "downloadMethod": "git",
+      "dependencies": [
+        "ws",
+        "dotenv"
+      ],
+      "checksums": {
+        "sha1": "6683189b4456437c2809be72e3404adde77f5c34"
+      }
+    },
+    "measuremancer": {
+      "version": "0.2.8",
+      "vcsRevision": "459b531615afd9d6186897fd198a4f278d5243a1",
+      "url": "https://github.com/SciNim/Measuremancer",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "cfc6355e1e605c40414f2f070245d71020220af7"
+      }
+    },
+    "mpfit": {
+      "version": "0.2.0",
+      "vcsRevision": "6706a57f7388ca1893c81314e1e6e2aec468669a",
+      "url": "https://github.com/Vindaar/nim-mpfit",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "ff9a320b472c5d3851414e2aa555d9c3c2437ad7"
+      }
+    },
+    "nimhdf5": {
+      "version": "0.6.1",
+      "vcsRevision": "3cac8b2b358ebf1c5d6f5d013633564bed334e0d",
+      "url": "https://github.com/Vindaar/nimhdf5",
+      "downloadMethod": "git",
+      "dependencies": [
+        "seqmath"
+      ],
+      "checksums": {
+        "sha1": "0c511f1baef222f7daf9890b36ba8ae87b770dbe"
+      }
+    },
+    "nlopt": {
+      "version": "0.3.2",
+      "vcsRevision": "d6d47bf5af81ca06ddb690a988b57f7a0b3f3223",
+      "url": "https://github.com/Vindaar/nimnlopt",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "dfb4be18cff4814a9ee86c1254d8e4cf8e4d6cf9"
+      }
+    },
+    "numericalnim": {
+      "version": "0.8.9",
+      "vcsRevision": "bd3c612c736f1ed74f74623a2cb202d9d3bdc441",
+      "url": "https://github.com/SciNim/numericalnim/",
+      "downloadMethod": "git",
+      "dependencies": [
+        "arraymancer",
+        "cdt"
+      ],
+      "checksums": {
+        "sha1": "ee6fc11ba175c37edf6589d3b73e2b736a952403"
+      }
+    },
+    "orgtables": {
+      "version": "0.1.0",
+      "vcsRevision": "034b0c1dd5b3fd24702083862f698679f65f0699",
+      "url": "https://github.com/Vindaar/orgtables",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "a8851cc9550689e60e5ca774ca4c185eb6fc46c8"
+      }
+    },
+    "plotly": {
+      "version": "0.3.3",
+      "vcsRevision": "b9705980965f65e4174ef68c4f93cd082375b623",
+      "url": "https://github.com/SciNim/nim-plotly",
+      "downloadMethod": "git",
+      "dependencies": [
+        "chroma",
+        "jsbind",
+        "webview",
+        "ws"
+      ],
+      "checksums": {
+        "sha1": "a0687b7a917ebea721ceb9466125440074bac044"
+      }
+    },
+    "synthesis": {
+      "version": "0.2.0",
+      "vcsRevision": "09bef6df051b13baeb3a83d03f08b8886354839f",
+      "url": "https://github.com/mratsim/Synthesis",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "2745e973d0850864e013aec5ef7d1a2dcb5599a4"
+      }
+    },
+    "threadpools": {
+      "version": "0.1.0",
+      "vcsRevision": "9129bc71ae91128f3bdab16421acc14f3324793f",
+      "url": "https://github.com/yglukhov/threadpools",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "4b1cc154dfe87fe80945840ec8e787a81e185ec7"
+      }
+    },
+    "unchained": {
+      "version": "0.4.3",
+      "vcsRevision": "2335ccd743af1b8893e84a50ae0cea5c63acba08",
+      "url": "https://github.com/SciNim/unchained",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "95169655e4780cd8f8dbb78095f32e5eec4c0061"
+      }
+    },
+    "weave": {
+      "version": "0.4.10",
+      "vcsRevision": "b6255afa5816ee431dbf2f59cc6bc605d8d657b8",
+      "url": "https://github.com/mratsim/weave",
+      "downloadMethod": "git",
+      "dependencies": [
+        "synthesis"
+      ],
+      "checksums": {
+        "sha1": "c25aaeeaa22ef5646cf6b01fbedf4ee9a315b57b"
+      }
+    },
+    "xrayAttenuation": {
+      "version": "0.4.3",
+      "vcsRevision": "d261db08770e2de3da828e8ad938d1c9f9562ffa",
+      "url": "https://github.com/SciNim/xrayAttenuation",
+      "downloadMethod": "git",
+      "dependencies": [
+        "ggplotnim",
+        "unchained",
+        "numericalnim",
+        "cligen"
+      ],
+      "checksums": {
+        "sha1": "4e673814b8bd0a70c9d9c28ac33408acff9c320f"
+      }
+    },
+    "zero_functional": {
+      "version": "1.3.0",
+      "vcsRevision": "0d2864eb611ea9aaf316e37af07e9c90d2887f4b",
+      "url": "https://github.com/zero-functional/zero-functional",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "3fec84b678cdd3ecf1f364e45288b27d9998cfdb"
+      }
+    }
+  },
+  "tasks": {}
+}

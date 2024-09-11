@@ -57,6 +57,11 @@ jobs:
         shell: bash
         run: |
           cd TimepixAnalysis/Analysis
+          # we need to install weave manually first. Otherwise it
+          # tries to pull it in a way where it also pulls its
+          # submodules, some of which are not available anymore,
+          # making it fail.
+          nimble install weave
           nimble setup # set up the nimble.paths file for all deps
 
       - name: Build binaries

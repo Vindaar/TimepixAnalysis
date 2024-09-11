@@ -26,7 +26,9 @@ proc findLib(lib: string, tool: string): bool =
     doAssert lib in res, "`" & $tool & "` returned: " & $res & "\nbut did not find the library: " & $lib
 
 proc checkNLopt(allowClone: bool, clonePath: string,
-                locateTool: string) =
+                locateTool: string): bool =
+  ## Returns a bool indicating whether user action is required, i.e.
+  ## setting up the path to the shared lib.
   echo "Checking for NLopt"
   let nloptCheck = findLib("libnlopt.so", locateTool)
   if nloptCheck:
@@ -49,13 +51,16 @@ proc checkNLopt(allowClone: bool, clonePath: string,
     stdout.styledWrite(fgYellow, "\n\nNOTE: Please call `sudo make install` in " &
       "$HOME/src/nimnlopt/c_header/nlopt/build! Alternatively, copy the " &
       "`libnlopt.so` file into an appropriate location scanned by `ld.so`.\n\n")
+    result = true # return true, because user action is required
   else:
     stdout.styledWrite(fgRed, "\n\nNOTE: NLopt shared library is not found using " & $locateTool &
       " and cloning is forbidden. Please install it yourself or launch this program with " &
       "--allowClone=true")
 
 proc checkMPFIT(allowClone: bool, clonePath: string,
-                locateTool: string) =
+                locateTool: string): bool =
+  ## Returns a bool indicating whether user action is required, i.e.
+  ## setting up the path to the shared lib.
   echo "Checking for mpfit"
   let mpfitCheck = findLib("libmpfit.so", locateTool)
   if mpfitCheck:
@@ -74,6 +79,7 @@ proc checkMPFIT(allowClone: bool, clonePath: string,
     stdout.styledWrite("\n\nNOTE: Please copy `libmpfit.so` located in " &
       "$HOME/src/nim-mpfit/c_src into an appropriate location, " &
       "e.g. '/usr/local/lib' scanned by `ld.so`. \n\n")
+    result = true # return true, because user action is required
   else:
     stdout.styledWrite(fgRed, "\n\nNOTE: MPFIT shared library is not found using " & $locateTool &
       " and cloning is forbidden. Please install it yourself or launch this program with " &
@@ -89,7 +95,6 @@ proc generatePathsFile() =
     one:
       cd Analysis
       nimble setup
-
 
 proc compileBinaries() =
   proc compile(bin: string, flags: seq[string]) =
@@ -128,8 +133,13 @@ proc main(locateTool = "locate",
   doAssert dir.endsWith("TimepixAnalysis"), "`buildTpa` must be run from the TimepixAnalysis root directory!"
 
   # 1. Set up NLopt and MPFIT dependencies
-  checkNLopt(allowClone, clonePath, locateTool)
-  checkMPFIT(allowClone, clonePath, locateTool)
+  var action = false
+  action = action or checkNLopt(allowClone, clonePath, locateTool)
+  action = action or checkMPFIT(allowClone, clonePath, locateTool)
+  if action:
+    stdout.styledWrite(fgYellow, "[WARNING]: Continuing with further setup after compilation of " &
+      "NLopt and/or MPFIT. You will need to perform manual steps to make the shared libraries available " &
+      "before you can run any of the compiled binaries.")
 
   # 2. Generate a `nimble.paths` file from the lockfile
   generatePathsFile()

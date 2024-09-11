@@ -158,6 +158,16 @@
         "sha1": "e1fa31ad09f0199e93c1bf9959e1f3af5bdacc08"
       }
     },
+    "blosc": {
+      "version": "1.15.0",
+      "vcsRevision": "7fb0c2bc2799421b49ca33207c033fbc0afb4daa",
+      "url": "https://github.com/Vindaar/nblosc",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "fa263d73fb233295a242cfbc1648952ff97b7295"
+      }
+    },
     "vmath": {
       "version": "2.0.0",
       "vcsRevision": "7282ae1247f2f384ebeaec3826d7fa38fd0e1df1",
@@ -339,6 +349,16 @@
         "sha1": "3aa3f5f541ecd9d24aaf4d56620b3c00fa668884"
       }
     },
+    "forked": {
+      "version": "0.1.1",
+      "vcsRevision": "4c107ecd523b1a652afe42d83fd28d62c9d8665c",
+      "url": "https://github.com/Vindaar/forked",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "6a9973871402b918e1425cac990c435f4270eef9"
+      }
+    },
     "shell": {
       "version": "0.6.0",
       "vcsRevision": "cdd98b9d6e0715fc13a62b1de3f82450cc463679",
@@ -491,26 +511,6 @@
       ],
       "checksums": {
         "sha1": "92f992d8b4feea19234fe5b7d748ed07f0352f0b"
-      }
-    },
-    "helpers": {
-      "version": "0.2.0",
-      "vcsRevision": "cb83336f2357601b4a2aec5595deb8ed45028460",
-      "url": "git@github.com:vindaar/TimepixAnalysis.git",
-      "downloadMethod": "git",
-      "dependencies": [],
-      "checksums": {
-        "sha1": "968803cb7670e528ca94bb116394874f17833f94"
-      }
-    },
-    "ingridDatabase": {
-      "version": "0.1.0",
-      "vcsRevision": "cb83336f2357601b4a2aec5595deb8ed45028460",
-      "url": "git@github.com:vindaar/TimepixAnalysis.git",
-      "downloadMethod": "git",
-      "dependencies": [],
-      "checksums": {
-        "sha1": "72a5954a8a3e15e26b2dc24a308b63997fbf08ac"
       }
     },
     "wasmrt": {

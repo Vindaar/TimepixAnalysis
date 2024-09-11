@@ -28,8 +28,6 @@ Many parts of this repository are specifically related to an InGrid
 based X-ray detector in use at the CERN Axion Solar Telescope:
 [[http://cast.web.cern.ch/CAST/]]
 
-...
-
 
 * Project structure
 This repository contains a big project combining several tools used to
@@ -40,6 +38,10 @@ experiment.
 utilities for TOS data, the [[file:Analysis/][Analysis]] folder is what you're looking
 for. See the [[Installation]] section for more information.
 
+*UPDATE* <2024-09-11 Wed 16:10>: For a more updated overview of the
+repository structure, see the overview here:
+https://phd.vindaar.de/html/software.html#sec:appendix:timepix_analysis
+
 - [[file:Analysis/][Analysis]]:
   Is the =ingrid= module, which contains the major programs of this
   repository [[file:Analysis/ingrid/raw_data_manipulation.nim][raw_data_manipulation]] and [[file:Analysis/ingrid/reconstruction.nim][reconstruction]] and to a lesser
@@ -49,7 +51,7 @@ for. See the [[Installation]] section for more information.
     Supported TOS data types:
     - old ~2015 era Virtex V6 TOS
     - current Virtex V6 TOS
-    - *soon:* current SRS TOS
+    - current SRS TOS
   - [[file:Analysis/ingrid/reconstruction.nim][reconstruction]]:
     Takes the output of the above program and performs reconstruction
     of clusters within the data, i.e. calculate geometric properties.
@@ -62,28 +64,6 @@ for. See the [[Installation]] section for more information.
   provided. A combination of a https://github.com/yglukhov/nimx based
   GUI with a =readline= based command line interface will be
   developed.
-- [[file:CDL-RootToHdf5/][CDL-RootToHdf5]]:
-  A Python tool to (currently only) convert X-ray calibration data
-  from the CAST detector lab from ROOT trees to HDF5 files. This could
-  be easily extended to be a ROOT to HDF5 converter.
-  TODO: this should be moved to [[file:Tools/][Tools]].
-- [[file:endTimeExtractor/][endTimeExtractor]]:
-  A Nim tool to extract the following information from a TOS run:
-  - start of the Run
-  - end of the Run
-  - total run time
-  and output it as an Org date string.
-  TODO: should be moved to [[file:Tools/][Tools]].
-- [[file:extractScintiTriggers/][extractScintiTriggers]]:
-  A Nim tool to extract the number of scintillator triggers of a TOS
-  run (either read from a raw run folder or a HDF5 file). Outputs
-  total numbers of those and provides functionality to copy raw files
-  containing non trivial scintillator counts (=< 4095= cycles) to a
-  different location to view them with TOS's event display.
-  TODO: should be moved to [[file:Tools/][Tools]].
-- [[file:Figs/][Figs]]:
-  Plots, which are created from the analysis and have been used in a
-  talk etc.
 - [[file:InGridDatabase/][InGridDatabase]]:
   A Nim program which provides, writes to and reads from the /InGrid
   database/. If the a folder describing the used detector is given to
@@ -94,11 +74,6 @@ for. See the [[Installation]] section for more information.
   of this database to read calibration relevant data from it.
   TODO: link to explanation of required folder structure and add files
   / folders for current chips part of database.
-- [[file:InGrid-Python/][InGrid-Python]]:
-  A Python module containing additional functions used in the Nim
-  analysis (fit of Fe55 spectrum and polya gas gain fit done using
-  https://github.com/yglukhov/nimpy) and the Python plotting tool (see
-  below).
 - [[file:LogReader/][LogReader]]:
   A Nim tool to read and process CAST slow control and tracking log
   files. From these environmental sensors can be read if needed for
@@ -112,15 +87,6 @@ for. See the [[Installation]] section for more information.
   A Nim tool to create plots of Timepix calibration data. Reads from
   the InGrid database and plots =ToT= calibration (+ fits) and
   SCurves.
-- [[file:PlottingPython/][PlottingPython]]:
-  A set of Python plotting tools.
-  - [[file:PlottingPython/Plotting/PyS_createBackgroundRate.py][PyS_createBackgroundRate.py]]:
-    used to create the background rate plots for the CAST data taking
-    after the likelihood analysis has been performed.
-  - [[file:PlottingPython/Plotting/PyS_plotH5data.py][PyS_plotH5data.py]]:
-    used to plot arbitrary 1D column data (basically everything
-    resulting from the reconstruction) from the reconstruction HDF5
-    files.
 - [[file:README.org][README.org]]: this file. :)
 - [[file:resources/][resources]]:
   Contains data, which is needed for analysis purposes,
@@ -128,6 +94,10 @@ for. See the [[Installation]] section for more information.
   2014/15 background rates etc.
   TODO: maybe add folders for known chips for InGrid database in here
   or at least an example directory.
+- [[file:Tools/][Tools]]:
+  Directory for other smaller tools, for which a separate directory in
+  the root of the repository does not make sense (either used too
+  infrequently or are very specific and small tools).
 - [[file:SolarEclipticToEarth][SolarEclipticToEarth]]:
   A simple Python tool part of solar chameleon
   analysis, which calculates the projection of the solar ecliptic onto
@@ -137,15 +107,32 @@ for. See the [[Installation]] section for more information.
 - [[file:Tests/][Tests]]:
   Some very simple "test cases", which typically just test new
   features separately from the rest of the analysis programs.
-- [[file:Tools/][Tools]]:
-  Directory for other smaller tools, for which a separate directory in
-  the root of the repository does not make sense (either used too
-  infrequently or are very specific and small tools).
 - [[file:VerticalShiftProblem/][VerticalShiftProblem]]:
   A simple Python tool to plot CAST log data to debug a problem with
   the belt, which slipped and caused misalignment. That problem has
   since been fixed.
   TODO: should be moved to [[file:Tools/][Tools]].
+- [[file:CDL-RootToHdf5/][CDL-RootToHdf5]]:
+  A Python tool to (currently only) convert X-ray calibration data
+  from the CAST detector lab from ROOT trees to HDF5 files. This could
+  be easily extended to be a ROOT to HDF5 converter.
+  TODO: this should be moved to [[file:Tools/][Tools]].
+- [[file:endTimeExtractor/][endTimeExtractor]]:
+  A Nim tool to extract the following information from a TOS run:
+  - start of the Run
+  - end of the Run
+  - total run time
+  and output it as an Org date string.
+  TODO: should be moved to [[file:Tools/][Tools]].
+- [[file:InGrid-Python/][InGrid-Python]]:
+  An (outdated) Python module containing additional functions used in the Nim
+  analysis (fit of Fe55 spectrum and polya gas gain fit done using
+  https://github.com/yglukhov/nimpy) and the Python plotting tool (see
+  below).
+- [[file:Figs/][Figs]]:
+  Plots, which are created from the analysis and have been used in a
+  talk etc.
+  
 
 * Installation
 
@@ -360,9 +347,9 @@ engine. PRs welcome! :)
 [[https://github.com/Blosc/c-blosc][Blosc]] is a compression library used to compress the binary data in the
 HDF5 files. By default however =Zlib= compression is used, so this is
 typically not needed.
-If one wishes to read Timepix3 based HDF5 files however, this module
-will is needed, although support for these detectors is currently not
-part of this repository.
+If one wishes to read Timepix3 based HDF5 files ~blosc~ support is
+mandatory (in [[file:Analysis/ingrid/parse_raw_tpx3.nim]] and after that
+in [[file:Analysis/ingrid/raw_data_manipulation.nim]]).
 
 ** Install the TimpixAnalysis framework
 
@@ -466,34 +453,6 @@ The =reconstruction= program is compiled in the same way.
 nim c -d:release --threads:on reconstruction.nim
 #+END_SRC
 
-*** TODO Python dependency [optional]
-
-For some parts of the later analysis a Python module is necessary,
-because we call Python code from Nim to perform two different fits.
-
-Mainly we need to install the =InGrid-Python= module, via:
-#+BEGIN_SRC sh
-cd InGrid-Python
-python3 setup.py develop
-cd ..
-#+END_SRC
-potentially with =sudo= rights, depending on your setup. This will
-create a link to the =InGrid-Python= directory, similar to what
-=nimble develop= does.
-
-*TODO:* To run the code for the gas gain calculations, in addition we
-need to compile a small Nim module [[file:Analysis/ingrid/procsForPython.nim][procsForPython.nim]]. This module
-defines several Nim procs, which are compiled as a shared object and
-called from Python in order to accelerate the fitting significantly.
-
-That module needs to be compiled as:
-#+BEGIN_SRC sh
-cd Analysis/ingrid/
-nim c -d:release --app:lib --out:procsForPython.so procsForPython.nim
-#+END_SRC
-and potenatially copied over to the source directory of the
-=InGrid-Python= module.
-
 *** Troubleshooting
 
 If you run into problems trying to run one of the programs, it might
@@ -539,30 +498,13 @@ nimble install "https://github.com/vindaar/seqmath#head"
 
 *** List of nimble dependencies
 
-The following Nim modules are definitely required for
-=raw_data_manipulation= and =reconstruction=:
-#+BEGIN_SRC
-loopfusion
-arraymancer
-https://github.com/vindaar/seqmath#head
-https://github.com/vindaar/shell#head
-https://github.com/vindaar/ginger#head
-https://github.com/vindaar/ggplotnim#head
-nimhdf5
-docopt
-mpfit
-nlopt
-plotly
-zero_functional
-helpers
-nimpy
-karax
-parsetoml
-https://github.com/yglukhov/threadpools#head
-ingridDatabase
-#+END_SRC
+For a list of Nimble dependencies, see [[file:Analysis/ingrid.nimble]].
 
 * Usage
+
+*NOTE*: <2024-09-11 Wed 16:16> This is also a bit outdated. Again, see
+the instructions from:
+https://phd.vindaar.de/html/software.html#sec:appendix:timepix_analysis
 
 In general the usage of the analysis programs is straight forward and
 explained in the docstring, which can be echoed by calling a program
@@ -702,14 +644,6 @@ example folder, which is handed.
 
 There are several tools available to visualize the data created by
 the programs in this repository.
-
-*** TODO Nim
-
-*** TODO Python
-
-* Analysis pipeline
-
-Some words...
 
 
 * License

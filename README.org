@@ -151,31 +151,8 @@ The following shared libraries are linked at runtime:
 Their installation procedures are explained below.
 
 For instructions to install the dependencies, see sec. [[#sec:deps]]. Note
-that for ~NLopt~ and ~MPFIT~ the build tool (see sec. [[#sec:install:build]]).
-
-** General remarks
-
-A note about the dependeny of the source code on the Nim compiler:
-#+BEGIN_CENTER
-This project *strictly* depends on the devel branch of the Nim
-compiler! If new features are implemented in the compiler (or
-libraries it depends on for that matter), which are useful for this
-project, they will be used! If you run into compilation issues try to
-update to the current =#head= of the package, which fails compilation
-(if the error happens in a module not part of this repo) and update
-the Nim compiler!
-#+END_CENTER
-
-A general note about compiling Nim programs. Unless debuggin the code,
-you should always compile your programs with the =-d:release= flag. It
-disables many different run time checks, which slow down the execution
-speed by a factor of 5 to 10, depending on the workload!
-
-*** TODO Include example of a =config.nims=
-
-Include an example of a =config.nims=, which defines common
-compilation flags like =-d:release=, =--threads:on= or =-d:H5_LEGACY=
-(if applicable) to ease the compilation process for users.
+that for ~NLopt~ and ~MPFIT~ the build tool (see
+sec. [[#sec:install:build]]) 
 
 ** Nim
 

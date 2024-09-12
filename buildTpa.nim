@@ -35,7 +35,10 @@ proc checkNLopt(allowClone: bool, clonePath: string,
     echo "[INFO] NLopt shared library found."
   elif allowClone:
     echo "[INFO] Clone and build NLopt"
-    let path = clonePath.expandFilename()
+    verifyTool("git")
+    verifyTool("cmake")
+    verifyTool("make")
+    let path = clonePath.expandTilde()
     shellCheck:
       one:
         mkdir -p ($path)
@@ -67,10 +70,12 @@ proc checkMPFIT(allowClone: bool, clonePath: string,
     echo "[INFO] MPFIT shared library found."
   elif allowClone:
     echo "[INFO] Clone and build MPFIT"
+    let path = clonePath.expandTilde()
+    verifyTool("git")
     shellCheck:
       one:
-        mkdir -p "$HOME/src"
-        cd "$HOME/src"
+        mkdir -p ($path)
+        cd ($path)
         git clone "https://github.com/vindaar/nim-mpfit"
         cd "nim-mpfit"
         cd "c_src"

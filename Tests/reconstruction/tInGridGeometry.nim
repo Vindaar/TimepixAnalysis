@@ -32,9 +32,9 @@ proc `%`(p: Pix): JsonNode =
 proc bindToDf[T](clusters: seq[ClusterObject[T]]): DataFrame =
   var dfs = newSeq[DataFrame]()
   for i, cl in clusters:
-    let ldf = toDf({ "x" : cl.data.mapIt(it.x),
-                         "y" : cl.data.mapIt(it.y),
-                         "ch" :  cl.data.mapIt(it.ch)})
+    let ldf = toDf({ "x" :  cl.data.mapIt(it.x.int),
+                     "y" :  cl.data.mapIt(it.y.int),
+                     "ch" : cl.data.mapIt(it.ch.int)})
     dfs.add ldf
   result = bind_rows(dfs, id = "from")
   if "from" notin result:

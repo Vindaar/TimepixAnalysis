@@ -86,7 +86,7 @@ suite "InGrid data":
     let ev: SrsEvent = processSrsEventScanf(data)
 
     proc checkHeader(header: Table[string, string]): bool =
-      check header["dateTime"] == "2016-05-02T17:53:31+02:00"
+      check header["dateTime"] == "2016-05-02.05:53:31"
       check header["timestamp"] == "1462204411"
       check header["eventNumber"] == "41"
       check header["runNumber"] == "6615"

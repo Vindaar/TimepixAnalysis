@@ -98,11 +98,11 @@ template checkRun(number: int, name: string, withFadc = false): untyped =
                  "runMode", "fastClock", "externalTrigger", "pathName", "dateTime", "shutterMode"]
   template checkChips(chip, numTot: int): untyped =
     let hits = getDset("chip_" & $chip / "Hits", number)
-    check hits.shape == @[1001, 1]
+    check hits.shape == @[1001]
     let occ = getDset("chip_" & $chip / "Occupancy", number)
     check occ.shape == @[256, 256]
     let tot = getDset("chip_" & $chip / "ToT", number)
-    check hits.shape == @[1001, 1]
+    check hits.shape == @[1001]
     let raw_x = getDset("chip_" & $chip / "raw_x", number)
     let raw_y = getDset("chip_" & $chip / "raw_y", number)
     let raw_ch = getDset("chip_" & $chip / "raw_ch", number)
@@ -172,22 +172,21 @@ suite "raw data manipulation":
   test "Without fadc: --nofadc":
     for r in runs:
       ## First remove existing file, if any
-      shell:
-        rm ($r.outName)
+      if fileExists(r.outName):
+        removeFile(r.outName)
       let res = shellVerbose:
-        raw_data_manipulation ($(dataPwd/r.run)) "--nofadc" "--out" ($r.outName) "--runType" ($r.runType)
+        raw_data_manipulation -p ($(dataPwd/r.run)) "--nofadc" "--out" ($r.outName) "--runType" ($r.runType)
       check fileExists(r.outName)
       checkRun(r.num, r.outName)
-      shell:
-        rm ($r.outName)
+      removeFile(r.outName)
 
   test "With fadc":
     for r in runs:
       ## First remove existing file, if any
-      shell:
-        rm ($r.outName)
+      if fileExists(r.outName):
+        removeFile(r.outName)
       let res = shellVerbose:
-        raw_data_manipulation ($(dataPwd/r.run)) "--out" ($r.outName) "--runType" ($r.runType)
+        raw_data_manipulation -p ($(dataPwd/r.run)) "--out" ($r.outName) "--runType" ($r.runType)
       check fileExists(r.outName)
       checkRun(r.num, r.outName, withFadc = true)
       # test does not delete file, is input for ../reconstruction/tReconstruction.nim

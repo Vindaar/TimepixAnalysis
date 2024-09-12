@@ -417,9 +417,27 @@ repositories. The supported HDF5 versions are:
 - =1.8=: as a legacy mode, compile the Nim projects with
   =-d:H5_LEGACY=
 - =1.10=: the current HDF5 version and the default
+- versions newer than ~1.10~ might require the ~-d:H5_FUTURE~
+  compilation flag.
 
 If the HDF5 library is not available on your OS, you may download the
 binaries or the source code from the [[url:https://www.hdfgroup.org/downloads/hdf5/][HDF group]].
+
+**** Ubuntu
+
+On Ubuntu systems the following packages install all you need:
+#+begin_src sh
+sudo apt-get install libhdf5-103 libhdf5-dev
+#+end_src
+
+In addition ~hdf5-tools~ might come in handy.
+
+**** Void Linux
+
+On Void you need:
+#+begin_src sh
+sudo xbps-install -S hdf5 hdf5-devel
+#+end_src
 
 **** HDF View
 HDF View is a very useful tool to look at HDF5 files with a graphical
@@ -452,6 +470,20 @@ set your =LD_PRELOAD_PATH= accordingly!
 
 Afterwards installation of the Nim =nlopt= module is sufficient (done
 automatically later).
+
+**** Ubuntu
+
+On Ubuntu systems the following packages install all you need:
+#+begin_src sh
+sudo apt-get install libnlopt0 libnlopt-dev
+#+end_src
+
+**** Void Linux
+
+#+begin_src sh
+sudo xbps-install -S nlopt nlopt-devel
+#+end_src
+
 
 *** MPfit
 
@@ -507,14 +539,27 @@ In principle we could thus replace the =re= module with
 https://github.com/nitely/nim-regex, a purely Nim based regex
 engine. PRs welcome! :)
 
-*** Blosc [optional]
+*** Blosc                                                        :optional:
 
 [[https://github.com/Blosc/c-blosc][Blosc]] is a compression library used to compress the binary data in the
 HDF5 files. By default however =Zlib= compression is used, so this is
 typically not needed.
-If one wishes to read Timepix3 based HDF5 files ~blosc~ support is
+If one wishes to read Timepix3 based HDF5 files, ~blosc~ support is
 mandatory (in [[file:Analysis/ingrid/parse_raw_tpx3.nim]] and after that
 in [[file:Analysis/ingrid/raw_data_manipulation.nim]]).
+
+**** Ubuntu
+
+On Ubuntu systems the following packages install all you need:
+#+begin_src sh
+sudo apt-get install libblosc1 libblosc-dev
+#+end_src
+
+**** Void Linux
+
+#+begin_src sh
+sudo xbps-install -S c-blosc c-blosc-devel
+#+end_src
 
 
 * Usage

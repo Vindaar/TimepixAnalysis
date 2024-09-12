@@ -234,6 +234,32 @@ cd ~/src
 git clone https://github.com/Vindaar/TimepixAnalysis
 #+END_SRC
 
+*** External dependency overview
+
+On a fresh build of Debian, installing the following packages should
+have you covered in terms of dependencies:
+#+begin_src sh
+git \
+build-essential \
+locate \
+cmake \
+python3-numpy \
+python3-pip \
+libhdf5-dev \
+libnlopt0 \
+libnlopt-dev \
+libcairo2-dev \
+liblapack-dev \
+libpcre3-dev \
+libblosc1 \
+libblosc-dev \
+libgtk-3-dev \
+libwebkit2gtk-4.0
+#+end_src
+
+~locate~ may also be called ~mlocate~. After installing it, make sure
+to run ~sudo updatedb~ to update the ~locate~ database. 
+
 *** Using the build tool to build (most) binaries
 :PROPERTIES:
 :CUSTOM_ID: sec:install:build

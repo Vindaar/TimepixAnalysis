@@ -250,6 +250,7 @@ proc applyChargeCalibration*(h5f: H5File, runNumber: int,
   # get the group from file
   info "Applying charge calibration for run: ", runNumber
   let fileInfo = h5f.getFileInfo() # for timepix version
+  var runPeriodPrinted: set[uint8] # for each chip number
   for run, chip, grp in chipGroups(h5f):
     if chipBase in grp:
       doAssert run == runNumber
@@ -276,7 +277,10 @@ proc applyChargeCalibration*(h5f: H5File, runNumber: int,
         sumTots = sumTotDset[int64]
       # now calculate charge in electrons for all TOT values
       # need calibration factors from InGrid database for that
-      let (a, b, c, t) = getTotCalibParameters(chipName, runNumber)
+      let ((a, b, c, t), runPeriod) = getTotCalibParameters(chipName, runNumber)
+      if chip.uint8 notin runPeriodPrinted:
+        runPeriodPrinted.incl chip.uint8
+        info "Using calibrations for chip: ", chipName, "(# ", chip, ") from run period: ", runPeriod
       #mapIt(it.mapIt(calibrateCharge(it.float, a, b, c, t)))
       var charge = newSeqWith(tots.len, newSeq[float]())
       var totalCharge = newSeq[float](sumTots.len)
@@ -306,6 +310,7 @@ proc applyChargeCalibration*(h5f: H5File, runNumber: int,
         dset.attrs["charge_b"] = b
         dset.attrs["charge_c"] = c
         dset.attrs["charge_t"] = t
+        dset.attrs["runPeriod (charge)"] = runPeriod
       chargeDset.writeDset(charge)
       totalChargeDset.writeDset(totalCharge)
 
@@ -390,7 +395,8 @@ proc writePolyaDsets(h5f: H5File, group: H5Group,
   polyaDset.attrs["theta"] = fitResult.pRes[2]
 
 proc writeGasGainAttributes(h5f: H5File, group: H5Group, sliceCount: int,
-                            interval: int) =
+                            interval: int,
+                            runPeriod: string) =
   ## Writes the attributes about the number of gas gain slices to the relevant
   ## objects (charge dset & polya group) as well as the "current" gas gain
   ## slice length
@@ -407,6 +413,7 @@ proc writeGasGainAttributes(h5f: H5File, group: H5Group, sliceCount: int,
   template writeAttrs(h5o: untyped): untyped =
     h5o.attrs["numGasGainSlices"] = sliceCount
     h5o.attrs["gasGainInterval"] = interval
+    h5o.attrs["runPeriod (gas gain)"] = runPeriod
   writeAttrs(chargeDset)
   writeAttrs(polyaGrp)
   writeAttrs(gainDset)
@@ -664,7 +671,8 @@ proc calcGasGain*(h5f: H5File, grp: string,
                   fullRunGasGain: bool,
                   interval, minInterval: float, plotPath: string,
                   useTeX = false,
-                  overwrite = false) =
+                  overwrite = false,
+                  printRunPeriod = false) =
   ## Handles gas gain calculation for `runNumber`, given by `grp` (different chips!)
   if isDone(h5f, grp, rfOnlyGasGain, overwrite): return
 
@@ -677,7 +685,9 @@ proc calcGasGain*(h5f: H5File, grp: string,
   # now can start reading, get the group containing the data for this chip
   var group = h5f[grp.grp_str]
   let chipName = group.attrs["chipName", string]
-  let (a, b, c, t) = getTotCalibParameters(chipName, runNumber)
+  let ((a, b, c, t), runPeriod) = getTotCalibParameters(chipName, runNumber)
+  if printRunPeriod:
+    info "Using calibrations for chip: ", chipName, "(# ", chipNumber, ") from run period: ", runPeriod
   # get bin edges by calculating charge values for all TOT values at TOT's bin edges
   let capacitance = fileInfo.timepix.getCapacitance()
   let bin_edges = mapIt(totBins, calibrateCharge(it, capacitance, a, b, c, t))
@@ -699,7 +709,7 @@ proc calcGasGain*(h5f: H5File, grp: string,
   # write gas gain slice data and attributes
   let cutFormula = $getGasGainCutFormula()
   h5f.writeGasGainSliceData(group, gasGainSliceData, cutFormula)
-  h5f.writeGasGainAttributes(group, gasGainSliceData.len, interval.round.int)
+  h5f.writeGasGainAttributes(group, gasGainSliceData.len, interval.round.int, runPeriod)
 
   # write the flag we are done
   writeFlag(h5f, grp, rfOnlyGasGain)
@@ -717,10 +727,18 @@ proc calcGasGain*(h5f: H5File, runNumber: int,
   # get the group from file
   info "Calulating gas gain for run: ", runNumber
   let fileInfo = h5f.getFileInfo()
+  var printRunPeriod = false
+  var runPeriodPrinted: set[uint8]
   for run, chip, grp in chipGroups(h5f):
     if chipBase in grp and not isDone(h5f, grp, rfOnlyGasGain, overwrite):
       doAssert run == runNumber
-      h5f.calcGasGain(grp, run, chip, fileInfo, fullRunGasGain, interval, minInterval, plotPath, useTeX = useTeX, overwrite = overwrite)
+      if chip.uint8 notin runPeriodPrinted:
+        runPeriodPrinted.incl chip.uint8
+        printRunPeriod = true
+      else: printRunPeriod = false
+      h5f.calcGasGain(grp, run, chip, fileInfo, fullRunGasGain, interval, minInterval, plotPath,
+                      useTeX = useTeX, overwrite = overwrite,
+                      printRunPeriod = printRunPeriod)
 
 proc writeFeFitParameters(dset: var H5DataSet,
                           popt, popt_E: seq[float],

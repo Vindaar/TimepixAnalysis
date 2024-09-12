@@ -908,6 +908,7 @@ when not defined(pure) and not defined(js):
     CalibInfo* = object
       run*: int ## Run number for which we read this (gain info!)
       a*, b*, c*, t*: float
+      runPeriod*: string ## The run period that the calibration parameters belong to
       mL*, bL*: float
       capacitance*: FemtoFarad
       gain*: float # the mean gas gain of the run this corresponds to (or any gain to use!)

@@ -138,16 +138,18 @@ proc getChipNumber*(chipName, runPeriod: string): int =
     result = grp.attrs["chipNumber", string].parseInt
 
 proc getTotCalibParameters*(chipName: string, run: int):
-                          (float, float, float, float)
+                          ((float, float, float, float), string)
     {.raises: [KeyError, IOError, Exception].} =
   ## returns the factors of the TOT calibration result:
   ## `a`, `b`, `c`, `t`
   ## may raise a `KeyError` if the calibration wasn't performed
   ## for the given chip
+  ##
+  ## Also returns the run period as a string for informational puroses.
   var runPeriod: string
   withDatabase:
     runPeriod = h5f.findRunPeriodFor(chipName, run)
-  result = getTotCalibParameters(chipName, runPeriod)
+  result = (getTotCalibParameters(chipName, runPeriod), runPeriod)
 
 proc getCalibVsGasGainFactors*(chipName: string, run: int, suffix = ""): tuple[b, m: float] =
   ## returns the fit parameters (no errors) for the given chip
@@ -195,7 +197,7 @@ proc initCalibInfo*(h5f: H5File,
                     capacitance: FemtoFarad,
                     basePath = recoBase()): CalibInfo =
   # get factors for charge calibration
-  let (a, b, c, t) = getTotCalibParameters(chipName, runNumber)
+  let ((a, b, c, t), runPeriod) = getTotCalibParameters(chipName, runNumber)
   echo "Getting parameters for ", runNumber, " of hip ", chipName, " a ", a, " b ", b, " c ", c, " t ", t
 
   # get factors for charge / gas gain fit

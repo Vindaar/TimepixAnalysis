@@ -126,7 +126,7 @@ proc compileBinaries() =
     compile(b, f)
 
 proc main(locateTool = "locate",
-          allowClone = true,
+          allowClone = false,
           clonePath  = "~/src",
           args = "") =
   let dir = getCurrentDir()

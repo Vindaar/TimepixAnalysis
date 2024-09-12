@@ -226,7 +226,7 @@ source ~/.bashrc
 or simply start a new shell.
 
 
-** Install the TimpixAnalysis framework
+** Install the TimepixAnalysis framework
 
 Once the dependencies are installed, we can prepare the framework.
 
@@ -549,51 +549,64 @@ In general the usage of the analysis programs is straight forward and
 explained in the docstring, which can be echoed by calling a program
 with the =-h= or =--help= option:
 #+BEGIN_SRC sh
-./reconstruction -h
+raw_data_manipulation -h
 #+END_SRC
 would print:
 #+BEGIN_SRC
-Version: b49c061 built on: 2018-10-10 at 13:01:29
-InGrid raw data manipulation.
-
 Usage:
-  raw_data_manipulation <folder> [options]
-  raw_data_manipulation <folder> --runType <type> [options]
-  raw_data_manipulation <folder> --out=<name> [--nofadc] [--runType=<type>] [--ignoreRunList] [options]
-  raw_data_manipulation <folder> --nofadc [options]
-  raw_data_manipulation -h | --help
-  raw_data_manipulation --version
-
+  main [REQUIRED,optional-params]
+Version: 12e1820 built on: 2024-09-11 at 14:52:49
 Options:
-  --runType=<type>    Select run type (Calib | Back | Xray)
-                      The following are parsed case insensetive:
-                      Calib = {"calib", "calibration", "c"}
-                      Back = {"back", "background", "b"}
-                      Xray = {"xray", "xrayfinger", "x"}
-  --out=<name>        Filename of output file
-  --nofadc            Do not read FADC files
-  --ignoreRunList     If set ignores the run list 2014/15 to indicate
-                      using any rfOldTos run
-  --overwrite         If set will overwrite runs already existing in the
-                      file. By default runs found in the file will be skipped.
-                      HOWEVER: overwriting is assumed, if you only hand a
-                      run folder!
-  -h --help           Show this help
-  --version           Show version.
+  -h, --help                               print this cligen-erated help
+
+  --help-syntax                            advanced: prepend,plurals,..
+
+  -p=, --path=        string      REQUIRED set path
+
+  -r=, --runType=     RunTypeKind REQUIRED Select run type (Calib | Back | Xray)
+                                           The following are parsed case insensetive:
+                                             Calib = {"calib", "calibration", "c"}
+                                             Back = {"back", "background", "b"}
+                                             Xray = {"xray", "xrayfinger", "x"}
+
+  -o=, --out=         string      ""       Filename of output file. If none
+                                           given will be set to run_file.h5.
+
+  -n, --nofadc        bool        false    Do not read FADC files.
+
+  -i, --ignoreRunList bool        false    If set ignores the run list 2014/15
+                                           to indicate using any rfOldTos run
+
+  -c=, --config=      string      ""       Path to the configuration file to use. Default is config.toml
+                                           in directory of this source file.
+
+  --overwrite         bool        false    If set will overwrite runs already existing in the
+                                           file. By default runs found in the file will be skipped.
+                                           HOWEVER: overwriting is assumed, if you only hand a
+                                           run folder!
+
+  -t, --tpx3          bool        false    Convert data from a Timepix3 H5 file
+                                           to TPA format instead of a Tpx1 run
+                                           directory
+
+  -k, --keepExtracted bool        false    If a .tar.gz archive is given for a run folder and this flag is true
+                                           we won't remove the extracted archive afterwards.
+
+  -e=, --extractTo=   string      "/tmp/"  If a .tar.gz archive is given extract
+                                           the data to this directory.
 #+END_SRC
 similar docstrings are available for all programs.
 
 In order to analyze a raw TOS run, we'd perform the following
 steps. The command line arguments are examples. Those required will be
-exaplained, for the others see the doc stings.
+explained, for the others see the doc strings.
 
 ** Raw data manipulation
 
 Assuming we have a TOS run folder located in
 =~/data/Run_168_180702-15-24/=:
 #+BEGIN_SRC sh
-cd ~/src/TimepixAnalysis/Analysis/ingrid
-./raw_data_manipulation ~/data/Run_168_180702-15-24/ --runType=calibration --out=run168.h5
+raw_data_manipulation -p ~/data/Run_168_180702-15-24/ --runType=calibration --out=run_168.h5
 #+END_SRC
 where we give the =runType= (either calibration, background or X-ray
 finger run), which is useful to store in the resulting HDF5 file. For
@@ -616,7 +629,7 @@ Afterwards we go on to the reconstruction phase. Here the raw data is
 read back from the HDF5 file and clusters within events are separated
 and geometric properties calculated. This is done by:
 #+BEGIN_SRC sh
-./reconstruction run168.h5
+reconstruction -i run_168.h5 --out reco_168.h5
 #+END_SRC
 
 After the reconstruction is done and depending on whether the run type
@@ -626,7 +639,7 @@ calculate futher properties, e.g. the energy of all clusters.
 The next step is to apply the ToT calibration to calculate the charge
 of all clusters via:
 #+BEGIN_SRC sh
-./reconstruction run168.h5 --only charge
+reconstruction -i reco_168.h5 --only_charge
 #+END_SRC
 _Note:_ this requires an entry for your chip in the ingrid
 database. See below for more information.
@@ -634,56 +647,38 @@ database. See below for more information.
 Once the charges are calibrated, you may calculate the gas gain of
 the run via:
 #+BEGIN_SRC sh
-./reconstruction run168.h5 --only_gas_gain
-#+END_SRC
-_Note:_ this depends on an optional Python module to fit the polya
-distribution. See above for an explanation on how to compile that.
-
-Finally, you can calculate the energy of all custers by doing:
-#+BEGIN_SRC sh
-./reconstruction run168.h5 --only_energy_from_e
+reconstruction -i run_168.h5 --only_gas_gain
 #+END_SRC
 
-The last three steps are not part of the first call to
-=reconstruction=, due to non trivial dependencies
-- charge calib requires ToT data
-- gas gain requires Python module
-- energy from charge requires the above two.
+A purely pixel based energy calculation is available via
+~--only_energy=<energy_per_electron_in_eV>~ and a gas gain based one
+via ~--only_energy_from_e~. However, the latter requires calibration
+runs that need to be analyzed before hand.
 
-For a full analysis, you'd now have to perform the likelihood
-analysis.
-
-*** TODO note about Fe spectra
-
-*TODO:* add a note about creation of Fe spectra
-
-** TODO Likelihood [optional]
+** Likelihood                                                     :optional:
 
 The likelihood analysis is the final step done in order to filter out
-events, which are not X-ray like, based on a likelihood cut. The
-likelihood program however, needs two different input files.
-This is not yet as streamlined as it should be, which is why it's not
-explained here in detail. Take a look at the docstring of the program
-or ask me (@Vindaar).
+events, which are not X-ray like, based on a likelihood cut or MLP
+classifier. The likelihood program however, needs two different input
+files. This is not yet as streamlined as it should be, which is why
+it's not explained here in detail. Take a look at the docstring of the
+program or ask me (@Vindaar).
 
 *TODO:* make the CDL data part of the repository somehow?
 
-** TODO Adding a chip to the InGrid database [optional]
+** Adding a chip to the InGrid database                           :optional:
 
 If you wish to perform charge calibration and from that energy
 calibration, you need to add your chip to the ingrid database.
 
-For now take a look at [[file:InGridDatabase/src/ingridDatabase.nim]] to
-understand how to do that.
+See the explanation in [[file:InGridDatabase/README.org]] for details on
+how to do this. Existing data files are found in
+[[file:resources/ChipCalibrations/]].
 
-*TODO:* finish explanation on how to do that. For that first add
-example folder, which is handed.
+** Plotting
 
-** TODO Plotting
-
-There are several tools available to visualize the data created by
-the programs in this repository.
-
+There are a large number of different tools available to visualize the
+data created by the programs in this repository.
 
 * License
 

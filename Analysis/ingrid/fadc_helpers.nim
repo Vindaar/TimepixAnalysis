@@ -12,7 +12,7 @@ import seqmath
 import arraymancer
 
 # helpers for dealing with `Tensor` in generic seq / Tensor code
-proc high[T](t: Tensor[T]): int = t.len - 1
+proc high*[T](t: Tensor[T]): int = t.len - 1
 
 proc walkRunFolderAndGetFadcFiles*(folder: string): seq[string] =
   # walks a run folder and returns a seq of FADC filename strings

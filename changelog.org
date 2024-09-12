@@ -1,3 +1,13 @@
+* v0.4.3
+- For charge calibration and gas gain calculation we now write to the
+  log file which run period was actually used and also write it to the
+  output H5 files.
+- fix ~buildTpa~ to expand home dir in file names
+- fix ~buildTpa~ to throw an error if a required tool is not found
+- change default to not clone automatically in ~buildTpa~
+- expand dependencies section in README
+- add note about requiring to install ~weave~ first in README
+
 * v0.4.2
 - add Github Actions CI and rewrite the build tool for simpler
   building of the binaries. The dependencies are now locked using a

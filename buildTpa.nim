@@ -57,7 +57,7 @@ proc checkNLopt(allowClone: bool, clonePath: string,
         cd nlopt
         mkdir build
         cd build
-        cmake ".."
+        cmake "-DNLOPT_PYTHON=OFF -DNLOPT_GUILE=OFF -DNLOPT_SWIG=OFF -DNLOPT_MATLAB=OFF -DNLOPT_OCTAVE=OFF .."
         make
     stdout.styledWrite(fgYellow, "\n\nNOTE: Please call `sudo make install` in " &
       clonePath & "/nimnlopt/c_header/nlopt/build! Alternatively, copy the " &

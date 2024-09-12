@@ -15,6 +15,14 @@ template shellCheck(actions: untyped): untyped =
     stdout.styledWrite(fgRed, "[ERROR]: Building TimepixAnalysis failed.")
     quit(1)
 
+proc verifyTool(tool: string) =
+  var res = ""
+  shellAssign:
+    res = which ($tool)
+  if "not found" in res:
+    stdout.styledWrite(fgRed, "[ERROR]: " & tool & " not found. Please install it!")
+    quit(1)
+
 proc findLib(lib: string, tool: string): bool =
   ## Checks if the given shared library `lib` is found
   ## using `locate`. Feel free to overwrite using `-d:LocatTool=foo`.
@@ -136,6 +144,9 @@ proc main(locateTool = "locate",
           args = "") =
   let dir = getCurrentDir()
   doAssert dir.endsWith("TimepixAnalysis"), "`buildTpa` must be run from the TimepixAnalysis root directory!"
+
+  # 0. verify `locateTool` can be found
+  verifyTool(locateTool)
 
   # 1. Set up NLopt and MPFIT dependencies
   var action = false

@@ -42,7 +42,7 @@ proc checkNLopt(allowClone: bool, clonePath: string,
         cd ($path)
         git clone "https://github.com/vindaar/nimnlopt"
         cd nimnlopt/c_header
-        git clone "git://github.com/stevengj/nlopt"
+        git clone "https://github.com/stevengj/nlopt"
         cd nlopt
         mkdir build
         cd build

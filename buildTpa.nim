@@ -12,7 +12,7 @@ template shellCheck(actions: untyped): untyped =
       actions
     toContinue = res[1] == 0
   if not toContinue:
-    stdout.styledWrite(fgRed, "[ERROR]: Building TimepixAnalysis failed.")
+    stdout.styledWrite(fgRed, "[ERROR]: Building TimepixAnalysis failed.\n")
     quit(1)
 
 proc verifyTool(tool: string) =
@@ -20,7 +20,7 @@ proc verifyTool(tool: string) =
   shellAssign:
     res = which ($tool)
   if "not found" in res:
-    stdout.styledWrite(fgRed, "[ERROR]: " & tool & " not found. Please install it!")
+    stdout.styledWrite(fgRed, "[ERROR]: " & tool & " not found. Please install it!\n")
     quit(1)
 
 proc findLib(lib: string, tool: string): bool =
@@ -60,13 +60,13 @@ proc checkNLopt(allowClone: bool, clonePath: string,
         cmake ".."
         make
     stdout.styledWrite(fgYellow, "\n\nNOTE: Please call `sudo make install` in " &
-      "$HOME/src/nimnlopt/c_header/nlopt/build! Alternatively, copy the " &
+      clonePath & "/nimnlopt/c_header/nlopt/build! Alternatively, copy the " &
       "`libnlopt.so` file into an appropriate location scanned by `ld.so`.\n\n")
     result = true # return true, because user action is required
   else:
     stdout.styledWrite(fgRed, "\n\nNOTE: NLopt shared library is not found using " & $locateTool &
       " and cloning is forbidden. Please install it yourself or launch this program with " &
-      "--allowClone=true")
+      "--allowClone=true\n\n")
 
 proc checkMPFIT(allowClone: bool, clonePath: string,
                 locateTool: string): bool =
@@ -90,13 +90,13 @@ proc checkMPFIT(allowClone: bool, clonePath: string,
         gcc "-c -O3 -Wall -Werror -fpic" mpfit.c mpfit.h
         gcc "-shared -o" libmpfit.so mpfit.o
     stdout.styledWrite("\n\nNOTE: Please copy `libmpfit.so` located in " &
-      "$HOME/src/nim-mpfit/c_src into an appropriate location, " &
+      clonePath & "/nim-mpfit/c_src into an appropriate location, " &
       "e.g. '/usr/local/lib' scanned by `ld.so`. \n\n")
     result = true # return true, because user action is required
   else:
     stdout.styledWrite(fgRed, "\n\nNOTE: MPFIT shared library is not found using " & $locateTool &
       " and cloning is forbidden. Please install it yourself or launch this program with " &
-      "--allowClone=true")
+      "--allowClone=true\n\n")
 
 proc generatePathsFile() =
   ## This generates a `nimble.paths` file from the `nimble.lock` file in
@@ -155,7 +155,7 @@ proc main(locateTool = "locate",
   if action:
     stdout.styledWrite(fgYellow, "[WARNING]: Continuing with further setup after compilation of " &
       "NLopt and/or MPFIT. You will need to perform manual steps to make the shared libraries available " &
-      "before you can run any of the compiled binaries.")
+      "before you can run any of the compiled binaries.\n\n")
 
   # 2. Generate a `nimble.paths` file from the lockfile
   generatePathsFile()

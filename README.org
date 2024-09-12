@@ -349,13 +349,13 @@ Assuming TPA is located in =~/src/TimepixAnalysis= that might look like:
 **** Zsh
 
 #+begin_src sh
-path+=src/TimepixAnalysis/bin
+path+=$HOME/src/TimepixAnalysis/bin
 #+end_src
 
 **** Bash
 
 #+begin_src sh
-export PATH=$PATH:src/TimepixAnalysis/bin
+export PATH=$PATH:$HOME/src/TimepixAnalysis/bin
 #+end_src
       
 *** Troubleshooting

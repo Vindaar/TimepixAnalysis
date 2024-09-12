@@ -258,7 +258,7 @@ libwebkit2gtk-4.0
 #+end_src
 
 ~locate~ may also be called ~mlocate~. After installing it, make sure
-to run ~sudo updatedb~ to update the ~locate~ database. 
+to run ~sudo updatedb~ to update the ~locate~ database.
 
 *** Using the build tool to build (most) binaries
 :PROPERTIES:
@@ -272,6 +272,14 @@ dependencies are now fixed using a lock file, so that precisely the
 versions that are fixed are pulled and used. The latter should
 hopefully remove the occurrence for spurious compilation failures due
 to random version mismatches.
+
+*NOTE*: <2024-09-12 Thu 12:19>
+As of right now, before running the ~nimble setup~ command below, you
+will need to manually install ~weave~ using ~nimble~. There is a
+current issue causing the setup step to fail otherwise. So run:
+#+begin_src sh
+nimble install weave
+#+end_src
 
 First we need to setup the Nimble dependencies:
 #+begin_src sh

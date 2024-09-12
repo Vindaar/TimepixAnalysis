@@ -243,8 +243,6 @@ git \
 build-essential \
 locate \
 cmake \
-python3-numpy \
-python3-pip \
 libhdf5-dev \
 libnlopt0 \
 libnlopt-dev \

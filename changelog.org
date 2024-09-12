@@ -1,3 +1,5 @@
+* v0.4.4
+- build NLopt without Python etc bindings to remove numpy / pip dependency
 * v0.4.3
 - For charge calibration and gas gain calculation we now write to the
   log file which run period was actually used and also write it to the

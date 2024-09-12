@@ -1,0 +1,13 @@
+* v0.4.2
+- add Github Actions CI and rewrite the build tool for simpler
+  building of the binaries. The dependencies are now locked using a
+  lockfile.
+- update the README
+
+* v0.4.1
+- update some dependencies
+- fix the nimble file
+
+* phd_rc0
+- 'release candidate' version that I used for all the results in my
+  PhD thesis

@@ -59,6 +59,63 @@ const
   ## (1e-5 · 5x5mm² · 100h = 0.9 counts•keV⁻¹)
   Candidates = @[0,      2,      7,     3,      1,      0,       1,      4,    3,      2]
 
+
+################################################################################
+# Procedures only dealing with input parsing
+# (telescope effectiv area, axion flux, background rate)
+################################################################################
+
+template errorIfNotFound(c, df): untyped =
+  if c notin df:
+    raise newException(ValueError, "The required column: " & $c & " does not exist in the dataframe. " &
+      "Existing columns are: " & $df.getKeys())
+
+proc parseAxionFlux(cfg: Config): InterpolatorType[float] =
+  ## Parses the axion flux, taking into account diving out the reference coupling
+  if cfg.axionFlux.len > 0:
+    if cfg.fluxKind == fkNone:
+      raise newException(ValueError, "When giving a custom solar axion flux CSV file, please provide " &
+        "a flux kind via `--fluxKind=fkAxionElectron|fkAxionPhoton`")
+    if cfg.g2_ref == 0.0:
+      raise newException(ValueError, "When giving a custom solar axion flux CSV file, please provide " &
+        "a reference coupling used to compute these values via `--g2_ref=<value>`")
+    var df = readCsv(cfg.axionFlux, sep = cfg.aSep)
+    errorIfNotfound(cfg.aColE, df)
+    errorIfNotfound(cfg.aColFlux, df)
+    proc convert(x: float): float =
+      result = x.keV⁻¹•m⁻²•yr⁻¹.to(keV⁻¹•cm⁻²•s⁻¹).float
+    const fCol = "Flux [keV⁻¹•cm⁻²•s⁻¹]"
+    if "Flux / keV⁻¹ m⁻² yr⁻¹" in df:
+      df = df.mutate(f{fCol ~ convert(idx("Flux / keV⁻¹ m⁻² yr⁻¹"))})
+    else:
+      stdout.styledWrite(fgYellow, "[WARNING]: The given column name is not the default name. We assume " &
+        "the flux is given in `keV⁻¹•cm⁻²•s⁻¹`.\n")
+    # divide out the reference coupling
+    df = df.mutate(f{float: fCol ~ idx(fCol) / cfg.g2_ref})
+    result = newLinear1D(df[cfg.aColE, float].toSeq1D,
+                         df[fCol, float].toSeq1D)
+
+proc parseFile(f, x, y: string, sep: char): InterpolatorType[float] =
+  var df = readCsv(f, sep = sep)
+  errorIfNotfound(x, df)
+  errorIfNotfound(y, df)
+  result = newLinear1D(df[x, float].toSeq1D, df[y, float].toSeq1D)
+
+proc parseTelescopeEff(cfg: Config): InterpolatorType[float] =
+  ## Parses the efficiency associated with the effective area of the telescope
+  if cfg.effectiveArea.len == 0:
+    raise newException(ValueError, "Please provide a file for the telescope efficiency via " &
+      "`--effectiveArea=<file>`")
+  result = parseFile(cfg.effectiveArea, cfg.tColE, cfg.tColEff, cfg.tSep)
+
+proc parseBackgroundRate(cfg: Config): InterpolatorType[float] =
+  ## Parses the background rate
+  if cfg.backgroundFile.len > 0:
+    result = parseFile(cfg.backgroundFile, cfg.bColE, cfg.bColBkg, cfg.bSep)
+  else:
+    result = newLinear1D(Energies.mapIt(it.float), Background.mapIt(it.float)) # strip type info :(
+
+
 proc signalRate(ctx: Context, E: keV): keV⁻¹•cm⁻²•s⁻¹ # forward declare
 
 proc initConfig(): Config =

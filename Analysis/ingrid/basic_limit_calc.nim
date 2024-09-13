@@ -176,7 +176,7 @@ proc initConfig(): Config =
   ##
   ## The majority of fields are already initialized with default values.
   result = Config()
-  result.areaBore = π * (result.boreDiamater / 2.0)^2
+  result.areaBore = π * (result.boreDiameter / 2.0)^2
 
 template toCDF(data: seq[float], isCumSum = false): untyped =
   ## Computes the CDF of binned data

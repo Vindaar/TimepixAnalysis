@@ -39,7 +39,7 @@ type
     B*: Tesla               = 3.5.T                        ## Magnetic field of the magnet
     L*: Meter               = 20.m                         ## Length of the magnet
     totalTime*: Hour        = 100.h                        ## Total time in hours of solar tracking
-    boreRadius*: cm         = 70.cm                        ## Radius of the bore (assumes a circular bore, A = πr²)
+    boreDiameter*: cm       = 70.cm                        ## Diameter of the bore (assumes a circular bore, A = πr²)
     areaBore: cm²                                          ## Full bore area, computed from `boreRadius`
     chipArea*: mm²          = 5.mm * 5.mm                  ## Area in which all flux is assumed to be collected and in which
                                                            ## all candidates are detected & background is defined
@@ -176,7 +176,7 @@ proc initConfig(): Config =
   ##
   ## The majority of fields are already initialized with default values.
   result = Config()
-  result.areaBore = π * result.boreRadius^2
+  result.areaBore = π * (result.boreDiamater / 2.0)^2
 
 template toCDF(data: seq[float], isCumSum = false): untyped =
   ## Computes the CDF of binned data
@@ -370,8 +370,8 @@ when isMainModule:
     "B"               : "Magnetic field of the magnet",
     "L"               : "Length of the magnet",
     "totalTime"       : "Total time in hours of solar tracking",
-    "boreRadius"      : "Radius of the bore (assumes a circular bore, A = πr²)",
-    "areaBore"        : "Full bore area, computed from `boreRadius`",
+    "boreDiameter"    : "Diameter of the bore (assumes a circular bore, A = πr²)",
+    "areaBore"        : "Full bore area, computed from `boreDiameter`",
     "chipArea"        : "Area in which all flux is assumed to be collected and in which all candidates are detected & background is defined",
     "g2_max"          : "Maximum value for `g²` for the limit. Value should be large enough that the likelihood function is zero there.",
     "nmc"             : "Number of toy candidate sets to sample for the expected limit",

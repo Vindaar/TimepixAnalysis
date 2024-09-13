@@ -142,6 +142,34 @@ proc initContext(cfg: Config): Context =
   let fl = xs.mapIt(signalRate(result, it.keV).float)
   result.fluxIntegral = simpson(fl, xs).cm⁻²•s⁻¹ # convert back to units (integrated out `keV⁻¹`!)
 
+################################################################################
+# Random sampling logic
+################################################################################
+
+proc sampleCandidates(ctx: Context): seq[Candidate] =
+  ## This samples candidates from the background distribution, by using
+  ## inverse transform sampling:
+  ## https://en.wikipedia.org/wiki/Inverse_transform_sampling
+  # 1. compute number of expected candidates
+  #    `dN/(dE dt dA) · ΔE · t · A`
+  let expNum = ctx.meanBkgRate * (ctx.bMaxE - ctx.bMinE) * ctx.cfg.totalTime * ctx.cfg.chipArea
+  # 2. construct Poisson sampler with `λ = expNum`
+  let pois = poisson(expNum)
+  # 3. draw a sample of candidates, and sample their energies according
+  #    to the background CDF
+  let uni = uniform(0.0, 1.0) # uniform sampler
+  let num = ctx.rnd.sample(pois).int
+  result = newSeq[Candidate](num)
+  for i in 0 ..< num:
+    let u = ctx.rnd.sample(uni) # uniform random number
+    let eIdx = ctx.backgroundCDF.lowerBound(u) # find closest value in CDF
+    let energy = ctx.energyForBCDF[eIdx].keV # lookup energy, i.e. "invert axis" / inverse transform
+    result[i] = Candidate(E: energy)
+
+################################################################################
+# Limit ingredients
+################################################################################
+
 proc solarAxionFlux(E: keV): keV⁻¹•cm⁻²•s⁻¹ =
   ## Axion flux produced by the Primakoff effect in solar core
   ## in units of keV⁻¹•m⁻²•yr⁻¹

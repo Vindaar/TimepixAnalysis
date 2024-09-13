@@ -2,11 +2,6 @@ import unchained, math, seqmath, ggplotnim
 #from numericalnim import integrate
 import numericalnim except linspace
 import std / [sequtils, algorithm]
-## Assumptions:
-const totalTime = 100.0.h # 100 of "tracking time"
-const areaBore = π * (2.15 * 2.15).cm²
-const chipArea = 5.mm * 5.mm # assume all flux is focused into an area of 5x5 mm²
-                             # on the detector. Relevant area for background!
 
 defUnit(GeV⁻¹)
 defUnit(GeV⁻²)

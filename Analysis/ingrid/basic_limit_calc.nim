@@ -1,7 +1,7 @@
-import unchained, math, seqmath, ggplotnim
+import pkg / [unchained, seqmath, ggplotnim, xrayAttenuation]
 #from numericalnim import integrate
 import numericalnim except linspace
-import std / [sequtils, algorithm]
+import std / [sequtils, algorithm, math]
 
 defUnit(GeV⁻¹)
 defUnit(GeV⁻²)
@@ -10,6 +10,7 @@ defUnit(keV⁻¹)
 defUnit(keV⁻¹•cm⁻²•s⁻¹)
 defUnit(mm²)
 defUnit(cm²)
+defUnit(g•cm⁻³)
 
 ##[
 Important note:
@@ -24,19 +25,30 @@ units.
 
 type
   Config = object # Stores experimental configuration
-    B*: Tesla ## Magnetic field of the magnet
-    L*: Meter ## Length of the magnet
-    totalTime*: Hour ## Total time in hours of solar tracking
-    boreRadius*: cm ## Radius of the bore (assumes a circular bore, A = πr²)
-    chipArea*: mm² ## Area in which all flux is assumed to be collected and in which
-                   ## all candidates are detected & background is defined
-    areaBore: cm²  ## Full bore area, computed from `boreRadius`
+    B*: Tesla              = 3.5.T                        ## Magnetic field of the magnet
+    L*: Meter              = 20.m                         ## Length of the magnet
+    totalTime*: Hour       = 100.h                        ## Total time in hours of solar tracking
+    boreRadius*: cm        = 70.cm                        ## Radius of the bore (assumes a circular bore, A = πr²)
+    chipArea*: mm²         = 5.mm * 5.mm                  ## Area in which all flux is assumed to be collected and in which
+                                                          ## all candidates are detected & background is defined
+    areaBore: cm²                                         ## Full bore area, computed from `boreRadius`
+    # Detector properties
+    gas*: seq[string]      = @["Ar,0.977", "C4H10,0.023"] ## Gas mixture of the detector to use.
+    pressure*: mbar        = 1050.mbar                    ## Pressure in the detector chamber.
+    T*: Kelvin             = 293.15.K                     ## Temperature in the detector chamber
+    chamberHeight*: cm     = 3.cm                         ## Height of the detector chamber
+    # Window properties
+    window*: string        = "Si3N4"                      ## Compound of the detector window
+    windowDensity*: g•cm⁻³ = 3.44.g•cm⁻³                  ## Density of the detector window material
+    windowThickness*: μm   = 0.3.μm                       ## Thickness of the window (in μm!)
 
   Context = object
     cfg: Config
     fluxIntegral: cm⁻²•s⁻¹ ## the base integral of the flux over the entire energy
     # Interpolators
     background: InterpolatorType[keV⁻¹•cm⁻²•s⁻¹]
+    gm: GasMixture # Gas mixture of the detector, used to evaluate absorption efficiency
+    window: Compound # Window material, used to compute transmission efficiency
 
 ## Constants defining the channels and background info
 const
@@ -47,38 +59,39 @@ const
   ## (1e-5 · 5x5mm² · 100h = 0.9 counts•keV⁻¹)
   Candidates = @[0,      2,      7,     3,      1,      0,       1,      4,    3,      2]
 
-proc solarAxionFlux(ω: keV): keV⁻¹•cm⁻²•s⁻¹ # forward declare
+proc signalRate(ctx: Context, E: keV): keV⁻¹•cm⁻²•s⁻¹ # forward declare
 
 proc initConfig(): Config =
   ## This stores all 'experimental configuration' parameter. These are all constant and
   ## don't change for one run of the program.
-  let bR = 70.cm
-  result = Config(B: 3.5.Tesla,
-                   L: 20.m,
-                   totalTime: 100.h,
-                   boreRadius: bR,
-                   areaBore: π * bR^2)
+  ##
+  ## The majority of fields are already initialized with default values.
+  result = Config()
+  result.areaBore = π * result.boreRadius^2
 
 proc initContext(cfg: Config): Context =
-  # 1. integrate the solar flux
-  ## NOTE: in practice this integration must not be done in this proc! Only perform once!
-  let xs = linspace(0.0, 10.0, 1000)
-  let fl = xs.mapIt(solarAxionFlux(it.keV))
-  let integral = simpson(fl.mapIt(it.float), # convert units to float for compatibility
-                         xs).cm⁻²•s⁻¹ # convert back to units (integrated out `keV⁻¹`!)
-  # 2. construct background interpolator
+  # 1. construct background interpolator
   let bkg = newLinear1D(Energies.mapIt(it.float), Background)
+  # 2. intiialize the gas mixture & window
+  let gm = parseGasMixture(cfg.gas, cfg.pressure, cfg.T)
+  let window = initCompound(cfg.windowDensity, parseCompound(cfg.window))
+  # 3. integrate the solar flux, combined with efficiencies
+  let xs = linspace(0.0, 10.0, 1000) # keV
   result = Context(cfg: cfg,
-                   fluxIntegral: integral,
-                   background: bkg)
+                   background: bkg,
+                   gm: gm,
+                   window: window)
+  # calc flux & convert back to float for compatibility with `simpson`
+  let fl = xs.mapIt(signalRate(result, it.keV).float)
+  result.fluxIntegral = simpson(fl, xs).cm⁻²•s⁻¹ # convert back to units (integrated out `keV⁻¹`!)
 
-proc solarAxionFlux(ω: keV): keV⁻¹•cm⁻²•s⁻¹ =
+proc solarAxionFlux(E: keV): keV⁻¹•cm⁻²•s⁻¹ =
   ## Axion flux produced by the Primakoff effect in solar core
   ## in units of keV⁻¹•m⁻²•yr⁻¹
   ##
   ## This is computed *WITHOUT* `g_aγ` present, i.e. we set `g_aγ = 1 GeV⁻¹`, so that
   ## in `signal` we multiply only by `g_aγ⁴` (to simplify between `g_ae` and `g_aγ`).
-  let flux = 2.0 * 1e18.keV⁻¹•m⁻²•yr⁻¹ * (1.GeV⁻¹ / 1e-12.GeV⁻¹)^2 * pow(ω / 1.keV, 2.450) * exp(-0.829 * ω / 1.keV)
+  let flux = 2.0 * 1e18.keV⁻¹•m⁻²•yr⁻¹ * (1.GeV⁻¹ / 1e-12.GeV⁻¹)^2 * pow(E / 1.keV, 2.450) * exp(-0.829 * E / 1.keV)
   # convert flux to correct units
   result = flux.to(keV⁻¹•cm⁻²•s⁻¹)
 
@@ -90,18 +103,29 @@ func conversionProbability(ctx: Context): UnitLess =
   ## in `signal` we multiply only by `g_aγ⁴` (to simplify between `g_ae` and `g_aγ`).
   result = pow( (1.GeV⁻¹ * ctx.cfg.B.toNaturalUnit * ctx.cfg.L.toNaturalUnit / 2.0), 2.0 )
 
-from numericalnim import simpson # simpson numerical integration routine
+proc signalRate(ctx: Context, E: keV): keV⁻¹•cm⁻²•s⁻¹ =
+  ## Calculates the expexted signal rate, given the incoming axion flux, conversion probability
+  ## (both independent of coupling constant), telescope effective area, window transmission
+  ## and detector gas absorption.
+  ## As a result this is the expected rate to be detected *without* `g⁴`.
+  #
+  ## XXX: ADD effective area for telescope
+  ## XXX: Make `solarAxionFlux` depending on config
+  result = solarAxionFlux(E) * ctx.gm.transmission(ctx.cfg.chamberHeight, E) *
+           ctx.window.transmission(ctx.cfg.windowThickness, E) *
+           ctx.conversionProbability()
+
 proc totalFlux(ctx: Context, g²: float): float =
   ## Flux integrated to total time, energy and area
-  # 2. compute final flux by "integrating" out the time and area
+  ##
   ## Multiply by `g²^2`. `g²` can be either `g_ae·g_aγ` or `g_aγ²`. We square that
   ## so that we multiply by the 'missing' terms in both P_aγ and the flux.
-  result = ctx.fluxIntegral * totalTime * ctx.cfg.areaBore * ctx.conversionProbability() * g²^2
+  result = ctx.fluxIntegral * ctx.cfg.totalTime * ctx.cfg.areaBore * g²^2
 
 ## NOTE: only important that signal and background have the same units!
 proc signal(ctx: Context, E: keV, g²: float): keV⁻¹ =
   ## Returns the axion flux based on `g` and energy `E`
-  result = solarAxionFlux(E) * totalTime.to(Second) * ctx.cfg.areaBore * ctx.conversionProbability() * g²^2
+  result = ctx.signalRate(E) * ctx.cfg.totalTime.to(Second) * ctx.cfg.areaBore * g²^2
 
 proc background(ctx: Context, E: keV): keV⁻¹ =
   ## Compute an interpolation the background at the energy `E`.
@@ -162,7 +186,16 @@ when isMainModule:
     "B": "Magnetic field strength of the magnet",
     "L": "Magnet length in meters",
     "boreRadius" : "Radius of the magnet bore",
-    "totalTime" : "Total solar tracking time"
+    "totalTime" : "Total solar tracking time",
+    # Detector properties
+    "gas" : "Gas mixture of the detector to use.",
+    "pressure" : "Pressure in the detector chamber.",
+    "T" : "Temperature in the detector chamber",
+    "chamberHeight" : "Height of the detector chamber",
+    # Window properties
+    "window" : "Materiall of the detector window. Silicone nitried 'Si3N4', Mylar: 'C10H8O4'",
+    "windowDensity" : "Density of the detector window material",
+    "windowThickness" : "Thickness of the detector window, in μm (!)"
   })
   let ctx = initContext(app)
   ctx.main # Only --help/--version/parse errors cause early exit

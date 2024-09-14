@@ -3,7 +3,7 @@ import pkg / random / mersenne
 import alea / [core, rng, gauss, poisson]
 
 import numericalnim except linspace
-import std / [sequtils, algorithm, math, terminal, stats, strformat]
+import std / [sequtils, algorithm, math, terminal, stats, strformat, strutils]
 
 defUnit(GeV⁻¹)
 defUnit(GeV⁻²)
@@ -108,6 +108,12 @@ const
   ## (1e-5 · 5x5mm² · 100h = 0.9 counts•keV⁻¹)
   Candidates = @[0,      2,      7,     3,      1,      0,       1,      4,    3,      2]
 
+proc `$`(cfg: Config): string =
+  ## Stringification for the configuration
+  result = "Config(\n"
+  for f, val in fieldPairs(cfg):
+    result.add "\t" & alignLeft(f, 20) & " = " & $val & "\n"
+  result.add ")"
 
 ################################################################################
 # Procedures only dealing with input parsing
@@ -351,6 +357,8 @@ proc main(ctx: Context) =
   ## constant parameter, from 0 to `g2_max` (configuraton / CL argument). As such it is
   ## vital that the parameter range is large enough to show the entire range of the likelihood
   ## function.
+  echo "Computing expected limit for: "
+  echo ctx.cfg
   let expLimit = ctx.expectedLimit()
 
   case ctx.cfg.fluxKind

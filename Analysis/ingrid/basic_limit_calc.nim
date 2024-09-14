@@ -3,7 +3,10 @@ import pkg / random / mersenne
 import alea / [core, rng, gauss, poisson]
 
 import numericalnim except linspace
-import std / [sequtils, algorithm, math, terminal, stats, strformat, strutils]
+import std / [sequtils, algorithm, math, terminal, stats, strformat, strutils, os, logging]
+
+import ./basic_limit_plotting # contains the ggplotnim command for the toy limits histogram
+
 
 defUnit(GeV⁻¹)
 defUnit(GeV⁻²)
@@ -101,21 +104,63 @@ type
   Candidate = object
     E: keV ## Energy of the candidate
 
+  ## A helper object that stores statistical information about the toy limits
+  LimitStatistics = object
+    mean: float
+    median: float ## The expected limit
+    std: float ## The standard deviation
+    p5, p16, p25, p75, p84, p95: float ## Different percentiles of the distribution
+
 ## Constants defining the default background rate
+## IMPORTANT: Such a distribution of background with so few bins is not ideal. When sampling candidates
+## for simplicity we only sample the energies of the `Energies` sequence (weighted by the `Background`)
+## histogram. We could sample uniformly in each bin for a more realistic approach, but we want to avoid
+## such complexity here. Normally the input CSV for the background should have O(>50) bins.
 const
   Energies =   @[0.5,    1.5,    2.5,    3.5,    4.5,    5.5,     6.5,    7.5,  8.5,    9.5].mapIt(it.keV)
   Background = @[0.5e-5, 2.5e-5, 4.5e-5, 4.0e-5, 1.0e-5, 0.75e-5, 0.8e-5, 3e-5, 3.5e-5, 2.0e-5]
     .mapIt(it.keV⁻¹•cm⁻²•s⁻¹) # convert to a rate
-  ## A possible set of candidates from `Background · chipArea · totalTime · 1 keV`
-  ## (1e-5 · 5x5mm² · 100h = 0.9 counts•keV⁻¹)
-  Candidates = @[0,      2,      7,     3,      1,      0,       1,      4,    3,      2]
 
-proc `$`(cfg: Config): string =
-  ## Stringification for the configuration
-  result = "Config(\n"
-  for f, val in fieldPairs(cfg):
+# set up a logger
+if not dirExists("logs"):
+  createDir("logs")
+var log = newFileLogger("logs" / "basic_limit_calc.log", fmtStr = "[$date - $time] - $levelname: ")
+var L = newConsoleLogger()
+addHandler(L)
+addHandler(log)
+proc info(logger: Logger, msgs: varargs[string, `$`]) =
+  logger.log(lvlInfo, msgs)
+
+proc `$`(obj: Config | LimitStatistics): string =
+  result = $typeof(obj) & "(\n"
+  for f, val in fieldPairs(obj):
     result.add "\t" & alignLeft(f, 20) & " = " & $val & "\n"
   result.add ")"
+
+################################################################################
+# (Limit) statistics
+################################################################################
+
+proc limitStatistics(limits: seq[float]): LimitStatistics =
+  ## Compute differen statistics of the given limits
+  result = LimitStatistics(
+    mean: limits.mean,
+    median: limits.median,
+    std: limits.standardDeviation,
+    p5: limits.percentile(5),
+    p16: limits.percentile(16),
+    p25: limits.percentile(25),
+    p75: limits.percentile(75),
+    p84: limits.percentile(84),
+    p95: limits.percentile(95)
+  )
+
+template toCDF(data: seq[float], isCumSum = false): untyped =
+  ## Computes the CDF of binned data
+  var dataCdf = data
+  if not isCumSum: seqmath.cumsum(dataCdf)
+  let integral = dataCdf[^1]
+  dataCdf.mapIt(it / integral)
 
 ################################################################################
 # Procedures only dealing with input parsing
@@ -185,13 +230,6 @@ proc initConfig(): Config =
   ##
   ## The majority of fields are already initialized with default values.
   result = Config()
-
-template toCDF(data: seq[float], isCumSum = false): untyped =
-  ## Computes the CDF of binned data
-  var dataCdf = data
-  if not isCumSum: seqmath.cumsum(dataCdf)
-  let integral = dataCdf[^1]
-  dataCdf.mapIt(it / integral)
 
 proc initContext(cfg: Config): Context =
   # 1. construct background interpolator
@@ -313,6 +351,10 @@ proc likelihood(ctx: Context, g²: float, cs: seq[Candidate]): float =
     let b = ctx.background(E)
     result *= (1 + s / b)
 
+################################################################################
+# Limit calculation
+################################################################################
+
 proc computeLimit(ctx: Context, cs: seq[Candidate], toPlot = false): float =
   ## Computes the limit for the given candidates, based on the
   ## parameter range `[0, g²_max]` (defined from configuration).
@@ -332,28 +374,37 @@ proc computeLimit(ctx: Context, cs: seq[Candidate], toPlot = false): float =
     ggplot(toDf(g², Ls), aes("g²", "Ls")) +
       geom_line() + ggsave(ctx.cfg.plotPath / "limit_Ls.pdf")
 
-const Parallel = false
+const Parallel {.booldefine.} = false
 when Parallel:
   import pkg / forked
-proc expectedLimit(ctx: Context): float =
-  ## Computes the expected limit for `nmc` toy candidates.
+proc monteCarloLimits(ctx: Context): seq[float] =
+  ## Computes the expected limit for `nmc` toy candidates and returns all limits.
   let nmc = ctx.cfg.nmc
-  var limits = newSeq[float](nmc)
+  result = newSeq[float](nmc)
+
+  template loopBody(): untyped {.dirty.} = # actual loop body, to remove redundancy due to `Parallel`
+    const InfoNum = 500
+    if i mod InfoNum == 0:
+      echo &"Iteration: {i} of {nmc} ({(i.float / nmc.float) * 100.0:.2f}%)"
+    let cs = ctx.sampleCandidates()
+    let limit = ctx.computeLimit(cs, i mod InfoNum == 0)
+
   when Parallel:
     for (i, x) in forked(0 ..< nmc):
-      if i mod 500 == 0:
-        echo &"Iteration: {i} of {nmc} ({(i.float / nmc.float) * 100.0:.2f}%)"
-      let cs = ctx.sampleCandidates()
-      let limit = ctx.computeLimit(cs, i mod 500 == 0)
+      loopBody()
       send limit
-      join: limits[i] = limit
+      join: result[i] = limit
   else:
     for i in 0 ..< nmc:
-      if i mod 500 == 0:
-        echo &"Iteration: {i} of {nmc} ({(i.float / nmc.float) * 100.0:.2f}%)"
-      let cs = ctx.sampleCandidates()
-      limits[i] = ctx.computeLimit(cs, i mod 500 == 0)
-  result = limits.median()
+      loopBody()
+      result[i] = limit
+
+proc computeExpectedLimit(ctx: Context): LimitStatistics =
+  ## Generates toy candidate sets, computes their limits, calculate the
+  ## expected limit and produces a histogram of the limit distribution.
+  let limits = ctx.monteCarloLimits()
+  result = limitStatistics(limits)
+  plotToyLimits(limits, ctx.cfg.plotPath / "toy_limits_histo.pdf")
 
 proc main(ctx: Context) =
   ## A simple limit calculation tool that makes it easy to replace experiment and detector parameters.
@@ -363,16 +414,19 @@ proc main(ctx: Context) =
   ## constant parameter, from 0 to `g2_max` (configuraton / CL argument). As such it is
   ## vital that the parameter range is large enough to show the entire range of the likelihood
   ## function.
-  echo "Computing expected limit for: "
-  echo ctx.cfg
-  let expLimit = ctx.expectedLimit()
+  log.info "Computing expected limit for: "
+  log.info $ctx.cfg
+  let limitStats = ctx.computeExpectedLimit()
 
   case ctx.cfg.fluxKind
   of fkAxionElectron:
-    echo "Expected limit: g_aγ·g_ae = ", expLimit
+    info "Expected limit: g_aγ·g_ae = ", limitStats.median
   of fkAxionPhoton:
-    echo "Expected limit: g_aγ = ", sqrt(expLimit)
+    info "Expected limit: g_aγ = ", sqrt(limitStats.median)
   else: discard
+
+  info "Full statistics (as g²):"
+  info $limitStats
 
 when isMainModule:
   import cligen

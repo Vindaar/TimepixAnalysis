@@ -302,7 +302,7 @@ proc likelihood(ctx: Context, g²: float, cs: seq[Candidate]): float =
     let E = cs[i].E # energy of this candidate
     let s = ctx.signal(E, g²)
     let b = ctx.background(E)
-    result *= pow(1 + s / b, c.float)
+    result *= (1 + s / b)
 
 proc computeLimit(ctx: Context, cs: seq[Candidate]): float =
   ## Computes the limit for the given candidates, based on the

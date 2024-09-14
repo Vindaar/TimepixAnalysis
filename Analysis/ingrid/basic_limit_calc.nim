@@ -43,7 +43,7 @@ type
     chipArea*: mm²          = 5.mm * 5.mm                  ## Area in which all flux is assumed to be collected and in which
                                                            ## all candidates are detected & background is defined
     # Limit setup
-    g2_max*: float          = 1e-20                        ## Maximum value for `g²` for the limit. Value should be large enough that
+    g2_max*: float          = 5e-21                        ## Maximum value for `g²` for the limit. Value should be large enough that
                                                            ## the likelihood function is zero there.
     nmc*: int               = 10000                        ## Number of toy candidate sets to sample for the expected limit
     epsilon*: float         = 1e-9                         ## Maximum value that the likelihood function is allowed to have at `g2_max`.

@@ -312,7 +312,6 @@ proc signalRate(ctx: Context, E: keV): keV⁻¹•cm⁻²•s⁻¹ =
   ## and detector gas absorption.
   ## As a result this is the expected rate to be detected *without* `g⁴`.
   #
-  ## XXX: ADD effective area for telescope
   ## XXX: Make `solarAxionFlux` depending on config
   result = solarAxionFlux(E) * ctx.conversionProbability() *
            ctx.telEff.eval(E.float) *

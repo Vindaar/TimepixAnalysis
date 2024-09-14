@@ -40,7 +40,6 @@ type
     L*: Meter               = 20.m                         ## Length of the magnet
     totalTime*: Hour        = 100.h                        ## Total time in hours of solar tracking
     boreDiameter*: cm       = 70.cm                        ## Diameter of the bore (assumes a circular bore, A = πr²)
-    areaBore: cm²                                          ## Full bore area, computed from `boreRadius`
     chipArea*: mm²          = 5.mm * 5.mm                  ## Area in which all flux is assumed to be collected and in which
                                                            ## all candidates are detected & background is defined
     # Limit setup
@@ -81,6 +80,8 @@ type
 
   Context = ref object
     cfg: Config
+    # Experiment
+    areaBore: cm²                                          ## Full bore area, computed from `boreRadius`
     fluxIntegral: cm⁻²•s⁻¹ ## the base integral of the flux over the entire energy
     rnd: Random # Random sampler
     # Interpolators
@@ -176,7 +177,6 @@ proc initConfig(): Config =
   ##
   ## The majority of fields are already initialized with default values.
   result = Config()
-  result.areaBore = π * (result.boreDiameter / 2.0)^2
 
 template toCDF(data: seq[float], isCumSum = false): untyped =
   ## Computes the CDF of binned data
@@ -195,6 +195,7 @@ proc initContext(cfg: Config): Context =
   let xs = linspace(0.0, 10.0, 1000) # keV
   result = Context(
     cfg: cfg,
+    areaBore: π * (cfg.boreDiameter / 2.0)^2,
     rnd: wrap(initMersenneTwister(cfg.rngSeed.uint32)),
     bkg: bkg,
     bMinE: bkg.X.min.keV, bMaxE: bkg.X.max.keV,
@@ -276,12 +277,12 @@ proc totalFlux(ctx: Context, g²: float): float =
   ##
   ## Multiply by `g²^2`. `g²` can be either `g_ae·g_aγ` or `g_aγ²`. We square that
   ## so that we multiply by the 'missing' terms in both P_aγ and the flux.
-  result = ctx.fluxIntegral * ctx.cfg.totalTime * ctx.cfg.areaBore * g²^2
+  result = ctx.fluxIntegral * ctx.cfg.totalTime * ctx.areaBore * g²^2
 
 ## NOTE: only important that signal and background have the same units!
 proc signal(ctx: Context, E: keV, g²: float): keV⁻¹ =
   ## Returns the axion flux based on `g` and energy `E`
-  result = ctx.signalRate(E) * ctx.cfg.totalTime.to(Second) * ctx.cfg.areaBore * g²^2
+  result = ctx.signalRate(E) * ctx.cfg.totalTime.to(Second) * ctx.areaBore * g²^2
 
 proc background(ctx: Context, E: keV): keV⁻¹ =
   ## Compute an interpolation the background at the energy `E`.
@@ -371,7 +372,6 @@ when isMainModule:
     "L"               : "Length of the magnet",
     "totalTime"       : "Total time in hours of solar tracking",
     "boreDiameter"    : "Diameter of the bore (assumes a circular bore, A = πr²)",
-    "areaBore"        : "Full bore area, computed from `boreDiameter`",
     "chipArea"        : "Area in which all flux is assumed to be collected and in which all candidates are detected & background is defined",
     "g2_max"          : "Maximum value for `g²` for the limit. Value should be large enough that the likelihood function is zero there.",
     "nmc"             : "Number of toy candidate sets to sample for the expected limit",

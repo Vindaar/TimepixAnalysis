@@ -188,7 +188,8 @@ proc parseAxionFlux(cfg: Config): InterpolatorType[float] =
       result = x.keV⁻¹•m⁻²•yr⁻¹.to(keV⁻¹•cm⁻²•s⁻¹).float
     const fCol = "Flux [keV⁻¹•cm⁻²•s⁻¹]"
     if "Flux / keV⁻¹ m⁻² yr⁻¹" in df:
-      df = df.mutate(f{fCol ~ convert(idx("Flux / keV⁻¹ m⁻² yr⁻¹"))})
+      df = df.filter(f{`type` == "Total flux"}) # filter to only total flux
+        .mutate(f{fCol ~ convert(idx("Flux / keV⁻¹ m⁻² yr⁻¹"))})
     else:
       stdout.styledWrite(fgYellow, "[WARNING]: The given column name is not the default name. We assume " &
         "the flux is given in `keV⁻¹•cm⁻²•s⁻¹`.\n")

@@ -299,7 +299,7 @@ proc background(ctx: Context, E: keV): keV⁻¹ =
   result = (ctx.bkg.eval(E.float).keV⁻¹•cm⁻²•s⁻¹ * ctx.cfg.totalTime * ctx.cfg.chipArea).to(keV⁻¹)
 
 proc likelihood(ctx: Context, g²: float, cs: seq[Candidate]): float =
-  ## `cs` = each candidate with an energy `E`
+  ## `cs` = each candidate with an energy `E` inside the `chipArea`.
   ## Note: In this form of the likelihood function, with s/b
   ## we can get away with using non logs for all interesting
   ## parameter ranges. And we need the actual likelihood (not the χ²)

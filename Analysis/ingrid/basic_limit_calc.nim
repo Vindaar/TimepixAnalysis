@@ -77,6 +77,8 @@ type
     bSep*: char             = ','                          ## Separator in the C/TSV file
     # Random number seed
     rngSeed*: int           = 299_792_458                  ## Random number generator seed
+    # Output related parameters
+    plotPath*: string       = "plots"                      ## Default location where plots are stored
 
   Context = ref object
     cfg: Config
@@ -311,7 +313,7 @@ proc likelihood(ctx: Context, g²: float, cs: seq[Candidate]): float =
     let b = ctx.background(E)
     result *= (1 + s / b)
 
-proc computeLimit(ctx: Context, cs: seq[Candidate]): float =
+proc computeLimit(ctx: Context, cs: seq[Candidate], toPlot = false): float =
   ## Computes the limit for the given candidates, based on the
   ## parameter range `[0, g²_max]` (defined from configuration).
   let g² = linspace(0.0, ctx.cfg.g2_max, ctx.cfg.steps) # g²
@@ -326,7 +328,11 @@ proc computeLimit(ctx: Context, cs: seq[Candidate]): float =
   let limitIdx = lCdf.lowerBound(0.95) # limit at 95% of the CDF
   result = g²[limitIdx]
 
-const Parallel = true
+  if toPlot:
+    ggplot(toDf(g², Ls), aes("g²", "Ls")) +
+      geom_line() + ggsave(ctx.cfg.plotPath / "limit_Ls.pdf")
+
+const Parallel = false
 when Parallel:
   import pkg / forked
 proc expectedLimit(ctx: Context): float =
@@ -338,7 +344,7 @@ proc expectedLimit(ctx: Context): float =
       if i mod 500 == 0:
         echo &"Iteration: {i} of {nmc} ({(i.float / nmc.float) * 100.0:.2f}%)"
       let cs = ctx.sampleCandidates()
-      let limit = ctx.computeLimit(cs)
+      let limit = ctx.computeLimit(cs, i mod 500 == 0)
       send limit
       join: limits[i] = limit
   else:
@@ -346,7 +352,7 @@ proc expectedLimit(ctx: Context): float =
       if i mod 500 == 0:
         echo &"Iteration: {i} of {nmc} ({(i.float / nmc.float) * 100.0:.2f}%)"
       let cs = ctx.sampleCandidates()
-      limits[i] = ctx.computeLimit(cs)
+      limits[i] = ctx.computeLimit(cs, i mod 500 == 0)
   result = limits.median()
 
 proc main(ctx: Context) =
@@ -412,7 +418,9 @@ when isMainModule:
     "bColBkg"         : "Column name of the efficiency column in the CSV file",
     "bSep"            : "Separator in the C/TSV file",
     # Random number seed
-    "rngSeed"         : "Random number generator seed"
+    "rngSeed"         : "Random number generator seed",
+    # Output related parameters
+    "plotPath"        : "Default location where plots are stored"
   })
   let ctx = initContext(app)
   ctx.main # Only --help/--version/parse errors cause early exit

@@ -127,6 +127,8 @@ proc compileBinaries() =
     # Similarly the limit calculation can be compiled manually.
     # ("Analysis/ingrid/mcmc_limit_calculation", @["danger"]),
     ("Analysis/ingrid/fake_event_generator", @["danger"]),
+    # Basic limit calcultion tool
+    ("Analysis/ingrid/basic_limit_calc", @["danger"]),
     # Processing pipeline helpers
     ("Analysis/ingrid/runAnalysisChain", @["release"]),
     ("Analysis/createAllLikelihoodCombinations", @[]),

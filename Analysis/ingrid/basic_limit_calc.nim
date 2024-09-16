@@ -118,10 +118,6 @@ type
     p5, p16, p25, p75, p84, p95: float ## Different percentiles of the distribution
 
 ## Constants defining the default background rate
-## IMPORTANT: Such a distribution of background with so few bins is not ideal. When sampling candidates
-## for simplicity we only sample the energies of the `Energies` sequence (weighted by the `Background`)
-## histogram. We could sample uniformly in each bin for a more realistic approach, but we want to avoid
-## such complexity here. Normally the input CSV for the background should have O(>50) bins.
 const
   Energies =   @[0.5,    1.5,    2.5,    3.5,    4.5,    5.5,     6.5,    7.5,  8.5,    9.5].mapIt(it.keV)
   Background = @[0.5e-5, 2.5e-5, 4.5e-5, 4.0e-5, 1.0e-5, 0.75e-5, 0.8e-5, 3e-5, 3.5e-5, 2.0e-5]
@@ -245,16 +241,17 @@ proc initContext(cfg: Config): Context =
   let gm = parseGasMixture(cfg.gas, cfg.pressure, cfg.T)
   let window = initCompound(cfg.windowDensity, parseCompound(cfg.window))
   # 3. integrate the solar flux, combined with efficiencies
-  let xs = linspace(0.0, 10.0, 1000) # keV
+  let Es = linspace(0.0, 10.0, 1000) # keV, energies for flux integration & background interp
+  let bkgVals = Es.mapIt(bkg.eval(it))
   result = Context(
     cfg: cfg,
     areaBore: π * (cfg.boreDiameter / 2.0)^2,
     rnd: wrap(initMersenneTwister(cfg.rngSeed.uint32)),
     bkg: bkg,
-    bMinE: bkg.X.min.keV, bMaxE: bkg.X.max.keV,
-    meanBkgRate: mean(bkg.Y).keV⁻¹•cm⁻²•s⁻¹,
-    backgroundCdf: toCdf( bkg.Y ),
-    energyForBCdf: bkg.X,
+    bMinE: Es.min.keV, bMaxE: Es.max.keV,
+    meanBkgRate: mean(bkgVals).keV⁻¹•cm⁻²•s⁻¹,
+    backgroundCdf: toCdf( bkgVals ),
+    energyForBCdf: Es,
     gm: gm,
     window: window,
     telEff: parseTelescopeEff(cfg),
@@ -263,8 +260,8 @@ proc initContext(cfg: Config): Context =
   if cfg.axionFlux.len == 0:
     result.cfg.fluxKind = fkAxionPhoton
   # calc flux & convert back to float for compatibility with `simpson`
-  let fl = xs.mapIt(signalRate(result, it.keV).float)
-  result.fluxIntegral = simpson(fl, xs).cm⁻²•s⁻¹ # convert back to units (integrated out `keV⁻¹`!)
+  let fl = Es.mapIt(signalRate(result, it.keV).float)
+  result.fluxIntegral = simpson(fl, Es).cm⁻²•s⁻¹ # convert back to units (integrated out `keV⁻¹`!)
 
 ################################################################################
 # Random sampling logic

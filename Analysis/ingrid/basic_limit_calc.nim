@@ -39,49 +39,55 @@ type
   ## etc.
   Config = object # Stores experimental configuration
     # Experiment setup
-    B*: Tesla               = 3.5.T                        ## Magnetic field of the magnet
-    L*: Meter               = 20.m                         ## Length of the magnet
-    totalTime*: Hour        = 100.h                        ## Total time in hours of solar tracking
-    boreDiameter*: cm       = 70.cm                        ## Diameter of the bore (assumes a circular bore, A = πr²)
-    chipArea*: mm²          = 5.mm * 5.mm                  ## Area in which all flux is assumed to be collected and in which
-                                                           ## all candidates are detected & background is defined
+    B*: Tesla                = 3.5.T                        ## Magnetic field of the magnet
+    L*: Meter                = 20.m                         ## Length of the magnet
+    totalTime*: Hour         = 100.h                        ## Total time in hours of solar tracking
+    boreDiameter*: cm        = 70.cm                        ## Diameter of the bore (assumes a circular bore, A = πr²)
+    chipArea*: mm²           = 5.mm * 5.mm                  ## Area in which all flux is assumed to be collected and in which
+                                                            ## all candidates are detected & background is defined
     # Limit setup
-    g2_max*: float          = 5e-21                        ## Maximum value for `g²` for the limit. Value should be large enough that
-                                                           ## the likelihood function is zero there.
-    nmc*: int               = 10000                        ## Number of toy candidate sets to sample for the expected limit
-    epsilon*: float         = 1e-9                         ## Maximum value that the likelihood function is allowed to have at `g2_max`.
-                                                           ## Ideally L(g2_max) = 0!
-    steps*: int             = 1000                         ## Number of coupling constant steps to calculate for each limit.
+    g2_max*: float           = 5e-21                        ## Maximum value for `g²` for the limit. Value should be large enough that
+                                                            ## the likelihood function is zero there.
+    nmc*: int                = 10000                        ## Number of toy candidate sets to sample for the expected limit
+    epsilon*: float          = 1e-9                         ## Maximum value that the likelihood function is allowed to have at `g2_max`.
+                                                            ## Ideally L(g2_max) = 0!
+    steps*: int              = 1000                         ## Number of coupling constant steps to calculate for each limit.
     # Detector properties
-    gas*: seq[string]       = @["Ar,0.977", "C4H10,0.023"] ## Gas mixture of the detector to use.
-    pressure*: mbar         = 1050.mbar                    ## Pressure in the detector chamber.
-    T*: Kelvin              = 293.15.K                     ## Temperature in the detector chamber
-    chamberHeight*: cm      = 3.cm                         ## Height of the detector chamber
+    gas*: seq[string]        = @["Ar,0.977", "C4H10,0.023"] ## Gas mixture of the detector to use.
+    pressure*: mbar          = 1050.mbar                    ## Pressure in the detector chamber.
+    T*: Kelvin               = 293.15.K                     ## Temperature in the detector chamber
+    chamberHeight*: cm       = 3.cm                         ## Height of the detector chamber
     # Window properties
-    window*: string         = "Si3N4"                      ## Compound of the detector window, Silicon nitried 'Si3N4', Mylar: 'C10H8O4'",
-    windowDensity*: g•cm⁻³  = 3.44.g•cm⁻³                  ## Density of the detector window material
-    windowThickness*: μm    = 0.3.μm                       ## Thickness of the window (in μm!)
+    window*: string          = "Si3N4"                      ## Compound of the detector window, Silicon nitried 'Si3N4', Mylar: 'C10H8O4'",
+    windowDensity*: g•cm⁻³   = 3.44.g•cm⁻³                  ## Density of the detector window material
+    windowThickness*: μm     = 0.3.μm                       ## Thickness of the window (in μm!)
+    windowThroughput*: float = 1.0                          ## Throughput of the window geometry for the flux, due to strongbacks etc.
+                                                            ## NOTE: In reality this number may be much higher than a naive occlusion
+                                                            ## calculation may suggest, due to the axion image not being occluded.
+                                                            ## If unsure, leave it at 1.0.
+    # Software parameters
+    softwareEff*: float      = 0.9                          ## Software efficiency applied to signal collection.
     # Telescope
-    effectiveArea*: string  = "../../resources/llnl_2016_dec_final_efficiency.csv" ## Path to a file containing telescope effective area
-    tColE*: string          = "Energy [keV]"               ## Column name of the energy column in the CSV file
-    tColEff*: string        = "Efficiency"                 ## Column name of the efficiency column in the CSV file
-    tSep*: char             = ','                          ## Separator in the C/TSV file
+    effectiveArea*: string   = "../../resources/llnl_2016_dec_final_efficiency.csv" ## Path to a file containing telescope effective area
+    tColE*: string           = "Energy [keV]"               ## Column name of the energy column in the CSV file
+    tColEff*: string         = "Efficiency"                 ## Column name of the efficiency column in the CSV file
+    tSep*: char              = ','                          ## Separator in the C/TSV file
     # Axions
-    axionFlux*: string      = ""                           ## Path to a file containing axion flux (if none given, use analytical Primakoff)
-    fluxKind*: FluxKind     = fkNone                       ## Type of flux for the given axion flux CSV ({fkAxionElectron, fkAxionPhoton})
-    g2_ref*: float          = 0.0                          ## Reference value `g²` for which flux was computed, e.g. `g²_ae = 1e-26`, `g²_aγ = 1e-24`
-    aColE*: string          = "Energy [keV]"               ## Column name of the energy column in the CSV file
-    aColFlux*: string       = "Flux / keV⁻¹ m⁻² yr⁻¹"      ## Column name of the efficiency column in the CSV file
-    aSep*: char             = ','                          ## Separator in the C/TSV file
+    axionFlux*: string       = ""                           ## Path to a file containing axion flux (if none given, use analytical Primakoff)
+    fluxKind*: FluxKind      = fkNone                       ## Type of flux for the given axion flux CSV ({fkAxionElectron, fkAxionPhoton})
+    g2_ref*: float           = 0.0                          ## Reference value `g²` for which flux was computed, e.g. `g²_ae = 1e-26`, `g²_aγ = 1e-24`
+    aColE*: string           = "Energy [keV]"               ## Column name of the energy column in the CSV file
+    aColFlux*: string        = "Flux / keV⁻¹ m⁻² yr⁻¹"      ## Column name of the efficiency column in the CSV file
+    aSep*: char              = ','                          ## Separator in the C/TSV file
     # Background
-    backgroundFile*: string = ""                           ## Path to a file containing background rate (if none given, use a 1e-5 range default)
-    bColE*: string          = "Energy [keV]"               ## Column name of the energy column in the CSV file
-    bColBkg*: string        = "Background"                 ## Column name of the efficiency column in the CSV file
-    bSep*: char             = ','                          ## Separator in the C/TSV file
+    backgroundFile*: string  = ""                           ## Path to a file containing background rate (if none given, use a 1e-5 range default)
+    bColE*: string           = "Energy [keV]"               ## Column name of the energy column in the CSV file
+    bColBkg*: string         = "Background"                 ## Column name of the efficiency column in the CSV file
+    bSep*: char              = ','                          ## Separator in the C/TSV file
     # Random number seed
-    rngSeed*: int           = 299_792_458                  ## Random number generator seed
+    rngSeed*: int            = 299_792_458                  ## Random number generator seed
     # Output related parameters
-    plotPath*: string       = "plots"                      ## Default location where plots are stored
+    plotPath*: string        = "plots"                      ## Default location where plots are stored
 
   Context = ref object
     cfg: Config
@@ -316,7 +322,9 @@ proc signalRate(ctx: Context, E: keV): keV⁻¹•cm⁻²•s⁻¹ =
   result = solarAxionFlux(E) * ctx.conversionProbability() *
            ctx.telEff.eval(E.float) *
            ctx.window.transmission(ctx.cfg.windowThickness, E) *
-           ctx.gm.absorption(ctx.cfg.chamberHeight, E)
+           ctx.gm.absorption(ctx.cfg.chamberHeight, E) *
+           ctx.cfg.softwareEff *
+           ctx.cfg.windowThroughput
 
 proc totalFlux(ctx: Context, g²: float): float =
   ## Flux integrated to total time, energy and area
@@ -454,6 +462,12 @@ when isMainModule:
     "window"          : "Compound of the detector window, Silicon nitried 'Si3N4', Mylar: 'C10H8O4'",
     "windowDensity"   : "Density of the detector window material",
     "windowThickness" : "Thickness of the window (in μm!)",
+    "windowThroughput": """Throughput of the window geometry for the flux, due to strongbacks etc.
+NOTE: In reality this number may be much higher than a naive occlusion
+calculation may suggest, due to the axion image not being occluded.
+If unsure, leave it at 1.0.""",
+    # Software parameters
+    "softwareEff"     : "Software efficiency applied to signal collection",
     # Telescope
     "effectiveArea"   : "Path to a file containing telescope effective area",
     "tColE"           : "Column name of the energy column in the CSV file",

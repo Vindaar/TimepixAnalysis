@@ -603,8 +603,8 @@
       }
     },
     "numericalnim": {
-      "version": "0.8.9",
-      "vcsRevision": "bd3c612c736f1ed74f74623a2cb202d9d3bdc441",
+      "version": "0.8.10",
+      "vcsRevision": "5156285dc74bfd994627e2dc451632164b6b0632",
       "url": "https://github.com/SciNim/numericalnim/",
       "downloadMethod": "git",
       "dependencies": [
@@ -612,7 +612,7 @@
         "cdt"
       ],
       "checksums": {
-        "sha1": "ee6fc11ba175c37edf6589d3b73e2b736a952403"
+        "sha1": "6c968fec52347dc351d6e376a076fa02c876bb9e"
       }
     },
     "orgtables": {
@@ -683,8 +683,8 @@
       }
     },
     "xrayAttenuation": {
-      "version": "0.4.3",
-      "vcsRevision": "d261db08770e2de3da828e8ad938d1c9f9562ffa",
+      "version": "0.4.4",
+      "vcsRevision": "16ca5505e31e4d344876e23780ccc56128c7cd6e",
       "url": "https://github.com/SciNim/xrayAttenuation",
       "downloadMethod": "git",
       "dependencies": [
@@ -694,7 +694,7 @@
         "cligen"
       ],
       "checksums": {
-        "sha1": "4e673814b8bd0a70c9d9c28ac33408acff9c320f"
+        "sha1": "cb19b0950c74e7c0c92082ec9670520b73a1c2cc"
       }
     },
     "zero_functional": {

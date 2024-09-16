@@ -84,6 +84,7 @@ type
     bColE*: string           = "Energy [keV]"               ## Column name of the energy column in the CSV file
     bColBkg*: string         = "Background"                 ## Column name of the efficiency column in the CSV file
     bSep*: char              = ','                          ## Separator in the C/TSV file
+    bHeader*: string         = ""                           ## Optional indicator for the header in the CSV file, e.g. `"#"`.
     # Random number seed
     rngSeed*: int            = 299_792_458                  ## Random number generator seed
     # Output related parameters
@@ -200,8 +201,8 @@ proc parseAxionFlux(cfg: Config): InterpolatorType[float] =
     result = newLinear1D(df[cfg.aColE, float].toSeq1D,
                          df[fCol, float].toSeq1D)
 
-proc parseFile(f, x, y: string, sep: char): InterpolatorType[float] =
-  var df = readCsv(f, sep = sep)
+proc parseFile(f, x, y: string, sep: char, header: string = ""): InterpolatorType[float] =
+  var df = readCsv(f, sep = sep, header = header)
   errorIfNotfound(x, df)
   errorIfNotfound(y, df)
   result = newLinear1D(df[x, float].toSeq1D, df[y, float].toSeq1D)
@@ -216,7 +217,7 @@ proc parseTelescopeEff(cfg: Config): InterpolatorType[float] =
 proc parseBackgroundRate(cfg: Config): InterpolatorType[float] =
   ## Parses the background rate
   if cfg.backgroundFile.len > 0:
-    result = parseFile(cfg.backgroundFile, cfg.bColE, cfg.bColBkg, cfg.bSep)
+    result = parseFile(cfg.backgroundFile, cfg.bColE, cfg.bColBkg, cfg.bSep, cfg.bHeader)
   else:
     result = newLinear1D(Energies.mapIt(it.float), Background.mapIt(it.float)) # strip type info :(
 
@@ -490,6 +491,7 @@ If unsure, leave it at 1.0.""",
     "bColE"           : "Column name of the energy column in the CSV file",
     "bColBkg"         : "Column name of the efficiency column in the CSV file",
     "bSep"            : "Separator in the C/TSV file",
+    "bHeader"         : "Optional indicator for the header in the CSV file, e.g. `\"#\"`.",
     # Random number seed
     "rngSeed"         : "Random number generator seed",
     # Output related parameters

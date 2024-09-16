@@ -16,6 +16,8 @@ const Data2014 = "../../resources/background-rate-gold.2014+2015.dat"
 const Ecol = "Energy"
 const Ccol = "Counts"
 const Rcol = "Rate"
+const ScaleFactor = 1e5 ## The default scaling factor for plots. 1e5, because usually background rates tend
+                        ## to be in the 1e-5 range.
 
 type
   LogLFile = object
@@ -53,7 +55,7 @@ proc scaleDset(data: Column, totalTime, factor: float, region: ChipRegion): Colu
   const bin_width = 0.2 # 0.392
   const shutter_open = 1.0 # Does not play any role, because totalDuration takes
                            # this into account already!
-  let scale = factor / (totalTime * shutter_open * area.float * bin_width) #* 1e5
+  let scale = factor / (totalTime * shutter_open * area.float * bin_width) #* ScaleFactor
   result = toColumn data.toTensor(float).map_inline(x * scale)
 
 proc readVetoCfg(h5f: H5File, fileInfo: FileInfo): (set[LogLFlagKind], VetoSettings) =
@@ -203,8 +205,8 @@ proc read2014Data(log: bool): DataFrame =
   let lastLine = toDf({ Ecol : @[10.1], Rcol : @[0.0], "yMin" : @[0.0], "yMax" : @[0.0] })
   result.add lastLine
   if not log:
-    result = result.mutate(f{Rcol ~ 1e5 * `Rate`}, f{"yMin" ~ 1e5 * `yMin`},
-                           f{"yMax" ~ 1e5 * `yMax`})
+    result = result.mutate(f{Rcol ~ ScaleFactor * `Rate`}, f{"yMin" ~ ScaleFactor * `yMin`},
+                           f{"yMax" ~ ScaleFactor * `yMax`})
   result = result.mutate(f{"yMin" ~ `Rate` - `yMin`}, f{"yMax" ~ `Rate` + `yMax`},
                          f{Ecol ~ `Energy` - 0.1})
   result["Dataset"] = constantColumn("2014/15", result.len)
@@ -500,9 +502,6 @@ proc plotBackgroundRate(df: DataFrame, fnameSuffix, title: string,
     margin(top = topMargin) +
     ggsave(fname, width = 800, height = 480)
 
-  df = df.drop(["Dataset", "yMin", "yMax"])
-  df.writeCsv("/tmp/background_rate_data.csv")
-
 proc plotEfficiencyComparison(files: seq[LogLFile], outpath: string, region: ChipRegion, verbose: bool) =
   ## creates a plot comparing different logL cut efficiencies. Each filename should contain the
   ## efficiency in the format
@@ -518,7 +517,7 @@ proc plotEfficiencyComparison(files: seq[LogLFile], outpath: string, region: Chi
     doAssert "_eff_" in f.name
     # ugly for now ## <-- this can come from veto efficiency now!
     let eff = f.name.split("_")[^1].dup(removeSuffix(".h5")).parseFloat
-    var dfFlat = flatScale(@[f], 1e5, region, verbose, dropCounts = false)
+    var dfFlat = flatScale(@[f], ScaleFactor, region, verbose, dropCounts = false)
     dfFlat["ε/√B"] = dfFlat["Counts", float].map_inline:
       if x > 0.0:
         eff / sqrt(x)
@@ -593,6 +592,16 @@ proc printBackgroundRates(df: DataFrame, factor: float, energyMin: float, rateTa
     writeFile(rateTable, tab.toOrgTable(precision = 3))
   echo tab.toOrgTable(precision = 3)
 
+proc writeBackgroundDf(df: DataFrame, fnameSuffix, outfile, outpath: string) =
+  let fname = if outfile.len > 0: outpath / outfile
+              else: &"{outpath}/background_rate_{fnameSuffix}.pdf"
+  var df = df.drop(["Dataset", "yMin", "yMax"])
+  let csvFname = fname.replace(".pdf", ".csv")
+  log(true):
+    &"Wring CSV to: {csvFname}"
+  df = df.mutate(f{float: "Rate" ~ `Rate` / ScaleFactor})
+  df.writeCsv(csvFname) #fname.replace(".pdf", ".csv"))
+
 proc main(files: seq[string], log = false, title = "",
           show2014 = false,
           separateFiles = false,
@@ -627,6 +636,7 @@ proc main(files: seq[string], log = false, title = "",
           genTikZ = false,
           filterNoisyPixels = false,
           logPlot = false,
+          writeCsv = false, # If true, wriet a CSV of the background rate DF
           outpath = "plots",
           outfile = "",
           rateTable = "", # path to a file in which a table of rates will be printed
@@ -646,7 +656,7 @@ proc main(files: seq[string], log = false, title = "",
   let logLFiles = readFiles(files, names, region, energyDset, centerChip, energyMin, energyMax, readToA, toaCutoff, applyEfficiencyNormalization, verbose)
   let fnameSuffix = logLFiles.mapIt($it.year).join("_") & "_show2014_" & $show2014 & "_separate_" & $separateFiles & "_" & suffix.replace(" ", "_")
 
-  let factor = if log: 1.0 else: 1e5
+  let factor = if log: 1.0 else: ScaleFactor
 
   if plotMedianBools:
     var df: DataFrame
@@ -730,6 +740,10 @@ proc main(files: seq[string], log = false, title = "",
         textWidth = textWidth
       )
 
+    if writeCsv:
+      writeBackgroundDf(df.filter(f{idx(Ecol) <= energyMax}), # filter histogram bins to target energy
+                        fnameSuffix, outfile, outpath)
+
 when isMainModule:
   dispatch main, help = {
     "files" : "Input files to plot backround rate from",
@@ -770,5 +784,6 @@ of the logL cut, creates a comparison plot.""",
     "genTikZ" : "If set only generate TikZ instead of compiling a TeX file to PDF.",
     "filterNoisyPixels" : "If set removes the (currently hardcoded) noisy pixels.",
     "logPlot" : "Alternate setting to activate log10 plot. TO BE REMOVED",
+    "writeCsv": "If true, wriet a CSV of the background rate DF",
     "outpath" : "The path in which the plot is placed, by default './plots'",
     "outfile" : "The name of the generated plot, by default constructed from other parameters"}

@@ -294,15 +294,23 @@ proc sampleCandidates(ctx: Context): seq[Candidate] =
 # Limit ingredients
 ################################################################################
 
-proc solarAxionFlux(E: keV): keV⁻¹•cm⁻²•s⁻¹ =
+proc primakoffFlux(E: keV): keV⁻¹•cm⁻²•s⁻¹ =
   ## Axion flux produced by the Primakoff effect in solar core
   ## in units of keV⁻¹•m⁻²•yr⁻¹
   ##
   ## This is computed *WITHOUT* `g_aγ` present, i.e. we set `g_aγ = 1 GeV⁻¹`, so that
   ## in `signal` we multiply only by `g_aγ⁴` (to simplify between `g_ae` and `g_aγ`).
+  ##
+  ## Analytical Primakoff flux expression from: `doi:10.1088/1475-7516/2013/05/010`
+  ## (CAST 2013 axion electron paper)
   let flux = 2.0 * 1e18.keV⁻¹•m⁻²•yr⁻¹ * (1.GeV⁻¹ / 1e-12.GeV⁻¹)^2 * pow(E / 1.keV, 2.450) * exp(-0.829 * E / 1.keV)
   # convert flux to correct units
   result = flux.to(keV⁻¹•cm⁻²•s⁻¹)
+
+proc solarAxionFlux(ctx: Context, E: keV): keV⁻¹•cm⁻²•s⁻¹ =
+  ## Solar axion flux. Either analytical if no axion flux input given or interpolated.
+  if ctx.axionFlux != nil: result = ctx.axionFlux.eval(E.float).keV⁻¹•cm⁻²•s⁻¹
+  else: result = primakoffFlux(E)
 
 func conversionProbability(ctx: Context): UnitLess =
   ## the conversion probability in the CAST magnet (depends on g_aγ)
@@ -319,7 +327,7 @@ proc signalRate(ctx: Context, E: keV): keV⁻¹•cm⁻²•s⁻¹ =
   ## As a result this is the expected rate to be detected *without* `g⁴`.
   #
   ## XXX: Make `solarAxionFlux` depending on config
-  result = solarAxionFlux(E) * ctx.conversionProbability() *
+  result = ctx.solarAxionFlux(E) * ctx.conversionProbability() *
            ctx.telEff.eval(E.float) *
            ctx.window.transmission(ctx.cfg.windowThickness, E) *
            ctx.gm.absorption(ctx.cfg.chamberHeight, E) *

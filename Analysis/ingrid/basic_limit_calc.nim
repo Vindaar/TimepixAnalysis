@@ -454,7 +454,10 @@ when isMainModule:
     "L"               : "Length of the magnet",
     "totalTime"       : "Total time in hours of solar tracking",
     "boreDiameter"    : "Diameter of the bore (assumes a circular bore, A = πr²)",
-    "chipArea"        : "Area in which all flux is assumed to be collected and in which all candidates are detected & background is defined",
+    "chipArea"        : """Area in which all flux is assumed to be collected and in which all candidates
+are detected & background is defined.
+*NOTE*: This is a *vital* parameter, because it directly affects the signal / background ratio. Our assumption
+is always that all flux is contained in this region and the background constant inside it.""",
     "g2_max"          : "Maximum value for `g²` for the limit. Value should be large enough that the likelihood function is zero there.",
     "nmc"             : "Number of toy candidate sets to sample for the expected limit",
     "epsilon"         : "Maximum value that the likelihood function is allowed to have at `g2_max`. Ideally L(g2_max) = 0!",

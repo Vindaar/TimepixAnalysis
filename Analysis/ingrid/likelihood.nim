@@ -2,7 +2,7 @@ import std / [os, tables, strutils, strformat, algorithm, sets,
               stats, sequtils, typetraits, random]
 from std/sugar import dup
 # import docopt except Value
-import cligen / macUt
+import cligen / macUt # for `docCommentAdd`
 import nimhdf5, tos_helpers, seqmath, arraymancer
 import helpers/utils
 import ingrid / [ingrid_types, calibration]

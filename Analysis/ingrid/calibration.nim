@@ -733,7 +733,10 @@ proc calcGasGain*(h5f: H5File, runNumber: int,
   var printRunPeriod = false
   var runPeriodPrinted: set[uint8]
   for run, chip, grp in chipGroups(h5f):
-    if chipBase in grp and not isDone(h5f, grp, rfOnlyGasGain, overwrite):
+    if chipBase in grp: # skip other groups
+      if isDone(h5f, grp, rfOnlyGasGain, overwrite):
+        echo &"INFO Gas gain calculation for run {run} already exists. Skipping. Force via `--overwrite`."
+        continue
       doAssert run == runNumber
       if chip.uint8 notin runPeriodPrinted:
         runPeriodPrinted.incl chip.uint8

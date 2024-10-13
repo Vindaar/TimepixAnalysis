@@ -1089,11 +1089,12 @@ proc writeFlag*(h5f: H5File, grp: string, flag: RecoFlags | string) =
 import std / json
 proc isDone*(h5f: H5File, grp: string, flag: RecoFlags | string, overwrite: bool): bool =
   ## Checks if the given `flag` has already been performed for this run.
-  if overwrite: return false
-  let h5grp = h5f[grp.grp_str]
-  echo &"INFO Flag {flag} in attributes? {$flag in h5grp.attrs}"
-  echo "INFO Attributes of {h5grp.name}: ", h5grp.attrsToJson().pretty()
-  result = $flag in h5grp.attrs and h5grp.attrs[$flag, string] == "true"
+  if overwrite: result = false
+  elif grp in h5f: # else false
+    let h5grp = h5f[grp.grp_str]
+    echo &"INFO Flag {flag} in attributes? {$flag in h5grp.attrs}"
+    echo &"INFO Attributes of {h5grp.name}: ", h5grp.attrsToJson().pretty()
+    result = $flag in h5grp.attrs and h5grp.attrs[$flag, string] == "true"
 
 proc genPlotDirname*(h5f: H5File, outpath: string, attrName: string): string =
   ## generates a unique name for the directory in which all plots for this H5

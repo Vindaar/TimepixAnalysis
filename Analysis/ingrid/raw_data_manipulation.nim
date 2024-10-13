@@ -391,6 +391,7 @@ proc initFadcInH5(h5f: var H5File, runNumber, batchsize: int, filename: string) 
                        dtype = `type`,
                        chunksize = chnkS,
                        maxshape = mxS,
+                       overwrite = true,
                        filter = filter)
   var
     runGroup = h5f.create_group(groupName)
@@ -521,6 +522,7 @@ proc initInGridInH5*(h5f: var H5File, runNumber, nChips,
                                dtype = `type`,
                                chunksize = @[batchsize],
                                maxshape = @[int.high],
+                               overwrite = true,
                                filter = filter)
 
   for chp in chipGroups:
@@ -531,7 +533,7 @@ proc initInGridInH5*(h5f: var H5File, runNumber, nChips,
     h5f.datasetCreation(chp.name & "/ToT", uint16)
     h5f.datasetCreation(chp.name & "/Hits", uint16)
     # use normal dataset creation proc, due to static size of occupancies
-    discard h5f.create_dataset(chp.name & "/Occupancy", (256, 256), int, filter = filter)
+    discard h5f.create_dataset(chp.name & "/Occupancy", (256, 256), int, filter = filter, overwrite = true)
     if createToADset:
       h5f.datasetCreation(chp.name & "/raw_toa", ev_type_ch)
       h5f.datasetCreation(chp.name & "/raw_toa_combined", special_type(uint64))
@@ -1243,7 +1245,7 @@ proc handleTimepix1(folder: string, runType: RunTypeKind, outfile: string,
         if is_rf == true and contains_rf == false:
           if rfOverwrite notin flags and hasRawRun(h5f, runNumber):
             # skip this run if no overwrite or run not in file
-            info &"Run number {runNumber} already exists in file, skipping."
+            info &"Run number {runNumber} already exists in file, skipping, because `--overwrite` is not set."
             continue
           else:
             info &"Starting raw data manipulation for run number {runNumber}"

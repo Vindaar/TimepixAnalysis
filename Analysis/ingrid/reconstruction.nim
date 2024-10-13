@@ -131,6 +131,7 @@ proc createDatasets[N: int](dset_tab: var Table[string, seq[H5DataSet]],
                                                 dtype = dtype,
                                                 chunksize = @[Chunksize],
                                                 maxshape = @[int.high],
+                                                overwrite = true,
                                                 filter = filter)
 
 proc writeRecoRunToH5*[T: SomePix](h5f: H5File,
@@ -250,6 +251,7 @@ proc writeRecoRunToH5*[T: SomePix](h5f: H5File,
                        dtype = `type`,
                        chunksize = @[Chunksize],
                        maxshape = @[int.high],
+                       overwrite = true,
                        filter = filter)
 
   var
@@ -515,7 +517,8 @@ proc initRecoFadcInH5(h5f, h5fout: H5File, runNumber, batchSize: int) =
                        dtype = `type`,
                        chunksize = chnkS,
                        maxshape = mxS,
-                       filter = filter)
+                       filter = filter,
+                       overwrite = true)
   var
     # NOTE: we initialize all datasets with a size of 0. This means we need to extend
     # it immediately. However, this allows us to always (!) simply extend and write

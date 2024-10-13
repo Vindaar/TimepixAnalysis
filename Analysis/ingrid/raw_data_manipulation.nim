@@ -1115,10 +1115,13 @@ proc processAndWriteSingleRun(h5f: var H5File, run_folder: string,
 
 proc processAndWriteSingleRunTpx3(h5f: H5File, h5fout: var H5File,
                                   runNumber: int,
+                                  outputRunNumber: int,
                                   clusterCutoff: int,
                                   totCut: TotCut,
                                   plotDirPrefix: string,
                                   runType: RunTypeKind = rtNone) =
+  ## `runNumber` is the run number stored in the input file. If `forceRunNumber` is used
+  ## `outputRunNumber` will differ from it.
   const tpx3Buf = 50_000_000
   const nChips = 1 ## NOTE: so far we just use 1 chip for simplicity
 
@@ -1139,26 +1142,24 @@ proc processAndWriteSingleRunTpx3(h5f: H5File, h5fout: var H5File,
     countIdx = if oldIdx + tpx3Buf < pixNum: tpx3Buf
                else: pixNum - oldIdx
     let r = createProcessedTpx3Run(data, eventsProcessed, cutoff = clusterCutoff,
-                                   runNumber = runNumber,
+                                   runNumber = outputRunNumber,
                                    totCut = totCut,
                                    runConfig = runConfig)
     eventsProcessed += r.events.len
     if r.events.len > 0:
       if not ingridInit:
-        #runNumber = r.runNumber
-        #nChips = processedRun.nChips
         # create datasets in H5 file
-        initInGridInH5(h5fout, runNumber, nChips, batchsize = FILE_BUFSIZE, createToADset = true)
+        initInGridInH5(h5fout, outputRunNumber, nChips, batchsize = FILE_BUFSIZE, createToADset = true)
       # now attributes
       writeInGridAttrs(h5fout, r, rfUnknown, runType, ingridInit,
                        clusterCutoff)
       ingridInit = true
       for chip in 0 ..< nChips:
         plotOccupancy(squeeze(r.occupancies[chip,_,_]),
-                      plotDirPrefix, runNumber, chip,
+                      plotDirPrefix, outputRunNumber, chip,
                       batchNum = idx)
       writeProcessedRunToH5(h5fout, r)
-      runFinished(h5fout, runNumber)
+      runFinished(h5fout, outputRunNumber)
       info "Size of total ProcessedRun object = ", sizeof(r)
     else:
       warn "Skipped writing to file, since ProcessedRun contains no events!"
@@ -1285,6 +1286,7 @@ proc handleTimepix1(folder: string, runType: RunTypeKind, outfile: string,
 
 proc handleTimepix3(h5file: string, runType: RunTypeKind,
                     outfile: string,
+                    forceRunNumber: int,
                     flags: set[RawFlagKind],
                     configFile: string) =
   ## handles converting a Timepix3 input file from tpx3-daq / basil format to required TPA format
@@ -1300,8 +1302,21 @@ proc handleTimepix3(h5file: string, runType: RunTypeKind,
 
   var h5f = H5File(h5file, "r")
   let fileInfo = getFileInfo(h5f)
+
+  if forceRunNumber >= 0 and fileInfo.runs.len > 1:
+    warn &"NOT performing any operations! Your input file has {fileInfo.runs.len} runs, but " &
+      &"you want to force the run number {forceRunNumber}. Overwriting the run number is only " &
+      &"allowed for input files with a single run."
+    return
+
   for runNumber in fileInfo.runs:
-    h5f.processAndWriteSingleRunTpx3(h5fout, runNumber, clusterCutoff, totCut,
+    let rN = if forceRunNumber >= 0: forceRunNumber else: runNumber
+    if rfOverwrite notin flags and hasRawRun(h5fout, rN):
+      # skip this run if no overwrite or run not in file
+      info &"Run number {rN} already exists in file, skipping, because --overwrite is not set."
+      info &"If this is not also {rN}, pass the `--run` argument with the desired targed run number."
+      continue
+    h5f.processAndWriteSingleRunTpx3(h5fout, runNumber, rN, clusterCutoff, totCut,
                                      plotOutPath, fileInfo.runType)
   discard h5f.close()
   # finally once we're done, add `rawDataFinished` attribute
@@ -1309,6 +1324,7 @@ proc handleTimepix3(h5file: string, runType: RunTypeKind,
 
 proc main(path: string, runType: RunTypeKind,
           `out` = "", nofadc = false, ignoreRunList = false,
+          forceRunNumber = -1,
           config = "", overwrite = false, tpx3 = false,
           keepExtracted = false,
           extractTo = getTempDir()
@@ -1347,7 +1363,7 @@ proc main(path: string, runType: RunTypeKind,
     else:
       handleTimepix1(path, runType, outfile, flags, config)
   else:
-    handleTimepix3(path, runType, outfile, flags, config)
+    handleTimepix3(path, runType, outfile, forceRunNumber, flags, config)
 
   info "Processing all given runs took $# minutes" % $( (epochTime() - t0) / 60'f )
 
@@ -1377,6 +1393,10 @@ The following are parsed case insensetive:
 file. By default runs found in the file will be skipped.
 HOWEVER: overwriting is assumed, if you only hand a
 run folder!""",
+    "forceRunNumber" : """(Tpx3 only): Force the run number for the input file to be set to the given
+input value. This is only allowed for HDF5 input files contain a single run. If you already used
+`parse_raw_tpx3` to merge multiple runs into one HDF5 file (as recommended for data belonging to one
+larger dataset, you cannot use it.""",
     "config" : """Path to the configuration file to use. Default is `config.toml`
 in directory of this source file.""",
     "keepExtracted" : """If a `.tar.gz` archive is given for a run folder and this flag is true

@@ -1091,8 +1091,8 @@ proc isDone*(h5f: H5File, grp: string, flag: RecoFlags | string, overwrite: bool
   ## Checks if the given `flag` has already been performed for this run.
   if overwrite: return false
   let h5grp = h5f[grp.grp_str]
-  echo "Is in it? ", $flag in h5grp.attrs
-  echo "Has: ", $flag, " attrs? ", h5grp.attrsToJson().pretty()
+  echo &"INFO Flag {flag} in attributes? {$flag in h5grp.attrs}"
+  echo "INFO Attributes of {h5grp.name}: ", h5grp.attrsToJson().pretty()
   result = $flag in h5grp.attrs and h5grp.attrs[$flag, string] == "true"
 
 proc genPlotDirname*(h5f: H5File, outpath: string, attrName: string): string =

@@ -501,7 +501,7 @@ proc gasGainHistoAndFit(data: seq[float], bin_edges: seq[float],
                               binned.asType(float64),
                               chipNumber, runNumber)
   # create plots if desired
-  info "Plotting polya of run: ", runNumber, " and chip: ", chipNumber
+  info "Plotting polya of run: ", runNumber, " and chip: ", chipNumber, " to ", plotPath
   plotGasGain(bin_edges, binned.asType(float64),
               fitResult.x, fitResult.y,
               fitResult.xMin, fitResult.xMax,

@@ -1000,6 +1000,16 @@ proc fitSpectraBySlices(h5f: H5File,
     calibErr.add (aInv * pErr / popt) * 1e6 ## previoulsy we artificially enlarged this to 1e8
     gainVals.add gasGainInterval.G
 
+func raiseGasGainSliceNumberError() =
+  raise newException(ValueError, "Cannot compute the gas gain vs. charge calibration fit for only " &
+    "a single gas gain slice interval. You either need more calibration runs for a fit _or_ (if you know " &
+    "what you are doing) you can adjust the gas gain slice in the config.toml file via the " &
+    "`gasGainInterval` field under `[Calibration]` to a shorter time. However, make sure there are " &
+    "at least 10,000 events per slice!\n" &
+    "WARNING: After performing a change in that parameter, you MUST rerun `--only_gas_gain` for all " &
+    "your data files before rerunning `--only_gain_fit! Do not forget to adjust `minimumGasGainInterval` " &
+    "accordingly.")
+
 proc performChargeCalibGasGainFit*(h5f: H5File,
                                    interval: float,
                                    gcKind: GasGainVsChargeCalibKind = gcMean,
@@ -1083,6 +1093,9 @@ proc performChargeCalibGasGainFit*(h5f: H5File,
       of gcNone:
         doAssert false, "You shouldn' use `gcNone` anymore! Use `gcMean`"
     runPeriods.add runPeriod
+
+  if gainVals.len == 1:
+    raiseGasGainSliceNumberError()
 
   # increase smallest errors to lower 1 percentile errors
   let perc1 = calibErr.percentile(1)

@@ -674,7 +674,9 @@ proc calcGasGain*(h5f: H5File, grp: string,
                   overwrite = false,
                   printRunPeriod = false) =
   ## Handles gas gain calculation for `runNumber`, given by `grp` (different chips!)
-  if isDone(h5f, grp, rfOnlyGasGain, overwrite): return
+  if isDone(h5f, grp, rfOnlyGasGain, overwrite):
+    echo &"INFO Gas gain calculation for run {runNumber} already exists. Skipping. Force via `--overwrite`."
+    return
 
   const
     hitLow = 2 # start at 2 to avoid noisy pixels w/ 1 hit

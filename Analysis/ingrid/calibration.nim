@@ -252,67 +252,67 @@ proc applyChargeCalibration*(h5f: H5File, runNumber: int,
   let fileInfo = h5f.getFileInfo() # for timepix version
   var runPeriodPrinted: set[uint8] # for each chip number
   for run, chip, grp in chipGroups(h5f):
-    if chipBase in grp:
-      doAssert run == runNumber
-      # now can start reading, get the group containing the data for this chip
-      var group = h5f[grp.grp_str]
-      # get the chip number from the attributes of the group
-      let chipNumber = group.attrs["chipNumber", int]
-      doAssert chipNumber == chip
-      let chipName = group.attrs["chipName", string]
-      try:
-        # `contains` calls `parseChipName`, which might throw a ValueError
-        if not inDatabase(chipName, runNumber):
-          raise newException(KeyError, &"No entry for chip {chipName} in InGrid " &
-            "database!")
-      except ValueError as e:
-          raise newException(KeyError, &"No entry for chip {chipName} in InGrid " &
-            "database! Internal exception message " & e.msg)
-      # get dataset of hits
-      let
-        totDset = h5f[(grp / "ToT").dset_str]
-        sumTotDset = h5f[(grp / "sumTot").dset_str]
-        vlenInt = special_type(uint16)
-        tots = totDset[vlenInt, uint16]
-        sumTots = sumTotDset[int64]
-      # now calculate charge in electrons for all TOT values
-      # need calibration factors from InGrid database for that
-      let ((a, b, c, t), runPeriod) = getTotCalibParameters(chipName, runNumber)
-      if chip.uint8 notin runPeriodPrinted:
-        runPeriodPrinted.incl chip.uint8
-        info "Using calibrations for chip: ", chipName, "(# ", chip, ") from run period: ", runPeriod
-      #mapIt(it.mapIt(calibrateCharge(it.float, a, b, c, t)))
-      var charge = newSeqWith(tots.len, newSeq[float]())
-      var totalCharge = newSeq[float](sumTots.len)
-      let capacitance = fileInfo.timepix.getCapacitance()
-      for i, vec in tots:
-        # calculate charge values for individual pixels
-        charge[i] = vec.mapIt((calibrateCharge(it.float, capacitance, a, b, c, t)))
-        # and for the sum of all in one cluster
-        totalCharge[i] = charge[i].sum
-      # create dataset for charge values
-      let vlenFloat = special_type(float64)
-      if toDelete:
-        template ifDelete(name: string): untyped =
-          if grp / name in h5f:
-            doAssert h5f.delete(grp / name)
-        ifDelete("charge")
-        ifDelete("totalCharge")
-        h5f.flush()
+    doAssert chipBase in grp
+    doAssert run == runNumber
+    # now can start reading, get the group containing the data for this chip
+    var group = h5f[grp.grp_str]
+    # get the chip number from the attributes of the group
+    let chipNumber = group.attrs["chipNumber", int]
+    doAssert chipNumber == chip
+    let chipName = group.attrs["chipName", string]
+    try:
+      # `contains` calls `parseChipName`, which might throw a ValueError
+      if not inDatabase(chipName, runNumber):
+        raise newException(KeyError, &"No entry for chip {chipName} in InGrid " &
+          "database!")
+    except ValueError as e:
+        raise newException(KeyError, &"No entry for chip {chipName} in InGrid " &
+          "database! Internal exception message " & e.msg)
+    # get dataset of hits
+    let
+      totDset = h5f[(grp / "ToT").dset_str]
+      sumTotDset = h5f[(grp / "sumTot").dset_str]
+      vlenInt = special_type(uint16)
+      tots = totDset[vlenInt, uint16]
+      sumTots = sumTotDset[int64]
+    # now calculate charge in electrons for all TOT values
+    # need calibration factors from InGrid database for that
+    let ((a, b, c, t), runPeriod) = getTotCalibParameters(chipName, runNumber)
+    if chip.uint8 notin runPeriodPrinted:
+      runPeriodPrinted.incl chip.uint8
+      info "Using calibrations for chip: ", chipName, "(# ", chip, ") from run period: ", runPeriod
+    #mapIt(it.mapIt(calibrateCharge(it.float, a, b, c, t)))
+    var charge = newSeqWith(tots.len, newSeq[float]())
+    var totalCharge = newSeq[float](sumTots.len)
+    let capacitance = fileInfo.timepix.getCapacitance()
+    for i, vec in tots:
+      # calculate charge values for individual pixels
+      charge[i] = vec.mapIt((calibrateCharge(it.float, capacitance, a, b, c, t)))
+      # and for the sum of all in one cluster
+      totalCharge[i] = charge[i].sum
+    # create dataset for charge values
+    let vlenFloat = special_type(float64)
+    if toDelete:
+      template ifDelete(name: string): untyped =
+        if grp / name in h5f:
+          doAssert h5f.delete(grp / name)
+      ifDelete("charge")
+      ifDelete("totalCharge")
+      h5f.flush()
 
-      var
-        chargeDset = h5f.create_dataset(grp / "charge", charge.len, dtype = vlenFloat, overwrite = true, filter = filter)
-        totalChargeDset = h5f.create_dataset(grp / "totalCharge", charge.len, dtype = float64, overwrite = true, filter = filter)
-      template writeDset(dset: H5DataSet, data: untyped) =
-        dset[dset.all] = data
-        # add attributes for TOT calibration factors used
-        dset.attrs["charge_a"] = a
-        dset.attrs["charge_b"] = b
-        dset.attrs["charge_c"] = c
-        dset.attrs["charge_t"] = t
-        dset.attrs["runPeriod (charge)"] = runPeriod
-      chargeDset.writeDset(charge)
-      totalChargeDset.writeDset(totalCharge)
+    var
+      chargeDset = h5f.create_dataset(grp / "charge", charge.len, dtype = vlenFloat, overwrite = true, filter = filter)
+      totalChargeDset = h5f.create_dataset(grp / "totalCharge", charge.len, dtype = float64, overwrite = true, filter = filter)
+    template writeDset(dset: H5DataSet, data: untyped) =
+      dset[dset.all] = data
+      # add attributes for TOT calibration factors used
+      dset.attrs["charge_a"] = a
+      dset.attrs["charge_b"] = b
+      dset.attrs["charge_c"] = c
+      dset.attrs["charge_t"] = t
+      dset.attrs["runPeriod (charge)"] = runPeriod
+    chargeDset.writeDset(charge)
+    totalChargeDset.writeDset(totalCharge)
 
 proc calcMeanGainFit*(x, y: seq[float]): float =
   ## Computes the `G_fitmean` value, i.e. the *mean* of the data
@@ -733,18 +733,18 @@ proc calcGasGain*(h5f: H5File, runNumber: int,
   var printRunPeriod = false
   var runPeriodPrinted: set[uint8]
   for run, chip, grp in chipGroups(h5f):
-    if chipBase in grp: # skip other groups
-      if isDone(h5f, grp, rfOnlyGasGain, overwrite):
-        echo &"INFO Gas gain calculation for run {run} already exists. Skipping. Force via `--overwrite`."
-        continue
-      doAssert run == runNumber
-      if chip.uint8 notin runPeriodPrinted:
-        runPeriodPrinted.incl chip.uint8
-        printRunPeriod = true
-      else: printRunPeriod = false
-      h5f.calcGasGain(grp, run, chip, fileInfo, fullRunGasGain, interval, minInterval, plotPath,
-                      useTeX = useTeX, overwrite = overwrite,
-                      printRunPeriod = printRunPeriod)
+    doAssert chipBase in grp
+    if isDone(h5f, grp, rfOnlyGasGain, overwrite):
+      echo &"INFO Gas gain calculation for run {run} already exists. Skipping. Force via `--overwrite`."
+      continue
+    doAssert run == runNumber
+    if chip.uint8 notin runPeriodPrinted:
+      runPeriodPrinted.incl chip.uint8
+      printRunPeriod = true
+    else: printRunPeriod = false
+    h5f.calcGasGain(grp, run, chip, fileInfo, fullRunGasGain, interval, minInterval, plotPath,
+                    useTeX = useTeX, overwrite = overwrite,
+                    printRunPeriod = printRunPeriod)
 
 proc writeFeFitParameters(dset: var H5DataSet,
                           popt, popt_E: seq[float],
@@ -1028,7 +1028,9 @@ proc performChargeCalibGasGainFit*(h5f: H5File,
   ## NOTE: the `gcKind` only takes effect for input H5 files, which are already
   ## reconstructed using the new sliced gas gain calibration!
   # iterate over all runs, extract center chip grou
-  if isDone(h5f, recoGroupGrpStr().string, rfOnlyGainFit, overwrite): return
+  if isDone(h5f, recoGroupGrpStr().string, rfOnlyGainFit, overwrite):
+    echo &"INFO Charge calibration vs. gas gain fit already performed. Skipping. Force via `--overwrite`."
+    return
 
   let plotPath = if plotPath.len > 0: plotPath else: h5f.attrs[PlotDirPrefixAttr, string]
   var
@@ -1133,27 +1135,30 @@ proc calcEnergyFromPixels*(h5f: H5File, runNumber: int, calib_factor: float, ove
   var chipBase = recoDataChipBase(runNumber)
   # get the group from file
   for run, chip, grp in chipGroups(h5f, recoBase()):
-    if chipBase in grp and not isDone(h5f, grp, rfOnlyEnergy, overwrite):
-      doAssert runNumber == run
-      # now can start reading, get the group containing the data for this chip
-      var group = h5f[grp.grp_str]
-      # get the chip number from the attributes of the group
-      let chipNumber = group.attrs["chipNumber", int]
-      # get dataset of hits
-      var hits_dset = h5f[(grp / "hits").dset_str]
-      let hits = hits_dset[int64]
+    doAssert chipBase in grp
+    if isDone(h5f, grp, rfOnlyEnergy, overwrite):
+      echo &"INFO Energy calculation for run {run} already exists. Skipping. Force via `--overwrite`."
+      continue
+    doAssert runNumber == run
+    # now can start reading, get the group containing the data for this chip
+    var group = h5f[grp.grp_str]
+    # get the chip number from the attributes of the group
+    let chipNumber = group.attrs["chipNumber", int]
+    # get dataset of hits
+    var hits_dset = h5f[(grp / "hits").dset_str]
+    let hits = hits_dset[int64]
 
-      # now calculate energy for all hits
-      let energy = mapIt(hits, float(it) * calib_factor)
-      # create dataset for energy
-      var energy_dset = h5f.create_dataset(grp / "energyFromPixel", energy.len, dtype = float,
-                                           overwrite = true,
-                                           filter = filter)
-      energy_dset[energy_dset.all] = energy
-      # attach used conversion factor to dataset
-      energy_dset.attrs["conversionFactorUsed"] = calib_factor
-      # set the flag that this run is finished
-      writeFlag(h5f, grp, rfOnlyEnergy)
+    # now calculate energy for all hits
+    let energy = mapIt(hits, float(it) * calib_factor)
+    # create dataset for energy
+    var energy_dset = h5f.create_dataset(grp / "energyFromPixel", energy.len, dtype = float,
+                                         overwrite = true,
+                                         filter = filter)
+    energy_dset[energy_dset.all] = energy
+    # attach used conversion factor to dataset
+    energy_dset.attrs["conversionFactorUsed"] = calib_factor
+    # set the flag that this run is finished
+    writeFlag(h5f, grp, rfOnlyEnergy)
 
 proc calcEnergyFromCharge*(h5f: H5File, chipGrp: H5Group,
                            interval: float,
@@ -1164,7 +1169,10 @@ proc calcEnergyFromCharge*(h5f: H5File, chipGrp: H5Group,
   ## `b` and `m` on the group `chipGrp`. This includes writing the energy
   ## dataset and attributes!
   # get the chip number from the attributes of the group
-  if isDone(h5f, chipGrp.name, rfOnlyEnergyElectrons, overwrite): return # nothing to do
+  if isDone(h5f, chipGrp.name, rfOnlyEnergyElectrons, overwrite):
+    echo &"INFO Energy calculation from charge calibration for run and chip {chipGrp.name}",
+          "already exists. Skipping. Force via `--overwrite`."
+    return # nothing to do
 
   var mchpGrp = chipGrp
   let chipNumber = mchpGrp.attrs["chipNumber", int]
@@ -1258,9 +1266,11 @@ proc calcEnergyFromCharge*(h5f: H5File, interval: float,
     b: float
     m: float
   # get the group from file
-
   for run, chip, grp in chipGroups(h5f):
-    if isDone(h5f, grp, rfOnlyEnergyElectrons, overwrite): continue # nothing to do
+    # get the chip number from the attributes of the group
+    if isDone(h5f, grp, rfOnlyEnergyElectrons, overwrite):
+      echo &"INFO Energy calculation from charge calibration for run {run} already exists. Skipping. Force via `--overwrite`."
+      continue # nothing to do
     # now can start reading, get the group containing the data for this chip
     var group = h5f[grp.parentDir.grp_str]
     echo "Energy from charge calibration for run ", run

@@ -263,16 +263,16 @@
       }
     },
     "datamancer": {
-      "version": "0.4.6",
-      "vcsRevision": "bfe0c88474e1b318c8bb22fd8b4ab07f21034047",
-      "url": "https://github.com/SciNim/datamancer",
+      "version": "0.5.0",
+      "vcsRevision": "47ba4d81bf240a7755b73bc48c1cec9b638d18ae",
+      "url": "git@github.com:SciNim/Datamancer.git",
       "downloadMethod": "git",
       "dependencies": [
         "seqmath",
         "arraymancer"
       ],
       "checksums": {
-        "sha1": "bc6933372278685ce1f8895cc6490b63bd7b421d"
+        "sha1": "83cc3304abeb2c7a5b68a8edb8422c9642a70891"
       }
     },
     "unicodedb": {

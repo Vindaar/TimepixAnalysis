@@ -50,10 +50,6 @@ type
   ConfigFlagKind = enum
     cfNone, cfShowPlots
 
-const
-  FadcTransferFinished* = "RawFADCTransferFinished"
-  TransferFinished* = "RawTransferFinished"
-
 when defined(linux):
   const commitHash = staticExec("git rev-parse --short HEAD")
 else:
@@ -611,10 +607,8 @@ proc calcTriggerFractions(h5f: H5File, runNumber: int) =
 import weave
 proc reconstructFadcData(h5f, h5fout: H5File, runNumber: int) =
   # read FADC data from input
-  let h5grp = h5fout[(recoBase() & $runNumber).grp_str]
-  if FadcTransferFinished in h5grp.attrs and
-     h5grp.attrs[FadcTransferFinished, string] == "true":
-    return # nothing to do!
+  if h5fout.hasTransferredFadcRun(runNumber):
+    return # nothing to do
 
   let fadcRun = h5f.readFadcFromH5(runNumber)
   let
@@ -703,13 +697,10 @@ proc reconstructRunsInFile(h5f: H5File,
 
   recordIterRuns(rawDataBase()):
     let inputHasFadc = fadcRawPath(runNumber) in h5f
-    if (recoBase() & $runNumber) in h5fout:
-      # check attributes whether this run was actually finished
-      let h5grp = h5fout[(recoBase() & $runNumber).grp_str]
-      if TransferFinished in h5grp.attrs and
-         h5grp.attrs[TransferFinished, string] == "true":
-        continue
-      # else we redo it
+    if h5fout.hasTransferredRun(runNumber):
+      # skip this run if no overwrite or run not in file
+      info &"Run number {runNumber} already exists in file, skipping."
+      continue
     # check whether all runs are read, if not if this run is correct run number
     let runType = parseEnum[RunTypeKind](
       h5f[(rawDataBase() & $runNumber).grp_str].attrs["runType", string]

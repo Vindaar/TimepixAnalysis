@@ -91,6 +91,11 @@ const TrackingAttrStr* = "Tracking?" ## Indicates only events in tracking in out
                                      ## If false only those outside tracking time. Note: If run has
                                      ## no tracking information yet, this cannot be relied upon!
 
+const
+  RawDataFinished* = "rawDataFinished"
+  FadcTransferFinished* = "RawFADCTransferFinished"
+  TransferFinished* = "RawTransferFinished"
+
 proc toDset*(igKind: InGridDsetKind, frameworkKind: FrameworkKind = fkTpa): string =
   ## Converts a InGridDsetKind enum element to the string representation given
   ## the framework the data was created with
@@ -555,6 +560,23 @@ proc hasFadc*(h5f: H5File, runNumber: int): bool =
   ## Returns `true` if the given H5 file has the `fadc` group in the given run number
   result = fadcRecoPath(runNumber) in h5f
 
+proc hasTransferredRun*(h5f: H5File, runNumber: int): bool =
+  ## checks for the existence of the given run in the reco file
+  if (recoBase() & $runNumber) in h5f:
+    # check attributes whether this run was actually finished
+    let h5grp = h5f[(recoBase() & $runNumber).grp_str]
+    if TransferFinished in h5grp.attrs and
+       h5grp.attrs[TransferFinished, string] == "true":
+      result = true
+    # else we redo it
+
+proc hasTransferredFadcRun*(h5f: H5File, runNumber: int): bool =
+  ## checks for the existence of the given FADC run in the reco file
+  let h5grp = h5f[(recoBase() & $runNumber).grp_str]
+  if FadcTransferFinished in h5grp.attrs and
+     h5grp.attrs[FadcTransferFinished, string] == "true":
+    return # nothing to do!
+
 proc hasRawRun*(h5f: H5File, runNumber: int): bool =
   ## checks for the existence of the given run in the file
   let path = rawDataBase & $runNumber
@@ -562,26 +584,17 @@ proc hasRawRun*(h5f: H5File, runNumber: int): bool =
   if path in h5f:
     # check if attribute `done` on run
     var grp = h5f[path.grp_str]
-    if "rawDataFinished" in grp.attrs:
-      let isDone = grp.attrs["rawDataFinished", string]
+    if RawDataFinished in grp.attrs:
+      let isDone = grp.attrs[RawDataFinished, string]
       if isDone == "true":
         result = true
-      else:
-        result = false
-    else:
-      result = false
-  else:
-    result = false
-  when false:
-    # old implementation
-    result = if path in h5f: true else: false
 
 proc runFinished*(h5f: H5File, runNumber: int) =
   ## writes the `rawDataFinished` attribute to the run with
   ## `runNumber`
   let path = rawDataBase() & $runNumber
   var grp = h5f[path.grp_str]
-  grp.attrs["rawDataFinished"] = "true"
+  grp.attrs[RawDataFinished] = "true"
 
 proc getCenterChip*(h5f: H5File, runNumber: int): int =
   ## reads the `centerChip` attribute from the run group corresponding to

@@ -301,8 +301,8 @@ proc applyChargeCalibration*(h5f: H5File, runNumber: int,
         h5f.flush()
 
       var
-        chargeDset = h5f.create_dataset(grp / "charge", charge.len, dtype = vlenFloat, filter = filter)
-        totalChargeDset = h5f.create_dataset(grp / "totalCharge", charge.len, dtype = float64, filter = filter)
+        chargeDset = h5f.create_dataset(grp / "charge", charge.len, dtype = vlenFloat, overwrite = true, filter = filter)
+        totalChargeDset = h5f.create_dataset(grp / "totalCharge", charge.len, dtype = float64, overwrite = true, filter = filter)
       template writeDset(dset: H5DataSet, data: untyped) =
         dset[dset.all] = data
         # add attributes for TOT calibration factors used
@@ -1130,6 +1130,7 @@ proc calcEnergyFromPixels*(h5f: H5File, runNumber: int, calib_factor: float, ove
       let energy = mapIt(hits, float(it) * calib_factor)
       # create dataset for energy
       var energy_dset = h5f.create_dataset(grp / "energyFromPixel", energy.len, dtype = float,
+                                           overwrite = true,
                                            filter = filter)
       energy_dset[energy_dset.all] = energy
       # attach used conversion factor to dataset

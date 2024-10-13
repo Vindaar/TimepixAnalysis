@@ -678,6 +678,7 @@ proc calcGasGain*(h5f: H5File, grp: string,
     echo &"INFO Gas gain calculation for run {runNumber} already exists. Skipping. Force via `--overwrite`."
     return
 
+  ## XXX: Probably make the below adjustable!
   const
     hitLow = 2 # start at 2 to avoid noisy pixels w/ 1 hit
     hitHigh = 302

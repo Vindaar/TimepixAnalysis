@@ -1,3 +1,33 @@
+* v0.4.5
+- clean up checks for raw & reco runs already in file
+- add checks for existing run in output file of
+  ~raw_data_manipulation~ for Timepix3 data.
+- add ~forceRunNumber~ to allow overwriting the run number for a
+  Timepix3 input HDF5 file. That input file must only have a single
+  run.
+- fix code when calling ~raw_data_manipulation~ and ~reconstruction~
+  multiple times on the same output file where, if already present
+  (and ~--overwrite~ set) we would potentially still only *add* to the
+  existing dataset instead of overwriting it. Overwrites datasets by
+  default now in both tools.
+- fix issue in gas gain slicing due to ~readDsets~ causing trouble on
+  datamancer ~v0.4.6~ due to ~innerJoin~ behavior. Upstream fix in
+  datamancer (~v0.4.7~)
+- add informational output if attempted to compute gas gain vs charge
+  calibration fit for a single run.
+- add limit calculation tool that allows for adjusting all parameters
+  from CL arguments or config file, [[file:Analysis/ingrid/basic_limit_calc.nim]].  
+  
+** Other misc changes:
+- [reco] print info about existing gas gain calc if skipping
+- [reco] improve info output of polya, gas gain checking
+- refactor checks for already processed runs in `reconstruction`
+- [misc] add note about import for `docCommentAdd`
+- [bin] add symlink for tpx3RawToPlots
+- [lock] update nimble lockfile
+- [resources] add bkg rate for 2017/18, MLP95, FADC, scinti, line vetoes
+- [plots] make outputting a CSV of background rate proper feature
+
 * v0.4.4
 - build NLopt without Python etc bindings to remove numpy / pip dependency
 * v0.4.3

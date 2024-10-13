@@ -1007,8 +1007,8 @@ func raiseGasGainSliceNumberError() =
     "`gasGainInterval` field under `[Calibration]` to a shorter time. However, make sure there are " &
     "at least 10,000 events per slice!\n" &
     "WARNING: After performing a change in that parameter, you MUST rerun `--only_gas_gain` for all " &
-    "your data files before rerunning `--only_gain_fit! Do not forget to adjust `minimumGasGainInterval` " &
-    "accordingly.")
+    "your data files (with `--overwrite`) before rerunning `--only_gain_fit! Do not forget to adjust " &
+    "`minimumGasGainInterval` accordingly.")
 
 proc performChargeCalibGasGainFit*(h5f: H5File,
                                    interval: float,

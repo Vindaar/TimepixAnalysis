@@ -38,7 +38,7 @@ requires "ggplotnim == 0.7.0"
 requires "ginger == 0.6.1"
 requires "nimhdf5 == 0.6.1"
 requires "unchained >= 0.4.3"
-requires "datamancer >= 0.4.0"
+requires "datamancer >= 0.5.0"
 requires "xrayAttenuation == 0.4.4"
 requires "measuremancer == 0.2.8"
 # optimization dependencies

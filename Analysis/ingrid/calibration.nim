@@ -1084,13 +1084,14 @@ proc performChargeCalibGasGainFit*(h5f: H5File,
         doAssert false, "You shouldn' use `gcNone` anymore! Use `gcMean`"
     runPeriods.add runPeriod
 
-  # increase smallest errors to lower 10 percentile errors
-  let perc10 = calibErr.percentile(1)
-  doAssert perc10 < mean(calibErr), "perc10 = " & $perc10 & " vs mean = " & $(mean(calibErr))
+  # increase smallest errors to lower 1 percentile errors
+  let perc1 = calibErr.percentile(1)
+  doAssert perc1 < mean(calibErr), "perc1 = " & $perc1 & " vs mean = " & $(mean(calibErr)) &
+    "Does your input file only have a single run with one slice?"
   for x in mitems(calibErr):
-    if x < perc10:
-      x = perc10
-  doAssert calibErr.allIt(it >= perc10)
+    if x < perc1:
+      x = perc1
+  doAssert calibErr.allIt(it >= perc1)
 
   let runPeriodsUnique = runPeriods.deduplicate
   doAssert runPeriodsUnique.len == 1, "More than one run period found in input file " &

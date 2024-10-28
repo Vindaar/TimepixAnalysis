@@ -64,7 +64,7 @@ proc computeTpx3RunParameters*(data: seq[Tpx3Data], startIdx, clusterTimeCutoff,
   const overflow = 2^14
 
   for i, el in data:
-    let toa = el.TOA.int
+    let toa = el.TOA_Combined.int
     ## 3 Cases decide whether we keep accumulating to this cluster
     ## (0.: this TOA is equal to last TOA)
     ## 1. this ToA value is *smaller* than the last + user defined cutoff (and larger than start)
@@ -78,8 +78,7 @@ proc computeTpx3RunParameters*(data: seq[Tpx3Data], startIdx, clusterTimeCutoff,
       ( toa <= lastToa + clusterTimeCutoff and
         toa > clusterStart ) or  # 1.
       ( toa >= (clusterStart - clusterTimeCutoff) and
-        toa < lastToa ) or # 2.
-      (overflow + toa) <= (lastToa + clusterTimeCutoff)):
+        toa < lastToa )): # 2.
       if false and cluster.pixels.len == 1:
         ## Debug output to help
         echo "looking at index ", i, " toa ", toa, " cluster ", lastToa

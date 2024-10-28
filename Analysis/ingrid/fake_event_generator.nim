@@ -99,7 +99,7 @@ proc reconstructFakeEvent[C: MaybeContext](
   calibInfo: CalibInfo,
   ctx: C = missing()
                                          ): FakeEvent =
-  let inp = (pixels: pix, eventNumber: 0, toa: newSeq[uint16](), toaCombined: newSeq[uint64]())
+  let inp = (pixels: pix, eventNumber: 0, toa: newSeq[uint16](), toaCombined: newSeq[uint64](), ftoa: newSeq[uint8]())
   let recoEv = recoEvent(inp, -1,
                          runNumber, searchRadius = 50,
                          dbscanEpsilon = 65,

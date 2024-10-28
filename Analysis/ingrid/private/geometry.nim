@@ -65,7 +65,7 @@ proc to*[T: SomePix; U: SomePix](c: Cluster[T], _: typedesc[U]): Cluster[U] =
     warn("Conversion from `Pix` to `PixTpx3` adds empty ToA data!")
     result = newSeq[U](c.len)
     for i in 0 ..< result.len:
-      result[i] = (x: c[i].x, y: c[i].y, ch: c[i].ch, toa: 0'u16, toaCombined: 0'u64)
+      result[i] = (x: c[i].x, y: c[i].y, ch: c[i].ch, toa: 0'u16, toaCombined: 0'u64, ftoa: 0'u8)
   elif T is PixTpx3 and U is Pix:
     warn("Conversion from `PixTpx3` to `Pix` throws away ToA information!")
     result = newSeq[U](c.len)
@@ -764,6 +764,7 @@ proc recoCluster*[T: SomePix; U: SomePix](c: Cluster[T],
   when T is PixTpx3:
     result.toa = newSeq[uint16](clustersize)
     result.toaCombined = newSeq[uint64](clustersize)
+    result.ftoa = newSeq[uint8](clustersize)
   for i in 0 ..< clustersize:
     let ci = c[i]
     sum_x  += ci.x.int
@@ -776,6 +777,7 @@ proc recoCluster*[T: SomePix; U: SomePix](c: Cluster[T],
       cl[i] = (x: ci.x, y: ci.y, ch: ci.ch)
       result.toa[i] = ci.toa
       result.toaCombined[i] = ci.toaCombined
+      result.ftoa[i] = ci.ftoa
   when NeedConvert:
     result.data = cl
   else:
@@ -853,7 +855,7 @@ proc getPixels[T; U](dat: RecoInputEvent[U], _: typedesc[T],
     result = newSeq[PixTpx3](dat.pixels.len)
     for i in 0 ..< result.len:
       result[i] = (x: dat.pixels[i].x, y: dat.pixels[i].y, ch: dat.pixels[i].ch,
-                   toa: dat.toa[i], toaCombined: dat.toaCombined[i])
+                   toa: dat.toa[i], toaCombined: dat.toaCombined[i], ftoa: dat.ftoa[i])
   else:
     error("Invalid type : " & $T)
 

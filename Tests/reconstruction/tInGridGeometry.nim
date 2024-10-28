@@ -254,7 +254,7 @@ suite "InGrid geometry calculations":
       if CorrectOneOffXError:
         pix = pix.mapIt((x: (it[0] + 1'u8), y: it[1], ch: it[2]))
 
-      let recoIn = (pixels: pix, eventNumber: f[1], toa: newSeq[uint16](), toaCombined: newSeq[uint64]())
+      let recoIn = (pixels: pix, eventNumber: f[1], toa: newSeq[uint16](), toaCombined: newSeq[uint64](), ftoa: newSeq[uint8]())
       var reco = recoEvent(recoIn, 0, 0, 50, dbScanEpsilon = 65, clusterAlgo = caDefault)
       # sort by cluster length (Marlin and TPA don't agree on the cluster ordering)
       reco.cluster.sort((r1, r2: auto) => cmp(r1.data.len , r2.data.len))

@@ -201,6 +201,7 @@ proc writeRecoRunToH5*[T: SomePix](h5f: H5File,
     ch = newSeq[seq[seq[uint16]]](nChips)
     toa = newSeq[seq[seq[uint16]]](nChips)
     toaCombined = newSeq[seq[seq[uint64]]](nChips)
+    ftoa = newSeq[seq[seq[uint8]]](nChips)
 
   for chip in 0 ..< nChips:
     x[chip]  = @[]
@@ -233,6 +234,7 @@ proc writeRecoRunToH5*[T: SomePix](h5f: H5File,
       if timepixVersion == Timepix3:
         toa[chip].add cl.toa
         toaCombined[chip].add cl.toaCombined
+        ftoa[chip].add cl.ftoa
         # and ToA variables
         float_data_tab.setTabFields(float_toa_names, chip, cl.toaGeometry)
         uint16_data_tab.setTabFields(uint16_toa_names, chip, cl.toaGeometry)
@@ -274,6 +276,7 @@ proc writeRecoRunToH5*[T: SomePix](h5f: H5File,
                                         ev_type_ch))
     toa_dsets: seq[H5DataSet]
     toa_combined_dsets: seq[H5DataSet]
+    ftoa_dsets: seq[H5DataSet]
   if timepixVersion == Timepix3:
     toa_dsets = mapIt(toSeq(0..<nChips),
                       h5f.datasetCreation(chip_groups[it].name & "/ToA",
@@ -281,6 +284,10 @@ proc writeRecoRunToH5*[T: SomePix](h5f: H5File,
                                           ev_type_ch))
     toa_combined_dsets = mapIt(toSeq(0..<nChips),
                       h5f.datasetCreation(chip_groups[it].name & "/ToACombined",
+                                          ch[it].len,
+                                          ev_type_ch))
+    ftoa_dsets = mapIt(toSeq(0..<nChips),
+                      h5f.datasetCreation(chip_groups[it].name & "/fToA",
                                           ch[it].len,
                                           ev_type_ch))
 
@@ -312,6 +319,7 @@ proc writeRecoRunToH5*[T: SomePix](h5f: H5File,
     if timepixVersion == Timepix3:
       toa_dsets[chip][all] = toa[chip]
       toa_combined_dsets[chip][all] = toaCombined[chip]
+      ftoa_dsets[chip][all] = ftoa[chip]
       for dset in float_toa_names:
         float_dsets[dset][chip][all] = float_data_tab[dset][chip]
       for dset in uint16_toa_names:
@@ -380,9 +388,11 @@ iterator readDataFromH5*(h5f: H5File, runNumber: int,
       var
         raw_toa: seq[seq[uint16]]
         raw_toa_combined: seq[seq[uint64]]
+        raw_ftoa: seq[seq[uint8]]
       if timepixVersion == Timepix3:
         raw_toa = h5f[grp / "raw_toa", vlen_ch, uint16]
         raw_toa_combined = h5f[grp / "raw_toa_combined", special_type(uint64), uint64]
+        raw_ftoa = h5f[grp / "raw_ftoa", special_type(uint8), uint8]
       var runPix = newSeqOfCap[RecoInputEvent[Pix]](raw_x.len)
       for i in 0 ..< raw_x.len:
         if raw_x[i].len == 0: continue # skip empty events
@@ -390,10 +400,10 @@ iterator readDataFromH5*(h5f: H5File, runNumber: int,
         case timepixVersion
         of Timepix1:
           runPix.add (pixels: rpix, eventNumber: evNumbers[i],
-                       toa: newSeq[uint16](), toaCombined: newSeq[uint64]())
+                       toa: newSeq[uint16](), toaCombined: newSeq[uint64](), ftoa: newSeq[uint8]())
         of Timepix3:
           runPix.add (pixels: rpix, eventNumber: evNumbers[i],
-                       toa: raw_toa[i], toaCombined: raw_toa_combined[i])
+                       toa: raw_toa[i], toaCombined: raw_toa_combined[i], ftoa: raw_ftoa[i])
       yield (chip: chip_number, eventData: run_pix)
 
 import std / cpuinfo

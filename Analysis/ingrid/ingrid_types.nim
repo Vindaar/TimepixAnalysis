@@ -8,10 +8,10 @@ type
   EventHeader* = Table[string, string]
   ChipHeader*  = Table[string, string]
   Pix*         = tuple[x, y: uint8, ch: uint16]
-  PixTpx3*     = tuple[x, y: uint8, ch, toa: uint16, toaCombined: uint64]
+  PixTpx3*     = tuple[x, y: uint8, ch, toa: uint16, toaCombined: uint64, ftoa: uint8]
   # Integer based pixels are used for full Septemboard frames, due to 3x256 pixels per direction
   PixInt*      = tuple[x, y: int, ch: int]
-  PixIntTpx3*  = tuple[x, y, ch: int, toa: uint16, toaCombined: uint64]
+  PixIntTpx3*  = tuple[x, y, ch: int, toa: uint16, toaCombined: uint64, ftoa: uint8]
   SomePix*     = Pix | PixInt | PixTpx3 | PixIntTpx3
   Pixels*      = seq[Pix]
   PixelsInt*   = seq[PixInt]
@@ -34,6 +34,7 @@ type
     of Timepix3:
       toa*: seq[uint16]         # Time of Arrival (ToA) in "local" time
       toaCombined*: seq[uint64] # ToA extended by "run wide" counter
+      ftoa*: seq[uint8]         # fToA
 
   ProtoFile* = object
     name*: string
@@ -142,6 +143,7 @@ type
     eventNumber: int
     toa: seq[uint16]
     toaCombined: seq[uint64]
+    ftoa: seq[uint8]
   RecoInputData*[T: SomePix] = seq[RecoInputEvent[T]]
 
   # object which stores the geometry information of a single
@@ -186,6 +188,7 @@ type
     of Timepix3:
       toa*: seq[uint16]
       toaCombined*: seq[uint64]
+      ftoa*: seq[uint8]
       toaGeometry*: ToAGeometry
 
   # object which stores information about a reconstructed event, i.e.
@@ -1053,6 +1056,7 @@ proc `==`*[T: SomePix](c1, c2: ClusterObject[T]): bool =
   if result and c1.version == Timepix3:
     result = result and c1.toa    == c2.toa
     result = result and c1.toaCombined == c2.toaCombined
+    result = result and c1.ftoa == c2.ftoa
 
 proc `==`*[T: SomePix](r1, r2: RecoEvent[T]): bool =
   result = true

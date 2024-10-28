@@ -98,7 +98,8 @@ proc computeTpx3RunParameters*(data: seq[Tpx3Data], startIdx, clusterTimeCutoff,
         inc eventIdx
       cluster = ChipEvent(version: Timepix3, pixels: newSeqOfCap[Pix](400),
                           toa: newSeqOfCap[uint16](400),
-                          toaCombined: newSeqOfCap[uint64](400))
+                          toaCombined: newSeqOfCap[uint64](400),
+                          ftoa: newSeqOfCap[uint8](400))
       startT = el.chunk_start_time
       clusterStart = toa
       lastToa = 0 #int64.high
@@ -126,6 +127,7 @@ proc computeTpx3RunParameters*(data: seq[Tpx3Data], startIdx, clusterTimeCutoff,
       ## is overflowed, but then we receive a pixel that is *not* overflown yet? Order being wrong?
       cluster.toa.add (el.TOA + (numOverflows * overflow).uint16)
       cluster.toaCombined.add el.TOA_Combined
+      cluster.ftoa.add el.FTOA
       tots.add el.TOT
       lastToa = toa
       lastT = el.chunk_start_time

@@ -537,6 +537,7 @@ proc initInGridInH5*(h5f: var H5File, runNumber, nChips,
     if createToADset:
       h5f.datasetCreation(chp.name & "/raw_toa", ev_type_ch)
       h5f.datasetCreation(chp.name & "/raw_toa_combined", special_type(uint64))
+      h5f.datasetCreation(chp.name & "/raw_ftoa", special_type(uint8))
 
   # datasets to store the header information for each event
   for key in eventHeaderKeys:
@@ -706,6 +707,7 @@ proc writeInGridAttrs*(h5f: var H5File, run: ProcessedRun,
 proc fillDataForH5(x, y: var seq[seq[seq[uint8]]],
                    ch, toa: var seq[seq[seq[uint16]]],
                    toaCombined: var seq[seq[seq[uint64]]],
+                   ftoa: var seq[seq[seq[uint8]]],
                    evHeaders: var Table[string, seq[int]],
                    duration: var seq[float],
                    events: seq[Event],
@@ -723,6 +725,7 @@ proc fillDataForH5(x, y: var seq[seq[seq[uint8]]],
     if hasToa:
       toa[i] = newSeq[seq[uint16]](nEvents)
       toaCombined[i] = newSeq[seq[uint64]](nEvents)
+      ftoa[i] = newSeq[seq[uint8]](nEvents)
   for i, event in events:
     duration[i] = event.length
     # add event header information
@@ -754,6 +757,7 @@ proc fillDataForH5(x, y: var seq[seq[seq[uint8]]],
         # possibly assign ToA
         toa[num][i] = chp.toa
         toaCombined[num][i] = chp.toaCombined
+        ftoa[num][i] = chp.ftoa
 
 proc writeProcessedRunToH5*(h5f: var H5File, run: ProcessedRun) =
   ## this procedure writes the data from the processed run to a HDF5
@@ -803,13 +807,16 @@ proc writeProcessedRunToH5*(h5f: var H5File, run: ProcessedRun) =
   var
     toa_dsets: seq[H5Dataset]
     toa_combined_dsets: seq[H5Dataset]
+    ftoa_dsets: seq[H5Dataset]
     toa = newSeq[seq[seq[uint16]]](nChips)
     toaCombined = newSeq[seq[seq[uint64]]](nChips)
+    ftoa = newSeq[seq[seq[uint8]]](nChips)
 
   if hasToa:
     # also write ToA
     toa_dsets = chipGroups.mapIt(h5f[(it.name & "/raw_toa").dset_str])
     toa_combined_dsets = chipGroups.mapIt(h5f[(it.name & "/raw_toa_combined").dset_str])
+    ftoa_dsets = chip_groups.mapIt(h5f[(it.name & "/raw_ftoa").dset_str])
 
   # prepare event header keys and value (init seqs)
   for key in eventHeaderKeys:
@@ -826,7 +833,7 @@ proc writeProcessedRunToH5*(h5f: var H5File, run: ProcessedRun) =
   runGroup.attrs["numEventsStored"] = newsize
 
   # call proc to write the data from the events to the seqs, tables
-  fillDataForH5(x, y, ch, toa, toaCombined, evHeaders, duration, run.events, oldsize)
+  fillDataForH5(x, y, ch, toa, toaCombined, ftoa, evHeaders, duration, run.events, oldsize)
 
   ##############################
   ###### Write the data ########
@@ -845,6 +852,7 @@ proc writeProcessedRunToH5*(h5f: var H5File, run: ProcessedRun) =
     if hasToa:
       toa_dsets[i].add toa[i]
       toa_combined_dsets[i].add toaCombined[i]
+      ftoa_dsets[i].add ftoa[i]
 
   for key, dset in mpairs(evHeadersDsetTab):
     withDebug:

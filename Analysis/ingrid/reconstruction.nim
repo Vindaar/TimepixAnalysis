@@ -242,8 +242,9 @@ proc writeRecoRunToH5*[T: SomePix](h5f: H5File,
   # now that we have the data and now how many elements each type has
   # we can create the datasets
   # define type for variable length pixel data
-  let ev_type_xy = special_type(uint8)
-  let ev_type_ch = special_type(uint16)
+  let ev_type_u8 = special_type(uint8)
+  let ev_type_u16 = special_type(uint16)
+  let ev_type_u64 = special_type(uint64)
 
   template datasetCreation(h5f: untyped, name, dlen, `type`: untyped): untyped =
     ## inserts the correct data set creation parameters
@@ -265,15 +266,15 @@ proc writeRecoRunToH5*[T: SomePix](h5f: H5File,
     x_dsets = mapIt(toSeq(0..<nChips),
                     h5f.datasetCreation(chip_groups[it].name & "/x",
                                         x[it].len,
-                                        ev_type_xy))
+                                        ev_type_u8))
     y_dsets = mapIt(toSeq(0..<nChips),
                     h5f.datasetCreation(chip_groups[it].name & "/y",
                                         y[it].len,
-                                        ev_type_xy))
+                                        ev_type_u8))
     ch_dsets = mapIt(toSeq(0..<nChips),
                     h5f.datasetCreation(chip_groups[it].name & "/ToT",
                                         ch[it].len,
-                                        ev_type_ch))
+                                        ev_type_u16))
     toa_dsets: seq[H5DataSet]
     toa_combined_dsets: seq[H5DataSet]
     ftoa_dsets: seq[H5DataSet]
@@ -281,15 +282,15 @@ proc writeRecoRunToH5*[T: SomePix](h5f: H5File,
     toa_dsets = mapIt(toSeq(0..<nChips),
                       h5f.datasetCreation(chip_groups[it].name & "/ToA",
                                           ch[it].len,
-                                          ev_type_ch))
+                                          ev_type_u16))
     toa_combined_dsets = mapIt(toSeq(0..<nChips),
                       h5f.datasetCreation(chip_groups[it].name & "/ToACombined",
                                           ch[it].len,
-                                          ev_type_ch))
+                                          ev_type_u64))
     ftoa_dsets = mapIt(toSeq(0..<nChips),
                       h5f.datasetCreation(chip_groups[it].name & "/fToA",
                                           ch[it].len,
-                                          ev_type_ch))
+                                          ev_type_u8))
 
   # variable to store number of events for each chip
   let eventsPerChip = mapIt(x, it.len)

@@ -1,3 +1,7 @@
+* v0.4.6
+- use ~ToA_combined~ for the ToA data for Tpx3 (@magruber PR #60)
+- add ~fTOA~ data to Tpx3 data (@magruber PR #60)
+- fix data type of TOA data for Tpx3 (PR #60)    
 * v0.4.5
 - clean up checks for raw & reco runs already in file
 - add checks for existing run in output file of

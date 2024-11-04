@@ -280,10 +280,12 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
     if axionImage.len > 0:
       var customInferno = inferno()
       customInferno.colors[0] = 0 # transparent
-      let rasterData = readCsv(axionImage)
+      var rasterData = readCsv(axionImage)
       let zCol = if "z" in rasterData: "z" else: "photon flux"
+      let zColOut = "Axion flux [a.u.]"
+      rasterData = rasterData.rename(f{zColOut <- zCol})
       plt = plt +
-        geom_raster(data = rasterData, aes = aes("x", "y", fill = zCol), alpha = 0.3) +
+        geom_raster(data = rasterData, aes = aes("x", "y", fill = zColOut), alpha = 0.3) +
         minorGridLines() +
         scale_fill_gradient(customInferno) +
         continuousLegendWidth(0.75) + continuousLegendHeight(3.0)

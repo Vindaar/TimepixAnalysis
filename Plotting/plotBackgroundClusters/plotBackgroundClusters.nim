@@ -248,6 +248,7 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
                   preliminary: bool,
                   showGoldRegion: bool,
                   asSinglePlot: bool,
+                  hideNumClusters: bool,
                   fWidth, textWidth, textSize, pointSize: float) =
   let outpath = if outpath.len > 0: outpath else: "plots"
   var colorCol: string
@@ -314,8 +315,10 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
 
     if not useTikZ:
       echo "[INFO]: Saving plot to ", fname
+      let title = if not hideNumClusters: title & &". # clusters = {totalEvs}"
+                  else: title
       plt + theme_scale(scale, family = "serif") +
-        ggtitle(title & &". # clusters = {totalEvs}") +
+        ggtitle(title) +
         margin(top = 1.75) +
         ggsave(fname, width = 640.0 * scale, height = 480 * scale)
         #ggsave(fname, width = 640, height = 480)#width = 1200, height = 800)
@@ -329,8 +332,9 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
                    elif asSinglePlot: 0.9
                    else: 0.5
       let dataPng = totalEvs > 5000
-      let title = if title.len > 0: title & r". \# clusters = " & $totalEvs
-                  else: r"\# clusters = " & $totalEvs
+      let title = if title.len > 0 and not hideNumClusters: title & r". \# clusters = " & $totalEvs
+                  elif not hideNumClusters: r"\# clusters = " & $totalEvs
+                  else: ""
       plt + ggtitle(title) +
         #theme_scale(scale) +
         margin(top = 1.75, right = 4.5) +
@@ -451,6 +455,7 @@ proc main(
   showGoldRegion = false,
   scale = 1.0, # Scale the output image and all texts etc. by this amount. Default is 640x480
   switchAxes = false, # if true, will replace X by Y (to effectively rotate the clusters into CAST setup)
+  hideNumClusters = false,
   fWidth = -1.0,
   textWidth = 458.29268,
   textSize = 10.0,
@@ -476,7 +481,7 @@ proc main(
       dfLoc["Type"] = names[i]
       df.add dfLoc
 
-  plotClusters(df, names, useTikZ, zMax, colorBy, energyText, energyTextRadius, suffix, title, outpath, axionImage, scale, preliminary, showGoldRegion, singlePlot, fWidth, textWidth, textSize, pointSize)
+  plotClusters(df, names, useTikZ, zMax, colorBy, energyText, energyTextRadius, suffix, title, outpath, axionImage, scale, preliminary, showGoldRegion, singlePlot, hideNumClusters, fWidth, textWidth, textSize, pointSize)
   # `df.len` is total number clusters
   if backgroundSuppression:
     doAssert names.len == 0, "Suppression plot when handing multiple files that are not combined not supported."

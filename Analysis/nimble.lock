@@ -320,13 +320,13 @@
       }
     },
     "flatBuffers": {
-      "version": "0.1.0",
-      "vcsRevision": "13bfb63dfc4ce526a54f64ee6f83dd54342f507c",
+      "version": "0.1.5",
+      "vcsRevision": "129948c27e3d1231499f2ccd7c6f4836afedd1b7",
       "url": "https://github.com/Vindaar/flatBuffers",
       "downloadMethod": "git",
       "dependencies": [],
       "checksums": {
-        "sha1": "c0395ec0a07b8056d950e37d132dce1e57e7a609"
+        "sha1": "e46a44eb10204661979714a7768e33a6432ab5f9"
       }
     },
     "flatty": {

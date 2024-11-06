@@ -9,7 +9,7 @@ import ingrid/ingrid_types except Chip
 import helpers/utils
 import zero_functional
 
-proc writeTotCalibAttrs*(h5f: var H5FileObj,
+proc writeTotCalibAttrs*(h5f: H5File,
                          chipGrp: H5Group,
                          fitRes: FitResult) =
   ## writes the fit results as attributes to the H5 file into the given
@@ -24,7 +24,7 @@ proc writeTotCalibAttrs*(h5f: var H5FileObj,
     chipGrp.attrs[key] = fitRes.pRes[val]
     chipGrp.attrs[&"{key}_err"] = fitRes.pErr[val]
 
-proc writeThreshold*(h5f: var H5FileObj, threshold: Threshold, chipGroupName: string) =
+proc writeThreshold*(h5f: H5File, threshold: Threshold, chipGroupName: string) =
   var thresholdDset = h5f.create_dataset(joinPath(chipGroupName, ThresholdPrefix),
                                           (256, 256),
                                           dtype = int)
@@ -59,7 +59,7 @@ proc writeCalibVsGasGain*(gain, calib, calibErr: seq[float64],
   mdset.attrs["bErr"] = fitResult.pErr[0]
   mdset.attrs["Chi^2 / dof"] = fitResult.redChiSq
 
-proc addChipToRunPeriod(h5f: H5FileObj,
+proc addChipToRunPeriod(h5f: H5File,
                         run, chip: string) =
   ## adds the given `chip` to the chips represented by the given `run` period
   let run = h5f[run.grp_str]

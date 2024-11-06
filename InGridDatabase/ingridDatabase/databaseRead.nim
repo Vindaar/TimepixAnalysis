@@ -29,7 +29,7 @@ proc getTotCalib*(chipName: string, run: int): Tot =
     runPeriod = h5f.findRunPeriodFor(chipName, run)
     result = h5f.getTotCalib(chipName, runPeriod)
 
-proc getScurve*[T: SomeInteger](h5f: var H5FileObj,
+proc getScurve*[T: SomeInteger](h5f: H5File,
                                 chipName: string,
                                 runPeriod: string,
                                 voltage: T):
@@ -45,7 +45,7 @@ proc getScurve*[T: SomeInteger](h5f: var H5FileObj,
   result.thl = data[0].asType(int)
   result.hits = data[1]
 
-proc getScurve*[T: SomeInteger](h5f: var H5FileObj,
+proc getScurve*[T: SomeInteger](h5f: H5File,
                                 chipName: string,
                                 run: int,
                                 voltage: T):

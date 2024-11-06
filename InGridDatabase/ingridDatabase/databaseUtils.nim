@@ -49,7 +49,7 @@ proc inRunPeriod(run: int, grp: H5Group): bool =
   let runs = grp[RunPeriodRunDset.dset_str][int]
   result = run in runs or runs == @[-1]
 
-proc findRunPeriodFor*(h5f: H5FileObj, chipName: string, run: int): string =
+proc findRunPeriodFor*(h5f: H5File, chipName: string, run: int): string =
   ## returns the ``first`` run period that matches the condition
   ## `contains chipName and run in validRuns`
   for grp in items(h5f, start_path = "/", depth = 1):

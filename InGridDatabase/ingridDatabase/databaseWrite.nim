@@ -71,6 +71,36 @@ proc addChipToRunPeriod(h5f: H5File,
       @[chip]
     ).deduplicate
 
+proc addConstraints(h5f: H5File, chip: Chip) =
+  ## Checks if there are any constraints as part of this run period. If so,
+  ## reads them from the `chipInfo.txt` file for this chip (via the `info`
+  ## field of the `Chip`) and adds them to the `Constraints` subgroup of the
+  ## run period group.
+  # 1. check if there are constraints in this run period. If so, add this
+  #    chip to `Constraints` group with the required constraints and extract
+  #    the values from the `info` field of the `Chip`.
+  let runPeriod = h5f[chip.run.grp_str]
+  if RunPeriodConstraints in runPeriod.attrs:
+    # 2. get the (keys of the) constraints
+    let constraints = runPeriod.attrs[RunPeriodConstraints, seq[string]]
+
+    # 3. each constraint must exist as additional field, raise if not, get values for chip otherwise
+    var cVals = newSeq[Constraint]()
+    for c in constraints:
+      if c notin chip.info:
+        raise newException(ValueError, "The run period: " & $runPeriod & " has the constraint: `" & $c &
+          "`, but constraint is not present in the `chipInfo.txt` file. Add a line `Constraint: Value` " &
+          " to the file.")
+      cVals.add (constraint: c, value: chip.info[c])
+
+    # 4. add constraints to `Constraints` group of this run period
+    let csGrp = h5f.getOrCreateGroup(runPeriod.name / ConstraintsGroup)
+    let csDset = h5f.create_dataset(csGrp.name / $chip.name,
+                                    cVals.len,
+                                    dtype = Constraint,
+                                    overwrite = true)
+    csDset[csDset.all] = cVals
+
 proc addChipToH5*(chip: Chip,
                   fsr: FSR,
                   scurves: SCurveSeq,
@@ -82,6 +112,9 @@ proc addChipToH5*(chip: Chip,
   if chip.run notin h5f:
     raise newException(ValueError, "Assigned run period " & chip.run & " does " &
       "not exist in the IngridDatabase yet. Add it using `--addPeriod`!")
+
+  # maybe add constraints, if any are required in this run period
+  h5f.addConstraints(chip)
 
   var chipGroup = h5f.create_group(chip.run / $chip.name)
   h5f.addChipToRunPeriod(chip.run, $chip.name)
@@ -156,6 +189,8 @@ proc addRunPeriod*(runs: seq[RunPeriod]) =
 
     grp.attrs[RunPeriodFirstRun] = run.firstRun
     grp.attrs[RunPeriodLastRun] = run.lastRun
+    if run.constraints.len > 0:
+      grp.attrs[RunPeriodConstraints] = run.constraints
     let dset = h5f.create_dataset(grp.name / RunPeriodRunDset,
                                   run.validRuns.len,
                                   dtype = int,

@@ -58,7 +58,7 @@ requires "https://github.com/Vindaar/forked >= 0.1.1"
 
 
 import std / [strutils, sequtils, strformat]
-task koch, "Build all binaries in TPA":
+task koch, "Build all binaries in TPA": # Note: better use `buildTpa.nim` tool in TPA root!
   proc compile(bin: string, flags: seq[string]) =
     let f = @flags.mapIt("-d:" & it).join(" ")
     exec &"nim c {f} {bin}"
@@ -67,7 +67,7 @@ task koch, "Build all binaries in TPA":
     ("ingrid/parse_raw_tpx3", @["danger", "blosc"]),
     ("ingrid/raw_data_manipulation", @["danger", "blosc"]),
     ("ingrid/reconstruction", @["danger"]),
-    ("ingrid/likelihood", @["danger"]),
+    ("ingrid/likelihood", @["danger", "useMalloc"]),
     ("ingrid/runAnalysisChain", @["release"]),
     ("ingrid/fake_event_generator", @["danger"]),
     ("createAllLikelihoodCombinations", @[""])

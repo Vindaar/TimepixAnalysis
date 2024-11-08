@@ -34,7 +34,7 @@ requires "https://github.com/Vindaar/nblosc"
 # They are pinned to specific versions for this git tag to have the exact used versions
 # of the most relevant libraries in place for the (printed) thesis results
 requires "scinim >= 0.2.5"
-requires "ggplotnim == 0.7.0"
+requires "ggplotnim == 0.7.2"
 requires "ginger == 0.6.1"
 requires "nimhdf5 == 0.6.3"
 requires "unchained >= 0.4.3"

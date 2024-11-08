@@ -1,0 +1,8 @@
+chipName: A7 W15
+runPeriod: Vthreshold_6_392
+timepixVersion: Timepix3
+board: PrototypeSingleChip
+chipNumber: 0
+Info: Test run with specific threshold setting
+Vthreshold_coarse: 6
+Vthreshold_fine: 392

@@ -1,0 +1,192 @@
+* Example of using constraints to define run periods
+
+In some use cases defining run periods simply based on dates or run
+numbers is not powerful enough. At least not without significant care
+when defining run numbers.
+
+This is why one can add optional constraints to the ~runPeriod.toml~
+file, which will have to be available in each chip group as an
+attribute in the ~reconstruction/run_X/chip_Y~ HDF5 file. For example
+all FSR (or DAC settings as they are called in Tpx3 detectors) values
+are automatically written from the raw data files to the reconstructed
+files in that place. Therefore, you can easily restrict a run period
+to a specific DAC setting by using the constraints feature.
+
+** Add a run period
+
+To add a constraint, add a ~[Constraints]~ section to the
+~runPeriod.toml~ file it can be advisable to produce a
+~runPeriod.toml~ file with multiple run periods:
+
+#+begin_src toml
+title = "Test run period for differenc constraints"
+# list of the run periods defined in the file, one for each set of constraints
+runPeriods = ["Vthreshold_6_388", "Vthreshold_6_392", "Vthreshold_7_360"]
+#+end_src
+
+All run periods defined in such a file will then share the same
+constraints (of course you can have multiple ~runPeriod.toml~ files
+with the same set of constraints; defining multiple in one file is
+simply a convenience feature).
+
+To actually add constraints to the a set of run periods, add a
+~[Constrains]~ section to the TOML file with a ~fields~ entry, which
+takes an array of all the constraints you wish to use. For example to
+constrain a run period to specific threshold values for a Timepix3
+detector, you will want to constrain ~Vthreshold_coarse~ and
+~Vthreshold_fine~ like so:
+
+#+begin_src toml
+[Constraints]
+# These are additional arbitrary constraints. They must correspond to an
+# attribute that will be available for all chip groups (i.e.
+# /reconstruction/run_X/chip_Y
+# for this run period.
+# In the chipInfo.txt file for each run period, this constraint must
+# appear as a field. Say we add a constraint 'THL', then the chipInfo.txt
+# file must contain `THL: value`, where the value is the one we must find
+# as an attribute for the chip to help choose the right run period.
+fields = ["Vthreshold_coarse", "Vthreshold_fine"]
+#+end_src
+
+If you then add this run period to the InGrid database, the run period
+will store these required constraints as an attribute in the
+group corresponding to the run period.
+
+As a reminder, a run period is added by using the [[https://github.com/Vindaar/TimepixAnalysis/tree/master/InGridDatabase][databaseTool]] with
+the following command:
+#+begin_src sh
+databaseTool add --runPeriod path/to/runPeriod.toml
+#+end_src
+
+A full example ~runPeriod.toml~ file is shown in [[./runPeriod.toml]], or
+for completeness here:
+#+begin_src toml
+title = "Test run period for differenc constraints"
+# list of the run periods defined in the file, one for each set of constraints
+runPeriods = ["Vthreshold_6_388", "Vthreshold_6_392", "Vthreshold_7_360"]
+
+[Constraints]
+# These are additional arbitrary constraints. They must correspond to an
+# attribute that will be available for all chip groups (i.e.
+# /reconstruction/run_X/chip_Y
+# for this run period.
+# In the chipInfo.txt file for each run period, this constraint must
+# appear as a field. Say we add a constraint 'THL', then the chipInfo.txt
+# file must contain `THL: value`, where the value is the one we must find
+# as an attribute for the chip to help choose the right run period.
+fields = ["Vthreshold_coarse", "Vthreshold_fine"]
+
+[Vthreshold_6_388]
+start = 2024-01-01
+stop = 2026-01-01
+# either as a sequence of run numbers
+validRuns = []
+# or as simply a range given as start and stop values
+firstRun = 0
+lastRun = 999
+useCase = "Any run that has the Vthreshold_coarse = 6 and Vthreshold_fine = 388"
+
+[Vthreshold_6_392]
+start = 2024-01-01
+stop = 2026-01-01
+# either as a sequence of run numbers
+validRuns = []
+# or as simply a range given as start and stop values
+firstRun = 0
+lastRun = 999
+useCase = "Any run that has the Vthreshold_coarse = 6 and Vthreshold_fine = 392"
+
+[Vthreshold_7_360]
+start = 2024-01-01
+stop = 2026-01-01
+# either as a sequence of run numbers
+validRuns = []
+# or as simply a range given as start and stop values
+firstRun = 0
+lastRun = 999
+useCase = "Any run that has the Vthreshold_coarse = 7 and Vthreshold_fine = 360"
+#+end_src
+
+*** Example run period                                             :ATTACH:
+:PROPERTIES:
+:ID:       b2f0c879-828f-4aee-94ba-28675e365dd0
+:END:
+
+If we run the ~databaseTool add~ command from above on the
+[[./runPeriod.toml]] file in this directory, we will then find 3 new run
+periods in the [[../../../InGridDatabase/resources/ingridDatabase.h5][InGrid database HDF5 file]]:
+
+[[file:data/b2/f0c879-828f-4aee-94ba-28675e365dd0/2024-11-07_19-47.png]] 
+
+Each of these has an attribute ~constraints~ as you can see in the
+right window.
+
+If we open the attribute, we see the two defined constraints:
+
+[[file:data/b2/f0c879-828f-4aee-94ba-28675e365dd0/2024-11-07_19-22.png]] 
+
+** Add a chip
+
+Once you have added a run period with a set of constraints, you can
+start adding chips to the run period.
+
+Define a ~chipInfo.txt~ file as usual, for example
+[[./Vthr6_388/chipInfo.txt]]. As you know, you can add arbitrary
+additional fields for informational purposes using the syntax ~X: Y~
+where ~X~ is the key and ~Y~ its value.
+
+This syntax is how you define the specific constraint for that chip as
+part of the run period. Let's consider the linked ~chipInfo.txt~ file:
+#+begin_src 
+chipName: A7 W15
+runPeriod: Vthreshold_6_388
+timepixVersion: Timepix3
+board: PrototypeSingleChip
+chipNumber: 0
+Info: Test run with specific threshold setting
+Vthreshold_coarse: 6
+Vthreshold_fine: 388
+#+end_src
+
+We see that the chip is part of the ~Vthreshold_6_388~ run
+period. It is recommended to place all data for a _single_ chip in a
+_single_ run period into a dedicated directory, like [[./Vthr6_388]].
+*NOTE*: Keep in mind that each directory also needs the corresponding
+ToT calibration, if you intend to use it!
+
+The last two lines correspond to the constraints defined in the
+~runPeriod.toml~ file at beginning of this README.
+
+As a reminder to add a chip to the database with this file, run:
+#+begin_src sh
+databaseTool add --chip path/to/dir/with/chipInfo
+#+end_src
+
+These constraints will now be used automatically to choose the correct
+run period for a given reconstructed HDF5 file based on the data
+stored in its attributes.
+
+*** Example chip for different constraints                         :ATTACH:
+:PROPERTIES:
+:ID:       2eca1312-2e2c-4b3f-a953-693e9fc346d4
+:END:
+
+If we add the chip with 3 different threshold values as in this
+example by running:
+#+begin_src sh
+databaseTool add --chip Vthr6_388
+databaseTool add --chip Vthr6_392
+databaseTool add --chip Vthr7_360
+#+end_src
+
+we will see the chips have been added to the database:
+
+[[file:data/2e/ca1312-2e2c-4b3f-a953-693e9fc346d4/2024-11-07_19-47_1.png]] 
+
+where each run period now also has a ~Constraints~ group with the chip
+name as a dataset. That dataset stores the constraints that were
+defined in the ~chipInfo.txt~ file:
+
+[[file:data/2e/ca1312-2e2c-4b3f-a953-693e9fc346d4/2024-11-07_19-47_2.png]]
+

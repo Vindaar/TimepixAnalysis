@@ -704,6 +704,15 @@ proc writeInGridAttrs*(h5f: var H5File, run: ProcessedRun,
                    else: getChipGroups(h5f, run.runNumber, run.nChips)
   writeChipAttrs(h5f, chipGroups, run)
 
+proc writeTpx3Dacs*(h5f: H5File, dacs: Tpx3Dacs, runNumber, chipNumber: int) =
+  ## Writes the DAC settings to the attributes of chip `chipNumber` in run
+  ## `runNumber`.
+  # 1. get the group of the chip
+  let grp = h5f[rawPath(runNumber, chipNumber)]
+  # 2. iterate all fields and write them as attributes
+  for field, val in fieldPairs(dacs):
+    grp.attrs[field] = val
+
 proc fillDataForH5(x, y: var seq[seq[seq[uint8]]],
                    ch, toa: var seq[seq[seq[uint16]]],
                    toaCombined: var seq[seq[seq[uint64]]],
@@ -1133,7 +1142,17 @@ proc processAndWriteSingleRunTpx3(h5f: H5File, h5fout: var H5File,
   const tpx3Buf = 50_000_000
   const nChips = 1 ## NOTE: so far we just use 1 chip for simplicity
 
+  # Tpx3 base path: `/interpreted/run_X/`
   let runPath = tpx3Base() & $runNumber
+
+  # first read the DAC settings from the input file
+  ## NOTE: Currently the DAC configuration is ambiguous whether it refers to
+  ## a single or all chips. Given that we only support single chip Tpx3 detectors
+  ## right now, we simply assume it always refers to chip number 0. Hence the
+  ## definition of the constant used below in the `writeTpx3Dacs` call.
+  const ChipNumber = 0
+  let tpx3Dacs = h5f.readTpx3Dacs(runPath / "configuration/dacs")
+  # and the raw data
   let dset = h5f[(runPath / "hit_data").dset_str]
   let runConfig = h5f.readTpx3RunConfig(runNumber)
   let pixNum = dset.shape[0]
@@ -1158,6 +1177,8 @@ proc processAndWriteSingleRunTpx3(h5f: H5File, h5fout: var H5File,
       if not ingridInit:
         # create datasets in H5 file
         initInGridInH5(h5fout, outputRunNumber, nChips, batchsize = FILE_BUFSIZE, createToADset = true)
+        # write the Tpx3 DACs
+        writeTpx3Dacs(h5fout, tpx3Dacs, outputRunNumber, chipNumber = ChipNumber)
       # now attributes
       writeInGridAttrs(h5fout, r, rfUnknown, runType, ingridInit,
                        clusterCutoff)
@@ -1167,7 +1188,7 @@ proc processAndWriteSingleRunTpx3(h5f: H5File, h5fout: var H5File,
                       plotDirPrefix, outputRunNumber, chip,
                       batchNum = idx)
       writeProcessedRunToH5(h5fout, r)
-      runFinished(h5fout, outputRunNumber)
+      runFinished(h5fout, outputRunNumber) # mark run as finished
       info "Size of total ProcessedRun object = ", sizeof(r)
     else:
       warn "Skipped writing to file, since ProcessedRun contains no events!"
@@ -1327,7 +1348,6 @@ proc handleTimepix3(h5file: string, runType: RunTypeKind,
     h5f.processAndWriteSingleRunTpx3(h5fout, runNumber, rN, clusterCutoff, totCut,
                                      plotOutPath, fileInfo.runType)
   discard h5f.close()
-  # finally once we're done, add `rawDataFinished` attribute
   discard h5fout.close()
 
 proc main(path: string, runType: RunTypeKind,

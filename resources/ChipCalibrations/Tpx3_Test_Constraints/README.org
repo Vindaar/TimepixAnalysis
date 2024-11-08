@@ -117,14 +117,14 @@ If we run the ~databaseTool add~ command from above on the
 [[./runPeriod.toml]] file in this directory, we will then find 3 new run
 periods in the [[../../../InGridDatabase/resources/ingridDatabase.h5][InGrid database HDF5 file]]:
 
-[[file:data/b2/f0c879-828f-4aee-94ba-28675e365dd0/2024-11-07_19-47.png]] 
+[[./data/b2/f0c879-828f-4aee-94ba-28675e365dd0/2024-11-07_19-47.png]] 
 
 Each of these has an attribute ~constraints~ as you can see in the
 right window.
 
 If we open the attribute, we see the two defined constraints:
 
-[[file:data/b2/f0c879-828f-4aee-94ba-28675e365dd0/2024-11-07_19-22.png]] 
+[[./data/b2/f0c879-828f-4aee-94ba-28675e365dd0/2024-11-07_19-22.png]] 
 
 ** Add a chip
 
@@ -182,11 +182,11 @@ databaseTool add --chip Vthr7_360
 
 we will see the chips have been added to the database:
 
-[[file:data/2e/ca1312-2e2c-4b3f-a953-693e9fc346d4/2024-11-07_19-47_1.png]] 
+[[./data/2e/ca1312-2e2c-4b3f-a953-693e9fc346d4/2024-11-07_19-47_1.png]] 
 
 where each run period now also has a ~Constraints~ group with the chip
 name as a dataset. That dataset stores the constraints that were
 defined in the ~chipInfo.txt~ file:
 
-[[file:data/2e/ca1312-2e2c-4b3f-a953-693e9fc346d4/2024-11-07_19-47_2.png]]
+[[./data/2e/ca1312-2e2c-4b3f-a953-693e9fc346d4/2024-11-07_19-47_2.png]]
 

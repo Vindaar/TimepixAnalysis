@@ -61,6 +61,10 @@ const
   RunPeriodRunDset* = "runs"
   RunPeriodChipsAttr* = "chipsInRunPeriod"
   RunPeriodAttr* = "runPeriod" # run period of chip, just the parent group essentially
+  RunPeriodConstraints* = "constraints" # seq[string] attribute
+
+  # Group that stores constraints for chips
+  ConstraintsGroup* = "Constraints"
 
   # defines the "center" chips of different detectors, which are natively supported
   # by the ingrid database. However, this is only for reference.
@@ -106,6 +110,11 @@ type
     firstRun*: int
     lastRun*: int
     additionalInfo*: Table[string, TomlValueRef]
+    constraints*: seq[string] ## Only the keys of the `Constraint` type below
+                              ## The value is associated with each chip.
+
+  Constraint* = tuple[constraint, value: string]
+
 
 proc `$`*(chip: ChipName): string =
   result = $chip.col & $chip.row & " W" & $chip.wafer

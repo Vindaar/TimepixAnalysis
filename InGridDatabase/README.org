@@ -11,11 +11,33 @@ from this folder.
 This will create the =databaseTool= in the =src= directory.
 
 ** Usage
+
+The main two purposes of the ~databaseTool~ 
+
+*** Adding a run period
+
+#+BEGIN_SRC sh
+./databaseTool add --runPeriod path/to/runPeriod.toml
+#+END_SRC
+
+For examples of how a ~runPeriod.toml~ file is supposed to look like,
+see:
+- [[../resources/ChipCalibrations/Run2/runPeriod.toml]]
+  An example for a Septemboard CAST run period
+- [[../resources/ChipCalibrations/Tpx3_Polarimetry/runPeriod.toml]]
+  An example for a basic Tpx3 run period
+- [[../resources/ChipCalibrations/Tpx3_Test_Constraints/runPeriod.toml]] 
+  An example file for multiple run periods with constraints.
+  For information about constraints, read:
+  [[../resources/ChipCalibrations/Tpx3_Test_Constraints/README.org]]
+
+*** Adding a chip
+
 In order to add a chip to the InGrid database, you need to provide a
 director, which follows a certain structure and call the
 =databaseTool= as follows:
 #+BEGIN_SRC sh
-./databaseTool --add=<path-to-folder>
+./databaseTool add --chip path/to/dir/with/chipInfo
 #+END_SRC
 where the directory needs to look as follows:
 #+BEGIN_SRC sh
@@ -47,3 +69,6 @@ Another test comment!
 #+END_SRC
 The fields =chipName= and =chipNumber= are required. All others (as
 many as desired) will be read as =(key, value)= pairs and added to the database.
+
+For a Timepix3 detector, the ToT calibration HDF5 file must be in this
+directory (or a symlink to it).

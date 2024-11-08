@@ -1,7 +1,34 @@
-import nimhdf5, re, strutils, times
-import parsetoml
+import std / [re, strutils, times]
+from std / algorithm import sortedByIt, SortOrder
+from std / json import `$`, pretty
 
-import databaseDefinitions
+from std / os import `/`
+import pkg / [nimhdf5, parsetoml]
+
+import ./databaseDefinitions
+
+################################################################################
+## Helpers related to reading information from reconstruction HDF5 files
+################################################################################
+
+proc getConstraints*(runPeriod: H5Group, chipName: string): seq[Constraint] =
+  ## If there are constraints in this `runPeriod` we will return the specific
+  ## constraint values for the `chipName`.
+  ##
+  ## If there are none, the result will be an empty seq.
+  ##
+  ## Constraints are stored as a (string, string) dataset of the sort:
+  ## - RunPeriod
+  ##   - Constraints   <-- group for constraints
+  ##     - Chip XYZ    <-- dataset of strings for each chip with the values
+  ##     - Chip ABC    <--                     """
+  if ConstraintsGroup notin runPeriod: return # no constraints at all in the file
+  elif ConstraintsGroup / chipName notin runPeriod: return
+  result = runPeriod[(ConstraintsGroup / chipName).dset_str][Constraint]
+
+################################################################################
+## General InGrid Database helpers
+################################################################################
 
 template withDatabase*(actions: untyped): untyped =
   ## read only template to open database as `hf5`, work with it
@@ -49,21 +76,59 @@ proc inRunPeriod(run: int, grp: H5Group): bool =
   let runs = grp[RunPeriodRunDset.dset_str][int]
   result = run in runs or runs == @[-1]
 
-proc findRunPeriodFor*(h5f: H5File, chipName: string, run: int): string =
-  ## returns the ``first`` run period that matches the condition
-  ## `contains chipName and run in validRuns`
+proc findRunPeriodFor*(h5f: H5File, chipName: string, run: int, chipGroup: H5Group = nil): string =
+  ## Determines the correct run period for the given chip and run number,
+  ## taking into account potential constraints required for the chip.
+  ##
+  ## A run period is considered to match, if it contains `chipName` and `run` number and if:
+  ## - it either defines no constraints at all
+  ## - all its constraints are satisfied by the `chipGroup`
+  ##
+  ## All matching run periods are finally compared based on which period matches the
+  ## most constraints.
+  ## Note that this implies if you have a run period with 2 constraints and then add
+  ## a new run period with only 1 constraint and you wish to use the latter, you'll
+  ## either need to keep the other 2 constraints as well _or_ delete the old run period.
+  ## Keep in mind that this will only be an issue if the 2 additional constraints are
+  ## actually matching the new data for the new constraint.
+  ##
+  ## If `chipGroup` is `nil` we always ignore any possible constraints for it.
+  # 3. find run period based on chip + run + constraint
+  type T = tuple[rp: string, cs: int]
+  var matches = newSeq[T]()
   for grp in items(h5f, start_path = "/", depth = 1):
     if chipName.inRunPeriod(grp) and
        run.inRunPeriod(grp):
-      return grp.name
-  if result.len == 0:
+      # check constraints if any
+      if chipGroup != nil:
+        let rpConstraints = getConstraints(grp, chipName) # get all constraints of this RP
+        var allConstraintsMatch = true
+        for (c, v) in rpConstraints:         # iter through them
+          if c notin chipGroup.attrs:        # does not exist for chip in run
+            allConstraintsMatch = false      # -> no match
+          else:                              # exists
+            chipGroup.attrs.withAttr(c):     # read attribute, depending on type
+              if $attr != v:                 # compare as strings. All constraints are strings
+                allConstraintsMatch = false  # -> differ, no match
+        if allConstraintsMatch:              # all match, keep this RP
+          matches.add (rp: grp.name, cs: rpConstraints.len)
+      else: # if no chip group, we ignore any constraints
+        matches.add (rp: grp.name, cs: 0)
+  if matches.len == 0:
     raise newException(ValueError, "Cannot find any run period matching run " & $run)
 
-proc findRunPeriodFor*(chipName: string, run: int): string =
+  matches = matches.sortedByIt(it[1]) # sorts in ascending order
+  result = matches[^1].rp             # pick last, i.e. most constraints
+
+proc findRunPeriodFor*(chipName: string, run: int, chipGroup: H5Group = nil): string =
   ## returns the ``first`` run period that matches the condition
   ## `contains chipName and run in validRuns`
+  ##
+  ## If the given `chipGroup` is `nil`, we do *NOT* check for any constraints
+  ## and instead return the default run period based on chip name and run.
+  ## This is mainly for the `databaseTool`.
   withDatabase:
-    result = h5f.findRunPeriodFor(chipName, run)
+    result = h5f.findRunPeriodFor(chipName, run, chipGroup = chipGroup)
 
 proc chipNameToGroup*(chipName: string, period: string): string =
   ## given a `chipName` will return the correct name of the corresponding

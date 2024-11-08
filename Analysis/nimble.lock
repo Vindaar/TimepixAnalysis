@@ -495,8 +495,8 @@
       }
     },
     "ggplotnim": {
-      "version": "0.7.0",
-      "vcsRevision": "db4a39eaa914b44ce452d07b6042e3610c91e0c9",
+      "version": "0.7.2",
+      "vcsRevision": "3f3e5bb40d14e8a43035d71edd09a2e4cb3dbbf4",
       "url": "https://github.com/Vindaar/ggplotnim",
       "downloadMethod": "git",
       "dependencies": [
@@ -510,7 +510,7 @@
         "scinim"
       ],
       "checksums": {
-        "sha1": "92f992d8b4feea19234fe5b7d748ed07f0352f0b"
+        "sha1": "970cefdf1106f610d26ea3f6535ab9143e20a7f1"
       }
     },
     "wasmrt": {
@@ -581,15 +581,15 @@
       }
     },
     "nimhdf5": {
-      "version": "0.6.1",
-      "vcsRevision": "3cac8b2b358ebf1c5d6f5d013633564bed334e0d",
+      "version": "0.6.3",
+      "vcsRevision": "8b9183ab019e371427038d3f7f804e49390af855",
       "url": "https://github.com/Vindaar/nimhdf5",
       "downloadMethod": "git",
       "dependencies": [
         "seqmath"
       ],
       "checksums": {
-        "sha1": "0c511f1baef222f7daf9890b36ba8ae87b770dbe"
+        "sha1": "2f8444c667a98ef65507a53a1520bbf62d1ec3df"
       }
     },
     "nlopt": {

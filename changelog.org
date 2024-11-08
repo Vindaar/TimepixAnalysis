@@ -1,3 +1,17 @@
+* v0.4.7
+Introduce the notion of 'constraints' for run periods in the InGrid
+database.
+A constraint allows to decide which input file maps to what run period
+based on any additional attributes found in a chip group of a specific
+run. For example the threshold of a chip.
+Read the following document to get an idea:
+[[./resources/ChipCalibrations/Tpx3_Test_Constraints/README.org]]
+
+*NOTE*: As part of introducing the notion of 'constraints' for a distinction
+of different run periods, the ~databaseTool~ of the InGrid database
+has received minor *breaking* usage changes. It is now a
+multi-command tool. See the updated README at
+[[https://github.com/Vindaar/TimepixAnalysis/tree/master/InGridDatabase]].
 * v0.4.6
 - use ~ToA_combined~ for the ToA data for Tpx3 (@magruber PR #60)
 - add ~fTOA~ data to Tpx3 data (@magruber PR #60)

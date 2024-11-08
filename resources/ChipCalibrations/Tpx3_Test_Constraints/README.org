@@ -14,9 +14,10 @@ to a specific DAC setting by using the constraints feature.
 
 ** Add a run period
 
-To add a constraint, add a ~[Constraints]~ section to the
-~runPeriod.toml~ file it can be advisable to produce a
-~runPeriod.toml~ file with multiple run periods:
+To add a set of constraints, add a ~[Constraints]~ section to the
+~runPeriod.toml~ file. It can be advisable to produce a
+~runPeriod.toml~ file with multiple run periods, which all use the
+same set of constraints with different values.
 
 #+begin_src toml
 title = "Test run period for differenc constraints"

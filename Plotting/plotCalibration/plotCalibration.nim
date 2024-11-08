@@ -318,7 +318,9 @@ proc chargeCalib(chip, runPeriod: string, useTeX: bool, outpath: string) =
 import cligen / macUt
 proc main(
   scurve = false, tot = false, charge = false,
-  chip = "", runPeriod = "", file = "", folder = "", startFit = 0.0, startTot = 0.0,
+  chip = "", runPeriod = "", file = "", folder = "",
+  constraints: seq[Constraint] = @[],
+  startFit = 0.0, startTot = 0.0,
   legendX = -1.0, legendY = -1.0,
   version = false,
   useTeX = false,
@@ -333,6 +335,15 @@ proc main(
   if chip.len > 0:
     when not declared(ingridDatabase):
       quit("Cannot import InGrid database. --chip option not supported.")
+
+
+
+  ## XXX: add constraint support
+  #let runPeriod =
+  #  if runPeriod.len > 0: runPeriod
+  #  else: # determine from constraints
+
+
 
   if scurve:
     sCurve(file, folder, chip, runPeriod, legendX, legendY, useTeX, outpath, not quiet)
@@ -352,6 +363,7 @@ when isMainModule:
   NOTE: if a chip number is used, it is assumed that it
   corresponds to said chip on the Septem H board!""",
     "runPeriod" : "Required if a chip name is given. The run period we want to plot the calibrations for.",
+    "constraints" : "If any given will read the run period corresponding to this set of constraints.",
     "file" : "If given will read from a single file",
     "folder" : "If given will read all voltage files from the given folder",
     "chip" : "The number of this chip",

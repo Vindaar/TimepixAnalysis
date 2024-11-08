@@ -35,6 +35,16 @@ The InGrid database management tool.
   to get the ToT values of that chip.
 """
 const doc = docTmpl % [vsn]
+
+const docCalib = """
+Version: $#
+Runs the calibrations for all chips in the given `runPeriod` if any. Otherwise
+runs calibrations for all run periods.
+
+If constraints are passed, we will only calibrate those chips in runs that match the
+consrtaints.
+""" % [vsn]
+
 import macros
 macro insertDocComment(s: static string): untyped =
   result = newNimNode(nnkCommentStmt)
@@ -70,20 +80,6 @@ proc calibrateType(tcKind: TypeCalibrate, runPeriod: string) =
   let err = h5f.close()
   if err < 0:
     echo "Could not properly close database! err = ", err
-
-
-proc parseCalibrateType(typeStr: string): TypeCalibrate =
-  ## checks the given `typeStr` whether it's a valid type to
-  ## calibrate for. If so returns that type, else raises an
-  ## exception
-  case typeStr.toLower
-  of $TotCalibrate:
-    result = TotCalibrate
-  of $SCurveCalibrate:
-    result = ScurveCalibrate
-  else:
-    raise newException(KeyError, "Given type is not a valid type to calibrate " &
-      """for. Valid types are ["TOT", "SCurve"] (case insensitive)""")
 
 proc removePrefix(s, pr: string): string =
   result = s
@@ -121,7 +117,6 @@ proc parseChipInfo(filename: string): Chip =
 proc parseFsr(filename: string): FSR =
   ## parses the contents of a (potential) given FSR file
   ## uses regex `FsrContentReg` to parse the file
-  echo "Filename is ", filename
   if existsFile(filename):
     let fLines = readFile(filename).splitLines
     var dacVal: array[2, string]
@@ -283,6 +278,15 @@ runPeriods = ["Run123"]
 ...
 """)
 
+  # 1. get all constraints if any
+  var constraints: seq[string]
+  if "Constraints" in run:
+    let cs = run["Constraints"]
+    if "fields" notin cs:
+      raise newException(ValueError, "The [Constraints] section in the runPeriod.toml file: " &
+        name & " is missing the `fields = [\"foo\", \"bar\", ...]` field.")
+    constraints = cs["fields"].getElems.mapIt(it.getStr)
+
   var runPeriods = newSeq[RunPeriod]()
   for k in run["runPeriods"].getElems:
     let tab = run[k.getStr]
@@ -294,7 +298,7 @@ runPeriods = ["Run123"]
       raise newException(ValueError, "Given TOML file does not contain `start`, " &
         "`stop`, and either `validRuns` or `firstRun` and `lastRun` in run period " &
         k.getStr)
-    var runP = RunPeriod(name: k.getStr)
+    var runP = RunPeriod(name: k.getStr, constraints: constraints)
     for key, v in pairs(tab.tableVal):
       case key
       of RunPeriodStart:
@@ -328,41 +332,63 @@ runPeriods = ["Run123"]
   # all checks of the file passed, add to database
   addRunPeriod(runPeriods)
 
-proc main(addPeriod = "", # add run periods from given `runPeriod.toml` file
-          add = "", # add the chip described by data in given directory
-          calibrate = "", # calibrate all chips (unless restricted by runPeriod)
-          runPeriod = "", # only calibrate chips in this period
-          modify = false,
-          delete = "", # delete chip with given name from DB
-         ) =
+proc calibrate(calibrate: TypeCalibrate, # calibrate all chips (unless restricted by runPeriod)
+               runPeriod = "", # only calibrate chips in this period
+               constraints: seq[Constraint] = @[]) = # only calibrate chips in run periods matching these constraints
+  insertDocComment(docCalib)
+  calibrateType calibrate, runPeriod
+
+proc add(runPeriod = "", # add run periods from given `runPeriod.toml` file
+         chip = "", # add the chip described by data in given directory
+         modify = false,
+         delete = "", # delete chip with given name from DB
+       ) =
   insertDocComment(doc)
   if modify:
     doAssert false, "Modify support is not implmented yet."
   elif delete.len > 0:
     doAssert false, "Delete support is not implmented yet."
-  elif calibrate.len > 0:
-    calibrateType calibrate.parseCalibrateType, runPeriod
-  elif add.len > 0:
+  elif chip.len > 0:
     # call proc to add data from folder to database
-    addChip(add)
-  elif addPeriod.len > 0:
-    addRunPeriod(addPeriod)
+    addChip(chip)
+  elif runPeriod.len > 0:
+    addRunPeriod(runPeriod)
   else:
-    echo "Noting to do."
+    echo "Nothing to do."
 
 when isMainModule:
   import cligen
   clCfg.version = vsn
-  dispatch(main, doc = doc, short = {"version" : 'V'}, help = {
-    "addPeriod" : """Adds the run periods stored in the given `runPeriod.toml`
+  import cligen/argcvt
+  proc argParse(dst: var Constraint, dfl: Constraint,
+                a: var ArgcvtParams): bool =
+    var vals = a.val.strip(chars = {'(', ')'}).split(',')
+    if vals.len != 2: return false
+    try:
+      let dset = vals[0].strip(chars = {'"'})
+      let val1 = vals[1].strip
+      let val2 = vals[2].strip
+      dst = (constraint: val1, value: val2)
+      result = true
+    except:
+      result = false
+
+  proc argHelp*(dfl: GenericCut; a: var ArgcvtParams): seq[string] =
+    result = @[ a.argKeys, "(constraint: string, value: string)", $dfl ]
+
+  dispatchMulti([ingridDatabase.add, doc = doc, short = {"version" : 'V'}, help = {
+    "runPeriod" : """Adds the run periods stored in the given `runPeriod.toml`
 file to the database to which chips can be assigned""",
-    "add" : "Add the chip contained in the given folder to the database",
+    "chip" : "Add the chip contained in the given folder to the database",
+    "modify" : """Start a CLI interface to allow viewing the files
+content and modify attributes / delete elements.""",
+    "delete" : "Delete the chip with the given name from the database.",
+    "version" : "Show the version number."}],
+                [calibrate, doc = docCalib, short = {"version" : 'V'}, help = {
     "calibrate" : """Perform given calibration {TOT, SCurve} and save
 fit parameters as attributes. Calibrates all chips with suitable data.""",
     "runPeriod" : """Restrict calibration to all chips of the given run period.
 Must match a run period in the database.""",
-     "modify" : """Start a CLI interface to allow viewing the files
-content and modify attributes / delete elements.""",
-    "delete" : "Delete the chip with the given name from the database.",
-    "version" : "Show the version number."
-    })
+    "constraints" : "If any given will read the run period corresponding to this set of constraints.",
+
+                  }])

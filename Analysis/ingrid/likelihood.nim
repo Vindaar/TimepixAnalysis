@@ -895,7 +895,8 @@ proc applySeptemVeto(h5f: var H5File,
   let chips = toSeq(0 ..< ctx.vetoCfg.numChips)
   let gains = chips.mapIt(h5f[(group.name / "chip_" & $it / "gasGainSlices"), GasGainIntervalResult])
   let septemHChips = chips.mapIt(getSeptemHChip(it))
-  let calibTuple = getCalibVsGasGainFactors(septemHChips[ctx.vetoCfg.centerChip], runNumber)
+  let ccGrp = h5f[recoPath(runNumber, ctx.vetoCfg.centerChip)] # cc = center chip
+  let calibTuple = ccGrp.getCalibVsGasGainFactors(septemHChips[ctx.vetoCfg.centerChip], runNumber)
 
   septemDf = septemDf.filter(f{int: `eventNumber` in passedEvs})
 

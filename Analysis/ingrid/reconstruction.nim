@@ -551,7 +551,11 @@ proc initRecoFadcInH5(h5f, h5fout: H5File, runNumber, batchSize: int) =
   recoGroup.attrs["sampling_mode"] = fadcRaw.attrs["sampling_mode", int64]
   recoGroup.attrs["pedestal_run"] = fadcRaw.attrs["pedestal_run", int64]
 
-proc copyOverDataAttrs(h5f, h5fout: H5File, runNumber: int) =
+proc copyOverDataAttrs(h5f, h5fout: H5File, runNumber, numChips: int) =
+  ## Copies over all attributes of:
+  ## - `/raw/` group to `/reconstruction`
+  ## - `run_X` group raw to reco
+  ## - `chip_Y` group raw to reco
   template copyAttrs(pout, pin: untyped): untyped =
     let recoGrp = h5fout.create_group(pout) # [pout.grp_str]
     let rawGrp = h5f[pin.grp_str]
@@ -559,6 +563,9 @@ proc copyOverDataAttrs(h5f, h5fout: H5File, runNumber: int) =
   # copy attributes of `runs/run_XYZ -> reconstruction/run_XYZ`
   copyAttrs("/reconstruction", "/runs")
   copyAttrs((recoBase() & $runNumber), (rawDataBase() & $runNumber))
+  # copy attributes for all chips
+  for chip in 0 ..< numChips:
+    copyAttrs(recoPath(runNumber, chip).string, rawPath(runNumber, chip).string)
   template copyOver(path, dtype: untyped): untyped =
     # don't care for the returned group here
     discard h5fout.write_dataset(recoBase() & path, h5f[rawDataBase() & path, dtype])
@@ -726,13 +733,14 @@ proc reconstructRunsInFile(h5f: H5File,
       # initialize groups in `h5fout`
       if inputHasFadc:
         initRecoFadcInH5(h5f, h5fout, runNumber, batchSize)
-      copyOverDataAttrs(h5f, h5fout, runNumber)
+
+      var runGroupForAttrs = h5f[grp.grp_str]
+      let nChips = runGroupForAttrs.attrs["numChips", int]
+      copyOverDataAttrs(h5f, h5fout, runNumber, nChips)
 
       writeRecoAttrs(h5fout, runNumber, recoCfg.clusterAlgo, recoCfg.searchRadius, recoCfg.dbscanEpsilon, ingridInit)
       ingridInit = true
 
-      var runGroupForAttrs = h5f[grp.grp_str]
-      let nChips = runGroupForAttrs.attrs["numChips", int]
       # TODO: we can in principle perform energy calibration in one go
       # together with creation of spectrum, if we work as follows:
       # 1. calibration runs:

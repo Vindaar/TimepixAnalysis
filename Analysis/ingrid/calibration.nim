@@ -277,7 +277,7 @@ proc applyChargeCalibration*(h5f: H5File, runNumber: int,
       sumTots = sumTotDset[int64]
     # now calculate charge in electrons for all TOT values
     # need calibration factors from InGrid database for that
-    let ((a, b, c, t), runPeriod) = getTotCalibParameters(chipName, runNumber)
+    let ((a, b, c, t), runPeriod) = group.getTotCalibParameters(chipName, runNumber)
     if chip.uint8 notin runPeriodPrinted:
       runPeriodPrinted.incl chip.uint8
       info "Using calibrations for chip: ", chipName, "(# ", chip, ") from run period: ", runPeriod
@@ -688,7 +688,7 @@ proc calcGasGain*(h5f: H5File, grp: string,
   # now can start reading, get the group containing the data for this chip
   var group = h5f[grp.grp_str]
   let chipName = group.attrs["chipName", string]
-  let ((a, b, c, t), runPeriod) = getTotCalibParameters(chipName, runNumber)
+  let ((a, b, c, t), runPeriod) = group.getTotCalibParameters(chipName, runNumber)
   if printRunPeriod:
     info "Using calibrations for chip: ", chipName, "(# ", chipNumber, ") from run period: ", runPeriod
   # get bin edges by calculating charge values for all TOT values at TOT's bin edges
@@ -1065,7 +1065,7 @@ proc performChargeCalibGasGainFit*(h5f: H5File,
         continue
       else:
         echo "\t taking group ", centerChipGrp.name
-    let runPeriod = findRunPeriodFor(centerChipName, run)
+    let runPeriod = findRunPeriodFor(centerChipName, run, chipGroup = centerChipGrp)
     # read the chip name
     # given correct group, get the `charge` and `FeSpectrumCharge` dsets
     var
@@ -1277,8 +1277,10 @@ proc calcEnergyFromCharge*(h5f: H5File, interval: float,
     if chipName.len == 0:
       # get center chip name to be able to read fit parameters
       chipName = group.attrs["centerChipName", string]
+      let ccNum = group.attrs["centerChipNumber", int] # cc = center chip
+      let ccGrp = h5f[(group.name / "chip_" & $ccNum).grp_str]
       # get parameters during first iter...
-      (b, m) = getCalibVsGasGainFactors(chipName, run, suffix = $gcKind)
+      (b, m) = ccGrp.getCalibVsGasGainFactors(chipName, run, suffix = $gcKind)
     # now iterate over chips in this run
     let chipGrp = h5f[grp.grp_str]
     h5f.calcEnergyFromCharge(chipGrp, interval, b, m, gcKind, overwrite)

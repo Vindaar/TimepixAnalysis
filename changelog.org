@@ -1,3 +1,7 @@
+* v0.4.8
+- allow overwriting ToT calibration, S-curves in ~databaseTool~ when
+  adding a chip. That way one can change the ToT calibration, rerun
+  the ~databaseTool~ and the new file will be used successfully.
 * v0.4.7
 Introduce the notion of 'constraints' for run periods in the InGrid
 database.

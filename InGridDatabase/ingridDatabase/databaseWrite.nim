@@ -27,7 +27,8 @@ proc writeTotCalibAttrs*(h5f: H5File,
 proc writeThreshold*(h5f: H5File, threshold: Threshold, chipGroupName: string) =
   var thresholdDset = h5f.create_dataset(joinPath(chipGroupName, ThresholdPrefix),
                                           (256, 256),
-                                          dtype = int)
+                                          dtype = int,
+                                          overwrite = true)
   thresholdDset[thresholdDset.all] = threshold.reshape([256, 256]).toRawSeq
 
 proc writeCalibVsGasGain*(gain, calib, calibErr: seq[float64],
@@ -137,7 +138,8 @@ proc addChipToH5*(chip: Chip,
       var scurveDset = h5f.create_dataset(joinPath(scurveGroup.name,
                                                    curveName),
                                           (curve.thl.len, 2),
-                                          dtype = float)
+                                          dtype = float,
+                                          overwrite = true)
       # reshape the data to be two columns of [thl, hits] pairs and write
       scurveDset[scurveDset.all] = zip(curve.thl.asType(float), curve.hits).mapIt(@[it[0], it[1]])
       # add voltage of dataset as attribute (for easier reading)
@@ -148,7 +150,8 @@ proc addChipToH5*(chip: Chip,
     # that allows us to easily name the columns too!
     var totDset = h5f.create_dataset(joinPath(chipGroup.name, TotPrefix),
                                      (tot.pulses.len, 3),
-                                     dtype = float)
+                                     dtype = float,
+                                     overwrite = true)
     # sort of ugly conversion to 3 columns, using double zip
     # since we don't have a zip for more than 2 seqs
     totDset[totDset.all] = zip(zip(tot.pulses.asType(float),

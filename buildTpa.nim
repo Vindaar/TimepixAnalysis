@@ -109,21 +109,18 @@ proc generatePathsFile() =
       cd Analysis
       nimble setup
 
-proc compileBinaries() =
+proc compileBinaries(compileLikelihood: bool) =
   proc compile(bin: string, flags: seq[string]) =
     let f = @flags.mapIt("-d:" & it).join(" ")
     let cmd = &"nim c {f} {bin}"
     shellCheck:
       ($cmd)
 
-  let bins = @[
+  var bins = @[
     # Base programs
     ("Analysis/ingrid/parse_raw_tpx3", @["danger", "blosc"]),
     ("Analysis/ingrid/raw_data_manipulation", @["danger", "blosc"]),
     ("Analysis/ingrid/reconstruction", @["danger"]),
-    # NOTE: For the moment we don't build `likelihood`, because it requires some data files that are
-    # too big to be hosted in the TPA repository. It is usually not required for most users anyway.
-    # ("Analysis/ingrid/likelihood", @["danger", "useMalloc"]),
     # Similarly the limit calculation can be compiled manually.
     # ("Analysis/ingrid/mcmc_limit_calculation", @["danger"]),
     ("Analysis/ingrid/fake_event_generator", @["danger"]),
@@ -137,12 +134,21 @@ proc compileBinaries() =
     ("Plotting/plotBackgroundRate/plotBackgroundRate", @["release"]),
     ("Plotting/plotBackgroundClusters/plotBackgroundClusters", @["release"]),
   ]
+
+  let InCI = getEnv("IN_CI", "false").parseBool
+  let ignoreCdl = "IgnoreCdlFile=" & $InCI
+  if compileLikelihood:
+    # NOTE: For the moment we don't build `likelihood`, because it requires some data files that are
+    # too big to be hosted in the TPA repository. It is usually not required for most users anyway.
+    bins.add ("Analysis/ingrid/likelihood", @["danger", "useMalloc", ignoreCdl])
+
   for (b, f) in bins:
     compile(b, f)
 
 proc main(locateTool = "locate",
           allowClone = false,
           clonePath  = "~/src",
+          compileLikelihood = false,
           args = "") =
   let dir = getCurrentDir()
   doAssert dir.endsWith("TimepixAnalysis"), "`buildTpa` must be run from the TimepixAnalysis root directory!"
@@ -163,7 +169,7 @@ proc main(locateTool = "locate",
   generatePathsFile()
 
   # 3. Compile all relevant binaries
-  compileBinaries()
+  compileBinaries(compileLikelihood)
 
 when isMainModule:
   import cligen

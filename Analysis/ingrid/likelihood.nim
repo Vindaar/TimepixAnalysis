@@ -29,9 +29,11 @@ else:
 const compileDate = CompileDate & " at " & CompileTime
 const versionStr = "Version: $# built on: $#" % [commitHash, compileDate]
 
+
+const IgnoreCdlFile {.booldefine.} = false
 const h5cdl_file = currentSourcePath() / "../../../resources/calibration-cdl.h5"
 const cdlExists = fileExists(h5cdl_file)
-when not cdlExists:
+when not cdlExists and not IgnoreCdlFile:
   {.fatal: "CAST CDL reference file `calibration-cdl.h5` does not exist at: " &
     $h5cdl_file.}
 

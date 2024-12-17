@@ -678,7 +678,7 @@ proc buildSeptemEvents(ctx: LikelihoodContext, septemDf: DataFrame,
       ## it here!
       result[0].add septemFrame
       result[1].add (pixels: septemFrame.pixels, eventNumber: evNum.int,
-                     toa: newSeq[uint16](), toaCombined: newSeq[uint64]())
+                     toa: newSeq[uint16](), toaCombined: newSeq[uint64](), ftoa: newSeq[uint8]())
 
 proc reconstructSeptemEvents(ctx: LikelihoodContext, septemEvents: seq[RecoInputEvent[PixInt]],
                              runNumber: int): seq[RecoEvent[PixInt]] =
@@ -970,7 +970,7 @@ proc applySeptemVeto(h5f: var H5File,
         ## XXX: for full ToA support in Timepix3, need to also read the `toa` data and insert
         ## it here!
         let inp = (pixels: septemFrame.pixels, eventNumber: evNum.int,
-                   toa: newSeq[uint16](), toaCombined: newSeq[uint64]())
+                   toa: newSeq[uint16](), toaCombined: newSeq[uint64](), ftoa: newSeq[uint8]())
         let recoEv = recoEvent(inp, -1,
                                runNumber, searchRadius = ctx.vetoCfg.searchRadius,
                                dbscanEpsilon = ctx.vetoCfg.dbscanEpsilon,

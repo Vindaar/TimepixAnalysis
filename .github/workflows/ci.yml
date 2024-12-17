@@ -71,7 +71,8 @@ jobs:
         run: |
           cd TimepixAnalysis
           nim c buildTpa
-          ./buildTpa
+          # set `IN_CI=true` to ignore the `calibration-cdl.h5` file's existence
+          IN_CI=true ./buildTpa --compileLikelihood
 
 #      - name: Run tests
 #        shell: bash

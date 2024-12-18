@@ -1,3 +1,16 @@
+* v0.4.9
+- fix regression in ~likelihood~ due to addition of ~ftoa~ to
+  reconstructed data tuple
+- add ~IgnoreCdlFile~ ~{.booldefine.}~ variable to ~likelihood~ to be
+  able to disable the compile time check of the existence of the
+  ~calibration-cdl.h5~ file (CDL reference data) for CI purposes (and
+  development on systems that don't have it for the time being)
+- allow ~buildTpa~ to build ~likelihood~ if ~--compileLikelihood~ is
+  given
+  - if ~IN_CI=true~ environment variable is given, ~buildTpa~ will
+    pass the ~-d:IgnoreCdlFile=true~ argument to ~likelihood~ to
+    ignore the CDL file check at CT
+- use Nim 2.2 in the CI    
 * v0.4.8
 - allow overwriting ToT calibration, S-curves in ~databaseTool~ when
   adding a chip. That way one can change the ToT calibration, rerun

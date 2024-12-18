@@ -1697,6 +1697,8 @@ proc main(
   lnL = false,
   mlp = "",
   convnet = "",
+  ToACut = false,
+  ToAlnLCut = false,
   tracking = false,
   scintiveto = false,
   fadcveto = false,
@@ -1715,6 +1717,10 @@ proc main(
   nnCutKind = nkRunBasedLocal,
   # lnL cut
   signalEfficiency = 0.0,
+  #ToACut
+  ToAcutValue = 0,
+  #ToAlnLCut
+  ToAsignalEfficiency = "",
   # line veto
   lineVetoKind = lvNone, # lvNone here, but defaults to `lvRegular` if no septem veto (see likelihood_utils)
   eccLineVetoCut = 0.0,
@@ -1742,6 +1748,8 @@ proc main(
   var nnModelPath: string
   if tracking            : flags.incl fkTracking
   if lnL                 : flags.incl fkLogL
+  if ToACut              : flags.incl fkToACut
+  if ToAlnLCut           : flags.incl fkToAlnLCut
   if mlp.len > 0         : flags.incl fkMLP; nnModelPath = mlp
   if convnet.len > 0     : flags.incl fkConvNet; nnModelPath = convnet
   if scintiveto          : flags.incl fkScinti
@@ -1807,7 +1815,11 @@ proc main(
                                   useLnLCut = fkLogL in flags,
                                   signalEfficiency = signalEfficiency,
                                   #ToACut
+                                  useToACut = fkToACut in flags,
+                                  ToAcutValue = ToAcutValue,
                                   #ToAlnLCut
+                                  useToAlnLCut = fkToAlnLCut in flags,
+                                  ToAsignalEfficiency = ToAsignalEfficiency,
                                   # septem veto
                                   clusterAlgo = readClusterAlgo(),
                                   searchRadius = readSearchRadius(),

@@ -842,7 +842,7 @@ when not defined(pure) and not defined(js):
 
     LogLFlagKind* = enum
       # vetoes
-      fkTracking, fkLogL, fkMLP, fkConvNet, fkFadc, fkScinti, fkSeptem, fkLineVeto, fkAggressive,
+      fkTracking, fkLogL, fkMLP, fkConvNet, fkFadc, fkScinti, fkSeptem, fkLineVeto, fkAggressive, fkToACut, fkToAlnLCut,
       # other options
       fkRocCurve, fkComputeLogL, fkPlotLogL, fkPlotSeptem,
       fkEstRandomCoinc, # used to estimate the random coincidence of the septem & line veto

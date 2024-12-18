@@ -1698,7 +1698,7 @@ proc main(
   mlp = "",
   convnet = "",
   ToACut = false,
-  ToAlnLCut = false,
+  ToAlnLCut = "",
   tracking = false,
   scintiveto = false,
   fadcveto = false,
@@ -1720,7 +1720,7 @@ proc main(
   #ToACut
   ToAcutValue = 0,
   #ToAlnLCut
-  ToAsignalEfficiency = "",
+  ToAProbabilityHists = "",
   # line veto
   lineVetoKind = lvNone, # lvNone here, but defaults to `lvRegular` if no septem veto (see likelihood_utils)
   eccLineVetoCut = 0.0,
@@ -1746,10 +1746,11 @@ proc main(
 
   var flags: set[LogLFlagKind]
   var nnModelPath: string
+  var ToAProbabilityHists: string
   if tracking            : flags.incl fkTracking
   if lnL                 : flags.incl fkLogL
   if ToACut              : flags.incl fkToACut
-  if ToAlnLCut           : flags.incl fkToAlnLCut
+  if ToAlnLCut.len > 0   : flags.incl fkToAlnLCut; ToAProbabilityHists = ToAlnLCut
   if mlp.len > 0         : flags.incl fkMLP; nnModelPath = mlp
   if convnet.len > 0     : flags.incl fkConvNet; nnModelPath = convnet
   if scintiveto          : flags.incl fkScinti
@@ -1819,7 +1820,7 @@ proc main(
                                   ToAcutValue = ToAcutValue,
                                   #ToAlnLCut
                                   useToAlnLCut = fkToAlnLCut in flags,
-                                  ToAsignalEfficiency = ToAsignalEfficiency,
+                                  ToAProbabilityHists = ToAProbabilityHists,
                                   # septem veto
                                   clusterAlgo = readClusterAlgo(),
                                   searchRadius = readSearchRadius(),

@@ -855,7 +855,7 @@ proc initLikelihoodContext*(
   ToAcutValue: int=0,
   #ToAlnLCut
   useToAlnLCut: bool = false,
-  ToAsignalEfficiency: string = "",
+  ToAProbabilityHists: string = "",
   # Septem veto related
   septemVeto: bool = false,
   clusterAlgo: ClusteringAlgorithm = caDBSCAN,

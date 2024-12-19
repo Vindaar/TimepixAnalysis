@@ -1750,7 +1750,7 @@ proc main(
   if tracking            : flags.incl fkTracking
   if lnL                 : flags.incl fkLogL
   if ToACut              : flags.incl fkToACut
-  if ToAlnLCut.len > 0   : flags.incl fkToAlnLCut; ToAProbabilityHists = ToAlnLCut
+  if ToAlnLCut.len > 0   : flags.incl fkToAlnLCut#; ToAProbabilityHists = ToAlnLCut
   if mlp.len > 0         : flags.incl fkMLP; nnModelPath = mlp
   if convnet.len > 0     : flags.incl fkConvNet; nnModelPath = convnet
   if scintiveto          : flags.incl fkScinti
@@ -1770,6 +1770,15 @@ proc main(
     if mlp.len > 0 or convnet.len > 0:
       raise newException(Exception, "Using neural network vetoes is only supported if the program is compiled " &
         "using the C++ backend!")
+#Using this to test the new implementations, need to be removed at some point        
+    echo "path:"
+    ToAProbabilityHists ="../../resources/ToA_P_densitys.csv"
+    var df = newDataFrame()
+    var Energy_list = newSeq[int]()
+    df = readToAProbabilitys(ToAProbabilityHists, Energy_list)
+    echo Energy_list
+    
+# until here
 
   let region = if region.len > 0:
                  parseEnum[ChipRegion](region)

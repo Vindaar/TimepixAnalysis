@@ -1697,6 +1697,8 @@ proc main(
   lnL = false,
   mlp = "",
   convnet = "",
+  ToACut = false,
+  ToAlnLCut = "",
   tracking = false,
   scintiveto = false,
   fadcveto = false,
@@ -1715,6 +1717,10 @@ proc main(
   nnCutKind = nkRunBasedLocal,
   # lnL cut
   signalEfficiency = 0.0,
+  #ToACut
+  ToAcutValue = 0,
+  #ToAlnLCut
+  ToAProbabilityHists = "",
   # line veto
   lineVetoKind = lvNone, # lvNone here, but defaults to `lvRegular` if no septem veto (see likelihood_utils)
   eccLineVetoCut = 0.0,
@@ -1740,8 +1746,11 @@ proc main(
 
   var flags: set[LogLFlagKind]
   var nnModelPath: string
+  var ToAProbabilityHists: string
   if tracking            : flags.incl fkTracking
   if lnL                 : flags.incl fkLogL
+  if ToACut              : flags.incl fkToACut
+  if ToAlnLCut.len > 0   : flags.incl fkToAlnLCut#; ToAProbabilityHists = ToAlnLCut
   if mlp.len > 0         : flags.incl fkMLP; nnModelPath = mlp
   if convnet.len > 0     : flags.incl fkConvNet; nnModelPath = convnet
   if scintiveto          : flags.incl fkScinti
@@ -1761,6 +1770,18 @@ proc main(
     if mlp.len > 0 or convnet.len > 0:
       raise newException(Exception, "Using neural network vetoes is only supported if the program is compiled " &
         "using the C++ backend!")
+#Using this to test the new implementations, need to be removed at some point        
+    echo "path:"
+    ToAProbabilityHists ="../../resources/ToA_P_densitys.csv"
+    var df = newDataFrame()
+    var Energy_list = newSeq[float]()
+    var test = newDataFrame()
+    df = readToAProbabilitys(ToAProbabilityHists, Energy_list)
+    test = getInterpolatedDfToA(df,Energy_list)
+    echo test
+    
+
+# until here
 
   let region = if region.len > 0:
                  parseEnum[ChipRegion](region)
@@ -1806,6 +1827,12 @@ proc main(
                                   # lnL cut
                                   useLnLCut = fkLogL in flags,
                                   signalEfficiency = signalEfficiency,
+                                  #ToACut
+                                  useToACut = fkToACut in flags,
+                                  ToAcutValue = ToAcutValue,
+                                  #ToAlnLCut
+                                  useToAlnLCut = fkToAlnLCut in flags,
+                                  ToAProbabilityHists = ToAProbabilityHists,
                                   # septem veto
                                   clusterAlgo = readClusterAlgo(),
                                   searchRadius = readSearchRadius(),

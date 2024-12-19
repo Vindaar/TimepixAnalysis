@@ -1774,10 +1774,13 @@ proc main(
     echo "path:"
     ToAProbabilityHists ="../../resources/ToA_P_densitys.csv"
     var df = newDataFrame()
-    var Energy_list = newSeq[int]()
+    var Energy_list = newSeq[float]()
+    var test = newDataFrame()
     df = readToAProbabilitys(ToAProbabilityHists, Energy_list)
-    echo Energy_list
+    test = getInterpolatedDfToA(df,Energy_list)
+    echo test
     
+
 # until here
 
   let region = if region.len > 0:

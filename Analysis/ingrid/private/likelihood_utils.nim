@@ -269,6 +269,16 @@ template withXrayRefCuts*(cdlFile, dset: string,
       if allIt([regionCut, chargeCut, rmsCut, lengthCut, pixelCut], it):
         body
 
+proc readToAProbabilitys*(pathtoToA:string, Energy_list: var seq): DataFrame =
+  let df = readCsv(pathtoToA,sep=' ') 
+  for i in 0 ..< 20000:
+    try:
+      let t: Tensor[float] = df[$i, float]
+      Energy_list.add i
+    except:
+      discard
+  result = df
+
 proc readRawRefData*(
   cdlFile, dset: string,
   year: YearKind,
@@ -886,6 +896,7 @@ proc initLikelihoodContext*(
   ## The environment variable `PLOT_SEPTEM_E_CUTOFF` can be used to adjust the energy
   ## cutoff for which events to plot when running with `--plotSeptem`. In addition the
   ## variable `USE_TEX` can be adjusted to generate TikZ TeX plots.
+  
 
   let useTeX = if useTeX: useTeX
                else: getEnv("USE_TEX", "false").parseBool

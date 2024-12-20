@@ -861,6 +861,12 @@ when not defined(pure) and not defined(js):
       # lnL settings
       useLnLCut*: bool
       signalEfficiency*: float = 0.8 # the signal efficiency that defines the cuts
+      #ToACut
+      useToACut*: bool
+      ToAcutValue*: int 
+      #ToAlnLCut
+      useToAlnLCut*: bool
+      ToAProbabilityHists*: string
       # Septem & line veto related
       clusterAlgo*: ClusteringAlgorithm = caDBSCAN
       searchRadius*: int = 50 # for caDefault the search radius in septem events

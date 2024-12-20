@@ -1286,7 +1286,7 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
         discard
       of Timepix3:
         if ctx.vetoCfg.useToACut or ctx.vetoCfg.useToAlnLCut:
-          let toaLength = h5f[(chipGroup / "toaLength"), int64].asType(int)
+          toaLength = h5f[(chipGroup / "toaLength"), int64].asType(int)
         
       var nnPred: seq[float]
       when defined(cpp):

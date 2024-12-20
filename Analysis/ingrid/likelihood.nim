@@ -1802,14 +1802,14 @@ proc main(
       raise newException(Exception, "Using neural network vetoes is only supported if the program is compiled " &
         "using the C++ backend!")
 #Using this to test the new implementations, need to be removed at some point        
-    echo "path:"
-    ToAProbabilityHists ="../../resources/ToA_P_densitys.csv"
-
-    let (df, Energy_list)= readToAProbabilities(ToAProbabilityHists)
-    let test = getInterpolatedDfToA(df,Energy_list)
-    echo test
-    
-
+#    echo "path:"
+#    ToAProbabilityHists ="../../resources/ToA_P_densitys.csv"
+#
+#    let (df, Energy_list)= readToAProbabilities(ToAProbabilityHists)
+#    let test = getInterpolatedDfToA(df,Energy_list)
+#    echo test
+#    
+#
 # until here
 
   let region = if region.len > 0:

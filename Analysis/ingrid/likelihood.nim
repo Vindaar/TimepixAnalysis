@@ -265,6 +265,18 @@ proc writeLikelihoodData(h5f: var H5File,
   h5fout.writeInfos(chpGrpOut, ctx, fadcVetoCount, scintiVetoCount, flags)
   runGrp.writeCdlAttributes(ctx.cdlFile, ctx.year)
 
+func isVetoedByToA(ctx: LikelihoodContext, toaLength, eventNumber: int): bool =
+  ## returns `true` if the event of `ind` is vetoed by the ToA cut. 
+  ## Vetoed means the event must be thrown out
+  ## because it does ``not`` conform to the X-ray hypothesis.
+
+  let cut = ctx.vetoCfg.ToAcutValue
+  if toaLength <= cut:
+    result = false
+  else:
+    # not very X-ray like. Goodbye event!
+    result = true
+
 func isVetoedByFadc(ctx: LikelihoodContext, run, eventNumber: int, fadcTrigger, fadcEvNum: seq[int64],
                     fadcRise, fadcFall: seq[uint16], fadcSkew: seq[float]): bool =
   ## returns `true` if the event of `ind` is vetoed by the FADC based on cuts on
@@ -1243,6 +1255,8 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
 
       var fadcVetoCount = 0
       var scintiVetoCount = 0
+      var ToAcutCount = 0
+      var toaLength: seq[int]
       let chpGrp = h5f[chipGroup.grp_str]
       # iterate over all chips and perform logL calcs
       var attrs = chpGrp.attrs
@@ -1265,6 +1279,13 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
         centerY = h5f[(chipGroup / "centerY"), float64]
         rmsTrans = h5f[(chipGroup / "rmsTransverse"), float64]
         evNumbers = h5f[(chipGroup / "eventNumber"), int64].asType(int)
+      case fileInfo.timepix
+      of Timepix1:
+        discard
+      of Timepix3:
+        if ctx.vetoCfg.useToACut or ctx.vetoCfg.useToAlnLCut:
+          let toaLength = h5f[(chipGroup / "toaLength"), int64].asType(int)
+        
       var nnPred: seq[float]
       when defined(cpp):
         if ctx.vetoCfg.useNeuralNetworkCut:
@@ -1294,6 +1315,7 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
         var
           nnVeto = false # vetoed by neural network (MLP or ConvNet) (and in use)
           lnLVeto = false # vetoed by lnL cut (and in use)
+          ToAcutveto = false # vetoed by ToA cut (and in use)
           fadcVeto = false # vetoed by FADC (and in use)
           scintiVeto = false # vetoed by scintillators (and in use)
           ## XXX: Remove cleaning cut???
@@ -1311,6 +1333,13 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
           lnLVeto = true
         ## RMS cleaning cut
         rmsCleaningVeto = rmsTrans[ind] > RmsCleaningCut
+        ##ToA cut
+        if ctx.vetoCfg.useToACut:
+          ToAcutveto = ctx.isVetoedByToA(toaLength[ind], evNumbers[ind])
+          if ToAcutveto:
+            # increase if ToAcut vetoed this event
+            inc ToAcutCount
+
         ## FADC veto
         if useFadcVeto and chipNumber == 3:
           fadcVeto = ctx.isVetoedByFadc(num, evNumbers[ind], fadcTrigger, fadcEvNum,

@@ -72,28 +72,23 @@ proc getInterpolatedWideDf*(df: DataFrame, num = 1000): DataFrame =
     dfLoc["Variable"] = constantColumn(tup[0][1].toStr, dfLoc.len)
     result.add dfLoc
 
-proc morphToA*(df: DataFrame, lineEnergies: seq, energy: float, offset = 1): (Tensor[int], Tensor[float]) =
+proc morphToA*(df: DataFrame, lineEnergies: seq[int], energy: float, offset = 1): (Tensor[int], Tensor[float]) =
   ## generates a distribution for the appropriate energy `energy` between the
   ## distribution below and above `energy` using linear interpolation
   ## DF needs to have columns:
   ## - "Hist": counts of distributions
   ## - "Bins": bin edges of distributions
   ## - "Dset": name of the target filter combination
-
+  
+  let lineEnergies=lineEnergies.mapIt(it.float)
   let idx = max(lineEnergies.lowerBound(energy) - 1, 0)
 
   # need idx and idx+offset
-
   let refLow = int(lineEnergies[idx])
   let refHigh = int(lineEnergies[idx+offset])
- 
-
   let refLowT = df[$refLow, float]
   let refHighT = df[$refHigh, float]
-
   let bins = df["bin", int]
-
-
   var res = zeros[float](refLowT.size.int)
   # walk over each bin and compute linear interpolation between
   let Ediff = abs(lineEnergies[idx] - lineEnergies[idx+offset])
@@ -102,12 +97,11 @@ proc morphToA*(df: DataFrame, lineEnergies: seq, energy: float, offset = 1): (Te
       refHighT[i] * (1 - (abs(lineEnergies[idx+offset] - energy)) / Ediff)
   result = (bins, res)
 
-proc getInterpolatedDfToA*(df: DataFrame, lineEnergies: seq, num = 100): DataFrame =
+proc getInterpolatedDfToA*(df: DataFrame, lineEnergies: seq[int], num = 100): DataFrame =
   ## returns a DF with `num` interpolated distributions using next neighbors
   ## for linear interpolation
   echo "enter interpolation"
   let energies = linspace(lineEnergies[0], lineEnergies[^1], num)
-  var test: int
   var dfLoc = newDataFrame()
   var lastBins = zeros[int](0)
   result = newDataFrame()
@@ -121,7 +115,6 @@ proc getInterpolatedDfToA*(df: DataFrame, lineEnergies: seq, num = 100): DataFra
       lastBins = bins
     let suffix = "_" & $idx
     dfLoc["Hist" & $suffix] = res
-
   dfLoc["Bins"] = lastBins
   #echo dfLoc  
   result.add dfLoc
@@ -324,15 +317,10 @@ template withXrayRefCuts*(cdlFile, dset: string,
       if allIt([regionCut, chargeCut, rmsCut, lengthCut, pixelCut], it):
         body
 
-proc readToAProbabilitys*(pathtoToA:string, Energy_list: var seq): DataFrame =
+proc readToAProbabilities*(pathtoToA:string): (DataFrame, seq[int]) =
   let df = readCsv(pathtoToA,sep=' ') 
-  for i in 0 ..< 20000:
-    try:
-      let t: Tensor[float] = df[$i, float]
-      Energy_list.add float(i)
-    except:
-      discard
-  result = df
+  let energies = df.getKeys().filterIt(it != "bin").mapIt(it.parseInt)
+  result = (df, energies)
 
 proc readRawRefData*(
   cdlFile, dset: string,
@@ -917,7 +905,7 @@ proc initLikelihoodContext*(
   signalEfficiency: float = 0.0,
   #ToACut
   useToACut: bool = false,
-  ToAcutValue: int=0,
+  ToAcutValue: int = 0,
   #ToAlnLCut
   useToAlnLCut: bool = false,
   ToAProbabilityHists: string = "",

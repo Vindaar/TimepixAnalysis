@@ -1773,11 +1773,9 @@ proc main(
 #Using this to test the new implementations, need to be removed at some point        
     echo "path:"
     ToAProbabilityHists ="../../resources/ToA_P_densitys.csv"
-    var df = newDataFrame()
-    var Energy_list = newSeq[float]()
-    var test = newDataFrame()
-    df = readToAProbabilitys(ToAProbabilityHists, Energy_list)
-    test = getInterpolatedDfToA(df,Energy_list)
+
+    let (df, Energy_list)= readToAProbabilities(ToAProbabilityHists)
+    let test = getInterpolatedDfToA(df,Energy_list)
     echo test
     
 

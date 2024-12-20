@@ -125,7 +125,7 @@ proc calcLogLikelihood*(h5f: var H5File,
 
 import datamancer / serialize
 proc writeInfos(h5f: H5File, grp: H5Group, ctx: LikelihoodContext,
-                fadcVetoCount, scintiVetoCount: int,
+                fadcVetoCount, scintiVetoCount,ToAcutCount: int,
                 flags: set[LogLFlagKind]) =
   ## writes information about used vetoes and the number of events removed by
   ## the vetos
@@ -138,6 +138,8 @@ proc writeInfos(h5f: H5File, grp: H5Group, ctx: LikelihoodContext,
     mgrp.attrs["# removed by FADC veto"] = fadcVetoCount
   if scintiVetoCount >= 0:
     mgrp.attrs["# removed by scinti veto"] = scintiVetoCount
+  if ToAcutCount >= 0:
+    mgrp.attrs["# removed by ToAcut"] = ToAcutCount
 
 proc writeLikelihoodData(h5f: var H5File,
                          h5fout: var H5File,
@@ -146,7 +148,7 @@ proc writeLikelihoodData(h5f: var H5File,
                          cutTab: CutValueInterpolator,
                          nnCutTab: CutValueInterpolator,
                          passedInds: OrderedSet[int],
-                         fadcVetoCount, scintiVetoCount: int, flags: set[LogLFlagKind],
+                         fadcVetoCount, scintiVetoCount, ToAcutCount: int, flags: set[LogLFlagKind],
                          ctx: LikelihoodContext
                         ) =
                          #durations: (float64, float64)) =
@@ -262,7 +264,7 @@ proc writeLikelihoodData(h5f: var H5File,
   # copy attributes over from the input file
   runGrp.copy_attributes(group.attrs)
   chpGrpOut.copy_attributes(chpGrpIn.attrs)
-  h5fout.writeInfos(chpGrpOut, ctx, fadcVetoCount, scintiVetoCount, flags)
+  h5fout.writeInfos(chpGrpOut, ctx, fadcVetoCount, scintiVetoCount, ToAcutCount, flags)
   runGrp.writeCdlAttributes(ctx.cdlFile, ctx.year)
 
 func isVetoedByToA(ctx: LikelihoodContext, toaLength, eventNumber: int): bool =
@@ -1396,7 +1398,7 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
                                   cutTab,
                                   nnCutTab,
                                   passedInds,
-                                  fadcVetoCount, scintiVetoCount, flags,
+                                  fadcVetoCount, scintiVetoCount, ToAcutCount, flags,
                                   ctx)
 
         if chipNumber == centerChip:
@@ -1428,7 +1430,7 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
     ## XXX: add "number of runs" or something to differentiate not knowning runs vs not looking at them?
     lhGrp.attrs[TrackingAttrStr] = $(fkTracking in flags)
   # write infos about vetoes, cdl file used etc.
-  h5fout.writeInfos(lhGrp, ctx, -1, -1, flags)
+  h5fout.writeInfos(lhGrp, ctx, -1, -1, -1, flags)
 
 proc extractEvents(h5f: var H5File, extractFrom, outfolder: string) =
   ## extracts all events passing the likelihood cut from the folder

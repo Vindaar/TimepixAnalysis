@@ -72,6 +72,54 @@ proc getInterpolatedWideDf*(df: DataFrame, num = 1000): DataFrame =
     dfLoc["Variable"] = constantColumn(tup[0][1].toStr, dfLoc.len)
     result.add dfLoc
 
+proc morphToA*(df: DataFrame, lineEnergies: seq[int], energy: float, offset = 1): (Tensor[int], Tensor[float]) =
+  ## generates a distribution for the appropriate energy `energy` between the
+  ## distribution below and above `energy` using linear interpolation
+  ## DF needs to have columns:
+  ## - "Hist": counts of distributions
+  ## - "Bins": bin edges of distributions
+  ## - "Dset": name of the target filter combination
+  
+  let lineEnergies=lineEnergies.mapIt(it.float)
+  let idx = max(lineEnergies.lowerBound(energy) - 1, 0)
+
+  # need idx and idx+offset
+  let refLow = int(lineEnergies[idx])
+  let refHigh = int(lineEnergies[idx+offset])
+  let refLowT = df[$refLow, float]
+  let refHighT = df[$refHigh, float]
+  let bins = df["bin", int]
+  var res = zeros[float](refLowT.size.int)
+  # walk over each bin and compute linear interpolation between
+  let Ediff = abs(lineEnergies[idx] - lineEnergies[idx+offset])
+  for i in 0 ..< bins.size:
+    res[i] = refLowT[i] * (1 - (abs(lineEnergies[idx] - energy)) / Ediff) +
+      refHighT[i] * (1 - (abs(lineEnergies[idx+offset] - energy)) / Ediff)
+  result = (bins, res)
+
+proc getInterpolatedDfToA*(df: DataFrame, lineEnergies: seq[int], num = 100): DataFrame =
+  ## returns a DF with `num` interpolated distributions using next neighbors
+  ## for linear interpolation
+  echo "enter interpolation"
+  let energies = linspace(lineEnergies[0], lineEnergies[^1], num)
+  var dfLoc = newDataFrame()
+  var lastBins = zeros[int](0)
+  result = newDataFrame()
+  for idx, E in energies:
+    let (bins, res) = morphToA(df, lineEnergies, E, offset = 1)
+
+    block Sanity:
+      # really the same bins in all Target/Filter combinations? Should be, but check!
+      if lastBins.size > 0:
+        doAssert bins == lastBins
+      lastBins = bins
+    let suffix = "_" & $idx
+    dfLoc["Hist" & $suffix] = res
+  dfLoc["Bins"] = lastBins
+  #echo dfLoc  
+  result.add dfLoc
+
+
 proc readMorphKind(): MorphingKind
 proc calcLikelihoodDataset*(h5f: var H5File,
                             groupName: string,
@@ -268,6 +316,11 @@ template withXrayRefCuts*(cdlFile, dset: string,
       # add event to likelihood if all cuts passed
       if allIt([regionCut, chargeCut, rmsCut, lengthCut, pixelCut], it):
         body
+
+proc readToAProbabilities*(pathtoToA:string): (DataFrame, seq[int]) =
+  let df = readCsv(pathtoToA,sep=' ') 
+  let energies = df.getKeys().filterIt(it != "bin").mapIt(it.parseInt)
+  result = (df, energies)
 
 proc readRawRefData*(
   cdlFile, dset: string,
@@ -850,6 +903,12 @@ proc initLikelihoodContext*(
   # lnL cut & settings
   useLnLCut: bool = false,
   signalEfficiency: float = 0.0,
+  #ToACut
+  useToACut: bool = false,
+  ToAcutValue: int = 0,
+  #ToAlnLCut
+  useToAlnLCut: bool = false,
+  ToAProbabilityHists: string = "",
   # Septem veto related
   septemVeto: bool = false,
   clusterAlgo: ClusteringAlgorithm = caDBSCAN,
@@ -880,6 +939,7 @@ proc initLikelihoodContext*(
   ## The environment variable `PLOT_SEPTEM_E_CUTOFF` can be used to adjust the energy
   ## cutoff for which events to plot when running with `--plotSeptem`. In addition the
   ## variable `USE_TEX` can be adjusted to generate TikZ TeX plots.
+  
 
   let useTeX = if useTeX: useTeX
                else: getEnv("USE_TEX", "false").parseBool

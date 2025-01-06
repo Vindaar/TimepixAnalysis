@@ -905,7 +905,7 @@ proc initLikelihoodContext*(
   signalEfficiency: float = 0.0,
   #ToACut
   useToACut: bool = false,
-  ToAcutValue: int = 0,
+  ToAcutValue: int = 12,
   #ToAlnLCut
   useToAlnLCut: bool = false,
   ToAProbabilityHists: string = "",
@@ -984,6 +984,9 @@ proc initLikelihoodContext*(
     searchRadius: searchRadius,
     dbscanEpsilon: dbscanEpsilon,
     useRealLayout: useRealLayout,
+    # ToACut
+    useToACut: useToACut,
+    ToAcutValue: ToAcutValue,
     # line veto
     lineVetoKind: lvKind,
     eccLineVetoCut: eccLineVetoCut,

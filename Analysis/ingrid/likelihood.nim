@@ -1258,6 +1258,7 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
       var fadcVetoCount = 0
       var scintiVetoCount = 0
       var ToAcutCount = 0
+      var Test_ToTal = 0
       var toaLength: seq[int]
       let chpGrp = h5f[chipGroup.grp_str]
       # iterate over all chips and perform logL calcs
@@ -1286,7 +1287,7 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
         discard
       of Timepix3:
         if ctx.vetoCfg.useToACut or ctx.vetoCfg.useToAlnLCut:
-          toaLength = h5f[(chipGroup / "toaLength"), int64].asType(int)
+          toaLength = h5f[(chipGroup / "toaLength"), float64].asType(int)
         
       var nnPred: seq[float]
       when defined(cpp):
@@ -1337,10 +1338,12 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
         rmsCleaningVeto = rmsTrans[ind] > RmsCleaningCut
         ##ToA cut
         if ctx.vetoCfg.useToACut:
+          #inc Test_ToTal
           ToAcutveto = ctx.isVetoedByToA(toaLength[ind], evNumbers[ind])
           if ToAcutveto:
             # increase if ToAcut vetoed this event
             inc ToAcutCount
+            #echo ToAcutCount, "of", Test_ToTal
 
         ## FADC veto
         if useFadcVeto and chipNumber == 3:
@@ -1811,7 +1814,6 @@ proc main(
 #    
 #
 # until here
-
   let region = if region.len > 0:
                  parseEnum[ChipRegion](region)
                else:
@@ -1833,7 +1835,6 @@ proc main(
   var h5f = H5open(file, "r")
   h5f.visitFile()
   let timepix = h5f.timepixVersion()
-
   # get data to read info to store in context
   let cdlStretch = initCdlStretch(Fe55, cdlFile)
   let rootGrp = h5f[recoGroupGrpStr()] # is actually `reconstruction`

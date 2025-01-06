@@ -1365,7 +1365,8 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
            not lnLVeto and
            not rmsCleaningVeto and
            not fadcVeto and # if veto is true, means throw out!
-           not scintiVeto:
+           not scintiVeto and
+           not ToAcutveto:
           # include this index to the set of indices
           when false:
             totalDurationRunPassed += evDurations[ind]

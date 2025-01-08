@@ -842,7 +842,7 @@ when not defined(pure) and not defined(js):
 
     LogLFlagKind* = enum
       # vetoes
-      fkTracking, fkLogL, fkMLP, fkConvNet, fkFadc, fkScinti, fkSeptem, fkLineVeto, fkAggressive, fkToACut, fkToAlnLCut,
+      fkTracking, fkLogL, fkMLP, fkConvNet, fkFadc, fkScinti, fkSeptem, fkLineVeto, fkAggressive, fkusesim, fkToACut, fkToAlnLCut,
       # other options
       fkRocCurve, fkComputeLogL, fkPlotLogL, fkPlotSeptem,
       fkEstRandomCoinc, # used to estimate the random coincidence of the septem & line veto
@@ -861,6 +861,8 @@ when not defined(pure) and not defined(js):
       # lnL settings
       useLnLCut*: bool
       signalEfficiency*: float = 0.8 # the signal efficiency that defines the cuts
+      #usesim
+      usesimref*:bool
       #ToACut
       useToACut*: bool
       ToAcutValue*: int 

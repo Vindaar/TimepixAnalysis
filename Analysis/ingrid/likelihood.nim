@@ -1334,6 +1334,7 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
         ## LnL cut
         if ctx.vetoCfg.useLnLCut and logL[ind] > cutTab[energy[ind]]:
           lnLVeto = true
+          echo "lnl_cut"
         ## RMS cleaning cut
         rmsCleaningVeto = rmsTrans[ind] > RmsCleaningCut
         ##ToA cut
@@ -1732,6 +1733,7 @@ proc main(
   lnL = false,
   mlp = "",
   convnet = "",
+  usesim = false,
   ToACut = false,
   ToAlnLCut = "",
   tracking = false,
@@ -1786,6 +1788,7 @@ proc main(
   if lnL                 : flags.incl fkLogL
   if ToACut              : flags.incl fkToACut
   if ToAlnLCut.len > 0   : flags.incl fkToAlnLCut#; ToAProbabilityHists = ToAlnLCut
+  if usesim              : flags.incl fkusesim
   if mlp.len > 0         : flags.incl fkMLP; nnModelPath = mlp
   if convnet.len > 0     : flags.incl fkConvNet; nnModelPath = convnet
   if scintiveto          : flags.incl fkScinti
@@ -1858,6 +1861,8 @@ proc main(
                                   # lnL cut
                                   useLnLCut = fkLogL in flags,
                                   signalEfficiency = signalEfficiency,
+                                  #use sim data, hacked do this nicer some day
+                                  usesimref = fkusesim in flags,
                                   #ToACut
                                   useToACut = fkToACut in flags,
                                   ToAcutValue = ToAcutValue,

@@ -57,6 +57,7 @@ proc getInterpolatedWideDf*(df: DataFrame, num = 1000): DataFrame =
   let xrayRef = getXrayRefTable()
   result = newDataFrame()
   for tup, subDf in groups(group_by(df, "Variable")):
+    echo subdf
     var dfLoc = newDataFrame()
     var lastBins = zeros[float](0)
     for idx, E in energies:
@@ -72,15 +73,13 @@ proc getInterpolatedWideDf*(df: DataFrame, num = 1000): DataFrame =
     dfLoc["Variable"] = constantColumn(tup[0][1].toStr, dfLoc.len)
     result.add dfLoc
 
-proc morphToA*(df: DataFrame, lineEnergies: seq[int], energy: float, offset = 1): (Tensor[int], Tensor[float]) =
+proc morphToA*(df: DataFrame, lineEnergies: seq[float], energy: float, offset = 1): (Tensor[int], Tensor[float]) =
   ## generates a distribution for the appropriate energy `energy` between the
   ## distribution below and above `energy` using linear interpolation
   ## DF needs to have columns:
   ## - "Hist": counts of distributions
   ## - "Bins": bin edges of distributions
-  ## - "Dset": name of the target filter combination
   
-  let lineEnergies=lineEnergies.mapIt(it.float)
   let idx = max(lineEnergies.lowerBound(energy) - 1, 0)
 
   # need idx and idx+offset
@@ -97,17 +96,17 @@ proc morphToA*(df: DataFrame, lineEnergies: seq[int], energy: float, offset = 1)
       refHighT[i] * (1 - (abs(lineEnergies[idx+offset] - energy)) / Ediff)
   result = (bins, res)
 
-proc getInterpolatedDfToA*(df: DataFrame, lineEnergies: seq[int], num = 100): DataFrame =
+proc getInterpolatedDfToA*(df: DataFrame, lineEnergies: seq[int],  dftype: string, num = 1000): DataFrame =
   ## returns a DF with `num` interpolated distributions using next neighbors
   ## for linear interpolation
-  echo "enter interpolation"
+  #echo "enter interpolation"
+  let lineEnergies=lineEnergies.mapIt(it.float)
   let energies = linspace(lineEnergies[0], lineEnergies[^1], num)
   var dfLoc = newDataFrame()
   var lastBins = zeros[int](0)
   result = newDataFrame()
   for idx, E in energies:
     let (bins, res) = morphToA(df, lineEnergies, E, offset = 1)
-
     block Sanity:
       # really the same bins in all Target/Filter combinations? Should be, but check!
       if lastBins.size > 0:
@@ -116,6 +115,7 @@ proc getInterpolatedDfToA*(df: DataFrame, lineEnergies: seq[int], num = 100): Da
     let suffix = "_" & $idx
     dfLoc["Hist" & $suffix] = res
   dfLoc["Bins"] = lastBins
+  dfLoc["Variable"] = dftype
   #echo dfLoc  
   result.add dfLoc
 
@@ -645,7 +645,6 @@ func calcLikelihoodForEvent*(energy, eccentricity, lengthDivRmsTrans, fracRmsTra
 proc calcMorphedLikelihoodForEvent*(eccentricity, lengthDivRmsTrans, fracRmsTrans: float,
                                     refDf: DataFrame, idx: int): float =
   # try simple logL calc
-
   ## XXX: replace usages of `{.global.}` here!
   var
     eccDf {.global.}, ldivDf {.global.}, fracDf {.global.}: DataFrame
@@ -903,6 +902,8 @@ proc initLikelihoodContext*(
   # lnL cut & settings
   useLnLCut: bool = false,
   signalEfficiency: float = 0.0,
+  #usesim
+  usesimref: bool = false,
   #ToACut
   useToACut: bool = false,
   ToAcutValue: int = 12,
@@ -984,6 +985,8 @@ proc initLikelihoodContext*(
     searchRadius: searchRadius,
     dbscanEpsilon: dbscanEpsilon,
     useRealLayout: useRealLayout,
+    #use sim
+    usesimref: usesimref,
     # ToACut
     useToACut: useToACut,
     ToAcutValue: ToAcutValue,
@@ -1020,7 +1023,31 @@ proc initLikelihoodContext*(
     of mkNone:
       result.refSetTuple = result.readRefDsets()
     of mkLinear:
-      result.refDf = result.readRefDsetsDF()
-        .getInterpolatedWideDf(num = result.numMorphedEnergies)
-      let lineEnergies = getXrayFluorescenceLines()
-      result.refDfEnergy = linspace(lineEnergies[0], lineEnergies[^1], result.numMorphedEnergies)
+      if vetoCfg.usesimref:
+        echo "use sim"
+        var redf: DataFrame
+        let ecc_path ="../../resources/Ecc_P_densitys.csv"
+        let ldiv_path ="../../resources/ldiv_P_densitys.csv"
+        let ftrans_path ="../../resources/ftrans_P_densitys.csv"
+        let toa_path ="../../resources/ToA_P_densitys.csv"
+        let (eccdf, eccEnergy_list)= readToAProbabilities(ecc_path)
+        let eccref = getInterpolatedDfToA(eccdf,eccEnergy_list, "eccentricity",num = result.numMorphedEnergies)
+        let (ldivdf, ldivEnergy_list)= readToAProbabilities(ldiv_path)
+        let ldivref = getInterpolatedDfToA(ldivdf,ldivEnergy_list, "lengthDivRmsTrans",num = result.numMorphedEnergies)
+        let (ftransdf, ftransEnergy_list)= readToAProbabilities(ftrans_path)
+        let ftransref = getInterpolatedDfToA(ftransdf,ftransEnergy_list, "fractionInTransverseRms",num = result.numMorphedEnergies)
+        let (toadf, toaEnergy_list)= readToAProbabilities(toa_path)
+        let toaref = getInterpolatedDfToA(toadf,toaEnergy_list, "ToAlength",num = result.numMorphedEnergies)
+        redf.add eccref 
+        redf.add ldivref 
+        redf.add ftransref 
+        redf.add toaref 
+        result.refDf = redf
+        let lineEnergies = eccEnergy_list.mapIt(it.float)
+        result.refDfEnergy = linspace(lineEnergies[0], lineEnergies[^1], result.numMorphedEnergies)
+        
+      else:
+        result.refDf = result.readRefDsetsDF()
+          .getInterpolatedWideDf(num = result.numMorphedEnergies)
+        let lineEnergies = getXrayFluorescenceLines()
+        result.refDfEnergy = linspace(lineEnergies[0], lineEnergies[^1], result.numMorphedEnergies)

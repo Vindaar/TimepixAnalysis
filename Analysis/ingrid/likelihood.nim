@@ -1334,7 +1334,8 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
         ## LnL cut
         if ctx.vetoCfg.useLnLCut and logL[ind] > cutTab[energy[ind]]:
           lnLVeto = true
-          echo "lnl_cut"
+          #echo logL[ind]
+          #echo cutTab[energy[ind]]
         ## RMS cleaning cut
         rmsCleaningVeto = rmsTrans[ind] > RmsCleaningCut
         ##ToA cut

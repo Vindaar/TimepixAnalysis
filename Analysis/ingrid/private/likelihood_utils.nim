@@ -57,7 +57,6 @@ proc getInterpolatedWideDf*(df: DataFrame, num = 1000): DataFrame =
   let xrayRef = getXrayRefTable()
   result = newDataFrame()
   for tup, subDf in groups(group_by(df, "Variable")):
-    echo subdf
     var dfLoc = newDataFrame()
     var lastBins = zeros[float](0)
     for idx, E in energies:

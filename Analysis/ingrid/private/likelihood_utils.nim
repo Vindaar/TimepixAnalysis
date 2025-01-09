@@ -6,6 +6,12 @@ import ../ingrid_types
 import helpers/utils
 
 import sugar
+
+proc readToAProbabilities*(pathtoToA:string): (DataFrame, seq[int]) =
+  let df = readCsv(pathtoToA,sep=' ') 
+  let energies = df.getKeys().filterIt(it != "bin").mapIt(it.parseInt)
+  result = (df, energies)
+
 proc morph*(df: DataFrame, energy: float, offset = 1): (Tensor[float], Tensor[float]) =
   ## generates a distribution for the appropriate energy `energy` between the
   ## distribution below and above `energy` using linear interpolation
@@ -72,13 +78,12 @@ proc getInterpolatedWideDf*(df: DataFrame, num = 1000): DataFrame =
     dfLoc["Variable"] = constantColumn(tup[0][1].toStr, dfLoc.len)
     result.add dfLoc
 
-proc morphToA*(df: DataFrame, lineEnergies: seq[float], energy: float, offset = 1): (Tensor[int], Tensor[float]) =
+proc morphToA*(df: DataFrame, lineEnergies: seq[float], energy: float, offset = 1): (Tensor[float], Tensor[float]) =
   ## generates a distribution for the appropriate energy `energy` between the
   ## distribution below and above `energy` using linear interpolation
   ## DF needs to have columns:
   ## - "Hist": counts of distributions
   ## - "Bins": bin edges of distributions
-  
   let idx = max(lineEnergies.lowerBound(energy) - 1, 0)
 
   # need idx and idx+offset
@@ -86,7 +91,32 @@ proc morphToA*(df: DataFrame, lineEnergies: seq[float], energy: float, offset = 
   let refHigh = int(lineEnergies[idx+offset])
   let refLowT = df[$refLow, float]
   let refHighT = df[$refHigh, float]
-  let bins = df["bin", int]
+  let bins = df["bin", float]
+  var res = zeros[float](refLowT.size.int)
+  # walk over each bin and compute linear interpolation between
+  let Ediff = abs(lineEnergies[idx] - lineEnergies[idx+offset])
+  for i in 0 ..< bins.size:
+    res[i] = refLowT[i] * (1 - (abs(lineEnergies[idx] - energy)) / Ediff) +
+      refHighT[i] * (1 - (abs(lineEnergies[idx+offset] - energy)) / Ediff)
+  result = (bins, res)
+
+proc morphTpx3*(df: DataFrame, lineEnergies: seq[float], energy: float, offset = 1): (Tensor[float], Tensor[float]) =
+  ## generates a distribution for the appropriate energy `energy` between the
+  ## distribution below and above `energy` using linear interpolation
+  ## DF needs to have columns:
+  ## - "Hist": counts of distributions
+  ## - "Bins": bin edges of distributions
+  let idx = max(lineEnergies.lowerBound(energy) - 1, 0)
+
+  # need idx and idx+offset
+  let refLow = int(lineEnergies[idx])
+  let refHigh = int(lineEnergies[idx+offset])
+  let dfRL = df.filter(f{string -> bool: `Dset` == $refLow})
+  let dfRH = df.filter(f{string -> bool: `Dset` == $refHigh})
+  let refLowT = dfRL["Hist", float]
+  let refHighT = dfRH["Hist", float]
+  doAssert dfRL.len == dfRH.len
+  let bins = dfRL["Bins", float]
   var res = zeros[float](refLowT.size.int)
   # walk over each bin and compute linear interpolation between
   let Ediff = abs(lineEnergies[idx] - lineEnergies[idx+offset])
@@ -102,7 +132,7 @@ proc getInterpolatedDfToA*(df: DataFrame, lineEnergies: seq[int],  dftype: strin
   let lineEnergies=lineEnergies.mapIt(it.float)
   let energies = linspace(lineEnergies[0], lineEnergies[^1], num)
   var dfLoc = newDataFrame()
-  var lastBins = zeros[int](0)
+  var lastBins = zeros[float](0)
   result = newDataFrame()
   for idx, E in energies:
     let (bins, res) = morphToA(df, lineEnergies, E, offset = 1)
@@ -117,6 +147,23 @@ proc getInterpolatedDfToA*(df: DataFrame, lineEnergies: seq[int],  dftype: strin
   dfLoc["Variable"] = dftype
   #echo dfLoc  
   result.add dfLoc
+
+proc getInterpolatedDfToAlong*(df: DataFrame, num = 1000): DataFrame =
+  ## returns a DF with `num` interpolated distributions using next neighbors
+  ## for linear interpolation
+  let ecc_path ="../../resources/Ecc_P_densitys.csv"
+  let (eccdf, eccEnergy_list)= readToAProbabilities(ecc_path)
+
+  let energiesLines = eccEnergy_list.mapIt(it.float)
+  result = df.select(["Bins", "Hist", "Energy", "Dset"])
+  let energies = linspace(energiesLines[0], energiesLines[^1], num)
+  #let xrayRef = getXrayRefTable()
+  for idx, E in energies:
+    let (bins, res) = morphTpx3(df, energiesLines, E, offset = 1)
+    var dfMorph = toDf({"Bins" : bins, "Hist" : res})
+    dfMorph["Energy"] = E
+    dfMorph["Dset"] = "Morph"
+    result.add dfMorph
 
 
 proc readMorphKind(): MorphingKind
@@ -315,11 +362,6 @@ template withXrayRefCuts*(cdlFile, dset: string,
       # add event to likelihood if all cuts passed
       if allIt([regionCut, chargeCut, rmsCut, lengthCut, pixelCut], it):
         body
-
-proc readToAProbabilities*(pathtoToA:string): (DataFrame, seq[int]) =
-  let df = readCsv(pathtoToA,sep=' ') 
-  let energies = df.getKeys().filterIt(it != "bin").mapIt(it.parseInt)
-  result = (df, energies)
 
 proc readRawRefData*(
   cdlFile, dset: string,
@@ -531,6 +573,99 @@ proc computeLogLDistributions*(ctx: LikelihoodContext): DataFrame =
     var df = toDf( {"Bins" : bins[0 .. ^2], "Hist" : histogram(hist, nbins, logLrange)[0] })
     df["Dset"] = dset
     df["Energy"] = energies[idx]
+    result.add df
+
+proc readRawSimData*(energy: string): tuple[eccs, ldiv, frac, toal, energy: seq[float]] =
+  ## maybe adding cuts could improve this should try?
+  var eccs = newSeq[float]()
+  var ldiv = newSeq[float]()
+  var frac = newSeq[float]()
+  var toal = newSeq[float]()
+  var E = newSeq[float]()
+  const path = "/reconstruction/run_0/chip_0"
+  const ecc = "eccentricity"
+  const ldivs = "lengthDivRmsTrans"
+  const ftrans = "fractionInTransverseRms"
+  const toa = "toaLength"
+  const en = "energyFromCharge"
+  var fname= "sim_cdl_refs/" & energy & "_3cm_Ar_Isobutane_977_23_787.h5"
+  var h5f = H5open(fname, "r")
+  
+  eccs = h5f[(path / ecc), float]
+  ldiv = h5f[(path / ldivs), float]
+  frac = h5f[(path / ftrans), float]
+  toal = h5f[(path / toa), float]
+  E = h5f[(path / en), float]
+  
+ # withLogLFilterCuts(cdlFile, dset, year, energyDset, LogLCutDsets):
+ #   # read filtered data
+ #   eccs.add data[igEccentricity][i]
+ #   ldiv.add data[igLengthDivRmsTrans][i]
+ #   frac.add data[igFractionInTransverseRms][i]
+ #   E.add data[energyDset][i]
+  result = (eccs: eccs, ldiv: ldiv, frac: frac, toal: toal, energy: E)
+
+proc buildLogLHistusingsim*(dset: string, ctx: LikelihoodContext): tuple[logL, energy: seq[float]] =
+  ## given a file `h5file` containing a CDL calibration dataset
+  ## `dset` apply the cuts on all events and build the logL distribution
+  ## for the energy range.
+  ## `dset` needs to be of the elements contained in the returned map
+  ## of tos_helpers.`getXrayRefTable`
+  ## Default `region` is the gold region
+  ## Returns a tuple of the actual `logL` values and the corresponding `energy`.
+  
+  #get dataframes
+  let ecc_path ="../../resources/Ecc_P_densitys.csv"
+  let ldiv_path ="../../resources/ldiv_P_densitys.csv"
+  let ftrans_path ="../../resources/ftrans_P_densitys.csv"
+  let toa_path ="../../resources/ToA_P_densitys.csv"
+  let (eccdf, eccEnergy_list)= readToAProbabilities(ecc_path)
+  let (ldivdf, ldivEnergy_list)= readToAProbabilities(ldiv_path)
+  let (fracdf, ftransEnergy_list)= readToAProbabilities(ftrans_path)
+  let (toadf, toaEnergy_list)= readToAProbabilities(toa_path)
+  let eccs:HistTuple = (toseq(eccdf["bin", float64]),toseq(eccdf[dset, float64]))
+  let ldiv:HistTuple = (toseq(ldivdf["bin", float64]),toseq(ldivdf[dset, float64]))
+  let frac:HistTuple = (toseq(fracdf["bin", float64]),toseq(fracdf[dset, float64]))
+  let toa:HistTuple = (toseq(toadf["bin", float64]),toseq(toadf[dset, float64]))
+
+  # decent size that is O(correct)
+  result[0] = newSeqOfCap[float](100_000)
+  result[1] = newSeqOfCap[float](100_000)
+
+  let (eccsR, ldivR, fracR, toaR, energy) = readRawSimData(dset)
+  #echo eccsR
+  for i in 0 ..< eccsR.len:
+    result[0].add calcLogL(eccsR[i], ldivR[i], fracR[i], eccs, ldiv, frac)
+    result[1].add energy[i]
+  
+
+proc computeLogLDistributionsusingsim*(ctx: LikelihoodContext): DataFrame =
+  ## Computes the LogL distributions from thc CDL data file (`cdlFile`) by applying
+  ## both sets of cuts (`getXraySpetrcumCuts` and `getEnergyBinMinMaxVals201*`) to the
+  ## data in `buildLogLHist` and binning it according to the number and bin width
+  ## that we use for the logL distributions.
+  const
+    # logL binning range
+    nbins = 300 # TODO: Increase number of bins for logL cut value closer to target?
+    # range of histogram in logL
+    logLrange = (0.0, 30.0)
+
+  # get the correct binning for the histograms
+  let bins = linspace(logLrange[0], logLrange[1], nbins + 1, endpoint = true)
+
+  #get data
+  let ecc_path ="../../resources/Ecc_P_densitys.csv"
+  let (eccdf, eccEnergy_list)= readToAProbabilities(ecc_path)
+  
+  let energies = eccEnergy_list
+
+  # compute the histogram of the CDL data
+  for energy in energies:
+    let hist = buildLogLHistusingsim($energy, ctx)[0]
+  #result = eccdf
+    var df = toDf( {"Bins" : bins[0 .. ^2], "Hist" : histogram(hist, nbins, logLrange)[0] })
+    df["Dset"] = energy
+    df["Energy"] = energy
     result.add df
 
 proc getLogLData*(ctx: LikelihoodContext): DataFrame =
@@ -796,9 +931,16 @@ proc calcCutValueTab*(ctx: LikelihoodContext): CutValueInterpolator =
     #
     ## XXX: Can we update this to also do better than the current binned approach?
     result = initCutValueInterpolator(morphKind)
-    let logHists = computeLogLDistributions(ctx)
-    let dfInterp = logHists.getInterpolatedDf()
-      .filter(f{string: `Dset` == "Morph"})
+    var logHists: DataFrame
+    var dfInterp: DataFrame
+    if ctx.vetoCfg.usesimref:
+      logHists = computeLogLDistributionsusingsim(ctx)
+      dfInterp = logHists.getInterpolatedDfToAlong()
+        .filter(f{string: `Dset` == "Morph"})
+    else:  
+      logHists = computeLogLDistributions(ctx)
+      dfInterp = logHists.getInterpolatedDf()
+        .filter(f{string: `Dset` == "Morph"})
     var
       energies = newSeq[float]()
       cutVals = newSeq[float]()

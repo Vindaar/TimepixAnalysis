@@ -1809,16 +1809,7 @@ proc main(
     if mlp.len > 0 or convnet.len > 0:
       raise newException(Exception, "Using neural network vetoes is only supported if the program is compiled " &
         "using the C++ backend!")
-#Using this to test the new implementations, need to be removed at some point        
-#    echo "path:"
-#    ToAProbabilityHists ="../../resources/ToA_P_densitys.csv"
-#
-#    let (df, Energy_list)= readToAProbabilities(ToAProbabilityHists)
-#    let test = getInterpolatedDfToA(df,Energy_list)
-#    echo test
-#    
-#
-# until here
+
   let region = if region.len > 0:
                  parseEnum[ChipRegion](region)
                else:
@@ -1889,6 +1880,10 @@ proc main(
                                   flags = flags,
                                   readLogLData = true, # read logL data regardless of anything else!
                                   plotPath = plotPath)
+
+  ## Test renove later
+  let df=computeLogLDistributionsusingsim(ctx)
+
   ## fill the effective efficiency fields if a NN is used
   when defined(cpp):
     ctx.fillEffectiveEff()

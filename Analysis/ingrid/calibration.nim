@@ -1279,7 +1279,7 @@ proc calcEnergyFromCharge*(h5f: H5File, interval: float,
     if chipName.len == 0:
       # get center chip name to be able to read fit parameters
       chipName = group.attrs["centerChipName", string]
-      let ccNum = group.attrs["centerChipNumber", int] # cc = center chip
+      let ccNum = group.attrs["centerChip", int] # cc = center chip
       let ccGrp = h5f[(group.name / "chip_" & $ccNum).grp_str]
       # get parameters during first iter...
       (b, m) = ccGrp.getCalibVsGasGainFactors(chipName, run, suffix = $gcKind)

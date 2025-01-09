@@ -1736,7 +1736,7 @@ proc main(
   convnet = "",
   usesim = false,
   ToACut = false,
-  ToAlnLCut = "",
+  ToAlnLCut = false,
   tracking = false,
   scintiveto = false,
   fadcveto = false,
@@ -1788,7 +1788,7 @@ proc main(
   if tracking            : flags.incl fkTracking
   if lnL                 : flags.incl fkLogL
   if ToACut              : flags.incl fkToACut
-  if ToAlnLCut.len > 0   : flags.incl fkToAlnLCut#; ToAProbabilityHists = ToAlnLCut
+  if ToAlnLCut           : flags.incl fkToAlnLCut#; ToAProbabilityHists = ToAlnLCut
   if usesim              : flags.incl fkusesim
   if mlp.len > 0         : flags.incl fkMLP; nnModelPath = mlp
   if convnet.len > 0     : flags.incl fkConvNet; nnModelPath = convnet

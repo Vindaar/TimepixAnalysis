@@ -528,6 +528,18 @@ proc calcLogL*(e, l, f: float, eccs, ldiv, frac: HistTuple): float =
   result += logLikelihood(frac[1], f, frac[0])
   result *= -1.0
 
+proc calcLogLwithToA*(e, l, f, t: float, eccs, ldiv, frac, toa: HistTuple): float =
+  ## Computes the log likelihood value for the given eccentricity, ldivT and fT
+  ## based on the given `HistTuple`
+  ##
+  ## XXX: Can we do better than the current approach based on the binned histograms?
+  ## Maybe better use a spline interpolation of a normalized KDE?
+  result += logLikelihood(eccs[1], e, eccs[0])
+  result += logLikelihood(ldiv[1], l, ldiv[0])
+  result += logLikelihood(frac[1], f, frac[0])
+  result += logLikelihood(toa[1], t, toa[0])
+  result *= -1.0
+
 proc buildLogLHist*(dset: string, ctx: LikelihoodContext): tuple[logL, energy: seq[float]] =
   ## given a file `h5file` containing a CDL calibration dataset
   ## `dset` apply the cuts on all events and build the logL distribution
@@ -633,12 +645,15 @@ proc buildLogLHistusingsim*(dset: string, ctx: LikelihoodContext): tuple[logL, e
   result[1] = newSeqOfCap[float](100_000)
 
   let (eccsR, ldivR, fracR, toaR, energy) = readRawSimData(dset)
-  #echo eccsR
-  for i in 0 ..< eccsR.len:
-    result[0].add calcLogL(eccsR[i], ldivR[i], fracR[i], eccs, ldiv, frac)
-    result[1].add energy[i]
+  if ctx.vetoCfg.useToAlnLCut:
+    for i in 0 ..< eccsR.len:
+      result[0].add calcLogLwithToA(eccsR[i], ldivR[i], fracR[i],toaR[i], eccs, ldiv, frac, toa)
+      result[1].add energy[i]
+  else:
+    for i in 0 ..< eccsR.len:
+      result[0].add calcLogL(eccsR[i], ldivR[i], fracR[i], eccs, ldiv, frac)
+      result[1].add energy[i]
   
-
 proc computeLogLDistributionsusingsim*(ctx: LikelihoodContext): DataFrame =
   ## Computes the LogL distributions from thc CDL data file (`cdlFile`) by applying
   ## both sets of cuts (`getXraySpetrcumCuts` and `getEnergyBinMinMaxVals201*`) to the
@@ -662,7 +677,6 @@ proc computeLogLDistributionsusingsim*(ctx: LikelihoodContext): DataFrame =
   # compute the histogram of the CDL data
   for energy in energies:
     let hist = buildLogLHistusingsim($energy, ctx)[0]
-  #result = eccdf
     var df = toDf( {"Bins" : bins[0 .. ^2], "Hist" : histogram(hist, nbins, logLrange)[0] })
     df["Dset"] = energy
     df["Energy"] = energy
@@ -679,9 +693,10 @@ proc getLogLData*(ctx: LikelihoodContext): DataFrame =
 
 proc readLogLVariableData*(h5f: var H5File,
                            groupName: string,
-                           energyDset: InGridDsetKind
+                           energyDset: InGridDsetKind,
+                           ctx: LikelihoodContext
                           ):
-                             (seq[float], seq[float], seq[float], seq[float]) =
+                             (seq[float], seq[float], seq[float], seq[float], seq[float]) =
   # get the datasets needed for LogL
   doAssert energyDset in {igEnergyFromPixel, igEnergyFromCharge}
   let
@@ -690,7 +705,12 @@ proc readLogLVariableData*(h5f: var H5File,
     fracRmsTrans = h5f[(groupName / "fractionInTransverseRms"), float64]
     # energy to choose correct bin
     energies = h5f[(groupName / energyDset.toDset), float64]
-  result = (ecc, lengthDivRmsTrans, fracRmsTrans, energies)
+  var toa: seq[float64]
+  if ctx.vetoCfg.useToAlnLCut:
+    toa = h5f[(groupName / "toaLength"), float64]
+  else:
+    toa = toSeq(0 ..< ecc.len).mapIt(0.0)
+  result = (ecc, lengthDivRmsTrans, fracRmsTrans, toa, energies)
 
 proc readRefDsets*(ctx: LikelihoodContext): tuple[ecc, ldivRms, fracRms: Table[string, HistTuple]] =
   ## Reads the data from the CDL file and generates the reference distributions based
@@ -777,7 +797,7 @@ func calcLikelihoodForEvent*(energy, eccentricity, lengthDivRmsTrans, fracRmsTra
   )
 
 proc calcMorphedLikelihoodForEvent*(eccentricity, lengthDivRmsTrans, fracRmsTrans: float,
-                                    refDf: DataFrame, idx: int): float =
+                                    refDf: DataFrame, idx: int, ctx: LikelihoodContext): float =
   # try simple logL calc
   ## XXX: replace usages of `{.global.}` here!
   var
@@ -798,6 +818,33 @@ proc calcMorphedLikelihoodForEvent*(eccentricity, lengthDivRmsTrans, fracRmsTran
   addLog(igFractionInTransverseRms, fracRmsTrans, result, fracDf)
   result *= -1.0
 
+proc calcMorphedLikelihoodForEventToA*(eccentricity, lengthDivRmsTrans, fracRmsTrans, toa: float,
+                                    refDf: DataFrame, idx: int, ctx: LikelihoodContext): float =
+  # try simple logL calc
+  ## XXX: replace usages of `{.global.}` here!
+  if ctx.vetoCfg.useToAlnLCut:
+    var ToADf {.global.}: DataFrame
+    once:
+      ToADf = refDf.filter(f{string -> bool: `Variable` == "ToAlength"})
+  var
+    eccDf {.global.}, ldivDf {.global.}, fracDf {.global.}: DataFrame
+  once:
+    eccDf = refDf.filter(f{string -> bool: `Variable` == "eccentricity"})
+    ldivDf = refDf.filter(f{string -> bool: `Variable` == "lengthDivRmsTrans"})
+    fracDf = refDf.filter(f{string -> bool: `Variable` == "fractionInTransverseRms"})
+  proc addLog(arg: InGridDsetKind, val: float, res: var float, df: DataFrame) =
+    let bins = df["Bins", float].toRawSeq
+    let hist = df["Hist_" & $idx, float].toRawSeq
+    res += logLikelihood(hist,
+                         val,
+                         bins)
+
+  addLog(igEccentricity, eccentricity, result, eccDf)
+  addLog(igLengthDivRmsTrans, lengthDivRmsTrans, result, ldivDf)
+  addLog(igFractionInTransverseRms, fracRmsTrans, result, fracDf)
+  #addLog(igToAlength, toa, result, ToADf)
+  result *= -1.0
+
 proc calcLikelihoodForEvent*(ctx: LikelihoodContext,
                              energy, ecc, lengthDivRmsTrans, fracRmsTrans: float): float =
   case ctx.morph
@@ -807,8 +854,19 @@ proc calcLikelihoodForEvent*(ctx: LikelihoodContext,
   of mkLinear:
     let idx = min(ctx.refDfEnergy.lowerBound(energy), ctx.numMorphedEnergies - 1)
     result = calcMorphedLikelihoodForEvent(ecc, lengthDivRmsTrans, fracRmsTrans,
-                                           ctx.refDf, idx)
+                                           ctx.refDf, idx, ctx)
   #echo "result ? ", result, " based on ", ecc, " ", lengthDivRmsTrans, " ", fracRmsTrans
+
+proc calcLikelihoodForEventToA*(ctx: LikelihoodContext,
+                             energy, ecc, lengthDivRmsTrans, fracRmsTrans, toa: float): float =
+  case ctx.morph
+  of mkNone:
+    discard
+  of mkLinear:
+    let idx = min(ctx.refDfEnergy.lowerBound(energy), ctx.numMorphedEnergies - 1)
+    result = calcMorphedLikelihoodForEventToA(ecc, lengthDivRmsTrans, fracRmsTrans, toa,
+                                           ctx.refDf, idx, ctx)
+
 
 proc calcLikelihood*(ctx: LikelihoodContext, df: DataFrame): seq[float] =
   ## Convenience helper that calculates the likelihood values for all events stored in `df`.
@@ -822,13 +880,15 @@ proc calcLikelihood*(ctx: LikelihoodContext, df: DataFrame): seq[float] =
   doAssert ε in df
   doAssert l in df
   doAssert f in df
+
   result = df.mutate(f{float: "logL" ~ ctx.calcLikelihoodForEvent(idx(E), idx(ε), idx(l), idx(f))})["logL", float].toSeq1D
 
 proc calcLikelihoodDataset*(h5f: var H5File, groupName: string, ctx: LikelihoodContext): seq[float] =
   let (ecc,
        lengthDivRmsTrans,
-       fracRmsTrans,
-       energies) = h5f.readLogLVariableData(groupName, ctx.energyDset)
+       fracRmsTrans, toa,
+       energies) = h5f.readLogLVariableData(groupName, ctx.energyDset, ctx)
+  
 
   # create seq to store data logL data for this chip
   ## create a crazy man's plot
@@ -857,7 +917,10 @@ proc calcLikelihoodDataset*(h5f: var H5File, groupName: string, ctx: LikelihoodC
   result = newSeq[float64](ecc.len)
   echo "[INFO]: Performing likelihood compute using morph kind: ", ctx.morph, " for chip: ", groupName
   for i in 0 .. ecc.high:
-    result[i] = ctx.calcLikelihoodForEvent(energies[i], ecc[i], lengthDivRmsTrans[i], fracRmsTrans[i])
+    if ctx.vetoCfg.useToAlnLCut:
+      result[i] = ctx.calcLikelihoodForEventToA(energies[i], ecc[i], lengthDivRmsTrans[i], fracRmsTrans[i], toa[i])
+    else:
+      result[i] = ctx.calcLikelihoodForEvent(energies[i], ecc[i], lengthDivRmsTrans[i], fracRmsTrans[i])
 
 import parsetoml
 template withConfig(body: untyped): untyped =
@@ -1131,6 +1194,8 @@ proc initLikelihoodContext*(
     # ToACut
     useToACut: useToACut,
     ToAcutValue: ToAcutValue,
+    #ToAlnlcut
+    useToAlnLCut:useToAlnLCut,
     # line veto
     lineVetoKind: lvKind,
     eccLineVetoCut: eccLineVetoCut,
@@ -1186,7 +1251,6 @@ proc initLikelihoodContext*(
         result.refDf = redf
         let lineEnergies = eccEnergy_list.mapIt(it.float)
         result.refDfEnergy = linspace(lineEnergies[0], lineEnergies[^1], result.numMorphedEnergies)
-        
       else:
         result.refDf = result.readRefDsetsDF()
           .getInterpolatedWideDf(num = result.numMorphedEnergies)

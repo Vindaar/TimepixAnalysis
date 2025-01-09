@@ -252,8 +252,8 @@ proc applyChargeCalibration*(h5f: H5File, runNumber: int,
   let fileInfo = h5f.getFileInfo() # for timepix version
   var runPeriodPrinted: set[uint8] # for each chip number
   for run, chip, grp in chipGroups(h5f):
+    if run != runNumber: continue # skip groups not matching target run number
     doAssert chipBase in grp
-    doAssert run == runNumber
     # now can start reading, get the group containing the data for this chip
     var group = h5f[grp.grp_str]
     # get the chip number from the attributes of the group
@@ -733,6 +733,7 @@ proc calcGasGain*(h5f: H5File, runNumber: int,
   var printRunPeriod = false
   var runPeriodPrinted: set[uint8]
   for run, chip, grp in chipGroups(h5f):
+    if run != runNumber: continue # skip groups not matching target run number
     doAssert chipBase in grp
     if isDone(h5f, grp, rfOnlyGasGain, overwrite):
       echo &"INFO Gas gain calculation for run {run} already exists. Skipping. Force via `--overwrite`."
@@ -1135,6 +1136,7 @@ proc calcEnergyFromPixels*(h5f: H5File, runNumber: int, calib_factor: float, ove
   var chipBase = recoDataChipBase(runNumber)
   # get the group from file
   for run, chip, grp in chipGroups(h5f, recoBase()):
+    if run != runNumber: continue # skip groups not matching target run number
     doAssert chipBase in grp
     if isDone(h5f, grp, rfOnlyEnergy, overwrite):
       echo &"INFO Energy calculation for run {run} already exists. Skipping. Force via `--overwrite`."

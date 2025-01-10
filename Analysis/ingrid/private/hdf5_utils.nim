@@ -40,8 +40,8 @@ const TPADatasets* = {
   igFractionInTransverseRms,
   igLikelihood,
   igCenterX,
-  igCenterY,
-  igToaLength
+  igCenterY
+
 }
 ## The datasets that appear in Christoph's `XrayReference` file
 const XrayReferenceDsets* = {
@@ -85,8 +85,7 @@ const LogLCutDsets* = @[
   igFractionInTransverseRms,
   igTotalCharge,
   igCenterX,
-  igCenterY,
-  igToaLength
+  igCenterY
 ]
 
 const TrackingAttrStr* = "Tracking?" ## Indicates only events in tracking in output if true.

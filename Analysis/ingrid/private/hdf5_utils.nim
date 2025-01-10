@@ -40,7 +40,8 @@ const TPADatasets* = {
   igFractionInTransverseRms,
   igLikelihood,
   igCenterX,
-  igCenterY
+  igCenterY,
+  igToaLength
 }
 ## The datasets that appear in Christoph's `XrayReference` file
 const XrayReferenceDsets* = {
@@ -84,7 +85,8 @@ const LogLCutDsets* = @[
   igFractionInTransverseRms,
   igTotalCharge,
   igCenterX,
-  igCenterY
+  igCenterY,
+  igToaLength
 ]
 
 const TrackingAttrStr* = "Tracking?" ## Indicates only events in tracking in output if true.
@@ -189,6 +191,8 @@ proc toDset*(igKind: InGridDsetKind, frameworkKind: FrameworkKind = fkTpa): stri
     result = "gasGain" # not an actual dataset like this! Stored in `gasGainSlices`!
   of igDiffusion:
     result = "σT" # not an actual dataset like this! Stored in `gasGainSlices`!
+  of igToaLength:
+    result = "toaLength"
   of igNumClusters, igFractionInHalfRadius, igRadiusDivRmsTrans,
      igRadius, igBalance, igLengthDivRadius:
     doAssert false, "Only exists in 2014 XrayReferenceFile.h5: " & $igKind
@@ -225,6 +229,7 @@ proc toIngridDset*(dset: string): InGridDsetKind =
   elif dset == "lengthdivbyradius": result = igLengthDivRadius
   elif dset in ["gasGain", "gain"]: result = igGasGain
   elif dset in ["diffusion", "σT"]: result = igDiffusion
+  elif dset in ["toaLength"]: result = igToaLength
   else: result = igInvalid
 
 func cdlPath*(tfKindStr: string, year = "2019"): string =

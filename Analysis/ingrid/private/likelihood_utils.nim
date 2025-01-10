@@ -609,12 +609,6 @@ proc readRawSimData*(energy: string): tuple[eccs, ldiv, frac, toal, energy: seq[
   toal = h5f[(path / toa), float]
   E = h5f[(path / en), float]
   
- # withLogLFilterCuts(cdlFile, dset, year, energyDset, LogLCutDsets):
- #   # read filtered data
- #   eccs.add data[igEccentricity][i]
- #   ldiv.add data[igLengthDivRmsTrans][i]
- #   frac.add data[igFractionInTransverseRms][i]
- #   E.add data[energyDset][i]
   result = (eccs: eccs, ldiv: ldiv, frac: frac, toal: toal, energy: E)
 
 proc buildLogLHistusingsim*(dset: string, ctx: LikelihoodContext): tuple[logL, energy: seq[float]] =
@@ -647,7 +641,9 @@ proc buildLogLHistusingsim*(dset: string, ctx: LikelihoodContext): tuple[logL, e
   let (eccsR, ldivR, fracR, toaR, energy) = readRawSimData(dset)
   if ctx.vetoCfg.useToAlnLCut:
     for i in 0 ..< eccsR.len:
-      result[0].add calcLogLwithToA(eccsR[i], ldivR[i], fracR[i],toaR[i], eccs, ldiv, frac, toa)
+      ##Add 2 to the simulated ref data since its missing Timewalk, 
+      ##if at some point a Timewalk calibration is used this might be not necessary any more
+      result[0].add calcLogLwithToA(eccsR[i], ldivR[i], fracR[i],(toaR2[i]+2), eccs, ldiv, frac, toa)
       result[1].add energy[i]
   else:
     for i in 0 ..< eccsR.len:
@@ -822,27 +818,24 @@ proc calcMorphedLikelihoodForEventToA*(eccentricity, lengthDivRmsTrans, fracRmsT
                                     refDf: DataFrame, idx: int, ctx: LikelihoodContext): float =
   # try simple logL calc
   ## XXX: replace usages of `{.global.}` here!
-  if ctx.vetoCfg.useToAlnLCut:
-    var ToADf {.global.}: DataFrame
-    once:
-      ToADf = refDf.filter(f{string -> bool: `Variable` == "ToAlength"})
+  
   var
-    eccDf {.global.}, ldivDf {.global.}, fracDf {.global.}: DataFrame
+    eccDf {.global.}, ldivDf {.global.}, fracDf {.global.}, ToADf {.global.}: DataFrame
   once:
     eccDf = refDf.filter(f{string -> bool: `Variable` == "eccentricity"})
     ldivDf = refDf.filter(f{string -> bool: `Variable` == "lengthDivRmsTrans"})
     fracDf = refDf.filter(f{string -> bool: `Variable` == "fractionInTransverseRms"})
+    ToADf = refDf.filter(f{string -> bool: `Variable` == "ToAlength"})
   proc addLog(arg: InGridDsetKind, val: float, res: var float, df: DataFrame) =
     let bins = df["Bins", float].toRawSeq
     let hist = df["Hist_" & $idx, float].toRawSeq
     res += logLikelihood(hist,
                          val,
                          bins)
-
   addLog(igEccentricity, eccentricity, result, eccDf)
   addLog(igLengthDivRmsTrans, lengthDivRmsTrans, result, ldivDf)
   addLog(igFractionInTransverseRms, fracRmsTrans, result, fracDf)
-  #addLog(igToAlength, toa, result, ToADf)
+  addLog(igToaLength, toa, result, ToADf)
   result *= -1.0
 
 proc calcLikelihoodForEvent*(ctx: LikelihoodContext,
@@ -866,7 +859,6 @@ proc calcLikelihoodForEventToA*(ctx: LikelihoodContext,
     let idx = min(ctx.refDfEnergy.lowerBound(energy), ctx.numMorphedEnergies - 1)
     result = calcMorphedLikelihoodForEventToA(ecc, lengthDivRmsTrans, fracRmsTrans, toa,
                                            ctx.refDf, idx, ctx)
-
 
 proc calcLikelihood*(ctx: LikelihoodContext, df: DataFrame): seq[float] =
   ## Convenience helper that calculates the likelihood values for all events stored in `df`.

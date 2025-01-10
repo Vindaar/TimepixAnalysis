@@ -499,6 +499,7 @@ type
     igLengthDivRadius,
     igGasGain, # gas gain, only calculated time slice wise!
     igDiffusion # transverse diffusion determined from rmsTransverse cutoff
+    igToaLength # length of cluster in ToA
 
   FrameworkKind* = enum
     fkTpa, fkMarlin

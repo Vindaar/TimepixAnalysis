@@ -643,7 +643,7 @@ proc buildLogLHistusingsim*(dset: string, ctx: LikelihoodContext): tuple[logL, e
     for i in 0 ..< eccsR.len:
       ##Add 2 to the simulated ref data since its missing Timewalk, 
       ##if at some point a Timewalk calibration is used this might be not necessary any more
-      result[0].add calcLogLwithToA(eccsR[i], ldivR[i], fracR[i],(toaR2[i]+2), eccs, ldiv, frac, toa)
+      result[0].add calcLogLwithToA(eccsR[i], ldivR[i], fracR[i],(toaR[i]+2), eccs, ldiv, frac, toa)
       result[1].add energy[i]
   else:
     for i in 0 ..< eccsR.len:

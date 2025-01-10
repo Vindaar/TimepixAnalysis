@@ -84,7 +84,7 @@ proc morphToA*(df: DataFrame, lineEnergies: seq[float], energy: float, offset = 
   ## DF needs to have columns:
   ## - "Hist": counts of distributions
   ## - "Bins": bin edges of distributions
-  let idx = max(lineEnergies.lowerBound(energy) - 1, 0)
+  let idx = max(lineEnergies.lowerBound(energy*1000) - 1, 0)
 
   # need idx and idx+offset
   let refLow = int(lineEnergies[idx])
@@ -94,10 +94,10 @@ proc morphToA*(df: DataFrame, lineEnergies: seq[float], energy: float, offset = 
   let bins = df["bin", float]
   var res = zeros[float](refLowT.size.int)
   # walk over each bin and compute linear interpolation between
-  let Ediff = abs(lineEnergies[idx] - lineEnergies[idx+offset])
+  let Ediff = abs((lineEnergies[idx]/1000) - (lineEnergies[idx+offset]/1000))
   for i in 0 ..< bins.size:
-    res[i] = refLowT[i] * (1 - (abs(lineEnergies[idx] - energy)) / Ediff) +
-      refHighT[i] * (1 - (abs(lineEnergies[idx+offset] - energy)) / Ediff)
+    res[i] = refLowT[i] * (1 - (abs((lineEnergies[idx]/1000) - energy)) / Ediff) +
+      refHighT[i] * (1 - (abs((lineEnergies[idx+offset]/1000) - energy)) / Ediff)
   result = (bins, res)
 
 proc morphTpx3*(df: DataFrame, lineEnergies: seq[float], energy: float, offset = 1): (Tensor[float], Tensor[float]) =
@@ -106,8 +106,7 @@ proc morphTpx3*(df: DataFrame, lineEnergies: seq[float], energy: float, offset =
   ## DF needs to have columns:
   ## - "Hist": counts of distributions
   ## - "Bins": bin edges of distributions
-  let idx = max(lineEnergies.lowerBound(energy) - 1, 0)
-
+  let idx = max(lineEnergies.lowerBound(energy*1000) - 1, 0)
   # need idx and idx+offset
   let refLow = int(lineEnergies[idx])
   let refHigh = int(lineEnergies[idx+offset])
@@ -119,10 +118,10 @@ proc morphTpx3*(df: DataFrame, lineEnergies: seq[float], energy: float, offset =
   let bins = dfRL["Bins", float]
   var res = zeros[float](refLowT.size.int)
   # walk over each bin and compute linear interpolation between
-  let Ediff = abs(lineEnergies[idx] - lineEnergies[idx+offset])
+  let Ediff = abs((lineEnergies[idx]/1000) - (lineEnergies[idx+offset]/1000))
   for i in 0 ..< bins.size:
-    res[i] = refLowT[i] * (1 - (abs(lineEnergies[idx] - energy)) / Ediff) +
-      refHighT[i] * (1 - (abs(lineEnergies[idx+offset] - energy)) / Ediff)
+    res[i] = refLowT[i] * (1 - (abs((lineEnergies[idx]/1000) - energy)) / Ediff) +
+      refHighT[i] * (1 - (abs((lineEnergies[idx+offset]/1000) - energy)) / Ediff)
   result = (bins, res)
 
 proc getInterpolatedDfToA*(df: DataFrame, lineEnergies: seq[int],  dftype: string, num = 1000): DataFrame =
@@ -130,7 +129,7 @@ proc getInterpolatedDfToA*(df: DataFrame, lineEnergies: seq[int],  dftype: strin
   ## for linear interpolation
   #echo "enter interpolation"
   let lineEnergies=lineEnergies.mapIt(it.float)
-  let energies = linspace(lineEnergies[0], lineEnergies[^1], num)
+  let energies = linspace((lineEnergies[0]/1000), (lineEnergies[^1]/1000), num)
   var dfLoc = newDataFrame()
   var lastBins = zeros[float](0)
   result = newDataFrame()
@@ -156,7 +155,7 @@ proc getInterpolatedDfToAlong*(df: DataFrame, num = 1000): DataFrame =
 
   let energiesLines = eccEnergy_list.mapIt(it.float)
   result = df.select(["Bins", "Hist", "Energy", "Dset"])
-  let energies = linspace(energiesLines[0], energiesLines[^1], num)
+  let energies = linspace((energiesLines[0]/1000), (energiesLines[^1]/1000), num)
   #let xrayRef = getXrayRefTable()
   for idx, E in energies:
     let (bins, res) = morphTpx3(df, energiesLines, E, offset = 1)
@@ -164,7 +163,6 @@ proc getInterpolatedDfToAlong*(df: DataFrame, num = 1000): DataFrame =
     dfMorph["Energy"] = E
     dfMorph["Dset"] = "Morph"
     result.add dfMorph
-
 
 proc readMorphKind(): MorphingKind
 proc calcLikelihoodDataset*(h5f: var H5File,
@@ -675,7 +673,7 @@ proc computeLogLDistributionsusingsim*(ctx: LikelihoodContext): DataFrame =
     let hist = buildLogLHistusingsim($energy, ctx)[0]
     var df = toDf( {"Bins" : bins[0 .. ^2], "Hist" : histogram(hist, nbins, logLrange)[0] })
     df["Dset"] = energy
-    df["Energy"] = energy
+    df["Energy"] = (energy/1000)
     result.add df
 
 proc getLogLData*(ctx: LikelihoodContext): DataFrame =
@@ -1242,7 +1240,7 @@ proc initLikelihoodContext*(
         redf.add toaref 
         result.refDf = redf
         let lineEnergies = eccEnergy_list.mapIt(it.float)
-        result.refDfEnergy = linspace(lineEnergies[0], lineEnergies[^1], result.numMorphedEnergies)
+        result.refDfEnergy = linspace((lineEnergies[0]/1000), (lineEnergies[^1]/1000), result.numMorphedEnergies)
       else:
         result.refDf = result.readRefDsetsDF()
           .getInterpolatedWideDf(num = result.numMorphedEnergies)

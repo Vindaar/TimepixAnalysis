@@ -526,6 +526,7 @@ iterator iterGainSlices*(df: DataFrame,
   ## NOTE: the input has to be filtered by the gas gain cuts! (The indices given in
   ## the slice range will then correspond to the indices of that *filtered* DF!)
   let tstamps = df["timestamp"].toTensor(float)
+  doAssert tstamps.len > 0, "Found an empty tensor!"
   # determine the start time
   var tStart = tstamps[0]
   let tStop = tstamps[tstamps.size - 1]
@@ -642,6 +643,11 @@ proc handleGasGainSlice*(h5f: H5File,
   # read required data for gas gain cuts & to map clusters to timestamps
   let cutFormula = $getGasGainCutFormula()
   let (df, chs) = h5f.gasGainDfAndCharges(group)
+  if df.len == 0:
+    echo &"[WARNING] The run {runNumber} does not have any valid data for gas gain " &
+      &"calculation after reading all data and applying the charge cuts: {cutFormula}. " &
+      "Better investigate this run!"
+    return
   var sliceCount = 0
   for (gasGainInterval, slice) in iterGainSlices(df, interval, minInterval):
     echo $gasGainInterval
@@ -700,6 +706,7 @@ proc calcGasGain*(h5f: H5File, grp: string,
   # get all charge values as seq[seq[float]], ``then`` apply the `passIdx`
   # and only flatten ``after`` that
   var gasGainSliceData: seq[GasGainIntervalResult]
+
   if not fullRunGasGain:
     gasGainSliceData = h5f.handleGasGainSlice(runNumber, chipNumber,
                                               interval, minInterval,

@@ -10,7 +10,7 @@ import ../projectDefs
 import sugar
 
 proc readToAProbabilities*(pathtoToA:string): (DataFrame, seq[int]) =
-  let df = readCsv(pathtoToA,sep=' ') 
+  let df = readCsv(pathtoToA,sep=' ')
   let energies = df.getKeys().filterIt(it != "bin").mapIt(it.parseInt)
   result = (df, energies)
 
@@ -638,15 +638,15 @@ proc buildLogLHistusingsim*(dset: string, ctx: LikelihoodContext): tuple[logL, e
   let (eccsR, ldivR, fracR, toaR, energy) = readRawSimData(dset)
   if ctx.vetoCfg.useToAlnLCut:
     for i in 0 ..< eccsR.len:
-      ##Add 2 to the simulated ref data since its missing Timewalk, 
-      ##if at some point a Timewalk calibration is used this might be not necessary any more
+      ## Add 2 to the simulated ref data since its missing Timewalk,
+      ## TODO: if at some point a Timewalk calibration is used this might be not necessary any more
       result[0].add calcLogLwithToA(eccsR[i], ldivR[i], fracR[i],(toaR[i]+2), eccs, ldiv, frac, toa)
       result[1].add energy[i]
   else:
     for i in 0 ..< eccsR.len:
       result[0].add calcLogL(eccsR[i], ldivR[i], fracR[i], eccs, ldiv, frac)
       result[1].add energy[i]
-  
+
 proc computeLogLDistributionsusingsim*(ctx: LikelihoodContext): DataFrame =
   ## Computes the LogL distributions from thc CDL data file (`cdlFile`) by applying
   ## both sets of cuts (`getXraySpetrcumCuts` and `getEnergyBinMinMaxVals201*`) to the

@@ -866,10 +866,9 @@ when not defined(pure) and not defined(js):
       usesimref*:bool
       #ToACut
       useToACut*: bool
-      ToAcutValue*: int 
+      ToAcutValue*: int
       #ToAlnLCut
       useToAlnLCut*: bool
-      ToAProbabilityHists*: string
       # Septem & line veto related
       clusterAlgo*: ClusteringAlgorithm = caDBSCAN
       searchRadius*: int = 50 # for caDefault the search radius in septem events

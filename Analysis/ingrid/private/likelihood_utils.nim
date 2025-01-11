@@ -144,7 +144,7 @@ proc getInterpolatedDfToA*(df: DataFrame, lineEnergies: seq[int],  dftype: strin
     dfLoc["Hist" & $suffix] = res
   dfLoc["Bins"] = lastBins
   dfLoc["Variable"] = dftype
-  #echo dfLoc  
+  #echo dfLoc
   result.add dfLoc
 
 proc getInterpolatedDfToAlong*(df: DataFrame, num = 1000): DataFrame =
@@ -587,11 +587,6 @@ proc computeLogLDistributions*(ctx: LikelihoodContext): DataFrame =
 
 proc readRawSimData*(energy: string): tuple[eccs, ldiv, frac, toal, energy: seq[float]] =
   ## maybe adding cuts could improve this should try?
-  var eccs = newSeq[float]()
-  var ldiv = newSeq[float]()
-  var frac = newSeq[float]()
-  var toal = newSeq[float]()
-  var E = newSeq[float]()
   const path = "/reconstruction/run_0/chip_0"
   const ecc = "eccentricity"
   const ldivs = "lengthDivRmsTrans"
@@ -600,13 +595,13 @@ proc readRawSimData*(energy: string): tuple[eccs, ldiv, frac, toal, energy: seq[
   const en = "energyFromCharge"
   var fname= "sim_cdl_refs/" & energy & "_3cm_Ar_Isobutane_977_23_787.h5"
   var h5f = H5open(fname, "r")
-  
-  eccs = h5f[(path / ecc), float]
-  ldiv = h5f[(path / ldivs), float]
-  frac = h5f[(path / ftrans), float]
-  toal = h5f[(path / toa), float]
-  E = h5f[(path / en), float]
-  
+
+  let eccs = h5f[(path / ecc), float]
+  let ldiv = h5f[(path / ldivs), float]
+  let frac = h5f[(path / ftrans), float]
+  let toal = h5f[(path / toa), float]
+  let E = h5f[(path / en), float]
+
   result = (eccs: eccs, ldiv: ldiv, frac: frac, toal: toal, energy: E)
 
 proc buildLogLHistusingsim*(dset: string, ctx: LikelihoodContext): tuple[logL, energy: seq[float]] =
@@ -816,7 +811,7 @@ proc calcMorphedLikelihoodForEventToA*(eccentricity, lengthDivRmsTrans, fracRmsT
                                     refDf: DataFrame, idx: int, ctx: LikelihoodContext): float =
   # try simple logL calc
   ## XXX: replace usages of `{.global.}` here!
-  
+
   var
     eccDf {.global.}, ldivDf {.global.}, fracDf {.global.}, ToADf {.global.}: DataFrame
   once:
@@ -878,7 +873,7 @@ proc calcLikelihoodDataset*(h5f: var H5File, groupName: string, ctx: LikelihoodC
        lengthDivRmsTrans,
        fracRmsTrans, toa,
        energies) = h5f.readLogLVariableData(groupName, ctx.energyDset, ctx)
-  
+
 
   # create seq to store data logL data for this chip
   ## create a crazy man's plot
@@ -990,7 +985,7 @@ proc calcCutValueTab*(ctx: LikelihoodContext): CutValueInterpolator =
       logHists = computeLogLDistributionsusingsim(ctx)
       dfInterp = logHists.getInterpolatedDfToAlong()
         .filter(f{string: `Dset` == "Morph"})
-    else:  
+    else:
       logHists = computeLogLDistributions(ctx)
       dfInterp = logHists.getInterpolatedDf()
         .filter(f{string: `Dset` == "Morph"})
@@ -1103,7 +1098,6 @@ proc initLikelihoodContext*(
   ToAcutValue: int = 12,
   #ToAlnLCut
   useToAlnLCut: bool = false,
-  ToAProbabilityHists: string = "",
   # Septem veto related
   septemVeto: bool = false,
   clusterAlgo: ClusteringAlgorithm = caDBSCAN,
@@ -1134,7 +1128,7 @@ proc initLikelihoodContext*(
   ## The environment variable `PLOT_SEPTEM_E_CUTOFF` can be used to adjust the energy
   ## cutoff for which events to plot when running with `--plotSeptem`. In addition the
   ## variable `USE_TEX` can be adjusted to generate TikZ TeX plots.
-  
+
 
   let useTeX = if useTeX: useTeX
                else: getEnv("USE_TEX", "false").parseBool
@@ -1234,10 +1228,10 @@ proc initLikelihoodContext*(
         let ftransref = getInterpolatedDfToA(ftransdf,ftransEnergy_list, "fractionInTransverseRms",num = result.numMorphedEnergies)
         let (toadf, toaEnergy_list)= readToAProbabilities(toa_path)
         let toaref = getInterpolatedDfToA(toadf,toaEnergy_list, "ToAlength",num = result.numMorphedEnergies)
-        redf.add eccref 
-        redf.add ldivref 
-        redf.add ftransref 
-        redf.add toaref 
+        redf.add eccref
+        redf.add ldivref
+        redf.add ftransref
+        redf.add toaref
         result.refDf = redf
         let lineEnergies = eccEnergy_list.mapIt(it.float)
         result.refDfEnergy = linspace((lineEnergies[0]/1000), (lineEnergies[^1]/1000), result.numMorphedEnergies)

@@ -268,7 +268,7 @@ proc writeLikelihoodData(h5f: var H5File,
   runGrp.writeCdlAttributes(ctx.cdlFile, ctx.year)
 
 func isVetoedByToA(ctx: LikelihoodContext, toaLength, eventNumber: int): bool =
-  ## returns `true` if the event of `ind` is vetoed by the ToA cut. 
+  ## returns `true` if the event of `ind` is vetoed by the ToA cut.
   ## Vetoed means the event must be thrown out
   ## because it does ``not`` conform to the X-ray hypothesis.
 
@@ -1258,7 +1258,6 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
       var fadcVetoCount = 0
       var scintiVetoCount = 0
       var ToAcutCount = 0
-      var Test_ToTal = 0
       var toaLength: seq[int]
       let chpGrp = h5f[chipGroup.grp_str]
       # iterate over all chips and perform logL calcs
@@ -1288,7 +1287,7 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
       of Timepix3:
         if ctx.vetoCfg.useToACut or ctx.vetoCfg.useToAlnLCut:
           toaLength = h5f[(chipGroup / "toaLength"), float64].asType(int)
-        
+
       var nnPred: seq[float]
       when defined(cpp):
         if ctx.vetoCfg.useNeuralNetworkCut:
@@ -1340,12 +1339,10 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
         rmsCleaningVeto = rmsTrans[ind] > RmsCleaningCut
         ##ToA cut
         if ctx.vetoCfg.useToACut:
-          #inc Test_ToTal
           ToAcutveto = ctx.isVetoedByToA(toaLength[ind], evNumbers[ind])
           if ToAcutveto:
             # increase if ToAcut vetoed this event
             inc ToAcutCount
-            #echo ToAcutCount, "of", Test_ToTal
 
         ## FADC veto
         if useFadcVeto and chipNumber == 3:
@@ -1758,7 +1755,6 @@ proc main(
   #ToACut
   ToAcutValue = 0,
   #ToAlnLCut
-  ToAProbabilityHists = "",
   # line veto
   lineVetoKind = lvNone, # lvNone here, but defaults to `lvRegular` if no septem veto (see likelihood_utils)
   eccLineVetoCut = 0.0,
@@ -1784,11 +1780,10 @@ proc main(
 
   var flags: set[LogLFlagKind]
   var nnModelPath: string
-  var ToAProbabilityHists: string
   if tracking            : flags.incl fkTracking
   if lnL                 : flags.incl fkLogL
   if ToACut              : flags.incl fkToACut
-  if ToAlnLCut           : flags.incl fkToAlnLCut#; ToAProbabilityHists = ToAlnLCut
+  if ToAlnLCut           : flags.incl fkToAlnLCut
   if usesim              : flags.incl fkusesim
   if mlp.len > 0         : flags.incl fkMLP; nnModelPath = mlp
   if convnet.len > 0     : flags.incl fkConvNet; nnModelPath = convnet
@@ -1860,7 +1855,6 @@ proc main(
                                   ToAcutValue = ToAcutValue,
                                   #ToAlnLCut
                                   useToAlnLCut = fkToAlnLCut in flags,
-                                  ToAProbabilityHists = ToAProbabilityHists,
                                   # septem veto
                                   clusterAlgo = readClusterAlgo(),
                                   searchRadius = readSearchRadius(),
@@ -1880,9 +1874,6 @@ proc main(
                                   flags = flags,
                                   readLogLData = true, # read logL data regardless of anything else!
                                   plotPath = plotPath)
-
-  ## Test renove later
-  let df=computeLogLDistributionsusingsim(ctx)
 
   ## fill the effective efficiency fields if a NN is used
   when defined(cpp):

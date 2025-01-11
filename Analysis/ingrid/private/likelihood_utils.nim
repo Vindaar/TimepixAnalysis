@@ -654,9 +654,9 @@ proc computeLogLDistributionsusingsim*(ctx: LikelihoodContext): DataFrame =
   ## that we use for the logL distributions.
   const
     # logL binning range
-    nbins = 300 # TODO: Increase number of bins for logL cut value closer to target?
+    nbins = 500 # TODO: Increase number of bins for logL cut value closer to target?
     # range of histogram in logL
-    logLrange = (0.0, 30.0)
+    logLrange = (0.0, 50.0)
 
   # get the correct binning for the histograms
   let bins = linspace(logLrange[0], logLrange[1], nbins + 1, endpoint = true)

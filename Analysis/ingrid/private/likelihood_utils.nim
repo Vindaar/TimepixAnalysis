@@ -5,6 +5,8 @@ import cdl_cuts, hdf5_utils, geometry, ggplot_utils, cut_utils
 import ../ingrid_types
 import helpers/utils
 
+import ../projectDefs
+
 import sugar
 
 proc readToAProbabilities*(pathtoToA:string): (DataFrame, seq[int]) =
@@ -150,7 +152,7 @@ proc getInterpolatedDfToA*(df: DataFrame, lineEnergies: seq[int],  dftype: strin
 proc getInterpolatedDfToAlong*(df: DataFrame, num = 1000): DataFrame =
   ## returns a DF with `num` interpolated distributions using next neighbors
   ## for linear interpolation
-  let ecc_path ="../../resources/Ecc_P_densitys.csv"
+  let ecc_path = TpxDir / "resources/Ecc_P_densitys.csv"
   let (eccdf, eccEnergy_list)= readToAProbabilities(ecc_path)
 
   let energiesLines = eccEnergy_list.mapIt(it.float)
@@ -593,7 +595,7 @@ proc readRawSimData*(energy: string): tuple[eccs, ldiv, frac, toal, energy: seq[
   const ftrans = "fractionInTransverseRms"
   const toa = "toaLength"
   const en = "energyFromCharge"
-  var fname= "sim_cdl_refs/" & energy & "_3cm_Ar_Isobutane_977_23_787.h5"
+  var fname= TpxDir / "resources/sim_cdl_refs/" & energy & "_3cm_Ar_Isobutane_977_23_787.h5"
   var h5f = H5open(fname, "r")
 
   let eccs = h5f[(path / ecc), float]
@@ -612,12 +614,12 @@ proc buildLogLHistusingsim*(dset: string, ctx: LikelihoodContext): tuple[logL, e
   ## of tos_helpers.`getXrayRefTable`
   ## Default `region` is the gold region
   ## Returns a tuple of the actual `logL` values and the corresponding `energy`.
-  
+
   #get dataframes
-  let ecc_path ="../../resources/Ecc_P_densitys.csv"
-  let ldiv_path ="../../resources/ldiv_P_densitys.csv"
-  let ftrans_path ="../../resources/ftrans_P_densitys.csv"
-  let toa_path ="../../resources/ToA_P_densitys.csv"
+  let ecc_path = TpxDir / "resources/Ecc_P_densitys.csv"
+  let ldiv_path = TpxDir / "resources/ldiv_P_densitys.csv"
+  let ftrans_path = TpxDir / "resources/ftrans_P_densitys.csv"
+  let toa_path = TpxDir / "resources/ToA_P_densitys.csv"
   let (eccdf, eccEnergy_list)= readToAProbabilities(ecc_path)
   let (ldivdf, ldivEnergy_list)= readToAProbabilities(ldiv_path)
   let (fracdf, ftransEnergy_list)= readToAProbabilities(ftrans_path)
@@ -658,9 +660,9 @@ proc computeLogLDistributionsusingsim*(ctx: LikelihoodContext): DataFrame =
   let bins = linspace(logLrange[0], logLrange[1], nbins + 1, endpoint = true)
 
   #get data
-  let ecc_path ="../../resources/Ecc_P_densitys.csv"
+  let ecc_path = TpxDir / "resources/Ecc_P_densitys.csv"
   let (eccdf, eccEnergy_list)= readToAProbabilities(ecc_path)
-  
+
   let energies = eccEnergy_list
 
   # compute the histogram of the CDL data
@@ -1216,10 +1218,10 @@ proc initLikelihoodContext*(
       if vetoCfg.usesimref:
         echo "use sim"
         var redf: DataFrame
-        let ecc_path ="../../resources/Ecc_P_densitys.csv"
-        let ldiv_path ="../../resources/ldiv_P_densitys.csv"
-        let ftrans_path ="../../resources/ftrans_P_densitys.csv"
-        let toa_path ="../../resources/ToA_P_densitys.csv"
+        let ecc_path = TpxDir / "resources/Ecc_P_densitys.csv"
+        let ldiv_path = TpxDir / "resources/ldiv_P_densitys.csv"
+        let ftrans_path = TpxDir / "resources/ftrans_P_densitys.csv"
+        let toa_path = TpxDir / "resources/ToA_P_densitys.csv"
         let (eccdf, eccEnergy_list)= readToAProbabilities(ecc_path)
         let eccref = getInterpolatedDfToA(eccdf,eccEnergy_list, "eccentricity",num = result.numMorphedEnergies)
         let (ldivdf, ldivEnergy_list)= readToAProbabilities(ldiv_path)

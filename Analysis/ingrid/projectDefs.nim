@@ -6,11 +6,12 @@ from os import `/`
 
 const OldTosRunlistFname = "Runlist-CAST-D03-W0063.csv"
 const AppDir = getProjectPath()
-var TpxDir* {.compileTime.} = ""
+var TpxDirCT* {.compileTime.} = ""
 var OldTosRunList* {.compileTime.} = ""
 static:
-  discard parseUntil(AppDir, TpxDir, "TimepixAnalysis")
-  TpxDir = TpxDir / "TimepixAnalysis"
-  OldTosRunList = TpxDir / "resources" / OldTosRunListFname
+  discard parseUntil(AppDir, TpxDirCT, "TimepixAnalysis")
+  TpxDirCT = TpxDirCT / "TimepixAnalysis"
+  OldTosRunList = TpxDirCT / "resources" / OldTosRunListFname
 
 const OldTosRunListPath* = OldTosRunList
+const TpxDir* = TpxDirCT

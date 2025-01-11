@@ -672,7 +672,7 @@ proc computeLogLDistributionsusingsim*(ctx: LikelihoodContext): DataFrame =
     let hist = buildLogLHistusingsim($energy, ctx)[0]
     var df = toDf( {"Bins" : bins[0 .. ^2], "Hist" : histogram(hist, nbins, logLrange)[0] })
     df["Dset"] = energy
-    df["Energy"] = (energy/1000)
+    df["Energy"] = (energy.float / 1000.0)
     result.add df
 
 proc getLogLData*(ctx: LikelihoodContext): DataFrame =

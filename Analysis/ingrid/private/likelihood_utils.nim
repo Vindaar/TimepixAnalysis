@@ -606,6 +606,8 @@ proc readRawSimData*(energy: string): tuple[eccs, ldiv, frac, toal, energy: seq[
 
   result = (eccs: eccs, ldiv: ldiv, frac: frac, toal: toal, energy: E)
 
+  discard h5f.close()
+
 proc buildLogLHistusingsim*(dset: string, ctx: LikelihoodContext): tuple[logL, energy: seq[float]] =
   ## given a file `h5file` containing a CDL calibration dataset
   ## `dset` apply the cuts on all events and build the logL distribution

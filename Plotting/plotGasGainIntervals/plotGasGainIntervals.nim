@@ -49,14 +49,14 @@ proc plotOccupancySlice(h5f: H5File, run, chip, idx: int, slice: Slice[int], pat
       let ch = chEv[j]
       occ[x, y] += ch
       occCounts[x, y] += 1
-    if run == 164 and idx in {57, 58}:
-      let dfEv = toDf(xEv, yEv, chEv)
-      ggplot(dfEv, aes("xEv", "yEv", color = "chEv")) +
-        geom_point() +
-        xlim(0, 256) + ylim(0, 256) +
-        margin(top = 1.5) +
-        ggtitle(&"Run {run}, chip {chip}, slice {idx}, eventNum {evNum} eventIdx {i}, hits {dfEv.len}") +
-        ggsave(&"out/event_{i}_run_{run}_chip_{chip}_slice_{idx}.pdf")
+    #if run == 164 and idx in {57, 58}:
+    #  let dfEv = toDf(xEv, yEv, chEv)
+    #  ggplot(dfEv, aes("xEv", "yEv", color = "chEv")) +
+    #    geom_point() +
+    #    xlim(0, 256) + ylim(0, 256) +
+    #    margin(top = 1.5) +
+    #    ggtitle(&"Run {run}, chip {chip}, slice {idx}, eventNum {evNum} eventIdx {i}, hits {dfEv.len}") +
+    #    ggsave(&"out/event_{i}_run_{run}_chip_{chip}_slice_{idx}.pdf")
 
   const NPix = 256
   var

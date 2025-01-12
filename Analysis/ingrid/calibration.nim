@@ -252,8 +252,8 @@ proc applyChargeCalibration*(h5f: H5File, runNumber: int,
   let fileInfo = h5f.getFileInfo() # for timepix version
   var runPeriodPrinted: set[uint8] # for each chip number
   for run, chip, grp in chipGroups(h5f):
+    if run != runNumber: continue # skip groups not matching target run number
     doAssert chipBase in grp
-    doAssert run == runNumber
     # now can start reading, get the group containing the data for this chip
     var group = h5f[grp.grp_str]
     # get the chip number from the attributes of the group
@@ -526,6 +526,7 @@ iterator iterGainSlices*(df: DataFrame,
   ## NOTE: the input has to be filtered by the gas gain cuts! (The indices given in
   ## the slice range will then correspond to the indices of that *filtered* DF!)
   let tstamps = df["timestamp"].toTensor(float)
+  doAssert tstamps.len > 0, "Found an empty tensor!"
   # determine the start time
   var tStart = tstamps[0]
   let tStop = tstamps[tstamps.size - 1]
@@ -642,6 +643,11 @@ proc handleGasGainSlice*(h5f: H5File,
   # read required data for gas gain cuts & to map clusters to timestamps
   let cutFormula = $getGasGainCutFormula()
   let (df, chs) = h5f.gasGainDfAndCharges(group)
+  if df.len == 0:
+    echo &"[WARNING] The run {runNumber} does not have any valid data for gas gain " &
+      &"calculation after reading all data and applying the charge cuts: {cutFormula}. " &
+      "Better investigate this run!"
+    return
   var sliceCount = 0
   for (gasGainInterval, slice) in iterGainSlices(df, interval, minInterval):
     echo $gasGainInterval
@@ -700,6 +706,7 @@ proc calcGasGain*(h5f: H5File, grp: string,
   # get all charge values as seq[seq[float]], ``then`` apply the `passIdx`
   # and only flatten ``after`` that
   var gasGainSliceData: seq[GasGainIntervalResult]
+
   if not fullRunGasGain:
     gasGainSliceData = h5f.handleGasGainSlice(runNumber, chipNumber,
                                               interval, minInterval,
@@ -733,6 +740,7 @@ proc calcGasGain*(h5f: H5File, runNumber: int,
   var printRunPeriod = false
   var runPeriodPrinted: set[uint8]
   for run, chip, grp in chipGroups(h5f):
+    if run != runNumber: continue # skip groups not matching target run number
     doAssert chipBase in grp
     if isDone(h5f, grp, rfOnlyGasGain, overwrite):
       echo &"INFO Gas gain calculation for run {run} already exists. Skipping. Force via `--overwrite`."
@@ -1135,6 +1143,7 @@ proc calcEnergyFromPixels*(h5f: H5File, runNumber: int, calib_factor: float, ove
   var chipBase = recoDataChipBase(runNumber)
   # get the group from file
   for run, chip, grp in chipGroups(h5f, recoBase()):
+    if run != runNumber: continue # skip groups not matching target run number
     doAssert chipBase in grp
     if isDone(h5f, grp, rfOnlyEnergy, overwrite):
       echo &"INFO Energy calculation for run {run} already exists. Skipping. Force via `--overwrite`."
@@ -1277,7 +1286,7 @@ proc calcEnergyFromCharge*(h5f: H5File, interval: float,
     if chipName.len == 0:
       # get center chip name to be able to read fit parameters
       chipName = group.attrs["centerChipName", string]
-      let ccNum = group.attrs["centerChipNumber", int] # cc = center chip
+      let ccNum = group.attrs["centerChip", int] # cc = center chip
       let ccGrp = h5f[(group.name / "chip_" & $ccNum).grp_str]
       # get parameters during first iter...
       (b, m) = ccGrp.getCalibVsGasGainFactors(chipName, run, suffix = $gcKind)

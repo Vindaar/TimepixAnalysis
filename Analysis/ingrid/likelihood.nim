@@ -125,7 +125,7 @@ proc calcLogLikelihood*(h5f: var H5File,
 
 import datamancer / serialize
 proc writeInfos(h5f: H5File, grp: H5Group, ctx: LikelihoodContext,
-                fadcVetoCount, scintiVetoCount: int,
+                fadcVetoCount, scintiVetoCount,ToAcutCount: int,
                 flags: set[LogLFlagKind]) =
   ## writes information about used vetoes and the number of events removed by
   ## the vetos
@@ -138,6 +138,8 @@ proc writeInfos(h5f: H5File, grp: H5Group, ctx: LikelihoodContext,
     mgrp.attrs["# removed by FADC veto"] = fadcVetoCount
   if scintiVetoCount >= 0:
     mgrp.attrs["# removed by scinti veto"] = scintiVetoCount
+  if ToAcutCount >= 0:
+    mgrp.attrs["# removed by ToAcut"] = ToAcutCount
 
 proc writeLikelihoodData(h5f: var H5File,
                          h5fout: var H5File,
@@ -146,7 +148,7 @@ proc writeLikelihoodData(h5f: var H5File,
                          cutTab: CutValueInterpolator,
                          nnCutTab: CutValueInterpolator,
                          passedInds: OrderedSet[int],
-                         fadcVetoCount, scintiVetoCount: int, flags: set[LogLFlagKind],
+                         fadcVetoCount, scintiVetoCount, ToAcutCount: int, flags: set[LogLFlagKind],
                          ctx: LikelihoodContext
                         ) =
                          #durations: (float64, float64)) =
@@ -262,8 +264,20 @@ proc writeLikelihoodData(h5f: var H5File,
   # copy attributes over from the input file
   runGrp.copy_attributes(group.attrs)
   chpGrpOut.copy_attributes(chpGrpIn.attrs)
-  h5fout.writeInfos(chpGrpOut, ctx, fadcVetoCount, scintiVetoCount, flags)
+  h5fout.writeInfos(chpGrpOut, ctx, fadcVetoCount, scintiVetoCount, ToAcutCount, flags)
   runGrp.writeCdlAttributes(ctx.cdlFile, ctx.year)
+
+func isVetoedByToA(ctx: LikelihoodContext, toaLength, eventNumber: int): bool =
+  ## returns `true` if the event of `ind` is vetoed by the ToA cut.
+  ## Vetoed means the event must be thrown out
+  ## because it does ``not`` conform to the X-ray hypothesis.
+
+  let cut = ctx.vetoCfg.ToAcutValue
+  if toaLength <= cut:
+    result = false
+  else:
+    # not very X-ray like. Goodbye event!
+    result = true
 
 func isVetoedByFadc(ctx: LikelihoodContext, run, eventNumber: int, fadcTrigger, fadcEvNum: seq[int64],
                     fadcRise, fadcFall: seq[uint16], fadcSkew: seq[float]): bool =
@@ -1243,6 +1257,8 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
 
       var fadcVetoCount = 0
       var scintiVetoCount = 0
+      var ToAcutCount = 0
+      var toaLength: seq[int]
       let chpGrp = h5f[chipGroup.grp_str]
       # iterate over all chips and perform logL calcs
       var attrs = chpGrp.attrs
@@ -1265,6 +1281,13 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
         centerY = h5f[(chipGroup / "centerY"), float64]
         rmsTrans = h5f[(chipGroup / "rmsTransverse"), float64]
         evNumbers = h5f[(chipGroup / "eventNumber"), int64].asType(int)
+      case fileInfo.timepix
+      of Timepix1:
+        discard
+      of Timepix3:
+        if ctx.vetoCfg.useToACut or ctx.vetoCfg.useToAlnLCut:
+          toaLength = h5f[(chipGroup / "toaLength"), float64].asType(int)
+
       var nnPred: seq[float]
       when defined(cpp):
         if ctx.vetoCfg.useNeuralNetworkCut:
@@ -1294,6 +1317,7 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
         var
           nnVeto = false # vetoed by neural network (MLP or ConvNet) (and in use)
           lnLVeto = false # vetoed by lnL cut (and in use)
+          ToAcutveto = false # vetoed by ToA cut (and in use)
           fadcVeto = false # vetoed by FADC (and in use)
           scintiVeto = false # vetoed by scintillators (and in use)
           ## XXX: Remove cleaning cut???
@@ -1309,8 +1333,17 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
         ## LnL cut
         if ctx.vetoCfg.useLnLCut and logL[ind] > cutTab[energy[ind]]:
           lnLVeto = true
+          #echo logL[ind]
+          #echo cutTab[energy[ind]]
         ## RMS cleaning cut
         rmsCleaningVeto = rmsTrans[ind] > RmsCleaningCut
+        ##ToA cut
+        if ctx.vetoCfg.useToACut:
+          ToAcutveto = ctx.isVetoedByToA(toaLength[ind], evNumbers[ind])
+          if ToAcutveto:
+            # increase if ToAcut vetoed this event
+            inc ToAcutCount
+
         ## FADC veto
         if useFadcVeto and chipNumber == 3:
           fadcVeto = ctx.isVetoedByFadc(num, evNumbers[ind], fadcTrigger, fadcEvNum,
@@ -1331,7 +1364,8 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
            not lnLVeto and
            not rmsCleaningVeto and
            not fadcVeto and # if veto is true, means throw out!
-           not scintiVeto:
+           not scintiVeto and
+           not ToAcutveto:
           # include this index to the set of indices
           when false:
             totalDurationRunPassed += evDurations[ind]
@@ -1367,7 +1401,7 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
                                   cutTab,
                                   nnCutTab,
                                   passedInds,
-                                  fadcVetoCount, scintiVetoCount, flags,
+                                  fadcVetoCount, scintiVetoCount, ToAcutCount, flags,
                                   ctx)
 
         if chipNumber == centerChip:
@@ -1399,7 +1433,7 @@ proc filterClustersByVetoes(h5f: var H5File, h5fout: var H5File,
     ## XXX: add "number of runs" or something to differentiate not knowning runs vs not looking at them?
     lhGrp.attrs[TrackingAttrStr] = $(fkTracking in flags)
   # write infos about vetoes, cdl file used etc.
-  h5fout.writeInfos(lhGrp, ctx, -1, -1, flags)
+  h5fout.writeInfos(lhGrp, ctx, -1, -1, -1, flags)
 
 proc extractEvents(h5f: var H5File, extractFrom, outfolder: string) =
   ## extracts all events passing the likelihood cut from the folder
@@ -1697,6 +1731,9 @@ proc main(
   lnL = false,
   mlp = "",
   convnet = "",
+  usesim = false,
+  ToACut = false,
+  ToAlnLCut = false,
   tracking = false,
   scintiveto = false,
   fadcveto = false,
@@ -1715,6 +1752,9 @@ proc main(
   nnCutKind = nkRunBasedLocal,
   # lnL cut
   signalEfficiency = 0.0,
+  #ToACut
+  ToAcutValue = 0,
+  #ToAlnLCut
   # line veto
   lineVetoKind = lvNone, # lvNone here, but defaults to `lvRegular` if no septem veto (see likelihood_utils)
   eccLineVetoCut = 0.0,
@@ -1742,6 +1782,9 @@ proc main(
   var nnModelPath: string
   if tracking            : flags.incl fkTracking
   if lnL                 : flags.incl fkLogL
+  if ToACut              : flags.incl fkToACut
+  if ToAlnLCut           : flags.incl fkToAlnLCut
+  if usesim              : flags.incl fkusesim
   if mlp.len > 0         : flags.incl fkMLP; nnModelPath = mlp
   if convnet.len > 0     : flags.incl fkConvNet; nnModelPath = convnet
   if scintiveto          : flags.incl fkScinti
@@ -1783,7 +1826,6 @@ proc main(
   var h5f = H5open(file, "r")
   h5f.visitFile()
   let timepix = h5f.timepixVersion()
-
   # get data to read info to store in context
   let cdlStretch = initCdlStretch(Fe55, cdlFile)
   let rootGrp = h5f[recoGroupGrpStr()] # is actually `reconstruction`
@@ -1806,6 +1848,13 @@ proc main(
                                   # lnL cut
                                   useLnLCut = fkLogL in flags,
                                   signalEfficiency = signalEfficiency,
+                                  #use sim data, hacked do this nicer some day
+                                  usesimref = fkusesim in flags,
+                                  #ToACut
+                                  useToACut = fkToACut in flags,
+                                  ToAcutValue = ToAcutValue,
+                                  #ToAlnLCut
+                                  useToAlnLCut = fkToAlnLCut in flags,
                                   # septem veto
                                   clusterAlgo = readClusterAlgo(),
                                   searchRadius = readSearchRadius(),
@@ -1825,6 +1874,7 @@ proc main(
                                   flags = flags,
                                   readLogLData = true, # read logL data regardless of anything else!
                                   plotPath = plotPath)
+
   ## fill the effective efficiency fields if a NN is used
   when defined(cpp):
     ctx.fillEffectiveEff()

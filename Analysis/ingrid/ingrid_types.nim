@@ -499,6 +499,7 @@ type
     igLengthDivRadius,
     igGasGain, # gas gain, only calculated time slice wise!
     igDiffusion # transverse diffusion determined from rmsTransverse cutoff
+    igToaLength # length of cluster in ToA
 
   FrameworkKind* = enum
     fkTpa, fkMarlin
@@ -842,7 +843,7 @@ when not defined(pure) and not defined(js):
 
     LogLFlagKind* = enum
       # vetoes
-      fkTracking, fkLogL, fkMLP, fkConvNet, fkFadc, fkScinti, fkSeptem, fkLineVeto, fkAggressive,
+      fkTracking, fkLogL, fkMLP, fkConvNet, fkFadc, fkScinti, fkSeptem, fkLineVeto, fkAggressive, fkusesim, fkToACut, fkToAlnLCut,
       # other options
       fkRocCurve, fkComputeLogL, fkPlotLogL, fkPlotSeptem,
       fkEstRandomCoinc, # used to estimate the random coincidence of the septem & line veto
@@ -861,6 +862,13 @@ when not defined(pure) and not defined(js):
       # lnL settings
       useLnLCut*: bool
       signalEfficiency*: float = 0.8 # the signal efficiency that defines the cuts
+      #usesim
+      usesimref*:bool
+      #ToACut
+      useToACut*: bool
+      ToAcutValue*: int
+      #ToAlnLCut
+      useToAlnLCut*: bool
       # Septem & line veto related
       clusterAlgo*: ClusteringAlgorithm = caDBSCAN
       searchRadius*: int = 50 # for caDefault the search radius in septem events

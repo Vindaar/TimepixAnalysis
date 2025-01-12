@@ -113,8 +113,11 @@ proc readGasGains(f: string): DataFrame =
   const RunOfInterest = -1
   for runNumber, grp in runs(h5f, recoBase()):
     #if runNumber != RunOfInterest: continue
-    let dset = h5f[(grp / "chip_3/charge").dset_str]
-    let dfData = h5f.readGasGainDf(dset.name.parentDir, 3, @["rmsTransverse", "centerX", "centerY", "hits"])
+    let h5grp = h5f[grp.grp_str]
+    let chipNumber = h5grp.attrs["centerChip", int]
+    let chipNumStr = "chip_" & $chipNumber
+    let dset = h5f[(grp / chipNumStr / "charge").dset_str]
+    let dfData = h5f.readGasGainDf(dset.name.parentDir, @["rmsTransverse", "centerX", "centerY", "hits"])
     var gains: seq[float]
     var gainsFit: seq[float]
     var gainsMeanFit: seq[float]
@@ -123,7 +126,7 @@ proc readGasGains(f: string): DataFrame =
     let dfDataFilter = dfData.applyGasGainCut()
     #let dfRun = getSeptemDataFrame(h5f, runNumber, allowedChips = @[3])
     ## get the ``last`` gas gain slice computation (add `$(interval)` if desired for specific)
-    let gasGainSlices = h5f[grp / "chip_3" / "gasGainSlices", GasGainIntervalResult]
+    let gasGainSlices = h5f[grp / chipNumStr / "gasGainSlices", GasGainIntervalResult]
     for g in gasGainSlices:
       # read the eventNumbers of this slice, then filter fullRun DF based on these
       # eventNumbers
@@ -146,7 +149,7 @@ proc readGasGains(f: string): DataFrame =
       times.add g.tStart
       inc sliceNum
     var df = toDf({ "Gain" : gains, "GainFit" : gainsFit,
-                        "GainFitMean" : gainsMeanFit, "timestamp" : times })
+                    "GainFitMean" : gainsMeanFit, "timestamp" : times })
     df["Run"] = constantColumn(runNumber, df.len)
     df["SliceIdx"] = toSeq(0 ..< sliceNum)
     result.add df
@@ -170,21 +173,23 @@ proc splitDf(df: DataFrame): DataFrame =
   result = df
   result["RunPeriod"] = periodSeq
 
-proc main(files: seq[string]) =
+proc main(files: seq[string],
+          plotPath = "out",
+          outfile = "gas_gain_slices_vs_time_30_minutes.pdf",
+          outfileBadSlices = "bad_run_slices.csv",) =
   var df = newDataFrame()
   for f in files:
     df.add f.readGasGains
   block IndividualPlots:
     ggplot(df, aes("timestamp", "Gain")) +
       geom_point() +
-      ggsave("/tmp/test.pdf")
+      ggsave(plotPath / "only_gas_gain_over_time_90min.pdf")
     ggplot(df, aes("timestamp", "GainFit")) +
       geom_point() +
-      ggsave("/tmp/testFit.pdf")
+      ggsave(plotPath / "only_gas_gain_from_fit_over_time_90min.pdf")
     ggplot(df, aes("timestamp", "GainFitMean")) +
       geom_point() +
-      ggsave("/tmp/testMeanFit.pdf")
-
+      ggsave(plotPath / "only_gas_gain_mean_from_fit_over_time_90min.pdf")
   df = df.splitDf
     .gather(@["Gain", "GainFit", "GainFitMean"], "CalcType", "GasGain")
 
@@ -199,12 +204,12 @@ proc main(files: seq[string]) =
     scale_x_continuous(labels = formatTime) +
     #ylim(0, 8000.0) +
     xlab(rotate = -45, alignTo = "right") +
-    ggsave("out/gas_gain_slices_vs_time_30_minutes.pdf", width = 1920, height = 1080)
+    ggsave(plotPath / outfile, width = 1920, height = 1080)
 
   let perc95 = df["GasGain"].toTensor(float).max * 0.80
-  echo "Runs with worst gas gain above: ", perc95, " stored in out/bad_run_slices.csv"
+  echo "Runs with worst gas gain above: ", perc95, " stored in ", plotPath / outfileBadSlices
   let dfBad = df.filter(f{float -> bool: `GasGain` > perc95})
-  dfBad.write_csv("out/bad_run_slices.csv")
+  dfBad.write_csv(plotPath / outfileBadSlices)
 
 when isMainModule:
   dispatch main

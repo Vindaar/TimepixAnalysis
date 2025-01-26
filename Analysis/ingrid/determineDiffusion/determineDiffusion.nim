@@ -495,7 +495,7 @@ proc determineDiffusion(df: DataFrame, outpath: string, runInput: int, useCache,
     ggsave(&"{outpath}/σT_per_run.pdf", useTeX = useTeX, standalone = useTeX)
 
 when isMainModule:
-  import ../NN_playground/io_helpers
+  import ../nn/io_helpers
   proc readData(fname: string): DataFrame =
     withH5(fname, "r"):
       let fileInfo = h5f.getFileInfo()

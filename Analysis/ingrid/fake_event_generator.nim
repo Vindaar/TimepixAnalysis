@@ -7,6 +7,32 @@ import ingrid / [calibration, ingrid_types, tos_helpers, gas_physics]
 
 import helpers / sampling_helper
 
+## IMPORTANT NOTICE:
+## The code here (and in related files touching on the diffusion constant)
+## uses the variable `σT` to talk about the diffusion constant `D_T`:
+## `D_T = σ_T / √( drift distance ) = √(2 N D / v)`,
+## with `D` the real diffusion coefficient that is a gas property, `v` the
+## drift velocity and `N` the dimensionality of the problem considered.
+## or written as the definition of `σ_T`:
+## `σ_T = D_T · √( drift distance )`
+##
+## Units of `D_T` are commonly expressed in `μm / √cm` to express "how much
+## transverse diffusion will have happened after N centimeters of drift?".
+##
+## This is of course *INACCURATE*, but done for "historic" reasons. I started with
+## an implementation that directly computed σ_T, but then switched to extracting
+## the D_T value from it. We could update the code, but it would break the existing
+## data files that contain D_T data, but under the term "σ_T".
+##
+## The reason for this is that as part of the fake data simulation here in
+## `genDiffusionEvent`, we *first* sample a distance a cluster will diffuse
+## and then generate from a normal distribution with `σ = D_T * √x`:
+##
+##  `let x = rnd.gauss(mu = 0.0, sigma = fakeDesc.σT * sqrt(fakeDesc.zDrift))`
+##  `let y = rnd.gauss(mu = 0.0, sigma = fakeDesc.σT * sqrt(fakeDesc.zDrift))`
+##
+## while this should clearly say "D_T". Just be aware of it!
+
 type
   FakeDataKind* = enum
     fkRemovePixels,     ## target a lower energy than input & produce events by randomly selecting subsection of pixels
@@ -25,7 +51,7 @@ type
     runNumber*: int
     cluster*: ClusterObject[Pix] # contains all geometry & energy
     totalCharge*: float # the total charge of the cluster
-    σT*: float
+    σT*: float ## This is actually `D_T = σ_T / √x = √(2 N D/v)`.
     gasGain*: float
     logL*: float # the likelihood value
 
@@ -45,7 +71,7 @@ type
              ## for this absorption length
              ## NOTE: If `λ` is not set (i.e. 0) we will compute it for CAST conditions automatically using
              ## the desired target energy!
-      σT*: float # the transverse diffusion to use
+      σT*: float ## the transverse diffusion to use. This is actually `D_T = σ_T / √x = √(2 N D/v)`.
       gasMixture*: GasMixture
       sampler*: Sampler
       sampleTab: Table[string, Sampler] # samplers for each fluorescence line
@@ -93,7 +119,7 @@ func missing(): Missing = discard
 
 proc reconstructFakeEvent[C: MaybeContext](
   pix: Pixels,
-  σT: float,
+  σT: float, ## This is actually `D_T = σ_T / √x = √(2 N D/v)`.
   gasGain: float,
   runNumber: int,
   calibInfo: CalibInfo,

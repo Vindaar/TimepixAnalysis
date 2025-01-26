@@ -4,6 +4,27 @@ import pkg / [nimhdf5, datamancer, ggplotnim, seqmath]
 import unchained
 
 
+## IMPORTANT NOTICE:
+## The code here (and in related files touching on the diffusion constant)
+## uses the variable `σT` to talk about the diffusion constant `D_T`:
+## `D_T = σ_T / √( drift distance )`
+## or written as the definition of `σ_T`:
+## `σ_T = D_T · √( drift distance )`
+##
+## This is of course *INACCURATE*, but done for "historic" reasons. I started with
+## an implementation that directly computed σ_T, but then switched to extracting
+## the D_T value from it. We could update the code, but it would break the existing
+## data files that contain D_T data, but under the term "σ_T".
+##
+## The reason for this is that as part of the fake data simulation here in
+## `simulateRmsTrans`, we *first* sample a distance a cluster will diffuse
+## and then generate from a normal distribution with `σ = D_T * √x`:
+##
+##   let x = rnd.gauss(mu = 0.0, sigma = σT * sqrt(zDrift))
+##   let y = rnd.gauss(mu = 0.0, sigma = σT * sqrt(zDrift))
+##
+## while this should clearly say "D_T". Just be aware of it!
+
 ## XXX: a bit annoying that this is here...
 const CdlFile = "/home/basti/CastData/data/CDL_2019/calibration-cdl-2018.h5"
 const RmsCleaningCut = 1.5

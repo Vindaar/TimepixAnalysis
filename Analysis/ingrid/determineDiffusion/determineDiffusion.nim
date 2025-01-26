@@ -486,7 +486,7 @@ proc determineDiffusion(df: DataFrame, outpath: string, runInput: int, useCache,
                                   useCache = useCache)
     dfAll.add toDf( {"run" : run, "σT" : σT, "loss" : loss, "isBackground" : isBackground })
 
-  let ylabel = if useTeX: r"$D_T$ [$\si{μm.cm^{1/2}}$]" else: "D_T [μm/√cm]"
+  let ylabel = if useTeX: r"$D_T$ [$\si{μm.cm^{-\frac{1}{2}}}$]" else: "D_T [μm/√cm]"
   ggplot(dfAll, aes("run", "σT", color = "loss", shape = "isBackground")) +
     geom_point() +
     xlab("Run number") + ylab(ylabel) +

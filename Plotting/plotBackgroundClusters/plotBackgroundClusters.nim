@@ -1,7 +1,7 @@
 import nimhdf5, seqmath, chroma, cligen
 import std / [strformat, sequtils, strutils, os, sets]
 import helpers / utils
-import ingrid / tos_helpers
+import ingrid / [tos_helpers, ingrid_types]
 import ggplotnim
 import ggplotnim / [ggplot_vegatex]
 
@@ -136,7 +136,7 @@ when true:
 
 when false:
   var noisyPixels = newSeq[(int, int)]()
-  for x in 150 .. 250:
+  for x in 150 .. 175: #250:
     for y in 130 .. 162:
       noisyPixels.add (x, y)
 
@@ -249,6 +249,7 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
                   showGoldRegion: bool,
                   asSinglePlot: bool,
                   hideNumClusters: bool,
+                  switchToDiscreteAt: int,
                   fWidth, textWidth, textSize, pointSize: float) =
   let outpath = if outpath.len > 0: outpath else: "plots"
   var colorCol: string
@@ -264,6 +265,7 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
     var countGroups = 0
     for (tup, subDf) in groups(df.group_by(["x", "y"])):
       inc countGroups
+
     df = df.group_by(["x", "y"]).summarize(f{"count" << len(col("Energy [keV]"))})
 
   createDir(outpath)
@@ -299,7 +301,7 @@ proc plotClusters(df: DataFrame, names: seq[string], useTikZ: bool, zMax: float,
                             font = font(textSize, alignKind = taLeft))
 
     # Add the main point geom
-    if colorBy == count and  maxCount < 10:
+    if colorBy == count and maxCount < switchToDiscreteAt:
       plt = plt + geom_point(aes = aes(color = factor(colorCol)), size = some(scale * pointSize))
     else:
       plt = plt + geom_point(aes = aes(color = colorCol), size = some(scale * pointSize)) +
@@ -450,6 +452,7 @@ proc main(
   threshold = 2,
   chip = -1, # chip can be used to overwrite center chip reading
   tiles = 7,
+  switchToDiscreteAt = 10,
   outpath = "",
   axionImage = "", # "/home/basti/org/resources/axion_images/axion_image_2018_1487_93_0.989AU.csv"
   preliminary = false,
@@ -483,7 +486,7 @@ proc main(
       dfLoc["Type"] = names[i]
       df.add dfLoc
 
-  plotClusters(df, names, useTikZ, zMax, colorBy, energyText, energyTextRadius, suffix, title, outpath, axionImage, scale, preliminary, showGoldRegion, singlePlot, hideNumClusters, fWidth, textWidth, textSize, pointSize)
+  plotClusters(df, names, useTikZ, zMax, colorBy, energyText, energyTextRadius, suffix, title, outpath, axionImage, scale, preliminary, showGoldRegion, singlePlot, hideNumClusters, switchToDiscreteAt, fWidth, textWidth, textSize, pointSize)
   # `df.len` is total number clusters
   if backgroundSuppression:
     doAssert names.len == 0, "Suppression plot when handing multiple files that are not combined not supported."

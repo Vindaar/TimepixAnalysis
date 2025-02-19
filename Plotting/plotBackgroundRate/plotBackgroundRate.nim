@@ -141,7 +141,7 @@ proc readFiles(files: seq[string], names: seq[string], region: ChipRegion,
   ## be accumulated or not
   ##
   ## After reading we will cut to the given `region`.
-  doAssert names.len == 0 or names.len == files.len, "Need one name for each input file!"
+  doAssert names.len == 0 or names.len == files.len, "Need one name for each input file! Got: " & $files.len & " and " & $names.len
   let noiseSet = noisyPixels.toHashSet
   for idx, file in files:
     log(verbose):
@@ -541,9 +541,10 @@ proc plotEfficiencyComparison(files: seq[LogLFile], outpath: string, region: Chi
 
 import orgtables
 proc printBackgroundRates(df: DataFrame, factor: float, energyMin: float, rateTable: string) =
-  type Line = tuple[Classifier: string, ε_eff: float, Scinti, FADC, Septem, Line: bool, ε_total: float, rateMeas: Measurement[float], Rate: string]
-  proc toLine(df: DataFrame, backRate: Measurement[float]): Line =
-    result = (Classifier : df["Classifier"].unique.item(string),
+  type Line = tuple[Dataset: string, Classifier: string, ε_eff: float, Scinti, FADC, Septem, Line: bool, ε_total: float, rateMeas: Measurement[float], Rate: string]
+  proc toLine(f: string, df: DataFrame, backRate: Measurement[float]): Line =
+    result = (Dataset: f,
+              Classifier : df["Classifier"].unique.item(string),
               ε_eff      : df["ε_eff"].unique.item(float),
               Scinti     : df["Scinti"].unique.item(bool),
               FADC       : df["FADC"].unique.item(bool),
@@ -576,7 +577,7 @@ proc printBackgroundRates(df: DataFrame, factor: float, energyMin: float, rateTa
       log(true):
         &"\t Integrated background rate/keV in range: {energyRange}: {rkeV} keV⁻¹·cm⁻²·s⁻¹"
 
-      result.add toLine(subDf, intBackRate / size)
+      result.add toLine(f, subDf, intBackRate / size)
 
   if rateTable.len == 0:
     intBackRate(df, factor, max(energyMin, 0.0) .. 12.0)

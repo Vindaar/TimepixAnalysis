@@ -106,84 +106,9 @@ proc determineFromData(x: seq[float]): float =
   result = bins[idx]
 
 import ingrid / gas_physics
-import helpers / sampling_helper
+import helpers / [sampling_helper, stats_helpers]
 import xrayAttenuation
 import std / random
-
-proc toEdf(x: seq[float], bins: seq[float]): seq[float] =
-  ## Computes the EDF of the input data `x` given some `bins`.
-  ##
-  ## The bins are used as boundaries to count elements below each bin edge. The
-  ## result contains `bins.len` elements, all in [0, 1]
-  let xS = x.sorted
-  var i = 0
-  result = newSeq[float](bins.len)
-  for j, b in bins:
-    while i < xS.high and xS[i] <= b:
-      inc i
-    result[j] = i.float / x.len.float
-  #for x in mitems(result):
-  #  x = x / result[^1]
-  doAssert result.allIt(it <= 1.0)
-
-proc kolmogorovSmirnov(x1, x2: seq[float]): float =
-  ## Compute the Kolmogorov-Smirnov test for two datasets.
-  ##
-  ## The data is binned first to min & max of the combined data range and based on the
-  ## associated EDF the KS test is performed.
-  ##
-  ## ``KS(x) = sup_x | EDF₁(x) - EDF₂(x) |``
-  ##
-  ## or in ~code
-  ##
-  ## ``KS(x) = max(abs(EDF₁ -. EDF₂(x)))``
-  let range = (min: min(x1.min, x2.min), max: max(x1.max, x2.max))
-  let bins = linspace(range[0], range[1], 200)
-  let x1Edf = x1.toEdf(bins)
-  let x2Edf = x2.toEdf(bins)
-  result = 0.0
-  for i, b in bins:
-    result = max( result, abs(x1Edf[i] - x2Edf[i]) )
-
-proc rankData[T](x: seq[T]): seq[int] =
-  ## Returns a sequence of `x.len` that contains the ranks of the values in
-  ## the input data.
-  ## XXX: write me
-  discard
-
-proc cramerVonMises(xIn, yIn: seq[float]): float =
-  ## Computes the Cramér-von Mises criterion for two samples x and y. The
-  ## two samples do not need to be of the same size.
-  ##
-  ## NOTE: This is a Bing Chat implementation. It directly computes the
-  ## T value by buildin the empirical cumulative distribution functions.
-  ## (Yes, really. I was lazy :D)
-  let x = xIn.sorted
-  let y = yIn.sorted
-  let m = x.len # size of first sample
-  let n = y.len # size of second sample
-  let N = m + n # size of combined sample
-  let dHN = 1.0 / N # change in combined ECDF
-  var i = 0 # index for x
-  var j = 0 # index for y
-  var Fm = 0.0 # empirical CDF of x
-  var Gn = 0.0 # empirical CDF of y
-  result = 0.0 # Cramér-von Mises criterion
-  while i < m and j < n: # loop until one sample is exhausted
-    if x[i] <= y[j]: # next value is from x
-      Fm += 1.0 / m # update Fm
-      inc i # increment i
-    else: # next value is from y
-      Gn += 1.0 / n # update Gn
-      inc j # increment j
-    result += (Fm - Gn) ^ 2 * dHN # update result using change in HN
-  for k in i ..< m: # loop until x is exhausted
-    Fm += 1.0 / m # update Fm
-    result += (Fm - Gn) ^ 2 * dHN # update result using change in HN
-  for k in j ..< n: # loop until y is exhausted
-    Gn += 1.0 / n # update Gn
-    result += (Fm - Gn) ^ 2 * dHN # update result using change in HN
-  result *= m * n / N # scale result by sample sizes and combined size
 
 import os
 import arraymancer
@@ -330,8 +255,12 @@ proc determineMonteCarlo(rmsT: seq[float], energy: keV, isBackground = false, ru
       bestEstimate = diffD
       numBad = 0
 
-      # copy the last plot to one based on this run number
+      # copy the last plot (and potential CSVs) to one based on this run number
       copyFile(HistoPath / HistoFile, HistoPath / &"histo_sim_vs_real_run_{run}_loss_{bestLoss}_sigma_{bestEstimate}.pdf")
+      for f in walkFiles(HistoPath / HistoFile & "*csv"):
+        let (path, file, ext) = f.splitFile() # e.g. `/foo/bar/baz/run_89_rmsTransverseFit.pdf_geom_1_line.csv`
+        let (_, filePdf, extPdf) = file.splitFile() # e.g. `run_89_rmsTransverseFit.pdf_geom_1_line`
+        copyFile(f, HistoPath / &"histo_sim_vs_real_run_{run}_loss_{bestLoss}_sigma_{bestEstimate}{extPdf}.csv")
     else:
       inc numBad
       if numBad > MaxConsBad div 2:
@@ -486,7 +415,7 @@ proc determineDiffusion(df: DataFrame, outpath: string, runInput: int, useCache,
                                   useCache = useCache)
     dfAll.add toDf( {"run" : run, "σT" : σT, "loss" : loss, "isBackground" : isBackground })
 
-  let ylabel = if useTeX: r"$D_T$ [$\si{μm.cm^{-\frac{1}{2}}}$]" else: "D_T [μm/√cm]"
+  let ylabel = if useTeX: r"$D_T$ [$\si{μm.cm^{-1/2}}$]" else: "D_T [μm/√cm]"
   ggplot(dfAll, aes("run", "σT", color = "loss", shape = "isBackground")) +
     geom_point() +
     xlab("Run number") + ylab(ylabel) +

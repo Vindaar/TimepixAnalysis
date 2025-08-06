@@ -8,6 +8,7 @@ import chroma
 import seqmath
 import times
 import cligen
+import pkg / helpers / stats_helpers
 
 #from ../karaPlot / plotData import readEventSparse
 
@@ -95,6 +96,35 @@ proc plotKdeRidges(df: DataFrame, dsets: seq[string],
     themeLatex(fWidth = 1.0, width = 900, height = 600, baseTheme = singlePlot) +
     ggsave(&"{plotPath}/{prefix}_ridgeline_kde_by_run.pdf", width = 900, height = 600)
 
+proc computeStats(df: DataFrame, dsets: seq[string], run: int): DataFrame =
+  ## Computes the Kolmogorov-Smirnov statistic of the two input datasets. For each property.
+  ## Allows us to make a statement about how cloes the simulated and real data is (assuming
+  ## those are used as inputs).
+  # 1. Compute normalized data for each property
+  var df = df
+  for dset in dsets:
+    let d = dset
+    df = df.mutate(f{float: d ~ idx(d) / col(d).max})
+  df = df.gather(dsets, key = "Dset", value = "Value")
+  # 2. Iterate datasets and compute KS statistic
+  var dsets = newSeq[string]()
+  var vals = newSeq[float]()
+  for (t, subDf) in groups(df.group_by("Dset")):
+    let typs = subDf["Type"].unique.toTensor(string).toSeq1D
+    doAssert typs.len == 2, "Input must only contain two datasets to compare. Input has: " & $typs.len
+    let t1 = typs[0]
+    let t2 = typs[1]
+    let v1 = subDf.filter(f{`Type` == t1})["Value", float].toSeq1D
+    let v2 = subDf.filter(f{`Type` == t2})["Value", float].toSeq1D
+    let (ksDiff, pVal) = kolmogorovSmirnov(v1, v2)
+    echo "Dset:  ", t[0][1].toStr
+    echo "KS   = ", ksDiff
+    echo "pVal = ", pVal
+    echo "\n"
+    dsets.add t[0][1].toStr
+    vals.add ksDiff
+  result = toDf({"Dset" : dsets, "KS" : vals, "Run" : run})
+
 proc main(files: seq[string],
           names: seq[string],
           eventDisplay: bool = false,
@@ -128,6 +158,9 @@ proc main(files: seq[string],
   #df.plotHisto(dsets)
 
   df.plotKdeRidges(dsets, plotPath, prefix, suffix)
+
+  let dfStats = df.computeStats(dsets, run)
+  dfStats.writeCsv(plotPath / &"kolmogorov_smirnov_test_run_{run}.csv")
 
   #if feVsTime:
   #  let dftime = readFeVsTime(h5f)
